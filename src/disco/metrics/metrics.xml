@@ -183,7 +183,6 @@ metric introduced.
     <int value="5" name="Abort" label="connection terminating due to error" />
     <int value="6" name="ClosePending" label="connection is closing" />
     <int value="7" name="Dead" label="connection about to be freed" />
-    <int value="8" name="Timeout" label="connection timed out" />
 </enum>
 
 <tile name="quic">
@@ -213,8 +212,6 @@ metric introduced.
     <counter name="ConnectionsClosed" summary="Number of connections gracefully closed." />
     <counter name="ConnectionsAborted" summary="Number of connections aborted." />
     <counter name="ConnectionsTimedOut" summary="Number of connections timed out." />
-    <counter name="ConnectionsTimeoutRevived" summary="Number of connections revived after timing out." />
-    <counter name="ConnectionsTimeoutFreed" summary="Number of connections freed after timing out." />
     <counter name="ConnectionsRetried" summary="Number of connections established with retry." />
     <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
     <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
@@ -293,8 +290,6 @@ metric introduced.
     <counter name="ConnectionsClosed" summary="Total count of QUIC connections closed" />
     <counter name="ConnectionsAborted" summary="Total count of QUIC connections aborted" />
     <counter name="ConnectionsTimedOut" summary="Total count of QUIC connections timed out" />
-    <counter name="ConnectionsTimeoutRevived" summary="Total count of QUIC connections revived after timing out" />
-    <counter name="ConnectionsTimeoutFreed" summary="Total count of QUIC connections freed after timing out" />
     <counter name="ConnectionsRetried" summary="Total count of QUIC connections retried" />
 
     <!-- QUIC connection error metrics -->
