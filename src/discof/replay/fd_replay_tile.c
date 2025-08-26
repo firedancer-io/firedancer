@@ -1369,6 +1369,7 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
          entire slice because it is no longer relevant.  */
 
       FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", slice.slot, ctx->consensus_root, FD_BASE58_ENC_32_ALLOCA( &slice.merkles[i] ) ));
+      FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
       return;
     }
     FD_TEST( fec );
