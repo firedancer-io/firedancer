@@ -2,6 +2,8 @@ name: Publish to ARFuzz
 on:
   workflow_call:
   workflow_dispatch:
+  push:
+    branches: ["nlgripto/ci/1-5-coverage"]
 jobs:
   solfuzz-build-and-publish:
     timeout-minutes: 30
@@ -10,8 +12,8 @@ jobs:
     env:
       MACHINE: linux_clang_haswell
       OBJ_DIR: build/linux/clang/haswell
-      COV_BUILD_DIR: cov
-      COV_OBJ_DIR: build/cov
+      SOLFUZZ_COV_BUILD_DIR: cov
+      SOLFUZZ_COV_OBJ_DIR: build/cov
       EXTRAS: fuzz # asan
     steps:
       - uses: actions/checkout@v5
@@ -31,28 +33,28 @@ jobs:
           command: make -j -Otarget lib
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
-        name: Build shared objects with coverage enabled
+        name: Build solfuzz shared objects with coverage enabled
         env:
-          BUILDDIR: ${{ env.COV_BUILD_DIR }}
+          BUILDDIR: ${{ env.SOLFUZZ_COV_BUILD_DIR }}
           EXTRAS: fuzz llvm-cov
           MACHINE: linux_clang_haswell
         with:
           command: cd src && pwd > buildpwd && cd - && make -j -Otarget lib && llvm-config --version | cut -d '.' -f 1 > llvm_version
 
 
-      - name: List Artifacts, copy sources
+      - name: List Artifacts, copy sources (solfuzz)
         run: |
           ls ${{ env.OBJ_DIR }}/lib
-          ls ${{ env.COV_OBJ_DIR}}/lib
+          ls ${{ env.SOLFUZZ_COV_OBJ_DIR}}/lib
           git config --global --add safe.directory /github/workspace/${{ env.OBJ_DIR}}/lib
           sudo mkdir -p build/cov/lib
           sudo chmod -R 777 build/cov/lib
           cp -r src/ build/cov/lib/libfd_exec_sol_compat_src/
           # we give it this path so that the glob hits.
-          cp -r src/ ${{ env.COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
+          cp -r src/ ${{ env.SOLFUZZ_COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
           # rename the coverage .so's so they don't overwrite on unpack.
-          mv ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat.so ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_cov.so
-          ls ${{ env.COV_OBJ_DIR}}/lib
+          mv ${{ env.SOLFUZZ_COV_OBJ_DIR }}/lib/libfd_exec_sol_compat.so ${{ env.SOLFUZZ_COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_cov.so
+          ls ${{ env.SOLFUZZ_COV_OBJ_DIR}}/lib
 
 
       - name: upload so artifacts
@@ -65,30 +67,34 @@ jobs:
       - name: upload .so with cov
         uses: actions/upload-artifact@v4
         with:
-          path: ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat* # includes ${{ env.COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
+          path: ${{ env.SOLFUZZ_COV_OBJ_DIR }}/lib/libfd_exec_sol_compat* # includes ${{ env.SOLFUZZ_COV_OBJ_DIR}}/lib/libfd_exec_sol_compat_src/
           name: libfd_exec_sol_compat_cov
           retention-days: 14
 
 
   ARfuzz-publish:
     timeout-minutes: 30
-    strategy:
-      matrix:
-        machine:
-          - linux_clang_haswell
-          # - linux_clang_icelake # turn off icelake for now
-        include:
-          - machine: linux_clang_haswell
-            artifact_dir: build/linux/clang/haswell
-            qualifier: modern
-          # - machine: linux_clang_icelake
-          #   artifact_dir: build/linux/clang/icelake
-          #   qualifier: highend
+    # strategy:
+      # matrix:
+        # machine:
+        #   - linux_clang_haswell
+        #   # - linux_clang_icelake # turn off icelake for now
+        # include:
+        #   - machine: linux_clang_haswell
+        #     artifact_dir: build/linux/clang/haswell
+        #     qualifier: modern
+        #   # - machine: linux_clang_icelake
+        #   #   artifact_dir: build/linux/clang/icelake
+        #   #   qualifier: highend
     runs-on:
       group: github-v1
     env:
-      MACHINE: ${{ matrix.machine }}
+      MACHINE: linux_clang_haswell
+      OBJ_DIR: build/linux/clang/haswell
+      LIBFUZZER_COV_BUILD_DIR: cov
+      LIBFUZZER_COV_OBJ_DIR: build/cov
       EXTRAS: fuzz asan ubsan
+
     steps:
       - uses: actions/checkout@v5
         with:
@@ -97,32 +103,42 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           extras: +dev
+          compiler: clang
 
       - run: sudo apt update && sudo apt install -y zip zstd
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
-        name: Build M1 fuzz tests
+        name: Build M1 fuzz tests (no lcov instrumentation)
+        with:
+          command: make -j -Otarget fuzz-test
+
+      - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
+        name: Build M1 fuzz tests (with lcov instrumentation)
+        env:
+            BUILDDIR: ${{env.LIBFUZZER_COV_BUILD_DIR}}
+            EXTRAS: llvm-cov fuzz
         with:
           command: make -j -Otarget fuzz-test
 
       - name: List compiled binary directory structure
         run: |
-          ls ${{ matrix.artifact_dir }}/fuzz-test
-          ls ${{ matrix.artifact_dir }}/lib
+          ls ${{env.OBJ_DIR}}/fuzz-test
+          ls ${{env.LIBFUZZER_COV_OBJ_DIR}}/fuzz-test
 
       - uses: actions/upload-artifact@v4
         name: Zip and upload to GitHub Artifacts
         id: artifact-zip-m1
         with:
-          path: ${{ matrix.artifact_dir }}
-          name: "artifact-${{ matrix.machine }}-${{github.run_id}}"
+          path: |
+            ${{env.OBJ_DIR}}
+            ${{env.LIBFUZZER_COV_OBJ_DIR}}
+          name: "artifact-${{env.MACHINE}}-${{github.run_id}}"
           retention-days: 10
 
       - name: Get commit hash
         id: get_commit_hash
         shell: bash
-        run: |
-          echo "commit_hash=$(git rev-parse HEAD 2>/dev/null)" >> $GITHUB_OUTPUT
+        run: echo "commit_hash=$(git rev-parse HEAD 2>/dev/null)" >> $GITHUB_OUTPUT
 
 
       - name: dispatch AR fuzz bundler
@@ -133,4 +149,4 @@ jobs:
           -H 'Accept: application/vnd.github.everest-preview+json' \
           -H "Authorization: Bearer ${{ secrets.PAT }}" \
           -H "X-GitHub-Api-Version: 2022-11-28" \
-          --data '{"event_type": "fd_main", "client_payload":{"artifact_id": "${{steps.artifact-zip-m1.outputs.artifact-id }}", "bundle_type": "${{ matrix.qualifier }}", "hash":"${{ steps.get_commit_hash.outputs.commit_hash }}", "run_id":"${{ github.run_id}}", "name":"artifact-${{ matrix.machine }}-${{github.run_id}}"}}'
+          --data '{"event_type": "fd_main", "client_payload":{"artifact_id": "${{steps.artifact-zip-m1.outputs.artifact-id }}", "bundle_type": "${{ matrix.qualifier }}", "hash":"${{ steps.get_commit_hash.outputs.commit_hash }}", "run_id":"${{ github.run_id}}", "name":"artifact-${{env.MACHINE}}-${{github.run_id}}"}}'
