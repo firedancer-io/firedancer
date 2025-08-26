@@ -125,7 +125,9 @@ jobs:
           ls ${{env.OBJ_DIR}}/fuzz-test
           ls ${{env.LIBFUZZER_COV_OBJ_DIR}}/fuzz-test
           git config --global --add safe.directory /github/workspace/${{ env.LIBFUZZER_COV_OBJ_DIR}}
-          cp -r src/ ${{env.LIBFUZZER_COV_OBJ_DIR}}
+          sudo mkdir /github/workspace/${{ env.LIBFUZZER_COV_OBJ_DIR}}/src
+          sudo chmod -R 777 /github/workspace/${{ env.LIBFUZZER_COV_OBJ_DIR}}/src
+          cp -r src/* ${{env.LIBFUZZER_COV_OBJ_DIR}}/src
           ls  ${{env.LIBFUZZER_COV_OBJ_DIR}}/src
 
       - uses: actions/upload-artifact@v4
