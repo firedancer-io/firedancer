@@ -69,19 +69,6 @@ void
 fd_update_stake_delegation( fd_txn_account_t * stake_account,
                             fd_bank_t *        bank );
 
-/* fd_refresh_stake_delegations is used to refresh the stake
-   delegations stored in fd_stake_delegations_t which is owned by
-   the bank. For a given database handle, read in the state of all
-   stake accounts, decode their state, and update each stake delegation.
-
-   This function does not add or remove stake delegations from the map
-   and makes the assumption that there are no stake delegations in
-   fd_stake_delegations_t that should be removed (e.g. invalid state
-   or zero balance). */
-
-void
-fd_refresh_stake_delegations( fd_exec_slot_ctx_t * slot_ctx );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_stakes_h */

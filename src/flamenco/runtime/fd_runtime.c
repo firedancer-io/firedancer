@@ -2054,6 +2054,10 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
   }
 
+  /* Now increment the epoch */
+
+  fd_bank_epoch_set( slot_ctx->bank, fd_bank_epoch_get( slot_ctx->bank ) + 1UL );
+
   fd_refresh_vote_accounts( slot_ctx,
                             stake_delegations,
                             history,
@@ -2088,10 +2092,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Update current leaders using epoch_stakes (new T-2 stakes) */
 
   fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runtime_spad );
-
-  /* Increment the epoch. */
-
-  fd_bank_epoch_set( slot_ctx->bank, fd_bank_epoch_get( slot_ctx->bank ) + 1UL );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 

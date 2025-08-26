@@ -43,7 +43,7 @@ $(call run-unit-test,test_txn_account,)
 
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)
-$(call make-unit-test,test_bank,test_bank,fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_bank,test_bank,fd_flamenco fd_funk fd_ballet fd_util)
 $(call run-unit-test,test_bank,)
 
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)

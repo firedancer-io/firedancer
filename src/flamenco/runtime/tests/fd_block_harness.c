@@ -21,13 +21,11 @@
 static void
 fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
                                              fd_stake_delegations_t * stake_delegations ) {
-  fd_stake_delegation_map_t * map  = fd_stake_delegations_get_map( stake_delegations );
-  fd_stake_delegation_t *     pool = fd_stake_delegations_get_pool( stake_delegations );
-
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( map, pool );
-       !fd_stake_delegation_map_iter_done( iter, map, pool );
-       iter = fd_stake_delegation_map_iter_next( iter, map, pool ) ) {
-    fd_stake_delegation_t * node = fd_stake_delegation_map_iter_ele( iter, map, pool );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t * node = fd_stake_delegations_iter_ele( iter );
 
     fd_pubkey_t * voter_pubkey = &node->vote_account;
     ulong         stake        = node->stake;

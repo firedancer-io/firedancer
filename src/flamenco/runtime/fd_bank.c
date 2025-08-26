@@ -669,13 +669,12 @@ fd_banks_stake_delegations_apply_delta( fd_bank_t *              bank,
   if( FD_UNLIKELY( !stake_delegations_delta ) ) {
     FD_LOG_CRIT(( "Failed to join stake delegations delta" ));
   }
-  fd_stake_delegation_t *     stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations_delta );
-  fd_stake_delegation_map_t * stake_delegation_map  = fd_stake_delegations_get_map( stake_delegations_delta );
 
-  for( fd_stake_delegation_map_iter_t iter = fd_stake_delegation_map_iter_init( stake_delegation_map, stake_delegation_pool );
-       !fd_stake_delegation_map_iter_done( iter, stake_delegation_map, stake_delegation_pool );
-       iter = fd_stake_delegation_map_iter_next( iter, stake_delegation_map, stake_delegation_pool ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegation_map_iter_ele_const( iter, stake_delegation_map, stake_delegation_pool );
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations_delta );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
     if( FD_LIKELY( !stake_delegation->is_tombstone ) ) {
       fd_stake_delegations_update(
           stake_delegations_base,

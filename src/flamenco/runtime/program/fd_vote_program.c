@@ -1654,7 +1654,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1049
-  rc = fd_borrowed_account_checked_sub_lamports( vote_account, lamports);
+  rc = fd_borrowed_account_checked_sub_lamports( vote_account, lamports );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/vote/src/vote_state/mod.rs#L1019 */
@@ -1665,7 +1665,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_account_index, &to );
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1053
-  rc = fd_borrowed_account_checked_add_lamports( &to, lamports);
+  rc = fd_borrowed_account_checked_add_lamports( &to, lamports );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   return 0;
