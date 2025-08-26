@@ -226,7 +226,7 @@ read_http_data( fd_snaprd_tile_t *  ctx,
     case FD_SSHTTP_ADVANCE_AGAIN: break;
     case FD_SSHTTP_ADVANCE_ERROR: {
       FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
+                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -400,7 +400,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         FD_LOG_NOTICE(( "loading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
-        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), fd_ushort_bswap( best.port ) ));
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
         ctx->addr  = best;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
         fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
@@ -467,7 +467,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap(ctx->addr.port) ));
+      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
@@ -767,14 +767,14 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "testnet" ) ) ) {
       FD_LOG_NOTICE(( "no gossip input link found, using initial peers for testnet" ));
       fd_ip4_port_t initial_peers[ 2UL ] = {
-        { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = fd_ushort_bswap(8899) },
-        { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = fd_ushort_bswap(8899) }, /* Solana testnet peer */
+        { .addr = FD_IP4_ADDR( 35 , 214, 172, 227 ), .port = 8899 },
+        { .addr = FD_IP4_ADDR( 145, 40 , 95 , 69  ), .port = 8899 }, /* Solana testnet peer */
       };
 
       for( ulong i=0UL; i<2UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );
     } else if( FD_LIKELY( !strcmp( tile->snaprd.cluster, "private" ) ) ) {
       fd_ip4_port_t initial_peers[ 1UL ] = {
-        { .addr = FD_IP4_ADDR( 147, 28, 185, 47 ), .port = fd_ushort_bswap( 8899 ) } /* A private cluster peer */
+        { .addr = FD_IP4_ADDR( 147, 28, 185, 47 ), .port = 8899 } /* A private cluster peer */
       };
 
       for( ulong i=0UL; i<1UL; i++ ) fd_ssping_add( ctx->ssping, initial_peers[ i ] );

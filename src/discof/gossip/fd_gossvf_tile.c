@@ -276,7 +276,7 @@ strip_network_hdrs( uchar const *   data,
   if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) ) FD_LOG_ERR(( "Malformed UDP payload" ));
 
   peer_address->addr = ip4->saddr;
-  peer_address->port = udp->net_sport;
+  peer_address->port = fd_ushort_bswap( udp->net_sport );
 }
 
 static inline void
@@ -1037,7 +1037,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->gossvf.entrypoints_cnt; i++ ) {
     ctx->entrypoints[ i ].l = tile->gossvf.entrypoints[ i ].l;
 #if DEBUG_PEERS
-    FD_LOG_NOTICE(( "entrypoint " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ctx->entrypoints[ i ].addr ), fd_ushort_bswap( ctx->entrypoints[ i ].port ) ));
+    FD_LOG_NOTICE(( "entrypoint " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( ctx->entrypoints[ i ].addr ), ctx->entrypoints[ i ].port ));
 #endif
   }
 
