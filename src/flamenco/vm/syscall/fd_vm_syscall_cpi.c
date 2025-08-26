@@ -89,8 +89,6 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
 
-    fd_pubkey_t const * callee_pubkey = &instr_ctx->txn_ctx->account_keys[ index_in_transaction ];
-
     /* If there was an instruction account before this one which referenced the same
        transaction account index, find it's index in the deduplicated_instruction_accounts
        array. */
@@ -121,14 +119,6 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     } else {
       /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
-
-      /* index_in_caller is set to USHORT_MAX in VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC if not found */
-      if( index_in_caller == USHORT_MAX ) {
-        FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
-        fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
-        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-      }
 
       /* Add the instruction account to the duplicate indicies array */
       duplicate_indices[duplicate_indicies_cnt++] = deduplicated_instruction_accounts_cnt;
