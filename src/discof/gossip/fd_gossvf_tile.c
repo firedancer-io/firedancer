@@ -281,7 +281,7 @@ strip_network_hdrs( uchar const *   data,
 
 static inline void
 during_frag( fd_gossvf_tile_ctx_t * ctx,
-             ulong                  in_idx FD_PARAM_UNUSED,
+             ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig,
              ulong                  chunk,
@@ -305,7 +305,10 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     }
     case IN_KIND_REPLAY: {
       fd_stake_weight_msg_t const * msg = (fd_stake_weight_msg_t const *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      fd_memcpy( ctx->stake.msg_buf, msg, FD_STAKE_CI_STAKE_MSG_HEADER_SZ+(msg->staked_cnt*FD_STAKE_CI_STAKE_MSG_RECORD_SZ) );
+      ulong msg_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_STAKE_CI_STAKE_MSG_RECORD_SZ, msg->staked_cnt ), FD_STAKE_CI_STAKE_MSG_HEADER_SZ );
+      if( FD_UNLIKELY( FD_STAKE_CI_STAKE_MSG_SZ<msg_sz ) )
+        FD_LOG_ERR(( "stake message corrupt staked_cnt %lu", msg->staked_cnt ));
+      fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
       break;
     }
     case IN_KIND_PINGS: {
@@ -326,7 +329,7 @@ handle_stakes( fd_gossvf_tile_ctx_t *        ctx,
   fd_stake_weight_t stake_weights[ MAX_STAKED_LEADERS ];
   ulong new_stakes_cnt = compute_id_weights_from_vote_weights( stake_weights, msg->weights, msg->staked_cnt );
 
-  for( ulong i=0Ul; i<ctx->stake.count; i++ ) {
+  for( ulong i=0UL; i<ctx->stake.count; i++ ) {
     stake_map_idx_remove_fast( ctx->stake.map, i, ctx->stake.pool );
   }
 
@@ -937,10 +940,8 @@ after_frag( fd_gossvf_tile_ctx_t * ctx,
             ulong                  tsorig,
             ulong                  _tspub,
             fd_stem_context_t *    stem ) {
-  (void)in_idx;
   (void)seq;
   (void)sig;
-  (void)sz;
   (void)_tspub;
 
   switch( ctx->in[ in_idx ].kind ) {
