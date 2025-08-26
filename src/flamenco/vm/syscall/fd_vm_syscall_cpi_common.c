@@ -859,20 +859,22 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     return err;
   }
 
-  /* Prepare the instruction for execution in the runtime. This is required by the runtime
-     before we can pass an instruction to the executor. */
-  fd_instruction_account_t instruction_accounts[256];
-  ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, program_id, cpi_instr_acct_keys, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  /* Errors are propagated in the function itself. */
-  if( FD_UNLIKELY( err ) ) return err;
-
   /* Authorized program check *************************************************/
 
   if( FD_UNLIKELY( fd_vm_syscall_cpi_check_authorized_program( program_id, vm->instr_ctx->txn_ctx, data, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) ) ) ) {
     /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1054 */
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
     return FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED;
+  }
+
+  /* Prepare the instruction for execution in the runtime. This is required by the runtime
+     before we can pass an instruction to the executor. */
+  fd_instruction_account_t instruction_accounts[256];
+  ulong instruction_accounts_cnt;
+  err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, program_id, cpi_instr_acct_keys, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  /* Errors are propagated in the function itself. */
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
   /* Translate account infos ******************************************/

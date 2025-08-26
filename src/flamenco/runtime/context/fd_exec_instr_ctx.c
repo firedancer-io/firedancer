@@ -1,4 +1,5 @@
 #include "fd_exec_instr_ctx.h"
+#include "fd_exec_txn_ctx.h"
 #include "../fd_borrowed_account.h"
 
 int
@@ -53,6 +54,7 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( err ) ) {
     /* Return a MissingAccount error if the account is not found.
        https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L603 */
+    FD_TXN_ERR_FOR_LOG_INSTR( ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, ctx->txn_ctx->instr_err_idx );
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
