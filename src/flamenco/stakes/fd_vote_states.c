@@ -168,9 +168,6 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
      iterating over the map.  It is unsafe to call
      fd_vote_state_map_ele_query() during iteration, but we only
      need to change fields which are not used for pool/map management. */
-  if( FD_UNLIKELY( fd_vote_state_map_verify( vote_state_map, 40200UL, vote_state_pool ) ) ) {
-    FD_LOG_CRIT(( "vote state map is invalid" ));
-  }
 
   ulong idx = fd_vote_state_map_idx_query_const(
       vote_state_map,
@@ -224,9 +221,9 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   }
 
   if( FD_UNLIKELY( !fd_vote_state_map_ele_insert(
-        vote_state_map,
-        vote_state,
-        vote_state_pool ) ) ) {
+      vote_state_map,
+      vote_state,
+      vote_state_pool ) ) ) {
     FD_LOG_CRIT(( "unable to insert stake delegation into map" ));
   }
 }
@@ -486,4 +483,11 @@ fd_vote_states_iter_done( fd_vote_states_iter_t * iter ) {
 void
 fd_vote_states_iter_next( fd_vote_states_iter_t * iter ) {
   iter->iter = fd_vote_state_map_iter_next( iter->iter, iter->map, iter->pool );
+}
+
+void
+fd_vote_states_verify( fd_vote_states_t const * vote_states ) {
+  if( FD_UNLIKELY( fd_vote_state_map_verify( fd_vote_states_get_map( vote_states ), 40200UL, fd_vote_states_get_pool( vote_states ) )==-1 ) ) {
+    FD_LOG_CRIT(("vote state map is invalid" ));
+  }
 }

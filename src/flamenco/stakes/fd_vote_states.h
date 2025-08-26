@@ -254,6 +254,9 @@ fd_vote_states_iter_done( fd_vote_states_iter_t * iter );
 void
 fd_vote_states_iter_next( fd_vote_states_iter_t * iter );
 
+void
+fd_vote_states_verify( fd_vote_states_t const * vote_states );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_stakes_fd_vote_states_h */

@@ -2387,6 +2387,12 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_freeze( slot_ctx );
 
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( slot_ctx->bank );
+
+  fd_vote_states_verify( vote_states );
+
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
+
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
 
   fd_hash_t const * prev_bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
