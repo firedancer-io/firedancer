@@ -81,7 +81,8 @@ fd_shred_parse( uchar const * const buf,
             (slot==0 or parent_off==0)   <=> slot==parent_off
        We want the complement though, so that we can return NULL, and
        the complement of iff is xor. */
-    if( FD_UNLIKELY( ((parent_off==0) | (slot==0UL)) ^ (slot==parent_off)        ) ) return NULL;
+    // DO NOT MERGE THIS HACK!!!
+    if( FD_UNLIKELY( (slot>1) & (((parent_off==0) | (slot==0UL)) ^ (slot==parent_off) ) ) ) return NULL;
     if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
   } else {
     if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;

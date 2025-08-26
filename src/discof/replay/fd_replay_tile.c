@@ -760,7 +760,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
     fd_runtime_block_execute_finalize( ctx->slot_ctx, &info, ctx->runtime_spad );
 
-    snapshot_slot = 1UL;
+    snapshot_slot = 0UL;
 
     /* Now setup exec tiles for execution */
     ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
