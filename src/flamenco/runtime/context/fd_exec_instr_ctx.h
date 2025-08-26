@@ -73,6 +73,11 @@ static inline int
 fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t const * ctx,
                                                              ushort                      idx_in_instr,
                                                              ushort *                    idx_in_txn ) {
+  if( FD_UNLIKELY( idx_in_instr==USHORT_MAX ) ) {
+    *idx_in_txn = USHORT_MAX;
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+
   /* Return a NotEnoughAccountKeys error if the idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L559 */
   if( FD_UNLIKELY( idx_in_instr>=ctx->instr->acct_cnt ) ) {
