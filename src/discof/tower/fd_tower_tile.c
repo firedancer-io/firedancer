@@ -9,7 +9,6 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/fd_flamenco_base.h"
-#include "../../funk/fd_funk.h"
 
 #define LOGGING 0
 
@@ -20,7 +19,6 @@
 
 #define SIGN_OUT_IDX (0)
 
-#define VOTER_MAX       ( 4096UL )
 #define VOTER_FOOTPRINT ( 40UL ) /* serialized footprint */
 
 typedef struct {
@@ -31,10 +29,9 @@ typedef struct {
 } in_ctx_t;
 
 typedef struct {
-  fd_pubkey_t       identity_key[1];
-  fd_pubkey_t       vote_acc[1];
-  fd_funk_rec_key_t funk_key;
-  ulong             seed;
+  fd_pubkey_t identity_key[1];
+  fd_pubkey_t vote_acc[1];
+  ulong       seed;
 
   uchar    in_kind [ MAX_IN_LINKS ];
   in_ctx_t in_links[ MAX_IN_LINKS ];
@@ -63,51 +60,49 @@ typedef struct {
   fd_gossip_duplicate_shred_t duplicate_shred;
   fd_gossip_vote_t            vote;
   uchar *                     epoch_voters_buf;
-  char                        funk_file[PATH_MAX];
-  fd_funk_t                   funk[1];
   fd_lockout_offset_t         lockouts[FD_TOWER_VOTE_MAX];
-  fd_replay_out_t             replay_out;
-  fd_tower_t *                scratch;
+  fd_replay_slot_info_t       replay_slot_info;
+  ulong                       replay_towers_cnt;
+  fd_replay_tower_t           replay_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  fd_tower_t *                vote_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  fd_pubkey_t                 vote_keys[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  int                         replay_out_eom;
   fd_snapshot_manifest_t      snapshot_manifest;
 } ctx_t;
 
 static void
-update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
-  fd_funk_t *  funk  = ctx->funk;
+update_ghost( ctx_t * ctx ) {
   fd_epoch_t * epoch = ctx->epoch;
   fd_ghost_t * ghost = ctx->ghost;
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
-  for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {
-    if( FD_LIKELY( fd_epoch_voters_key_inval( epoch_voters[i].key ) ) ) continue /* most slots are empty */;
+  for( ulong i = 0; i < ctx->replay_towers_cnt; i++ ) {
+    fd_replay_tower_t const * replay_tower = &ctx->replay_towers[i];
+    fd_pubkey_t const *       pubkey       = &replay_tower->key;
+    fd_voter_state_t const *  voter_state  = (fd_voter_state_t *)fd_type_pun_const( replay_tower->vote_acc_data );
+    fd_tower_t *              tower        = ctx->vote_towers[i];
 
-    /* TODO we can optimize this funk query to only check through the
-       last slot on this fork this function was called on. currently
-       rec_query_global traverses all the way back to the root. */
+    /* Look up the voter for this vote account */
+    fd_voter_t * voter = fd_epoch_voters_query( epoch_voters, *pubkey, NULL );
+    if( FD_UNLIKELY( !voter ) ) {
+      /* This means that the cached list of epoch voters is not in sync with the list passed
+         through from replay. This likely means that we have crossed an epoch boundary and the
+         epoch_voter list has not been updated.
 
-    fd_voter_t * voter = &epoch_voters[i];
-
-    /* Fetch the vote account's vote slot and root slot from the vote
-       account, re-trying if there is a Funk conflict. */
-
-    ulong vote = FD_SLOT_NULL;
-    ulong root = FD_SLOT_NULL;
-
-    for(;;) {
-      fd_funk_rec_query_t   query;
-      fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, &voter->rec, NULL, &query );
-      if( FD_UNLIKELY( !rec ) ) break;
-      fd_voter_state_t const * state = fd_voter_state( funk, rec );
-      if( FD_UNLIKELY( !state ) ) break;
-      vote = fd_voter_state_vote( state );
-      root = fd_voter_state_root( state );
-      if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) break;
+         TODO: update the set of account in epoch_voter's to match the list received from replay,
+               so that epoch_voters is correct across epoch boundaries. */
+      FD_LOG_CRIT(( "[%s] voter %s was not in epoch voters", __func__, FD_BASE58_ENC_32_ALLOCA(pubkey) ));
+      continue;
     }
 
-    // FD_LOG_NOTICE(( "querying %s %lu %lu %lu", FD_BASE58_ENC_32_ALLOCA( voter->key.uc ), voter->stake, vote, root ));
+    voter->stake = replay_tower->stake; /* update the voters stake */
+
+    if( FD_UNLIKELY( fd_voter_state_cnt( voter_state ) == 0 ) ) continue; /* skip voters with no votes */
+
+    ulong vote = fd_tower_votes_peek_tail( tower )->slot; /* peek last vote from the tower */
+    ulong root = fd_voter_state_root( voter_state );
 
     /* Only process votes for slots >= root. */
-
     if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_ele_t const * ele = fd_ghost_query_const( ghost, fd_ghost_hash( ghost, vote ) );
 
@@ -144,23 +139,39 @@ update_ghost( ctx_t * ctx, fd_funk_txn_t * txn ) {
 }
 
 static void
-after_frag_replay( ctx_t * ctx, ulong slot, fd_replay_out_t * replay_out, ulong tsorig, fd_stem_context_t * stem ) {
-  fd_funk_txn_xid_t   txn_xid  = { .ul = { slot, slot } };
-  fd_funk_txn_map_t * txn_map  = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &txn_xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  fd_funk_txn_end_read( ctx->funk );
+after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig, fd_stem_context_t * stem ) {
+  /* If we have not received any votes, something is wrong. */
+  if( FD_UNLIKELY( !ctx->replay_towers_cnt ) ) {
+    FD_LOG_WARNING(( "No vote states received from replay. No votes will be sent"));
+    return;
+  }
 
-  /* Initialize the tower */
+  /* Parse the replay vote towers */
+  for( ulong i = 0; i < ctx->replay_towers_cnt; i++ ) {
+    fd_tower_votes_remove_all( ctx->vote_towers[i] );
+    fd_tower_from_vote_acc_data( ctx->replay_towers[i].vote_acc_data, ctx->vote_towers[i] );
+    ctx->vote_keys[i] = ctx->replay_towers[i].key;
 
-  if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) fd_tower_from_vote_acc( ctx->tower, ctx->funk, funk_txn, &ctx->funk_key );
+    /* If this is our vote account, and our tower has not been initialized, initialize it with our vote state */
+    if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) &&
+      memcmp( &ctx->vote_keys[i], ctx->vote_acc, sizeof(fd_pubkey_t) ) == 0 ) ) {
+      fd_tower_from_vote_acc_data( ctx->replay_towers[i].vote_acc_data, ctx->tower );
+    }
+  }
 
-  fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &replay_out->parent_block_id, slot, &replay_out->block_id, ctx->epoch->total_stake );
+  /* Update ghost with the vote account states received from replay. */
+  fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
-  update_ghost( ctx, funk_txn );
+  update_ghost( ctx );
 
-  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, funk_txn, ctx->ghost, ctx->scratch );
+  /* Find the lowest vote slot to vote on. */
+  ulong vote_slot = fd_tower_vote_slot(
+    ctx->tower,
+    ctx->epoch,
+    ctx->vote_keys,
+    ctx->vote_towers,
+    ctx->replay_towers_cnt,
+    ctx->ghost );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
 
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
@@ -181,7 +192,7 @@ after_frag_replay( ctx_t * ctx, ulong slot, fd_replay_out_t * replay_out, ulong 
   /* Send our updated tower to the cluster. */
 
   fd_txn_p_t * vote_txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->send_out_mem, ctx->send_out_chunk );
-  fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &replay_out->bank_hash, &replay_out->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
+  fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( vote_txn->payload_sz > 0UL );
   fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -209,7 +220,6 @@ after_frag_snap( ctx_t                  * ctx,
     FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
 #   endif
     fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
-    voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 #   if FD_EPOCH_USE_HANDHOLDING
     FD_TEST( 0==memcmp( voter->key.uc, pubkey->uc, sizeof(fd_pubkey_t) ) );
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
@@ -238,12 +248,12 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(ctx_t),   sizeof(ctx_t)                      ),
-      fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) ),
-      fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) ),
-      fd_tower_align(), fd_tower_footprint()               ), /* our tower */
-      fd_tower_align(), fd_tower_footprint()               ), /* scratch */
-      128UL,            VOTER_FOOTPRINT * VOTER_MAX        ), /* scratch */
+      alignof(ctx_t),   sizeof(ctx_t)                                       ),
+      fd_epoch_align(), fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  ),
+      fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX )                  ),
+      fd_tower_align(), fd_tower_footprint()                                ), /* our tower */
+      128UL,            VOTER_FOOTPRINT * FD_REPLAY_TOWER_VOTE_ACC_MAX      ), /* epoch voters */
+      fd_tower_align(), fd_tower_footprint() * FD_REPLAY_TOWER_VOTE_ACC_MAX ), /* vote towers */
     scratch_align() );
 }
 
@@ -271,7 +281,17 @@ during_frag( ctx_t * ctx,
   uchar const * chunk_laddr = fd_chunk_to_laddr( ctx->in_links[in_idx].mem, chunk );
   switch( in_kind ) {
   case IN_KIND_GOSSIP: {                                                                                 break; }
-  case IN_KIND_REPLAY: { memcpy( &ctx->replay_out,        chunk_laddr, sizeof(fd_replay_out_t)        ); break; }
+  case IN_KIND_REPLAY: {
+    if(      FD_UNLIKELY( sig==FD_REPLAY_SIG_SLOT_INFO  ) ) memcpy( &ctx->replay_slot_info,      chunk_laddr, sizeof(fd_replay_slot_info_t)      );
+    else if( FD_LIKELY(   sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
+      if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_towers_cnt = 0;
+      if( FD_UNLIKELY( ctx->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
+      memcpy( &ctx->replay_towers[ctx->replay_towers_cnt++], chunk_laddr, sizeof(fd_replay_tower_t) );
+      ctx->replay_out_eom = fd_frag_meta_ctl_eom( ctl );
+    }
+    else FD_LOG_ERR(( "unexpected replay message sig %lu", sig ));
+    break;
+  }
   case IN_KIND_SNAP:   {
     if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) memcpy( &ctx->snapshot_manifest, chunk_laddr, sizeof(fd_snapshot_manifest_t) );
     break;
@@ -291,9 +311,13 @@ after_frag( ctx_t *             ctx,
             fd_stem_context_t * stem ) {
   uint in_kind = ctx->in_kind[in_idx];
   switch( in_kind ) {
-  case IN_KIND_GOSSIP: {                                                                break; }
-  case IN_KIND_REPLAY: { after_frag_replay( ctx, sig, &ctx->replay_out, tsorig, stem ); break; }
-  case IN_KIND_SNAP:   { after_frag_snap  ( ctx, sig, &ctx->snapshot_manifest        ); break; }
+  case IN_KIND_GOSSIP: {                                                               break; }
+  case IN_KIND_REPLAY: {
+    /* Do nothing until we have received the eom message, indicating all the vote states have been received. */
+    if( FD_UNLIKELY( sig == FD_REPLAY_SIG_VOTE_STATE && ctx->replay_out_eom ) ) after_frag_replay( ctx, &ctx->replay_slot_info, tsorig, stem );
+    break;
+  }
+  case IN_KIND_SNAP:   { after_frag_snap  ( ctx, sig, &ctx->snapshot_manifest       ); break; }
   default: FD_LOG_ERR(( "Unexpected input kind %u", in_kind ));
   }
 }
@@ -304,23 +328,24 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx         = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t)        );
-  void * epoch_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(),             fd_epoch_footprint( FD_VOTER_MAX ) );
-  void * ghost_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),             fd_ghost_footprint( FD_BLOCK_MAX ) );
-  void * tower_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
-  void * scratch_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),             fd_tower_footprint()               );
-  void * voter_mem    = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                        VOTER_FOOTPRINT * VOTER_MAX        );
-  ulong  scratch_top  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                  );
+  ctx_t * ctx            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),   sizeof(ctx_t)                                       );
+  void * epoch_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  );
+  void * ghost_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX )                  );
+  void * tower_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint()                                );
+  void * voter_mem       = FD_SCRATCH_ALLOC_APPEND( l, 128UL,            VOTER_FOOTPRINT * FD_REPLAY_TOWER_VOTE_ACC_MAX      );
+  uchar * vote_tower_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() * FD_REPLAY_TOWER_VOTE_ACC_MAX );
+  ulong scratch_top      = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                                                       );
   FD_TEST( scratch_top == (ulong)scratch + scratch_footprint( tile ) );
 
-  ctx->epoch   = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX       ) );
-  ctx->ghost   = fd_ghost_join( fd_ghost_new( ghost_mem, FD_BLOCK_MAX, 42UL ) );
-  ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                     ) );
-  ctx->scratch = fd_tower_join( fd_tower_new( scratch_mem                   ) );
+  ctx->epoch   = fd_epoch_join( fd_epoch_new( epoch_mem, FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
+  ctx->ghost   = fd_ghost_join( fd_ghost_new( ghost_mem, FD_BLOCK_MAX, 42UL         ) );
+  ctx->tower   = fd_tower_join( fd_tower_new( tower_mem                             ) );
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->tower.funk_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "Failed to join database cache" ));
+  for( ulong i = 0; i < FD_REPLAY_TOWER_VOTE_ACC_MAX; i++ ) {
+    ctx->vote_towers[i] = fd_tower_join( fd_tower_new( vote_tower_mem + ( i * fd_tower_footprint() ) ) );
   }
+  ctx->replay_out_eom    = 0;
+  ctx->replay_towers_cnt = 0;
 
   ctx->epoch_voters_buf = voter_mem;
 
@@ -331,17 +356,13 @@ unprivileged_init( fd_topo_t *      topo,
     memcpy( ctx->vote_acc->uc, vote_key, sizeof(fd_pubkey_t) );
   }
 
-  memset( ctx->funk_key.uc, 0, sizeof(fd_funk_rec_key_t) );
-  memcpy( ctx->funk_key.uc, ctx->vote_acc->uc, sizeof(fd_pubkey_t) );
-  ctx->funk_key.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
-
   if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if(        0==strcmp( link->name, "gossip_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
-    } else if( 0==strcmp( link->name, "replay_out" ) ) {
+    } else if( 0==strcmp( link->name, "replay_tower" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY;
     } else if( 0==strcmp( link->name, "snap_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SNAP;

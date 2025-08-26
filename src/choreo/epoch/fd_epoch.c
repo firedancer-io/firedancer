@@ -123,7 +123,6 @@ fd_epoch_init( fd_epoch_t *             epoch,
       #endif
 
       fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, vote_state->vote_account );
-      voter->rec.uc[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
 
       #if FD_EPOCH_USE_HANDHOLDING
       FD_TEST( 0 == memcmp( &voter->key, &vote_state->vote_account, sizeof(fd_pubkey_t) ) );

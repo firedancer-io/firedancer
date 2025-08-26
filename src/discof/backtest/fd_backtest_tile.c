@@ -67,12 +67,12 @@ typedef struct {
   uchar    in_kind [ MAX_IN_LINKS ];
   in_ctx_t in_links[ MAX_IN_LINKS ];
 
-  fd_wksp_t *     replay_out_mem;
-  ulong           replay_out_chunk0;
-  ulong           replay_out_wmark;
-  ulong           replay_out_chunk;
-  ulong           replay_out_idx;
-  fd_replay_out_t replay_out;
+  fd_wksp_t *           replay_out_mem;
+  ulong                 replay_out_chunk0;
+  ulong                 replay_out_wmark;
+  ulong                 replay_out_chunk;
+  ulong                 replay_out_idx;
+  fd_replay_slot_info_t replay_slot_info;
 
   ulong root_out_idx;
 
@@ -308,7 +308,7 @@ during_frag( ctx_t * ctx,
   uint          in_kind     = ctx->in_kind[in_idx];
   uchar const * chunk_laddr = fd_chunk_to_laddr( ctx->in_links[in_idx].mem, chunk );
   switch( in_kind ) {
-  case IN_KIND_REPLAY: memcpy( &ctx->replay_out,        chunk_laddr, sizeof(fd_replay_out_t )       ); break;
+  case IN_KIND_REPLAY: memcpy( &ctx->replay_slot_info,  chunk_laddr, sizeof(fd_replay_slot_info_t ) ); break;
   case IN_KIND_SNAP:   memcpy( &ctx->snapshot_manifest, chunk_laddr, sizeof(fd_snapshot_manifest_t) ); break;
   default:             FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", in_kind, in_idx ));
   }
@@ -318,7 +318,7 @@ static void
 after_frag( ctx_t *             ctx,
             ulong               in_idx,
             ulong               seq FD_PARAM_UNUSED,
-            ulong               sig,
+            ulong               sig FD_PARAM_UNUSED,
             ulong               sz FD_PARAM_UNUSED,
             ulong               tsorig FD_PARAM_UNUSED,
             ulong               tspub,
@@ -326,8 +326,8 @@ after_frag( ctx_t *             ctx,
   uint in_kind = ctx->in_kind[ in_idx ];
   switch( in_kind ) {
   case IN_KIND_REPLAY: {
-    ulong slot = sig;
-    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_out.bank_hash );
+    ulong slot = ctx->replay_slot_info.slot;
+    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_slot_info.bank_hash );
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
       ctx->replay_time    += fd_log_wallclock();
       double replay_time_s = (double)ctx->replay_time * 1e-9;
