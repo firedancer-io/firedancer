@@ -65,7 +65,7 @@ fd_sbpf_is_function_start( fd_sbpf_instr_t instr ) {
 
 FD_FN_CONST static inline int
 fd_sbpf_is_function_end( fd_sbpf_instr_t instr ) {
-  return instr.opcode.raw == 0x05 && instr.dst_reg == 0x9D;
+  return instr.opcode.raw == 0x05 || instr.opcode.raw == 0x9D;
 }
 
 FD_PROTOTYPES_END
