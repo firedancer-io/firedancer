@@ -17,6 +17,7 @@
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/rewards/fd_rewards.h"
+#include "../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo.h"
 #include "../../disco/plugin/fd_plugin.h"
@@ -715,7 +716,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      of data required for the stake delegations. See
      fd_stake_delegations.h for why this is required. */
 
-  fd_refresh_stake_delegations( ctx->slot_ctx );
+  fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->slot_ctx->banks );
+
+  fd_stake_delegations_refresh( root_delegations, ctx->funk, ctx->slot_ctx->funk_txn );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */

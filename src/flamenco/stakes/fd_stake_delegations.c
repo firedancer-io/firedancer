@@ -1,28 +1,37 @@
 #include "fd_stake_delegations.h"
+#include "../../funk/fd_funk_base.h"
+#include "../runtime/fd_txn_account.h"
+#include "../runtime/program/fd_stake_program.h"
 
-fd_stake_delegation_t *
+#define POOL_NAME fd_stake_delegation_pool
+#define POOL_T    fd_stake_delegation_t
+#define POOL_NEXT next_
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               fd_stake_delegation_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              fd_stake_delegation_t
+#define MAP_KEY                stake_account
+#define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
+#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( (uchar *)key, 0, seed ))
+#define MAP_NEXT               next_
+#include "../../util/tmpl/fd_map_chain.c"
+
+static inline fd_stake_delegation_t *
 fd_stake_delegations_get_pool( fd_stake_delegations_t const * stake_delegations ) {
-  FD_SCRATCH_ALLOC_INIT( l, stake_delegations );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
-  uchar * pool = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegation_pool_align(), fd_stake_delegation_pool_footprint( stake_delegations->max_stake_accounts ) );
-  return fd_stake_delegation_pool_join( pool );
+  return fd_stake_delegation_pool_join( (uchar *)stake_delegations + stake_delegations->pool_offset_ );
 }
 
-fd_stake_delegation_map_t *
+static inline fd_stake_delegation_map_t *
 fd_stake_delegations_get_map( fd_stake_delegations_t const * stake_delegations ) {
-  FD_SCRATCH_ALLOC_INIT( l, stake_delegations );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(), sizeof(fd_stake_delegations_t) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegation_pool_align(), fd_stake_delegation_pool_footprint( stake_delegations->max_stake_accounts ) );
-  ulong map_chain_cnt = fd_stake_delegation_map_chain_cnt_est( stake_delegations->max_stake_accounts );
-  uchar * map = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegation_map_align(), fd_stake_delegation_map_footprint( map_chain_cnt ) );
-  return fd_stake_delegation_map_join( map );
+  return fd_stake_delegation_map_join( (uchar *)stake_delegations + stake_delegations->map_offset_ );
 }
 
 ulong
 fd_stake_delegations_align( void ) {
   /* The align of the struct should be the max of the align of the data
      structures that it contains. In this case, this is the map, the
-     pool, and the struct itself*/
+     pool, and the struct itself. */
   return fd_ulong_max( fd_ulong_max( fd_stake_delegation_map_align(),
                        fd_stake_delegation_pool_align() ), alignof(fd_stake_delegations_t) );
 }
@@ -81,8 +90,10 @@ fd_stake_delegations_new( void * mem,
     return NULL;
   }
 
-  stake_delegations->max_stake_accounts = max_stake_accounts;
-  stake_delegations->leave_tombstones   = leave_tombstones;
+  stake_delegations->pool_offset_        = (ulong)pool_mem - (ulong)mem;
+  stake_delegations->map_offset_         = (ulong)map_mem - (ulong)mem;
+  stake_delegations->max_stake_accounts_ = max_stake_accounts;
+  stake_delegations->leave_tombstones_   = leave_tombstones;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( stake_delegations->magic ) = FD_STAKE_DELEGATIONS_MAGIC;
@@ -110,14 +121,14 @@ fd_stake_delegations_join( void * mem ) {
     return NULL;
   }
 
-  ulong map_chain_cnt = fd_stake_delegation_map_chain_cnt_est( stake_delegations->max_stake_accounts );
+  ulong map_chain_cnt = fd_stake_delegation_map_chain_cnt_est( stake_delegations->max_stake_accounts_ );
 
   FD_SCRATCH_ALLOC_INIT( l, stake_delegations );
   stake_delegations = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegations_align(),     sizeof(fd_stake_delegations_t) );
-  void * pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegation_pool_align(), fd_stake_delegation_pool_footprint( stake_delegations->max_stake_accounts ) );
+  void * pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegation_pool_align(), fd_stake_delegation_pool_footprint( stake_delegations->max_stake_accounts_ ) );
   void * map_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_delegation_map_align(),  fd_stake_delegation_map_footprint( map_chain_cnt ) );
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_stake_delegations_align() )!=(ulong)mem+fd_stake_delegations_footprint( stake_delegations->max_stake_accounts ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_stake_delegations_align() )!=(ulong)mem+fd_stake_delegations_footprint( stake_delegations->max_stake_accounts_ ) ) ) {
     FD_LOG_WARNING(( "fd_stake_delegations_join: bad layout" ));
     return NULL;
   }
@@ -275,7 +286,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
       ULONG_MAX,
       stake_delegation_pool );
 
-  if( stake_delegations->leave_tombstones ) {
+  if( stake_delegations->leave_tombstones_==1 ) {
     /* If we are configured to leave tombstones, we need to either
        update the entry's is_tombstone flag or insert a new entry. */
 
@@ -307,4 +318,145 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
 
     fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
   }
+}
+
+void
+fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
+                              fd_funk_t *              funk,
+                              fd_funk_txn_t *          funk_txn ) {
+
+  fd_stake_delegation_map_t * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
+  if( FD_UNLIKELY( !stake_delegation_map ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation map" ));
+  }
+
+  fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  if( FD_UNLIKELY( !stake_delegation_pool ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
+  }
+
+  for( ulong i=0UL; i<stake_delegations->max_stake_accounts_; i++ ) {
+
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( fd_stake_delegations_get_pool( stake_delegations ), i );
+
+    if( !fd_stake_delegation_map_ele_query_const(
+            fd_stake_delegations_get_map( stake_delegations ),
+            &stake_delegation->stake_account,
+            NULL,
+            fd_stake_delegations_get_pool( stake_delegations ) ) ) {
+      /* This means that the stake delegation is not in the map, so we
+         can skip it. */
+      continue;
+    }
+
+    FD_TXN_ACCOUNT_DECL( acct_rec );
+    int err = fd_txn_account_init_from_funk_readonly(
+        acct_rec,
+        &stake_delegation->stake_account,
+        funk,
+        funk_txn );
+
+    if( FD_UNLIKELY( err || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
+      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
+      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
+      continue;
+    }
+
+    fd_stake_state_v2_t stake_state;
+    err = fd_stake_get_state( acct_rec, &stake_state );
+    if( FD_UNLIKELY( err ) ) {
+      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
+      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
+    }
+
+    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
+      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
+    }
+
+    fd_stake_delegations_update(
+        stake_delegations,
+        &stake_delegation->stake_account,
+        &stake_state.inner.stake.stake.delegation.voter_pubkey,
+        stake_state.inner.stake.stake.delegation.stake,
+        stake_state.inner.stake.stake.delegation.activation_epoch,
+        stake_state.inner.stake.stake.delegation.deactivation_epoch,
+        stake_state.inner.stake.stake.credits_observed,
+        stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
+  }
+}
+
+fd_stake_delegation_t const *
+fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
+                            fd_pubkey_t const *            stake_account ) {
+
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "NULL stake_delegations" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !stake_account ) ) {
+    FD_LOG_CRIT(( "NULL stake_account" ));
+    return NULL;
+  }
+
+  fd_stake_delegation_t const * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  if( FD_UNLIKELY( !stake_delegation_pool ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
+  }
+
+  fd_stake_delegation_map_t const * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
+  if( FD_UNLIKELY( !stake_delegation_map ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation map" ));
+  }
+
+  return fd_stake_delegation_map_ele_query_const(
+      stake_delegation_map,
+      stake_account,
+      NULL,
+      stake_delegation_pool );
+}
+
+ulong
+fd_stake_delegations_cnt( fd_stake_delegations_t const * stake_delegations ) {
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "NULL stake_delegations" ));
+  }
+
+  fd_stake_delegation_t const * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
+  if( FD_UNLIKELY( !stake_delegation_pool ) ) {
+    FD_LOG_CRIT(( "unable to retrieve join to stake delegation map" ));
+  }
+
+  return fd_stake_delegation_pool_used( stake_delegation_pool );
+}
+
+fd_stake_delegation_t *
+fd_stake_delegations_iter_ele( fd_stake_delegations_iter_t * iter ) {
+  ulong idx = fd_stake_delegation_map_iter_idx( iter->iter, iter->map, iter->pool );
+  return fd_stake_delegation_pool_ele( iter->pool, idx );
+}
+
+fd_stake_delegations_iter_t *
+fd_stake_delegations_iter_init( fd_stake_delegations_iter_t *  iter,
+                                fd_stake_delegations_t const * stake_delegations ) {
+  if( FD_UNLIKELY( !stake_delegations ) ) {
+    FD_LOG_CRIT(( "NULL stake_delegations" ));
+  }
+
+  iter->map  = fd_stake_delegations_get_map( stake_delegations );
+  iter->pool = fd_stake_delegations_get_pool( stake_delegations );
+  iter->iter = fd_stake_delegation_map_iter_init( iter->map, iter->pool );
+
+  return iter;
+}
+
+void
+fd_stake_delegations_iter_next( fd_stake_delegations_iter_t * iter ) {
+  iter->iter = fd_stake_delegation_map_iter_next( iter->iter, iter->map, iter->pool );
+}
+
+int
+fd_stake_delegations_iter_done( fd_stake_delegations_iter_t * iter ) {
+  return fd_stake_delegation_map_iter_done( iter->iter, iter->map, iter->pool );
 }

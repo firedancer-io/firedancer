@@ -34,12 +34,7 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegations_mem );
 
   FD_TEST( fd_stake_delegations_align()>=alignof(fd_stake_delegations_t)  );
-  FD_TEST( fd_stake_delegations_align()>=fd_stake_delegation_pool_align() );
-  FD_TEST( fd_stake_delegations_align()>=fd_stake_delegation_map_align()  );
   FD_TEST( fd_stake_delegations_align()==FD_STAKE_DELEGATIONS_ALIGN );
-
-  ulong chain_cnt = fd_stake_delegation_map_chain_cnt_est( max_stake_accounts );
-  FD_TEST( fd_stake_delegations_footprint( max_stake_accounts ) >= fd_stake_delegations_align() + fd_stake_delegation_pool_footprint( max_stake_accounts ) + fd_stake_delegation_map_footprint( chain_cnt ) );
 
   FD_TEST( !fd_stake_delegations_new( NULL, max_stake_accounts, 0 ) );
   FD_TEST( !fd_stake_delegations_new( stake_delegations_mem, 0UL, 0 ) );
@@ -168,6 +163,8 @@ int main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->is_tombstone == 0 );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 3UL );
+
+  /* Test stake delegations refresh */
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
