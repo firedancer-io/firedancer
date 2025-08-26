@@ -23,6 +23,7 @@
 #include "../../disco/plugin/fd_plugin.h"
 #include "fd_exec.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -183,6 +184,9 @@ struct fd_replay_tile_ctx {
 
   // Shredcap output link defs
   fd_replay_out_link_t shredcap_out[1];
+
+  // Tower output link defs
+  fd_replay_out_link_t tower_out[1];
 
   ulong       replay_out_idx;
   fd_wksp_t * replay_out_mem;
@@ -435,6 +439,11 @@ struct fd_replay_tile_ctx {
   } repair_out;
   fd_exec_slice_t * exec_slice_map;
   fd_exec_slice_t * exec_slice_deque; /* Deque to buffer exec slices - lives in spad */
+
+  /* Buffer to store vote towers that need to be published to the Tower tile. */
+  ulong             vote_tower_out_idx; /* index of vote tower to publish next */
+  ulong             vote_tower_out_len; /* number of vote towers in the buffer */
+  fd_replay_tower_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -1404,6 +1413,99 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
 }
 
+/* fd_replay_out_vote_tower_from_funk queries Funk for the state of the vote
+   account with the given pubkey, and copies the state into the given
+   fd_replay_tower_t structure. The account data is simply copied as-is.
+
+   Parameters:
+   - funk:           The funk database instance to query vote account data from
+   - funk_txn:       The funk transaction context for consistent reads
+   - pubkey:         The public key of the vote account to retrieve
+   - stake:          The stake amount associated with this vote account
+   - vote_tower_out: Output structure to populate with vote state information
+
+   Failure modes:
+   - Vote account data is too large (returns -1)
+   - Vote account is not found in Funk (returns -1)
+   - Account metadata has wrong magic (returns -1) */
+static int
+fd_replay_out_vote_tower_from_funk(
+  fd_funk_t const *     funk,
+  fd_funk_txn_t const * funk_txn,
+  fd_pubkey_t const *   pubkey,
+  ulong                 stake,
+  fd_replay_tower_t *   vote_tower_out ) {
+
+  fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
+  vote_tower_out->key   = *pubkey;
+  vote_tower_out->stake = stake;
+
+  /* Speculatively copy out the raw vote account state from Funk */
+  for(;;) {
+    fd_memset( vote_tower_out->vote_acc_data, 0, sizeof(vote_tower_out->vote_acc_data) );
+
+    fd_funk_rec_query_t query;
+    fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, funk_txn, &funk_key, NULL, &query );
+    if( FD_UNLIKELY( !rec ) ) {
+      FD_LOG_WARNING(( "vote account not found. address: %s",
+        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+      return -1;
+    }
+
+    uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
+    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+    if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) ) {
+      FD_LOG_WARNING(( "account %s has wrong magic",
+        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+      return -1;
+    }
+
+    ulong data_sz = metadata->dlen;
+    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->vote_acc_data) ) ) {
+      FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
+        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
+        data_sz,
+        sizeof(vote_tower_out->vote_acc_data) ));
+      return -1;
+    }
+
+    fd_memcpy( vote_tower_out->vote_acc_data, raw + metadata->hlen, data_sz );
+
+    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
+      break;
+    }
+  }
+
+  return 0;
+}
+
+/* This function buffers all the vote account towers that Tower needs at the end of this slot
+   into the ctx->vote_tower_out buffer. These will then be published in after_credit.
+
+   This function should be called at the end of a slot, before any epoch boundary processing. */
+static void
+buffer_vote_towers( fd_replay_tile_ctx_t * ctx ) {
+  ctx->vote_tower_out_idx = 0;
+  ctx->vote_tower_out_len = 0;
+
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+    if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
+    fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
+    if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
+    if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk(
+      ctx->funk, ctx->slot_ctx->funk_txn, vote_account_pubkey, vote_state->stake, &ctx->vote_tower_out[ctx->vote_tower_out_len++] ) ) ) {
+        FD_LOG_ERR(( "failed to get vote state for vote account %s", FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
+      }
+  }
+  fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
+}
+
 static void
 exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
@@ -1440,26 +1542,45 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   ulong block_entry_height = fd_bank_block_height_get( bank );
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
 
-  if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX && !ctx->read_only ) ) {
-    fd_hash_t const * block_id        = &block_id_map_query( ctx->block_id_map, curr_slot, NULL )->block_id;
-    FD_TEST( block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL ) );
-    fd_hash_t const * parent_block_id = &block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL )->block_id;
-    fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
-    fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-    FD_TEST( block_id        );
-    FD_TEST( parent_block_id );
-    FD_TEST( bank_hash       );
-    FD_TEST( block_hash      );
-    fd_replay_out_t out = {
-      .block_id        = *block_id,
-      .parent_block_id = *parent_block_id,
-      .bank_hash       = *bank_hash,
-      .block_hash      = *block_hash,
-    };
+  /* Construct the end of slot notification message */
+  FD_TEST( block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL ) );
+  fd_hash_t const * parent_block_id = &block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL )->block_id;
+  fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( block_id        );
+  FD_TEST( parent_block_id );
+  FD_TEST( bank_hash       );
+  FD_TEST( block_hash      );
+  fd_replay_slot_info_t out = {
+    .slot            = curr_slot,
+    .block_id        = *block_id,
+    .parent_block_id = *parent_block_id,
+    .bank_hash       = *bank_hash,
+    .block_hash      = *block_hash,
+  };
+
+  /* Send the end of slot info message down the replay_out link */
+  if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    memcpy( chunk_laddr, &out, sizeof(fd_replay_out_t) );
-    fd_stem_publish( stem, ctx->replay_out_idx, curr_slot, ctx->replay_out_chunk, sizeof(fd_replay_out_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+    memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
+    fd_stem_publish( stem, ctx->replay_out_idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out_chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  }
+
+  /* Send Tower the state needed for processing the end of a slot. We send a message with the summary information,
+     and then buffer the state of each vote account to be sent in after_credit so that we don't have to burst all
+     the vote state messages in one go.
+
+     TODO: potentially send only the vote states of the vote accounts that voted in this slot. Not clear whether
+           this is worth the complexity. */
+  if( FD_LIKELY( ctx->tower_out->idx != ULONG_MAX && !ctx->read_only ) ) {
+    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+    memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
+    fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+
+    /* Copy the vote tower of all the vote accounts into the buffer, which will be published in after_credit */
+    buffer_vote_towers( ctx );
   }
 
   /**********************************************************************/
@@ -1482,7 +1603,6 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
 
-  fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
@@ -1590,6 +1710,36 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   }
 }
 
+/* This function publishes the next vote tower in the ctx->vote_tower_out buffer to Tower.
+
+   This function should be called in after_credit, after all the vote towers for the end of a slot
+   have been buffered in ctx->vote_tower_out. */
+static void
+publish_next_vote_tower( fd_replay_tile_ctx_t * ctx,
+                         fd_stem_context_t *    stem ) {
+  int som = ctx->vote_tower_out_idx==0;
+  int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
+
+  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+  fd_memcpy( vote_state, &ctx->vote_tower_out[ ctx->vote_tower_out_idx ], sizeof(fd_replay_tower_t) );
+  fd_stem_publish(
+    stem,
+    ctx->tower_out->idx,
+    FD_REPLAY_SIG_VOTE_STATE,
+    ctx->tower_out->chunk,
+    sizeof(fd_replay_tower_t),
+    fd_frag_meta_ctl( 0UL, som, eom, 0 ),
+    fd_frag_meta_ts_comp( fd_tickcount() ),
+    fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->tower_out->chunk = fd_dcache_compact_next(
+      ctx->tower_out->chunk,
+      sizeof(fd_replay_tower_t),
+      ctx->tower_out->chunk0,
+      ctx->tower_out->wmark );
+
+  ctx->vote_tower_out_idx++;
+}
+
 static void
 after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
@@ -1609,6 +1759,19 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       ctx->snapshot_init_done = 1;
     }
 
+    return;
+  }
+
+  /* Send any outstanding vote states to Tower */
+  if( FD_UNLIKELY( ctx->vote_tower_out_idx < ctx->vote_tower_out_len ) ) {
+    publish_next_vote_tower( ctx, stem );
+    /* Don't continue polling for fragments but instead skip to the next iteration
+       of the stem loop.
+
+       This is necessary so that all the votes states for the end of a particular slot
+       are sent in one atomic block, and are not interleaved with votes states at the end
+       of other slots. */
+    *opt_poll_in = 0;
     return;
   }
 
@@ -2046,6 +2209,21 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->replay_out_wmark       = fd_dcache_compact_wmark ( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu );
     ctx->replay_out_chunk       = ctx->replay_out_chunk0;
     FD_TEST( fd_dcache_compact_is_safe( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu, replay_out->depth ) );
+  }
+
+  /* Set up tower output link */
+  ctx->tower_out->idx = fd_topo_find_tile_out_link( topo, tile, "replay_tower", 0 );
+  if( FD_LIKELY( ctx->tower_out->idx != ULONG_MAX ) ) {
+    fd_topo_link_t * replay_tower = &topo->links[ tile->out_link_id[ ctx->tower_out->idx ] ];
+    ctx->tower_out->mcache     = replay_tower->mcache;
+    ctx->tower_out->sync       = fd_mcache_seq_laddr( ctx->tower_out->mcache );
+    ctx->tower_out->depth      = fd_mcache_depth( ctx->tower_out->mcache );
+    ctx->tower_out->seq        = fd_mcache_seq_query( ctx->tower_out->sync );
+    ctx->tower_out->mem        = topo->workspaces[ topo->objs[ replay_tower->dcache_obj_id ].wksp_id ].wksp;
+    ctx->tower_out->chunk0     = fd_dcache_compact_chunk0( ctx->tower_out->mem, replay_tower->dcache );
+    ctx->tower_out->wmark      = fd_dcache_compact_wmark ( ctx->tower_out->mem, replay_tower->dcache, replay_tower->mtu );
+    ctx->tower_out->chunk      = ctx->tower_out->chunk0;
+    FD_TEST( fd_dcache_compact_is_safe( ctx->tower_out->mem, replay_tower->dcache, replay_tower->mtu, replay_tower->depth ) );
   }
 
   if( FD_LIKELY( tile->replay.plugins_enabled ) ) {
