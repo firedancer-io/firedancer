@@ -135,6 +135,8 @@ typedef struct {
 #define MAP_NAME    block_id_map
 #define MAP_T       block_id_map_t
 #define MAP_KEY     slot
+#define MAP_KEY_NULL ULONG_MAX
+#define MAP_KEY_INVAL(k) (ULONG_MAX == (k))
 #define MAP_MEMOIZE 0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
@@ -1179,21 +1181,11 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
   /* FIXME: We should really only call this once. */
   init_after_snapshot( ctx );
 
-  /* Initialize store for genesis case, similar to snapshot case */
-  fd_hash_t genesis_block_id = *fd_bank_genesis_hash_query( ctx->slot_ctx->bank );
-  fd_store_exacq( ctx->store );
-  FD_TEST( !fd_store_root( ctx->store ) );
-  fd_store_insert( ctx->store, 0, &genesis_block_id );
-  ctx->store->slot0 = 0UL; /* Genesis slot */
-  fd_store_exrel( ctx->store );
-
-  /* Add genesis block to block_id_map */
-  block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, 0UL );
-  entry->block_id = genesis_block_id;
-
-  if( ctx->plugin_out->mem && strlen( ctx->genesis ) > 0 ) {
+  if( strlen( ctx->genesis ) > 0 ) {
     fd_hash_t const * genesis_hash = fd_bank_genesis_hash_query( ctx->slot_ctx->bank );
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, genesis_hash->hash, sizeof(fd_hash_t) );
+
+    if( (NULL != ctx->plugin_out->mem) )
+      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, genesis_hash->hash, sizeof(fd_hash_t) );
 
     /* Initialize store for genesis case, similar to snapshot case */
     fd_hash_t genesis_block_id = *genesis_hash;
