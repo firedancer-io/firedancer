@@ -18,10 +18,8 @@
 #define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
-#define FD_QUIC_CONN_STATE_TIMED_OUT          8 /* connection timed out but kept for reuse */
-#define FD_QUIC_CONN_STATE_COUNT              9
 
-FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_COUNT == sizeof((fd_quic_metrics_t){0}.conn_state_cnt)/sizeof((fd_quic_metrics_t){0}.conn_state_cnt[0]),
+FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_DEAD+1 == sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt)/sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt[0]),
                   "metrics conn_state_cnt is the wrong size" );
 
 #define FD_QUIC_REASON_CODES(X,SEP) \
@@ -96,7 +94,7 @@ struct fd_quic_conn {
   /* Service queue dlist membership.  All active conns (state not INVALID)
      are in a service queue, FD_QUIC_SVC_TYPE_WAIT by default.
      Free conns (svc_type==UINT_MAX) are members of a singly linked list
-     (only svc_next set). */
+     (only src_next set) */
   uint               svc_type;  /* FD_QUIC_SVC_{...} or UINT_MAX */
   uint               svc_prev;
   uint               svc_next;
@@ -233,6 +231,15 @@ struct fd_quic_conn {
 
   ulong used_pkt_meta;
 };
+
+inline static void
+fd_quic_set_conn_state( fd_quic_conn_t * conn,
+                        uint             state ) {
+  uint old_state = conn->state;
+  conn->quic->metrics.conn_state_cnt[ old_state ]--;
+  conn->quic->metrics.conn_state_cnt[ state     ]++;
+  conn->state = state;
+}
 
 FD_PROTOTYPES_BEGIN
 
