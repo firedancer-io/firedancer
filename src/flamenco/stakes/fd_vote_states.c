@@ -168,6 +168,9 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
      iterating over the map.  It is unsafe to call
      fd_vote_state_map_ele_query() during iteration, but we only
      need to change fields which are not used for pool/map management. */
+  if( FD_UNLIKELY( fd_vote_state_map_verify( vote_state_map, 40200UL, vote_state_pool ) ) ) {
+    FD_LOG_CRIT(( "vote state map is invalid" ));
+  }
 
   ulong idx = fd_vote_state_map_idx_query_const(
       vote_state_map,
