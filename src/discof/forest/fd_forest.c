@@ -4,6 +4,7 @@ static void ver_inc( ulong ** ver ) {
   fd_fseq_update( *ver, fd_fseq_query( *ver ) + 1 );
 }
 
+#define FD_FOREST_USE_HANDHOLDING 1
 #define VER_INC ulong * ver __attribute__((cleanup(ver_inc))) = fd_forest_ver( forest ); ver_inc( &ver )
 
 void *
@@ -389,13 +390,14 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
 # endif
 
   /* BFS elements as pool idxs.
-     Invariant: whatever is in the queue, must be on the frontier. */
+     Invariant: whatever is in the queue, must be in the consumed map. */
   fd_forest_deque_push_tail( queue, ele->forest_pool_idx );
   while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
     fd_forest_blk_t * head  = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
     fd_forest_blk_t * child = fd_forest_pool_ele( pool, head->child );
     if( FD_LIKELY( child && head->complete_idx != UINT_MAX && head->buffered_idx == head->complete_idx ) ) {
-      fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool );
+      fd_forest_cns_t * cons = fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool );
+      fd_forest_conspool_ele_release( conspool, cons );
       while( FD_LIKELY( child ) ) { /* add children to consumed frontier */
         consumed_map_insert( forest, child->slot, fd_forest_pool_idx( pool, child ) );
 
@@ -450,6 +452,30 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
   return query( forest, slot );
 }
 
+static void
+ensure_consumed_reachable( fd_forest_t * forest, fd_forest_blk_t * ele ) {
+  fd_forest_blk_t *      pool     = fd_forest_pool( forest );
+  fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_consumed_t * consumed = fd_forest_consumed( forest );
+  fd_forest_cns_t *      conspool = fd_forest_conspool( forest );
+
+  if( FD_LIKELY( fd_forest_ancestry_ele_query( ancestry, &ele->slot, NULL, pool ) ||
+                 fd_forest_frontier_ele_query( frontier, &ele->slot, NULL, pool ) ) ) {
+    /* There is a chance that we connected this ele to the main tree.
+       If this ele doesn't have a parent in the consumed map, add it
+       to the consumed map. */
+    fd_forest_blk_t * ancestor = ele;
+    while( FD_UNLIKELY( ancestor && !fd_forest_consumed_ele_query( consumed, &ancestor->slot, NULL, conspool ) ) ) {
+      ancestor = fd_forest_pool_ele( pool, ancestor->parent );
+    }
+    if( FD_UNLIKELY( !ancestor ) ) {
+      FD_LOG_NOTICE(( "fd_forest: ensure_consumed_reachable: ele %lu is not reachable from consumed frontier, adding myself", ele->slot ));
+      consumed_map_insert( forest, ele->slot, fd_forest_pool_idx( pool, ele ) );
+    }
+  }
+}
+
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
 # if FD_FOREST_USE_HANDHOLDING
@@ -462,8 +488,6 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
-  fd_forest_consumed_t * consumed = fd_forest_consumed( forest );
-  fd_forest_cns_t *      conspool = fd_forest_conspool( forest );
   fd_forest_blk_t *      pool     = fd_forest_pool ( forest );
   ulong *                bfs      = fd_forest_deque( forest );
 
@@ -530,20 +554,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   }
 
   FD_TEST( fd_forest_deque_empty( bfs ) );
-
-  if( FD_LIKELY( fd_forest_ancestry_ele_query( ancestry, &ele->slot, NULL, pool ) ||
-                 fd_forest_frontier_ele_query( frontier, &ele->slot, NULL, pool ) ) ) {
-    /* There is a chance that we connected this ele to the main tree.
-       If this ele doesn't have a parent in the consumed map, add it
-       to the consumed map. */
-    fd_forest_blk_t * ancestor = ele;
-    while( FD_UNLIKELY( ancestor && !fd_forest_consumed_ele_query( consumed, &ancestor->slot, NULL, conspool ) ) ) {
-      ancestor = fd_forest_pool_ele( pool, ancestor->parent );
-    }
-    if( FD_UNLIKELY( !ancestor ) ) {
-      consumed_map_insert( forest, ele->slot, fd_forest_pool_idx( pool, ele ) );
-    }
-  }
+  ensure_consumed_reachable( forest, ele );
   return ele;
 }
 
@@ -558,6 +569,51 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot
   while( fd_forest_blk_idxs_test( ele->idxs, ele->buffered_idx + 1U ) ) ele->buffered_idx++;
   advance_consumed_frontier( forest, slot, parent_slot );
   return ele;
+}
+
+void
+fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx ) {
+  VER_INC;
+
+  if( FD_UNLIKELY( slot <= fd_forest_root_slot( forest ) ) ) {
+    FD_LOG_NOTICE(( "fd_forest: fd_forest_fec_clear: slot %lu is <= root slot %lu, ignoring", slot, fd_forest_root_slot( forest ) ));
+    return;
+  }
+
+  fd_forest_blk_t * ele = query( forest, slot );
+  if( FD_UNLIKELY( !ele ) ) return;
+  for( uint i=fec_set_idx; i<=fec_set_idx+max_shred_idx; i++ ) {
+    fd_forest_blk_idxs_remove( ele->idxs, i );
+  }
+  if( FD_UNLIKELY( fec_set_idx == 0 ) ) ele->buffered_idx = UINT_MAX;
+  else                                  ele->buffered_idx = fd_uint_if( ele->buffered_idx != UINT_MAX, fd_uint_min( ele->buffered_idx, fec_set_idx - 1 ), UINT_MAX );
+
+  ensure_consumed_reachable( forest, ele );
+
+  /* Remove any children of this ele that are in consumed */
+
+  fd_forest_consumed_t * consumed = fd_forest_consumed( forest );
+  fd_forest_cns_t *      conspool = fd_forest_conspool( forest );
+  fd_forest_blk_t *      pool     = fd_forest_pool( forest );
+  ulong *                queue    = fd_forest_deque( forest );
+  FD_TEST( fd_forest_deque_cnt( queue ) == 0 );
+
+  fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, ele ) );
+  while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
+    fd_forest_blk_t * head = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
+    if( FD_LIKELY( head!=ele ) ) {
+      fd_forest_cns_t * consumed_ele = fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool );
+      if( FD_UNLIKELY( consumed_ele ) ) {
+        fd_forest_conspool_ele_release( conspool, consumed_ele );
+        FD_LOG_NOTICE(( "fd_forest: fd_forest_fec_clear: removed %lu from consumed frontier", head->slot ));
+      }
+    }
+    fd_forest_blk_t * child = fd_forest_pool_ele( pool, head->child );
+    while( FD_LIKELY( child ) ) {
+      fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
+      child = fd_forest_pool_ele( pool, child->sibling );
+    }
+  }
 }
 
 fd_forest_blk_t const *

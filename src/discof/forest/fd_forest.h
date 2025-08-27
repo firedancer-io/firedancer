@@ -391,6 +391,12 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 fd_forest_blk_t *
 fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete );
 
+/* fd_forest_fec_clear clears the FEC set at the given slot and
+   fec_set_idx. */
+
+void
+fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );
+
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot
    and all its descendants).  Prunes all eles not in slot's forest.
