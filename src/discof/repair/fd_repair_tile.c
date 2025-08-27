@@ -837,13 +837,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
                       fd_forest_root_slot( ctx->forest ) ));
     }
 #   endif
-    ulong old_turbine = ctx->turbine_slot;
     ctx->turbine_slot = fd_ulong_max( shred->slot, ctx->turbine_slot );
-    if( FD_UNLIKELY( old_turbine!=ctx->turbine_slot ) ) {
-      memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &ctx->turbine_slot, sizeof(ctx->turbine_slot) );
-      fd_stem_publish( stem, REPLAY_OUT_IDX, FD_REPAIR_REPLAY_SIG_TURBINE, ctx->replay_out_chunk, sizeof(ctx->turbine_slot), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(ctx->turbine_slot), ctx->replay_out_chunk0, ctx->replay_out_wmark );
-    }
 
     /* TODO add automated caught-up test */
 
@@ -972,8 +966,9 @@ after_credit( fd_repair_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !fd_store_link( ctx->store, &rfec->key, &rfec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &rfec->key ), FD_BASE58_ENC_32_ALLOCA( &rfec->cmr ), rfec->slot, rfec->fec_set_idx ));
       FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
 
+      ulong sig   = rfec->slot << 32 | rfec->fec_set_idx;
       memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), rfec, sizeof(fd_reasm_fec_t) );
-      fd_stem_publish( stem, REPLAY_OUT_IDX, FD_REPAIR_REPLAY_SIG_REASM_FEC, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
       fd_histf_sample( ctx->repair->metrics.store_link_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
