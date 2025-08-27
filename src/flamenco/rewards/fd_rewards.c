@@ -731,8 +731,7 @@ hash_rewards_into_partitions( fd_bank_t *                     bank,
   }
   fd_epoch_rewards_set_num_partitions( epoch_rewards, num_partitions );
 
-  /* Iterate over all the stake rewards, moving references to them into the appropiate partitions.
-      IMPORTANT: after this, we cannot use the original stake rewards dlist anymore. */
+
   fd_stake_reward_calculation_dlist_iter_t next_iter;
   for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
         !fd_stake_reward_calculation_dlist_iter_done( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
@@ -773,23 +772,27 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
                                     fd_spad_t *                            runtime_spad ) {
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
   fd_prev_epoch_inflation_rewards_t rewards;
-
-  calculate_previous_epoch_inflation_rewards( slot_ctx->bank,
-                                              fd_bank_capitalization_get( slot_ctx->bank ),
-                                              prev_epoch,
-                                              &rewards );
+  calculate_previous_epoch_inflation_rewards(
+      slot_ctx->bank,
+      fd_bank_capitalization_get( slot_ctx->bank ),
+      prev_epoch,
+      &rewards );
 
   fd_calculate_validator_rewards_result_t validator_result[1] = {0};
-  calculate_validator_rewards( slot_ctx,
-                               stake_delegations,
-                               capture_ctx,
-                               prev_epoch,
-                               rewards.validator_rewards,
-                               validator_result,
-                               runtime_spad );
+  calculate_validator_rewards(
+      slot_ctx,
+      stake_delegations,
+      capture_ctx,
+      prev_epoch,
+      rewards.validator_rewards,
+      validator_result,
+      runtime_spad );
 
+  /* The agave client calculates the set of partitions on-demand through
+     the rewards distribution period. The firedancer client differs in
+     that the partitions are calculated up front and stored. */
   fd_stake_reward_calculation_t * stake_reward_calculation = &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation;
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+  fd_epoch_schedule_t const *     epoch_schedule           = fd_bank_epoch_schedule_query( slot_ctx->bank );
 
   ulong num_partitions = get_reward_distribution_num_blocks(
       epoch_schedule,
@@ -814,28 +817,13 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_
   result->point_value                  = validator_result->point_value;
 }
 
-/* Calculate rewards from previous epoch and distribute vote rewards
-
-   https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L97 */
-static void
-calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           slot_ctx,
-                                               fd_stake_delegations_t const * stake_delegations,
-                                               fd_capture_ctx_t *             capture_ctx,
-                                               ulong                          prev_epoch,
-                                               fd_hash_t const *              parent_blockhash,
-                                               fd_spad_t *                    runtime_spad ) {
-
-  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
-  fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
-  calculate_rewards_for_partitioning( slot_ctx,
-                                      stake_delegations,
-                                      capture_ctx,
-                                      prev_epoch,
-                                      parent_blockhash,
-                                      rewards_calc_result,
-                                      runtime_spad );
-
-  /* Iterate over all the vote reward nodes */
+/* Iterate over all of the vote rewards nodes and distribute them to the
+     vote accounts that are modified. The hash for each of these
+     accounts must be updated. */
+static ulong
+store_vote_accounts_partitioned( fd_exec_slot_ctx_t *                   slot_ctx,
+                                 fd_capture_ctx_t *                     capture_ctx,
+                                 fd_partitioned_rewards_calculation_t * rewards_calc_result ) {
   ulong distributed_rewards = 0UL;
   for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( rewards_calc_result->vote_reward_map_pool, rewards_calc_result->vote_reward_map_root);
        vote_reward_node;
@@ -885,8 +873,35 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           sl
           (long)vote_reward_node->elem.vote_rewards );
     }
   }
+  return distributed_rewards;
+}
 
-  /* There is no need to free the vote reward map since it was spad*/
+/* Calculate rewards from previous epoch and distribute vote rewards
+
+   https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L97 */
+static void
+calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           slot_ctx,
+                                               fd_stake_delegations_t const * stake_delegations,
+                                               fd_capture_ctx_t *             capture_ctx,
+                                               ulong                          prev_epoch,
+                                               fd_hash_t const *              parent_blockhash,
+                                               fd_spad_t *                    runtime_spad ) {
+
+  /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
+  fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
+  calculate_rewards_for_partitioning(
+      slot_ctx,
+      stake_delegations,
+      capture_ctx,
+      prev_epoch,
+      parent_blockhash,
+      rewards_calc_result,
+      runtime_spad );
+
+  ulong distributed_rewards = store_vote_accounts_partitioned(
+      slot_ctx,
+      capture_ctx,
+      rewards_calc_result );
 
   /* Verify that we didn't pay any more than we expected to */
   ulong total_rewards = fd_ulong_sat_add( distributed_rewards, rewards_calc_result->stake_rewards_by_partition.total_stake_rewards_lamports );
