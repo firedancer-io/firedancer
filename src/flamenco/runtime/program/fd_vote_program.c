@@ -1929,36 +1929,41 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
                            fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
   int rc;
 
-  // tie in code for fd_bank_hash_cmp that helps us detect if we have forked from the cluster.
-  //
-  // There is no corresponding code in anza
+  /* A temporary hack to accumulate the stake-weighted bank hash from
+     all vote transactions.  This determines whether our validator has
+     bank hash mismatched.  TODO: move to a tile. */
+  if( FD_LIKELY( !!ctx->txn_ctx->bank_hash_cmp ) ) {
+    // tie in code for fd_bank_hash_cmp that helps us detect if we have forked from the cluster.
+    //
+    // There is no corresponding code in anza
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
-  if( !vote_states ) {
-    FD_LOG_CRIT(( "vote_states is NULL" ));
-  }
-
-  fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
-  if( !vote_state_ele ) {
-    FD_LOG_CRIT(( "vote_state is NULL" ));
-  }
-
-  if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
-    fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
-    fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
-    if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
-      fd_bank_hash_cmp_lock( bank_hash_cmp );
-      fd_bank_hash_cmp_insert(
-        bank_hash_cmp,
-          lockout->slot,
-          &vote_state_update->hash,
-          0,
-          vote_state_ele->stake );
-      fd_bank_hash_cmp_unlock( bank_hash_cmp );
+    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
+    if( !vote_states ) {
+      FD_LOG_CRIT(( "vote_states is NULL" ));
     }
-  }
 
-  fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
+    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
+    if( !vote_state_ele ) {
+      FD_LOG_CRIT(( "vote_state is NULL" ));
+    }
+
+    if( !deq_fd_vote_lockout_t_empty( vote_state_update->lockouts ) ) {
+      fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( vote_state_update->lockouts );
+      fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
+      if( FD_LIKELY( lockout && bank_hash_cmp ) ) {
+        fd_bank_hash_cmp_lock( bank_hash_cmp );
+        fd_bank_hash_cmp_insert(
+          bank_hash_cmp,
+            lockout->slot,
+            &vote_state_update->hash,
+            0,
+            vote_state_ele->stake );
+        fd_bank_hash_cmp_unlock( bank_hash_cmp );
+      }
+    }
+
+    fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
+  }
 
   fd_vote_state_t vote_state;
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1144
@@ -2023,26 +2028,30 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
                     fd_tower_sync_t *             tower_sync,
                     fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX],
                     fd_exec_instr_ctx_t const *   ctx /* feature_set */ ) {
-
-  if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
-    fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
-    fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
-    fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
-    if( !vote_states ) {
-      FD_LOG_CRIT(( "vote_states is NULL" ));
+  /* A temporary hack to accumulate the stake-weighted bank hash from
+     all vote transactions.  This determines whether our validator has
+     bank hash mismatched.  TODO: move to a tile. */
+  if( FD_LIKELY( !!ctx->txn_ctx->bank_hash_cmp ) ) {
+    if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
+      fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
+      fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
+      fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
+      if( !vote_states ) {
+        FD_LOG_CRIT(( "vote_states is NULL" ));
+      }
+      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
+      if( FD_LIKELY( lockout && bank_hash_cmp && vote_state_ele ) ) {
+        fd_bank_hash_cmp_lock( bank_hash_cmp );
+        fd_bank_hash_cmp_insert(
+            bank_hash_cmp,
+            lockout->slot,
+            &tower_sync->hash,
+            0,
+            vote_state_ele->stake );
+        fd_bank_hash_cmp_unlock( bank_hash_cmp );
+      }
+      fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
     }
-    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
-    if( FD_LIKELY( lockout && bank_hash_cmp && vote_state_ele ) ) {
-      fd_bank_hash_cmp_lock( bank_hash_cmp );
-      fd_bank_hash_cmp_insert(
-          bank_hash_cmp,
-          lockout->slot,
-          &tower_sync->hash,
-          0,
-          vote_state_ele->stake );
-      fd_bank_hash_cmp_unlock( bank_hash_cmp );
-    }
-    fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1194
