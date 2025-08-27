@@ -193,7 +193,9 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
                        fd_pubkey_t const * vote_account );
 
 /* fd_vote_states_query returns the vote state corresponding to a given
-   account. Returns NULL if the account does not exist. */
+   account. Returns NULL if the account does not exist. This function is
+   safe for concurrent reads, but the caller needs to synchronize
+   concurrent writers to the fd_vote_state_ele_t. */
 
 fd_vote_state_ele_t *
 fd_vote_states_query( fd_vote_states_t const * vote_states,

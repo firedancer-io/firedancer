@@ -263,8 +263,8 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.14/runtime/src/bank.rs#L6954 */
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_prev_locking_query( vm->instr_ctx->txn_ctx->bank );
-  fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_address );
+  fd_vote_states_t const *    vote_states    = fd_bank_vote_states_prev_locking_query( vm->instr_ctx->txn_ctx->bank );
+  fd_vote_state_ele_t const * vote_state_ele = fd_vote_states_query_const( vote_states, vote_address );
   *_ret = vote_state_ele ? vote_state_ele->stake : 0UL;
   fd_bank_vote_states_prev_end_locking_query( vm->instr_ctx->txn_ctx->bank );
 

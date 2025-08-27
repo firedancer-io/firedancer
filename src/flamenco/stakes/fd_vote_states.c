@@ -240,7 +240,7 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation map" ));
   }
 
-  ulong vote_state_idx = fd_vote_state_map_idx_query(
+  ulong vote_state_idx = fd_vote_state_map_idx_query_const(
       vote_state_map,
       vote_account,
       ULONG_MAX,
@@ -250,10 +250,18 @@ fd_vote_states_remove( fd_vote_states_t *  vote_states,
     return;
   }
 
+  fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( vote_state_pool, vote_state_idx );
+  if( FD_UNLIKELY( !vote_state ) ) {
+    FD_LOG_CRIT(( "unable to retrieve vote state" ));
+  }
+
   ulong idx = fd_vote_state_map_idx_remove( vote_state_map, vote_account, ULONG_MAX, vote_state_pool );
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-    return;
+    FD_LOG_CRIT(( "unable to remove vote state" ));
   }
+
+  /* Set vote state's next_ pointer to the null idx. */
+  vote_state->next_ = fd_vote_state_pool_idx_null( vote_state_pool );
 
   fd_vote_state_pool_idx_release( vote_state_pool, vote_state_idx );
 }
@@ -422,11 +430,25 @@ fd_vote_state_ele_t *
 fd_vote_states_query( fd_vote_states_t const * vote_states,
                       fd_pubkey_t const *      vote_account ) {
 
-  return fd_vote_state_map_ele_query(
+  /* map_chain's _ele_query function isn't safe for concurrent access.
+     The solution is to use the idx_query_const function, which is safe
+     for concurrent access.  The caller is still responsible for
+     synchronizing concurrent writers to the fd_vote_state_ele_t. */
+  ulong idx = fd_vote_state_map_idx_query_const(
       fd_vote_states_get_map( vote_states ),
       vote_account,
-      NULL,
+      ULONG_MAX,
       fd_vote_states_get_pool( vote_states ) );
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
+    return NULL;
+  }
+
+  fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele( fd_vote_states_get_pool( vote_states ), idx );
+  if( FD_UNLIKELY( !vote_state ) ) {
+    FD_LOG_CRIT(( "unable to retrieve vote state" ));
+  }
+
+  return vote_state;
 }
 
 /* fd_vote_states_query_const is the same as fd_vote_states but instead
