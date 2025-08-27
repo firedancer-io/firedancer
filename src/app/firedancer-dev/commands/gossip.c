@@ -754,7 +754,9 @@ gossip_cmd_fn( args_t *   args,
   printf("Found %lu gossvf tiles\n", gossvf_tiles.tile_count);
 
   ulong net_tile_idx = fd_topo_find_tile( &config->topo, "net", 0UL );
-  FD_TEST( net_tile_idx!=ULONG_MAX );
+  if( net_tile_idx==ULONG_MAX ) net_tile_idx = fd_topo_find_tile( &config->topo, "sock", 0UL );
+  if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+
   fd_topo_tile_t * net_tile = &config->topo.tiles[ net_tile_idx ];
 
   volatile ulong * gossip_metrics = fd_metrics_tile( gossip_tile->metrics );

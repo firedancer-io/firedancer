@@ -198,7 +198,7 @@ privileged_init( fd_topo_t *      topo,
     "net_quic",   /* legacy_transaction_listen_port */
     "net_quic",   /* quic_transaction_listen_port */
     "net_shred",  /* shred_listen_port (turbine) */
-    "net_gossip", /* gossip_listen_port */
+    "net_gossvf", /* gossip_listen_port (gossvf) */
     "net_shred",  /* shred_listen_port (repair) */
     "net_repair", /* repair_serve_listen_port */
     "net_send"    /* send_src_port */
