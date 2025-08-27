@@ -222,10 +222,8 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
                              fd_funk_t *             funk,
                              fd_funk_txn_t *         txn,
                              fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_rec_query_t query[1];
-
+  (void)txn;
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
-  fd_funk_rec_t *   rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &key, query );
 
   /* Check that the prepared record is still valid -
      if these invariants are broken something is very wrong. */
@@ -241,17 +239,9 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
       FD_LOG_CRIT(( "invalid prepared record for %s: the record might have been modified by another thread",
                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
     }
-  }
 
-  /* We have a prepared record, but a record already exists funk */
-  if( rec!=NULL && prepare->rec!=NULL ) {
-    FD_LOG_CRIT(( "invalid prepared record for %s: trying to publish new record that is already present",
-                   FD_BASE58_ENC_32_ALLOCA( acct->pubkey ) ));
-  }
-
-  /* Publish the record if the record is not in the current funk transaction
-     and there exists a record in preparation in the fd_txn_account_t object */
-  if( rec==NULL && prepare->rec!=NULL ) {
+    /* Crashes the app if this key already exists in funk (conflicting
+       write) */
     fd_funk_rec_publish( funk, prepare );
   }
 }
