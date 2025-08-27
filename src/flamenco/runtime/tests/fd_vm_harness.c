@@ -217,14 +217,11 @@ do{
   }
 
   /* Setup trace */
-  const uint DUMP_TRACE = 0; // Set to 1 to dump trace to stdout
-  uint tracing_enabled = input->vm_ctx.tracing_enabled;
-  fd_vm_trace_t * trace = NULL;
-  ulong event_max = 1UL<<20;
-  ulong event_data_max = 2048UL;
+  const int enable_vm_tracing = runner->enable_vm_tracing;
+  fd_vm_trace_t * trace       = NULL;
 
-  if (!!tracing_enabled) {
-    trace = fd_vm_trace_new( fd_spad_alloc_check( spad, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max );
+  if ( FD_UNLIKELY( enable_vm_tracing ) ) {
+    trace = fd_vm_trace_new( fd_spad_alloc_check( spad, fd_vm_trace_align(), fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ) ), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX );
   }
 
   /* Setup vm */
@@ -297,9 +294,9 @@ do{
 
   /* Run vm */
   int exec_res = 0;
-  if (!!tracing_enabled) {
+  if ( FD_UNLIKELY( enable_vm_tracing ) ) {
     exec_res = fd_vm_exec_trace( vm );
-    if( DUMP_TRACE ) fd_vm_trace_printf( trace, syscalls );
+    if( enable_vm_tracing ) fd_vm_trace_printf( trace, syscalls );
     fd_vm_trace_delete( fd_vm_trace_leave( trace ) );
   } else {
     exec_res = fd_vm_exec_notrace( vm );

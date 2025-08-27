@@ -12,7 +12,7 @@ cd $DIR/../..
 OBJDIR=${OBJDIR:-build/native/gcc}
 NUM_PROCESSES=${NUM_PROCESSES:-12}
 PAGE_SZ=gigantic
-PAGE_CNT=$(( 6 * $NUM_PROCESSES ))
+PAGE_CNT=$(( 7 * $NUM_PROCESSES ))
 
 if [ "$LOG_PATH" == "" ]; then
   LOG_PATH="`mktemp -d`"

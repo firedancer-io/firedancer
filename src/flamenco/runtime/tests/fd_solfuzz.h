@@ -29,9 +29,19 @@ struct fd_solfuzz_runner {
 
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
+
+  int enable_vm_tracing;
 };
 
 typedef struct fd_solfuzz_runner fd_solfuzz_runner_t;
+
+/* A fd_solfuzz_runner_t object is configured with options stored in a
+   fd_solfuzz_runner_options_t object. */
+struct fd_solfuzz_runner_options {
+  int enable_vm_tracing;
+};
+
+typedef struct fd_solfuzz_runner_options fd_solfuzz_runner_options_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -45,8 +55,9 @@ FD_PROTOTYPES_BEGIN
    demand paged memory. */
 
 fd_solfuzz_runner_t *
-fd_solfuzz_runner_new( fd_wksp_t * wksp,
-                       ulong       wksp_tag );
+fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
+                       ulong                               wksp_tag,
+                       fd_solfuzz_runner_options_t const * options );
 
 /* fd_solfuzz_runner_delete frees all previously done workspace
    allocations. */

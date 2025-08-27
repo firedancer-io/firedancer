@@ -17,6 +17,7 @@
 #include "info/fd_microblock_info.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "fd_runtime_public.h"
+#include "../vm/fd_vm_base.h"
 
 /* Various constant values used by the runtime. */
 
@@ -180,15 +181,12 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 /* Misc other footprint. */
 #define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*FD_ULONG_ALIGN_UP(FD_SBPF_SYSCALLS_FOOTPRINT, FD_SBPF_SYSCALLS_ALIGN))
 
-#ifdef FD_DEBUG_SBPF_TRACES
-#define FD_RUNTIME_VM_TRACE_EVENT_MAX      (1UL<<30)
+#define FD_RUNTIME_VM_TRACE_EVENT_MAX      (128UL<<20)
 #define FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX (2048UL)
-#define FD_RUNTIME_VM_TRACE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
-#else
-#define FD_RUNTIME_VM_TRACE_FOOTPRINT (0UL)
-#endif
+#define FD_RUNTIME_VM_TRACE_FOOTPRINT      (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
 
-#define FD_RUNTIME_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT+FD_RUNTIME_VM_TRACE_FOOTPRINT)
+#define FD_RUNTIME_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT)
+#define FD_SOLFUZZ_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT + FD_RUNTIME_VM_TRACE_FOOTPRINT)
 
 /* Now finally, we bound out the footprint of transaction execution. */
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(account_lock_limit, direct_mapping)                                         \
@@ -200,7 +198,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 /* Convenience macros for common use cases.
 
    TODO: If account lock limits are increased to 128, this macro will need to be updated. */
-#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
+#define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0) + FD_SOLFUZZ_MISC_FOOTPRINT
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 
 /* Footprint here is dominated by vote account decode.  See above for

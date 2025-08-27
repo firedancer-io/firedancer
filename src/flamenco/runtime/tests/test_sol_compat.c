@@ -438,7 +438,10 @@ main( int     argc,
   }
   fd_memset( runners, 0, worker_cnt*sizeof(void *) );
   for( ulong i=0UL; i<worker_cnt; i++ ) {
-    runners[i] = fd_solfuzz_runner_new( wksp, wksp_tag );
+    fd_solfuzz_runner_options_t options = {
+      .enable_vm_tracing = 0
+    };
+    runners[i] = fd_solfuzz_runner_new( wksp, wksp_tag, &options );
     if( FD_UNLIKELY( !runners[i] ) ) { FD_LOG_WARNING(( "init failed (creating worker %lu)", i )); goto exit; }
   }
 
