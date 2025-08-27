@@ -1721,7 +1721,7 @@ publish_next_vote_tower( fd_replay_tile_ctx_t * ctx,
   int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
 
   fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-  fd_memcpy( vote_state, &ctx->vote_tower_out[ ctx->vote_tower_out_idx ], sizeof(fd_replay_tower_t) );
+  *vote_state = ctx->vote_tower_out[ ctx->vote_tower_out_idx ];
   fd_stem_publish(
     stem,
     ctx->tower_out->idx,
