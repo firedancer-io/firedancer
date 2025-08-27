@@ -572,7 +572,6 @@ fd_gossip_msg_parse( fd_gossip_view_t * view,
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE:
     case FD_GOSSIP_MESSAGE_PUSH:
       INC( fd_gossip_msg_crds_container_parse( view, payload, payload_sz, CUR_OFFSET ) );
-      CHECK( payload_sz==CUR_OFFSET );
       break;
     case FD_GOSSIP_MESSAGE_PRUNE:
       INC( fd_gossip_msg_prune_parse( view, payload, payload_sz, CUR_OFFSET ) );
@@ -580,12 +579,11 @@ fd_gossip_msg_parse( fd_gossip_view_t * view,
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
       INC( fd_gossip_msg_ping_pong_parse( view, payload, payload_sz, CUR_OFFSET ) );
-      CHECK( payload_sz==CUR_OFFSET );
       break;
     default:
       FD_LOG_WARNING(( "Unknown Gossip message type %d", view->tag ));
       return 0;
   }
-  CHECK( CUR_OFFSET<=payload_sz );
+  CHECK( payload_sz==CUR_OFFSET );
   return BYTES_CONSUMED;
 }
