@@ -96,6 +96,7 @@ while true; do
             tar -xf rocksdb.tar && sleep 5 && rm -rf rocksdb.tar
             send_slack_message "Downloaded rocksdb to \`$LEDGER_DIR/rocksdb\`"
         fi
+        gcloud storage cp ${SOLANA_BUCKET_PATH}/bounds.txt . --billing-project=$BILLING_PROJECT
 
         output=$( $AGAVE_LEDGER_TOOL bounds -l $LEDGER_DIR --force-update-to-open )
         ROCKSDB_ROOTED_MIN=$(echo "$output" | grep "rooted" | awk '{print $6}')
