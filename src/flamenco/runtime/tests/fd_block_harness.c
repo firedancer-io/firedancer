@@ -30,8 +30,11 @@ fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_state
     fd_pubkey_t * voter_pubkey = &node->vote_account;
     ulong         stake        = node->stake;
 
-    /* Find the voter in the vote accounts cache and update their delegation amount */
+    /* Find the voter in the vote accounts cache and update their
+       delegation amount */
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, voter_pubkey );
+    if( !vote_state ) continue;
+
     ulong vote_stake = vote_state->stake;
     fd_vote_states_update_stake( vote_states, voter_pubkey, vote_stake + stake );
 
