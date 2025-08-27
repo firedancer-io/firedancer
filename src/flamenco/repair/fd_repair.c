@@ -364,13 +364,11 @@ fd_repair_create_inflight_request( fd_repair_t * glob, int type, ulong slot, uin
   fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
 
   if( dupelem == NULL ) {
-    dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
-
-    if ( FD_UNLIKELY( dupelem == NULL ) ) {
-      FD_LOG_ERR(( "Eviction unimplemented. Failed to insert duplicate detection element for slot %lu, shred_index %u", slot, shred_index ));
+    if( FD_UNLIKELY( fd_inflight_table_is_full( glob->dupdetect ) ) ) {
+      FD_LOG_WARNING(( "Failed to insert duplicate detection element for slot %lu, shred_index %u. Eviction unimplemented.", slot, shred_index ));
       return 0;
     }
-
+    dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
     dupelem->last_send_time = 0L;
   }
 

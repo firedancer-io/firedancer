@@ -1244,7 +1244,7 @@ user = ""
         # To compute an appropriate value, multiply the expected Turbine
         # worst-case latency (tenths of seconds) by the expected
         # transaction rate, and divide by approx 25.
-        max_pending_shred_sets = 16384
+        max_pending_shred_sets = 1024
 
         # The shred tile listens on a specific port for shreds to
         # forward.  This argument controls which port that is.  The port

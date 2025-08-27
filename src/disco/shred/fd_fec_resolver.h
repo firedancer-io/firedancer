@@ -193,14 +193,27 @@ fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
 
    This function returns SHRED_COMPLETES when the received shred is the
    last one and completes the FEC set.  In this case, the function
-   populates any missing shreds in the FEC set stored in out_fec_set. */
-int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t const     * shred,
-                               ulong                  shred_sz,
-                               uchar const          * leader_pubkey,
-                               fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t const   * * out_shred,
-                               fd_bmtree_node_t     * out_merkle_root );
+   populates any missing shreds in the FEC set stored in out_fec_set.
+
+   Along with the return err code, if adding this shred caused an
+   incomplete FEC set to be evicted from the current map, the slot and
+   FEC set idx of the evicted FEC set will be written to spilled_slot
+   and spilled_fec_set_idx.  The max data shred idx received thus far
+   of the evicted FEC set will be written to max_shred_idx.  If no FEC
+   set was evicted, spilled_slot and max_shred_idx will be 0, and
+   spilled_fec_set_idx will be FD_SHRED_BLK_MAX. */
+
+int
+fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
+                           fd_shred_t const     * shred,
+                           ulong                  shred_sz,
+                           uchar const          * leader_pubkey,
+                           fd_fec_set_t const * * out_fec_set,
+                           fd_shred_t const   * * out_shred,
+                           fd_bmtree_node_t     * out_merkle_root,
+                           ulong                * out_spilled_slot,
+                           uint                 * out_spilled_fec_set_idx,
+                           uint                 * out_max_dshred_idx );
 
 
 /* fd_fec_resolver_done_contains returns 1 if the FEC with signature
