@@ -176,10 +176,16 @@ get_timestamp_estimate( fd_bank_t *             bank,
     ulong vote_timestamp = (ulong)vote_state->last_vote_timestamp;
     ulong vote_slot      = vote_state->last_vote_slot;
 
+    /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
+    ulong slot_delta;
+    int err = fd_ulong_checked_sub( current_slot, vote_slot, &slot_delta );
+    if( FD_UNLIKELY( err ) ) {
+      continue;
+    }
+
     /* Don't count vote accounts that haven't voted in the past 432k
        slots (length of an epoch).
-       https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2574-L2576 */
-    ulong slot_delta = fd_ulong_sat_sub( current_slot, vote_slot );
+       https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2446-L2447 */
     if( slot_delta>epoch_schedule->slots_per_epoch ) {
       continue;
     }
