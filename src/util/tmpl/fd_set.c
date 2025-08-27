@@ -276,6 +276,16 @@ SET_(first)( SET_(t) const * set ) {
   return ~0UL;
 }
 
+FD_FN_PURE static inline ulong
+SET_(last)( SET_(t) const * set ) {
+  ulong word_cnt = (ulong)SET_(word_cnt);
+  for( ulong i=word_cnt; i>0UL; i-- ) {
+    ulong w = set[i-1];
+    if( w ) return ((i-1)<<6) + (ulong)fd_ulong_find_msb( w );
+  }
+  return ~0UL;
+}
+
 FD_FN_UNUSED static ulong /* Work around -Winline */
 SET_(iter_next)( SET_(t) * set,
                  ulong     j ) {                     /* We've considered all bits up to and including j */
