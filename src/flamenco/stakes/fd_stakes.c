@@ -229,6 +229,7 @@ fd_stakes_remove_stake_delegation( fd_txn_account_t *   stake_account,
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation delta" ));
   }
 
+  FD_LOG_WARNING(("REMOVING STAKE DELEGATION %s", FD_BASE58_ENC_32_ALLOCA( stake_account->pubkey ) ));
   fd_stake_delegations_remove( stake_delegations_delta, stake_account->pubkey );
 
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
@@ -264,6 +265,15 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
     return;
   }
 
+  uchar sig[32];
+  fd_base58_decode_32( "4j8sJf2473BdpvJdi5dmej2mSn3BXS9DmnYZnFLF8bJ7", sig );
+
+  if( !memcmp( stake_account->pubkey, sig, 32 ) ) {
+    __asm__("int3");
+    FD_LOG_WARNING(("UPSERT STAKE DELEGATION %s", FD_BASE58_ENC_32_ALLOCA( sig ) ));
+  }
+
+  FD_LOG_WARNING(("UPSERT STAKE DELEGATION %s", FD_BASE58_ENC_32_ALLOCA( sig ) ));
   fd_stake_delegations_update(
       stake_delegations_delta,
       stake_account->pubkey,

@@ -675,7 +675,15 @@ fd_banks_stake_delegations_apply_delta( fd_bank_t *              bank,
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+
+    uchar sig[32];
+    fd_base58_decode_32( "4j8sJf2473BdpvJdi5dmej2mSn3BXS9DmnYZnFLF8bJ7", sig );
+    if( !memcmp( &stake_delegation->stake_account, sig, 32 ) ) {
+      __asm__("int3");
+    }
+
     if( FD_LIKELY( !stake_delegation->is_tombstone ) ) {
+      FD_LOG_WARNING(("INSERTING INTO ROOT %s", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ) ));
       fd_stake_delegations_update(
           stake_delegations_base,
           &stake_delegation->stake_account,
@@ -687,6 +695,7 @@ fd_banks_stake_delegations_apply_delta( fd_bank_t *              bank,
           stake_delegation->warmup_cooldown_rate
       );
     } else {
+      FD_LOG_WARNING(("REMOVING FROM ROOT %s", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ) ));
       fd_stake_delegations_remove( stake_delegations_base, &stake_delegation->stake_account );
     }
   }
