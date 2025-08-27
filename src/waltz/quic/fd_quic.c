@@ -828,6 +828,18 @@ fd_quic_log_full_hdr( fd_quic_conn_t const * conn,
   return hdr;
 }
 
+inline static void
+fd_quic_set_conn_state( fd_quic_conn_t * conn,
+                        uint             state ) {
+  FD_COMPILER_MFENCE();
+  uint old_state = conn->state;
+  conn->quic->metrics.conn_state_cnt[ old_state ]--;
+  conn->quic->metrics.conn_state_cnt[ state     ]++;
+  conn->state = state;
+  FD_COMPILER_MFENCE();
+}
+
+
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
    the connection to be freed during a later fd_quic_service call.
@@ -1312,6 +1324,40 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
 
 /* packet processing */
 
+/* fd_quic_conn_free_pkt_meta frees all pkt_meta associated with
+   encryption levels less or equal to enc_level. Returns the number
+   of freed pkt_meta. */
+static ulong
+fd_quic_conn_free_pkt_meta( fd_quic_conn_t * conn,
+                            uint             enc_level ) {
+  ulong                        freed   = 0UL;
+  fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
+  fd_quic_pkt_meta_t         * pool    = tracker->pool;
+
+  for( uint j=0; j<=enc_level; ++j ) {
+    fd_quic_pkt_meta_ds_t * sent = &tracker->sent_pkt_metas[j];
+    fd_quic_pkt_meta_t    * prev = NULL;
+    for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
+                                                !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
+                                                iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
+      fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
+      if( FD_LIKELY( prev ) ) {
+        fd_quic_pkt_meta_pool_ele_release( pool, prev );
+      }
+      prev = e;
+    }
+    if( FD_LIKELY( prev ) ) {
+      fd_quic_pkt_meta_pool_ele_release( pool, prev );
+    }
+
+    conn->used_pkt_meta -= fd_quic_pkt_meta_ds_ele_cnt( sent );
+    freed               += fd_quic_pkt_meta_ds_ele_cnt( sent );
+    fd_quic_pkt_meta_ds_clear( tracker, j );
+  }
+  return freed;
+}
+
+
 /* fd_quic_abandon_enc_level frees all resources associated encryption
    levels less or equal to enc_level. Returns the number of freed
    pkt_meta. */
@@ -1321,8 +1367,6 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
                            uint             enc_level ) {
   if( FD_LIKELY( !fd_uint_extract_bit( conn->keys_avail, (int)enc_level ) ) ) return 0UL;
   FD_DEBUG( FD_LOG_DEBUG(( "conn=%p abandoning enc_level=%u", (void *)conn, enc_level )); )
-
-  ulong freed = 0UL;
 
   fd_quic_ack_gen_abandon_enc_level( conn->ack_gen, enc_level );
 
@@ -1334,27 +1378,15 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
     /* treat all packets as ACKed (freeing handshake data, etc.) */
     fd_quic_pkt_meta_ds_t * sent  =  &tracker->sent_pkt_metas[j];
 
-    fd_quic_pkt_meta_t * prev = NULL;
-    for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_treap_fwd_iter_init( sent, pool );
+    for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
                                                !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
                                                iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
       fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-      if( FD_LIKELY( prev ) ) {
-        fd_quic_pkt_meta_pool_ele_release( pool, prev );
-      }
       fd_quic_reclaim_pkt_meta( conn, e, j );
-      prev = e;
     }
-    if( FD_LIKELY( prev ) ) {
-      fd_quic_pkt_meta_pool_ele_release( pool, prev );
-    }
-
-    freed               += fd_quic_pkt_meta_ds_ele_cnt( sent );
-    conn->used_pkt_meta -= fd_quic_pkt_meta_ds_ele_cnt( sent );
-    fd_quic_pkt_meta_ds_clear( tracker, j );
   }
 
-  return freed;
+  return fd_quic_conn_free_pkt_meta( conn, enc_level );
 }
 
 static void
@@ -2937,7 +2969,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
     /* connection shouldn't have been scheduled,
        and is now removed, so just continue */
-    FD_LOG_ERR(( "Invalid conn in schedule (svc_type=%u)", conn->svc_type ));
+    FD_LOG_CRIT(( "Invalid conn in schedule (svc_type=%u)", conn->svc_type ));
     return 1;
   }
 
@@ -4096,6 +4128,9 @@ fd_quic_conn_free( fd_quic_t *      quic,
        fini    - service will never be called again. All events are destroyed
        service - removes event before calling free. Event only allowed to be
        enqueued once */
+
+  /* free pkt_meta */
+  fd_quic_conn_free_pkt_meta( conn, fd_quic_enc_level_appdata_id );
 
   /* remove all stream ids from map, and free stream */
 
