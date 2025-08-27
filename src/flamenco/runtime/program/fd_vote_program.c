@@ -1942,7 +1942,7 @@ process_vote_state_update( fd_borrowed_account_t *       vote_account,
       FD_LOG_CRIT(( "vote_states is NULL" ));
     }
 
-    fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
+    fd_vote_state_ele_t const * vote_state_ele = fd_vote_states_query_const( vote_states, vote_account->acct->pubkey );
     if( !vote_state_ele ) {
       FD_LOG_CRIT(( "vote_state is NULL" ));
     }
@@ -2039,7 +2039,7 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
       if( !vote_states ) {
         FD_LOG_CRIT(( "vote_states is NULL" ));
       }
-      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_query( vote_states, vote_account->acct->pubkey );
+      fd_vote_state_ele_t const * vote_state_ele = fd_vote_states_query_const( vote_states, vote_account->acct->pubkey );
       if( FD_LIKELY( lockout && bank_hash_cmp && vote_state_ele ) ) {
         fd_bank_hash_cmp_lock( bank_hash_cmp );
         fd_bank_hash_cmp_insert(

@@ -312,10 +312,19 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
       return;
     }
 
+    /* To be safe, we should set the next_ pointer to the null idx. */
+
+    fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele( stake_delegation_pool, delegation_idx );
+    if( FD_UNLIKELY( !stake_delegation ) ) {
+      FD_LOG_CRIT(( "unable to retrieve stake delegation" ));
+    }
+
     ulong idx = fd_stake_delegation_map_idx_remove( stake_delegation_map, stake_account, ULONG_MAX, stake_delegation_pool );
     if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-      return;
+      FD_LOG_CRIT(( "unable to remove stake delegation" ));
     }
+
+    stake_delegation->next_ = fd_stake_delegation_pool_idx_null( stake_delegation_pool );
 
     fd_stake_delegation_pool_idx_release( stake_delegation_pool, delegation_idx );
   }
