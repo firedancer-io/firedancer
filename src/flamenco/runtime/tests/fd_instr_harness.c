@@ -122,6 +122,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->compute_budget_details.compute_meter      = test_ctx->cu_avail;
   txn_ctx->spad                                      = runner->spad;
   txn_ctx->instr_info_cnt                            = 1UL;
+  txn_ctx->fuzz_config.enable_vm_tracing             = runner->enable_vm_tracing;
 
   /* Set up instruction context */
 

@@ -172,6 +172,11 @@ struct fd_exec_txn_ctx {
 
    /* The current instruction index being executed */
   int current_instr_idx;
+
+  /* fuzzing options */
+  struct {
+    int enable_vm_tracing;
+  } fuzz_config;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

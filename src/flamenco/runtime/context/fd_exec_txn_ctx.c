@@ -17,6 +17,7 @@ fd_exec_txn_ctx_new( void * mem ) {
   }
 
   fd_exec_txn_ctx_t * self = (fd_exec_txn_ctx_t *) mem;
+  fd_memset( self, 0, sizeof(fd_exec_txn_ctx_t) );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_EXEC_TXN_CTX_MAGIC;
