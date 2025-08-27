@@ -282,6 +282,18 @@ fd_runtime_run_incinerator( fd_bank_t *        bank,
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
+
+  uchar sig[32];
+  fd_base58_decode_32( "4j8sJf2473BdpvJdi5dmej2mSn3BXS9DmnYZnFLF8bJ7", sig );
+  fd_pubkey_t * pubkey = (fd_pubkey_t*)sig;
+
+  if( fd_stake_delegations_query( stake_delegations, pubkey ) ) {
+    FD_LOG_CRIT(("ASDF"));
+  }
+
+
+
   fd_sysvar_recent_hashes_update( slot_ctx );
 
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );

@@ -258,6 +258,7 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   stake_delegation->deactivation_epoch   = deactivation_epoch;
   stake_delegation->credits_observed     = credits_observed;
   stake_delegation->warmup_cooldown_rate = warmup_cooldown_rate;
+  stake_delegation->is_tombstone         = 0;
 
   if( FD_UNLIKELY( !fd_stake_delegation_map_ele_insert(
         stake_delegation_map,
