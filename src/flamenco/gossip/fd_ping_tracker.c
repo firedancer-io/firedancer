@@ -475,7 +475,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
     else                                       __builtin_unreachable();
 
     /* Push the element to the back of the refreshing list now, so it
-       starts getting pinged every 60 seconds. */
+       starts getting pinged every second. */
     refreshing_list_ele_push_tail( ping_tracker->refreshing, next, ping_tracker->pool );
     if( FD_LIKELY( next->state==FD_PING_TRACKER_STATE_VALID ) ) {
       next->state = FD_PING_TRACKER_STATE_VALID_REFRESHING;
@@ -491,6 +491,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
         default: FD_LOG_ERR(( "Unknown state %d", next->state ));
       }
       next->state = FD_PING_TRACKER_STATE_INVALID;
+      next->valid_until_nanos = 0L;
       ping_tracker->metrics->invalid_cnt++;
     }
     next->next_ping_nanos = now+1L*1000L*1000L*1000L;
