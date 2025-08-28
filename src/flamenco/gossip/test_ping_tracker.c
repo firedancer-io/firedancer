@@ -278,6 +278,73 @@ test_random( void ) {
   free( bytes );
 }
 
+void
+test_invalid_transitions( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  const ulong         entrypoints_len = 1UL;
+  const fd_ip4_port_t entrypoints[1]  = { {.addr=fd_rng_uint(rng), .port=fd_rng_ushort(rng)} };
+  void * bytes = aligned_alloc( fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len ) );
+  FD_TEST( bytes );
+
+  ping_tracker_change_ctx_t change_ctx[1] = {0};
+  fd_ping_tracker_t * ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( bytes, rng, entrypoints_len, entrypoints, test_change, change_ctx ) );
+  FD_TEST( ping_tracker );
+
+  long now = fd_log_wallclock();
+  peer_t p = generate_random_peer( rng );
+
+  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now );
+  uchar const *         out_pubkey;
+  fd_ip4_port_t const * out_address;
+  uchar const *         out_token;
+
+  /* Unpinged to invalid */
+  FD_TEST( fd_ping_tracker_pop_request( ping_tracker, now+seconds(1), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !memcmp( out_pubkey, p.pubkey, 32UL ) );
+
+  uchar valid_pong_token[ 32UL ];
+  fd_sha256_t sha[1];
+  FD_TEST( fd_sha256_join( fd_sha256_new( sha ) ) );
+  fd_sha256_init( sha );
+  fd_sha256_append( sha, "SOLANA_PING_PONG", 16UL );
+  fd_sha256_append( sha, out_token, 32UL );
+  fd_sha256_fini( sha, valid_pong_token );
+
+  /* Invalid to Valid */
+  fd_ping_tracker_register( ping_tracker, p.pubkey, 0UL, p.address, valid_pong_token, now+seconds(2) );
+  FD_TEST( change_ctx->invoke_cnt==1UL );
+  FD_TEST( memcmp( change_ctx->last.pubkey, p.pubkey, 32UL )==0 );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_ACTIVE );
+
+  /* Valid to Valid Refreshing */
+  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now+seconds(18*60) ); /* refresh last rx */
+  fd_ping_tracker_pop_request( ping_tracker, now+seconds(18*60+4), &out_pubkey, &out_address, &out_token );
+  FD_TEST( change_ctx->invoke_cnt==1UL );
+
+  /* Valid Refreshing to Invalid */
+  fd_ping_tracker_track( ping_tracker, p.pubkey, 0UL, p.address, now+seconds(20*60) ); /* refresh last rx */
+  fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+3), &out_pubkey, &out_address, &out_token );
+  FD_TEST( change_ctx->invoke_cnt==2UL );
+  FD_TEST( memcmp( change_ctx->last.pubkey, p.pubkey, 32UL )==0 );
+  FD_TEST( change_ctx->last.change_type==FD_PING_TRACKER_CHANGE_TYPE_INACTIVE );
+
+  /* pop */
+  fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+4), &out_pubkey, &out_address, &out_token );
+  FD_TEST( !memcmp( out_pubkey, p.pubkey, 32UL ) );
+  FD_TEST( out_address->addr==p.address.addr );
+  FD_TEST( out_address->port==p.address.port );
+
+
+
+  /* Invalid to dropped after 20s no rx */
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+24), &out_pubkey, &out_address, &out_token ) );
+  FD_TEST( !fd_ping_tracker_pop_request( ping_tracker, now+seconds(20*60+25), &out_pubkey, &out_address, &out_token ) );
+
+  free( bytes );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -291,6 +358,9 @@ main( int     argc,
 
   test_change_address();
   FD_LOG_NOTICE(( "test_change_address() passed" ));
+
+  test_invalid_transitions();
+  FD_LOG_NOTICE(( "test_invalid_transitions() passed" ));
 
   test_random();
   FD_LOG_NOTICE(( "test_random() passed" ));
