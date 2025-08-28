@@ -65,6 +65,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
   slot_ctx->bank = fd_banks_rekey_root_bank( slot_ctx->banks, &manifest_block_id );
 
+  FD_LOG_WARNING(("RECOVERING BANK %lx", fd_bank_block_id_query( slot_ctx->bank )->ul[0] ));
+
   /* Slot */
   fd_bank_slot_set( slot_ctx->bank, manifest->slot );
 

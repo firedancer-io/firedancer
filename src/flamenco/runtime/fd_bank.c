@@ -493,8 +493,8 @@ fd_banks_init_bank( fd_banks_t * banks,
 }
 
 fd_bank_t *
-fd_banks_get_bank( fd_banks_t * banks,
-                    fd_hash_t * block_id ) {
+fd_banks_get_bank( fd_banks_t *       banks,
+                    fd_hash_t const * block_id ) {
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
@@ -518,9 +518,9 @@ fd_banks_get_bank( fd_banks_t * banks,
 
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t * banks,
-                            fd_hash_t *  merkle_hash,
-                            fd_hash_t *  parent_block_id ) {
+fd_banks_clone_from_parent( fd_banks_t *      banks,
+                            fd_hash_t const * merkle_hash,
+                            fd_hash_t const * parent_block_id ) {
 
   fd_rwlock_write( &banks->rwlock );
 

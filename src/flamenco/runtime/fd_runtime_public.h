@@ -115,7 +115,7 @@ fd_exec_fseq_is_not_joined( ulong fseq ) {
 
 struct fd_runtime_public_txn_msg {
   ulong      slot;
-  fd_hash_t  merkle_hash;
+  ulong      bank_idx;
   fd_txn_p_t txn;
 };
 typedef struct fd_runtime_public_txn_msg fd_runtime_public_txn_msg_t;

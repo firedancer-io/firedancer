@@ -711,8 +711,8 @@ fd_banks_init_bank( fd_banks_t * banks,
    is being accessed.  This is done through the reference counter. */
 
 fd_bank_t *
-fd_banks_get_bank( fd_banks_t * banks,
-                   fd_hash_t *  block_id );
+fd_banks_get_bank( fd_banks_t *      banks,
+                   fd_hash_t const * block_id );
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
    If the bank corresponding to the parent slot does not exist,
@@ -727,9 +727,9 @@ fd_banks_get_bank( fd_banks_t * banks,
    semantics of the Agave client. */
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t * banks,
-                            fd_hash_t *  merkle_hash,
-                            fd_hash_t *  parent_block_id );
+fd_banks_clone_from_parent( fd_banks_t *      banks,
+                            fd_hash_t const * merkle_hash,
+                            fd_hash_t const * parent_block_id );
 
 /* fd_banks_publish() publishes a bank to the bank manager. This
    should only be used when a bank is no longer needed. This will

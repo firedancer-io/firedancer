@@ -424,14 +424,13 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   *txn_ctx->funk                  = *slot_ctx->funk;
   txn_ctx->bank_hash_cmp          = NULL;
 
-  fd_hash_t block_id = { .ul[0] = 1234UL }; /* random */
   *exec_res = fd_runtime_prepare_and_execute_txn(
       slot_ctx->banks,
+      0UL,
       txn_ctx,
       txn,
       runner->spad,
       fd_bank_slot_get( slot_ctx->bank ),
-      &block_id,
       NULL,
       0 );
 
