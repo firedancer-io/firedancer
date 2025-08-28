@@ -146,7 +146,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    ulong                 programdata_size,
                    fd_spad_t *           spad ) {
   int deploy_mode                          = 1;
-  int direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, bpf_account_data_direct_mapping );
+  int direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, direct_mapping_2 );
   int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( spad,
@@ -420,7 +420,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   fd_vm_input_region_t    input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                   = 0U;
-  int                     direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, bpf_account_data_direct_mapping );
+  int                     direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, direct_mapping_2 );
   int                     stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
   int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, mask_out_rent_epoch_in_vm_serialization );
 

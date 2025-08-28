@@ -54,7 +54,7 @@ test_program_success( char *                test_case_name,
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, direct_mapping_2 ),
       /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
@@ -253,7 +253,7 @@ test_0cu_exit( void ) {
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, direct_mapping_2 ),
       /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
@@ -286,7 +286,7 @@ test_0cu_exit( void ) {
       /* mem_regions_cnt                      */ 0UL,
       /* mem_regions_accs                     */ NULL,
       /* is_deprecated                        */ 0,
-      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, direct_mapping_2 ),
       /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
