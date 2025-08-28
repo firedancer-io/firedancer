@@ -298,7 +298,8 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  int direct_mapping = FD_FEATURE_ACTIVE( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), bpf_account_data_direct_mapping );
+  int direct_mapping                       = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), account_data_direct_mapping );
+  int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), stricter_abi_and_runtime_constraints );
 
   vm = fd_vm_init( vm,
                    NULL, /* OK since unused in `fd_vm_validate()` */
@@ -321,6 +322,7 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
                    NULL,
                    0,
                    direct_mapping,
+                   stricter_abi_and_runtime_constraints,
                    0 );
 
   if( FD_UNLIKELY( !vm ) ) {
