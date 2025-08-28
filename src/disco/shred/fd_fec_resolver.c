@@ -309,19 +309,15 @@ ctx_ll_insert( set_ctx_t * p, set_ctx_t * c ) {
   return c;
 }
 
-
 int
-fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                           fd_shred_t const     * shred,
-                           ulong                  shred_sz,
-                           uchar const          * leader_pubkey,
-                           fd_fec_set_t const * * out_fec_set,
-                           fd_shred_t const   * * out_shred,
-                           fd_bmtree_node_t     * out_merkle_root,
-                           ulong                * out_spilled_slot,
-                           uint                 * out_spilled_fec_set_idx,
-                           uint                 * out_max_dshred_idx ) {
-
+fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
+                           fd_shred_t const          * shred,
+                           ulong                       shred_sz,
+                           uchar const               * leader_pubkey,
+                           fd_fec_set_t const      * * out_fec_set,
+                           fd_shred_t const        * * out_shred,
+                           fd_bmtree_node_t          * out_merkle_root,
+                           fd_fec_resolver_spilled_t * out_spilled ) {
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
   ulong done_depth    = resolver->done_depth;
@@ -425,25 +421,27 @@ fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       set_ctx_t * victim_ctx = resolver->curr_ll_sentinel->prev;
 
 
-      if( FD_LIKELY( out_spilled_slot || out_spilled_fec_set_idx || out_max_dshred_idx ) ) {
+      if( FD_LIKELY( out_spilled ) ) {
         fd_fec_set_t * set = victim_ctx->set;
 
         /* Find the highest data shred received in the FEC set */
 
         ulong max_rcvd_dshred_idx = d_rcvd_last( set->data_shred_rcvd );
         fd_shred_t const * max_shred;
-        if( max_rcvd_dshred_idx == ~0UL ) {
+        if( FD_UNLIKELY( max_rcvd_dshred_idx == ~0UL ) ) {
           max_rcvd_dshred_idx = FD_SHRED_BLK_MAX; /* No data shreds received. Use a parity shred to determine the spilled slot and fec_set_idx */
           max_shred = fd_shred_parse( set->parity_shreds[ p_rcvd_first( set->parity_shred_rcvd ) ], FD_SHRED_MAX_SZ );
         } else {
           max_shred = fd_shred_parse( set->data_shreds  [ max_rcvd_dshred_idx ],                    FD_SHRED_MIN_SZ );
         }
 
-        if( FD_LIKELY( out_spilled_slot        ) ) *out_spilled_slot        = max_shred->slot;
-        if( FD_LIKELY( out_spilled_fec_set_idx ) ) *out_spilled_fec_set_idx = max_shred->fec_set_idx;
-        if( FD_LIKELY( out_max_dshred_idx      ) ) *out_max_dshred_idx      = (uint)max_rcvd_dshred_idx;
+        if( FD_LIKELY( out_spilled ) ) {
+          out_spilled->slot           = max_shred->slot;
+          out_spilled->fec_set_idx    = max_shred->fec_set_idx;
+          out_spilled->max_dshred_idx = (uint)max_rcvd_dshred_idx;
+        }
 
-        FD_LOG_INFO(("Thrashed from fec_resolver in-progress map %lu %u, data_shreds_rcvd %lu, parity_shreds_rcvd %lu, max_d_rcvd_shred_idx %lu", max_shred->slot, max_shred->fec_set_idx, d_rcvd_cnt( set->data_shred_rcvd ), p_rcvd_cnt( set->parity_shred_rcvd ), max_rcvd_dshred_idx ));
+        FD_LOG_INFO(("Spilled from fec_resolver in-progress map %lu %u, data_shreds_rcvd %lu, parity_shreds_rcvd %lu, max_d_rcvd_shred_idx %lu", max_shred->slot, max_shred->fec_set_idx, d_rcvd_cnt( set->data_shred_rcvd ), p_rcvd_cnt( set->parity_shred_rcvd ), max_rcvd_dshred_idx ));
       }
 
       freelist_push_tail( free_list,        victim_ctx->set  );
