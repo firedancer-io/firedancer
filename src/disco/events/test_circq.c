@@ -19,7 +19,7 @@ test_simple1( void ) {
 
 void
 test_simple2( void ) {
-  uchar buf[ 32UL+1024UL ];
+  uchar buf[ 128UL+4096UL ];
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 64UL ) );
   FD_TEST( circq );
 
@@ -61,7 +61,7 @@ test_simple2( void ) {
   msg = fd_circq_push_back( circq, 1UL, 9UL );
   msg[ 0 ] = 'X';
   msg[ 7 ] = 'A';
-  
+
   msg = fd_circq_push_back( circq, 1UL, 8UL );
   msg[ 0 ] = '2';
   msg[ 7 ] = '3';
@@ -76,7 +76,7 @@ test_simple2( void ) {
 
 void
 test_simple3( void ) {
-  uchar buf[ 32UL+1024UL ];
+  uchar buf[ 128UL+4096UL ];
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 128 ) );
   FD_TEST( circq );
 
@@ -91,7 +91,7 @@ test_simple3( void ) {
 
 void
 test_bounds( void ) {
-  uchar buf[ 32UL+1024UL ];
+  uchar buf[ 128UL+4096UL ];
   fd_circq_t * circq = fd_circq_join( fd_circq_new( buf, 1024UL ) );
   FD_TEST( circq );
 
