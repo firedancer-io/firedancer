@@ -238,5 +238,7 @@
   {"name":"enable_extend_program_checked","pubkey":"2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz"},
   {"name":"require_static_nonce_account","pubkey":"7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm"},
   {"name":"enable_vote_address_leader_schedule","pubkey":"5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y"},
-  {"name":"enshrine_slashing_program","pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"}
+  {"name":"enshrine_slashing_program","pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"},
+  {"name":"stricter_abi_and_runtime_constraints","pubkey":"C37iaPi6VE4CZDueU1vL8y6pGp5i8amAbEsF31xzz723"},
+  {"name":"direct_mapping_2","pubkey":"qTcv56zqjacegAfYXCciP1TAz7J4w6G43263C1ugD4S"}
 ]
