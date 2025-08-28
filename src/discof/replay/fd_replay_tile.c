@@ -952,8 +952,7 @@ fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                 
       &msg->pubkey,
       &msg->info,
       account_data,
-      msg->data_sz,
-      &msg->hash );
+      msg->data_sz );
   }
 }
 

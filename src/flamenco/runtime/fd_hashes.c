@@ -84,8 +84,7 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
       account->pubkey,
       &meta->info,
       fd_txn_account_get_data( account ),
-      fd_txn_account_get_data_len( account ),
-      new_hash->bytes /* truncated to 32 */ );
+      fd_txn_account_get_data_len( account ) );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Failed to write account to capture file" ));
     }

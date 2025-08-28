@@ -299,8 +299,8 @@ fd_solcap_dump_account_data( fd_solcap_differ_t *            diff,
                              fd_solcap_account_tbl_t const * entry,
                              void const *                    acc_data ) {
   /* Create dump file */
-  char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
-  int res = snprintf( path, sizeof(path), "%s-%s.bin", FD_BASE58_ENC_32_ALLOCA( entry->key ), FD_BASE58_ENC_32_ALLOCA( entry->hash ) );
+  char path[ FD_BASE58_ENCODED_32_LEN+4+1 ];
+  int res = snprintf( path, sizeof(path), "%s.bin", FD_BASE58_ENC_32_ALLOCA( entry->key ) );
   FD_TEST( (res>0) & (res<(int)sizeof(path)) );
   int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
   if( FD_UNLIKELY( fd<0 ) )
@@ -379,21 +379,21 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
       }
 
       /* Inform user */
-      printf( "        (%s) data:       %s/%s-%s.bin\n"
-              "        (%s) data:       %s/%s-%s.bin\n"
-              "                        vimdiff <(xxd '%s/%s-%s.bin') <(xxd '%s/%s-%s.bin')\n",
-              diff->file_paths[0], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ), FD_BASE58_ENC_32_ALLOCA( entry[0]->hash ),
-              diff->file_paths[1], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ), FD_BASE58_ENC_32_ALLOCA( entry[1]->hash ),
-              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ), FD_BASE58_ENC_32_ALLOCA( entry[0]->hash ),
-              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ), FD_BASE58_ENC_32_ALLOCA( entry[1]->hash ) );
+      printf( "        (%s) data:       %s/%s.bin\n"
+              "        (%s) data:       %s/%s.bin\n"
+              "                        vimdiff <(xxd '%s/%s.bin') <(xxd '%s/%s.bin')\n",
+              diff->file_paths[0], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
+              diff->file_paths[1], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ),
+              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
+              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ) );
 
       if( fd_solcap_can_pretty_print( meta[0].owner, entry[0]->key )
         & fd_solcap_can_pretty_print( meta[1].owner, entry[1]->key ) ) {
 
         for( ulong i=0UL; i<2UL; i++ ) {
           /* Create YAML file */
-          char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
-          int res = snprintf( path, sizeof(path), "%s-%s.yml", FD_BASE58_ENC_32_ALLOCA( entry[i]->key ), FD_BASE58_ENC_32_ALLOCA( entry[i]->hash) );
+          char path[ FD_BASE58_ENCODED_32_LEN+4+1 ];
+          int res = snprintf( path, sizeof(path), "%s.yml", FD_BASE58_ENC_32_ALLOCA( entry[i]->key ) );
           FD_TEST( (res>0) & (res<(int)sizeof(path)) );
           int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
           if( FD_UNLIKELY( fd<0 ) )
@@ -408,9 +408,9 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
 
         /* Inform user */
-        printf( "                 vimdiff '%s/%s-%s.yml' '%s/%s-%s.yml'\n",
-          diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ), FD_BASE58_ENC_32_ALLOCA( entry[0]->hash ),
-          diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ), FD_BASE58_ENC_32_ALLOCA( entry[1]->hash ) );
+        printf( "                 vimdiff '%s/%s.yml' '%s/%s.yml'\n",
+          diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
+          diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ) );
 
       }
     } FD_SCRATCH_SCOPE_END;
@@ -528,11 +528,11 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
       fd_solcap_dump_account_data( diff, meta, entry, acc_data );
 
       /* Inform user */
-      printf( "        data:       %s/%s-%s.bin\n"
-              "               xxd '%s/%s-%s.bin'\n"
+      printf( "        data:       %s/%s.bin\n"
+              "               xxd '%s/%s.bin'\n"
               "        explorer:  'https://explorer.solana.com/block/%lu?accountFilter=%s&filter=all'",
-              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry->key ), FD_BASE58_ENC_32_ALLOCA( entry->hash ),
-              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry->key ), FD_BASE58_ENC_32_ALLOCA( entry->hash ),
+              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry->key ),
+              diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry->key ),
               meta->slot, FD_BASE58_ENC_32_ALLOCA( entry->key ) );
 
 #pragma GCC diagnostic push
@@ -540,8 +540,8 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
       if( fd_solcap_can_pretty_print( meta->owner, entry->key ) ) {
 #pragma GCC diagnostic pop
         /* Create YAML file */
-        char path[ FD_BASE58_ENCODED_32_LEN+1+FD_BASE58_ENCODED_32_LEN+4+1 ];
-        int res = snprintf( path, sizeof(path), "%s-%s.yml", FD_BASE58_ENC_32_ALLOCA( entry->key ), FD_BASE58_ENC_32_ALLOCA( entry->hash ) );
+        char path[ FD_BASE58_ENCODED_32_LEN+4+1 ];
+        int res = snprintf( path, sizeof(path), "%s.yml", FD_BASE58_ENC_32_ALLOCA( entry->key ) );
         FD_TEST( (res>0) & (res<(int)sizeof(path)) );
         int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
         if( FD_UNLIKELY( fd<0 ) )
@@ -554,8 +554,8 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
         fclose( file );  /* closes fd */
 
         /* Inform user */
-        printf( "                 cat '%s/%s-%s.yml'\n",
-          diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry->key ), FD_BASE58_ENC_32_ALLOCA( entry->hash ) );
+        printf( "                 cat '%s/%s.yml'\n",
+          diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry->key ) );
       }
     } FD_SCRATCH_SCOPE_END;
   }
@@ -656,22 +656,10 @@ fd_solcap_diff_account_tbl( fd_solcap_differ_t * diff ) {
 
     int key_cmp = memcmp( a->key, b->key, 32UL );
     if( key_cmp==0 ) {
-      int hash_cmp = memcmp( a->hash, b->hash, 32UL );
-      if( hash_cmp!=0 ) {
-        has_mismatch = 1;
-        printf( "\n    (in both files) account:  %s\n"
-                "        (%s)  hash:       %s\n"
-                "        (%s)  hash:       %s\n",
-                FD_BASE58_ENC_32_ALLOCA( a->key ),
-                diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( a->hash ),
-                diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( b->hash ) );
-
-        if( diff->verbose >= 3 ) {
-          fd_solcap_account_tbl_t const * const entry_pair[2] = {a, b};
-          fd_solcap_diff_account( diff, entry_pair, chunk_goff );
-        }
+      if( diff->verbose >= 3 ) {
+        fd_solcap_account_tbl_t const * const entry_pair[2] = {a, b};
+        fd_solcap_diff_account( diff, entry_pair, chunk_goff );
       }
-
       idx[0]++;
       idx[1]++;
       continue;
@@ -729,27 +717,36 @@ fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
 
   FD_TEST( pre[0].slot == pre[1].slot );
 
-  int has_mismatch = 0;
-  if( 0!=memcmp( pre[0].bank_hash, pre[1].bank_hash, 32UL ) ) has_mismatch = 1;
-  if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) has_mismatch = 1;
-  if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) has_mismatch = 1;
-  if( 0!=memcmp( pre[0].accounts_lt_hash_checksum, pre[1].accounts_lt_hash_checksum, 32UL ) ) has_mismatch = 1;
-  if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) has_mismatch = 1;
-  if( pre[0].signature_cnt != pre[1].signature_cnt ) has_mismatch = 1;
-  if( pre[0].account_cnt != pre[1].account_cnt ) has_mismatch = 1;
+  int has_bank_hash_mismatch = 0!=memcmp( pre[0].bank_hash, pre[1].bank_hash, 32UL );
 
-  if( has_mismatch )
-    printf( "\nbank hash mismatch at slot=%lu\n", pre[0].slot );
-  else if ( diff->verbose <= 1 ) {
-    return 0;
+  int has_any_mismatch = has_bank_hash_mismatch;
+  if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) has_any_mismatch = 1;
+  if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) has_any_mismatch = 1;
+  if( 0!=memcmp( pre[0].accounts_lt_hash_checksum, pre[1].accounts_lt_hash_checksum, 32UL ) ) has_any_mismatch = 1;
+  if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) has_any_mismatch = 1;
+  if( pre[0].signature_cnt != pre[1].signature_cnt ) has_any_mismatch = 1;
+  if( pre[0].account_cnt != pre[1].account_cnt ) has_any_mismatch = 1;
+
+
+  if( diff->verbose < 2 ) {
+    if( has_bank_hash_mismatch ) {
+      printf( "\nbank hash mismatch at slot=%lu\n", pre[0].slot );
+      printf( "(%s) bank_hash:  %s\n"
+              "(%s) bank_hash:  %s\n",
+              diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].bank_hash ),
+              diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].bank_hash ) );
+    }
+    return has_bank_hash_mismatch;
   }
+
+  if( has_any_mismatch )
+    printf( "\nbank hash mismatch at slot=%lu\n", pre[0].slot );
 
   if( 0!=memcmp( pre[0].bank_hash, pre[1].bank_hash, 32UL ) ) {
     printf( "(%s) bank_hash:  %s\n"
             "(%s) bank_hash:  %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].bank_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].bank_hash ) );
-    has_mismatch = 1;
   }
 
   if( 0!=memcmp( pre[0].account_delta_hash, pre[1].account_delta_hash, 32UL ) ) {
@@ -757,53 +754,47 @@ fd_solcap_diff_bank( fd_solcap_differ_t * diff ) {
             "(%s) account_delta_hash:  %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].account_delta_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].account_delta_hash ) );
-    has_mismatch = 1;
   }
   if( 0!=memcmp( pre[0].accounts_lt_hash_checksum, pre[1].accounts_lt_hash_checksum, 32UL ) ) {
     printf( "(%s) accounts_lt_hash_checksum:  %s\n"
             "(%s) accounts_lt_hash_checksum:  %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].accounts_lt_hash_checksum ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].accounts_lt_hash_checksum ) );
-    has_mismatch = 1;
   }
   if( 0!=memcmp( pre[0].prev_bank_hash, pre[1].prev_bank_hash, 32UL ) ) {
     printf( "(%s) prev_bank_hash:      %s\n"
             "(%s) prev_bank_hash:      %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].prev_bank_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].prev_bank_hash ) );
-    has_mismatch = 1;
   }
   if( 0!=memcmp( pre[0].poh_hash, pre[1].poh_hash, 32UL ) ) {
     printf( "(%s) poh_hash:            %s\n"
             "(%s) poh_hash:            %s\n",
             diff->file_paths[0], FD_BASE58_ENC_32_ALLOCA( pre[0].poh_hash ),
             diff->file_paths[1], FD_BASE58_ENC_32_ALLOCA( pre[1].poh_hash ) );
-    has_mismatch = 1;
   }
   if( pre[0].signature_cnt != pre[1].signature_cnt ) {
     printf( "(%s) signature_cnt:       %lu\n"
             "(%s) signature_cnt:       %lu\n",
             diff->file_paths[0], pre[0].signature_cnt,
             diff->file_paths[1], pre[1].signature_cnt );
-    has_mismatch = 1;
   }
   if( pre[0].account_cnt != pre[1].account_cnt ) {
     printf( "(%s) account_cnt:         %lu\n"
             "(%s) account_cnt:         %lu\n",
             diff->file_paths[0], pre[0].account_cnt,
             diff->file_paths[1], pre[1].account_cnt );
-    has_mismatch = 1;
   }
   printf( "\n" );
 
   int has_account_tbl_mismatch = 0;
-  if( diff->verbose >= 2 ) {
+  if( diff->verbose >= 3 ) {
     fd_scratch_push();
     has_account_tbl_mismatch = fd_solcap_diff_account_tbl( diff );
     fd_scratch_pop();
   }
 
-  return has_mismatch || has_account_tbl_mismatch;
+  return has_any_mismatch || has_account_tbl_mismatch;
 }
 
 /* Diffs two transaction results with each other. */
@@ -1239,7 +1230,7 @@ main( int     argc,
      files contain transaction info, this will produce a diff between the two
      files. If one of the files contains the solana transaction info, then we
      will also print the diffs between the solana and firedancer execution.  */
-  if ( verbose >= 3 ) {
+  if ( verbose >= 4 ) {
     printf( "\nTransaction diffs:\n" );
     fd_solcap_transaction_diff( cap_file[0], cap_file[1] );
   }
