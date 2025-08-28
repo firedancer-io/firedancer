@@ -183,7 +183,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   slot_ctx->funk_txn  = funk_txn;
   slot_ctx->funk      = funk;
-  runner->bank->slot_ = slot;
   slot_ctx->silent    = 1;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
@@ -191,7 +190,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* All bank mgr stuff here. */
 
-  slot_ctx->bank->slot_ = slot;
+  fd_bank_slot_set( slot_ctx->bank, slot );
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 

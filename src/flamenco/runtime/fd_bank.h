@@ -788,8 +788,8 @@ fd_banks_rekey_root_bank( fd_banks_t * banks,
    Returns 0 if no such block can be found. */
 int
 fd_banks_publish_prepare( fd_banks_t * banks,
-                          ulong        target_slot,
-                          ulong *      publishable_slot );
+                          fd_hash_t *  target_block_id,
+                          fd_hash_t *  publishable_block_id );
 
 
 /* Updates the current bank to have a new block id. The block id of a
@@ -798,20 +798,6 @@ fd_banks_publish_prepare( fd_banks_t * banks,
    is the last merkle hash of an FEC set. As the block executes, the key
    of the bank should be equal to the most recently executed merkle
    hash. */
-
-void
-fd_banks_update_bank_block_id( fd_banks_t * banks,
-                               fd_bank_t *  bank,
-                               fd_hash_t *  block_id );
-
-fd_bank_t *
-fd_banks_get_bank_by_block_id( fd_banks_t * banks,
-                               fd_hash_t *  block_id );
-
-fd_bank_t *
-fd_banks_clone_from_parent_block_id( fd_banks_t * banks,
-                                     fd_hash_t *  merkle_hash,
-                                     fd_hash_t *  parent_block_id );
 
 void
 fd_banks_rekey_bank_by_block_id( fd_banks_t * banks,
