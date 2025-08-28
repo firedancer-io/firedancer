@@ -71,6 +71,9 @@ struct fd_exec_tile_ctx {
   /* Current slot being executed. */
   ulong                 slot;
 
+  /* Current merkle hash of the bank being executed. */
+  fd_hash_t             merkle_hash;
+
   /* Current bank being executed. */
   fd_banks_t *          banks;
 
@@ -101,6 +104,7 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
       &ctx->txn,
       ctx->exec_spad,
       ctx->slot,
+      &ctx->merkle_hash,
       ctx->capture_ctx,
       1
   );
@@ -126,8 +130,9 @@ during_frag( fd_exec_tile_ctx_t * ctx,
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      ctx->txn  = txn->txn;
-      ctx->slot = txn->slot;
+      ctx->txn         = txn->txn;
+      ctx->slot        = txn->slot;
+      ctx->merkle_hash = txn->merkle_hash;
       execute_txn( ctx );
       return;
     } else {
