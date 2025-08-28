@@ -47,8 +47,7 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer  FD_PARAM_UNUSE
                          void const *                     key     FD_PARAM_UNUSED,
                          fd_solana_account_meta_t const * meta    FD_PARAM_UNUSED,
                          void const *                     data    FD_PARAM_UNUSED,
-                         ulong                            data_sz FD_PARAM_UNUSED,
-                         void const *                     hash    FD_PARAM_UNUSED ) {
+                         ulong                            data_sz FD_PARAM_UNUSED ) {
   return 0;
 }
 

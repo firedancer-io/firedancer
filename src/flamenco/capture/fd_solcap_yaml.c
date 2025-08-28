@@ -25,8 +25,8 @@ usage( void ) {
   return 0;
 }
 
-/* process_account reads and dumps a single account.  If verbose>4,
-   includes a base64 dump of account content. */
+/* process_account reads and dumps a single account.  Always shows
+   account metadata. If verbose>=4, includes a base64 dump of account content. */
 
 static int
 process_account( FILE * file,
@@ -103,7 +103,7 @@ process_account( FILE * file,
 
   /* Optionally print account data */
 
-  if( verbose>4 ) {
+  if( verbose>=4 ) {
     printf( "      data: '" );
 
     /* Seek to account data */
@@ -153,9 +153,9 @@ process_account( FILE * file,
 }
 
 /* process_account_table reads and dumps an account table chunk.
-   If verbose>3, also prints account content.  Returns 1 on success and
-   0 on failure.  On success, restores stream cursor to position on
-   function entry. */
+   If verbose>=3, prints account metadata. If verbose>=4, also prints
+   account data content.  Returns 1 on success and 0 on failure.  On
+   success, restores stream cursor to position on function entry. */
 
 static int
 process_account_table( FILE * file,
@@ -270,16 +270,14 @@ process_account_table( FILE * file,
 
     printf(
       "    - pubkey:   '%s'\n"
-      "      hash:     '%s'\n"
       "      explorer: 'https://explorer.solana.com/block/%lu?accountFilter=%s&filter=all'\n",
       FD_BASE58_ENC_32_ALLOCA( entries[i].entry.key ),
-      FD_BASE58_ENC_32_ALLOCA( entries[i].entry.hash ),
       slot,
       FD_BASE58_ENC_32_ALLOCA( entries[i].entry.key ) );
 
     /* Fetch account details */
 
-    if( verbose > 3 ) {
+    if( verbose >= 3 ) {
       long acc_goff = (long)pos + entries[i].acc_coff;
       if( FD_UNLIKELY( !process_account( file, acc_goff, verbose ) ) ) {
         FD_LOG_ERR(( "process_account() failed" ));
@@ -302,9 +300,9 @@ process_account_table( FILE * file,
   return 0;
 }
 
-/* process_bank reads and dumps a bank chunk.  If verbose>1, also
-   processes account table.  Returns errno (0 on success).  Stream
-   cursor is undefined on return. */
+/* process_bank reads and dumps a bank chunk.  If verbose>=3, also
+   processes account table.  If verbose>=4, includes detailed content.
+   Returns errno (0 on success).  Stream cursor is undefined on return. */
 
 static int
 process_bank( fd_solcap_chunk_t const * chunk,
@@ -350,14 +348,14 @@ process_bank( fd_solcap_chunk_t const * chunk,
   }
 
   /* Write YAML */
-  if ( verbose < 3 || !has_txns )
+  if ( verbose < 4 || !has_txns )
     printf( "- slot: %lu\n", meta.slot );
 
   printf(
       "  - bank_hash:                 '%s'\n",
       FD_BASE58_ENC_32_ALLOCA( meta.bank_hash ) );
 
-  if( verbose>=1 ) {
+  if( verbose>=2 ) {
     printf(
       "  - prev_bank_hash:            '%s'\n"
       "  - account_delta_hash:        '%s'\n"
@@ -373,7 +371,7 @@ process_bank( fd_solcap_chunk_t const * chunk,
 
   /* Accounts */
 
-  if( verbose >= 2 ) {
+  if( verbose >= 3 ) {
     if( meta.account_table_coff==0L ) {
       if( meta.account_cnt > 0UL )
         FD_LOG_WARNING(( "Capture does not include account info for slot=%lu", meta.slot ));
@@ -402,7 +400,7 @@ process_txn( fd_solcap_chunk_t const * chunk,
              ulong                     start_slot,
              ulong                     end_slot ) {
 
-if ( verbose < 3 )
+if ( verbose < 4 )
   return 0;
 
 # define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)

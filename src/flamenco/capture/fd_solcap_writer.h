@@ -96,8 +96,7 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
                          void const *                     key,
                          fd_solana_account_meta_t const * meta,
                          void const *                     data,
-                         ulong                            data_sz,
-                         void const *                     hash );
+                         ulong                            data_sz );
 
 int
 fd_solcap_write_account2( fd_solcap_writer_t *             writer,

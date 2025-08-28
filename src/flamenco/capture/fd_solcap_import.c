@@ -180,7 +180,6 @@ unmarshal_account( cJSON const *             json,
   meta->executable = cJSON_IsBool( executable_o ) & cJSON_IsTrue( executable_o );
 
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "pubkey" ), rec->key    ) );
-  FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "hash"   ), rec->hash   ) );
   FD_TEST( unmarshal_hash( cJSON_GetObjectItem( json, "owner"  ), meta->owner ) );
 
   /* Data handling ... Base64 decode */

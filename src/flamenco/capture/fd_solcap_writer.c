@@ -360,26 +360,13 @@ fd_solcap_write_account( fd_solcap_writer_t *             writer,
                          void const *                     key,
                          fd_solana_account_meta_t const * meta,
                          void const *                     data,
-                         ulong                            data_sz,
-                         void const *                     hash FD_PARAM_UNUSED ) {
-
-  uchar account_hash[32];
-  fd_blake3_t b31[1];
-  fd_blake3_init( b31 );
-  fd_blake3_append( b31, &meta->lamports,   sizeof( ulong ) );
-  fd_blake3_append( b31, &meta->rent_epoch, sizeof( ulong ) );
-  fd_blake3_append( b31, data,              data_sz         );
-  fd_blake3_append( b31, &meta->executable, sizeof( uchar ) );
-  fd_blake3_append( b31, meta->owner,       32UL            );
-  fd_blake3_append( b31, key,               32UL            );
-  fd_blake3_fini  ( b31,  account_hash );
+                         ulong                            data_sz ) {
 
   if( FD_LIKELY( !writer ) ) return 0;
 
   fd_solcap_account_tbl_t rec[1];
   memset( rec, 0, sizeof(fd_solcap_account_tbl_t) );
   memcpy( rec->key,  key,  32UL );
-  memcpy( rec->hash, account_hash, 32UL );
 
   fd_solcap_AccountMeta meta_pb[1] = {{
     .lamports   = meta->lamports,

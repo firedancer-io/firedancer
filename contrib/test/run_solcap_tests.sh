@@ -30,4 +30,5 @@ $OBJDIR/bin/firedancer-dev configure init all --config $DUMP_DIR/$LEDGER/devnet-
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP_DIR/$LEDGER/devnet-398736132_current.toml
 $OBJDIR/bin/firedancer-dev configure fini all --config $DUMP_DIR/$LEDGER/devnet-398736132_current.toml &> /dev/null
 
-$OBJDIR/bin/fd_solcap_diff $DUMP_DIR/$LEDGER/solana.solcap $DUMP_DIR/$LEDGER/fd.solcap -v 4
+$OBJDIR/bin/fd_solcap_import $DUMP_DIR/$LEDGER/bank_hash_details/ $DUMP_DIR/$LEDGER/solana.solcap
+$OBJDIR/bin/fd_solcap_diff $DUMP_DIR/$LEDGER/solana.solcap $DUMP_DIR/$LEDGER/fd.solcap -v 1
