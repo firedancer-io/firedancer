@@ -331,6 +331,7 @@ after_frag( ctx_t *             ctx,
   case IN_KIND_REPLAY: {
     ulong slot = ctx->replay_slot_info.slot;
     if ( slot==0 ) {
+      FD_TEST( !ctx->start_from_genesis );
       ctx->start_from_genesis = 1;
       ctx->root = 0UL; /* Set root for genesis case */
       ctx->start_slot = 0UL; /* Set start_slot for genesis case */
@@ -348,23 +349,9 @@ after_frag( ctx_t *             ctx,
       ctx->rocksdb_end_idx = 0;
 
       FD_LOG_NOTICE(( "Genesis case: initialized RocksDB iterator for slot %lu", ctx->root ));
-    } else if ( ctx->start_from_genesis ) {
-      /* For genesis case, ensure we're reading slots sequentially */
-      FD_LOG_NOTICE(( "Genesis case: ensuring we read slot %lu sequentially", slot ));
-      /* Force the iterator to seek to the specific slot we want */
-      if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
-        FD_LOG_WARNING(( "Failed at seeking rocksdb root iter for slot %lu - slot may not exist", slot ));
-        /* If slot doesn't exist in RocksDB, we might need to skip it */
-        return;
-      }
-      ctx->rocksdb_curr_idx = 0;
-      ctx->rocksdb_end_idx = 0;
     }
-    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_out.bank_hash );
 
-    /* Enable credit to allow sending next slot's data */
-    ctx->credit = 1;
-
+    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_slot_info.bank_hash );
     if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
       ctx->replay_time    += fd_log_wallclock();
       double replay_time_s = (double)ctx->replay_time * 1e-9;

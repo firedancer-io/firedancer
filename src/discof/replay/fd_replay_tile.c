@@ -1222,18 +1222,29 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
   publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
 
   if( FD_LIKELY( ctx->replay_out_idx != ULONG_MAX && !ctx->read_only ) ) {
-    fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( ctx->slot_ctx->bank );
-    fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( ctx->slot_ctx->bank ) );
+    fd_hash_t parent_block_id;
+    memset(&parent_block_id, 0, sizeof(parent_block_id));
+    fd_bank_t * bank = ctx->slot_ctx->bank;
+
+    fd_hash_t * block_id = fd_bank_block_id_modify( bank );
+    fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
+    fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+    FD_TEST( block_id        );
     FD_TEST( bank_hash       );
     FD_TEST( block_hash      );
-    fd_replay_out_t out = {
+    fd_replay_slot_info_t out = {
+      .slot            = 0,
+      .block_id        = *block_id,
+      .parent_block_id = parent_block_id,
       .bank_hash       = *bank_hash,
       .block_hash      = *block_hash,
     };
+
+    /* Send the end of slot info message down the replay_out link */
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-    memcpy( chunk_laddr, &out, sizeof(fd_replay_out_t) );
-    fd_stem_publish( stem, ctx->replay_out_idx, curr_slot, ctx->replay_out_chunk, sizeof(fd_replay_out_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_out_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+    memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
+    fd_stem_publish( stem, ctx->replay_out_idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out_chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
   }
 
   FD_TEST( ctx->slot_ctx );
