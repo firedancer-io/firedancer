@@ -856,7 +856,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
     if( FD_UNLIKELY( !fec_sig && !fec_completes ) ) {
       fec_sig = fd_fec_sig_insert( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx );
-      FD_TEST( fec_sig );
       memcpy( fec_sig->sig, shred->signature, sizeof(fd_ed25519_sig_t) );
     }
 
@@ -867,9 +866,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( fec_completes ) ) {
       fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-      for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, idx, shred->fec_set_idx, 0 );
-      }
+      fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, 0 );
       FD_TEST( ele ); /* must be non-empty */
 
       fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ );
