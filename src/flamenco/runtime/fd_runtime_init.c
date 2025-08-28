@@ -55,7 +55,7 @@ fd_feature_restore( fd_features_t *         features,
     }
 
     if( feature->has_activated_at ) {
-      FD_LOG_INFO(( "Feature %s activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
+      FD_LOG_DEBUG(( "Feature %s activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
       fd_features_set( features, id, feature->activated_at );
     } else {
       FD_LOG_DEBUG(( "Feature %s not activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));

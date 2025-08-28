@@ -2263,28 +2263,30 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
-
       fd_vote_states_update_from_account( vote_states, &acc->key, acc->account.data, acc->account.data_len );
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
       /* stake program account */
-      fd_stake_state_v2_t   stake_state   = {0};
-
-      uchar * stake_acc_mem = fd_spad_alloc( runtime_spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + acc->account.data_len );
-      fd_account_meta_t * stake_meta = (fd_account_meta_t *)stake_acc_mem;
-      fd_wksp_t *         wksp       = fd_wksp_containing( stake_acc_mem );
-
-      fd_txn_account_t stake_acc[1];
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+      FD_TXN_ACCOUNT_DECL( stake_acc );
+      int err = fd_txn_account_init_from_funk_readonly(
           stake_acc,
-          &fd_solana_stake_program_id,
-          stake_meta,
-          1 ), wksp ) ) ) {
-        FD_LOG_CRIT(( "Failed to join and new a txn account" ));
+          &acc->key,
+          slot_ctx->funk,
+          slot_ctx->funk_txn );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_CRIT(( "Failed to init stake account from ffunk" ));
       }
 
-      FD_TEST( fd_stake_get_state( stake_acc, &stake_state ) == 0 );
+      fd_stake_state_v2_t stake_state = {0};
+      if( FD_UNLIKELY( fd_stake_get_state( stake_acc, &stake_state )!=0 ) ) {
+        FD_LOG_CRIT(( "Failed to get stake state" ));
+      }
+
+      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+        continue;
+      }
+
       if( !stake_state.inner.stake.stake.delegation.stake ) {
         continue;
       }
@@ -2337,6 +2339,17 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       }
     }
   }
+  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+
+  ulong new_rate_activation_epoch = 0UL;
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_refresh_vote_accounts(
+      slot_ctx,
+      stake_delegations,
+      stake_history,
+      &new_rate_activation_epoch );
+
+  fd_vote_states_t const * vote_states_curr = fd_bank_vote_states_locking_query( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
@@ -2345,19 +2358,20 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
 
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-
+      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states_curr, &acc->key );
       fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc->account.data, acc->account.data_len );
       fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc->account.data, acc->account.data_len );
+      fd_vote_states_update_stake( vote_states_prev, &acc->key, vote_state->stake );
+      fd_vote_states_update_stake( vote_states_prev_prev, &acc->key, vote_state->stake );
     }
   }
 
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
-
+  fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 
   fd_bank_epoch_set( slot_ctx->bank, 0UL );
 
-  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_bank_capitalization_set( slot_ctx->bank, capitalization );
 }
@@ -2473,11 +2487,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
     slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, NULL, &xid, 1 );
     fd_funk_txn_end_write( slot_ctx->funk );
 
-    fd_runtime_init_bank_from_genesis( slot_ctx,
-                                        genesis_block,
-                                        &genesis_hash,
-                                        runtime_spad );
-
     FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
 
     fd_lthash_value_t prev_hash[1];
@@ -2511,6 +2520,12 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *   slot_ctx,
 
       fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
     }
+
+    fd_runtime_init_bank_from_genesis(
+        slot_ctx,
+        genesis_block,
+        &genesis_hash,
+        runtime_spad );
 
     FD_LOG_DEBUG(( "end genesis accounts" ));
 

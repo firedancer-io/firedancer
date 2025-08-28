@@ -126,7 +126,7 @@ typedef struct effective_activating effective_activating_t;
 
 static int
 get_state( fd_txn_account_t const * self,
-           fd_stake_state_v2_t *         out ) {
+           fd_stake_state_v2_t *    out ) {
   int rc;
 
   fd_bincode_decode_ctx_t bincode_ctx = {
