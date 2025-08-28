@@ -301,14 +301,14 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
       fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
       if( FD_UNLIKELY( !leaders ) ) {
-        FD_LOG_WARNING(( "fd_runtime_freeze: leaders not found" ));
+        FD_LOG_CRIT(( "fd_runtime_freeze: leaders not found" ));
         fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
 
       fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( slot_ctx->bank ) );
       if( FD_UNLIKELY( !leader ) ) {
-        FD_LOG_WARNING(( "fd_runtime_freeze: leader not found" ));
+        FD_LOG_CRIT(( "fd_runtime_freeze: leader not found" ));
         fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
         break;
       }
