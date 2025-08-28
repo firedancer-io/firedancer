@@ -56,6 +56,10 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set */
   fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
+  fd_forest_blk_idxs_t cmpl[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set that has been completed by shred_tile */
+
+  /* i.e. when fecs == cmpl, the slot is truly complete and everything
+  is contained in fec store. Look at fec_clear for more details.*/
 };
 typedef struct fd_forest_blk fd_forest_blk_t;
 
@@ -391,8 +395,65 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
 fd_forest_blk_t *
 fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete );
 
+/* fd_forest_fec_insert inserts a new fully completed FEC set into the
+   forest. Assumes slot is already in forest, and should typically be
+   called directly after fd_forest_block_insert. Returns the forest ele
+   corresponding to the shred slot. */
+
+fd_forest_blk_t *
+fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete );
+
 /* fd_forest_fec_clear clears the FEC set at the given slot and
-   fec_set_idx. */
+   fec_set_idx.
+   Can fec_clear break consumed frontier invariants? No. Why?
+
+     1. consumed frontier moves past slot n iff
+        child &&                                                                                        (we have received evidence of a child of slot n)
+        head->complete_idx != UINT_MAX && head->complete_idx == head->buffered_idx &&                   (all shreds of a slot have been received)
+        0==memcmp( head->cmpl, head->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) (our fec completion record matches the observed FECs)
+
+        First we show that we must have a fec completion for each FEC in
+        slot `n` in order for the consumed frontier to move past `n`.
+
+        If we have received all the shreds of `n`, we must have all FEC
+        sets idxs of `n` recorded in the fecs bitset.  The cmpl bitset
+        is updated only on fd_forest_fec_insert, which is only called on
+        fec_completes message from shed tile.
+
+        Which means we must have received fec completion for all the FEC
+        sets of `n` from shred tile in order for the cmpl bitset to
+        match the fecs bitset, for the consumed to move past `n`.
+
+        Since we only call fd_forest_fec_insert on the fec_completes
+        message from shred tile, this means fec_resolver must have
+        COMPLETED each FEC set of slot n at least once. After the first
+        fec_completes for each FEC set in `n`, the fec_resolver will
+        have the FEC sets of `n` in the done_map of the fec_resolver.
+        This prevents any more duplicate fec_completes for `n`
+        happening for usually a buffer of 65k fec sets, until they get
+        evicted from the done_map.
+
+        Now consider that we have moved the consumed frontier past slot
+        n.
+
+        It is technically possible for us to receive again a FEC set of
+        slot n many many slots later, after the done_map has erased all
+        records of the FEC sets of slot n.  This is not a problem.
+        1) If slot n is not in scope of the forest root, then
+           fec_resolver will build a ctx for that FEC set, but repair
+           will ignore any messages related to that FEC set, as the slot
+           <= forest_root. Eventually the fec_resolver will either
+           complete or evict the ctx, in which either the fec_completes
+           or fec_clear msg will be ignored by repair.
+        2) If slot n is in scope of the forest root, then the shred
+           delivered to repair will trigger a data_shred_insert call
+           that does nothing, as repair already has record of that
+           shred.  Eventually the fec_completes or fec_clear msg will be
+           delivered to repair. fec_insert will do nothing. fec_clear
+           will remove the idxs for the shreds from the bitset, and
+           update the buffered_idx. This doesn't matter though! because
+           we already have moved past slot n on the consumed frontier.
+           No need to request those shreds again. */
 
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );

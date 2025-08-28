@@ -66,7 +66,7 @@
 #include "../reasm/fd_reasm.h"
 
 #define LOGGING       1
-#define DEBUG_LOGGING 0
+#define DEBUG_LOGGING 1
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
@@ -873,9 +873,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( fec_completes ) ) {
       fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-      for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
-        ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, idx, shred->fec_set_idx, 0 );
-      }
+      //for( uint idx = shred->fec_set_idx; idx <= shred->idx; idx++ ) {
+        //ele = fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, idx, shred->fec_set_idx, 0 );
+      //}
+      fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, 0 );
       FD_TEST( ele ); /* must be non-empty */
 
       fd_hash_t const * merkle_root         = (fd_hash_t const *)fd_type_pun_const( ctx->buffer + FD_SHRED_DATA_HEADER_SZ );
