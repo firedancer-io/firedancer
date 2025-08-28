@@ -131,18 +131,30 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *     slot_c
 static void
 fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *            vote_states,
                                                      fd_exec_test_vote_account_t * vote_accounts,
-                                                     pb_size_t                     vote_accounts_cnt ) {
-  for( uint i=0U; i<vote_accounts_cnt; i++ ) {
-    fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
-    ulong                       stake         = vote_accounts[i].stake;
-    uchar *                     vote_data     = vote_account->data->bytes;
-    ulong                       vote_data_len = vote_account->data->size;
-    fd_pubkey_t                 vote_address  = {0};
-    fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
+                                                     pb_size_t                     vote_accounts_cnt,
+                                                     fd_spad_t *                   spad ) {
+  FD_SPAD_FRAME_BEGIN( spad ) {
+    for( uint i=0U; i<vote_accounts_cnt; i++ ) {
+      fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
+      ulong                       stake         = vote_accounts[i].stake;
+      uchar *                     vote_data     = vote_account->data->bytes;
+      ulong                       vote_data_len = vote_account->data->size;
+      fd_pubkey_t                 vote_address  = {0};
+      fd_memcpy( &vote_address, vote_account->address, sizeof(fd_pubkey_t) );
 
-    fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
-    fd_vote_states_update_stake( vote_states, &vote_address, stake );
-  }
+      /* Try decoding the vote state from the account data. If it isn't
+         decodable, don't try inserting it into the cache. */
+      fd_vote_state_versioned_t * res = fd_bincode_decode_spad(
+          vote_state_versioned, spad,
+          vote_data,
+          vote_data_len,
+          NULL );
+      if( res==NULL ) continue;
+
+      fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
+      fd_vote_states_update_stake( vote_states, &vote_address, stake );
+    }
+  } FD_SPAD_FRAME_END;
 }
 
 static void
@@ -297,14 +309,16 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( slot_ctx->bank );
   fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_states_prev,
                                                        test_ctx->epoch_ctx.vote_accounts_t_1,
-                                                       test_ctx->epoch_ctx.vote_accounts_t_1_count );
+                                                       test_ctx->epoch_ctx.vote_accounts_t_1_count,
+                                                       runner->spad );
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
   /* Update vote cache for epoch T-2 */
   vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
   fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_states_prev_prev,
                                                        test_ctx->epoch_ctx.vote_accounts_t_2,
-                                                       test_ctx->epoch_ctx.vote_accounts_t_2_count );
+                                                       test_ctx->epoch_ctx.vote_accounts_t_2_count,
+                                                       runner->spad );
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   /* Update leader schedule */
