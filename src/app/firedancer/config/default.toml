@@ -871,6 +871,26 @@ user = ""
         # supported".
         xdp_mode = "skb"
 
+        # RX hardware flow steering mode
+        #
+        # Each XDP tile only serves one network queue.  Therefore, the
+        # system must ensure that incoming Firedancer packets are routed
+        # to the correct network queue (aka ethtool channel).  Possible
+        # values for this option are:
+        #
+        # "fewer-queues" (default)
+        #   Reduces the network queue count to the number of net tiles.
+        #   Reliable and works everywhere, but slows down socket-based
+        #   networking.
+        #
+        # "ntuple"
+        #   Allocate an additional network queue.  Use ethtool 'ntuple'
+        #   to redirect packets based on UDP dst port to these queues.
+        #   For now, only supports net_tile_count = 1.  Does not support
+        #   bond devices.  WARNING: This setting replaces all other udp4
+        #   ethtool ntuple rules.
+        rx_flow_steering = "fewer-queues"
+
         # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
         # packets directly (DMA) into the working memory of downstream
