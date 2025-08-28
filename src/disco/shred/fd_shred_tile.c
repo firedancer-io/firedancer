@@ -1011,9 +1011,10 @@ after_frag( fd_shred_ctx_t *    ctx,
          Shred tile. */
 
       long shacq_start, shacq_end, shrel_end;
-      FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
-      fd_store_fec_t * fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
-      FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
+      fd_store_fec_t * fec = NULL;
+      FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+        fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &out_merkle_root ) );
+      } FD_STORE_SHARED_LOCK_END;
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );

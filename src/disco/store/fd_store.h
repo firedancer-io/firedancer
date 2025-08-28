@@ -336,20 +336,46 @@ FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store
 FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->sibling ); }
 
 /* fd_store_{shacq, shrel, exacq, exrel} acquires / releases the
-   shared / exclusive lock. */
+   shared / exclusive lock.  Callers should typically use the
+   FD_STORE_SHARED_LOCK and FD_STORE_EXCLUSIVE_LOCK macros to acquire
+   and release the lock instead of calling these functions directly. */
 
 FD_FN_PURE static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
 
-/* Wrappers for acquiring and releasing the lock with timing, for lock
-   contention metrics. */
+struct fd_store_lock_ctx {
+  fd_store_t * store_;
+  long       * acq_start;
+  long       * acq_end;
+  long       * work_end;
+};
 
-#define FD_STORE_SHACQ_TIMED(store, shacq_start, shacq_end) shacq_start = fd_tickcount(); fd_store_shacq( store ); shacq_end = fd_tickcount();
-#define FD_STORE_SHREL_TIMED(store, shrel_end)              shrel_end   = fd_tickcount(); fd_store_shrel( store );
-#define FD_STORE_EXACQ_TIMED(store, exacq_start, exacq_end) exacq_start = fd_tickcount(); fd_store_exacq( store ); exacq_end = fd_tickcount();
-#define FD_STORE_EXREL_TIMED(store, exrel_end)              exrel_end   = fd_tickcount(); fd_store_exrel( store );
+static inline void
+fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end) = fd_tickcount(); fd_store_shrel( ctx->store_ ); }
+
+#define FD_STORE_SHARED_LOCK(store, shacq_start, shacq_end, shrel_end) do {                                  \
+  struct fd_store_lock_ctx lock_ctx __attribute__((cleanup(fd_store_shared_lock_cleanup))) =                 \
+      { .store_ = (store), .work_end = &(shrel_end), .acq_start = &(shacq_start), .acq_end = &(shacq_end) }; \
+  shacq_start = fd_tickcount();                                                                              \
+  fd_store_shacq( lock_ctx.store_ );                                                                         \
+  shacq_end = fd_tickcount();                                                                                \
+  do
+
+#define FD_STORE_SHARED_LOCK_END while(0); } while(0)
+
+static inline void
+fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end) = fd_tickcount(); fd_store_exrel( ctx->store_ ); }
+
+#define FD_STORE_EXCLUSIVE_LOCK(store, exacq_start, exacq_end, exrel_end) do {                             \
+  struct fd_store_lock_ctx lock_ctx __attribute__((cleanup(fd_store_exclusive_lock_cleanup))) =            \
+    { .store_ = (store), .work_end = &(exrel_end), .acq_start = &(exacq_start), .acq_end = &(exacq_end) }; \
+  exacq_start = fd_tickcount();                                                                            \
+  fd_store_exacq( lock_ctx.store_ );                                                                       \
+  exacq_end = fd_tickcount();                                                                              \
+  do
+#define FD_STORE_EXCLUSIVE_LOCK_END while(0); } while(0)
 
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
