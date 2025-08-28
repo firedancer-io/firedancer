@@ -206,9 +206,10 @@ fd_gossip_msg_crds_node_instance_parse( fd_gossip_view_crds_value_t * crds_val,
                                         ulong                         payload_sz,
                                         ulong                         start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT( 32U ); crds_val->pubkey_off      = CUR_OFFSET                                     ; INC( 32U );
-  CHECK_LEFT(  8U ); crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC( 8U );
-  CHECKED_INC( 8U+8U ); /* timestamp + token*/
+  CHECK_LEFT( 32U ); crds_val->pubkey_off           = CUR_OFFSET                                     ; INC( 32U );
+  CHECK_LEFT(  8U ); crds_val->wallclock_nanos      = FD_MILLI_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
+  CHECKED_INC( 8U ); /* timestamp (currently unused) */
+  CHECK_LEFT(  8U ); crds_val->node_instance->token = FD_LOAD( ulong, CURSOR )                       ; INC(  8U );
   return BYTES_CONSUMED;
 }
 

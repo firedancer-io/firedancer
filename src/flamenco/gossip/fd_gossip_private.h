@@ -184,7 +184,7 @@ struct fd_gossip_view_contact_info {
 typedef struct fd_gossip_view_contact_info fd_gossip_view_contact_info_t;
 
 struct fd_gossip_view_node_instance {
-  ushort token_off;
+  ulong token;
 };
 
 typedef struct fd_gossip_view_node_instance fd_gossip_view_node_instance_t;
