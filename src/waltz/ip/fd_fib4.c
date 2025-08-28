@@ -399,23 +399,23 @@ fd_fib4_fprintf( fd_fib4_t const * fib,
   fd_fib4_hmap_t hmap[1];
   fd_fib4_hmap_entry_t * elems = fd_fib4_hmap_ele_mem( (fd_fib4_t *)fib );
   FD_TEST( fd_fib4_hmap_join( hmap, fd_fib4_hmap_mem( (fd_fib4_t *)fib ), elems ) );
-  ulong elem_max  = fd_fib4_hmap_get_ele_max( fib->hmap_max );
-  ulong lock_cnt  = fd_fib4_hmap_get_lock_cnt( elem_max );
-  ulong ignored[ fd_fib4_hmap_lock_max( ) ];
-  FD_TEST( fd_fib4_hmap_lock_range( hmap, 0, lock_cnt, FD_MAP_FLAG_BLOCKING | FD_MAP_FLAG_RDONLY, ignored )==FD_MAP_SUCCESS );
-
-  // loop through the hmap elements
+  ulong elem_max = fd_fib4_hmap_get_ele_max( fib->hmap_max );
   for( ulong i=0; i<elem_max; i++ ) {
-    if( elems[i].dst_addr!=0 ) {
+    ulong * lock = hmap->lock+fd_fib4_hmap_ele_lock( hmap, i );
+    fd_fib4_hmap_entry_t e;
+    for(;;) {
+      ulong ver = fd_fib4_hmap_private_try( lock );
+      e = FD_VOLATILE_CONST( elems[ i ] );
+      if( FD_LIKELY( fd_fib4_hmap_private_test( lock, 1UL, &ver, 0UL, 1UL )==FD_MAP_SUCCESS ) ) break;
+    }
+    if( e.dst_addr!=0 ) {
       fd_fib4_key_t key;
-      key.addr = fd_uint_bswap( elems[i].dst_addr );
+      key.addr = fd_uint_bswap( e.dst_addr );
       key.mask = 31;
       key.prio = 0;
-      fd_fib4_fprintf_route( &key, &elems[i].next_hop, file );
+      fd_fib4_fprintf_route( &key, &e.next_hop, file );
     }
   }
-
-  fd_fib4_hmap_unlock_range( hmap, 0, lock_cnt, ignored );
 
   return 0;
 }
