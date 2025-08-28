@@ -1083,25 +1083,24 @@ net_rx_event( fd_net_ctx_t * ctx,
 
   /* Pass it to the receive handler */
 
-  uint freed_chunk = UINT_MAX;
+  uint freed_chunk = (uint)( ctx->umem_chunk0 + (frame.addr>>FD_CHUNK_LG_SZ) );
   net_rx_packet( ctx, frame.addr, frame.len, &freed_chunk );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
 
-  /* If this mcache publish shadowed a previous publish, mark the old
-     frame as free. */
+  /* Every RX operation returns one frame to the FILL ring.  If the
+     packet was forwarded to a downstream ring, the newly shadowed frame
+     is returned.  Otherwise, the frame just received is returned. */
 
-  if( FD_LIKELY( freed_chunk!=UINT_MAX ) ) {
-    if( FD_UNLIKELY( ( freed_chunk < ctx->umem_chunk0 ) |
-                     ( freed_chunk > ctx->umem_wmark ) ) ) {
-      FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
-                    freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
-    }
-    ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
-    fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
-    FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
+  if( FD_UNLIKELY( ( freed_chunk < ctx->umem_chunk0 ) |
+                    ( freed_chunk > ctx->umem_wmark ) ) ) {
+    FD_LOG_CRIT(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
+                  freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
   }
+  ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
+  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
+  FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
 
 }
 
