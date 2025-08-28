@@ -186,7 +186,7 @@ struct fd_config {
   double tick_per_ns_mu;
   double tick_per_ns_sigma;
 
-  long boot_timesamp_nanos;
+  long boot_timestamp_nanos;
 
   fd_topo_t topo;
 
@@ -242,8 +242,6 @@ struct fd_config {
 
     ushort        port;
     char          host[ 256 ];
-
-    long          boot_timestamp_nanos;
   } gossip;
 
   struct {

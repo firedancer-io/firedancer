@@ -202,7 +202,7 @@ struct fd_topo_tile {
       ulong         entrypoints_cnt;
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
-      long boot_timesamp_nanos;
+      long boot_timestamp_nanos;
 
       ulong tcache_depth;
 
@@ -216,7 +216,7 @@ struct fd_topo_tile {
       ulong         entrypoints_cnt;
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
-      long boot_timesamp_nanos;
+      long boot_timestamp_nanos;
 
       uint   ip_addr;
       ushort shred_version;
