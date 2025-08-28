@@ -290,7 +290,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
   uchar vote_state_versioned[total_sz];
 
   fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( vote_state_versioned, &ctx );
-  if( FD_UNLIKELY( err ) ) {
+  if( FD_UNLIKELY( vsv==NULL ) ) {
     FD_LOG_CRIT(( "unable to decode vote state versioned" ));
   }
 

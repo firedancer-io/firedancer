@@ -163,7 +163,8 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
    corresponding to a valid vote account. This is the same as
    fd_vote_states_update but is also responsible for decoding the vote
    account data into a versioned vote state object and extracing the
-   commission and credits. */
+   commission and credits. Kills the client if the vote state cannot
+   be decoded. */
 
 void
 fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
