@@ -65,7 +65,7 @@ gossip_cmd_topo( config_t * config ) {
   gossip_tile->gossip.ports.tpu_quic = 0;
   gossip_tile->gossip.ports.tvu = 0;
   gossip_tile->gossip.ports.tvu_quic = 0;
-  gossip_tile->gossip.boot_timesamp_nanos = config->boot_timesamp_nanos;
+  gossip_tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
   fd_topob_wksp( topo, "gossvf" );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {
@@ -75,10 +75,10 @@ gossip_cmd_topo( config_t * config ) {
     gossvf_tile->gossvf.shred_version = 0;
     gossvf_tile->gossvf.allow_private_address = 0;
     gossvf_tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
+    gossvf_tile->gossvf.boot_timestamp_nanos = config->boot_timestamp_nanos;
     for( ulong i=0UL; i<config->gossip.entrypoints_cnt; i++ ) {
       gossvf_tile->gossvf.entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
     }
-    gossvf_tile->gossvf.boot_timesamp_nanos = config->boot_timesamp_nanos;
   }
   fd_topos_net_rx_link( topo, "net_gossvf", 0UL, config->net.ingress_buffer_size );
   for( ulong i=0UL; i<gossvf_tile_count; i++ ) {

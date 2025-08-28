@@ -412,7 +412,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->my_contact_info->shred_version = tile->gossip.shred_version;
 
   ctx->my_contact_info->wallclock_nanos                   = ctx->last_wallclock;
-  ctx->my_contact_info->instance_creation_wallclock_nanos = tile->gossip.boot_timesamp_nanos;
+  ctx->my_contact_info->instance_creation_wallclock_nanos = tile->gossip.boot_timestamp_nanos;
 
   ctx->my_contact_info->version.client      = FD_CONTACT_INFO_VERSION_CLIENT_FIREDANCER;
   ctx->my_contact_info->version.major       = (ushort)firedancer_major_version;
