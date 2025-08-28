@@ -296,7 +296,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  int direct_mapping                       = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), bpf_account_data_direct_mapping );
+  int direct_mapping                       = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), direct_mapping_2 );
   int stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), stricter_abi_and_runtime_constraints );
 
   vm = fd_vm_init( vm,

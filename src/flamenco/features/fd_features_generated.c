@@ -1026,7 +1026,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x90\x9d\x8a\x1a\x1b\xdb\xb4\x28\xec\x2a\x7c\xf2\xbc\x76\xaf\x8c\x72\x9e\xbb\xa0\x6f\xee\x98\xa4\x77\xdd\xe8\xc5\x08\x1b\x7f\x53"},
                                  /* AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx */
     .name                      = "bpf_account_data_direct_mapping",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, add_set_tx_loaded_accounts_data_size_instruction)>>3,
     .id                        = {"\xe0\x63\xcf\x92\xc3\xa0\xd3\x55\x49\xd0\x52\xb1\x0c\xaf\xf1\x3f\x56\xfa\x06\x11\x1c\x63\x6f\x69\x75\x42\xd1\x31\x2a\x1e\xe2\x6d"},
