@@ -147,6 +147,7 @@ do{
   fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                     input_mem_regions_cnt                   = 0U;
   int                      direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints );
   int                      mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
 
   uchar *                  input_ptr      = NULL;
@@ -250,6 +251,7 @@ do{
     acc_region_metas, /* vm_acc_region_meta*/
     is_deprecated, /* is deprecated */
     direct_mapping, /* direct mapping */
+    stricter_abi_and_runtime_constraints, /* stricter_abi_and_runtime_constraints */
     0 /* dump_syscall_to_pb */
   );
 
@@ -453,6 +455,7 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
   fd_vm_acc_region_meta_t acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                   = 0U;
   int                     direct_mapping                          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, stricter_abi_and_runtime_constraints );
   int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
 
   uchar *            input_ptr      = NULL;
@@ -504,7 +507,8 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
               input_mem_regions_cnt,
               acc_region_metas,
               is_deprecated,
-              FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+              direct_mapping,
+              stricter_abi_and_runtime_constraints,
               0 /* dump_syscall_to_pb */ );
 
   // Override some execution state values from the syscall fuzzer input

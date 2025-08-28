@@ -208,7 +208,8 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong magic;    /* ==FD_VM_MAGIC */
 
-  int   direct_mapping;   /* If direct mapping is enabled or not */
+  int   direct_mapping;                       /* If direct mapping feature flag is enabled */
+  int   stricter_abi_and_runtime_constraints; /* If stricter_abi_and_runtime_constraints feature flag is enabled */
   ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
 
   /* Agave uses the segv vaddr in several different cases, including:
@@ -236,6 +237,7 @@ FD_PROTOTYPES_BEGIN
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
 #define FD_VM_FOOTPRINT (527824UL)
+
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -302,6 +304,7 @@ fd_vm_init(
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated,
    int direct_mapping,
+   int stricter_abi_and_runtime_constraints,
    int dump_syscall_to_pb );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.
