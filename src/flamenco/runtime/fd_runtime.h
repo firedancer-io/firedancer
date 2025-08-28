@@ -80,7 +80,8 @@ FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, data)%FD_ACCOUNT_REC_DATA_ALIGN )=
 #define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
 #define FD_BPF_ALIGN_OF_U128        (8UL    )
 FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_align );
-#define FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP (16UL)
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
+#define FD_RUNTIME_EBPF_HOST_ALIGN (16UL)
 
 /******** These macros bound out memory footprint ********/
 
@@ -123,7 +124,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                                                    sizeof(ulong)         /* instr data len */                                          + \
                                                                                          /* No instr data  */                                            \
                                                                    sizeof(fd_pubkey_t)), /* program id     */                                            \
-                                                                   FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) + FD_BPF_ALIGN_OF_U128)
+                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ) + FD_BPF_ALIGN_OF_U128)
 
 #define FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                           \
                                              ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
