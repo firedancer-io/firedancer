@@ -69,9 +69,7 @@ struct fd_crds_entry_private {
       /* TODO: stake-ordered treap/pq? */
     } contact_info;
     struct {
-      /* TODO: only needed for upsert/override checks. Can we use offsets into
-         data/payload instead? */
-      uchar  token[ 32UL ];
+      ulong  token;
     } node_instance;
   };
 
@@ -759,7 +757,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
-    fd_memcpy( out_value->node_instance.token, payload + view->node_instance->token_off, 32UL );
+    out_value->node_instance.token = view->node_instance->token;
   } else if( FD_UNLIKELY( key->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
     out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
     /* Contact Info entry will be added to sampler upon successful insertion */
@@ -821,11 +819,11 @@ overrides_fast( fd_crds_entry_t const *             incumbent,
       else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
       break;
     case FD_GOSSIP_VALUE_NODE_INSTANCE:
-      if( FD_LIKELY( !memcmp( payload+candidate->node_instance->token_off, incumbent->node_instance.token, 32UL ) ) ) break;
+      if( FD_LIKELY( candidate->node_instance->token==incumbent->node_instance.token ) ) break;
       else if( FD_LIKELY( memcmp( payload+candidate->pubkey_off, incumbent->key.pubkey, 32UL ) ) ) break;
       else if( FD_UNLIKELY( candidate_wc>existing_wc ) ) return 1;
       else if( FD_UNLIKELY( candidate_wc<existing_wc ) ) return 0;
-      else if( memcmp( payload+candidate->node_instance->token_off, incumbent->node_instance.token, 32UL ) < 0 ) return 0;;
+      else if( candidate->node_instance->token<incumbent->node_instance.token ) return 0;;
       break;
     default:
       break;
