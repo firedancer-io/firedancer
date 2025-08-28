@@ -962,9 +962,9 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
       long shacq_start, shacq_end, shrel_end;
 
-      FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
-      if( FD_UNLIKELY( !fd_store_link( ctx->store, &rfec->key, &rfec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &rfec->key ), FD_BASE58_ENC_32_ALLOCA( &rfec->cmr ), rfec->slot, rfec->fec_set_idx ));
-      FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
+      FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+        if( FD_UNLIKELY( !fd_store_link( ctx->store, &rfec->key, &rfec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &rfec->key ), FD_BASE58_ENC_32_ALLOCA( &rfec->cmr ), rfec->slot, rfec->fec_set_idx ));
+      } FD_STORE_SHARED_LOCK_END;
 
       ulong sig   = rfec->slot << 32 | rfec->fec_set_idx;
       memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), rfec, sizeof(fd_reasm_fec_t) );

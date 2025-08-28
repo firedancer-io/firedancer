@@ -899,9 +899,9 @@ publish( fd_replay_tile_ctx_t * ctx ) {
   FD_TEST( block_id ); /* invariant violation. replay must have replayed the full block (and therefore have the block id) if it's trying to root it. */
   if( FD_LIKELY( ctx->store ) ) {
     long exacq_start, exacq_end, exrel_end;
-    FD_STORE_EXACQ_TIMED( ctx->store, exacq_start, exacq_end );
-    fd_store_publish( ctx->store, &block_id->block_id );
-    FD_STORE_EXREL_TIMED( ctx->store, exrel_end );
+    FD_STORE_EXCLUSIVE_LOCK( ctx->store, exacq_start, exacq_end, exrel_end ) {
+      fd_store_publish( ctx->store, &block_id->block_id );
+    } FD_STORE_EXCLUSIVE_LOCK_END;
 
     fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max(exacq_end - exacq_start, 0) );
     fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max(exrel_end - exacq_end,   0) );
@@ -1342,25 +1342,25 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
      tell us that the underlying data is not found, implying that this
      is for a minority fork that we can safely ignore. */
   long shacq_start, shacq_end, shrel_end;
-  FD_STORE_SHACQ_TIMED( ctx->store, shacq_start, shacq_end );
   ulong slice_sz = 0;
-  for( ulong i = 0; i < slice.merkles_cnt; i++ ) {
-    fd_store_fec_t * fec = fd_store_query( ctx->store, &slice.merkles[i] );
-    if( FD_UNLIKELY( !fec ) ) {
+  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+    for( ulong i = 0; i < slice.merkles_cnt; i++ ) {
+      fd_store_fec_t * fec = fd_store_query( ctx->store, &slice.merkles[i] );
+      if( FD_UNLIKELY( !fec ) ) {
 
-      /* The only case in which a FEC is not found in the store after
-         repair has notified is if the FEC was on a minority fork that
-         has already been published away.  In this case we abandon the
-         entire slice because it is no longer relevant.  */
+        /* The only case in which a FEC is not found in the store after
+           repair has notified is if the FEC was on a minority fork that
+           has already been published away.  In this case we abandon the
+           entire slice because it is no longer relevant.  */
 
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", slice.slot, ctx->consensus_root, FD_BASE58_ENC_32_ALLOCA( &slice.merkles[i] ) ));
-      return;
+        FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", slice.slot, ctx->consensus_root, FD_BASE58_ENC_32_ALLOCA( &slice.merkles[i] ) ));
+        return;
+      }
+      FD_TEST( fec );
+      memcpy( ctx->slice_exec_ctx.buf + slice_sz, fec->data, fec->data_sz );
+      slice_sz += fec->data_sz;
     }
-    FD_TEST( fec );
-    memcpy( ctx->slice_exec_ctx.buf + slice_sz, fec->data, fec->data_sz );
-    slice_sz += fec->data_sz;
-  }
-  FD_STORE_SHREL_TIMED( ctx->store, shrel_end );
+  } FD_STORE_SHARED_LOCK_END;
 
   fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
   fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
