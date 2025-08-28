@@ -835,12 +835,16 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
 
   if( slot_ctx->capture_ctx != NULL && slot_ctx->capture_ctx->capture != NULL &&
     fd_bank_slot_get( slot_ctx->bank )>=slot_ctx->capture_ctx->solcap_start_slot ) {
+
+    uchar lthash_hash[FD_HASH_FOOTPRINT];
+    fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
+
     fd_solcap_write_bank_preimage(
           slot_ctx->capture_ctx->capture,
           new_bank_hash->hash,
           fd_bank_prev_bank_hash_query( slot_ctx->bank ),
           NULL,
-          lthash->bytes, /* truncated to 32 */
+          lthash_hash,
           fd_bank_poh_query( slot_ctx->bank )->hash,
           fd_bank_signature_count_get( slot_ctx->bank ) );
   }
