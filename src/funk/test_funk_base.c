@@ -84,7 +84,7 @@ main( int     argc,
   fd_funk_txn_xid_t z[1];
   FD_TEST( fd_funk_txn_xid_set_root( z )==z );
   FD_TEST( fd_funk_txn_xid_eq_root ( z )==1 );
-  FD_TEST( !(z->ul[0] | z->ul[1]) );
+  FD_TEST( z->ul[0]==ULONG_MAX && z->ul[1]==ULONG_MAX );
 
   for( ulong rem=1000000UL; rem; rem-- ) {
     fd_funk_txn_xid_t a[1]; a[0] = fd_funk_generate_xid();
@@ -99,7 +99,7 @@ main( int     argc,
     FD_TEST( fd_funk_txn_xid_eq( a, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( a, z )==0 );
     FD_TEST( fd_funk_txn_xid_eq( b, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( b, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, z )==0 );
     FD_TEST( fd_funk_txn_xid_eq( z, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, z )==1 );
-    FD_TEST( !(z->ul[0] | z->ul[1] ) );
+    FD_TEST( z->ul[0]==ULONG_MAX && z->ul[1]==ULONG_MAX );
 
     FD_TEST( fd_funk_txn_xid_copy( b, a )==b );
 
@@ -109,7 +109,7 @@ main( int     argc,
     FD_TEST( fd_funk_txn_xid_eq( a, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, z )==0 );
     FD_TEST( fd_funk_txn_xid_eq( b, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, z )==0 );
     FD_TEST( fd_funk_txn_xid_eq( z, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, z )==1 );
-    FD_TEST( !(z->ul[0] | z->ul[1] ) );
+    FD_TEST( z->ul[0]==ULONG_MAX && z->ul[1]==ULONG_MAX );
 
     FD_TEST( fd_funk_txn_xid_copy( a, z )==a );
 
@@ -119,7 +119,7 @@ main( int     argc,
     FD_TEST( fd_funk_txn_xid_eq( a, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( a, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( a, z )==1 );
     FD_TEST( fd_funk_txn_xid_eq( b, a )==0 ); FD_TEST( fd_funk_txn_xid_eq( b, b )==1 ); FD_TEST( fd_funk_txn_xid_eq( b, z )==0 );
     FD_TEST( fd_funk_txn_xid_eq( z, a )==1 ); FD_TEST( fd_funk_txn_xid_eq( z, b )==0 ); FD_TEST( fd_funk_txn_xid_eq( z, z )==1 );
-    FD_TEST( !(z->ul[0] | z->ul[1]) );
+    FD_TEST( z->ul[0]==ULONG_MAX && z->ul[1]==ULONG_MAX );
   }
 
   for( ulong rem=1000000UL; rem; rem-- ) {
