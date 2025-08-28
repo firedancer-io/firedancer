@@ -7,6 +7,7 @@
 #include "../../ballet/sbpf/fd_sbpf_opcodes.h"
 #include "../../ballet/murmur3/fd_murmur3.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
+#include "../runtime/fd_runtime_const.h"
 #include "../features/fd_features.h"
 #include "fd_vm_base.h"
 
@@ -112,6 +113,9 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
    #define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 ) */
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
+
+/* https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L32 */
+#define FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION (FD_RUNTIME_ACC_SZ_MAX * 2UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -296,13 +300,76 @@ fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
 
   while( left<right ) {
     mid = (left+right) / 2U;
-    if( offset>=vm->input_mem_regions[ mid ].vaddr_offset+vm->input_mem_regions[ mid ].region_sz ) {
+    if( offset>=vm->input_mem_regions[ mid ].vaddr_offset+vm->input_mem_regions[ mid ].address_space_reserved ) {
       left = mid + 1U;
     } else {
       right = mid;
     }
   }
   return left;
+}
+
+/* If the region is an account, handle the resizing logic. This logic
+   corresponds to
+   solana_transaction_context::TransactionContext::access_violation_handler
+
+   https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
+static inline void
+fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
+                                   ulong           offset,
+                                   ulong           sz,
+                                   ulong           region_idx,
+                                   uchar           write ) {
+  /* If stricter_abi_and_runtime_constraints is not enabled, we don't need to
+     do anything */
+  if( FD_UNLIKELY( !vm->stricter_abi_and_runtime_constraints ) ) {
+    return;
+  }
+
+  /* If the access is not a write, we don't need to do anything
+     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L523-L525 */
+  if( FD_UNLIKELY( !write ) ) {
+    return;
+  }
+
+  fd_vm_input_region_t * region = &vm->input_mem_regions[ region_idx ];
+  /* If the region is not writable, we don't need to do anything
+     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L526-L529 */
+  if( FD_UNLIKELY( !region->is_writable ) ) {
+    return;
+  }
+
+  /* Calculate the requested length
+     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L532-L535 */
+  ulong requested_len = fd_ulong_sat_sub( fd_ulong_sat_add( offset, sz ), region->vaddr_offset );
+
+  /* Calculate the remaining allowed growth
+     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L549-L551 */
+  ulong remaining_allowed_growth = fd_ulong_sat_sub(
+    FD_MAX_ACCOUNT_DATA_GROWTH_PER_TRANSACTION,
+    vm->instr_ctx->txn_ctx->accounts_resize_delta );
+
+  /* If the requested length is greater than the size of the region,
+     resize the region
+     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L553-L571 */
+  if( FD_UNLIKELY( requested_len > region->region_sz ) ) {
+    /* Calculate the new region size
+       https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L558-L560 */
+    ulong new_region_sz = fd_ulong_min(
+      fd_ulong_min( region->address_space_reserved, FD_RUNTIME_ACC_SZ_MAX ),
+      fd_ulong_sat_add( region->region_sz, remaining_allowed_growth ) );
+
+    /* Resize the account and the region
+       https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L569-L570 */
+    if( FD_UNLIKELY( new_region_sz > region->region_sz ) ) {
+      vm->instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_sub(
+        fd_ulong_sat_add( vm->instr_ctx->txn_ctx->accounts_resize_delta, new_region_sz ),
+        region->region_sz );
+
+      fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, requested_len );
+      region->region_sz = (uint)new_region_sz;
+    }
+  }
 }
 
 /* fd_vm_find_input_mem_region returns the translated haddr for a given
@@ -316,8 +383,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              ulong           offset,
                              ulong           sz,
                              uchar           write,
-                             ulong           sentinel,
-                             uchar *         is_multi_region ) {
+                             ulong           sentinel ) {
   if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) {
     return sentinel; /* Access is too large */
   }
@@ -325,10 +391,26 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   /* Binary search to find the correct memory region.  If direct mapping is not
      enabled, then there is only 1 memory region which spans the input region. */
   ulong region_idx = fd_vm_get_input_mem_region_idx( vm, offset );
+  if( FD_UNLIKELY( region_idx>=vm->input_mem_regions_cnt ) ) {
+    return sentinel; /* Region not found */
+  }
 
-  ulong bytes_left          = sz;
-  ulong bytes_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                                fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
+  ulong bytes_in_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
+                                            fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
+
+  /* If the access is out of bounds, invoke the callback to handle the out of bounds access.
+     This potentially resizes the region if necessary. */
+  if( FD_UNLIKELY( sz>bytes_in_region ) ) {
+    fd_vm_handle_input_mem_region_oob( vm, offset, sz, region_idx, write );
+  }
+
+  /* After potentially resizing, re-check the bounds */
+  bytes_in_region = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
+                                      fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
+  /* If the access is still out of bounds, return the sentinel */
+  if( FD_UNLIKELY( sz>bytes_in_region ) ) {
+    return sentinel;
+  }
 
   if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
     return sentinel; /* Illegal write */
@@ -336,48 +418,27 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
 
   ulong start_region_idx = region_idx;
 
-  *is_multi_region = 0;
-  while( FD_UNLIKELY( bytes_left>bytes_in_cur_region ) ) {
-    *is_multi_region = 1;
-    FD_LOG_DEBUG(( "Size of access spans multiple memory regions" ));
-    bytes_left = fd_ulong_sat_sub( bytes_left, bytes_in_cur_region );
-
-    region_idx += 1U;
-
-    if( FD_UNLIKELY( region_idx==vm->input_mem_regions_cnt ) ) {
-      return sentinel; /* Access is too large */
-    }
-    bytes_in_cur_region = vm->input_mem_regions[ region_idx ].region_sz;
-
-    if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
-      return sentinel; /* Illegal write */
-    }
-  }
-
   ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
   return adjusted_haddr;
 }
 
 
 static inline ulong
-fd_vm_mem_haddr( fd_vm_t const *    vm,
-                 ulong              vaddr,
-                 ulong              sz,
-                 ulong const *      vm_region_haddr, /* indexed [0,6) */
-                 uint  const *      vm_region_sz,    /* indexed [0,6) */
-                 uchar              write,           /* 1 if the access is a write, 0 if it is a read */
-                 ulong              sentinel,
-                 uchar *            is_multi_region ) {
+fd_vm_mem_haddr( fd_vm_t const * vm,
+                 ulong           vaddr,
+                 ulong           sz,
+                 ulong const *   vm_region_haddr, /* indexed [0,6) */
+                 uint  const *   vm_region_sz,    /* indexed [0,6) */
+                 uchar           write,           /* 1 if the access is a write, 0 if it is a read */
+                 ulong           sentinel ) {
   ulong region = FD_VADDR_TO_REGION( vaddr );
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame, which only exist if...
-     - direct mapping is enabled (config.enable_stack_frame_gaps == !direct_mapping)
-     - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
+          - dynamic stack frames are not enabled (!(SBPF version >= SBPF_V1))
      https://github.com/anza-xyz/agave/blob/v2.2.12/programs/bpf_loader/src/lib.rs#L344-L351
     */
   if( FD_UNLIKELY( region==FD_VM_STACK_REGION &&
-                   !vm->direct_mapping &&
                    !fd_sbpf_dynamic_stack_frames_enabled( vm->sbpf_version ) ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
@@ -396,8 +457,12 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   ulong region_sz = (ulong)vm_region_sz[ region ];
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
+  /* If the region is an account, handle the resizing logic. This logic corresponds to
+     solana_transaction_context::TransactionContext::access_violation_handler
+
+     https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
   if( region==FD_VM_INPUT_REGION ) {
-    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
+    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
   }
 
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
@@ -412,162 +477,53 @@ static inline ulong
 fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
-  uchar is_multi = 0;
   ulong region   = FD_VADDR_TO_REGION( vaddr );
   ulong offset   = vaddr & FD_VM_OFFSET_MASK;
   if( FD_UNLIKELY( region==FD_VM_INPUT_REGION ) ) {
-    return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
+    return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL );
   }
   return vm_region_haddr[ region ] + offset;
-}
-
-/* fd_vm_mem_ld_N loads N bytes from the host address location haddr,
-   zero extends it to a ulong and returns the ulong.  haddr need not be
-   aligned.  fd_vm_mem_ld_multi handles the case where the load spans
-   multiple input memory regions. */
-
-static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * dst ) {
-
-  ulong offset              = vaddr & FD_VM_OFFSET_MASK;
-  ulong region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
-  uint  bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                              (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-
-  while( sz-- ) {
-    if( !bytes_in_cur_region ) {
-      region_idx++;
-      bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                             (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-      haddr               = vm->input_mem_regions[ region_idx ].haddr;
-    }
-
-    *dst++ = *(uchar *)haddr++;
-    bytes_in_cur_region--;
-  }
 }
 
 FD_FN_PURE static inline ulong fd_vm_mem_ld_1( ulong haddr ) {
   return (ulong)*(uchar const *)haddr;
 }
 
-FD_FN_PURE static inline ulong fd_vm_mem_ld_2( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) {
+FD_FN_PURE static inline ulong fd_vm_mem_ld_2( ulong haddr ) {
   ushort t;
-  if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( &t, (void const *)haddr, sizeof(ushort) );
-  } else {
-    fd_vm_mem_ld_multi( vm, 2U, vaddr, haddr, (uchar *)&t );
-  }
+  memcpy( &t, (void const *)haddr, sizeof(ushort) );
   return (ulong)t;
 }
 
-FD_FN_PURE static inline ulong fd_vm_mem_ld_4( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) {
+FD_FN_PURE static inline ulong fd_vm_mem_ld_4( ulong haddr ) {
   uint t;
-  if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( &t, (void const *)haddr, sizeof(uint) );
-  } else {
-    fd_vm_mem_ld_multi( vm, 4U, vaddr, haddr, (uchar *)&t );
-  }
+  memcpy( &t, (void const *)haddr, sizeof(uint) );
   return (ulong)t;
 }
 
-FD_FN_PURE static inline ulong fd_vm_mem_ld_8( fd_vm_t const * vm, ulong vaddr, ulong haddr, uint is_multi_region ) {
+FD_FN_PURE static inline ulong fd_vm_mem_ld_8( ulong haddr ) {
   ulong t;
-  if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( &t, (void const *)haddr, sizeof(ulong) );
-  } else {
-    fd_vm_mem_ld_multi( vm, 8U, vaddr, haddr, (uchar *)&t );
-  }
+  memcpy( &t, (void const *)haddr, sizeof(ulong) );
   return t;
-}
-
-/* fd_vm_mem_st_N stores val in little endian order to the host address
-   location haddr.  haddr need not be aligned. fd_vm_mem_st_multi handles
-   the case where the store spans multiple input memory regions. */
-
-static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * src ) {
-  ulong   offset              = vaddr & FD_VM_OFFSET_MASK;
-  ulong   region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
-  ulong   bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                                 (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-  uchar * dst                 = (uchar *)haddr;
-
-  while( sz-- ) {
-    if( !bytes_in_cur_region ) {
-      region_idx++;
-      bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
-                                             (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-      dst                 = (uchar *)vm->input_mem_regions[ region_idx ].haddr;
-    }
-
-    *dst++ = *src++;
-    bytes_in_cur_region--;
-  }
 }
 
 static inline void fd_vm_mem_st_1( ulong haddr, uchar val ) {
   *(uchar *)haddr = val;
 }
 
-static inline void fd_vm_mem_st_2( fd_vm_t const * vm,
-                                   ulong           vaddr,
-                                   ulong           haddr,
-                                   ushort          val,
-                                   uint            is_multi_region ) {
-  if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( (void *)haddr, &val, sizeof(ushort) );
-  } else {
-    fd_vm_mem_st_multi( vm, 2U, vaddr, haddr, (uchar *)&val );
-  }
+static inline void fd_vm_mem_st_2( ulong  haddr,
+                                   ushort val ) {
+  memcpy( (void *)haddr, &val, sizeof(ushort) );
 }
 
-static inline void fd_vm_mem_st_4( fd_vm_t const * vm,
-                                   ulong           vaddr,
-                                   ulong           haddr,
-                                   uint            val,
-                                   uint            is_multi_region ) {
-  if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( (void *)haddr, &val, sizeof(uint)   );
-  } else {
-    fd_vm_mem_st_multi( vm, 4U, vaddr, haddr, (uchar *)&val );
-  }
+static inline void fd_vm_mem_st_4( ulong haddr,
+                                   uint  val ) {
+  memcpy( (void *)haddr, &val, sizeof(uint) );
 }
 
-static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
-                                   ulong           vaddr,
-                                   ulong           haddr,
-                                   ulong           val,
-                                   uint            is_multi_region ) {
-  if( FD_LIKELY( !is_multi_region ) ) {
-    memcpy( (void *)haddr, &val, sizeof(ulong)  );
-  } else {
-    fd_vm_mem_st_multi( vm, 8U, vaddr, haddr, (uchar *)&val );
-  }
-}
-
-/* fd_vm_mem_st_try is strictly not required for correctness and in
-   fact just slows down the performance of the firedancer vm. However,
-   this emulates the behavior of the agave client, where a store will
-   be attempted partially until it fails. This is useful for debugging
-   and fuzzing conformance. */
-static inline void fd_vm_mem_st_try( fd_vm_t const * vm,
-                                     ulong           vaddr,
-                                     ulong           sz,
-                                     uchar *         val ) {
-  uchar is_multi_region = 0;
-  for( ulong i=0UL; i<sz; i++ ) {
-    ulong haddr = fd_vm_mem_haddr( vm,
-                                   vaddr+i,
-                                   sizeof(uchar),
-                                   vm->region_haddr,
-                                   vm->region_st_sz,
-                                   1,
-                                   0UL,
-                                   &is_multi_region );
-    if( !haddr ) {
-      return;
-    }
-    *(uchar *)haddr = *(val+i);
-  }
+static inline void fd_vm_mem_st_8( ulong haddr,
+                                   ulong val ) {
+  memcpy( (void *)haddr, &val, sizeof(ulong) );
 }
 
 FD_PROTOTYPES_END

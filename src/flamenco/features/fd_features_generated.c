@@ -1026,7 +1026,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x90\x9d\x8a\x1a\x1b\xdb\xb4\x28\xec\x2a\x7c\xf2\xbc\x76\xaf\x8c\x72\x9e\xbb\xa0\x6f\xee\x98\xa4\x77\xdd\xe8\xc5\x08\x1b\x7f\x53"},
                                  /* AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx */
     .name                      = "bpf_account_data_direct_mapping",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .reverted                  = 1 },
 
   { .index                     = offsetof(fd_features_t, add_set_tx_loaded_accounts_data_size_instruction)>>3,
     .id                        = {"\xe0\x63\xcf\x92\xc3\xa0\xd3\x55\x49\xd0\x52\xb1\x0c\xaf\xf1\x3f\x56\xfa\x06\x11\x1c\x63\x6f\x69\x75\x42\xd1\x31\x2a\x1e\xe2\x6d"},
@@ -1666,6 +1667,18 @@ fd_feature_id_t const ids[] = {
     .name                      = "raise_account_cu_limit",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, stricter_abi_and_runtime_constraints)>>3,
+    .id                        = {"\xb1\xb1\x8b\xfe\x0c\x8c\xa8\x90\xaf\x61\x7d\x45\x2d\x08\xd5\x33\x88\xea\x0b\x0b\x87\x1f\xb6\x1c\x38\xc8\xeb\x19\x0f\xd7\x9f\x0a"},
+                                 /* CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM */
+    .name                      = "stricter_abi_and_runtime_constraints",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, account_data_direct_mapping)>>3,
+    .id                        = {"\x83\xaf\x45\x7d\x2d\x4b\x60\xe8\xb6\x8b\xde\xea\x1f\x99\x51\x97\x42\x3e\x2d\x9a\xd0\xe0\x8c\xa8\x44\x7f\x6a\xd4\x68\x43\x4e\x19"},
+                                 /* 9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ */
+    .name                      = "account_data_direct_mapping",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1915,6 +1928,8 @@ fd_feature_id_query( ulong prefix ) {
   case 0x3711b30f40730240: return &ids[ 240 ];
   case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
   case 0x5c64cc1a9be3790a: return &ids[ 242 ];
+  case 0x90a88c0cfe8bb1b1: return &ids[ 243 ];
+  case 0xe8604b2d7d45af83: return &ids[ 244 ];
   default: break;
   }
   return NULL;
@@ -2163,4 +2178,6 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account         
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints                    )>>3==243UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==244UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

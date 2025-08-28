@@ -171,10 +171,7 @@ struct fd_vm_cpi_caller_account {
   uchar *       serialized_data; /* NULL if direct mapping */
   ulong         serialized_data_len;
   ulong         vm_data_vaddr;
-  union {
-    ulong * translated; /* Set if direct mapping false */
-    ulong   vaddr;      /* Set if direct mapping */
-  } ref_to_len_in_vm;
+  ulong *       ref_to_len_in_vm;
 };
 typedef struct fd_vm_cpi_caller_account fd_vm_cpi_caller_account_t;
 

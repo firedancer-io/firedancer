@@ -2,11 +2,6 @@
 
 #include "../../../ballet/base64/fd_base64.h"
 #include "../../../ballet/utf8/fd_utf8.h"
-#include "../../runtime/sysvar/fd_sysvar.h"
-#include "../../runtime/sysvar/fd_sysvar_clock.h"
-#include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
-#include "../../runtime/context/fd_exec_txn_ctx.h"
-#include "../../runtime/context/fd_exec_instr_ctx.h"
 
 int
 fd_vm_syscall_abort( /**/            void *  _vm,
@@ -349,196 +344,19 @@ fd_vm_memmove( fd_vm_t * vm,
     return FD_VM_SUCCESS;
   }
 
-  if( !vm->direct_mapping ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L188-L192 */
-    fd_vm_haddr_query_t dst_ref_mut_query = {
-      .vaddr    = dst_vaddr,
-      .align    = FD_VM_ALIGN_RUST_U8,
-      .sz       = sz,
-      .is_slice = 1,
-    };
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L188-L192 */
+  fd_vm_haddr_query_t dst_ref_mut_query = {
+    .vaddr    = dst_vaddr,
+    .align    = FD_VM_ALIGN_RUST_U8,
+    .sz       = sz,
+    .is_slice = 1,
+  };
 
-    fd_vm_haddr_query_t * queries[] = { &dst_ref_mut_query };
-    FD_VM_TRANSLATE_MUT( vm, queries );
+  fd_vm_haddr_query_t * queries[] = { &dst_ref_mut_query };
+  FD_VM_TRANSLATE_MUT( vm, queries );
 
-    void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
-    memmove( dst_ref_mut_query.haddr, src, sz );
-  } else {
-    /* If the src and dst vaddrs overlap and src_vaddr < dst_vaddr, Agave iterates through input regions backwards
-       to maintain correct memmove behavior for overlapping cases. Although this logic should only apply to the src and dst
-       vaddrs being in the input data region (since that is the only possible case you could have overlapping, chunked-up memmoves),
-       Agave will iterate backwards in ANY region. If it eventually reaches the end of a region after iterating backwards and
-       hits an access violation, the bytes from [region_begin, start_vaddr] will still be written to, causing fuzzing mismatches.
-       In this case, if we didn't have the reverse flag, we would have thrown an access violation before any bytes were copied.
-       The same logic applies to memmoves that go past the high end of a region - reverse iteration logic would throw an access
-       violation before any bytes were copied, while the current logic would copy the bytes until the end of the region.
-       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mem_ops.rs#L184 */
-    uchar reverse = !!( dst_vaddr >= src_vaddr && dst_vaddr - src_vaddr < sz );
-
-    /* In reverse calculations, start from the rightmost vaddr that will be accessed (note the - 1). */
-    ulong dst_vaddr_begin = reverse ? fd_ulong_sat_add( dst_vaddr, sz - 1UL ) : dst_vaddr;
-    ulong src_vaddr_begin = reverse ? fd_ulong_sat_add( src_vaddr, sz - 1UL ) : src_vaddr;
-
-    /* Find the correct src and dst haddrs to start operating from. If the src or dst vaddrs
-       belong to the input data region (4), keep track of region statistics to memmove in chunks. */
-    ulong   dst_region                  = FD_VADDR_TO_REGION( dst_vaddr_begin );
-    uchar   dst_is_input_mem_region     = ( dst_region==FD_VM_INPUT_REGION );
-    ulong   dst_offset                  = dst_vaddr_begin & FD_VM_OFFSET_MASK;
-    ulong   dst_region_idx              = 0UL;
-    ulong   dst_bytes_rem_in_cur_region;
-    uchar * dst_haddr;
-    if( dst_is_input_mem_region ) {
-      FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, dst_offset, dst_region_idx, dst_haddr );
-      if( FD_UNLIKELY( !vm->input_mem_regions[ dst_region_idx ].is_writable ) ) {
-        FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-        return FD_VM_SYSCALL_ERR_SEGFAULT;
-      }
-      if( FD_UNLIKELY( reverse ) ) {
-        /* Bytes remaining between region begin and current position (+ 1 for inclusive region beginning). */
-        dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( dst_offset + 1UL, vm->input_mem_regions[ dst_region_idx ].vaddr_offset );
-      } else {
-        /* Bytes remaining between current position and region end. */
-        dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ dst_region_idx ].region_sz, ( dst_offset - vm->input_mem_regions[ dst_region_idx ].vaddr_offset ) );
-      }
-    } else {
-      dst_haddr = (uchar*)FD_VM_MEM_HADDR_ST_NO_SZ_CHECK( vm, dst_vaddr_begin, FD_VM_ALIGN_RUST_U8 );
-
-      if( FD_UNLIKELY( reverse ) ) {
-        /* Bytes remaining is minimum of the offset from the beginning of the current
-           region (+1 for inclusive region beginning) and the number of storable bytes in the region. */
-        dst_bytes_rem_in_cur_region = fd_ulong_min( vm->region_st_sz[ dst_region ], dst_offset + 1UL );
-
-      } else {
-        /* Bytes remaining is the number of writable bytes left in the region */
-        dst_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->region_st_sz[ dst_region ], dst_offset );
-      }
-    }
-
-    /* Logic for src vaddr translation is similar to above excluding any writable checks. */
-    ulong   src_region                  = FD_VADDR_TO_REGION( src_vaddr_begin );
-    uchar   src_is_input_mem_region     = ( src_region==FD_VM_INPUT_REGION );
-    ulong   src_offset                  = src_vaddr_begin & FD_VM_OFFSET_MASK;
-    ulong   src_region_idx              = 0UL;
-    ulong   src_bytes_rem_in_cur_region;
-    uchar * src_haddr;
-    if( src_is_input_mem_region ) {
-      FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, src_offset, src_region_idx, src_haddr );
-      if( FD_UNLIKELY( reverse ) ) {
-        src_bytes_rem_in_cur_region = fd_ulong_sat_sub( src_offset + 1UL, vm->input_mem_regions[ src_region_idx ].vaddr_offset );
-      } else {
-        src_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->input_mem_regions[ src_region_idx ].region_sz, ( src_offset - vm->input_mem_regions[ src_region_idx ].vaddr_offset ) );
-      }
-    } else {
-      src_haddr = (uchar*)FD_VM_MEM_HADDR_LD_NO_SZ_CHECK( vm, src_vaddr_begin, FD_VM_ALIGN_RUST_U8 );
-
-      if( FD_UNLIKELY( reverse ) ) {
-        src_bytes_rem_in_cur_region = fd_ulong_min( vm->region_ld_sz[ src_region ], src_offset + 1UL );
-
-      } else {
-        src_bytes_rem_in_cur_region = fd_ulong_sat_sub( vm->region_ld_sz[ src_region ], src_offset );
-      }
-    }
-
-    /* Short circuit: if the number of copyable bytes stays within all memory regions,
-       just memmove and return. This is a majority case in mainnet, devnet, and testnet.
-       Someone would have to be very crafty and clever to construct a transaction that
-       deploys and invokes a custom program that does not fall into this branch. */
-    if( FD_LIKELY( sz<=dst_bytes_rem_in_cur_region && sz<=src_bytes_rem_in_cur_region ) ) {
-      if( FD_UNLIKELY( reverse ) ) {
-        /* In the reverse iteration case, the haddrs point to the end of the region here. Since the
-           above checks guarantee that there are enough bytes left in the src and dst regions to do
-           a direct memmove, we can just subtract (sz-1) from the haddrs, memmove, and return. */
-        memmove( dst_haddr - sz + 1UL, src_haddr - sz + 1UL, sz );
-      } else {
-        /* In normal iteration, the haddrs correspond to the correct starting point for the memcpy,
-           so no further translation has to be done. */
-        memmove( dst_haddr, src_haddr, sz );
-      }
-      return FD_VM_SUCCESS;
-    }
-
-    /* Copy over the bytes from each region in chunks. */
-    while( sz>0UL ) {
-      /* End of region case */
-      if( FD_UNLIKELY( src_bytes_rem_in_cur_region==0UL ) ) {
-        /* Same as above, except no writable checks. */
-        if( FD_LIKELY( !reverse &&
-                        src_is_input_mem_region &&
-                        src_region_idx+1UL<vm->input_mem_regions_cnt ) ) {
-          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx+1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
-            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-            return FD_VM_SYSCALL_ERR_SEGFAULT;
-          }
-          src_region_idx++;
-          src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
-        } else if( FD_LIKELY( reverse && src_region_idx>0UL ) ) {
-          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
-            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-            return FD_VM_SYSCALL_ERR_SEGFAULT;
-          }
-          src_region_idx--;
-          src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr + vm->input_mem_regions[ src_region_idx ].region_sz - 1UL;
-        } else {
-          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        src_bytes_rem_in_cur_region = vm->input_mem_regions[ src_region_idx ].region_sz;
-      }
-      if( FD_UNLIKELY( dst_bytes_rem_in_cur_region==0UL ) ) {
-        /* Only proceed if:
-            - We are in the input memory region
-            - There are remaining input memory regions to copy from (for both regular and reverse iteration orders)
-            - The next input memory region is writable
-           Fail otherwise. */
-        if( FD_LIKELY( !reverse &&
-                        dst_is_input_mem_region &&
-                        dst_region_idx+1UL<vm->input_mem_regions_cnt &&
-                        vm->input_mem_regions[ dst_region_idx+1UL ].is_writable ) ) {
-          if( FD_UNLIKELY( vm->input_mem_regions[ dst_region_idx+1UL ].is_acct_data != vm->input_mem_regions[ dst_region_idx ].is_acct_data ) ) {
-            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-            return FD_VM_SYSCALL_ERR_SEGFAULT;
-          }
-          /* In normal iteration, we move the haddr to the beginning of the next region. */
-          dst_region_idx++;
-          dst_haddr = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr;
-        } else if( FD_LIKELY( reverse &&
-                              dst_region_idx>0UL &&
-                              vm->input_mem_regions[ dst_region_idx-1UL ].is_writable ) ) {
-          if( FD_UNLIKELY( vm->input_mem_regions[ dst_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ dst_region_idx ].is_acct_data ) ) {
-            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-            return FD_VM_SYSCALL_ERR_SEGFAULT;
-          }
-          /* Note that when reverse iterating, we set the haddr to the END of the PREVIOUS region. */
-          dst_region_idx--;
-          dst_haddr = (uchar*)vm->input_mem_regions[ dst_region_idx ].haddr + vm->input_mem_regions[ dst_region_idx ].region_sz - 1UL;
-        } else {
-          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        dst_bytes_rem_in_cur_region = vm->input_mem_regions[ dst_region_idx ].region_sz;
-      }
-
-      /* Number of bytes to operate on in this iteration is the min of:
-         - number of bytes left to copy
-         - bytes left in the current src region
-         - bytes left in the current dst region */
-      ulong num_bytes_to_copy = fd_ulong_min( sz, fd_ulong_min( src_bytes_rem_in_cur_region, dst_bytes_rem_in_cur_region ) );
-      if( FD_UNLIKELY( reverse ) ) {
-        memmove( dst_haddr - num_bytes_to_copy + 1UL, src_haddr - num_bytes_to_copy + 1UL, num_bytes_to_copy );
-        dst_haddr -= num_bytes_to_copy;
-        src_haddr -= num_bytes_to_copy;
-      } else {
-        memmove( dst_haddr, src_haddr, num_bytes_to_copy );
-        dst_haddr += num_bytes_to_copy;
-        src_haddr += num_bytes_to_copy;
-      }
-
-      /* Update size trackers */
-      sz                          -= num_bytes_to_copy;
-      src_bytes_rem_in_cur_region -= num_bytes_to_copy;
-      dst_bytes_rem_in_cur_region -= num_bytes_to_copy;
-    }
-  }
+  void const * src = FD_VM_MEM_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+  memmove( dst_ref_mut_query.haddr, src, sz );
 
   return FD_VM_SUCCESS;
 }
@@ -604,173 +422,37 @@ fd_vm_syscall_sol_memcmp( /**/            void *  _vm,
      doesn't provide strong enough guarantees about the return value (it
      only promises the sign). */
 
-  if( !vm->direct_mapping ) {
-    uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
-    uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+  uchar const * m0 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8, sz );
+  uchar const * m1 = (uchar const *)FD_VM_MEM_SLICE_HADDR_LD( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8, sz );
 
-    /* Silly that this doesn't use r0 to return ... slower, more edge
-      case, different from libc style memcmp, harder to callers to use,
-      etc ... probably too late to do anything about it now ... sigh */
+  /* Silly that this doesn't use r0 to return ... slower, more edge
+     case, different from libc style memcmp, harder to callers to use,
+     etc ... probably too late to do anything about it now ... sigh */
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L121-L125 */
-    fd_vm_haddr_query_t cmp_result_ref_mut_query = {
-      .vaddr    = out_vaddr,
-      .align    = FD_VM_ALIGN_RUST_I32,
-      .sz       = 4UL,
-      .is_slice = 0,
-    };
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L121-L125 */
+  fd_vm_haddr_query_t cmp_result_ref_mut_query = {
+    .vaddr    = out_vaddr,
+    .align    = FD_VM_ALIGN_RUST_I32,
+    .sz       = 4UL,
+    .is_slice = 0,
+  };
 
-    fd_vm_haddr_query_t * queries[] = { &cmp_result_ref_mut_query };
-    FD_VM_TRANSLATE_MUT( vm, queries );
+  fd_vm_haddr_query_t * queries[] = { &cmp_result_ref_mut_query };
+  FD_VM_TRANSLATE_MUT( vm, queries );
 
-    int out = 0;
-    for( ulong i=0UL; i<sz; i++ ) {
-      int i0 = (int)m0[i];
-      int i1 = (int)m1[i];
-      if( i0!=i1 ) {
-        out = i0 - i1;
-        break;
-      }
+  int out = 0;
+  for( ulong i=0UL; i<sz; i++ ) {
+    int i0 = (int)m0[i];
+    int i1 = (int)m1[i];
+    if( i0!=i1 ) {
+      out = i0 - i1;
+      break;
     }
-
-    fd_memcpy( cmp_result_ref_mut_query.haddr, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
-
-    return FD_VM_SUCCESS;
-  } else {
-    /* In the case that direct mapping is enabled, the behavior for memcmps
-       differ significantly from the non-dm case. The key difference is that
-       invalid loads will instantly lead to errors in the non-dm case. However,
-       when direct mapping is enabled, we will first try to memcmp the largest
-       size valid chunk first, and will exit successfully if a difference is
-       found without aborting from the VM. A chunk is defined as the largest
-       valid vaddr range in both memory regions that doesn't span multiple
-       regions.
-
-       Example:
-       fd_vm_syscall_sol_memcmp( vm, m0_addr : 0x4000, m1_vaddr : 0x2000, 0x200, ... );
-       m0's region: m0_addr 0x4000 -> 0x4000 + 0x50  (region sz 0x50)
-       m1's region: m1_addr 0x2000 -> 0x2000 + 0x100 (region sz 0x100)
-       sz: 0x200
-
-       Case 1: 0x4000 -> 0x4050 does     have the same bytes as 0x2000 -> 0x2050
-       Case 2: 0x4000 -> 0x4050 does NOT have the same bytes as 0x2000 -> 0x2050
-
-       Pre-DM:
-       This will fail out before any bytes are compared because the memory
-       translation is done first.
-
-       Post-DM:
-       For case 1, the memcmp will return an error and the VM will exit because
-       the memcmp will eventually try to access 0x4051 which is invalid. First
-       0x50 bytes are compared, but the next chunk will lead to an invalid
-       access.
-
-       For case 2, the memcmp will first translate the first 0x50 bytes and will
-       see that the bytes are not the same. This will lead to the syscall
-       exiting out successfully without detecting the access violation.
-
-      https://github.com/anza-xyz/agave/blob/v2.0.10/programs/bpf_loader/src/syscalls/mem_ops.rs#L213
-       */
-
-    /* TODO: Refactor to use `FD_VM_TRANSLATE_MUT` macro when direct mapping is rewritten */
-    void * _out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_I32, 4UL );
-    int     out = 0;
-
-    /* Lookup host address chunks. Try to do a standard memcpy if the regions
-       do not cross memory regions. The translation logic is different if the
-       the virtual address region is the input region vs. not. See the comment
-       in fd_bpf_loader_serialization for more details on how the input
-       region is different from other regions. The input data region will try
-       to lookup the number of remaining bytes in the specific data region. If
-       the memory access is not in the input data region, assume the bytes in
-       the current region are bound by the size of the remaining bytes in the
-       region. */
-
-    ulong   m0_region              = FD_VADDR_TO_REGION( m0_vaddr );
-    ulong   m0_offset              = m0_vaddr & FD_VM_OFFSET_MASK;
-    ulong   m0_region_idx          = 0UL;
-    ulong   m0_bytes_in_cur_region = sz;
-    uchar * m0_haddr               = NULL;
-    if( m0_region==FD_VM_INPUT_REGION ) {
-      m0_region_idx          = fd_vm_get_input_mem_region_idx( vm, m0_offset );
-      m0_haddr               = (uchar*)(vm->input_mem_regions[ m0_region_idx ].haddr + m0_offset - vm->input_mem_regions[ m0_region_idx ].vaddr_offset);
-      m0_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ m0_region_idx ].region_sz,
-                                                                        ((ulong)m0_haddr - vm->input_mem_regions[ m0_region_idx ].haddr) ) );
-    } else {
-      /* We can safely load a slice of 1 byte here because we know that we will
-         not ever read more than the number of bytes that are left in the
-         region. */
-      m0_bytes_in_cur_region = fd_ulong_min( sz, vm->region_ld_sz[ m0_region ] - m0_offset );
-      m0_haddr               = (uchar *)FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, m0_vaddr, FD_VM_ALIGN_RUST_U8 );
-    }
-
-    ulong   m1_region              = FD_VADDR_TO_REGION( m1_vaddr );
-    ulong   m1_offset              = m1_vaddr & FD_VM_OFFSET_MASK;
-    ulong   m1_region_idx          = 0UL;
-    ulong   m1_bytes_in_cur_region = sz;
-    uchar * m1_haddr               = NULL;
-    if( m1_region==FD_VM_INPUT_REGION ) {
-      m1_region_idx          = fd_vm_get_input_mem_region_idx( vm, m1_offset );
-      m1_haddr               = (uchar*)(vm->input_mem_regions[ m1_region_idx ].haddr + m1_offset - vm->input_mem_regions[ m1_region_idx ].vaddr_offset);
-      m1_bytes_in_cur_region = fd_ulong_min( sz, fd_ulong_sat_sub( vm->input_mem_regions[ m1_region_idx ].region_sz,
-                                                                        ((ulong)m1_haddr - vm->input_mem_regions[ m1_region_idx ].haddr) ) );
-    } else {
-      m1_bytes_in_cur_region = fd_ulong_min( sz, vm->region_ld_sz[ m1_region ] - m1_offset );
-      m1_haddr               = (uchar *)FD_VM_MEM_SLICE_HADDR_LD_SZ_UNCHECKED( vm, m1_vaddr, FD_VM_ALIGN_RUST_U8 );
-    }
-
-    /* Case where the operation spans multiple regions. Copy over the bytes
-       from each region while iterating to the next one. */
-    /* TODO: An optimization would be to memcmp chunks at once */
-    ulong m0_idx = 0UL;
-    ulong m1_idx = 0UL;
-    for( ulong i=0UL; i<sz; i++ ) {
-      if( FD_UNLIKELY( !m0_bytes_in_cur_region ) ) {
-        /* If the memory is not in the input region or it is the last input
-           memory region, that means that if we don't exit now we will have
-           an access violation. */
-        if( FD_UNLIKELY( m0_region!=FD_VM_INPUT_REGION || ++m0_region_idx>=vm->input_mem_regions_cnt ) ) {
-          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        if( FD_UNLIKELY( vm->input_mem_regions[ m0_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ m0_region_idx ].is_acct_data ) ) {
-          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        /* Otherwise, query the next input region. */
-        m0_haddr = (uchar*)vm->input_mem_regions[ m0_region_idx ].haddr;
-        m0_idx = 0UL;
-        m0_bytes_in_cur_region = vm->input_mem_regions[ m0_region_idx ].region_sz;
-      }
-      if( FD_UNLIKELY( !m1_bytes_in_cur_region ) ) {
-        if( FD_UNLIKELY( m1_region!=FD_VM_INPUT_REGION || ++m1_region_idx>=vm->input_mem_regions_cnt ) ) {
-          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        if( FD_UNLIKELY( vm->input_mem_regions[ m1_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ m1_region_idx ].is_acct_data ) ) {
-          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        m1_haddr = (uchar*)vm->input_mem_regions[ m1_region_idx ].haddr;
-        m1_idx = 0UL;
-        m1_bytes_in_cur_region = vm->input_mem_regions[ m1_region_idx ].region_sz;
-      }
-
-      int i0 = (int)m0_haddr[ m0_idx ];
-      int i1 = (int)m1_haddr[ m1_idx ];
-      if( i0!=i1 ) {
-        out = i0 - i1;
-        break;
-      }
-
-      m0_bytes_in_cur_region--;
-      m1_bytes_in_cur_region--;
-      m0_idx++;
-      m1_idx++;
-    }
-    fd_memcpy( _out, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
-    return FD_VM_SUCCESS;
   }
+
+  fd_memcpy( cmp_result_ref_mut_query.haddr, &out, 4UL ); /* Sigh ... see note above (and might be unaligned ... double sigh) */
+
+  return FD_VM_SUCCESS;
 }
 
 int
@@ -792,92 +474,19 @@ fd_vm_syscall_sol_memset( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  ulong   region = FD_VADDR_TO_REGION( dst_vaddr );
-  ulong   offset = dst_vaddr & FD_VM_OFFSET_MASK;
-  uchar * haddr;
-
   int b = (int)(c & 255UL);
 
-  if( !vm->direct_mapping ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L155-L159 */
-    fd_vm_haddr_query_t haddr_query = {
-      .vaddr    = dst_vaddr,
-      .align    = FD_VM_ALIGN_RUST_U8,
-      .sz       = sz,
-      .is_slice = 1,
-    };
+  /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mem_ops.rs#L155-L159 */
+  fd_vm_haddr_query_t haddr_query = {
+    .vaddr    = dst_vaddr,
+    .align    = FD_VM_ALIGN_RUST_U8,
+    .sz       = sz,
+    .is_slice = 1,
+  };
 
-    fd_vm_haddr_query_t * queries[] = { &haddr_query };
-    FD_VM_TRANSLATE_MUT( vm, queries );
-    fd_memset( haddr_query.haddr, b, sz );
-  } else if( region!=FD_VM_INPUT_REGION ) {
-    /* Here we special case non-input region memsets: we try to memset
-       as many bytes as possible until it reaches an unwritable section.
-       This is done in order to ensure error-code conformance with
-       Agave. */
-    haddr = (uchar*)FD_VM_MEM_HADDR_ST_FAST( vm, dst_vaddr );
-    ulong bytes_in_cur_region = fd_ulong_sat_sub( vm->region_st_sz[ region ], offset );
-    ulong bytes_to_set        = fd_ulong_min( sz, bytes_in_cur_region );
-    fd_memset( haddr, b, bytes_to_set );
-    if( FD_UNLIKELY( bytes_to_set<sz ) ) {
-      FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-      return FD_VM_SYSCALL_ERR_SEGFAULT;
-    }
-  } else {
-    /* In this case, we are in the input region AND direct mapping is
-       enabled. Get the haddr and input region and check if it's
-       writable. This means that we may potentially iterate over
-       multiple regions. */
-    ulong region_idx;
-    FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( vm, offset, region_idx, haddr );
-    ulong offset_in_cur_region = offset - vm->input_mem_regions[ region_idx ].vaddr_offset;
-    ulong bytes_in_cur_region  = fd_ulong_sat_sub( vm->input_mem_regions[ region_idx ].region_sz, offset_in_cur_region );
+  fd_vm_haddr_query_t * queries[] = { &haddr_query };
+  FD_VM_TRANSLATE_MUT( vm, queries );
+  fd_memset( haddr_query.haddr, b, sz );
 
-    /* Check that current region is writable */
-    if( FD_UNLIKELY( !vm->input_mem_regions[ region_idx ].is_writable ) ) {
-      FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-      return FD_VM_SYSCALL_ERR_SEGFAULT;
-    }
-
-    /* Memset goes into multiple regions. */
-    while( sz>0UL ) {
-
-      /* Memset bytes */
-      ulong num_bytes_to_set = fd_ulong_min( sz, bytes_in_cur_region );
-      fd_memset( haddr, b, num_bytes_to_set );
-      sz -= num_bytes_to_set;
-
-      if( !sz ) {
-        break;
-      }
-
-      /* If no more regions left, break. */
-      if( ++region_idx==vm->input_mem_regions_cnt ) {
-        break;
-      }
-
-      /* Check that new region is writable. */
-      if( FD_UNLIKELY( !vm->input_mem_regions[ region_idx ].is_writable ) ) {
-        break;
-      }
-
-      /* If new region crosses into/out of account region, error out. */
-      if( FD_UNLIKELY( vm->input_mem_regions[ region_idx ].is_acct_data !=
-                       vm->input_mem_regions[ region_idx-1UL ].is_acct_data ) ) {
-        FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-        return FD_VM_SYSCALL_ERR_SEGFAULT;
-      }
-
-      /* Move haddr to next region. */
-      haddr               = (uchar*)vm->input_mem_regions[ region_idx ].haddr;
-      bytes_in_cur_region = vm->input_mem_regions[ region_idx ].region_sz;
-    }
-
-    /* If we were not able to successfully set all the bytes, throw an error. */
-    if( FD_UNLIKELY( sz>0 ) ) {
-      FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-      return FD_VM_SYSCALL_ERR_SEGFAULT;
-    }
-  }
   return FD_VM_SUCCESS;
 }

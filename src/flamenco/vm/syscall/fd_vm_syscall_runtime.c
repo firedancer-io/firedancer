@@ -26,6 +26,11 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_clock_t) ) );
 
+  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
+
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_CLOCK,
@@ -56,6 +61,11 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_epoch_schedule_t) ) );
+
+  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
 
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
@@ -95,6 +105,11 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_rent_t) ) );
 
+  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
+
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
     .align    = FD_VM_ALIGN_RUST_SYSVAR_RENT,
@@ -126,6 +141,11 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sol_sysvar_last_restart_slot_t) ) );
+
+  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
 
   fd_vm_haddr_query_t var_query = {
     .vaddr    = out_vaddr,
@@ -166,6 +186,11 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L190-L197 */
   ulong sysvar_buf_cost = sz / FD_VM_CPI_BYTES_PER_UNIT;
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, fd_ulong_max( sysvar_buf_cost, FD_VM_MEM_OP_BASE_COST ) ) );
+
+  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/sysvar.rs#L207-L211 */
   fd_vm_haddr_query_t var_query = {
@@ -568,6 +593,11 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
   if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
 
   FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, sizeof(fd_sysvar_epoch_rewards_t) ) );
+
+  if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && out_vaddr>=FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
+    return FD_VM_ERR_INVAL;
+  }
 
   uchar * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_EPOCH_REWARDS, sizeof(fd_sysvar_epoch_rewards_t) );
 

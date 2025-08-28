@@ -6,9 +6,10 @@ static inline void set_memory_region( uchar * mem, ulong sz ) { for( ulong i=0UL
 static void
 test_vm_syscall_toggle_direct_mapping( fd_vm_t * vm_ctx, int enable ) {
   ulong slot = enable ? 0UL : FD_FEATURE_DISABLED;
-  char const * one_offs[] = { "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq" };
+  char const * one_offs[] = { "9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ", "CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM" };
   fd_features_enable_one_offs( (fd_features_t*)&vm_ctx->instr_ctx->txn_ctx->features, one_offs, 1U, slot );
   vm_ctx->direct_mapping = enable;
+  vm_ctx->stricter_abi_and_runtime_constraints = enable;
 }
 
 static void
@@ -216,37 +217,38 @@ main( int     argc,
   uchar input[ input_sz ];
   ulong const mem_regions_cnt = 4UL;
   fd_vm_input_region_t input_mem_regions[ mem_regions_cnt ];
-  input_mem_regions[0] = (fd_vm_input_region_t){ .haddr = (ulong)input,         .region_sz = 100UL, .is_writable = 1, .vaddr_offset = 0UL };
-  input_mem_regions[1] = (fd_vm_input_region_t){ .haddr = (ulong)input + 100UL, .region_sz = 1UL,   .is_writable = 1, .vaddr_offset = 100UL };
-  input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
-  input_mem_regions[3] = (fd_vm_input_region_t){ .haddr = (ulong)input + 501UL, .region_sz = 499UL, .is_writable = 1, .vaddr_offset = 501UL };
+  input_mem_regions[0] = (fd_vm_input_region_t){ .haddr = (ulong)input,         .region_sz = 100UL, .address_space_reserved = 100UL, .is_writable = 1, .vaddr_offset = 0UL };
+  input_mem_regions[1] = (fd_vm_input_region_t){ .haddr = (ulong)input + 100UL, .region_sz = 1UL,   .address_space_reserved = 1UL,   .is_writable = 1, .vaddr_offset = 100UL };
+  input_mem_regions[2] = (fd_vm_input_region_t){ .haddr = (ulong)input + 101UL, .region_sz = 400UL, .address_space_reserved = 400UL, .is_writable = 1, .vaddr_offset = 101UL };
+  input_mem_regions[3] = (fd_vm_input_region_t){ .haddr = (ulong)input + 501UL, .region_sz = 499UL, .address_space_reserved = 499UL, .is_writable = 1, .vaddr_offset = 501UL };
 
   fd_exec_instr_ctx_t instr_ctx[1];
   fd_exec_txn_ctx_t   txn_ctx[1];
   test_vm_minimal_exec_instr_ctx( instr_ctx, txn_ctx );
 
   int vm_ok = !!fd_vm_init(
-      /* vm                 */ vm,
-      /* instr_ctx          */ instr_ctx,
-      /* heap_max           */ FD_VM_HEAP_DEFAULT,
-      /* entry_cu           */ FD_VM_COMPUTE_UNIT_LIMIT,
-      /* rodata             */ rodata,
-      /* rodata_sz          */ rodata_sz,
-      /* text               */ NULL,
-      /* text_cnt           */ 0UL,
-      /* text_off           */ 0UL,
-      /* text_sz            */ 0UL,
-      /* entry_pc           */ 0UL,
-      /* calldests          */ NULL,
-      /* sbpf_version       */ TEST_VM_DEFAULT_SBPF_VERSION,
-      /* syscalls           */ NULL,
-      /* trace              */ NULL,
-      /* sha                */ sha,
-      /* mem_regions        */ input_mem_regions,
-      /* mem_regions_cnt    */ (uint)mem_regions_cnt,
-      /* mem_regions_accs   */ NULL,
-      /* is_deprecated      */ 0,
-      /* direct mapping     */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+      /* vm                                   */ vm,
+      /* instr_ctx                            */ instr_ctx,
+      /* heap_max                             */ FD_VM_HEAP_DEFAULT,
+      /* entry_cu                             */ FD_VM_COMPUTE_UNIT_LIMIT,
+      /* rodata                               */ rodata,
+      /* rodata_sz                            */ rodata_sz,
+      /* text                                 */ NULL,
+      /* text_cnt                             */ 0UL,
+      /* text_off                             */ 0UL,
+      /* text_sz                              */ 0UL,
+      /* entry_pc                             */ 0UL,
+      /* calldests                            */ NULL,
+      /* sbpf_version                         */ TEST_VM_DEFAULT_SBPF_VERSION,
+      /* syscalls                             */ NULL,
+      /* trace                                */ NULL,
+      /* sha                                  */ sha,
+      /* mem_regions                          */ input_mem_regions,
+      /* mem_regions_cnt                      */ (uint)mem_regions_cnt,
+      /* mem_regions_accs                     */ NULL,
+      /* is_deprecated                        */ 0,
+      /* direct mapping                       */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping ),
+      /* stricter_abi_and_runtime_constraints */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints ),
       /* dump_syscall_to_pb */ 0
   );
   FD_TEST( vm_ok );
@@ -312,7 +314,7 @@ main( int     argc,
                               (ulong)&input,
                               1UL,
                               1000UL,
-                              0UL, FD_VM_SUCCESS );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset across multiple input mem regions 2",
                               vm,
@@ -320,7 +322,7 @@ main( int     argc,
                               (ulong)&input + 50UL,
                               1UL,
                               800UL,
-                              0UL, FD_VM_SUCCESS );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   input_mem_regions[2].is_writable=0;
   test_vm_syscall_sol_memset( "test_vm_syscall_sol_memset: memset across multiple input mem regions invalid write",
@@ -480,7 +482,7 @@ main( int     argc,
                                 vm->input_mem_regions[0].haddr + 50UL,
                                 vm->input_mem_regions[0].haddr + 450UL,
                                 100UL,
-                                0UL, FD_VM_SUCCESS );
+                                0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   test_vm_syscall_sol_memcpy( "test_vm_syscall_sol_memcpy: memcpy in input overlapping vaddr multiple regions",
                                 vm,
@@ -588,10 +590,10 @@ main( int     argc,
 
   test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input overlapping vaddr",
                               vm,
-                              FD_VM_MEM_MAP_INPUT_REGION_START + 80UL,
-                              FD_VM_MEM_MAP_INPUT_REGION_START + 120UL,
-                              vm->input_mem_regions[0].haddr + 80UL,
-                              vm->input_mem_regions[0].haddr + 120UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 20UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 30UL,
+                              vm->input_mem_regions[0].haddr + 20UL,
+                              vm->input_mem_regions[0].haddr + 30UL,
                               50UL,
                               0UL, FD_VM_SUCCESS );
 
@@ -602,7 +604,7 @@ main( int     argc,
                               vm->input_mem_regions[0].haddr + 50UL,
                               vm->input_mem_regions[0].haddr + 450UL,
                               100UL,
-                              0UL, FD_VM_SUCCESS );
+                              0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   test_vm_syscall_sol_memmove( "test_vm_syscall_sol_memmove: memmove in input overlapping vaddr multiple regions",
                                 vm,
@@ -611,7 +613,7 @@ main( int     argc,
                                 vm->input_mem_regions[0].haddr + 50UL,
                                 vm->input_mem_regions[0].haddr + 450UL,
                                 500UL,
-                                0UL, FD_VM_SUCCESS );
+                                0UL, FD_VM_SYSCALL_ERR_SEGFAULT );
 
   // test for memcmp at the heap region
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp at the heap region",
@@ -653,24 +655,24 @@ main( int     argc,
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp input region equal",
                               vm,
                               FD_VM_MEM_MAP_INPUT_REGION_START,
-                              FD_VM_MEM_MAP_INPUT_REGION_START + 200UL,
-                              FD_VM_MEM_MAP_INPUT_REGION_START + 600UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 48UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 160UL,
                               input_mem_regions[0].haddr,
-                              input_mem_regions[0].haddr + 200UL,
-                              input_mem_regions[0].haddr + 600UL,
-                              200UL,
+                              input_mem_regions[0].haddr + 48UL,
+                              input_mem_regions[0].haddr + 160UL,
+                              30UL,
                               0UL, FD_VM_SUCCESS );
 
-  memset( (void*)input_mem_regions[0].haddr, 0xEE, 200UL );
+  memset( (void*)input_mem_regions[0].haddr, 0xEE, 50UL );
   test_vm_syscall_sol_memcmp( "test_vm_syscall_sol_memcmp: memcmp input region not equal",
                               vm,
                               FD_VM_MEM_MAP_INPUT_REGION_START,
-                              FD_VM_MEM_MAP_INPUT_REGION_START + 200UL,
-                              FD_VM_MEM_MAP_INPUT_REGION_START + 600UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 48UL,
+                              FD_VM_MEM_MAP_INPUT_REGION_START + 160UL,
                               input_mem_regions[0].haddr,
-                              input_mem_regions[0].haddr + 200UL,
-                              input_mem_regions[0].haddr + 600UL,
-                              200UL,
+                              input_mem_regions[0].haddr + 48UL,
+                              input_mem_regions[0].haddr + 160UL,
+                              30UL,
                               0UL, FD_VM_SUCCESS );
 
   uchar expected_log[ FD_VM_LOG_MAX ];
