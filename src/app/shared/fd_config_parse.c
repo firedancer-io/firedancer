@@ -181,6 +181,15 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
+  CFG_POP      ( cstr,   net.xdp.rx_flow_steering                         );
+  if( 0==strcmp( config->net.xdp.rx_flow_steering, "fewer-queues" ) ) {
+    config->net.xdp.rx_flow_steering_ = FD_CONFIG_RX_FLOW_STEERING_FEWER_QUEUES;
+  } else if( 0==strcmp( config->net.xdp.rx_flow_steering, "ntuple" ) ) {
+    config->net.xdp.rx_flow_steering_ = FD_CONFIG_RX_FLOW_STEERING_NTUPLE;
+  } else {
+    FD_LOG_ERR(( "Invalid [net.xdp.rx_flow_steering]: \"%s\"; allowed values are 'fewer-queues', 'ntuple'",
+                 config->net.xdp.rx_flow_steering ));
+  }
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 

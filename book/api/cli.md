@@ -66,8 +66,10 @@ following stages to each configure command:
     configuration TOML file.
  - `sysctl` Set required kernel parameters.
  - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
- - `ethtool-channels` Configures the number of channels on the network
-    device.
+ - `ethtool-channels` Does hardware RX flow configuration:
+    - RX/TX queue count (via `ethtool --set-channels`)
+    - Steer Firedancer traffic to queue 0 (via `ethtool --config-ntuple`)
+    - Isolate regular traffic from queue 0 (via `ethtool --rxfh`)
  - `ethtool-gro` Disables generic receive offload (GRO) on the network
     device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.

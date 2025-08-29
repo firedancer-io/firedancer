@@ -169,6 +169,11 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
+
+    char rx_flow_steering[ 16 ];
+    uint rx_flow_steering_;
+#   define FD_CONFIG_RX_FLOW_STEERING_FEWER_QUEUES 0
+#   define FD_CONFIG_RX_FLOW_STEERING_NTUPLE       1
   } xdp;
 
   struct {
