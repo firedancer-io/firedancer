@@ -49,4 +49,8 @@ void fd_rpc_repair_during_frag(fd_rpc_ctx_t * ctx, void const * msg, int sz);
 
 void fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx);
 
+void fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz);
+
+void fd_rpc_tower_after_frag(fd_rpc_ctx_t * ctx);
+
 #endif /* HEADER_fd_src_discof_rpcserver_fd_rpc_service_h */

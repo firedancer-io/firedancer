@@ -5,6 +5,7 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../disco/fd_disco_base.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -115,6 +116,9 @@ struct fd_rpc_global_ctx {
   ulong acct_age;
   fd_rpc_history_t * history;
   fd_pubkey_t const * identity_key; /* nullable */
+  ulong replay_towers_cnt;
+  fd_replay_tower_t replay_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  int replay_towers_eom;
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -2420,4 +2424,21 @@ fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx) {
   if( subs->buffer_sz != (int)sizeof(fd_reasm_fec_t) ) return;
   fd_reasm_fec_t * fec_p = (fd_reasm_fec_t *)subs->buffer;
   fd_rpc_history_save_fec( subs->history, subs->store, fec_p );
+}
+
+void
+fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  if( FD_LIKELY( sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
+    if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) glob->replay_towers_cnt = 0;
+    if( FD_UNLIKELY( glob->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
+    FD_TEST( sz == (int)sizeof(fd_replay_tower_t) );
+    memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_tower_t) );
+    glob->replay_towers_eom = fd_frag_meta_ctl_eom( ctl );
+  }
+}
+
+void
+fd_rpc_tower_after_frag(fd_rpc_ctx_t * ctx) {
+  (void)ctx;
 }

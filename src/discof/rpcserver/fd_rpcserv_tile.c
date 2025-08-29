@@ -17,6 +17,7 @@
 #define IN_KIND_REPLAY_NOTIF  0
 #define IN_KIND_STAKE_OUT     1
 #define IN_KIND_REPAIR_REPLAY 2
+#define IN_KIND_REPLAY_TOWER  3
 
 #define MAX_IN_LINKS    (16)
 
@@ -107,6 +108,8 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_stake_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else if( FD_UNLIKELY( kind == IN_KIND_REPAIR_REPLAY ) ) {
     fd_rpc_repair_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
+  } else if( FD_UNLIKELY( kind == IN_KIND_REPLAY_TOWER ) ) {
+    fd_rpc_tower_during_frag( ctx->ctx, sig, ctl,fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -140,6 +143,8 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_stake_after_frag( ctx->ctx );
   } else if( kind == IN_KIND_REPAIR_REPLAY ) {
     fd_rpc_repair_after_frag( ctx->ctx );
+  } else if( kind == IN_KIND_REPLAY_TOWER ) {
+    fd_rpc_tower_after_frag( ctx->ctx );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -214,6 +219,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
     } else if( 0==strcmp( link->name, "repair_repla" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPAIR_REPLAY;
+    } else if( 0==strcmp( link->name, "replay_tower" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_TOWER;
     } else {
       FD_LOG_ERR(( "rpcserv tile has unexpected input link %s", link->name ));
     }
