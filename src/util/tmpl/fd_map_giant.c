@@ -99,7 +99,7 @@
 
     // mymap_insert inserts the key pointed to by key into the map.
     // Returns the location in the caller's address space of the element
-    // for key in the map or NULL if there was no space in the map.
+    // for key in the map.
     //
     // Assumes map is a current local join, key points to a valid key in
     // the caller's address space, there are no concurrent operations on

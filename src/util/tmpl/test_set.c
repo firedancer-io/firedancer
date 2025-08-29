@@ -75,6 +75,11 @@ main( int     argc,
     FD_TEST( set_first( ebar )==(idx ? 0UL : 1UL) );
     FD_TEST( set_first( full )==0UL               );
 
+    FD_TEST( set_last( null )>=max                    );
+    FD_TEST( set_last( e    )==idx                    );
+    FD_TEST( set_last( ebar )==max-1UL-(idx==max-1UL) );
+    FD_TEST( set_last( full )==max-1UL                );
+
     FD_TEST( set_copy( t, null )==t && set_eq( set_insert( t, idx ), e    ) );
     FD_TEST( set_copy( t, e    )==t && set_eq( set_insert( t, idx ), e    ) );
     FD_TEST( set_copy( t, ebar )==t && set_eq( set_insert( t, idx ), full ) );
