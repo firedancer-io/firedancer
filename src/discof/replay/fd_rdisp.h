@@ -152,7 +152,14 @@ ulong fd_rdisp_align    ( void        );
 ulong fd_rdisp_footprint( ulong depth, ulong block_depth );
 
 
-/* TODO: document */
+/* fd_rdisp_new formats a region of memory that satisfies the required
+   footprint and alignment for use as a dispatcher.  depth and
+   block_depth are as explained in fd_rdisp_footprint.  mem is a pointer
+   to the first byte of a region of memory with the required alignment
+   and footprint.  On return, the caller will not be joined.
+
+   fd_rdisp_join joins the caller to the dispatcher, enabling it for
+   use. */
 void *
 fd_rdisp_new( void * mem,
               ulong  depth,
@@ -335,6 +342,8 @@ ulong
 fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] );
 
+void
+fd_rdisp_verify( fd_rdisp_t const * disp );
 
 void *
 fd_rdisp_leave( fd_rdisp_t * disp );

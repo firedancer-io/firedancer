@@ -60,6 +60,48 @@ add_txn( fd_rdisp_t *         rdisp,
   return fd_rdisp_add_txn( rdisp, tag, txn, payload, alt, serializing );
 }
 
+static void ushort_to_acct( fd_acct_addr_t * a, ushort v ) { for( ulong k=0UL; k<16UL; k++ ) FD_STORE( ushort, a->b+2UL*k, v ); }
+
+static ulong
+add_txn2( fd_rdisp_t *         rdisp,
+          fd_rng_t   *         rng,
+          FD_RDISP_BLOCK_TAG_T tag,
+          ushort const *       accts,
+          ulong                acct_cnt ) {
+  ushort categorized[3][2][128]; /* (signer, nonsigner, alt) x (writeble, readonly) x accts */
+  ulong  cat_cnts[3][2] = { 0 };
+
+  for( ulong i=0UL; i<acct_cnt; i++ ) {
+    ulong cat = fd_rng_uint_roll( rng, 3UL );
+    ushort a = accts[i];
+    categorized[cat][1-(a>>15)][ cat_cnts[cat][1-(a>>15)]++ ] = a&0x7FFF;
+  }
+
+  FD_TEST( cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]<=38UL );
+
+  uchar _txn[ sizeof(fd_txn_t) ] __attribute__((aligned(alignof(fd_txn_t)))) = { 0 };
+
+  fd_txn_t * txn = (fd_txn_t *)fd_type_pun( _txn );
+  txn->transaction_version = FD_TXN_V0;
+  txn->signature_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]);
+  txn->readonly_signed_cnt = (uchar)cat_cnts[0][1];
+  txn->readonly_unsigned_cnt = (uchar)cat_cnts[1][1];
+  txn->acct_addr_cnt = (uchar)(cat_cnts[0][0]+cat_cnts[0][1]+cat_cnts[1][0]+cat_cnts[1][1]);
+  txn->acct_addr_off = 0;
+  txn->addr_table_lookup_cnt = 1;
+  txn->addr_table_adtl_writable_cnt = (uchar)cat_cnts[2][0];
+  txn->addr_table_adtl_cnt = (uchar)(cat_cnts[2][0]+cat_cnts[2][1]);
+
+  uchar payload[ 1232 ];
+  fd_acct_addr_t * acct = (fd_acct_addr_t *)fd_type_pun( payload );
+  for( ulong i=0UL; i<4UL; i++ ) for( ulong j=0UL; j<cat_cnts[i>>1][i&1]; j++ ) ushort_to_acct( acct++, categorized[i>>1][i&1][j] );
+  fd_acct_addr_t alt[ 128 ];
+  acct = alt;
+  for( ulong i=4UL; i<6UL; i++ ) for( ulong j=0UL; j<cat_cnts[2][i&1]; j++ ) ushort_to_acct( acct++, categorized[2][i&1][j] );
+
+  return fd_rdisp_add_txn( rdisp, tag, txn, payload, alt, 0 );
+}
+
 static inline ulong
 pop_option( ulong * indices,
             ulong   cnt,
@@ -211,6 +253,141 @@ test_mainnet( char const * filename,
 #endif
 }
 
+#define SORT_NAME sn_sort
+#define SORT_KEY_T ulong
+#define SORT_BEFORE(a,b) (a)<(b)
+#include "../../util/tmpl/fd_sort.c"
+
+static void
+random_test( fd_rng_t * rng ) {
+  FD_LOG_NOTICE(( "testing random graphs" ));
+
+  ulong depth       = 100UL;
+  ulong block_depth = 10UL;
+  FD_TEST( fd_rdisp_footprint( depth, block_depth )<=TEST_FOOTPRINT && fd_rdisp_align()<=128UL ); /* if this fails, update the test */
+  fd_rdisp_t * disp = fd_rdisp_join( fd_rdisp_new( footprint, depth, block_depth ) );   FD_TEST( disp );
+
+  for( ulong test=0UL; test<3000UL; test++ ) {
+    ulong  adj_matrix[64] = { 0UL }; /* bit s of adj_matrix[d] is 1 if there's an edge from s to d */
+    ushort acct_cnt[64]   = { 0 };
+    ushort acct[64][32]; /* high bit is 1 if write */
+
+    FD_TEST( 0UL==fd_rdisp_add_block( disp, tag( 0UL ), 0UL ) );
+
+    ulong edge_cnt = fd_rng_uint_roll( rng, 450U );
+    for( ulong edge=0UL; edge<edge_cnt; edge++ ) {
+      int edge_type = fd_rng_int_roll( rng, 4 );
+      ulong cluster_cnt = fd_ulong_max( 2UL, fd_ulong_min( 16UL, 1UL+(ulong)(2.0f*fd_rng_float_exp( rng )+0.5f) ) );
+      ulong selected_nodes[16];
+      /* Use reservoir sampling to select cluster_cnt nodes without
+         replacement */
+      for( ulong i=0UL; i<cluster_cnt;  i++ ) selected_nodes[i] = i;
+      for( ulong i=cluster_cnt; i<64UL; i++ ) {
+        ulong j = fd_rng_uint_roll( rng, (uint)i );
+        if( j<cluster_cnt && acct_cnt[i]<32UL ) selected_nodes[j] = i;
+      }
+      sn_sort_inplace( selected_nodes, cluster_cnt );
+      char line[256];
+      char * cstr = fd_cstr_init( line );
+
+      switch( edge_type ) {
+        case 0: /* w-w */
+          cstr = fd_cstr_append_cstr( cstr, "w-w: " );
+          for( ulong j=0UL; j<cluster_cnt; j++ ) {
+            ulong n = selected_nodes[j];
+            cstr = fd_cstr_append_printf( cstr, "%lu, ", n );
+            acct[n][acct_cnt[n]++] = (ushort)(0x8000 | edge);
+            if( FD_LIKELY( j>0UL ) ) adj_matrix[n] |= 1UL << (selected_nodes[j-1UL]);
+          }
+          break;
+        case 1: /* r-w */
+          cstr = fd_cstr_append_cstr( cstr, "r-w: " );
+          for( ulong j=0UL; j<cluster_cnt; j++ ) {
+            ulong n = selected_nodes[j];
+            cstr = fd_cstr_append_printf( cstr, "%lu, ", n );
+            acct[n][acct_cnt[n]++] = (ushort)fd_ulong_if( j==0UL, edge, 0x8000UL | edge );
+            if( FD_LIKELY( j>0UL ) ) adj_matrix[n] |= 1UL << (selected_nodes[j-1UL]);
+          }
+          break;
+        case 2: /* w-r */
+          {
+            ulong n0 = selected_nodes[0UL];
+            cstr = fd_cstr_append_cstr( cstr, "w-r: " );
+            cstr = fd_cstr_append_printf( cstr, "%lu; ", n0 );
+            acct[n0][acct_cnt[n0]++] = (ushort)(0x8000 | edge);
+            for( ulong j=1UL; j<cluster_cnt; j++ ) {
+              ulong n = selected_nodes[j];
+              cstr = fd_cstr_append_printf( cstr, "%lu, ", n );
+              acct[n][acct_cnt[n]++] = (ushort)edge;
+              adj_matrix[n] |= 1UL << n0;
+            }
+            break;
+          }
+        case 3: /* r-r */
+          cstr = fd_cstr_append_cstr( cstr, "r-r: " );
+          for( ulong j=0UL; j<cluster_cnt; j++ ) {
+            ulong n = selected_nodes[j];
+            cstr = fd_cstr_append_printf( cstr, "%lu, ", n );
+            acct[n][acct_cnt[n]++] = (ushort)edge;
+          }
+          break;
+        default:
+          break;
+      }
+      fd_cstr_fini( cstr );
+      FD_LOG_NOTICE(( "%lu: %s", edge, line ));
+    }
+
+    /* internal ids are in [0, 64).  txn_ids are in [1, 100]. */
+    uchar txn_id[64];
+    uchar internal_id[101];
+    memset( internal_id, '\xFF', sizeof(internal_id) );
+    for( ulong txn=0UL; txn<64UL; txn++ ) {
+      txn_id[txn] = (uchar)add_txn2( disp, rng, tag( 0UL ), acct[txn], acct_cnt[txn] );
+      internal_id[ txn_id[ txn ] ] = (uchar)txn;
+    }
+    for( ulong txn=0UL; txn<64UL; txn++ ) FD_LOG_NOTICE(( "Internal id %lu has txnid %lu", txn, txn_id[txn] ));
+
+    ulong dispatched_pool[64];
+    ulong dispatched_cnt = 0UL;
+
+    ulong dispatched = 0UL;
+    ulong expected = 0UL;
+
+    while( ~dispatched ) {
+      while( 1 ) {
+        ulong id = fd_rdisp_get_next_ready( disp, tag( 0UL ) );
+        FD_LOG_NOTICE(( "next ready %lu", id ));
+        if( FD_UNLIKELY( id==0UL ) ) break;
+        dispatched_pool[ dispatched_cnt++ ] = id;
+        dispatched |= 1UL<<internal_id[ id ];
+      }
+      for( ulong i=0UL; i<64UL; i++ ) if( FD_UNLIKELY( !adj_matrix[i] ) ) expected |= 1UL<<i;
+      FD_TEST( expected==dispatched );
+
+      FD_TEST( dispatched_cnt>0UL );
+      /* Now pick one from dispatched_pool to complete it, and adjust
+         adj_matrix appropriately. */
+      uint selected_i = fd_rng_uint_roll( rng, (uint)dispatched_cnt );
+      ulong selected = dispatched_pool[ selected_i ];
+      FD_LOG_NOTICE(( "completing %lu", selected ));
+      fd_rdisp_complete_txn( disp, selected );
+      dispatched_pool[ selected_i ] = dispatched_pool[ --dispatched_cnt ];
+
+      ulong mask = ~(1UL<<internal_id[ selected ]);
+      for( ulong i=0UL; i<64UL; i++ ) adj_matrix[i] &= mask;
+      fd_rdisp_verify( disp );
+    }
+    for( ulong i=0UL; i<dispatched_cnt; i++ ) fd_rdisp_complete_txn( disp, dispatched_pool[ i ] );
+
+    fd_rdisp_abandon_block( disp, tag( 0UL ) );
+    fd_rdisp_verify( disp );
+  }
+
+
+  fd_rdisp_delete( fd_rdisp_leave( disp ) );
+}
+
 
 int
 main( int     argc,
@@ -220,7 +397,8 @@ main( int     argc,
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   char const * block_file = fd_env_strip_cmdline_cstr  ( &argc, &argv, "--block-file", NULL, NULL );
-  test_mainnet( block_file, 8UL, 20UL, 0UL, 1 );
+  ulong        exec_tiles = fd_env_strip_cmdline_ulong ( &argc, &argv, "--exec-tiles", NULL, 8UL );
+  test_mainnet( block_file, exec_tiles, 20UL, 0UL, 1 );
 
   ulong depth       = 100UL;
   ulong block_depth = 10UL;
@@ -260,31 +438,39 @@ main( int     argc,
   FD_TEST( 0UL!=(t1[0]=add_txn( disp, rng, tag( 1UL ), "ABC", "DEF", 0 )) );
   FD_TEST( 0UL!=(t1[1]=add_txn( disp, rng, tag( 1UL ), "A",   "DEF", 0 )) );
   FD_TEST( 0UL!=(t1[2]=add_txn( disp, rng, tag( 1UL ), "AF",  "DE",  0 )) );
+  fd_rdisp_verify( disp );
 
   FD_TEST( t1[0]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[0] );
   FD_TEST( t1[1]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[1] );
   FD_TEST( t1[2]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[2] );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* empty */
+  fd_rdisp_verify( disp );
+  FD_LOG_NOTICE(( "---" ));
 
   /* 3 transactions that can go in any order */
   FD_TEST( 0UL!=(t1[0]=add_txn( disp, rng, tag( 1UL ), "A", "DEF", 0 )) );
   FD_TEST( 0UL!=(t1[1]=add_txn( disp, rng, tag( 1UL ), "B", "DEF", 0 )) );
   FD_TEST( 0UL!=(t1[2]=add_txn( disp, rng, tag( 1UL ), "C", "DE",  0 )) );
+  fd_rdisp_verify( disp );
 
   ulong last;
   last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
   last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
   last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* empty */
+  fd_rdisp_verify( disp );
+  FD_LOG_NOTICE(( "---" ));
 
   FD_TEST( 0UL!=(t0[0]=add_txn( disp, rng, tag( 0UL ), "A", "DEF", 0 )) );
   FD_TEST( 0UL!=(t0[1]=add_txn( disp, rng, tag( 0UL ), "B", "DEF", 0 )) );
   FD_TEST( 0UL!=(t0[2]=add_txn( disp, rng, tag( 0UL ), "C", "DE",  0 )) );
+  fd_rdisp_verify( disp );
 
   FD_TEST( 0UL!=(t1[0]=add_txn( disp, rng, tag( 1UL ), "A", "DEF", 0 )) );
   FD_TEST( 0UL!=(t1[1]=add_txn( disp, rng, tag( 1UL ), "B", "DEF", 0 )) );
   FD_TEST( 0UL!=(t1[2]=add_txn( disp, rng, tag( 1UL ), "C", "DE",  0 )) );
+  fd_rdisp_verify( disp );
 
   FD_TEST( 0==fd_rdisp_promote_block( disp, tag( 1UL ), 0 ) );
 
@@ -308,6 +494,7 @@ main( int     argc,
   last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
   last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
   last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  FD_LOG_NOTICE(( "---" ));
 
   FD_TEST( 0UL!=(t2[0]=add_txn( disp, rng, tag( 2UL ), "ABC", "DEF", 0 )) );
   FD_TEST( 0UL!=(t2[1]=add_txn( disp, rng, tag( 2UL ), "A",   "DEF", 0 )) );
@@ -315,6 +502,7 @@ main( int     argc,
   FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
   FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
   FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+  FD_LOG_NOTICE(( "---" ));
   /* Now it is possible to demote */
   FD_TEST(   (1UL<<2) & fd_rdisp_staging_lane_info( disp, lane_info ) );
   FD_TEST( 0==fd_rdisp_demote_block( disp, tag( 2UL ) ) );
@@ -330,13 +518,73 @@ main( int     argc,
   FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
   FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
   FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+  FD_LOG_NOTICE(( "---" ));
 
-  /* TODO:
-     test that if there is a transaction that is ready to be dispatched
-     based on accounts but was inserted as serializing, it doesn't get
-     returned until all before have been completed. */
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
+
+  ulong t4[5];
+  FD_TEST( 0==fd_rdisp_add_block( disp, tag( 4UL ), 1UL ) );
+
+  /* Test serializing */
+  FD_TEST( 0UL!=(t4[0]=add_txn( disp, rng, tag( 4UL ), "A", "J", 0 )) );
+  FD_TEST( 0UL!=(t4[1]=add_txn( disp, rng, tag( 4UL ), "B", "J", 0 )) );
+  FD_TEST( 0UL!=(t4[2]=add_txn( disp, rng, tag( 4UL ), "C", "J", 1 )) );
+  FD_TEST( 0UL!=(t4[3]=add_txn( disp, rng, tag( 4UL ), "D", "J", 0 )) );
+  FD_TEST( 0UL!=(t4[4]=add_txn( disp, rng, tag( 4UL ), "E", "J", 0 )) );
+
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4,     2UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4,     2UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( last==t4[2]                     ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4+3UL, 2UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4+3UL, 2UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 4UL ) ) );
+  FD_LOG_NOTICE(( "---" ));
+
+  /* Tests that only apply for the non-simple dispatcher */
+  if( 1 ) {
+    FD_TEST( 0==fd_rdisp_add_block( disp, tag( 4UL ), 1UL ) );
+
+    /* All independent */
+    FD_TEST( 0UL!=(t4[0]=add_txn( disp, rng, tag( 4UL ), "A", "J", 0 )) );
+    FD_TEST( 0UL!=(t4[1]=add_txn( disp, rng, tag( 4UL ), "B", "J", 0 )) );
+    FD_TEST( 0UL!=(t4[2]=add_txn( disp, rng, tag( 4UL ), "C", "J", 0 )) );
+    FD_TEST( 0UL!=(t4[3]=add_txn( disp, rng, tag( 4UL ), "D", "J", 0 )) );
+    FD_TEST( 0UL!=(t4[4]=add_txn( disp, rng, tag( 4UL ), "E", "J", 0 )) );
+
+    for( ulong i=0UL; i<5UL; i++ ) { last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4, 5UL, last ) ); }
+    for( ulong i=0UL; i<5UL; i++ ) fd_rdisp_complete_txn( disp, t4[i]&0xFFFFUL );
+    FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 4UL ) ) );
+
+
+    /* Test that it respects block boundaries */
+    FD_TEST( 0==fd_rdisp_add_block( disp, tag( 0UL ), 1UL ) );
+
+    FD_TEST( 0UL!=(t0[0]=add_txn( disp, rng, tag( 0UL ), "A", "J", 0 )) );
+    FD_TEST( 0UL!=(t0[1]=add_txn( disp, rng, tag( 0UL ), "B", "J", 0 )) );
+    FD_TEST( 0UL!=(t0[2]=add_txn( disp, rng, tag( 0UL ), "C", "J", 0 )) );
+
+    FD_TEST( 0==fd_rdisp_add_block( disp, tag( 1UL ), 1UL ) );
+
+    FD_TEST( 0UL!=(t1[0]=add_txn( disp, rng, tag( 1UL ), "D", "J", 0 )) );
+    FD_TEST( 0UL!=(t1[1]=add_txn( disp, rng, tag( 1UL ), "E", "J", 0 )) );
+    FD_TEST( 0UL!=(t1[2]=add_txn( disp, rng, tag( 1UL ), "F", "J", 0 )) );
+
+    FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* not schedule-ready */
+    for( ulong i=0UL; i<3UL; i++ ) { last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); }
+    FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); /* empty */
+    FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* not schedule-ready */
+    for( ulong i=0UL; i<3UL; i++ ) fd_rdisp_complete_txn( disp, t0[i]&0xFFFFUL );
+    FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+
+    /* Now block 1 is schedule-ready */
+    for( ulong i=0UL; i<3UL; i++ ) { last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); }
+    for( ulong i=0UL; i<3UL; i++ ) fd_rdisp_complete_txn( disp, t1[i]&0xFFFFUL );
+    FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 1UL ) ) );
+  }
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
+
+  random_test( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

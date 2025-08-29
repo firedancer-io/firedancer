@@ -24,12 +24,14 @@
    last node in the graph.
 
 
-                             ---> 3 --
+                              --> 3 --
+                             /    ^   \
                             /     :    \
                            /      V     v
                  1  ---> 2        4 --> 6 ----> 7
-                                  :     ^
-                                  V    /
+                                  ^     ^
+                                  :    /
+                                  V   /
                                   5 --
 
    The normal edge 2->3 along with the sibling edge 3..>4 implies a
@@ -45,7 +47,10 @@
    are worth mentioning.  For example, when deleting node 2, we
    decrement the in-degree count for its successor, and then follow the
    sibling pointers, decrementing all the in-degree counts as we go to
-   mark the deletion of the implied edges.
+   mark the deletion of the implied edges.  Sibling edges also need to
+   be doubly linked, so that e.g. nodes 3 and 5 can be re-linked in O(1)
+   if node 4 is deleted.  They're also circularly linked as well for
+   convenience.
 
    When building the graph, we maintain a map of account to the last
    node that references it, whether that was a read or write, and
@@ -63,7 +68,7 @@
 
 /* The following structs are all very local to this compilation unit,
    and so they don't have globally acceptable type names (e.g.
-   fd_replay_disp_edge2_t). */
+   fd_rdisp_edge_t). */
 
 /* Everything is set up to allow this to be 128, but we can save the
    space until it's necessary. */
@@ -88,23 +93,13 @@
      struct {
        uint is_last:1;
        uint txn_idx:23;
-       uint edge_idx:8;
+       uint acct_idx:8;
      } e;
    } edge_t;
 
    */
 typedef uint edge_t;
 
-#define EDGE_IS_LAST(x) ((x)&0x80000000U)
-/* FOLLOW_EDGE must not be called on last */
-#define FOLLOW_EDGE(base, x) (__extension__({ uint __e = (x); ((base)+(__e>>8))->edges + (__e & 0xFFU); }))
-#define FOLLOW_EDGE_TXN(base, x) ( (base)+((x)>>8) )
-
-struct edge2 {
-  edge_t child;
-  edge_t sibli;
-};
-typedef struct edge2 edge2_t;
 
 /* txn_node_t is the representation of a transaction as a node in the
    DAG. */
@@ -132,15 +127,48 @@ struct fd_rdisp_txn {
   float   score;
 
   /* edge_cnt_etc:
-     0xFFFFFE00 (23 bits) for linear block number,
-     0x00000180 (2 bits) for concurrency lane,
-     0x0000007F (7 bits) for edge_cnt
+     0xFFFF0000 (16 bits) for linear block number,
+     0x0000C000 (2 bits) for concurrency lane,
+     0x00003F80 (7 bits) for r_cnt
+     0x0000007F (7 bits) for w_cnt
      If UNSTAGED or FREE, the next pointer is also here. */
   uint    edge_cnt_etc;
 
-  edge2_t edges[MAX_ACCT_PER_TXN]; /* addressed [0, edge_cnt) */
+
+  /* When a transaction writes to an account, it only creates one
+     link.  When a transaction reads from an account, we need the full
+     doubly linked list with its siblings, so it creates 3 edges
+     (parent, next, prev).  All edges from writable accounts come first,
+     and we keep track of how many there are.  In the worst case, all
+     accounts are reads, so we size it appropriately. */
+  edge_t edges[3UL*MAX_ACCT_PER_TXN]; /* addressed [0, w_cnt+3*r_cnt) */
 };
 typedef struct fd_rdisp_txn fd_rdisp_txn_t;
+
+#define EDGE_IS_LAST(x) ((x)&0x80000000U)
+
+/* FOLLOW_EDGE and FOLLOW_EDGE_TXN are helper macros for dealing with
+   edges.  FOLLOW_EDGE and FOLLOW_EDGE_TXN must not be called if
+   EDGE_IS_LAST is non-zero.
+
+   Then the edge index of the (first) edge for
+   an account index is:
+          acct_idx                      if acct_idx<w_cnt
+          w_cnt + 3*(acct_idx-w_cnt)    else.
+  Simplifying gives
+         acct_idx + 2*signed_max( 0, acct_idx-w_cnt ).
+  In doing this calculation, we also basically get for free whether the
+  edge is for a writable account or a readonly account, so we return
+  that as well via the w parameter. */
+#define FOLLOW_EDGE(base, x, w) (__extension__({                                 \
+        uint __e = (x);                                                          \
+        fd_rdisp_txn_t * __txn = ((base)+(__e>>8));                              \
+        uint __wcnt = __txn->edge_cnt_etc & 0x7FU;                               \
+        uint __idx  = (__e & 0xFFU);                                             \
+        (w) = __idx<__wcnt;                                                      \
+        (void)(w);  /* not robust... */                                          \
+        __txn->edges + __idx + 2*fd_int_max( 0, (int)(__idx)-(int)(__wcnt) ); }))
+#define FOLLOW_EDGE_TXN(base, x) ( (base)+((x)>>8) )
 
 /* The pool and slist are almost the same, but they are used
    differently, so keep them as different structures for now. */
@@ -414,29 +442,6 @@ typedef struct fd_rdisp fd_rdisp_t;
        ulong __idx = fd_txn_acct_iter_idx( iter );                                              \
        fd_ptr_if( __idx<fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM ), accts, alt_adj )+__idx; \
        }))
-// 
-// ulong
-// fd_replay_disp_add_txn( fd_replay_disp_t     * disp,
-//                         fd_txn_t const       * txn,
-//                         uchar const          * payload,
-//                         fd_acct_addr_t const * alt_expanded ) {
-// 
-//   ulong in_degree = 0UL;
-// 
-//   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, payload );
-//   /* alt_adj is the pointer to the ALT expansion, adjusted so that if
-//      account address n is the first that comes from the ALT, it can be
-//      accessed with adj_lut[n]. */
-//   fd_acct_addr_t const * alt_adj = alt_expanded - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
-// 
-//   for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
-//       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-//     fd_acct_addr_t const * acct = ACCT_ITER_TO_PTR( iter );
-//     acct_info_t * a_info = acct_map_ele_query( disp->acct_map, acct, NULL, disp->acct_pool );
-//     if( FD_LIKELY( a_
-// 
-//   }
-
 
 
 
@@ -495,7 +500,7 @@ fd_rdisp_new( void * mem,
   pool_new( _pool, depth );
   memset( _unstaged, '\0', sizeof(fd_rdisp_unstaged_t)*(depth+1UL) );
 
-  ulong seed = (ulong)fd_tickcount(); /* TODO: better seed */
+  ulong seed = 17UL; // (ulong)fd_tickcount(); /* TODO: better seed */
   block_map_new ( _bmap,  chain_cnt, seed );
   block_pool_new( _bpool, block_depth+1UL );
 
@@ -736,8 +741,8 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
     add_edges( disp, ele, uns->keys,                   uns->writable_cnt, (uint)staging_lane, 1, 0 );
     add_edges( disp, ele, uns->keys+uns->writable_cnt, uns->readonly_cnt, (uint)staging_lane, 0, 0 );
 
-    ele->edge_cnt_etc |= (uint)staging_lane<<7;
-    ele->edge_cnt_etc |= linear_block_number<<9;
+    ele->edge_cnt_etc |= (uint)staging_lane<<14;
+    ele->edge_cnt_etc |= linear_block_number<<16;
 
     if( FD_UNLIKELY( ele->in_degree==0U ) ) {
       pending_prq_ele_t temp[1] = {{ .score = ele->score, .linear_block_number = linear_block_number, .txn_idx = (uint)(ele-disp->pool)}};
@@ -802,7 +807,9 @@ add_edges( fd_rdisp_t           * disp,
            uint                   lane,
            int                    writable,
            int                    update_score ) {
-/* updates in_degree, edge_cnt_etc */
+
+  ulong acct_idx = (ele->edge_cnt_etc & 0x7FU) +     ((ele->edge_cnt_etc>>7) & 0x7FU);
+  ulong edge_idx = (ele->edge_cnt_etc & 0x7FU) + 3UL*((ele->edge_cnt_etc>>7) & 0x7FU);
 
   for( ulong i=0UL; i<addr_cnt; i++ ) {
     fd_acct_addr_t const * addr = addrs+i;
@@ -820,18 +827,24 @@ add_edges( fd_rdisp_t           * disp,
         ai = disp->acct_pool+idx;
 
         /* CACHED -> FREE transition */
-        if( FD_LIKELY( ai->next!=0U ) ) acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
+        if( FD_LIKELY( ai->next!=0U ) ) {
+          FD_LOG_NOTICE(( "AI evict %lu", idx ));
+          acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
+        }
 
         /* FREE -> ACTIVE transition */
         ai->key      = *addr;
         ai->flags    = 0U;
         ai->last_ref = 0U;
         ai->ema_refs = 0.0f;
+
+        FD_LOG_NOTICE(( "AI allocate %lu for %x %x", idx, addr->b[0], addr->b[1] ));
       } else {
         /* CACHED -> ACTIVE transition */
         ai = disp->acct_pool+idx;
         ai->flags    = 0U; /* FIXME: unnecessary */
         acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
+        FD_LOG_NOTICE(( "AI CACHED->ACTIVE %lu for %x %x", idx, addr->b[0], addr->b[1]));
       }
       /* In either case, at this point, the element is not in any map
          but is in free_acct_dlist.  It has the right key. last_ref, and
@@ -840,6 +853,7 @@ add_edges( fd_rdisp_t           * disp,
       memset( ai->last_reference, '\0', sizeof(ai->last_reference) );
       acct_map_idx_insert( disp->acct_map, idx, disp->acct_pool );
     }
+    FD_LOG_NOTICE(( "AI using %lu for %x %x", idx, addr->b[0], addr->b[1] ));
     ai = disp->acct_pool+idx;
     /* At this point, in all cases, the acct_info is now in the ACTIVE
        state.  It's in acct_map, not in free_acct_map, and not in
@@ -852,11 +866,12 @@ add_edges( fd_rdisp_t           * disp,
     /* Step 2: add edge. There are 4 cases depending on whether this is
        a writer or not and whether the previous reference was a writer
        or not. */
-    uint edge_cnt = ele->edge_cnt_etc & 0x7FU;
+    int      _ignore;
 
-    edge2_t * pa        = FOLLOW_EDGE( disp->pool, ai->last_reference[ lane ] );
-    edge2_t * me        = ele->edges + edge_cnt;
-    edge_t    ref_to_me = (((uint)(ele - disp->pool))<<8) | edge_cnt;
+    edge_t   ref_to_pa = ai->last_reference[ lane ];
+    edge_t   ref_to_me = (uint)((ulong)((ele - disp->pool)<<8) | acct_idx);
+    edge_t * pa        = FOLLOW_EDGE( disp->pool, ai->last_reference[ lane ], _ignore );
+    edge_t * me        = ele->edges + edge_idx;
 
     /* In the case that this is the first txn in the DAG, pa will point
        to edges[0] of the sentinel element, pool[0].  We don't care
@@ -865,49 +880,50 @@ add_edges( fd_rdisp_t           * disp,
        this is a read, we want me->sibli to ref_to_me in case 4; if this
        is a write, we want to set me->sibli to 0 in case 2, but we need
        to make sure pb==pa. */
-    disp->pool->edges->child = (1U<<31) | (uint)idx;
-    disp->pool->edges->sibli = fd_uint_if( writable, 0U, ref_to_me );
+    disp->pool->edges[0] = (1U<<31) | (uint)idx;
+    disp->pool->edges[1] = fd_uint_if( writable, 0U, ref_to_me );
+    disp->pool->edges[2] = fd_uint_if( writable, 0U, ref_to_me );
 
     ulong flags = ai->flags;
 
     if( writable ) { /* also should be known at compile time */
       if( flags & ACCT_INFO_FLAG_LAST_REF_WAS_WRITE( lane ) ) { /* unclear prob */
-        /* Case 1: w-w. The parent's child field is the special last pointer,
-           and pa's sibli field is 0. */
-        me->child = pa->child;
-        me->sibli = 0U;
-        pa->child = ref_to_me;
+        /* Case 1: w-w. The parent is the special last pointer.  Point
+           the parent to me, and set me to the last pointer. */
+        *me = *pa;
+        *pa = ref_to_me;
       } else {
         /* Case 2: r-w. This is the tricky case because there could be
-           multiple readers.  We need to set all the last reader's child
-           pointer to me. */
-        me->child = pa->child;
-        me->sibli = 0U;
-        pa->child = ref_to_me;
-        edge2_t * pb = FOLLOW_EDGE( disp->pool, pa->sibli );
+           multiple readers.  We need to set all the last readers' child
+           pointers to me. */
+        *me = *pa;
+        *pa = ref_to_me;
+        edge_t * pb = FOLLOW_EDGE( disp->pool, pa[1], _ignore );
         /* Intentionally skip the first in_degree increment, because it
            will be done later */
         while( pb!=pa ) {
-          pb->child = ref_to_me;
+          *pb = ref_to_me;
           ele->in_degree++;
-          pb = FOLLOW_EDGE( disp->pool, pb->sibli );
+          pb = FOLLOW_EDGE( disp->pool, pb[1], _ignore );
         }
         flags |= ACCT_INFO_FLAG_LAST_REF_WAS_WRITE( lane ) | ACCT_INFO_FLAG_ANY_WRITERS( lane );
       }
     } else {
       if( flags & ACCT_INFO_FLAG_LAST_REF_WAS_WRITE( lane ) ) { /* unclear prob */
-        /* Case 3: w-r. The parent's fields are in the same state as
-           case 1, but the only difference is that my sibli field needs
-           to be myself. */
-        me->child = pa->child;
-        me->sibli = ref_to_me;
-        pa->child = ref_to_me;
+        /* Case 3: w-r. Similar to case 1, but need to initialize my
+           next and prev sibling pointers too. */
+        *me = *pa;
+        *pa = ref_to_me;
+        me[1] = ref_to_me; /* next */
+        me[2] = ref_to_me; /* prev */
         flags &= ~(ulong)ACCT_INFO_FLAG_LAST_REF_WAS_WRITE( lane ); /* clear bit */
       } else {
         /* Case 4: r-r. Add myself as a sibling instead of a child */
-        me->child = pa->child;
-        me->sibli = pa->sibli;
-        pa->sibli = ref_to_me;
+        *me = *pa;
+        FOLLOW_EDGE( disp->pool, pa[1], _ignore )[2] = ref_to_me;  /* prev->next->prev = me   */
+        me[1] = pa[1];                                             /* me->next   = prev->next */
+        me[2] = ref_to_pa;                                         /* me->prev   = prev       */
+        pa[1] = ref_to_me;                                         /* prev->next = me         */
       }
     }
 
@@ -921,9 +937,10 @@ add_edges( fd_rdisp_t           * disp,
     ele->in_degree += (ai->last_reference[ lane ]!=0U) & !!(flags & ACCT_INFO_FLAG_ANY_WRITERS( lane ));
     ai->last_reference[ lane ] = ref_to_me;
     ai->flags                  = (uchar)flags;
-    ele->edge_cnt_etc++;  /* The edge cnt is in the low bits and can't
-                            overflow, so no masks required */
+    edge_idx += fd_uint_if( writable, 1U, 3U );
+    acct_idx++;
   }
+  ele->edge_cnt_etc += (uint)addr_cnt<<fd_int_if( writable, 0, 7 ); /* Can't overflow by construction */
 }
 
 
@@ -998,18 +1015,18 @@ fd_rdisp_add_txn( fd_rdisp_t          *  disp,
 
     rtxn->in_degree    = 0U;
     rtxn->score        = 0.999f;
-    rtxn->edge_cnt_etc = (block->linear_block_number<<9) | (lane<<7);
+    rtxn->edge_cnt_etc = (block->linear_block_number<<16) | (lane<<14);
 
     add_edges( disp, rtxn, imm_addrs,
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER        ), lane, 1, 1 );
-    add_edges( disp, rtxn, imm_addrs+fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER ),
-                                     fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_SIGNER        ), lane, 0, 1 );
     add_edges( disp, rtxn, imm_addrs+fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER ),
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM ), lane, 1, 1 );
-    add_edges( disp, rtxn, imm_addrs+fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER | FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM ),
-                                     fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM ), lane, 0, 1 );
     add_edges( disp, rtxn, alts,
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT ),           lane, 1, 1 );
+    add_edges( disp, rtxn, imm_addrs+fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_SIGNER ),
+                                     fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_SIGNER        ), lane, 0, 1 );
+    add_edges( disp, rtxn, imm_addrs+fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER | FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM ),
+                                     fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM ), lane, 0, 1 );
     add_edges( disp, rtxn, alts     +fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT ),
                                      fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_READONLY_ALT ),           lane, 0, 1 );
   }
@@ -1072,51 +1089,130 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
     block->completed_cnt++;
   } else {
     /* Staged */
-    ulong edge_cnt = rtxn->edge_cnt_etc      & 0x7FU;
-    ulong lane     = (rtxn->edge_cnt_etc>>7) & 0x3U;
-    for( ulong i=0UL; i<edge_cnt; i++ ) {
-      edge2_t const * e  = rtxn->edges+i;
-      edge_t  const   e0 = e->child;
+    ulong w_cnt = (rtxn->edge_cnt_etc    ) & 0x7FU;
+    ulong r_cnt = (rtxn->edge_cnt_etc>> 7) & 0x7FU;
+    ulong lane  = (rtxn->edge_cnt_etc>>14) & 0x3U;
+    ulong edge_idx = 0UL;
+    for( ulong i=0UL; i<w_cnt+r_cnt; i++ ) {
+      edge_t const * e = rtxn->edges+edge_idx;
+      edge_t const  e0 = *e;
+      edge_t ref_to_me = (uint)((txn_idx<<8) | i);
+
+      /* To help with explanations, consider the following DAG:
+
+           --> B --\   --> E --\
+          /         V /         V
+         A           D         (G)
+          \         ^ \         ^
+           --> C --/   --> F --/     */
+
       if( FD_UNLIKELY( EDGE_IS_LAST( e0 ) ) ) {
         ulong acct_idx = e0 & 0x7FFFFFFFU;
         acct_info_t * ai = disp->acct_pool + acct_idx;
-        ai->last_reference[ lane ] = 0U;
+        /* If this is a writer, e.g. node G above, we know it's the last
+           one, so we can clear last_reference.
+           If this is a reader, e.g. node E and F above, if node G
+           didn't exist, we need to check if it's the last one
+           (me==me->next).  If so, we can clear last_reference.  If not,
+           we need to delete this node from the linked list */
+        if( edge_idx<w_cnt || e[1]==ref_to_me ) ai->last_reference[ lane ] = 0U;
+        else {
+          int _ignore;
+          FOLLOW_EDGE( disp->pool, e[1], _ignore )[2] = e[2];  /* me->next->prev = me->prev */
+          FOLLOW_EDGE( disp->pool, e[2], _ignore )[1] = e[1];  /* me->prev->next = me->next */
+          ai->last_reference[ lane ]= fd_uint_if( ai->last_reference[ lane ]==ref_to_me, e[1], ai->last_reference[ lane ] );
+        }
 
         /* Potentially transition from ACTIVE -> CACHED */
         if( FD_UNLIKELY( (ai->last_reference[ 0 ]==0U)&(ai->last_reference[ 1 ]==0U)&
                          (ai->last_reference[ 2 ]==0U)&(ai->last_reference[ 3 ]==0U) ) ) {
           ai->flags = 0;
-          acct_map_idx_remove_fast( disp->acct_map,      acct_idx, disp->acct_pool );
-          acct_map_idx_insert     ( disp->free_acct_map, acct_idx, disp->acct_pool );
+          acct_map_idx_remove_fast( disp->acct_map,        acct_idx, disp->acct_pool );
+          acct_map_idx_insert     ( disp->free_acct_map,   acct_idx, disp->acct_pool );
+          free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
+          FD_LOG_NOTICE(( "AI ACTIVE->CACHED %lu for %x %x", acct_idx, ai->key.b[0], ai->key.b[1] ));
         }
       } else {
-        edge_t next_e = e->child;
-        edge2_t const * child_edge;
-        do {
-          /*            */ child_edge = FOLLOW_EDGE(     disp->pool, next_e );
-          fd_rdisp_txn_t * child_txn  = FOLLOW_EDGE_TXN( disp->pool, next_e );
-          next_e = child_edge->sibli;
+        int child_is_writer;
+
+        edge_t next_e = e0;
+        edge_t const * child_edge;
+        while( 1 ) {
+          /* This loop first traverses the me->child link, and then
+             traverses any sibling links.  For example, in the case that
+             we're completing node D above, the first child_txn is E,
+             and the second child_txn is F. */
+          /*            */ child_edge = FOLLOW_EDGE(     disp->pool, next_e, child_is_writer );
+          fd_rdisp_txn_t * child_txn  = FOLLOW_EDGE_TXN( disp->pool, next_e                  );
           FD_TEST( child_txn->in_degree>0U );
           if( FD_UNLIKELY( 0U==(--(child_txn->in_degree)) ) ) {
             pending_prq_ele_t temp[1] = {{ .score               = child_txn->score,
-                                           .linear_block_number = child_txn->edge_cnt_etc>>9,
+                                           .linear_block_number = child_txn->edge_cnt_etc>>16,
                                            .txn_idx             = (uint)(child_txn-disp->pool) }};
             pending_prq_insert( disp->lanes[ lane ].pending, temp );
           }
-        } while( (next_e>0U) & (next_e!=e0) );
+          if( child_is_writer || child_edge[1]==e0 ) break;
+          next_e = child_edge[1];
+        }
+        /* In the case that the completed transaction is a reader, say B
+           or C above, it seems like we should need to remove it from
+           the doubly linked list, but we actually don't.  The times
+           that we need to read the sibling pointers are:
+            1. Completing the writer before a reader (e.g. completing A)
+            2. Completing a reader that's the last in the DAG (e.g.
+               completing E/F if G didn't exist)
+            3. Adding another reader to the same set of readers (e.g. if
+               G were added as a reader instead of a writer)
+            4. Adding a writer after a set of readers (e.g. adding G).
 
-        if( FD_UNLIKELY( EDGE_IS_LAST( child_edge->child ) ) ) {
-          /* There's either exactly one writer and no readers left in
-             the DAG or there are 0 writers and >=1 readers left in the
-             DAG.  Either way, we want to set ANY_WRITERS to
+           Supposing that the completed transaction is a reader, since
+           we checked EDGE_IS_LAST( e0 ), we know that there is at least
+           one writer that follows this reader, e.g. D above.
+
+           And so none of these reason can apply to this group of readers:
+            1. Completing B or C implies that A has already completed,
+               so it can't complete again.
+            2. We know that we're not in that case because we checked
+               EDGE_IS_LAST( e0 ), and if we're not last now, we cannot
+               become last later, because the growth happens in the
+               other direction.
+            3. Similarly, because we checked EDGE_IS_LAST, any future
+               additions of readers won't be to this group of readers.
+            4. Similarly, we know that there already is a writer that
+               follows this group of readers, so a later writer would
+               not read this set of readers.
+
+           So then, we don't need to deal with the sibling edges.  The
+           fact that we only need to do it in one case almost calls into
+           question whether we need to maintain the whole circular
+           system in the first place, and whether we could get away with
+           a reference count or something instead, but it's important in
+           one critical case: suppose we add a bunch of readers, then
+           some of them complete, and then we add a writer (case 4
+           above).  We need to be able to enumerate the nodes in the DAG
+           that have not yet completed, and we need to be able to remove
+           them from that set in O(1).  Those two requirements don't
+           leave us with many alternatives besides a doubly linked list. */
+
+        if( FD_UNLIKELY( EDGE_IS_LAST( *child_edge ) ) ) {
+          /* For example, either:
+             1. completing D when if G didn't exist
+             2. completing E or F with G in the DAG
+
+             After completing this transaction, there's either 0 writers
+             left (case 1) or 1 writer left (case 2) in the DAG. and if
+             there is one, it is the last reference.
+
+             Either way, we want to set ANY_WRITERS to
              LAST_REF_WAS_WRITER. */
-          acct_info_t * ai = disp->acct_pool + (child_edge->child & 0x7FFFFFFFU);
+          acct_info_t * ai = disp->acct_pool + (*child_edge & 0x7FFFFFFFU);
           ulong flags = ai->flags;
           flags &= ~(ulong)ACCT_INFO_FLAG_ANY_WRITERS( lane );
           flags |= (flags & ACCT_INFO_FLAG_LAST_REF_WAS_WRITE( lane ))<<1;
           ai->flags = (uchar)flags;
         }
       }
+      edge_idx += fd_ulong_if( i<w_cnt, 1UL, 3UL );
     }
     block_slist_ele_peek_head( disp->lanes[ lane ].block_ll, disp->block_pool )->completed_cnt++;
   }
@@ -1128,6 +1224,15 @@ fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] ) {
   (void)out_sched; /* TODO: poplulate */
   return 0xFUL & ~(ulong)disp->free_lanes;
+}
+
+void
+fd_rdisp_verify( fd_rdisp_t const * disp ) {
+  ulong acct_depth  = disp->depth*MAX_ACCT_PER_TXN;
+  ulong block_depth = disp->block_depth;
+  FD_TEST( 0==acct_map_verify ( disp->acct_map,      acct_depth+1UL,  disp->acct_pool ) );
+  FD_TEST( 0==acct_map_verify ( disp->free_acct_map, acct_depth+1UL,  disp->acct_pool ) );
+  FD_TEST( 0==block_map_verify( disp->blockmap,     block_depth+1UL, disp->block_pool ) );
 }
 
 void * fd_rdisp_leave ( fd_rdisp_t * disp ) { return disp; }
