@@ -8,6 +8,7 @@
 #include "fd_quic_conn_id.h"
 #include "crypto/fd_quic_crypto_suites.h"
 #include "fd_quic_pkt_meta.h"
+#include "fd_quic_svc_q.h"
 #include "../fd_rtt_est.h"
 
 #define FD_QUIC_CONN_STATE_INVALID            0 /* dead object / freed */
@@ -18,10 +19,9 @@
 #define FD_QUIC_CONN_STATE_ABORT              5 /* connection terminating due to error */
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
-#define FD_QUIC_CONN_STATE_TIMED_OUT          8 /* connection timed out but kept for reuse */
-#define FD_QUIC_CONN_STATE_COUNT              9
+#define FD_QUIC_CONN_STATE_CNT                8
 
-FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_COUNT == sizeof((fd_quic_metrics_t){0}.conn_state_cnt)/sizeof((fd_quic_metrics_t){0}.conn_state_cnt[0]),
+FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_CNT == sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt)/sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt[0]),
                   "metrics conn_state_cnt is the wrong size" );
 
 #define FD_QUIC_REASON_CODES(X,SEP) \
@@ -93,14 +93,11 @@ struct fd_quic_conn {
   uint               key_phase : 1;
   uint               key_update : 1;
 
-  /* Service queue dlist membership.  All active conns (state not INVALID)
-     are in a service queue, FD_QUIC_SVC_TYPE_WAIT by default.
-     Free conns (svc_type==UINT_MAX) are members of a singly linked list
-     (only svc_next set). */
-  uint               svc_type;  /* FD_QUIC_SVC_{...} or UINT_MAX */
-  uint               svc_prev;
-  uint               svc_next;
-  ulong              svc_time;  /* service may be delayed until this timestamp */
+  /* metadata used by service queue */
+  fd_quic_svc_timers_conn_meta_t svc_meta;
+
+  /* Dlist membership  */
+  uint               free_conn_next;
 
   ulong              our_conn_id;
 
@@ -289,6 +286,11 @@ fd_quic_conn_set_context( fd_quic_conn_t * conn, void * context );
 /* get the user-defined context value from a connection */
 void *
 fd_quic_conn_get_context( fd_quic_conn_t * conn );
+
+
+/* set all conns to not visited, used for validation */
+void
+fd_quic_conn_validate_init( fd_quic_t * quic );
 
 FD_PROTOTYPES_END
 

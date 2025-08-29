@@ -113,17 +113,17 @@
 | <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">abort</span>"} | gauge | The number of QUIC connections in each state. (connection terminating due to error) |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">close_&#8203;pending</span>"} | gauge | The number of QUIC connections in each state. (connection is closing) |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">dead</span>"} | gauge | The number of QUIC connections in each state. (connection about to be freed) |
-| <span class="metrics-name">quic_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">timeout</span>"} | gauge | The number of QUIC connections in each state. (connection timed out) |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;created</span> | counter | The total number of connections that have been created. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;closed</span> | counter | Number of connections gracefully closed. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;aborted</span> | counter | Number of connections aborted. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;timed_&#8203;out</span> | counter | Number of connections timed out. |
-| <span class="metrics-name">quic_&#8203;connections_&#8203;timeout_&#8203;revived</span> | counter | Number of connections revived after timing out. |
-| <span class="metrics-name">quic_&#8203;connections_&#8203;timeout_&#8203;freed</span> | counter | Number of connections freed after timing out. |
 | <span class="metrics-name">quic_&#8203;connections_&#8203;retried</span> | counter | Number of connections established with retry. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Number of connections that failed to create due to lack of slots. |
 | <span class="metrics-name">quic_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Number of connections that failed during retry (e.g. invalid token). |
-| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Number of packets with an unknown connection ID. |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">initial</span>"} | counter | Number of packets with an unknown connection ID. (initial) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">retry</span>"} | counter | Number of packets with an unknown connection ID. (retry) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">handshake</span>"} | counter | Number of packets with an unknown connection ID. (handshake) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">one_&#8203;rtt</span>"} | counter | Number of packets with an unknown connection ID. (1-RTT) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (Success) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;empty_&#8203;pool</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (PktMetaPoolEmpty) |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;tx_&#8203;alloc</span><br/>{frame_&#8203;tx_&#8203;alloc_&#8203;result="<span class="metrics-enum">fail_&#8203;conn_&#8203;max</span>"} | counter | Results of attempts to acquire QUIC frame metadata. (ConnMaxedInflightFrames) |
@@ -737,13 +737,10 @@
 | <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">abort</span>"} | gauge | Number of QUIC connections in each state (connection terminating due to error) |
 | <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">close_&#8203;pending</span>"} | gauge | Number of QUIC connections in each state (connection is closing) |
 | <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">dead</span>"} | gauge | Number of QUIC connections in each state (connection about to be freed) |
-| <span class="metrics-name">send_&#8203;connections_&#8203;state</span><br/>{quic_&#8203;conn_&#8203;state="<span class="metrics-enum">timeout</span>"} | gauge | Number of QUIC connections in each state (connection timed out) |
 | <span class="metrics-name">send_&#8203;connections_&#8203;created</span> | counter | Total count of QUIC connections created |
 | <span class="metrics-name">send_&#8203;connections_&#8203;closed</span> | counter | Total count of QUIC connections closed |
 | <span class="metrics-name">send_&#8203;connections_&#8203;aborted</span> | counter | Total count of QUIC connections aborted |
 | <span class="metrics-name">send_&#8203;connections_&#8203;timed_&#8203;out</span> | counter | Total count of QUIC connections timed out |
-| <span class="metrics-name">send_&#8203;connections_&#8203;timeout_&#8203;revived</span> | counter | Total count of QUIC connections revived after timing out |
-| <span class="metrics-name">send_&#8203;connections_&#8203;timeout_&#8203;freed</span> | counter | Total count of QUIC connections freed after timing out |
 | <span class="metrics-name">send_&#8203;connections_&#8203;retried</span> | counter | Total count of QUIC connections retried |
 | <span class="metrics-name">send_&#8203;connection_&#8203;error_&#8203;no_&#8203;slots</span> | counter | Total count of connection errors due to no slots |
 | <span class="metrics-name">send_&#8203;connection_&#8203;error_&#8203;retry_&#8203;fail</span> | counter | Total count of connection retry failures |
@@ -755,7 +752,10 @@
 | <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Total count of packets with no key (early data) |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Total count of packets with no key (handshake) |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;key</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Total count of packets with no key (app data) |
-| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span> | counter | Total count of packets with no connection |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">initial</span>"} | counter | Total count of packets with no connection (initial) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">retry</span>"} | counter | Total count of packets with no connection (retry) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">handshake</span>"} | counter | Total count of packets with no connection (handshake) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;no_&#8203;conn</span><br/>{quic_&#8203;pkt_&#8203;handle="<span class="metrics-enum">one_&#8203;rtt</span>"} | counter | Total count of packets with no connection (1-RTT) |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;tx_&#8203;alloc_&#8203;fail</span> | counter | Total count of packet TX allocation failures |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid</span> | counter | Total count of packets with invalid network headers |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;quic_&#8203;header_&#8203;invalid</span> | counter | Total count of packets with invalid QUIC headers |

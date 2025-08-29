@@ -143,8 +143,6 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTIONS_CLOSED,  ctx->quic->metrics.conn_closed_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_ABORTED, ctx->quic->metrics.conn_aborted_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_TIMED_OUT, ctx->quic->metrics.conn_timeout_cnt );
-  FD_MCNT_SET(   QUIC, CONNECTIONS_TIMEOUT_REVIVED, ctx->quic->metrics.conn_timeout_revived_cnt );
-  FD_MCNT_SET(   QUIC, CONNECTIONS_TIMEOUT_FREED, ctx->quic->metrics.conn_timeout_freed_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_RETRIED, ctx->quic->metrics.conn_retry_cnt );
 
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
@@ -152,7 +150,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,   ctx->quic->metrics.pkt_decrypt_fail_cnt );
   FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,          ctx->quic->metrics.pkt_no_key_cnt );
-  FD_MCNT_SET(       QUIC, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_CONN,         ctx->quic->metrics.pkt_no_conn_cnt );
   FD_MCNT_ENUM_COPY( QUIC, FRAME_TX_ALLOC,        ctx->quic->metrics.frame_tx_alloc_cnt );
   FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
   FD_MCNT_SET(       QUIC, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
@@ -573,7 +571,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (ulong)1e6;
-  quic->config.keep_timed_out             = 1;
   quic->config.ack_delay                  = tile->quic.ack_delay_millis * (ulong)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;
   quic->config.retry                      = tile->quic.retry;

@@ -99,9 +99,6 @@ typedef struct fd_quic_conn fd_quic_conn_t;
 struct fd_quic_stream;
 typedef struct fd_quic_stream fd_quic_stream_t;
 
-struct fd_quic_state_private;
-typedef struct fd_quic_state_private fd_quic_state_t;
-
 /* fd_quic_limits_t defines the memory layout of an fd_quic_t object.
    Limits are immutable and valid for the lifetime of an fd_quic_t
    (i.e. outlasts joins, until fd_quic_delete) */
@@ -135,6 +132,7 @@ struct fd_quic_layout {
   int   lg_slot_cnt;       /* see conn_map_new                 */
   ulong hs_pool_off;       /* offset of the handshake pool     */
   ulong stream_pool_off;   /* offset of the stream pool        */
+  ulong svc_timers_off;    /* offset of the service timers     */
   ulong pkt_meta_pool_off; /* offset of the pkt_meta pool      */
 };
 
@@ -190,19 +188,12 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   ulong idle_timeout;
 # define FD_QUIC_DEFAULT_IDLE_TIMEOUT (ulong)(1e9) /* 1s */
 
-   /* keep_alive
-   * whether the fd_quic should use QUIC PING frames to keep connections alive
-   * Set to 1 to keep connections alive
-   * Set to 0 to allow connections to close on idle
-   * default is 0 */
+/* keep_alive
+ * whether the fd_quic should use QUIC PING frames to keep connections alive
+ * Set to 1 to keep connections alive
+ * Set to 0 to allow connections to close on idle
+ * default is 0 */
   int keep_alive;
-
-  /* keep_timed_out
-   * whether the fd_quic should keep timed out conns allocated
-   * Set to 1 to keep timed out conns allocated
-   * Set to 0 to free timed out conns immediately
-   * default is 0 */
-  int keep_timed_out;
 
   /* ack_delay: median delay on outgoing ACKs.  Greater delays allow
      fd_quic to coalesce packet ACKs. */
@@ -337,17 +328,15 @@ union fd_quic_metrics {
     ulong retry_tx_cnt;    /* number of Retry packets sent */
 
     /* Conn metrics */
-    ulong conn_alloc_cnt;           /* number of conns currently allocated */
-    ulong conn_created_cnt;         /* number of conns created */
-    ulong conn_closed_cnt;          /* number of conns gracefully closed */
-    ulong conn_aborted_cnt;         /* number of conns aborted */
-    ulong conn_timeout_cnt;         /* number of times a conn timed out */
-    ulong conn_timeout_freed_cnt;   /* number of times a timed out conn was freed */
-    ulong conn_timeout_revived_cnt; /* number of times a timed out conn was revived */
-    ulong conn_retry_cnt;           /* number of conns established with retry */
-    ulong conn_err_no_slots_cnt;    /* number of conns that failed to create due to lack of slots */
-    ulong conn_err_retry_fail_cnt;  /* number of conns that failed during retry (e.g. invalid token) */
-    ulong conn_state_cnt[ 9 ];      /* current number of conns in each state */
+    ulong conn_alloc_cnt;          /* number of conns currently allocated */
+    ulong conn_created_cnt;        /* number of conns created */
+    ulong conn_closed_cnt;         /* number of conns gracefully closed */
+    ulong conn_aborted_cnt;        /* number of conns aborted */
+    ulong conn_timeout_cnt;        /* number of conns timed out */
+    ulong conn_retry_cnt;          /* number of conns established with retry */
+    ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
+    ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
+    ulong conn_state_cnt[ 8 ];     /* current number of conns in each state */
 
     /* Packet metrics */
     ulong pkt_net_hdr_err_cnt;      /* number of packets dropped due to weird IPv4/UDP headers */
@@ -356,7 +345,7 @@ union fd_quic_metrics {
     ulong pkt_oversz_cnt;           /* number of QUIC packets dropped due to being too large */
     ulong pkt_decrypt_fail_cnt[4];  /* number of packets that failed decryption due to auth tag */
     ulong pkt_no_key_cnt[4];        /* number of packets that failed decryption due to missing key */
-    ulong pkt_no_conn_cnt;          /* number of packets with unknown conn ID (excl. Initial) */
+    ulong pkt_no_conn_cnt[4];       /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
     ulong frame_tx_alloc_cnt[3];    /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
     ulong pkt_verneg_cnt;           /* number of QUIC version negotiation packets or packets with wrong version */
     ulong pkt_retransmissions_cnt;  /* number of pkt_meta retries */
@@ -600,13 +589,13 @@ fd_quic_get_next_wakeup( fd_quic_t * quic );
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
 
-/* fd_quic_svc_validate checks for violations of service queue and free
+/* fd_quic_state_validate checks for violations of service queue and free
    list invariants, such as cycles in linked lists.  Prints to warning/
    error log and exits the process if checks fail.  Intended for use in
    tests. */
 
 void
-fd_quic_svc_validate( fd_quic_t * quic );
+fd_quic_state_validate( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/
 

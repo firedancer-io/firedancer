@@ -78,47 +78,41 @@ quic_connections_state{kind="quic",kind_id="0",quic_conn_state="peer_close"} 39
 quic_connections_state{kind="quic",kind_id="0",quic_conn_state="abort"} 40
 quic_connections_state{kind="quic",kind_id="0",quic_conn_state="close_pending"} 41
 quic_connections_state{kind="quic",kind_id="0",quic_conn_state="dead"} 42
-quic_connections_state{kind="quic",kind_id="0",quic_conn_state="timeout"} 43
 
 # HELP quic_connections_created The total number of connections that have been created.
 # TYPE quic_connections_created counter
-quic_connections_created{kind="quic",kind_id="0"} 44
+quic_connections_created{kind="quic",kind_id="0"} 43
 
 # HELP quic_connections_closed Number of connections gracefully closed.
 # TYPE quic_connections_closed counter
-quic_connections_closed{kind="quic",kind_id="0"} 45
+quic_connections_closed{kind="quic",kind_id="0"} 44
 
 # HELP quic_connections_aborted Number of connections aborted.
 # TYPE quic_connections_aborted counter
-quic_connections_aborted{kind="quic",kind_id="0"} 46
+quic_connections_aborted{kind="quic",kind_id="0"} 45
 
 # HELP quic_connections_timed_out Number of connections timed out.
 # TYPE quic_connections_timed_out counter
-quic_connections_timed_out{kind="quic",kind_id="0"} 47
-
-# HELP quic_connections_timeout_revived Number of connections revived after timing out.
-# TYPE quic_connections_timeout_revived counter
-quic_connections_timeout_revived{kind="quic",kind_id="0"} 48
-
-# HELP quic_connections_timeout_freed Number of connections freed after timing out.
-# TYPE quic_connections_timeout_freed counter
-quic_connections_timeout_freed{kind="quic",kind_id="0"} 49
+quic_connections_timed_out{kind="quic",kind_id="0"} 46
 
 # HELP quic_connections_retried Number of connections established with retry.
 # TYPE quic_connections_retried counter
-quic_connections_retried{kind="quic",kind_id="0"} 50
+quic_connections_retried{kind="quic",kind_id="0"} 47
 
 # HELP quic_connection_error_no_slots Number of connections that failed to create due to lack of slots.
 # TYPE quic_connection_error_no_slots counter
-quic_connection_error_no_slots{kind="quic",kind_id="0"} 51
+quic_connection_error_no_slots{kind="quic",kind_id="0"} 48
 
 # HELP quic_connection_error_retry_fail Number of connections that failed during retry (e.g. invalid token).
 # TYPE quic_connection_error_retry_fail counter
-quic_connection_error_retry_fail{kind="quic",kind_id="0"} 52
+quic_connection_error_retry_fail{kind="quic",kind_id="0"} 49
 
 # HELP quic_pkt_no_conn Number of packets with an unknown connection ID.
 # TYPE quic_pkt_no_conn counter
-quic_pkt_no_conn{kind="quic",kind_id="0"} 53
+quic_pkt_no_conn{kind="quic",kind_id="0",quic_pkt_handle="initial"} 50
+quic_pkt_no_conn{kind="quic",kind_id="0",quic_pkt_handle="retry"} 51
+quic_pkt_no_conn{kind="quic",kind_id="0",quic_pkt_handle="handshake"} 52
+quic_pkt_no_conn{kind="quic",kind_id="0",quic_pkt_handle="one_rtt"} 53
 
 # HELP quic_frame_tx_alloc Results of attempts to acquire QUIC frame metadata.
 # TYPE quic_frame_tx_alloc counter
