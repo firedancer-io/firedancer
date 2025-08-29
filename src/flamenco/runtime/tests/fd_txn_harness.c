@@ -78,7 +78,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->bank->slot_ = slot;
+  fd_bank_slot_set( slot_ctx->bank, slot );
 
   /* Initialize builtin accounts */
   fd_builtin_programs_init( slot_ctx );
@@ -426,6 +426,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
       slot_ctx->banks,
+      0UL,
       txn_ctx,
       txn,
       runner->spad,

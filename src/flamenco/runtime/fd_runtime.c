@@ -1248,6 +1248,7 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
 
 int
 fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
+                                    ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
                                     fd_spad_t *         exec_spad,
@@ -1263,7 +1264,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   }
 
   /* Get the bank for the given slot. */
-  fd_bank_t * bank = fd_banks_get_bank( banks, slot );
+  fd_bank_t * bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank_idx );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "Could not get bank for slot %lu", slot ));
   }
@@ -1271,6 +1272,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   /* Setup and execute the transaction. */
   txn_ctx->bank                  = bank;
   txn_ctx->slot                  = fd_bank_slot_get( bank );
+  txn_ctx->bank_idx              = bank_idx;
   txn_ctx->features              = fd_bank_features_get( bank );
   txn_ctx->status_cache          = NULL; // TODO: Make non-null once implemented
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );

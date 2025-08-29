@@ -314,7 +314,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
     }
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx[ in_idx ];
 
-    ctx->bank = fd_banks_get_bank( ctx->banks, txn_ctx->slot );
+    ctx->bank = fd_banks_pool_ele( fd_banks_get_bank_pool( ctx->banks ), txn_ctx->bank_idx );
     if( FD_UNLIKELY( !ctx->bank ) ) {
       FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
     }
