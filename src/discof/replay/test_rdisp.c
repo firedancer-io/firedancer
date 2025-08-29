@@ -281,10 +281,14 @@ random_test( fd_rng_t * rng ) {
       ulong selected_nodes[16];
       /* Use reservoir sampling to select cluster_cnt nodes without
          replacement */
-      for( ulong i=0UL; i<cluster_cnt;  i++ ) selected_nodes[i] = i;
-      for( ulong i=cluster_cnt; i<64UL; i++ ) {
-        ulong j = fd_rng_uint_roll( rng, (uint)i );
-        if( j<cluster_cnt && acct_cnt[i]<32UL ) selected_nodes[j] = i;
+      ulong selected = 0UL;
+      for( ulong i=0UL; i<64UL; i++ ) {
+        if( acct_cnt[i]==32UL ) continue;
+        if( selected<cluster_cnt ) selected_nodes[selected++] = i;
+        else {
+          ulong j = fd_rng_uint_roll( rng, (uint)i );
+          if( j<cluster_cnt ) selected_nodes[j] = i;
+        }
       }
       sn_sort_inplace( selected_nodes, cluster_cnt );
       char line[256];

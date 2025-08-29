@@ -11,5 +11,5 @@ else
 $(warning "snappy not installed, skipping rocksdb")
 endif
 else
-$(warning "rocksdb not installed, skipping")
+$(info "rocksdb not installed, skipping")
 endif

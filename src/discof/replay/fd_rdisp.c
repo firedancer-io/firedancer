@@ -444,7 +444,6 @@ typedef struct fd_rdisp fd_rdisp_t;
        }))
 
 
-
 //FIXME: Make sure this is the largest alignment
 ulong fd_rdisp_align( void ) { return alignof(fd_rdisp_t); }
 
@@ -1216,6 +1215,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
     }
     block_slist_ele_peek_head( disp->lanes[ lane ].block_ll, disp->block_pool )->completed_cnt++;
   }
+  pool_idx_release( disp->pool, txn_idx );
 }
 
 
