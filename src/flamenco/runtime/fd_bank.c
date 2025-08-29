@@ -1141,6 +1141,7 @@ void
 fd_banks_rekey_bank_by_block_id( fd_banks_t * banks,
                                  fd_bank_t *  bank,
                                  fd_hash_t *  new_block_id ) {
+  FD_LOG_WARNING(("REKEYING BANK %lx", new_block_id->ul[0] ));
   fd_rwlock_write( &banks->rwlock );
 
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );

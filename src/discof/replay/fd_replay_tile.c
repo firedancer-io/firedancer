@@ -618,8 +618,12 @@ restore_slot_ctx( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "invariant violation: banks is NULL" ));
   }
 
-  fd_hash_t zero_hash = {0};
-  ctx->slot_ctx->bank = fd_banks_get_bank( ctx->slot_ctx->banks, &zero_hash );
+  if( ctx->slot_ctx->bank ) {
+    FD_LOG_WARNING(("CURR ID %lx", fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] ));
+  }
+
+  fd_hash_t initial_hash = {.ul[0] = INITIAL_BLOCK_ID_HASH };
+  ctx->slot_ctx->bank = fd_banks_get_bank( ctx->slot_ctx->banks, &initial_hash );
   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
     FD_LOG_CRIT(( "invariant violation: initial bank does not exist" ));
   }
@@ -801,6 +805,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
      exec tiles as ready. */
   ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
+  FD_LOG_WARNING(("ID ID IAS %lx", fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] ));
+
   FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
 }
 
@@ -861,7 +867,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
     ctx->snapshot_init_done = 1;
     ulong snapshot_slot = ctx->manifest->slot;
     FD_TEST( snapshot_slot==fd_bank_slot_get( ctx->slot_ctx->bank ) );
-    fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
+    fd_hash_t manifest_block_id = { .ul = { INITIAL_BLOCK_ID_HASH } }; /* FIXME manifest_block_id */
 
     fd_store_exacq( ctx->store );
     FD_TEST( !fd_store_root( ctx->store ) );
@@ -1071,7 +1077,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     // FD_LOG_NOTICE(( "replay tile %lu received FEC set for slot %lu, fec_set_idx %u, parent_off %u, slot_complete %d, data_cnt %u, data_complete %d",
     //                in_idx, out->slot, out->fec_set_idx, out->parent_off, out->slot_complete, out->data_cnt, out->data_complete ));
     fd_reasm_fec_t *  fec   = &ctx->fec_out;
-    FD_LOG_WARNING(("FEC FEC FEC %s", FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
+    FD_LOG_WARNING(("FEC FEC FEC %s %lx", FD_BASE58_ENC_32_ALLOCA( &fec->cmr ), fec->cmr.ul[0] ));
+
     fd_exec_slice_t * slice = fd_exec_slice_map_query( ctx->exec_slice_map, fec->slot, NULL );
     if( FD_UNLIKELY( !slice ) ) slice = fd_exec_slice_map_insert( ctx->exec_slice_map, fec->slot );
     slice->parent_off    = fec->parent_off;
@@ -1301,45 +1308,16 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
 //   }
 // }
 
-// static void
-// handle_existing_slot( fd_replay_tile_ctx_t * ctx,
-//                       ulong                  slot ) {
-//   /* Because a fork already exists for the fork we are attempting to
-//      execute, we just need to update the slot ctx's handles to
-//      the bank and funk txn. */
-
-//   ctx->slot_ctx->bank = fd_banks_get_bank( ctx->banks, slot );
-//   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
-//     FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
-//   }
-
-//   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-//   fd_funk_txn_xid_t   xid     = { .ul = { slot, slot } };
-//   ctx->slot_ctx->funk_txn     = fd_funk_txn_query( &xid, txn_map );
-//   if( FD_UNLIKELY( !ctx->slot_ctx->funk_txn ) ) {
-//     FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
-//   }
-// }
-
-static void FD_FN_UNUSED
-handle_existing_slot_block_id( fd_replay_tile_ctx_t * ctx,
-                               ulong                  slot,
-                               fd_hash_t *            merkle_hash,
-                               fd_bank_t *            bank ) {
-
+static void
+handle_existing_slot( fd_replay_tile_ctx_t * ctx,
+                      fd_bank_t *            bank ) {
 
   ctx->slot_ctx->bank = bank;
   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu merkle hash %s", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ) ));
+    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
   }
 
-  if( FD_UNLIKELY( slot!=fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: slot %lu does not match bank slot %lu", slot, fd_bank_slot_get( ctx->slot_ctx->bank ) ));
-  }
-
-  if( FD_UNLIKELY( !memcmp( merkle_hash, fd_bank_block_id_query( bank ), sizeof(fd_hash_t) ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: merkle hash %s does not match bank merkle hash %s", FD_BASE58_ENC_32_ALLOCA( merkle_hash ), FD_BASE58_ENC_32_ALLOCA( fd_bank_block_id_query( bank ) ) ));
-  }
+  ulong slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
@@ -1355,9 +1333,10 @@ handle_new_slot_block_id( fd_replay_tile_ctx_t * ctx,
                           ulong                  slot,
                           ulong                  parent_slot,
                           fd_hash_t *            merkle_hash,
-                          fd_hash_t *            parent_block_id ) {
+                          fd_hash_t *            parent_merkle_hash ) {
   /* Switch to a new block that we don't have a bank for. */
   /* TODO: add log that we are switching to a new block */
+  FD_LOG_WARNING(("NEW SLOT NEW SLOT %lu", slot ));
 
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, merkle_hash );
   if( FD_UNLIKELY( !!bank ) ) {
@@ -1369,12 +1348,12 @@ handle_new_slot_block_id( fd_replay_tile_ctx_t * ctx,
      id. */
 
   FD_LOG_WARNING(("CURR ID %lx", fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] ));
-  if( FD_UNLIKELY( fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] == 0xf17eda2ce7b1d ) ) {
+  if( FD_UNLIKELY( fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] == INITIAL_BLOCK_ID_HASH ) ) {
     FD_LOG_WARNING(("FIRST SLOT FIRST SLOT" ));
     ctx->slot_ctx->bank = fd_banks_clone_from_parent( ctx->banks, merkle_hash, fd_bank_block_id_query( ctx->slot_ctx->bank ) );
 
   } else {
-    ctx->slot_ctx->bank = fd_banks_clone_from_parent( ctx->banks, merkle_hash, parent_block_id );
+    ctx->slot_ctx->bank = fd_banks_clone_from_parent( ctx->banks, merkle_hash, parent_merkle_hash );
     if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
       FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu merkle hash %s", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ) ));
     }
@@ -1410,9 +1389,11 @@ handle_new_slot_block_id( fd_replay_tile_ctx_t * ctx,
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
   }
 
+  fd_bank_done_executing_set( ctx->slot_ctx->bank, 0 );
+
   fd_bank_slot_set( ctx->slot_ctx->bank, slot );
 
-  fd_bank_parent_block_id_set( ctx->slot_ctx->bank, *parent_block_id );
+  fd_bank_parent_block_id_set( ctx->slot_ctx->bank, *parent_merkle_hash );
 
   /* Set the parent slot. */
   fd_bank_parent_slot_set( ctx->slot_ctx->bank, parent_slot );
@@ -1447,49 +1428,45 @@ handle_new_slot_block_id( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-handle_slot_change( fd_replay_tile_ctx_t * ctx,
+handle_bank_change( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem,
                     ulong                  slot,
                     ulong                  parent_slot,
                     fd_hash_t *            merkle_hash,
-                    fd_hash_t *            parent_merkle_hash,
-                    fd_hash_t *            parent_block_id ) {
-  fd_bank_t * bank                    = fd_banks_get_bank( ctx->banks, merkle_hash );
-  fd_bank_t * parent_block_id_bank    = fd_banks_get_bank( ctx->banks, parent_block_id );
-  fd_bank_t * parent_merkle_hash_bank = fd_banks_get_bank( ctx->banks, parent_merkle_hash );
+                    fd_hash_t *            parent_merkle_hash ) {
 
-  FD_LOG_WARNING(("CURR ID %lx", fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] ));
+  fd_bank_t * merkle_bank        = fd_banks_get_bank( ctx->banks, merkle_hash );
+  fd_bank_t * parent_merkle_bank = fd_banks_get_bank( ctx->banks, parent_merkle_hash );
 
-  int first_slot = fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] == 0xf17eda2ce7b1d;
+  int first_slot = fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0] == INITIAL_BLOCK_ID_HASH;
 
-  if( FD_UNLIKELY( !parent_block_id_bank && !first_slot ) ) {
+  if( FD_UNLIKELY( !parent_merkle_hash && !first_slot ) ) {
     FD_LOG_CRIT(( "invariant violation: parent block id bank is NULL" ));
   }
 
-  if( !!bank ) {
+  if( !!merkle_bank ) {
     FD_LOG_WARNING(("SWITCHING TO AN EXISTING BLOCK"));
     /* This means that we are switching to an existing block that we
        already have a bank for. */
-    if( FD_UNLIKELY( bank!=parent_merkle_hash_bank ) ) {
-      FD_LOG_CRIT(( "invariant violation: bank does not match parent merkle hash bank" ));
-    }
-    /* TODO: add check for matching parent block id */
-    /* TODO: add log that we are switching to an existing block */
-  } else if( parent_block_id_bank!=parent_merkle_hash_bank && !first_slot ) {
+    handle_existing_slot( ctx, merkle_bank );
+  } else if( merkle_bank && !parent_merkle_bank && !first_slot ) {
     /* This means that we are likely in an equivocation scenario.  This
        is because of the fact that the current FEC set's parent FEC does
        not have a corresponding bank. This means that we have forked off
        of part of a block. In this special case, we have to replay
        all of the FEC sets from the parent block id through the parent
        merkle hash. */
-    /* FIXME: This needs to be implemented. */
     FD_LOG_ERR(( "Equivocation scenario detected that is not yet supported." ));
   } else {
     /* This is the case where we are switching to a new block that we
        don't have a bank for. This could be an equivocation case where
        the block has the same slot number as another block, but the
        block ids are different. */
-    FD_LOG_WARNING(("SWITCHING TO A NEW BLOCK"));
+    FD_LOG_NOTICE(( "switching to a new block (slot: %lu, first merkle hash: %s) with parent (slot: %lu, block id: %s)",
+        slot,
+        FD_BASE58_ENC_32_ALLOCA( merkle_hash ),
+        parent_slot,
+        FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
     /* TODO: add log that we are switching to a new block */
     handle_new_slot_block_id(
         ctx,
@@ -1497,41 +1474,9 @@ handle_slot_change( fd_replay_tile_ctx_t * ctx,
         slot,
         parent_slot,
         merkle_hash,
-        parent_block_id );
+        parent_merkle_hash );
   }
 }
-
-// static void
-// handle_slot_change( fd_replay_tile_ctx_t * ctx,
-//                     fd_stem_context_t *    stem,
-//                     ulong                  slot,
-//                     ulong                  parent_slot ) {
-
-//   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, slot );
-//   if( !!bank ) {
-//     ulong bank_parent_block = fd_bank_parent_slot_get( bank );
-//     if( FD_UNLIKELY( bank_parent_block != parent_slot ) ) {
-//       FD_LOG_CRIT(( "invariant violation: bank parent block %lu does not match caller parent block %lu", bank_parent_block, parent_slot ));
-//     }
-//     FD_LOG_NOTICE(( "switching from block %lu (parent %lu) to a different existing block %lu (parent %lu)",
-//                     fd_bank_slot_get( ctx->slot_ctx->bank ),
-//                     fd_bank_parent_slot_get( ctx->slot_ctx->bank ),
-//                     slot,
-//                     bank_parent_block ));
-//     /* This means we are switching back to a slot we have already
-//        started executing (we have executed at least 1 slice from the
-//        slot we are switching to). */
-//     handle_existing_slot( ctx, slot );
-//   } else {
-//     FD_LOG_NOTICE(( "switching from block %lu (parent %lu) to a new block %lu (parent %lu)",
-//                     fd_bank_slot_get( ctx->slot_ctx->bank ),
-//                     fd_bank_parent_slot_get( ctx->slot_ctx->bank ),
-//                     slot,
-//                     parent_slot ));
-//     /* This means we are switching to a new slot. */
-//     handle_new_slot( ctx, stem, slot, parent_slot );
-//   }
-// }
 
 static void
 handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
@@ -1603,21 +1548,31 @@ handle_new_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
         an existing parent block.  In other words, there has to be a
         parent bank for it.  Otherwise, it's an invariant violation. */
 
-  /* If the slice's parent merkle hash does not match the current block
-     id, then we need to handle a slot change.*/
+  /* We need to switch to a different bank if one of the following
+     conditions are met:
+     1. The slice's parent merkle hash is not equal to the current
+        bank's block id/merkle hash. This can mean a few things:
+        a. We are executing the first block after loading a snapshot
+           so our bank's block id is set to some hardcoded constant. We
+           will create a child off of this bank.
+        b. We are switching to a block with a different parent merkle
+           hash. This could be equivocation or more likely, switching
+           to a different block.
+     2. The current bank has finished executing all of its FEC sets.
+      */
+  FD_LOG_WARNING(("ID ID %lx slot %lu", fd_bank_block_id_query( ctx->slot_ctx->bank )->ul[0], fd_bank_slot_get( ctx->slot_ctx->bank ) ));
   FD_LOG_WARNING(("BLOCK ID %s", FD_BASE58_ENC_32_ALLOCA( fd_bank_block_id_query( ctx->slot_ctx->bank ) ) ));
   FD_LOG_WARNING(("SLICE PARENT MERKLE HASH %s", FD_BASE58_ENC_32_ALLOCA( &slice.parent_merkle_hash ) ));
   if( FD_UNLIKELY( memcmp( &slice.parent_merkle_hash, fd_bank_block_id_query( ctx->slot_ctx->bank ), sizeof(fd_hash_t) ) ||
-                  !memcmp( &slice.parent_merkle_hash, &slice.parent_block_id, sizeof(fd_hash_t) ) ) ) {
+                   fd_bank_done_executing_get( ctx->slot_ctx->bank ) ) ) {
     FD_LOG_WARNING(("SLOT CHANGE IS BEING HANDLED %lu %lu", slot, parent_slot ));
-    handle_slot_change(
+    handle_bank_change(
         ctx,
         stem,
         slot,
         parent_slot,
         &slice.merkles[0],
-        &slice.parent_merkle_hash,
-        &slice.parent_block_id );
+        &slice.parent_merkle_hash );
   }
 
   fd_bank_shred_cnt_set( ctx->slot_ctx->bank, fd_bank_shred_cnt_get( ctx->slot_ctx->bank ) + data_cnt );
@@ -1742,6 +1697,8 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->slice_exec_ctx.buf + ctx->slice_exec_ctx.last_mblk_off );
   fd_hash_t * poh = fd_bank_poh_modify( bank );
   memcpy( poh, hdr->hash, sizeof(fd_hash_t) );
+
+  fd_bank_done_executing_set( bank, 1 );
 
   block_id_map_t * bid = block_id_map_query( ctx->block_id_map, curr_slot, NULL );
   if( FD_UNLIKELY( !bid ) ) {
@@ -2112,8 +2069,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Initialize the bank for the replay tile with a zero hash. */
-  fd_hash_t   zero_hash = {0};
+  fd_hash_t   zero_hash = {.ul[0] = INITIAL_BLOCK_ID_HASH };
   fd_bank_t * bank      = fd_banks_init_bank( ctx->banks, &zero_hash );
+  FD_LOG_WARNING(("CURR ID %lx", fd_bank_block_id_query( bank )->ul[0] ));
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_ERR(( "failed to init bank" ));
   }

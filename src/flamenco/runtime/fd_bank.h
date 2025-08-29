@@ -16,6 +16,7 @@
 FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_MAGIC (0XF17EDA2C7EBA2450) /* FIREDANCER BANKS V0 */
+#define INITIAL_BLOCK_ID_HASH 0xf17eda2ce7b1dUL
 
 /* TODO: Some optimizations, cleanups, future work:
    1. Simple data types (ulong, int, etc) should be stored as their
@@ -174,6 +175,7 @@ FD_PROTOTYPES_BEGIN
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
+  X(int,                               done_executing,              sizeof(int),                               alignof(int),                               0,   0,                0    )  /* If a bank has executed all of its txns */                 \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
   X(ulong,                             lamports_per_signature,      sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Lamports per signature */                                 \
   X(ulong,                             prev_lamports_per_signature, sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Previous lamports per signature */                        \
