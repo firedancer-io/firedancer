@@ -14,10 +14,15 @@
 
 #include "generated/fd_gui_tile_seccomp.h"
 
-extern ulong const fdctl_major_version;
-extern ulong const fdctl_minor_version;
-extern ulong const fdctl_patch_version;
-extern uint  const fdctl_commit_ref;
+#ifdef __has_include
+#if __has_include("../../app/firedancer/version.h")
+#include "../../app/firedancer/version.h"
+#endif
+#endif
+
+#ifndef FDCTL_MAJOR_VERSION
+#define FDCTL_MAJOR_VERSION 0
+#endif
 
 #include "../../disco/tiles.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -43,6 +48,7 @@ extern uint  const fdctl_commit_ref;
 #define IN_KIND_PACK_BANK (2UL)
 #define IN_KIND_PACK_POH  (3UL)
 #define IN_KIND_BANK_POH  (4UL)
+#define IN_KIND_SHRED     (5UL) /* full client only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -163,6 +169,23 @@ before_credit( fd_gui_ctx_t *      ctx,
   int charge_poll = fd_gui_poll( ctx->gui );
 
   *charge_busy = charge_busy_server | charge_poll;
+}
+
+static int
+before_frag( fd_gui_ctx_t * ctx,
+             ulong          in_idx,
+             ulong          seq,
+             ulong          sig ) {
+  (void)seq;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
+    if( FD_UNLIKELY( fd_disco_shred_repair_is_fec_completes( sig ) && fd_disco_shred_repair_fec_sig_is_slot_complete( sig ) ) ) {
+      fd_gui_turbine_slot_complete( ctx->gui, fd_disco_shred_repair_fec_sig_slot( sig ) );
+    }
+
+    return 1; /* filter out */
+  }
+
+  return 0;
 }
 
 static inline void
@@ -501,7 +524,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   ctx->topo = topo;
-  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
+  ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, ctx->has_vote_key, ctx->vote_key->uc, /* is_full_client */ FIREDANCER_MAJOR_VERSION >= 1,tile->gui.is_voting, tile->gui.schedule_strategy, ctx->topo ) );
   FD_TEST( ctx->gui );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
@@ -521,11 +544,12 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "plugin_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_bank" ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_poh" ) ) )  ctx->in_kind[ i ] = IN_KIND_PACK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    if( FD_LIKELY( !strcmp( link->name, "plugin_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"    ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_repair" ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
@@ -596,6 +620,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 

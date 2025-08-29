@@ -196,7 +196,6 @@ struct fd_replay_tile_ctx {
 
   // Inputs to plugin/gui
   fd_replay_out_link_t plugin_out[1];
-  fd_replay_out_link_t votes_plugin_out[1];
   long                 last_plugin_push_time;
 
   int          tx_metadata_storage;
@@ -1117,40 +1116,6 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 }
 
 static void
-publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
-                         fd_stem_context_t *    stem ) {
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out->mem, ctx->votes_plugin_out->chunk );
-
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
-  ulong i = 0;
-
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-
-    fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
-    memset( msg, 0, 112U );
-    memcpy( msg->vote_pubkey, &vote_state->vote_account, sizeof(fd_pubkey_t) );
-    memcpy( msg->node_pubkey, &vote_state->node_account, sizeof(fd_pubkey_t) );
-    msg->activated_stake = vote_state->stake;
-    msg->last_vote       = vote_state->last_vote_slot;
-    msg->root_slot       = 0UL; /* TODO: needs to be populated in vote_state */
-    msg->epoch_credits   = 0UL; /* TODO: needs to be populated in vote_state */
-    msg->commission      = (uchar)vote_state->commission;
-    msg->is_delinquent   = (uchar)fd_int_if(fd_bank_slot_get( ctx->slot_ctx->bank ) >= 128UL, msg->last_vote <= fd_bank_slot_get( ctx->slot_ctx->bank ) - 128UL, msg->last_vote == 0);
-    ++i;
-  }
-
-  fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
-
-  *(ulong *)dst = i;
-
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, ctx->votes_plugin_out->idx, FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE, ctx->votes_plugin_out->chunk, 0, 0UL, 0UL, tspub );
-  ctx->votes_plugin_out->chunk = fd_dcache_compact_next( ctx->votes_plugin_out->chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->votes_plugin_out->chunk0, ctx->votes_plugin_out->wmark );
-}
-
-static void
 init_from_genesis( fd_replay_tile_ctx_t * ctx,
                    fd_stem_context_t *    stem ) {
   fd_runtime_read_genesis( ctx->slot_ctx,
@@ -1725,19 +1690,19 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
-  if( !ctx->snapshot_init_done ) {
-    if( ctx->plugin_out->mem ) {
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
-
-    if( strlen( ctx->genesis )>0 ) {
+  if( FD_UNLIKELY( !ctx->snapshot_init_done ) ) {
+    if( FD_LIKELY( strlen( ctx->genesis )>0 ) ) {
       init_from_genesis( ctx, stem );
+
+      if( ctx->plugin_out->mem ) {
+        uchar msg[56];
+        fd_memset( msg, 0, sizeof(msg) );
+        msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
+        replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+      }
+
       ctx->snapshot_init_done = 1;
     }
-
     return;
   }
 
@@ -1757,12 +1722,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   /* TODO: Consider moving state management to during_housekeeping */
 
   exec_and_handle_slice( ctx, stem );
-
-  long now = fd_log_wallclock();
-  if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
-    ctx->last_plugin_push_time = now;
-    publish_votes_to_plugin( ctx, stem );
-  }
 
 }
 
@@ -2215,16 +2174,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->plugin_out->chunk0 = fd_dcache_compact_chunk0( ctx->plugin_out->mem, replay_plugin_out->dcache );
     ctx->plugin_out->wmark  = fd_dcache_compact_wmark ( ctx->plugin_out->mem, replay_plugin_out->dcache, replay_plugin_out->mtu );
     ctx->plugin_out->chunk  = ctx->plugin_out->chunk0;
-
-    ctx->votes_plugin_out->idx = fd_topo_find_tile_out_link( topo, tile, "votes_plugin", 0 );
-    fd_topo_link_t const * votes_plugin_out = &topo->links[ tile->out_link_id[ ctx->votes_plugin_out->idx] ];
-    if( strcmp( votes_plugin_out->name, "votes_plugin" ) ) {
-      FD_LOG_ERR(("output link confusion for output %lu", ctx->votes_plugin_out->idx));
-    }
-    ctx->votes_plugin_out->mem    = topo->workspaces[ topo->objs[ votes_plugin_out->dcache_obj_id ].wksp_id ].wksp;
-    ctx->votes_plugin_out->chunk0 = fd_dcache_compact_chunk0( ctx->votes_plugin_out->mem, votes_plugin_out->dcache );
-    ctx->votes_plugin_out->wmark  = fd_dcache_compact_wmark ( ctx->votes_plugin_out->mem, votes_plugin_out->dcache, votes_plugin_out->mtu );
-    ctx->votes_plugin_out->chunk  = ctx->votes_plugin_out->chunk0;
   }
 
   if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {

@@ -684,11 +684,6 @@ metric introduced.
   </histogram>
 </tile>
 
-<tile name="storei">
-  <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
-  <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
-</tile>
-
 <enum name="RepairSentRequestTypes">
     <int value="0" name="NeededWindow"          label="Need Window" />
     <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
