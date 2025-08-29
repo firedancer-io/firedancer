@@ -580,6 +580,7 @@ fd_config_load( int           is_firedancer,
                 fd_config_t * config ) {
   memset( config, 0, sizeof(config_t) );
   config->is_firedancer = is_firedancer;
+  config->boot_timestamp_nanos = fd_log_wallclock();
 
   fd_config_load_buf( config, default_config, default_config_sz, "default.toml" );
   fd_config_validate( config );

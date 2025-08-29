@@ -4,6 +4,7 @@
 #include "base_enc.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/shred/fd_shred.h"
@@ -110,6 +111,7 @@ struct fd_rpc_global_ctx {
   long perf_sample_ts;
   fd_multi_epoch_leaders_t * leaders;
   uchar buffer[sizeof(fd_reasm_fec_t) > sizeof(fd_replay_notif_msg_t) ? sizeof(fd_reasm_fec_t) : sizeof(fd_replay_notif_msg_t)];
+  int buffer_sz;
   ulong acct_age;
   fd_rpc_history_t * history;
   fd_pubkey_t const * identity_key; /* nullable */
@@ -676,9 +678,7 @@ method_getClusterNodes(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
-
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-
     fd_webserver_t * ws   = &ctx->global->ws;
     ulong            slot = get_slot_from_commitment_level( values, ctx );
 
@@ -688,15 +688,11 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
-    ulong slot_index = 0UL;
-    // ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
-    ulong epoch = 0UL;
-
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
                          info->slot_exec.height,
-                         epoch,
-                         slot_index,
+                         info->slot_exec.epoch,
+                         info->slot_exec.slot_in_epoch,
                          432000UL,
                          info->slot_exec.transaction_count,
                          ctx->call_id);
@@ -709,17 +705,26 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  (void)values;
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     fd_webserver_t * ws = &ctx->global->ws;
-    (void)ws;
-    // fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%s}" CRLF,
-    //                      epoch_bank->epoch_schedule.first_normal_epoch,
-    //                      epoch_bank->epoch_schedule.first_normal_slot,
-    //                      epoch_bank->epoch_schedule.leader_schedule_slot_offset,
-    //                      epoch_bank->epoch_schedule.slots_per_epoch,
-    //                      (epoch_bank->epoch_schedule.warmup ? "true" : "false"),
-    //                      ctx->call_id);
+    fd_funk_txn_map_t * map = fd_funk_txn_map( ctx->global->funk );
+    ulong slot = get_slot_from_commitment_level( values, ctx );
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = slot;
+    fd_funk_txn_t * txn = fd_funk_txn_query( &xid, map );
+    fd_epoch_schedule_t epoch_schedule_out[1];
+    fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( ctx->global->funk, txn, epoch_schedule_out );
+    if( epoch_schedule == NULL ) {
+      fd_method_error(ctx, -1, "unable to find epoch schedule");
+      return 0;
+    }
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"firstNormalEpoch\":%lu,\"firstNormalSlot\":%lu,\"leaderScheduleSlotOffset\":%lu,\"slotsPerEpoch\":%lu,\"warmup\":%s},\"id\":%s}" CRLF,
+                         epoch_schedule->first_normal_epoch,
+                         epoch_schedule->first_normal_slot,
+                         epoch_schedule->leader_schedule_slot_offset,
+                         epoch_schedule->slots_per_epoch,
+                         (epoch_schedule->warmup ? "true" : "false"),
+                         ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -920,12 +925,6 @@ method_getLeaderSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_webserver_t * ws = &ctx->global->ws;
 
     ulong slot = get_slot_from_commitment_level( values, ctx );
-    // fd_epoch_bank_t * epoch_bank = read_epoch_bank(ctx);
-    // if( epoch_bank == NULL ) {
-    //   fd_method_error(ctx, -1, "unable to read epoch_bank");
-    //   return 0;
-    // }
-
     fd_epoch_leaders_t const * leaders = fd_multi_epoch_leaders_get_lsched_for_slot( ctx->global->leaders, slot );
     if( FD_UNLIKELY( !leaders ) ) {
       fd_method_error(ctx, -1, "unable to get leaders for slot %lu", slot);
@@ -1204,7 +1203,7 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
       char buf64[FD_BASE58_ENCODED_64_SZ];
       fd_base58_encode_64((uchar const*)&sig, NULL, buf64);
-      fd_web_reply_sprintf(ws, "{\"blockTime\":%ld,\"confirmationStatus\":%s,\"err\":null,\"memo\":null,\"signature\":\"%s\",\"slot\":%lu}",
+      fd_web_reply_sprintf(ws, "{\"blockTime\":%ld,\"confirmationStatus\":\"%s\",\"err\":null,\"memo\":null,\"signature\":\"%s\",\"slot\":%lu}",
                            (long)info->slot_exec.ts/(long)1e9, "confirmed", buf64, slot);
 
       cnt++;
@@ -2385,13 +2384,15 @@ fd_webserver_ws_closed(ulong conn_id, void * cb_arg) {
 
 void
 fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, void const * msg, int sz ) {
-  FD_TEST( sz == (int)sizeof(fd_replay_notif_msg_t) );
-  fd_memcpy(ctx->global->buffer, msg, sizeof(fd_replay_notif_msg_t));
+  FD_TEST( sz <= (int)sizeof(ctx->global->buffer) );
+  memcpy(ctx->global->buffer, msg, (ulong)sz);
+  ctx->global->buffer_sz = sz;
 }
 
 void
 fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * subs = ctx->global;
+  if( subs->buffer_sz != (int)sizeof(fd_replay_notif_msg_t) ) return;
   fd_replay_notif_msg_t * msg = (fd_replay_notif_msg_t *)subs->buffer;
 
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
@@ -2426,8 +2427,6 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx) {
       subs->perf_sample_ts = ts;
     }
 
-    if( msg->slot_exec.shred_cnt == 0 ) return;
-
     fd_rpc_history_save_info( subs->history, msg );
 
     for( ulong j = 0; j < subs->sub_cnt; ++j ) {
@@ -2457,13 +2456,15 @@ fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx) {
 
 void
 fd_rpc_repair_during_frag(fd_rpc_ctx_t * ctx, void const * msg, int sz) {
-  FD_TEST( sz==(int)sizeof(fd_reasm_fec_t) );
-  fd_memcpy(ctx->global->buffer, msg, sizeof(fd_reasm_fec_t));
+  FD_TEST( sz <= (int)sizeof(ctx->global->buffer) );
+  memcpy(ctx->global->buffer, msg, (ulong)sz);
+  ctx->global->buffer_sz = sz;
 }
 
 void
 fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * subs = ctx->global;
+  if( subs->buffer_sz != (int)sizeof(fd_reasm_fec_t) ) return;
   fd_reasm_fec_t * fec_p = (fd_reasm_fec_t *)subs->buffer;
   fd_rpc_history_save_fec( subs->history, subs->store, fec_p );
 }

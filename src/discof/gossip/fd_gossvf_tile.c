@@ -598,7 +598,7 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
     if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=contact_info->instance_creation_wallclock_nanos ) ) continue;
     if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, payload+value->pubkey_off, 32UL ) ) ) continue;
 
-    FD_LOG_ERR(( "duplicate running instances of the same validator node" ));
+    FD_LOG_ERR(( "duplicate running instances of the same validator node, our timestamp: %ldns their timestamp: %ldns", ctx->instance_creation_wallclock_nanos, contact_info->instance_creation_wallclock_nanos ));
   }
 }
 
@@ -1041,7 +1041,7 @@ unprivileged_init( fd_topo_t *      topo,
 #endif
   }
 
-  ctx->instance_creation_wallclock_nanos = tile->gossvf.boot_timesamp_nanos;
+  ctx->instance_creation_wallclock_nanos = tile->gossvf.boot_timestamp_nanos;
 
 #if DEBUG_PEERS
   ctx->peer_cnt = 0UL;

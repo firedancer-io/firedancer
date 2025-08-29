@@ -122,8 +122,7 @@ typedef struct fd_solcap_chunk fd_solcap_chunk_t;
 /* fd_solcap_account_tbl_t is an entry of the table of accounts that
    were changed in a block.  meta_coff points to the chunk offset of a
    Protobuf-serialized fd_solcap_AccountMeta object, with serialized
-   size meta_sz.  key is the account address.  hash is the account hash
-   (a leaf of the accounts delta accumulator).  data_coff points to the
+   size meta_sz.  key is the account address.  data_coff points to the
    chunk offset of the account's data, with size data_sz.
 
    The table of accounts should ideally be sorted to match the order of
@@ -131,10 +130,9 @@ typedef struct fd_solcap_chunk fd_solcap_chunk_t;
 
 struct fd_solcap_account_tbl {
   /* 0x00 */ uchar key  [ 32 ];
-  /* 0x20 */ uchar hash [ 32 ];
-  /* 0x40 */ long  acc_coff;  /* chunk offset to account chunk */
-  /* 0x48 */ ulong _pad48[3];
-  /* 0x60 */
+  /* 0x20 */ long  acc_coff;  /* chunk offset to account chunk */
+  /* 0x28 */ ulong _pad28[5];
+  /* 0x50 */
 };
 
 typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;

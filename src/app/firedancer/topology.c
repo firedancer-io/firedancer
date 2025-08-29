@@ -195,7 +195,6 @@ setup_snapshots( config_t *       config,
 void
 fd_topo_initialize( config_t * config ) {
   resolve_gossip_entrypoints( config );
-  config->gossip.boot_timestamp_nanos = fd_log_wallclock();
 
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
@@ -894,7 +893,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->gossip.identity_key_path, config->paths.identity_key, sizeof(tile->gossip.identity_key_path) );
       tile->gossip.shred_version       = config->consensus.expected_shred_version;
       tile->gossip.max_entries         = config->tiles.gossip.max_entries;
-      tile->gossip.boot_timesamp_nanos = config->gossip.boot_timestamp_nanos;
+      tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
       tile->gossip.ip_addr = config->net.ip_addr;
 
@@ -912,7 +911,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->gossvf.tcache_depth          = 1<<22UL; /* TODO: user defined option */
       tile->gossvf.shred_version         = 0U;
       tile->gossvf.allow_private_address = config->development.gossip.allow_private_address;
-      tile->gossvf.boot_timesamp_nanos   = config->gossip.boot_timestamp_nanos;
+      tile->gossvf.boot_timestamp_nanos   = config->boot_timestamp_nanos;
 
       tile->gossvf.entrypoints_cnt = config->gossip.entrypoints_cnt;
       fd_memcpy( tile->gossvf.entrypoints, config->gossip.resolved_entrypoints, tile->gossvf.entrypoints_cnt * sizeof(fd_ip4_port_t) );

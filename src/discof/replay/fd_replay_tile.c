@@ -644,19 +644,25 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
 #define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out->mem, ctx->notif_out->chunk )
 #define NOTIFY_END                                                      \
   fd_mcache_publish( ctx->notif_out->mcache, ctx->notif_out->depth, ctx->notif_out->seq, \
-                      0UL, ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), 0UL, tsorig, tsorig ); \
+                     0UL, ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), 0UL, \
+                     fd_frag_meta_ts_comp(tsorig), fd_frag_meta_ts_comp(tsorig) ); \
   ctx->notif_out->seq   = fd_seq_inc( ctx->notif_out->seq, 1UL );     \
   ctx->notif_out->chunk = fd_dcache_compact_next( ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), \
                                                   ctx->notif_out->chunk0, ctx->notif_out->wmark ); \
   msg = NULL
 
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  long tsorig = fd_log_wallclock();
   fd_replay_notif_msg_t * msg = NULL;
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( ctx->slot_ctx->bank );
+  ulong slot_idx;
+  ulong epoch  = fd_slot_to_epoch( epoch_schedule, curr_slot, &slot_idx );
 
   {
     NOTIFY_START;
     msg->type                        = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot              = curr_slot;
+    msg->slot_exec.epoch             = epoch;
+    msg->slot_exec.slot_in_epoch     = slot_idx;
     msg->slot_exec.parent            = fd_bank_parent_slot_get( ctx->slot_ctx->bank );
     msg->slot_exec.root              = ctx->consensus_root;
     msg->slot_exec.height            = block_entry_block_height;
@@ -952,8 +958,7 @@ fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                 
       &msg->pubkey,
       &msg->info,
       account_data,
-      msg->data_sz,
-      &msg->hash );
+      msg->data_sz );
   }
 }
 
