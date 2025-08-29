@@ -9,6 +9,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/shred/fd_shred.h"
+#include "../../choreo/tower/fd_tower.h"
 #include "../reasm/fd_reasm.h"
 #include "fd_rpc_history.h"
 #include "fd_block_to_json.h"
@@ -1567,8 +1568,9 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-    fd_webserver_t * ws = &ctx->global->ws;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  FD_SPAD_FRAME_BEGIN( glob->spad ) {
+    fd_webserver_t * ws = &glob->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[");
 
     uint path[4] = {
@@ -1587,26 +1589,41 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
     }
 
-    fd_vote_stake_weight_t const * weights = fd_multi_epoch_leaders_get_stake_weights( ctx->global->leaders );
-    if( weights == NULL ) {
-      fd_method_error( ctx, -1, "no stake weights" );
+    if( !glob->replay_towers_eom ) {
+      fd_method_error( ctx, -1, "vote accounts are not ready" );
       return 0;
     }
-    ulong weights_cnt = fd_multi_epoch_leaders_get_stake_cnt( ctx->global->leaders );
 
     int needcomma = 0;
-    for( ulong i=0UL; i<weights_cnt; i++ ) {
-      fd_vote_stake_weight_t const * w = &weights[i];
+    for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
+      fd_replay_tower_t const * w = &glob->replay_towers[i];
       if( filter_arg != NULL ) {
-        if( !fd_hash_eq( &w->vote_key, &filter_key ) ) continue;
+        if( !fd_hash_eq( &w->key, &filter_key ) ) continue;
       }
-      char node_key[50];
-      fd_base58_encode_32(w->id_key.uc, 0, node_key);
-      char vote_key[50];
-      fd_base58_encode_32(w->vote_key.uc, 0, vote_key);
       if( needcomma ) fd_web_reply_sprintf(ws, ",");
-      fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-                           w->stake, node_key, 0UL, vote_key);
+      char vote_key[50];
+      fd_base58_encode_32(w->key.uc, 0, vote_key);
+
+      fd_voter_state_t const * state = (fd_voter_state_t const *)fd_type_pun_const( w->vote_acc_data );
+      if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+        char node_key[50];
+        fd_base58_encode_32(state->v0_23_5.meta.node_pubkey.uc, 0, node_key);
+        fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
+                             w->stake, (uint)state->v0_23_5.meta.commission, node_key, 0UL, vote_key);
+      } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+        char node_key[50];
+        fd_base58_encode_32(state->v1_14_11.meta.node_pubkey.uc, 0, node_key);
+        fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
+                             w->stake, (uint)state->v1_14_11.meta.commission, node_key, 0UL, vote_key);
+      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+        char node_key[50];
+        fd_base58_encode_32(state->meta.node_pubkey.uc, 0, node_key);
+        fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
+                             w->stake, (uint)state->meta.commission, node_key, 0UL, vote_key);
+      } else {
+        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
+      }
+
       needcomma = 1;
     }
 
@@ -2430,7 +2447,10 @@ void
 fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   if( FD_LIKELY( sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
-    if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) glob->replay_towers_cnt = 0;
+    if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) {
+      glob->replay_towers_cnt = 0;
+      glob->replay_towers_eom = 0;
+    }
     if( FD_UNLIKELY( glob->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
     FD_TEST( sz == (int)sizeof(fd_replay_tower_t) );
     memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_tower_t) );
