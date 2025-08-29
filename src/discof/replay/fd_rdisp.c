@@ -472,7 +472,8 @@ fd_rdisp_footprint( ulong depth,
 void *
 fd_rdisp_new( void * mem,
               ulong  depth,
-              ulong  block_depth ) {
+              ulong  block_depth,
+              ulong  seed ) {
   if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH) | (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) ) ) return NULL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
@@ -496,10 +497,9 @@ fd_rdisp_new( void * mem,
   disp->global_insert_cnt = 0UL;
   disp->unstaged_lblk_num = 0UL;
 
-  pool_new( _pool, depth );
+  pool_new( _pool, depth+1UL );
   memset( _unstaged, '\0', sizeof(fd_rdisp_unstaged_t)*(depth+1UL) );
 
-  ulong seed = 17UL; // (ulong)fd_tickcount(); /* TODO: better seed */
   block_map_new ( _bmap,  chain_cnt, seed );
   block_pool_new( _bpool, block_depth+1UL );
 
@@ -827,7 +827,6 @@ add_edges( fd_rdisp_t           * disp,
 
         /* CACHED -> FREE transition */
         if( FD_LIKELY( ai->next!=0U ) ) {
-          FD_LOG_NOTICE(( "AI evict %lu", idx ));
           acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
         }
 
@@ -836,14 +835,11 @@ add_edges( fd_rdisp_t           * disp,
         ai->flags    = 0U;
         ai->last_ref = 0U;
         ai->ema_refs = 0.0f;
-
-        FD_LOG_NOTICE(( "AI allocate %lu for %x %x", idx, addr->b[0], addr->b[1] ));
       } else {
         /* CACHED -> ACTIVE transition */
         ai = disp->acct_pool+idx;
         ai->flags    = 0U; /* FIXME: unnecessary */
         acct_map_idx_remove_fast( disp->free_acct_map, idx, disp->acct_pool );
-        FD_LOG_NOTICE(( "AI CACHED->ACTIVE %lu for %x %x", idx, addr->b[0], addr->b[1]));
       }
       /* In either case, at this point, the element is not in any map
          but is in free_acct_dlist.  It has the right key. last_ref, and
@@ -852,7 +848,6 @@ add_edges( fd_rdisp_t           * disp,
       memset( ai->last_reference, '\0', sizeof(ai->last_reference) );
       acct_map_idx_insert( disp->acct_map, idx, disp->acct_pool );
     }
-    FD_LOG_NOTICE(( "AI using %lu for %x %x", idx, addr->b[0], addr->b[1] ));
     ai = disp->acct_pool+idx;
     /* At this point, in all cases, the acct_info is now in the ACTIVE
        state.  It's in acct_map, not in free_acct_map, and not in
@@ -1129,7 +1124,6 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
           acct_map_idx_remove_fast( disp->acct_map,        acct_idx, disp->acct_pool );
           acct_map_idx_insert     ( disp->free_acct_map,   acct_idx, disp->acct_pool );
           free_dlist_idx_push_tail( disp->free_acct_dlist, acct_idx, disp->acct_pool );
-          FD_LOG_NOTICE(( "AI ACTIVE->CACHED %lu for %x %x", acct_idx, ai->key.b[0], ai->key.b[1] ));
         }
       } else {
         int child_is_writer;
@@ -1215,6 +1209,9 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
     }
     block_slist_ele_peek_head( disp->lanes[ lane ].block_ll, disp->block_pool )->completed_cnt++;
   }
+  /* For testing purposes, to make sure we don't read a completed
+     transaction, we can clobber the memory. */
+  /* memset( disp->pool+txn_idx, '\xCC', sizeof(fd_rdisp_txn_t) ); */
   pool_idx_release( disp->pool, txn_idx );
 }
 

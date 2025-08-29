@@ -156,14 +156,17 @@ ulong fd_rdisp_footprint( ulong depth, ulong block_depth );
    footprint and alignment for use as a dispatcher.  depth and
    block_depth are as explained in fd_rdisp_footprint.  mem is a pointer
    to the first byte of a region of memory with the required alignment
-   and footprint.  On return, the caller will not be joined.
+   and footprint.  seed is an arbitrary ulong that is used to determine
+   a seed of various internal hash tables.  On return, the caller will
+   not be joined.
 
    fd_rdisp_join joins the caller to the dispatcher, enabling it for
    use. */
 void *
 fd_rdisp_new( void * mem,
               ulong  depth,
-              ulong  block_depth );
+              ulong  block_depth,
+              ulong  seed );
 
 fd_rdisp_t *
 fd_rdisp_join( void * mem );
