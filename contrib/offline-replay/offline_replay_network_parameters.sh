@@ -15,7 +15,7 @@ case $network in
     export GENESIS_FILE="https://api.mainnet-beta.solana.com/genesis.tar.bz2"
     export HEAP_SIZE=200
     export BACKTEST_FUNK_PAGES=600
-    export INDEX_MAX=1000000000
+    export INDEX_MAX=1100000000
     export PAGES=50
     export AGAVE_TAG=v2.3.6
     export FD_CLUSTER_VERSION=2.3.6
