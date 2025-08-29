@@ -1,4 +1,5 @@
 #include "fd_rdisp.h"
+#include <math.h> /* for the EMA */
 
 /* The conflict graph that this file builds is not a general DAG, but
    the union of several special account-conflict graphs.  Each
@@ -790,12 +791,43 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
   return 0;
 }
 
+/* "Registers" a reference to the account in info at transaction
+   global_insert_cnt.  Returns the value of the EMA, which is an
+   estimate of the probability that the next transaction also references
+   the account.  This value does not matter for correctness, which is
+   why floating point arithmetic is okay. */
 static inline float
 update_ema( acct_info_t * info,
-            ulong global_insert_cnt ) {
+            ulong         global_insert_cnt ) {
+#if FD_RDISP_DISABLE_EMA
   (void)info;
   (void)global_insert_cnt;
-  return 0.0f; // TODO
+  return 0.0f;
+#else
+#define ALPHA 0.005f
+  /* The normal EMA update equation is
+                e_i = (alpha) * x_i + (1-alpha)*e_{i-1},
+     where alpha is a constant in (0,1).  Let L be the last reference of
+     the account, and G be the current global_insert_cnt value.  We know
+     that e_L = ema_refs, and that for i in [L+1, G), x_i = 0.
+     That means
+               e_{G-1} =         (1-alpha)^(G-L-1) * ema_refs
+               e_G     = alpha + (1-alpha)^(G-L)   * ema_refs
+   */
+  /* last_ref only captures the low 24 bits, so we guess its the highest
+     value for them that would still make it less than
+     global_insert_cnt.  Turns out, we can calculate that with just an
+     AND. */
+  ulong last_ref = (ulong)info->last_ref;
+  ulong delta = (global_insert_cnt - last_ref) & 0xFFFFFFUL;
+  float ema_refs = ALPHA + powf( 1.0f-ALPHA, (float)delta ) * info->ema_refs;
+
+  info->ema_refs = ema_refs;
+  info->last_ref = (uint)(global_insert_cnt & 0xFFFFFFUL);
+#undef ALPHA
+
+  return ema_refs;
+#endif
 }
 
 static void
@@ -853,9 +885,29 @@ add_edges( fd_rdisp_t           * disp,
        state.  It's in acct_map, not in free_acct_map, and not in
        free_acct_dlist. */
 
-    /* update_score should be constant propogated */
-    // FIXME: This is not the right way to use the ema
-    if( update_score ) ai->ema_refs = update_ema( ai, disp->global_insert_cnt );
+    /* Assume that transactions are drawn randomly from some large
+       distribution of potential transactions.  We want to estimate the
+       expected value of the probability that this transaction conflicts
+       with the next transaction that is sampled.  Two transactions
+       conflict if they conflict on any account, and in general, they
+       conflict if they both reference the same account, unless both
+       this transaction and the next one only read it.  We don't have
+       read/write info, so the best guess we have is that the next
+       transaction does the same thing to the account that this one
+       does.  That means we only really care about the accounts that
+       this transaction writes to.  Label those a_1, a_2, ..., a_i, and
+       suppose the probability that the next transaction references a_i
+       is p_i (determined using the EMA).  Now then, assuming accounts
+       are independent (which is false, but whatever), then the
+       probability that the next transaction does not conflict with this
+       account is:
+                     (1-p_1) * (1-p_2) * (1 - p_i).
+
+       Since for the treap, a lower value means we'll schedule it
+       earlier, we'll use the probability of non-conflict as the
+       fractional part of the score. */
+    float score_change = 1.0f - update_ema( ai, disp->global_insert_cnt );
+    ele->score *= fd_float_if( writable & update_score, score_change, 1.0f );
 
     /* Step 2: add edge. There are 4 cases depending on whether this is
        a writer or not and whether the previous reference was a writer
@@ -958,7 +1010,7 @@ add_unstaged_edges( fd_rdisp_t * disp,
          around */
       float score_change = 1.0f;
       if( FD_LIKELY( idx!=ULONG_MAX ) ) score_change = 1.0f - update_ema( disp->acct_pool+idx, disp->global_insert_cnt );
-      ele->score *= fd_float_if( writable, score_change, 1.0f );
+      ele->score *= fd_float_if( writable & update_score, score_change, 1.0f );
     }
   }
   *(fd_ptr_if( writable, &(unstaged->writable_cnt), &(unstaged->readonly_cnt) ) ) += (uint)addr_cnt;
