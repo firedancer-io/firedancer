@@ -286,7 +286,7 @@ generic_program_to_json( fd_webserver_t * ws,
     fd_web_reply_encode_base58(ws, raw + instr->data_off, instr->data_sz);
     char buf32[FD_BASE58_ENCODED_32_SZ];
     fd_base58_encode_32((const uchar*)(accts + instr->program_id), NULL, buf32);
-    fd_web_reply_sprintf(ws, "\",\"program\":\"unknown\",\"programId\":\"%s\",\"stackHeight\":null}", buf32);
+    fd_web_reply_sprintf(ws, "\",\"program\":\"unknown\",\"programId\":\"%s\",\"stackHeight\":1}", buf32);
     *need_comma = 1;
   } FD_SPAD_FRAME_END;
   return NULL;
@@ -320,7 +320,7 @@ vote_program_to_json( fd_webserver_t * ws,
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
     fd_vote_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0, 0 );
 
-    EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":null}");
+    EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":1}");
     *need_comma = 1;
   } FD_SPAD_FRAME_END;
   return NULL;
@@ -354,7 +354,7 @@ system_program_to_json( fd_webserver_t * ws,
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
     fd_system_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0, 0 );
 
-    EMIT_SIMPLE(",\"program\":\"system\",\"programId\":\"11111111111111111111111111111111\",\"stackHeight\":null}");
+    EMIT_SIMPLE(",\"program\":\"system\",\"programId\":\"11111111111111111111111111111111\",\"stackHeight\":1}");
     *need_comma = 1;
   } FD_SPAD_FRAME_END;
   return NULL;
@@ -412,7 +412,7 @@ compute_budget_program_to_json( fd_webserver_t * ws,
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_spad_alloc( spad, fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
     fd_compute_budget_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0, 0 );
 
-    EMIT_SIMPLE(",\"program\":\"compute_budget\",\"programId\":\"ComputeBudget111111111111111111111111111111\",\"stackHeight\":null}");
+    EMIT_SIMPLE(",\"program\":\"compute_budget\",\"programId\":\"ComputeBudget111111111111111111111111111111\",\"stackHeight\":1}");
     *need_comma = 1;
   } FD_SPAD_FRAME_END;
   return NULL;
@@ -471,7 +471,7 @@ fd_instr_to_json( fd_webserver_t * ws,
     }
     EMIT_SIMPLE("],\"data\":\"");
     fd_web_reply_encode_base58(ws, raw + instr->data_off, instr->data_sz);
-    fd_web_reply_sprintf(ws, "\",\"programIdIndex\":%u,\"stackHeight\":null}", (uint)instr->program_id);
+    fd_web_reply_sprintf(ws, "\",\"programIdIndex\":%u,\"stackHeight\":%u}", (uint)instr->program_id, (uint)1);
     *need_comma = 1;
 
   } else if( encoding == FD_ENC_JSON_PARSED ) {
@@ -588,9 +588,12 @@ fd_txn_to_json_full( fd_webserver_t * ws,
     EMIT_SIMPLE("],");
   }
 
-  fd_web_reply_sprintf(ws, "\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},\"instructions\":[",
-                       (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
+  if( encoding == FD_ENC_JSON ) {
+    fd_web_reply_sprintf(ws, "\"header\":{\"numReadonlySignedAccounts\":%u,\"numReadonlyUnsignedAccounts\":%u,\"numRequiredSignatures\":%u},",
+                         (uint)txn->readonly_signed_cnt, (uint)txn->readonly_unsigned_cnt, (uint)txn->signature_cnt);
+  }
 
+  EMIT_SIMPLE("\"instructions\":[");
   ushort instr_cnt = txn->instr_cnt;
   int need_comma = 0;
   for (ushort idx = 0; idx < instr_cnt; idx++) {
@@ -694,8 +697,8 @@ fd_block_to_json( fd_webserver_t * ws,
   } else {
     phash[0] = '\0';
   }
-  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%lu,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
-                       info->slot_exec.height, info->slot_exec.ts/(ulong)1e9, info->slot_exec.parent, hash, phash);
+  fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
+                       info->slot_exec.height, info->slot_exec.ts/(long)1e9, info->slot_exec.parent, hash, phash);
 
   if( rewards ) {
     fd_base58_encode_32(rewards->leader.uc, 0, hash);

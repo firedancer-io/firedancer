@@ -32,6 +32,7 @@ struct fd_rpc_txn {
   ulong slot;
   ulong file_offset;
   ulong file_size;
+  struct fd_rpc_txn * next_lru;
 };
 typedef struct fd_rpc_txn fd_rpc_txn_t;
 
@@ -62,8 +63,8 @@ struct fd_rpc_acct_map_elem {
   fd_pubkey_t key;
   ulong next;
   ulong slot;
-  ulong age;
   fd_rpc_txn_key_t sig; /* Transaction signature */
+  struct fd_rpc_acct_map_elem * next_lru;
 };
 typedef struct fd_rpc_acct_map_elem fd_rpc_acct_map_elem_t;
 #define MAP_NAME fd_rpc_acct_map
@@ -94,8 +95,12 @@ struct fd_rpc_history {
   fd_rpc_block_t * block_map;
   ulong block_cnt;
   fd_rpc_txn_t * txn_map;
+  fd_rpc_txn_t * txn_oldest_lru;
+  fd_rpc_txn_t * txn_newest_lru;
   fd_rpc_acct_map_t * acct_map;
   fd_rpc_acct_map_elem_t * acct_pool;
+  fd_rpc_acct_map_elem_t * acct_oldest_lru;
+  fd_rpc_acct_map_elem_t * acct_newest_lru;
   fd_rpc_reasm_map_t * reasm_map;
   ulong first_slot;
   ulong latest_slot;
@@ -179,19 +184,22 @@ fd_rpc_history_save_info(fd_rpc_history_t * hist, fd_replay_notif_msg_t * info) 
   blk->info = *info;
 }
 
-static void
+static ulong
 fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset, uchar * blk_data, ulong blk_sz) {
   ulong blockoff = 0;
+  ulong ret = 0;
   while (blockoff < blk_sz) {
     if ( blockoff + sizeof(ulong) > blk_sz )
-      return;
+      return ret;
     ulong mcount = *(const ulong *)(blk_data + blockoff);
     blockoff += sizeof(ulong);
 
     /* Loop across microblocks */
     for (ulong mblk = 0; mblk < mcount; ++mblk) {
-      if ( blockoff + sizeof(fd_microblock_hdr_t) > blk_sz )
+      if ( blockoff + sizeof(fd_microblock_hdr_t) > blk_sz ) {
         FD_LOG_ERR(("premature end of block"));
+        return ret;
+      }
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)((const uchar *)blk_data + blockoff);
       blockoff += sizeof(fd_microblock_hdr_t);
 
@@ -202,21 +210,38 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
         const uchar* raw = (const uchar *)blk_data + blockoff;
         ulong txn_sz = fd_txn_parse_core(raw, fd_ulong_min(blk_sz - blockoff, FD_TXN_MTU), txn_out, NULL, &pay_sz);
         if ( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) {
-          FD_LOG_WARNING( ( "failed to parse transaction %lu in microblock %lu at offset %lu", txn_idx, mblk, blockoff ) );
-          return;
+          FD_LOG_ERR( ( "failed to parse transaction %lu in microblock %lu (%lu) at offset %lu", txn_idx, mblk, ret,blockoff ) );
+          return ret;
         }
         fd_txn_t * txn = (fd_txn_t *)txn_out;
 
         /* Loop across signatures */
         fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
         for ( uchar j = 0; j < txn->signature_cnt; j++ ) {
-          if( fd_rpc_txn_map_is_full( hist->txn_map ) ) break; /* Out of space */
+          while( fd_rpc_txn_map_is_full( hist->txn_map ) ) {
+            /* Remove the oldest entry from the map */
+            fd_rpc_txn_t * ent = hist->txn_oldest_lru;
+            hist->txn_oldest_lru = ent->next_lru;
+            fd_rpc_txn_map_remove( hist->txn_map, &ent->sig );
+          }
+
+          /* Insert the new entry into the map */
           fd_rpc_txn_key_t key;
           memcpy(&key, (const uchar*)&sigs[j], sizeof(key));
           fd_rpc_txn_t * ent = fd_rpc_txn_map_insert( hist->txn_map, &key );
           ent->file_offset = file_offset + blockoff;
           ent->file_size = pay_sz;
           ent->slot = slot;
+
+          /* Update the LRU chain*/
+          ent->next_lru = NULL;
+          if( hist->txn_newest_lru ) {
+            hist->txn_newest_lru->next_lru = ent;
+            hist->txn_newest_lru = ent;
+          } else {
+            hist->txn_newest_lru = ent;
+            hist->txn_oldest_lru = ent;
+          }
         }
 
         /* Loop across accounts */
@@ -225,66 +250,102 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
         fd_pubkey_t * accs = (fd_pubkey_t *)((uchar *)raw + txn->acct_addr_off);
         for( ulong i = 0UL; i < txn->acct_addr_cnt; i++ ) {
           if( !memcmp(&accs[i], fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) continue; /* Ignore votes */
-          if( !fd_rpc_acct_map_pool_free( hist->acct_pool ) ) break;
+
+          while( !fd_rpc_acct_map_pool_free( hist->acct_pool ) ) {
+            /* Remove the oldest entry from the map */
+            fd_rpc_acct_map_elem_t * ent = hist->acct_oldest_lru;
+            hist->acct_oldest_lru = ent->next_lru;
+            ent = fd_rpc_acct_map_ele_remove( hist->acct_map, &ent->key, NULL, hist->acct_pool );
+            if( ent ) fd_rpc_acct_map_pool_ele_release( hist->acct_pool, ent );
+          }
+
+          /* Insert the new entry into the map */
           fd_rpc_acct_map_elem_t * ele = fd_rpc_acct_map_pool_ele_acquire( hist->acct_pool );
           ele->key = accs[i];
           ele->slot = slot;
           ele->sig = sig0;
           fd_rpc_acct_map_ele_insert( hist->acct_map, ele, hist->acct_pool );
+
+          /* Update the LRU chain */
+          ele->next_lru = NULL;
+          if( hist->acct_newest_lru ) {
+            hist->acct_newest_lru->next_lru = ele;
+            hist->acct_newest_lru = ele;
+          } else {
+            hist->acct_newest_lru = ele;
+            hist->acct_oldest_lru = ele;
+          }
         }
 
         blockoff += pay_sz;
       }
     }
+    ret = blockoff;
   }
-  if ( blockoff != blk_sz )
-    FD_LOG_ERR(("garbage at end of block"));
+  return ret;
 }
 
 void
 fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_column * col, fd_store_t * store, fd_reasm_fec_t * fec) {
-  FD_SPAD_FRAME_BEGIN( hist->spad ) {
+  ulong slot = fec->slot;
+  FD_LOG_NOTICE(( "assembling slot %lu block", slot ));
 
-    FD_LOG_NOTICE(( "assembling slot %lu block", fec->slot ));
+  /* Get a block from the map */
+  fd_rpc_block_t * blk = fd_rpc_history_alloc_block( hist, slot );
+  if( blk == NULL ) return;
+  ulong file_offset = blk->file_offset = hist->file_totsz;
+  blk->file_size = 0;
 
-    /* Assemble the block */
-    fd_store_fec_t * list[FD_REASM_MAP_COL_HEIGHT];
-    ulong slot = fec->slot;
-    ulong blk_sz = 0;
-    for( ulong i = 0; i < col->ele_cnt; i++ ) {
+  /* Look up all the store_fec_t elements for this column */
+  fd_store_fec_t * list[FD_REASM_MAP_COL_HEIGHT];
+  for( ulong idx = 0; idx < col->ele_cnt; ) {
+    ulong end_idx = ULONG_MAX;
+    /* Query the next batch */
+    fd_store_shacq( store );
+    ulong batch_sz = 0;
+    for( ulong i = idx; i < col->ele_cnt; i++ ) {
       fd_reasm_fec_t * ele = &col->ele[i];
-      fd_store_fec_t * fec_p = list[i] = fd_store_query( store, &ele->key );
+      fd_store_fec_t * fec_p = list[i-idx] = fd_store_query( store, &ele->key );
       if( !fec_p ) {
-        FD_LOG_WARNING(( "missing fec" ));
+        FD_LOG_ERR(( "missing fec" ));
+        fd_store_shrel( store );
         return;
       }
-      blk_sz += fec_p->data_sz;
+      batch_sz += fec_p->data_sz;
+      if( col->ele[i].data_complete ) {
+        end_idx = i;
+        break;
+      }
     }
-    uchar * blk_data = fd_spad_alloc( hist->spad, alignof(ulong), blk_sz );
-    ulong blk_off = 0;
-    for( ulong i = 0; i < col->ele_cnt; i++ ) {
-      fd_store_fec_t * fec_p = list[i];
-      fd_memcpy( blk_data + blk_off, fec_p->data, fec_p->data_sz );
-      blk_off += fec_p->data_sz;
+    if( end_idx == ULONG_MAX ) {
+      FD_LOG_ERR(( "missing data complete flag" ));
+      fd_store_shrel( store );
+      return;
     }
-    FD_TEST( blk_off == blk_sz );
-
-    /* Get a block from the map */
-    fd_rpc_block_t * blk = fd_rpc_history_alloc_block( hist, slot );
-    if( blk == NULL ) return;
-
-    /* Write the block to the file */
-    if( pwrite( hist->file_fd, blk_data, blk_sz, (long)hist->file_totsz ) != (ssize_t)blk_sz ) {
-      FD_LOG_ERR(( "unable to write to rpc history file" ));
-    }
-    ulong file_offset = blk->file_offset = hist->file_totsz;
-    blk->file_size = blk_sz;
-    hist->file_totsz += blk_sz;
-
-    /* Scan the block */
-    fd_rpc_history_scan_block( hist, slot, file_offset, blk_data, blk_sz );
-
-  } FD_SPAD_FRAME_END;
+    FD_SPAD_FRAME_BEGIN( hist->spad ) {
+      uchar * blk_data = fd_spad_alloc( hist->spad, alignof(ulong), batch_sz );
+      ulong batch_off = 0;
+      for( ulong i = idx; i <= end_idx; i++ ) {
+        fd_store_fec_t * fec_p = list[i-idx];
+        fd_memcpy( blk_data + batch_off, fec_p->data, fec_p->data_sz );
+        batch_off += fec_p->data_sz;
+      }
+      FD_TEST( batch_off == batch_sz );
+      /* Scan the block. Trim the padding. */
+      batch_sz = fd_rpc_history_scan_block( hist, slot, file_offset, blk_data, batch_sz );
+      /* Write the trimmed batch to the file */
+      if( pwrite( hist->file_fd, blk_data, batch_sz, (long)file_offset ) != (ssize_t)batch_sz ) {
+        FD_LOG_ERR(( "unable to write to rpc history file" ));
+        fd_store_shrel( store );
+        return;
+      }
+      file_offset += batch_sz;
+      blk->file_size += batch_sz;
+      hist->file_totsz = file_offset;
+    } FD_SPAD_FRAME_END;
+    fd_store_shrel( store );
+    idx = end_idx + 1;
+  }
 }
 
 static void
