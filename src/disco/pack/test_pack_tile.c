@@ -477,6 +477,11 @@ bank_out_check( fd_tile_test_ctx_t  * test_ctx,
   if( ctx->leader_slot==ULONG_MAX ) {
     return 0;
   }
+  /* after_credit is skipped when skip_cnt>0 */
+  int maybe_scheduled_txn = ctx->skip_cnt<=0;
+  if( !maybe_scheduled_txn ) {
+    return 0;
+  }
 
   fd_tile_test_locals_t * locals = test_ctx->locals;
 
