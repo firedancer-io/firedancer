@@ -15,6 +15,7 @@
 #include "../sysvar/fd_sysvar_stake_history.h"
 #include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../../disco/pack/fd_pack.h"
+#include "../program/fd_bpf_loader_program.h"
 #include <assert.h>
 
 /* Macros to append data to construct a serialized transaction
@@ -469,7 +470,11 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Allocate space for captured accounts */
+#ifndef FD_HAS_FUZZ
     ulong modified_acct_cnt = txn_ctx->accounts_cnt;
+#else
+    ulong modified_acct_cnt = txn_ctx->accounts_cnt + 1UL;
+#endif
 
     txn_result->has_resulting_state         = true;
     txn_result->resulting_state.acct_states =
@@ -529,6 +534,38 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
 
       txn_result->resulting_state.acct_states_count++;
     }
+
+#ifdef FD_HAS_FUZZ
+    ulong memory_log[MAX_MEMORY_LOG_LENGTH] = { 0 };
+    ulong memory_log_count = 0;
+    sol_compat_get_memory_log( (uchar *)memory_log, &memory_log_count );
+    sol_compat_reset_memory_log();
+
+    ulong modified_idx = txn_result->resulting_state.acct_states_count;
+    assert( modified_idx < ( modified_acct_cnt + 1 ) );
+
+    fd_exec_test_acct_state_t * out_acct = &txn_result->resulting_state.acct_states[ modified_idx ];
+    fd_memset( out_acct, 0, sizeof( fd_exec_test_acct_state_t ) );
+    fd_memset( out_acct->address, 0x41, sizeof( fd_pubkey_t ) );
+    fd_memset( out_acct->owner, 0x41, sizeof( fd_pubkey_t ) );
+    out_acct->lamports      = 0UL;
+    out_acct->executable    = false;
+    out_acct->rent_epoch    = UINT64_MAX;
+    out_acct->has_seed_addr = false;
+
+    if( memory_log_count>0UL ) {
+      out_acct->data =
+        FD_SCRATCH_ALLOC_APPEND( l, alignof( pb_bytes_array_t ),
+                                    PB_BYTES_ARRAY_T_ALLOCSIZE( memory_log_count*8UL ) );
+        if( FD_UNLIKELY( _l > output_end ) ) {
+          abort();
+        }
+        out_acct->data->size = (pb_size_t)memory_log_count*8UL;
+        fd_memcpy( out_acct->data->bytes, memory_log, memory_log_count*8UL );
+    }
+
+    txn_result->resulting_state.acct_states_count++;
+#endif
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_runtime_fuzz_xid_cancel( runner, &xid );

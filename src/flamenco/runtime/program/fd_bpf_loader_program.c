@@ -92,6 +92,60 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
   #undef KIBIBYTE_MUL_PAGES_SUB_1
 }
 
+#ifdef FD_HAS_FUZZ
+
+static __thread ulong MEMORY_LOG_LENGTH = 0;
+static __thread ulong MEMORY_LOG[MAX_MEMORY_LOG_LENGTH] = { 0 };
+
+static ulong
+fnv1a_hash( uchar * data, uint size ) {
+  #define FNV_OFFSET_BASIS  0xcbf29ce484222325UL
+  #define FNV_PRIME         0x100000001b3UL
+
+  ulong hash = FNV_OFFSET_BASIS;
+
+  for( uint i=0; i<size; i++ ) {
+    hash ^= data[i];
+    hash *= FNV_PRIME;
+  }
+
+  return hash;
+
+  #undef FNV_OFFSET_BASIS
+  #undef FNV_PRIME
+}
+
+static ulong
+hash_vm_memory( fd_vm_t * vm ) {
+  ulong hash = 0;
+
+  for( uint region_idx=FD_VM_PROG_REGION; region_idx<=FD_VM_INPUT_REGION; region_idx++ ) {
+    uint region_sz = vm->region_ld_sz[region_idx];
+    if( region_sz==0 ) {
+      continue;
+    }
+
+    ulong region_addr = vm->region_haddr[region_idx];
+    hash ^= fnv1a_hash( (uchar *)region_addr, region_sz );
+  }
+
+  return hash;
+}
+
+void
+sol_compat_get_memory_log( uchar * dst, ulong * dst_len ) {
+  fd_memcpy( dst, MEMORY_LOG, MEMORY_LOG_LENGTH * sizeof( MEMORY_LOG[0] ) );
+  *dst_len = MEMORY_LOG_LENGTH;
+}
+
+void
+sol_compat_reset_memory_log( void ) {
+  MEMORY_LOG_LENGTH = 0;
+  fd_memset( MEMORY_LOG, 0, sizeof( MEMORY_LOG ) );
+}
+
+#endif /* FD_HAS_FUZZ */
+
 void
 fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
                           uint *                sbpf_max_version,
@@ -497,6 +551,16 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
 
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
+
+#ifdef FD_HAS_FUZZ
+  ulong mem_hash = hash_vm_memory( vm );
+  if( MEMORY_LOG_LENGTH>=MAX_MEMORY_LOG_LENGTH ) {
+    MEMORY_LOG_LENGTH = 0;
+  }
+
+  MEMORY_LOG[MEMORY_LOG_LENGTH] = mem_hash;
+  MEMORY_LOG_LENGTH++;
+#endif
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
