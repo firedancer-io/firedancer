@@ -180,7 +180,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
     .deactivating = 0UL
   };
 
-  /* Accumulate stats for stake accounts */
+  /* Accumulate stats for stake accounts to create a new entry for
+    the stake history sysvar. This is done using the trailing epoch. */
   fd_accumulate_stake_infos(
       fd_bank_epoch_get( slot_ctx->bank ),
       stake_delegations,
@@ -199,6 +200,9 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
   };
 
   fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );
+
+  /* Increment the current epoch in the bank to the next epoch. */
+  fd_bank_epoch_set( slot_ctx->bank, fd_bank_epoch_get( slot_ctx->bank ) + 1UL );
 
 }
 
