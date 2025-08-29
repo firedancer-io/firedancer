@@ -479,7 +479,7 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
    until slot 3.  The main reason this is not 1 is that some skips that
    seem permanent until the end of the slot can actually go away based
    on rebates. */
-#define FD_PACK_SKIP_CNT 5UL
+#define FD_PACK_SKIP_CNT 50UL
 
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
@@ -1904,19 +1904,19 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     if( FD_UNLIKELY( conflicts==ULONG_MAX ) ) {
       /* The logic for how to adjust skip is a bit complicated, and we
-         want to do it branchlessly.
+         want to do it branchlessly. Let psc=FD_PACK_SKIP_CNT,
            Before                   After
              1               compressed_slot_number
-           x in [2, 5]               x-1
-           x where x>5                4
+           x in [2, psc]             x-1
+           x where x>psc            psc-1
 
          Set A=min(x, 5), B=min(A-2, compressed_slot_number-1), and
-         note that compressed_slot_number is in [6, USHORT_MAX].
+         note that compressed_slot_number is in [psc+1, USHORT_MAX].
          Then:
              x                A     A-2          B      B+1
              1                1  USHORT_MAX    csn-1    csn
-           x in [2, 5]        x     x-2         x-2     x-1
-           x where x>5        5      3           3       4
+           x in [2, psc]      x     x-2         x-2     x-1
+           x where x>psc     psc   psc-2       psc-2   psc-1
          So B+1 is the desired value. */
       cur->skip = (ushort)(1+fd_ushort_min( (ushort)(compressed_slot_number-1),
                                             (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );

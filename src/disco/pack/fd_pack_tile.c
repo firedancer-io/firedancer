@@ -487,11 +487,6 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   ulong bank_cnt = ctx->bank_cnt;
 
-  /* If we're using CU rebates, then we have one in for each bank in
-     addition to the two normal ones.  That means that after_credit will
-     be called about (bank_cnt/2) times more frequently per transaction
-     we receive. */
-  fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(bank_cnt/2UL) );
 
   /* If any banks are busy, check one of the busy ones see if it is
      still busy. */
@@ -742,6 +737,12 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
       ctx->last_sched_metrics->time = now2;
+
+      /* If we're using CU rebates, then we have one in for each bank in
+        addition to the two normal ones. We want to skip schedule attempts
+        for (bank_cnt + 1) link polls after a successful schedule attempt.
+        */
+      fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(ctx->bank_cnt + 1) );
     }
   }
 
