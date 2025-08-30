@@ -20,7 +20,7 @@ typedef struct fd_stem_context fd_stem_context_t;
 struct __attribute__((aligned(64))) fd_stem_tile_in {
   fd_frag_meta_t const * mcache;   /* local join to this in's mcache */
   uint                   depth;    /* == fd_mcache_depth( mcache ), depth of this in's cache (const) */
-  uint                   idx;      /* index of this in in the list of providers, [0, in_cnt) */
+  uint                   idx;      /* index of this in the list of providers, [0, in_cnt) */
   ulong                  seq;      /* sequence number of next frag expected from the upstream producer,
                                       updated when frag from this in is published */
   fd_frag_meta_t const * mline;    /* == mcache + fd_mcache_line_idx( seq, depth ), location to poll next */
