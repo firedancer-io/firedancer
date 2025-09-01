@@ -13,7 +13,7 @@ jobs:
       url: ${{ vars.DOXYGEN_URL }}
     steps:
       - uses: actions/checkout@v5
-      - uses: 'google-github-actions/setup-gcloud@v2'
+      - uses: 'google-github-actions/setup-gcloud@v3'
 
       - name: Dependencies
         run: sudo dnf install -y clang-devel llvm-devel sqlite-devel graphviz cmake curl-devel
