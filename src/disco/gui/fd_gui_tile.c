@@ -59,6 +59,7 @@ derive_http_params( fd_topo_tile_t const * tile ) {
     .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
     .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
     .outgoing_buffer_sz    = tile->gui.send_buffer_size_mb * (1UL<<20UL),
+    .compress_websocket    = tile->gui.websocket_compression,
   };
 }
 
@@ -282,6 +283,11 @@ gui_http_request( fd_http_server_request_t const * request ) {
     return (fd_http_server_response_t){
       .status            = 200,
       .upgrade_websocket = 1,
+#ifdef FD_HAS_ZSTD
+      .compress_websocket = request->headers.compress_websocket,
+#else
+      .compress_websocket = 0,
+#endif
     };
   } else if( FD_LIKELY( !strcmp( request->path, "/favicon.svg" ) ) ) {
     return (fd_http_server_response_t){
