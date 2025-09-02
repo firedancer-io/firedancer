@@ -469,7 +469,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
     int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runner->spad, &is_epoch_boundary );
 
-    int res = fd_runtime_block_execute_prepare( slot_ctx, runner->spad );
+    res = fd_runtime_block_execute_prepare( slot_ctx, runner->spad );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -489,12 +489,12 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_runtime_update_program_cache( slot_ctx, txn, runner->spad );
 
       /* Execute the transaction against the runtime */
-      int exec_res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_exec_txn_ctx_t * txn_ctx = fd_runtime_fuzz_txn_ctx_exec( runner, slot_ctx, txn, &exec_res );
-      txn_ctx->exec_err           = exec_res;
+      res = FD_RUNTIME_EXECUTE_SUCCESS;
+      fd_exec_txn_ctx_t * txn_ctx = fd_runtime_fuzz_txn_ctx_exec( runner, slot_ctx, txn, &res );
+      txn_ctx->exec_err           = res;
 
       if( FD_UNLIKELY( !( txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
-        continue;
+        break;
       }
 
       /* Finalize the transaction */
@@ -509,7 +509,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_transaction_cost_t transaction_cost = fd_calculate_cost_for_executed_transaction( txn_ctx, runner->spad );
       res = fd_cost_tracker_try_add( cost_tracker, txn_ctx, &transaction_cost );
       if( FD_UNLIKELY( res ) ) {
-        return res;
+        break;
       }
     }
 
