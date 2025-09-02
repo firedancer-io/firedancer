@@ -497,9 +497,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
    are both called in returnable_frag.
 
    fd_gossip_rx: Gossip updates are sent out via the gossip_out link for
-    specific CRDS messages received, and when a contact info is dropped.
+    every CRDS value received. Specific CRDS messages result in two
+    updates. An update is also published when a contact info is dropped.
+
     Worst case is when:
-    - all incoming CRDS messages are broadcasted as updates, and
+    - all incoming CRDS messages received result in two updates, and
     - CRDS table is full, and all entries dropped to make way for new
       ones are contact infos
 
@@ -508,7 +510,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
     unpinged peer to active. There is only one pong processed per
     after_frag loop.
 
-    This leaves us with a worst case of FD_GOSSIP_MSG_MAX_CRDS*2 on
+    This leaves us with a worst case of FD_GOSSIP_MSG_MAX_CRDS*3 on
     gossip_out, and 1 on gossip_gossv.
 
    fd_gossip_advance: two links we need to look at: the gossip_gossv
@@ -527,11 +529,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
    We find the worst case burst by taking the maximum burst of the two
    links in fd_gossip_rx and fd_gossip_advance. That would be:
                         gossip_out link                    gossip_gossv link
-   max( FD_GOSSIP_MSG_CRDS_MAX*2+CRDS_MAX_CONTACT_INFO, 1+FD_PING_TRACKER_MAX)
+   max( FD_GOSSIP_MSG_CRDS_MAX*3+CRDS_MAX_CONTACT_INFO, 1+FD_PING_TRACKER_MAX)
 
    */
 
-FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MSG_MAX_CRDS*2UL<=FD_PING_TRACKER_MAX+1UL,
+FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MSG_MAX_CRDS*3UL<=FD_PING_TRACKER_MAX+1UL,
                   "Gossip stem burst needs recalculating" );
 #define STEM_BURST ( FD_PING_TRACKER_MAX+1UL )
 
