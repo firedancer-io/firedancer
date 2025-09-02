@@ -1,9 +1,5 @@
 /* This configure stage does all ethtool(8) configuration.
 
-   For portability reasons, this code uses the ioctl(2) syscall
-   interface instead.  Technically, the netlink-ethtool interface is
-   preferred, but it is undocumented and hard to use.
-
    High level steps:
 
      if( user selected 'ntuple' flow steering ) {
@@ -576,6 +572,15 @@ check_device_channels( fd_config_t const * config,
   CONFIGURE_OK();
 }
 
+struct fd_ethtool_nl {
+  int fd;
+};
+
+typedef struct fd_ethtool_nl fd_ethtool_nl_t;
+
+extern fd_ethtool_nl_t *
+fd_ethtool_nl_init( void ) ;
+
 static configure_result_t
 check_device_ntuple( fd_config_t const * config,
                      char const *        device ) {
@@ -674,6 +679,8 @@ check_device_rxfh( char const * device ) {
 static configure_result_t
 check( fd_config_t const * config ) {
   int const ntuple_enabled = ntuple_is_enabled( config );
+
+  fd_ethtool_nl_init();
 
   char const * device = config->net.interface;
   if( FD_UNLIKELY( device_is_bonded( device ) ) ) {

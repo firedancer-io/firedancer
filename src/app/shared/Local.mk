@@ -32,6 +32,7 @@ $(call add-objs,commands/configure/sysctl,fdctl_shared)
 $(call add-objs,commands/configure/snapshots,fdctl_shared)
 $(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
 $(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
+$(call add-objs,commands/configure/fd_netlink_ethtool,fdctl_shared)
 
 endif
 endif
