@@ -125,7 +125,7 @@
    not a safety feature.  With the first arrangment, the caller cannot
    call get_next_ready on slot 13 in between slots 10 and 11, but
    there's no issue with calling it on slot 14 then, which would
-   obiously result in an incorrectreplay.  It's ultimately the callers
+   obiously result in an incorrect replay.  It's ultimately the callers
    responsibility to ensure correct replay. */
 
 #define FD_RDISP_MAX_DEPTH       0x7FFFFFUL /* 23 bit numbers, approx 8M */
@@ -170,6 +170,25 @@ fd_rdisp_new( void * mem,
 
 fd_rdisp_t *
 fd_rdisp_join( void * mem );
+
+/* fd_rdisp_suggest_staging_lane recommends a staging lane to use for a
+   potential new block that has a parent block with block tag
+   parent_block.  duplicate is non-zero if this is not the first block
+   we've seen for its slot.
+
+   This function uses the following logic:
+   1. If it's a duplicate, suggest FD_RDISP_UNSTAGED
+   2. If parent is the last block in any existing staging lane, suggest
+      that lane
+   3. If there is at least one free lane, suggest a free lane
+   4. Else, suggest FD_RDISP_UNSTAGED
+   Note that this function does not add the block (use add_block) for
+   that, and does not modify the state of the dispatcher.  The caller
+   should feel free to use or not use the suggested staging lane. */
+ulong
+fd_rdisp_suggest_staging_lane( fd_rdisp_t const *   disp,
+                               FD_RDISP_BLOCK_TAG_T parent_block,
+                               int                  duplicate );
 
 
 /* fd_rdisp_add_block allocates a new block with the tag new_block from
@@ -261,6 +280,23 @@ fd_rdisp_promote_block( fd_rdisp_t *          disp,
 int
 fd_rdisp_demote_block( fd_rdisp_t *          disp,
                        FD_RDISP_BLOCK_TAG_T  block );
+
+
+/* fd_rdisp_rekey_block renames the block with tag old_tag so that it
+   has tag new_tag instead.  The block retains all transactions, it's
+   STAGED/UNSTAGED state, etc.  On successful return, tag old_tag will
+   know longer be a known tag, and new_tag must be used in any future
+   calls to refer to the block previously known as old_tag.
+
+   disp must be a valid local join.  new_tag must not be a known tag,
+   but old_tag must be a known tag.
+
+   Return 0 on success and -1 on error.  The only error cases are if
+   new_tag is already a known tag or old_tag is not a known tag. */
+int
+fd_rdisp_rekey_block( fd_rdisp_t *           disp,
+                      FD_RDISP_BLOCK_TAG_T   new_tag,
+                      FD_RDISP_BLOCK_TAG_T   old_tag );
 
 /* fd_rdisp_add_txn adds a transaction to the block with tag
    insert_block in serial order.  That means that this dispatcher will

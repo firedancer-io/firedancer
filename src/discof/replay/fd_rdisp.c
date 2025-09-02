@@ -588,6 +588,27 @@ alloc_lane( fd_rdisp_t * disp,
   block_slist_join( block_slist_new( disp->lanes[staging_lane].block_ll ) );
 }
 
+ulong
+fd_rdisp_suggest_staging_lane( fd_rdisp_t const *   disp,
+                               FD_RDISP_BLOCK_TAG_T parent_block,
+                               int                  duplicate ) {
+
+  /* 1. If it's a duplicate, suggest FD_RDISP_UNSTAGED */
+  if( FD_UNLIKELY( duplicate ) ) return FD_RDISP_UNSTAGED;
+
+  /* 2. If parent is the last block in any existing staging lane, suggest
+        that lane */
+  fd_rdisp_blockinfo_t const * block_pool = disp->block_pool;
+  fd_rdisp_blockinfo_t const * block = block_map_ele_query_const( disp->blockmap, &parent_block, NULL, block_pool );
+  if( FD_LIKELY( block && block->insert_ready && block->staged ) ) return block->staging_lane;
+
+  /* 3. If there is at least one free lane, suggest a free lane */
+  if( FD_LIKELY( disp->free_lanes!=0 ) ) return (ulong)fd_uint_find_lsb( (uint)disp->free_lanes );
+
+  /* 4. Else, suggest FD_RDISP_UNSTAGED */
+  return FD_RDISP_UNSTAGED;
+}
+
 int
 fd_rdisp_add_block( fd_rdisp_t          * disp,
                    FD_RDISP_BLOCK_TAG_T   new_block,
@@ -790,6 +811,22 @@ fd_rdisp_demote_block( fd_rdisp_t *          disp,
   else                                                       free_lane( disp, staging_lane );
   return 0;
 }
+
+int
+fd_rdisp_rekey_block( fd_rdisp_t *           disp,
+                      FD_RDISP_BLOCK_TAG_T   new_tag,
+                      FD_RDISP_BLOCK_TAG_T   old_tag ) {
+  fd_rdisp_blockinfo_t * block_pool = disp->block_pool;
+
+  if( FD_UNLIKELY(        NULL!= block_map_ele_query_const( disp->blockmap, &new_tag, NULL, block_pool ) ) ) return -1;
+  fd_rdisp_blockinfo_t * block = block_map_ele_query      ( disp->blockmap, &old_tag, NULL, block_pool );
+  if( FD_UNLIKELY(        NULL== block ) )                                                                   return -1;
+
+  block->block = new_tag;
+  block_map_ele_insert( disp->blockmap, block, block_pool );
+  return 0;
+}
+
 
 /* "Registers" a reference to the account in info at transaction
    global_insert_cnt.  Returns the value of the EMA, which is an
