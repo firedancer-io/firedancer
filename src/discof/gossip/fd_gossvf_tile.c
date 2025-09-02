@@ -845,9 +845,8 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     ulong i = 0UL;
     while( i<view->push->crds_values_len ) {
       fd_gossip_view_crds_value_t const * value = &view->push->crds_values[ i ];
-      /* TODO: pretty sure this is 15s now. */
-      if( FD_UNLIKELY( value->wallclock_nanos<now-30L*1000L*1000L*1000L ||
-                       value->wallclock_nanos>now+30L*1000L*1000L*1000L ) ) {
+      if( FD_UNLIKELY( value->wallclock_nanos<now-15L*1000L*1000L*1000L ||
+                       value->wallclock_nanos>now+15L*1000L*1000L*1000L ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ] += value->length;
         view->push->crds_values[ i ] = view->push->crds_values[ view->push->crds_values_len-1UL ];
