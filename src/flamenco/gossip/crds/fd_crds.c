@@ -1163,9 +1163,9 @@ set_peer_active_status( fd_crds_t *   crds,
   if( FD_UNLIKELY( old_status!=status ) ) {
     /* Trigger sampler update */
     crds_samplers_upd_peer_at_idx( crds->samplers,
-                            peer_ci,
-                            peer_ci->contact_info.sampler_idx,
-                            now );
+                                   peer_ci,
+                                   peer_ci->contact_info.sampler_idx,
+                                   now );
   }
 }
 void
