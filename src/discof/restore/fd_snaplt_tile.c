@@ -3,6 +3,7 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
+#include "../../ballet/lthash/fd_lthash_adder.h"
 
 #include "utils/fd_ssctrl.h"
 
@@ -25,7 +26,8 @@
 struct fd_snaplt_tile {
   int state;
 
-  fd_lthash_value_t running_lthash;
+  fd_lthash_value_t   running_lthash;
+  fd_lthash_adder_t * adder;
 
   fd_snapshot_account_t account;
   ulong                 acc_data_sz;
@@ -80,6 +82,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snaplt_tile_t), sizeof(fd_snaplt_tile_t) );
+  l = FD_LAYOUT_APPEND( l, FD_LTHASH_ADDER_ALIGN,     sizeof(fd_lthash_adder_t) );
   return FD_LAYOUT_FINI( l, alignof(fd_snaplt_tile_t) );
 }
 
@@ -130,17 +133,31 @@ during_frag( fd_snaplt_tile_t * ctx,
 
       if( FD_LIKELY( account->lamports!=0UL ) ) {
         ctx->hash_account = 1;
-        fd_blake3_init( ctx->b3 );
-        fd_blake3_append( ctx->b3, &account->lamports, sizeof( ulong ) );
-        fd_memcpy( &ctx->account, account, sizeof(fd_snapshot_account_t) );
+        int hashed = fd_lthash_adder_stream_account_hdr( ctx->adder,
+                                            &ctx->running_lthash,
+                                            account->pubkey,
+                                            account->data_len,
+                                            account->lamports,
+                                            account->executable,
+                                            account->owner );
+        if( FD_LIKELY( hashed ) ) {
+          ctx->metrics.accounts_hashed++;
+          ctx->hash_account = 0;
+        }
       }
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA: {
       FD_TEST( ctx->state==FD_SNAPLT_STATE_HASHING );
       if( FD_LIKELY( ctx->hash_account ) ) {
-        fd_blake3_append( ctx->b3, fd_chunk_to_laddr_const( ctx->in.wksp, chunk ), sz );
-        ctx->acc_data_sz += sz;
+        int hashed = fd_lthash_adder_stream_account_data( ctx->adder,
+                                             &ctx->running_lthash,
+                                             (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ),
+                                             sz );
+        if( FD_LIKELY( hashed ) ) {
+          ctx->metrics.accounts_hashed++;
+          ctx->hash_account = 0;
+        }
       }
       break;
     }
@@ -174,26 +191,11 @@ after_frag( fd_snaplt_tile_t *    ctx,
     case FD_SNAPSHOT_HASH_MSG_ACCOUNT_HDR:
     case FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA: {
       FD_TEST( ctx->state==FD_SNAPLT_STATE_HASHING );
-      if( FD_LIKELY( ctx->acc_data_sz==ctx->account.data_len && ctx->hash_account ) ) {
-        /* hash account here */
-        fd_lthash_value_t account_lthash[1];
-        fd_lthash_zero( account_lthash );
-
-        uchar executable_flag = ctx->account.executable & 0x1;
-        fd_blake3_append( ctx->b3, &executable_flag, sizeof( uchar ) );
-        fd_blake3_append( ctx->b3, ctx->account.owner, FD_HASH_FOOTPRINT );
-        fd_blake3_append( ctx->b3, ctx->account.pubkey,  FD_HASH_FOOTPRINT );
-        fd_blake3_fini_2048( ctx->b3, account_lthash->bytes );
-
-        fd_lthash_add( &ctx->running_lthash, account_lthash );
-        ctx->acc_data_sz  = 0UL;
-        ctx->hash_account = 0;
-        ctx->metrics.accounts_hashed++;
-      }
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_FINI: {
       FD_TEST( ctx->state==FD_SNAPLT_STATE_HASHING );
+      fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
@@ -229,6 +231,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaplt_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaplt_tile_t), sizeof(fd_snaplt_tile_t) );
+  void * _adder          = FD_SCRATCH_ALLOC_APPEND( l, FD_LTHASH_ADDER_ALIGN,     sizeof(fd_lthash_adder_t) );
+
+  ctx->adder = fd_lthash_adder_new( _adder );
 
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) )  FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt  ));
