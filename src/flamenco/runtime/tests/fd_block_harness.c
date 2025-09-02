@@ -514,7 +514,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
     }
 
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( slot_ctx, block_info, runner->spad );
+    fd_runtime_block_execute_finalize( slot_ctx, block_info );
   } FD_SPAD_FRAME_END;
 
   return res;
