@@ -371,10 +371,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     /* TODO reject duplicate sections */
 
     /* https://github.com/firedancer-io/sbpf/blob/sbpf-v0.11.1-patches/src/elf.rs#L855 */
-    if( FD_LIKELY( strncmp( name, ".text", 5UL )==0 ||
-                   strncmp( name, ".rodata", 7UL )==0 ||
-                   strncmp( name, ".data.rel.ro", 12UL )==0 ||
-                   strncmp( name, ".eh_frame", 8UL )==0 ) ) {
+    if( FD_LIKELY( strncmp( name, ".text", sizeof(".text") )==0 ||
+                   strncmp( name, ".rodata", sizeof(".rodata") )==0 ||
+                   strncmp( name, ".data.rel.ro", sizeof(".data.rel.ro") )==0 ||
+                   strncmp( name, ".eh_frame", sizeof(".eh_frame") )==0 ) ) {
       lowest_addr  = fd_ulong_min( lowest_addr, sh_addr );
       highest_addr = fd_ulong_max( highest_addr, fd_ulong_sat_add( sh_addr, sh_size ) );
     }
