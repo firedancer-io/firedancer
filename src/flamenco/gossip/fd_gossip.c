@@ -141,6 +141,8 @@ ping_tracker_change( void *        _ctx,
                      int           change_type ) {
   fd_gossip_t * ctx = (fd_gossip_t *)_ctx;
 
+  if( FD_UNLIKELY( !memcmp( peer_pubkey, ctx->identity_pubkey, 32UL ) ) ) return;
+
   switch( change_type ) {
     case FD_PING_TRACKER_CHANGE_TYPE_ACTIVE:   fd_crds_peer_active( ctx->crds, peer_pubkey, now ); break;
     case FD_PING_TRACKER_CHANGE_TYPE_INACTIVE: fd_crds_peer_inactive( ctx->crds, peer_pubkey, now ); break;
