@@ -395,7 +395,8 @@ advance_consumed_frontier( fd_forest_t * forest, ulong slot, ulong parent_slot )
     fd_forest_blk_t * head  = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
     fd_forest_blk_t * child = fd_forest_pool_ele( pool, head->child );
     if( FD_LIKELY( child && head->complete_idx != UINT_MAX && head->buffered_idx == head->complete_idx ) ) {
-      fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool );
+      fd_forest_cns_t * cons = fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool );
+      fd_forest_conspool_ele_release( conspool, cons );
       while( FD_LIKELY( child ) ) { /* add children to consumed frontier */
         consumed_map_insert( forest, child->slot, fd_forest_pool_idx( pool, child ) );
 
@@ -621,7 +622,10 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
       child = fd_forest_pool_ele( pool, child->sibling );
     }
 
-    fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool );
+    fd_forest_cns_t * cns = NULL;
+    if( FD_UNLIKELY( cns = fd_forest_consumed_ele_remove( consumed, &head->slot, NULL, conspool ) ) ) {
+      fd_forest_conspool_ele_release( conspool, cns );
+    }
     fd_forest_pool_ele_release( pool, head );
   }
 
