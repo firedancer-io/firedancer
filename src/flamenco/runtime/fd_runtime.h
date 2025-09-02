@@ -486,8 +486,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t *            slot_ctx,
-                                   fd_runtime_block_info_t const * block_info,
-                                   fd_spad_t *                     runtime_spad );
+                                   fd_runtime_block_info_t const * block_info );
 
 /* Transaction Level Execution Management *************************************/
 

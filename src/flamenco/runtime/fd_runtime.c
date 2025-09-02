@@ -286,6 +286,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_sysvar_recent_hashes_update( slot_ctx );
   }
 
+  fd_sysvar_slot_history_update( slot_ctx );
+
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
 
@@ -2438,7 +2440,7 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_runtime_genesis_init_program( slot_ctx, runtime_spad );
 
-  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
+  fd_sysvar_slot_history_update( slot_ctx );
 
   fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
 
@@ -2676,10 +2678,7 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 
 void
 fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t *            slot_ctx,
-                                   fd_runtime_block_info_t const * block_info,
-                                   fd_spad_t *                     runtime_spad ) {
-
-  fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
+                                   fd_runtime_block_info_t const * block_info ) {
 
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx );

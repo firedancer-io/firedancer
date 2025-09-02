@@ -10,17 +10,18 @@
 #define FD_SLOT_HISTORY_SLOT_NOT_FOUND (-2)
 #define FD_SLOT_HISTORY_SLOT_TOO_OLD   (-3)
 
-/* The slot history sysvar contains a bit-vector indicating which slots have been processed in the current epoch. */
+/* The slot history sysvar contains a bit-vector indicating which slots
+   have been processed in the current epoch. */
 
 /* Initialize the slot history sysvar account. */
 void
 fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx,
                              fd_spad_t *          runtime_spad );
 
-/* Update the slot history sysvar account. This should be called at the end of every slot, after execution has concluded. */
+/* Update the slot history sysvar account. This should be called at the
+   end of every slot, after execution has concluded. */
 int
-fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_spad_t *          runtime_spad );
+fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx );
 
 /* fd_sysvar_slot_history_read reads the slot history sysvar from funk.
    If the account doesn't exist in funk or if the account has zero

@@ -82,11 +82,8 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int
-fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   /* Set current_slot, and update next_slot */
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
@@ -105,11 +102,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
     FD_LOG_CRIT(( "fd_slot_history_decode_footprint failed %d", err ));
   }
 
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_history_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_CRIT(( "Unable to allocate memory for slot history" ));
-  }
-
+  uchar mem[ total_sz ];
   fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
@@ -119,8 +112,6 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   fd_sysvar_slot_history_write_history( slot_ctx, history );
 
   return 0;
-
-  } FD_SPAD_FRAME_END;
 }
 
 fd_slot_history_global_t *
