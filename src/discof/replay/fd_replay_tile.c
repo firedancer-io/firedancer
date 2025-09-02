@@ -762,9 +762,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     }
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
-    fd_runtime_block_info_t info = { .signature_cnt = 0 };
-
-    fd_runtime_block_execute_finalize( ctx->slot_ctx, &info );
+    fd_runtime_block_execute_finalize( ctx->slot_ctx );
 
     snapshot_slot = 0UL;
 
@@ -1569,11 +1567,7 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_slice_exec_reset( &ctx->slice_exec_ctx );
 
   /* do hashing */
-
-  fd_runtime_block_info_t runtime_block_info[1];
-  runtime_block_info->signature_cnt = fd_bank_signature_count_get( bank );
-
-  fd_runtime_block_execute_finalize( ctx->slot_ctx, runtime_block_info );
+  fd_runtime_block_execute_finalize( ctx->slot_ctx );
 
 
   ulong block_entry_height = fd_bank_block_height_get( bank );

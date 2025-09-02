@@ -800,8 +800,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
-                             fd_runtime_block_info_t const * block_info ) {
+fd_runtime_update_bank_hash( fd_exec_slot_ctx_t * slot_ctx ) {
   /* Save the previous bank hash, and the parents signature count */
   fd_hash_t const * prev_bank_hash = NULL;
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
@@ -812,7 +811,6 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
   }
 
   fd_bank_parent_signature_cnt_set( slot_ctx->bank, fd_bank_signature_count_get( slot_ctx->bank ) );
-  fd_bank_signature_count_set( slot_ctx->bank, block_info->signature_cnt );
 
   /* Compute the new bank hash */
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( slot_ctx->bank );
@@ -821,7 +819,7 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t *            slot_ctx,
       lthash,
       prev_bank_hash,
       (fd_hash_t *)fd_bank_poh_query( slot_ctx->bank )->hash,
-      block_info->signature_cnt,
+      fd_bank_signature_count_get( slot_ctx->bank ),
       new_bank_hash );
 
   /* Update the bank hash */
@@ -2677,11 +2675,10 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 }
 
 void
-fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t *            slot_ctx,
-                                   fd_runtime_block_info_t const * block_info ) {
+fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* This slot is now "frozen" and can't be changed anymore. */
   fd_runtime_freeze( slot_ctx );
 
-  fd_runtime_update_bank_hash( slot_ctx, block_info );
+  fd_runtime_update_bank_hash( slot_ctx );
 }
