@@ -63,7 +63,9 @@ fd_lthash_sub( fd_lthash_value_t * restrict       r,
   if( FD_UNLIKELY( _x == NULL ) ) {                                      \
     strcpy(_y, "<NULL>");                                                \
   } else {                                                               \
-    fd_base58_encode_32( _x, NULL, _y );                                 \
+    uchar _blake3_hash[FD_HASH_FOOTPRINT];                               \
+    fd_blake3_hash(_x, FD_LTHASH_LEN_BYTES, _blake3_hash );              \
+    fd_base58_encode_32( _blake3_hash, NULL, _y );                       \
   }                                                                      \
 })
 
