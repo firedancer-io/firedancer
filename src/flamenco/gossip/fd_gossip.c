@@ -3,6 +3,7 @@
 #include "fd_gossip_private.h"
 #include "fd_gossip_txbuild.h"
 #include "fd_active_set.h"
+#include "fd_gossip_types.h"
 #include "fd_ping_tracker.h"
 #include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
@@ -110,6 +111,7 @@ struct fd_gossip_private {
      fd_active_set_prune. */
   push_set_t *          active_pset;
   fd_gossip_out_ctx_t * gossip_net_out;
+  fd_gossip_out_ctx_t * gossip_update_out;
 };
 
 FD_FN_CONST ulong
@@ -197,7 +199,8 @@ fd_gossip_new( void *                    shmem,
   void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt )    );
   void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
 
-  gossip->gossip_net_out  = gossip_net_out;
+  gossip->gossip_net_out    = gossip_net_out;
+  gossip->gossip_update_out = gossip_update_out;
 
   gossip->entrypoints_cnt = entrypoints_cnt;
   fd_memcpy( gossip->entrypoints, entrypoints, entrypoints_cnt*sizeof(fd_ip4_port_t) );
@@ -410,6 +413,29 @@ get_stake( fd_gossip_t const * gossip,
   return entry->stake;
 }
 
+static inline void
+publish_in_crds_outcome( fd_gossip_out_ctx_t * gossip_update,
+                         uchar                 outcome,
+                         uchar                 crd_tag,
+                         uchar                 route,
+                         uchar const *         origin_pubkey,
+                         uchar const *         relayer_pubkey,
+                         fd_stem_context_t *   stem,
+                         long                  now ) {
+  fd_gossip_update_message_t * msg = fd_gossip_out_get_chunk( gossip_update );
+
+  msg->tag                         = FD_GOSSIP_UPDATE_TAG_IN_CRDS_OUTCOME;
+  msg->wallclock_nanos             = now;
+  msg->crds_outcome.outcome_tag    = outcome;
+  msg->crds_outcome.crd_tag        = crd_tag;
+  msg->crds_outcome.route          = route;
+  fd_memcpy( msg->origin_pubkey, origin_pubkey,  32UL );
+  fd_memcpy( msg->crds_outcome.relayer_pubkey, relayer_pubkey, 32UL );
+
+  fd_gossip_tx_publish_chunk( gossip_update, stem, (ulong)msg->tag, FD_GOSSIP_UPDATE_SZ_IN_CRDS_OUTCOME, now );
+
+}
+
 void
 fd_gossip_stakes_update( fd_gossip_t *             gossip,
                          fd_stake_weight_t const * stake_weights,
@@ -485,17 +511,34 @@ rx_pull_response( fd_gossip_t *                          gossip,
                   uchar const *                          payload,
                   fd_stem_context_t *                    stem,
                   long                                   now ) {
+
+#define PUBLISH_IN_CRDS_OUTCOME( outcome ) do{ \
+  publish_in_crds_outcome( gossip->gossip_update_out, \
+                           FD_CRDS_OUTCOME_TAG_ ##outcome, \
+                           value->tag, \
+                           FD_CRDS_OUTCOME_ROUTE_PULL_RESPONSE, \
+                           origin_pubkey, \
+                           relayer_pubkey, \
+                           stem, \
+                           now ); \
+  } while(0)
+  uchar const * relayer_pubkey = payload + pull_response->from_off;
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
-    fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
+    fd_gossip_view_crds_value_t const * value         = &pull_response->crds_values[ i ];
+    uchar const *                       origin_pubkey = payload+value->pubkey_off;
 
     int checks_res = fd_crds_checks_fast( gossip->crds, value, payload, 0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
-      checks_res < 0 ? gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++
-                     : gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
+      if( FD_LIKELY( checks_res < 0 ) ) {
+        gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_STALE_IDX ]++;
+        PUBLISH_IN_CRDS_OUTCOME( DROPPED_HAS_NEWER );
+      } else {
+        gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
+        PUBLISH_IN_CRDS_OUTCOME( DROPPED_DUPLICATE );
+      }
       continue;
     }
 
-    uchar const * origin_pubkey = payload+value->pubkey_off;
     ulong origin_stake          = get_stake( gossip, origin_pubkey );
 
     /* TODO: Is this jittered in Agave? */
@@ -513,6 +556,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     if( FD_UNLIKELY( accept_after_nanos>value->wallclock_nanos &&
                      !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ]++;
+      PUBLISH_IN_CRDS_OUTCOME( DROPPED_TOO_OLD );
       uchar candidate_hash[ 32UL ];
       fd_crds_generate_hash( gossip->sha256, payload+value->value_off, value->length, candidate_hash );
       fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
@@ -526,6 +570,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                                                         is_me,
                                                         now,
                                                         stem );
+    PUBLISH_IN_CRDS_OUTCOME( UPSERTED );
     FD_TEST( candidate );
     gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PULL_RESPONSE_IDX ]++;
     if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ){
@@ -536,6 +581,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
     }
     active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   }
+#undef PUBLISH_IN_CRDS_OUTCOME
 }
 
 /* process_push_crds() > 0 holds the duplicate count */
@@ -543,9 +589,21 @@ static int
 process_push_crds( fd_gossip_t *                       gossip,
                    fd_gossip_view_crds_value_t const * value,
                    uchar const *                       payload,
+                   uchar const *                       relayer_pubkey,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
-  /* overrides_fast here, either count duplicates or purge if older (how!?) */
+#define PUBLISH_IN_CRDS_OUTCOME( outcome ) do{ \
+  publish_in_crds_outcome( gossip->gossip_update_out, \
+                           FD_CRDS_OUTCOME_TAG_ ##outcome, \
+                           value->tag, \
+                           FD_CRDS_OUTCOME_ROUTE_PUSH, \
+                           origin_pubkey, \
+                           relayer_pubkey, \
+                           stem, \
+                           now ); \
+  } while(0)
+
+  uchar const * origin_pubkey = payload+value->pubkey_off;
 
   /* return values in both fd_crds_checks_fast and fd_crds_inserted need
      to be propagated since they both work the same (error>0 holds duplicate
@@ -555,17 +613,20 @@ process_push_crds( fd_gossip_t *                       gossip,
                                         payload,
                                         1 /* from_push_msg */ );
   if( FD_UNLIKELY( !!checks_res ) ) {
-    checks_res < 0 ? gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++
-                   : gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
+    if( FD_LIKELY( checks_res < 0 ) ) {
+      gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_STALE_IDX ]++;
+      PUBLISH_IN_CRDS_OUTCOME( DROPPED_HAS_NEWER );
+    } else {
+      gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PUSH_DUPLICATE_IDX ]++;
+      PUBLISH_IN_CRDS_OUTCOME( DROPPED_DUPLICATE );
+    }
     return checks_res;
   }
 
   gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
 
-  uchar const * origin_pubkey = payload+value->pubkey_off;
   uchar is_me                 = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
   ulong origin_stake          = get_stake( gossip, origin_pubkey );
-
 
   fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
                                                       value,
@@ -574,6 +635,7 @@ process_push_crds( fd_gossip_t *                       gossip,
                                                       is_me,
                                                       now,
                                                       stem );
+  PUBLISH_IN_CRDS_OUTCOME( UPSERTED );
   FD_TEST( candidate );
   if( FD_UNLIKELY( fd_crds_entry_is_contact_info( candidate ) ) ) {
     fd_contact_info_t const * contact_info = fd_crds_entry_contact_info( candidate );
@@ -583,6 +645,7 @@ process_push_crds( fd_gossip_t *                       gossip,
   }
   active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   return 0;
+#undef PUBLISH_IN_CRDS_OUTCOME
 }
 
 static void
@@ -591,8 +654,9 @@ rx_push( fd_gossip_t *                 gossip,
          uchar const *                 payload,
          long                          now,
          fd_stem_context_t *           stem ) {
+  uchar const * relayer = payload+push->from_off;
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
-    int err = process_push_crds( gossip, &push->crds_values[ i ], payload, now, stem );
+    int err = process_push_crds( gossip, &push->crds_values[ i ], payload, relayer, now, stem );
     if( FD_UNLIKELY( err>0 ) ) {
       /* TODO: implement prune finder
       ulong num_duplicates         = (ulong)err;
@@ -749,6 +813,15 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                           stem,
                           now,
                           1 /* flush_immediately */ );
+
+  publish_in_crds_outcome( gossip->gossip_update_out,
+                           FD_CRDS_OUTCOME_TAG_UPSERTED,
+                           value->tag,
+                           FD_CRDS_OUTCOME_ROUTE_SELF,
+                           gossip->identity_pubkey,
+                           gossip->identity_pubkey, /* Ignored for self */
+                           stem,
+                           now );
   return 0;
 }
 
