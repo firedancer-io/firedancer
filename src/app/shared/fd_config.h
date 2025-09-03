@@ -169,6 +169,11 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
+
+    char rss_queue_mode[ 16 ]; /* "simple" or "dedicated" */
+    uint rss_queue_mode_;
+    #define FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE    0
+    #define FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED 1
   } xdp;
 
   struct {
