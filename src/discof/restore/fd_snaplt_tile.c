@@ -123,7 +123,7 @@ during_frag( fd_snaplt_tile_t * ctx,
       fd_lthash_sub( &ctx->running_lthash, prev_lthash );
       break;
     }
-    case FD_SNAPSHOT_HASH_MSG_ACCOUNT_HDR: {
+    case FD_SNAPSHOT_MSG_ACCOUNT_HDR: {
       FD_TEST( ctx->state==FD_SNAPLT_STATE_HASHING && ctx->acc_data_sz==0UL );
       fd_snapshot_account_t * account = (fd_snapshot_account_t *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
       if( !should_hash_account( ctx, account->pubkey) ) break;
@@ -136,7 +136,7 @@ during_frag( fd_snaplt_tile_t * ctx,
       }
       break;
     }
-    case FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA: {
+    case FD_SNAPSHOT_MSG_ACCOUNT_DATA: {
       FD_TEST( ctx->state==FD_SNAPLT_STATE_HASHING );
       if( FD_LIKELY( ctx->hash_account ) ) {
         fd_blake3_append( ctx->b3, fd_chunk_to_laddr_const( ctx->in.wksp, chunk ), sz );
@@ -171,8 +171,8 @@ after_frag( fd_snaplt_tile_t *    ctx,
   (void)sz;
 
   switch( sig ) {
-    case FD_SNAPSHOT_HASH_MSG_ACCOUNT_HDR:
-    case FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA: {
+    case FD_SNAPSHOT_MSG_ACCOUNT_HDR:
+    case FD_SNAPSHOT_MSG_ACCOUNT_DATA: {
       FD_TEST( ctx->state==FD_SNAPLT_STATE_HASHING );
       if( FD_LIKELY( ctx->acc_data_sz==ctx->account.data_len && ctx->hash_account ) ) {
         /* hash account here */

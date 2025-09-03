@@ -52,14 +52,15 @@
 #define FD_SNAPSHOT_MSG_CTRL_ACK               (6UL) /* Sent from tiles back to snaprd, meaning they ACK whatever control message was pending */
 #define FD_SNAPSHOT_MSG_CTRL_MALFORMED         (7UL) /* Sent from tiles back to snaprd, meaning they consider the current snapshot malformed */
 
+#define FD_SNAPSHOT_MSG_ACCOUNT_HDR            (10UL) /* Indicates snapin has encountered a new account metadata */
+#define FD_SNAPSHOT_MSG_ACCOUNT_DATA           (11UL) /* Account data that is sent as snapin processes a new account */
+
 /* The following message signatures define the sequence of control and
    data messages between the snapin and snaplt tile.  The snaplt tile
    does not participate in control messages between snaprd, snapdc, and
    snapin.  It acts as a hashing accelerator for snapin. */
 #define FD_SNAPSHOT_HASH_MSG_RESET             (8UL)  /* Indicates snapin has a new account stream incoming */
 #define FD_SNAPSHOT_HASH_MSG_SUB               (9UL)  /* Indicates snapin has encountered a duplicate account whose hash must be subtracted */
-#define FD_SNAPSHOT_HASH_MSG_ACCOUNT_HDR       (10UL) /* Indicates snapin has encountered a new account metadata */
-#define FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA      (11UL) /* Account data that is sent as snapin processes a new account */
 #define FD_SNAPSHOT_HASH_MSG_FINI              (12UL) /* Indicates the account stream from snapin is done, awaiting hash result */
 #define FD_SNAPSHOT_HASH_MSG_RESULT            (13UL) /* Hash result sent from snaplt to snapin */
 #define FD_SNAPSHOT_HASH_MSG_SHUTDOWN          (14UL) /* Snapin is shutting down, snaplt can shutdown too */
@@ -70,11 +71,13 @@
    SNAPSHOT_HASH_MSG_ACCOUNT_HDR message.  It contains account metadata
    that is contained in the accounts hash. */
 struct fd_snapshot_account {
+  ulong   slot;
   uchar   pubkey[ FD_HASH_FOOTPRINT ];
   uchar   owner[ FD_HASH_FOOTPRINT ];
   ulong   lamports;
   uchar   executable;
   ulong   data_len;
+  ulong   rent_epoch;
 };
 typedef struct fd_snapshot_account fd_snapshot_account_t;
 

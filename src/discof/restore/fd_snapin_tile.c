@@ -32,8 +32,6 @@ struct fd_snapin_tile {
   ulong seed;
   long boot_timestamp;
 
-  fd_funk_t       funk[1];
-  fd_funk_txn_t * funk_txn;
   uchar *         acc_data;
 
   fd_stem_context_t *    stem;
@@ -152,31 +150,6 @@ manifest_cb( void * _ctx ) {
   }
 }
 
-static int
-is_duplicate_account( fd_snapin_tile_t * ctx,
-                      uchar const *      account_pubkey ) {
-  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( ctx->funk,
-                                                                      ctx->funk_txn,
-                                                                      (fd_pubkey_t*)account_pubkey,
-                                                                      NULL,
-                                                                      NULL,
-                                                                      NULL );
-  if( FD_UNLIKELY( rec_meta ) ) {
-    if( FD_LIKELY( rec_meta->slot>ctx->ssparse->accv_slot ) ) return 1;
-
-    if( FD_LIKELY( ctx->hash_info.enabled ) ) {
-      /* Send the existing account to hash tiles */
-      fd_snapshot_existing_account_t * account = (fd_snapshot_existing_account_t *)fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-      fd_snapshot_account_init( &account->hdr, account_pubkey, rec_meta->info.owner, rec_meta->info.lamports, rec_meta->info.executable, rec_meta->dlen );
-      fd_memcpy( account->data, fd_account_meta_get_data_const( rec_meta ), rec_meta->dlen );
-      fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
-      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-    }
-  }
-
-  return 0;
-}
-
 static void
 account_cb( void *                          _ctx,
             fd_solana_account_hdr_t const * hdr ) {
@@ -210,7 +183,7 @@ account_cb( void *                          _ctx,
     /* send account hdr to snaplt tile */
     fd_snapshot_account_t * account = (fd_snapshot_account_t *)fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
     fd_snapshot_account_init( account, hdr->meta.pubkey, hdr->info.owner, hdr->info.lamports, hdr->info.executable, hdr->meta.data_len );
-    fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_HASH_MSG_ACCOUNT_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
+    fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_MSG_ACCOUNT_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
   }
 
@@ -231,7 +204,7 @@ account_data_cb( void *        _ctx,
     /* send acc data to snaplt tile */
     uchar * snaplt_acc_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
     fd_memcpy( snaplt_acc_data, buf, data_sz );
-    fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_HASH_MSG_ACCOUNT_DATA, ctx->hash_out.chunk, data_sz, 0UL, 0UL, 0UL );
+    fd_stem_publish( ctx->stem, FD_SNAPIN_HSH_IDX, FD_SNAPSHOT_MSG_ACCOUNT_DATA, ctx->hash_out.chunk, data_sz, 0UL, 0UL, 0UL );
     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, data_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
   }
 }

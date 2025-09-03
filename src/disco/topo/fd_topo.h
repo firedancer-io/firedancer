@@ -518,7 +518,7 @@ struct fd_topo_tile {
 
     struct {
       ulong funk_obj_id;
-    } snapin;
+    } snapst;
 
     struct {
       uint   bind_address;

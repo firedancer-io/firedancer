@@ -883,6 +883,18 @@
 
 </div>
 
+## Snapst Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapst_&#8203;state</span> | gauge | State of the tile. 0=hashing, 1=done, 2=shutdown |
+| <span class="metrics-name">snapst_&#8203;full_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted into the accounts database from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapst_&#8203;incremental_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted into the accounts database from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
 ## Snaplt Tile
 
 <div class="metrics">
