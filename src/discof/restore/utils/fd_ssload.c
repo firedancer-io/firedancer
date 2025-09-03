@@ -61,8 +61,14 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_exec_slot_ctx_t *     slot_ctx ) {
-  slot_ctx->bank = fd_banks_rekey_root_bank( slot_ctx->banks, manifest->slot );
-  FD_TEST( slot_ctx->bank );
+
+  /* Slot */
+
+  fd_bank_slot_set( slot_ctx->bank, manifest->slot );
+
+  /* Mark the bank for a snapshot slot to be done executing. */
+
+  fd_bank_done_executing_set( slot_ctx->bank, 1 );
 
   /* Bank Hash */
 

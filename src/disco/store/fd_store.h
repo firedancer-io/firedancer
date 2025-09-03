@@ -183,8 +183,8 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
 
   /* Keys */
 
-  fd_store_key_t key;  /* map key, merkle root of the FEC set + a partition index*/
-  fd_hash_t cmr; /* parent's map key, chained merkle root of the FEC set */
+  fd_store_key_t key; /* map key, merkle root of the FEC set + a partition index */
+  fd_hash_t cmr;      /* parent's map key, chained merkle root of the FEC set */
 
   /* Pointers */
 

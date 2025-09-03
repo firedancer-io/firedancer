@@ -77,6 +77,7 @@ struct fd_exec_txn_ctx {
   fd_funk_txn_t *                      funk_txn;
   fd_funk_t                            funk[1];
   ulong                                slot;
+  ulong                                bank_idx;
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */

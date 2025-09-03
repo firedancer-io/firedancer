@@ -62,6 +62,7 @@ typedef struct {
 
   fd_store_t *           store;
   fd_shred_t const *     curr;
+  fd_shred_t const *     prev;
   fd_hash_t              prev_mr;
 
   /* Links */
@@ -229,7 +230,19 @@ after_credit( ctx_t *             ctx,
   fd_shred_t const * curr = ctx->curr ? ctx->curr : rocksdb_next_shred( ctx, &sz );
   if( FD_UNLIKELY ( !curr ) ) return; /* finished replay */
 
-  fd_hash_t mr = shred_merkle_root( curr );
+  /* FEC sets from the backtest tile will have their merkle root and
+     chained merkle root overwritten with their slot numbers and fec
+     set index. This is done in order to preserve behavior for older
+     ledgers which may not have merkle roots or chained merkle roots. */
+  fd_hash_t mr  = { .ul[0] = curr->slot, .ul[1] = curr->fec_set_idx };
+  fd_hash_t cmr = {0};
+  if( FD_UNLIKELY( !ctx->prev ) ) {
+    cmr.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID;
+  } else {
+    cmr.ul[0] = ctx->prev->slot;
+    cmr.ul[1] = ctx->prev->fec_set_idx;
+  }
+
   fd_store_shacq ( ctx->store );
   fd_store_insert( ctx->store, 0, &mr );
   fd_store_shrel ( ctx->store );
@@ -246,7 +259,10 @@ after_credit( ctx_t *             ctx,
     curr = rocksdb_next_shred( ctx, &sz );
     if( FD_UNLIKELY( !curr || curr->fec_set_idx != prev->fec_set_idx || curr->slot != prev->slot ) ) break;
   }
-  FD_TEST( prev );
+  if( FD_UNLIKELY( !prev ) ) {
+    FD_LOG_CRIT(( "invariant violation: prev is NULL" ));
+  }
+  ctx->prev = prev;
 
   /* We're guaranteed to iterate slots in order from RocksDB (linear
      chain) so link the merkle roots to the previous one. */
@@ -261,8 +277,6 @@ after_credit( ctx_t *             ctx,
 
   ctx->prev_mr = mr;
 
-  fd_hash_t cmr;
-  memcpy( cmr.uc, (uchar const *)prev + fd_shred_chain_off( prev->variant ), sizeof(fd_hash_t) );
   fd_reasm_fec_t out = {
     .key           = mr,
     .cmr           = cmr,
@@ -426,7 +440,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
-  ctx->curr = NULL;
+  ctx->curr    = NULL;
+  ctx->prev    = NULL;
   ctx->prev_mr = (fd_hash_t){0};
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {

@@ -78,7 +78,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->bank->slot_ = slot;
+  fd_bank_slot_set( slot_ctx->bank, slot );
 
   /* Initialize builtin accounts */
   fd_builtin_programs_init( slot_ctx );
@@ -296,7 +296,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   txn->payload_sz = msg_sz;
-  txn->flags      = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
   return txn;
 }
@@ -421,16 +420,17 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
   /* Setup the spad for account allocation */
   uchar *             txn_ctx_mem        = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
+  txn_ctx->flags                         = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   *txn_ctx->funk                         = *slot_ctx->funk;
   txn_ctx->bank_hash_cmp                 = NULL;
   txn_ctx->fuzz_config.enable_vm_tracing = runner->enable_vm_tracing;
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
       slot_ctx->banks,
+      0UL,
       txn_ctx,
       txn,
       runner->spad,
-      fd_bank_slot_get( slot_ctx->bank ),
       NULL,
       0 );
 
@@ -476,8 +476,8 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
 
     /* Capture basic results fields */
-    txn_result->executed                          = txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    txn_result->sanitization_error                = !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS);
+    txn_result->executed                          = txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn_result->sanitization_error                = !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS);
     txn_result->has_resulting_state               = false;
     txn_result->resulting_state.acct_states_count = 0;
     txn_result->is_ok                             = !exec_res;
@@ -490,7 +490,7 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
-      if( txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+      if( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
         txn_result->has_fee_details                = true;
         txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
         txn_result->fee_details.transaction_fee    = txn_ctx->execution_fee;
@@ -561,7 +561,7 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
     fd_txn_account_t * accounts_to_save = txn_ctx->accounts;
     ulong              accounts_cnt     = txn_ctx->accounts_cnt;
-    if( txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+    if( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
 

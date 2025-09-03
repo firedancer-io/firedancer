@@ -490,7 +490,7 @@ fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t * slot_ctx );
 /* Transaction Level Execution Management *************************************/
 
 int
-fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx );
+fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_runtime_prepare_and_execute_txn is the main entrypoint from the
    executor tile. It is responsible for preparing and executing a single
@@ -498,10 +498,10 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx );
 
 int
 fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
+                                    ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
                                     fd_spad_t *         exec_spad,
-                                    ulong               slot,
                                     fd_capture_ctx_t *  capture_ctx,
                                     uchar               do_sigverify );
 
