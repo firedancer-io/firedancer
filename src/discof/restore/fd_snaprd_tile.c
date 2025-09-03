@@ -134,8 +134,8 @@ struct fd_snaprd_tile {
   } gossip_in;
 
   struct {
+    fd_ip4_port_t *            ci_table;
     fd_gossip_update_message_t tmp_upd_buf;
-    fd_contact_info_t *        ci_table;
   } gossip;
 
   struct {
@@ -158,10 +158,10 @@ static ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t)       );
+  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),         fd_sshttp_footprint()          );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),         fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ip4_port_t),    sizeof(fd_ip4_port_t)*FD_CONTACT_INFO_TABLE_SIZE );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -245,7 +245,7 @@ read_http_data( fd_snaprd_tile_t *  ctx,
     case FD_SSHTTP_ADVANCE_AGAIN: break;
     case FD_SSHTTP_ADVANCE_ERROR: {
       FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
+                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -552,7 +552,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
-        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), fd_ushort_bswap( best.port ) ));
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), best.port ));
         ctx->addr  = best;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
         fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
@@ -623,7 +623,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
+      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
@@ -657,12 +657,10 @@ before_frag( fd_snaprd_tile_t * ctx FD_PARAM_UNUSED,
              ulong              in_idx,
              ulong              seq FD_PARAM_UNUSED,
              ulong              sig ) {
-  if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ){
-    (void)sig;
-    // return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
-    //           sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
-    //           sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
-    return 1;
+  if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) {
+    return !( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
+              sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
+              sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES );
   }
   return 0;
 }
@@ -675,13 +673,13 @@ during_frag( fd_snaprd_tile_t * ctx,
              ulong              chunk,
              ulong              sz,
              ulong              ctl FD_PARAM_UNUSED) {
-  if( ctx->in_kind[ in_idx ]!= IN_KIND_GOSSIP ) return;
+  if( ctx->in_kind[ in_idx ]!=IN_KIND_GOSSIP ) return;
 
   if( FD_UNLIKELY( chunk<ctx->gossip_in.chunk0 ||
-                   chunk>ctx->gossip_in.wmark ) ) {
+                   chunk>ctx->gossip_in.wmark  ||
+                   sz>sizeof(fd_gossip_update_message_t) ) ) {
     FD_LOG_ERR(( "snaprd: unexpected chunk %lu", chunk ));
   }
-  /* TODO: Size checks */
   fd_memcpy( &ctx->gossip.tmp_upd_buf, fd_chunk_to_laddr( ctx->gossip_in.mem, chunk ), sz );
 }
 
@@ -701,29 +699,29 @@ after_frag( fd_snaprd_tile_t *  ctx,
   (void)tspub;
   (void)sz;
 
-  if( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     fd_gossip_update_message_t * msg = &ctx->gossip.tmp_upd_buf;
     switch( msg->tag ) {
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
-          fd_contact_info_t * cur      = &ctx->gossip.ci_table[ msg->contact_info.idx ];
-          fd_ip4_port_t       cur_addr = ctx->gossip.ci_table[ msg->contact_info.idx ].sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
-          if( cur_addr.l ){
-            fd_ssping_remove( ctx->ssping, cur_addr );
+          fd_ip4_port_t cur_addr = ctx->gossip.ci_table[ msg->contact_info.idx ];
+          fd_ip4_port_t new_addr = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
+          /* TODO: Contact Infos store port in net order, this will be fixed in a future PR. */
+          new_addr.port = fd_ushort_bswap( new_addr.port );
+          if( FD_UNLIKELY( cur_addr.l!=new_addr.l ) ) {
+            if( FD_LIKELY( !!cur_addr.l ) ) fd_ssping_remove( ctx->ssping, cur_addr );
+            if( FD_LIKELY( !!new_addr.l ) ) {
+              FD_LOG_INFO(( "adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
+                              FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), new_addr.port ));
+              fd_ssping_add( ctx->ssping, new_addr );
+            }
           }
-          fd_contact_info_t * new = msg->contact_info.contact_info;
-          fd_ip4_port_t new_addr  = new->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
-          if( new_addr.l ) {
-            fd_ssping_add( ctx->ssping, new_addr );
-          }
-          *cur = *new;
+          ctx->gossip.ci_table[ msg->contact_info.idx ] = new_addr;
         }
         break;
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
-          fd_contact_info_t * cur  = &ctx->gossip.ci_table[ msg->contact_info_remove.idx ];
-          fd_ip4_port_t       addr = cur->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
-          if( addr.l ) {
-            fd_ssping_remove( ctx->ssping, addr );
-          }
+          fd_ip4_port_t addr = ctx->gossip.ci_table[ msg->contact_info_remove.idx ];
+          if( FD_LIKELY( !!addr.l ) ) fd_ssping_remove( ctx->ssping, addr );
+          ctx->gossip.ci_table[ msg->contact_info_remove.idx ].l = 0UL;
         }
         break;
       case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES:
@@ -886,11 +884,10 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snaprd_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
-  // void * _gossip_peers_rx = FD_SCRATCH_ALLOC_APPEND( l, gossip_peers_rx_align(),    gossip_peers_rx_footprint()    );
-  void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  fd_snaprd_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t)       );
+  void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),         fd_sshttp_footprint()          );
+  void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),         fd_ssping_footprint( 65536UL ) );
+  void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ip4_port_t),    sizeof(fd_ip4_port_t)*FD_CONTACT_INFO_TABLE_SIZE );
 
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
@@ -936,18 +933,18 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gossip.ci_table = _ci_table;
   /* zero-out memory so that we can perform null checks in after_frag */
-  fd_memset( ctx->gossip.ci_table, 0, sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
+  fd_memset( ctx->gossip.ci_table, 0, sizeof(fd_ip4_port_t)*FD_CONTACT_INFO_TABLE_SIZE );
 
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ){
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
-      // has_gossip_in         = 1;
+      has_gossip_in         = 1;
       ctx->in_kind[ i ]     = IN_KIND_GOSSIP;
-      // ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
-      // ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
-      // ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
-      // ctx->gossip_in.mtu    = in_link->mtu;
+      ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
+      ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
+      ctx->gossip_in.mtu    = in_link->mtu;
     } else if( 0==strcmp( in_link->name, "snapdc_rd" ) ||
                0==strcmp( in_link->name, "snapin_rd" ) ) {
       ctx->in_kind[ i ] = IN_KIND_SNAPCTL;

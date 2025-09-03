@@ -375,7 +375,7 @@ poll_advance( fd_ssping_t * ssping,
         score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
       }
 
-      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), peer->latency_nanos ));
+      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port, peer->latency_nanos ));
       peer->state = PEER_STATE_VALID;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_VALID;
 
@@ -395,7 +395,7 @@ peer_connect( fd_ssping_t *      ssping,
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
-    .sin_port   = peer->addr.port,
+    .sin_port   = fd_ushort_bswap( peer->addr.port ),
     .sin_addr   = { .s_addr = peer->addr.addr }
   };
 
@@ -422,7 +422,7 @@ fd_ssping_advance( fd_ssping_t * ssping,
   while( !deadline_list_is_empty( ssping->unpinged, ssping->pool ) ) {
     fd_ssping_peer_t * peer = deadline_list_ele_pop_head( ssping->unpinged, ssping->pool );
 
-    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
+    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port ));
     int result = peer_connect( ssping, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state = PEER_STATE_INVALID;
