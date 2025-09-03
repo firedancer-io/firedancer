@@ -19,33 +19,12 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 
+#include "gossip.h"
+#include "core_subtopo.h"
+
 #include <unistd.h> /* pause */
 
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
-
-static ulong
-link_permit_no_producers( fd_topo_t * topo, char * link_name ) {
-  ulong found = 0UL;
-  for( ulong link_i = 0UL; link_i < topo->link_cnt; link_i++ ) {
-    if( !strcmp( topo->links[ link_i ].name, link_name ) ) {
-      topo->links[ link_i ].permit_no_producers = 1;
-      found++;
-    }
-  }
-  return found;
-}
-
-static ulong
-link_permit_no_consumers( fd_topo_t * topo, char * link_name ) {
-  ulong found = 0UL;
-  for( ulong link_i = 0UL; link_i < topo->link_cnt; link_i++ ) {
-    if( !strcmp( topo->links[ link_i ].name, link_name ) ) {
-      topo->links[ link_i ].permit_no_consumers = 1;
-      found++;
-    }
-  }
-  return found;
-}
 
 /* repair_topo is a subset of "src/app/firedancer/topology.c" at commit
    0d8386f4f305bb15329813cfe4a40c3594249e96, slightly modified to work
@@ -68,10 +47,37 @@ repair_topo( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
+  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
+  ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
+  /* Unassigned tiles will be floating, unless auto topology is enabled. */
+  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
+
+  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
+  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
+
+  if( FD_UNLIKELY( is_auto_affinity != is_bench_auto_affinity ) ) {
+    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
+  }
+
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
+  ulong affinity_tile_cnt = 0UL;
+  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
+
+  for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
+      FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
+                  "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
+                  "in the system.",
+                  parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
+    tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
+  }
+
+  fd_gossip_subtopo( config, tile_to_cpu );
+
   /*             topo, name */
-  fd_topob_wksp( topo, "metric_in"    );
   fd_topob_wksp( topo, "net_shred"    );
-  fd_topob_wksp( topo, "gossip_net"   );
   fd_topob_wksp( topo, "net_repair"   );
   fd_topob_wksp( topo, "net_quic"     );
 
@@ -83,16 +89,6 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "shred_sign"   );
   fd_topob_wksp( topo, "sign_shred"   );
 
-  fd_topob_wksp( topo, "gossip_sign"  );
-  fd_topob_wksp( topo, "sign_gossip"  );
-
-  fd_topob_wksp( topo, "ipecho_out"   );
-
-  fd_topob_wksp( topo, "gossvf_gossi" );
-  fd_topob_wksp( topo, "gossip_gossv" );
-
-  fd_topob_wksp( topo, "gossip_out"   );
-
   fd_topob_wksp( topo, "repair_sign"  );
   fd_topob_wksp( topo, "sign_repair"  );
 
@@ -100,12 +96,7 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "send_txns"    );
 
   fd_topob_wksp( topo, "shred"        );
-  fd_topob_wksp( topo, "sign"         );
   fd_topob_wksp( topo, "repair"       );
-  fd_topob_wksp( topo, "ipecho"       );
-  fd_topob_wksp( topo, "gossvf"       );
-  fd_topob_wksp( topo, "gossip"       );
-  fd_topob_wksp( topo, "metric"       );
   fd_topob_wksp( topo, "fec_sets"     );
   fd_topob_wksp( topo, "snap_out"     );
 
@@ -123,17 +114,6 @@ repair_topo( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                          1UL );
-
-  /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  128UL,                                    2048UL,                        1UL );
-  /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
-  /**/                 fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL,                              2048UL,                        1UL );
-
-  /**/                 fd_topob_link( topo, "ipecho_out",   "ipecho_out",   4UL,                                      0UL,                           1UL );
-
-  FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
-  /**/                 fd_topob_link( topo, "gossip_gossv", "gossip_gossv", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL );
-
-  /**/                 fd_topob_link( topo, "gossip_net",   "gossip_net",   65536UL*4UL,                              FD_NET_MTU,                    1UL );
 
   /**/                 fd_topob_link( topo, "repair_net",   "net_repair",   config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
@@ -153,47 +133,12 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
 
-  ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
-  /* Unassigned tiles will be floating, unless auto topology is enabled. */
-  for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
-
-  int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
-  int is_bench_auto_affinity = !strcmp( config->development.bench.affinity, "auto" );
-
-  if( FD_UNLIKELY( is_auto_affinity != is_bench_auto_affinity ) ) {
-    FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
-  }
-
-  fd_topo_cpus_t cpus[1];
-  fd_topo_cpus_init( cpus );
-
-  ulong affinity_tile_cnt = 0UL;
-  if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
-
-  ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
-  for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
-    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
-      FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
-                  "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
-                  "in the system.",
-                  parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
-    tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
-  }
-
-  fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
-
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossvf", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
 
   /*                                              topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_keyswitch */
   FOR(shred_tile_cnt)              fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
-  FOR(sign_tile_cnt)               fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
-  /**/                             fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  /**/                             fd_topob_tile( topo, "ipecho",  "ipecho",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
-  FOR(gossvf_tile_cnt)             fd_topob_tile( topo, "gossvf",  "gossvf",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
-  /**/                             fd_topob_tile( topo, "gossip",  "gossip",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   fd_topo_tile_t * repair_tile =   fd_topob_tile( topo, "repair",  "repair",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /* Setup a shared wksp object for fec sets. */
@@ -245,12 +190,9 @@ repair_topo( config_t * config ) {
   for( ulong j=0UL; j<quic_tile_cnt; j++ )
                   fd_topos_tile_in_net(  topo,                          "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
-  /**/                 fd_topob_tile_in(  topo, "gossip",  0UL,          "metric_in", "send_txns",    0UL,          FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  /**/            fd_topob_tile_in(      topo, "gossip",  0UL,         "metric_in", "send_txns",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
-  /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-
-  /**/                 fd_topob_tile_out( topo, "ipecho", 0UL,                        "ipecho_out",   0UL                                                   );
+  /**/            fd_topos_tile_in_net(  topo,                          "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -276,25 +218,9 @@ repair_topo( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",    i                                                    );
   }
 
-  FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
-                       fd_topob_tile_in ( topo, "gossvf",   i,            "metric_in", "net_gossvf",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(gossvf_tile_cnt) fd_topob_tile_out( topo, "gossvf",   i,                         "gossvf_gossi", i                                                    );
-  FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossvf",   i,            "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossvf",   i,            "metric_in", "gossip_gossv", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossvf",   i,            "metric_in", "ipecho_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossvf",   i,            "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
-
   /**/                 fd_topob_tile_in ( topo, "gossip",   0UL,          "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_net",   0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_out",   0UL                                                  );
-  /**/                 fd_topob_tile_in ( topo, "gossip",   0UL,          "metric_in", "ipecho_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossip",   0UL,          "metric_in", "gossvf_gossi", i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_gossv", 0UL                                                  );
-  /**/                 fd_topob_tile_in(  topo, "sign",     0UL,          "metric_in", "gossip_sign",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_sign",  0UL                                                  );
-  /**/                 fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "sign_gossip",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-  /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_gossip",  0UL                                                  );
 
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -313,6 +239,8 @@ repair_topo( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "sign",   i+1,                        "sign_repair",  i                                              );
   FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_repair",  i,      FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_ping",    0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+
+    /**/               fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",  0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   if( 1 ) {
     fd_topob_wksp( topo, "scap" );
@@ -342,14 +270,14 @@ repair_topo( config_t * config ) {
     fd_topob_tile_out( topo, "scap", 0UL, "snap_out",  0UL );
   }
 
-  FD_TEST( link_permit_no_producers( topo, "quic_net"     ) == quic_tile_cnt );
-  FD_TEST( link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
-  FD_TEST( link_permit_no_producers( topo, "send_txns"    ) == 1UL           );
-  FD_TEST( link_permit_no_producers( topo, "repair_scap"  ) == 1UL           );
-  FD_TEST( link_permit_no_producers( topo, "replay_scap"  ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "quic_net"     ) == quic_tile_cnt );
+  FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "send_txns"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "repair_scap"  ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "replay_scap"  ) == 1UL           );
 
-  FD_TEST( link_permit_no_consumers( topo, "net_quic"     ) == quic_tile_cnt );
-  FD_TEST( link_permit_no_consumers( topo, "repair_repla" ) == 1UL           );
+  FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == quic_tile_cnt );
+  FD_TEST( fd_link_permit_no_consumers( topo, "repair_repla" ) == 1UL           );
 
   config->tiles.send.send_src_port = 0; /* disable send */
 
