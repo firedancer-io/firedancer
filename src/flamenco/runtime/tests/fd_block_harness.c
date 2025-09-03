@@ -193,17 +193,16 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Set up slot context */
   ulong slot = test_ctx->slot_ctx.slot;
 
-  slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->funk      = funk;
-  runner->bank->slot_ = slot;
-  slot_ctx->silent    = 1;
+  slot_ctx->funk_txn = funk_txn;
+  slot_ctx->funk     = funk;
+  slot_ctx->silent   = 1;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
 
   /* All bank mgr stuff here. */
 
-  slot_ctx->bank->slot_ = slot;
+  fd_bank_slot_set( slot_ctx->bank, slot );
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
@@ -493,7 +492,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_exec_txn_ctx_t * txn_ctx = fd_runtime_fuzz_txn_ctx_exec( runner, slot_ctx, txn, &res );
       txn_ctx->exec_err           = res;
 
-      if( FD_UNLIKELY( !( txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
+      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
         break;
       }
 

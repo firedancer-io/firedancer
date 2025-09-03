@@ -29,21 +29,21 @@ FD_PROTOTYPES_BEGIN
   */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
-   for a given slot. More specifically, the bank state corresponds to
+   for a given block. More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
    but is instead cached in a validator's memory. Each of these bank
    fields are repesented by a member of the fd_bank_t struct.
 
    Management of fd_bank_t structs must be fork-aware: the state of each
-   fd_bank_t must be based on the fd_bank_t of it's parent slot. This
+   fd_bank_t must be based on the fd_bank_t of it's parent block. This
    state is managed by the fd_banks_t struct.
 
    In order to support fork-awareness, there are several key features
    that fd_banks_t and fd_bank_t MUST support:
-   1. Query for any non-rooted slot's bank: create a fast lookup
-      from slot to bank
-   2. Be able to create a new bank for a given slot from the bank of
-      that slot's parent and maintain some tree-like structure to
+   1. Query for any non-rooted block's bank: create a fast lookup
+      from block id to bank
+   2. Be able to create a new bank for a given block from the bank of
+      that block's parent and maintain some tree-like structure to
       track the parent-child relationships: copy the contents from a
       parent bank into a child bank.
    3. Prune the set of active banks to keep the root updated as the
@@ -53,9 +53,9 @@ FD_PROTOTYPES_BEGIN
    4. Each bank will have field(s) that are concurrently read/write
       from multiple threads: add read-write locks to the fields that are
       concurrently written to.
-   5. In practice, a bank state for a given slot can be very large and
-      not all of the fields are written to every slot. Therefore, it can
-      be very expensive to copy the entire bank state for a given slot
+   5. In practice, a bank state for a given block can be very large and
+      not all of the fields are written to every block. Therefore, it can
+      be very expensive to copy the entire bank state for a given block
       each time a bank is created. In order to avoid large memcpys, we
       can use a CoW mechanism for certain fields.
    6. In a similar vein, some fields are very large and are not written
@@ -81,7 +81,12 @@ FD_PROTOTYPES_BEGIN
   fd_banks_t is represented by a left-child, right-sibling n-ary tree
   (inspired by fd_ghost) to keep track of the parent-child fork tree.
   The underlying data structure is a map of fd_bank_t structs that is
-  keyed by slot. This map is backed by a simple memory pool.
+  keyed by block id. This map is backed by a simple memory pool.
+
+  NOTE: The reason fd_banks_t is keyed by block id and not by slot is
+  to handle block equivocation: if there are two different blocks for
+  the same slot, we need to be able to differentiate and handle both
+  blocks against different banks.
 
   Each field in fd_bank_t that is not CoW is laid out contiguously in
   the fd_bank_t struct as simple uchar buffers. This allows for a simple
@@ -109,12 +114,12 @@ FD_PROTOTYPES_BEGIN
   query/modify fields using specific APIs.
 
   The memory for the banks is based off of two bounds:
-  1. the max number of unrooted slots at any given time. Most fields can
-     be bounded by this value.
-  2. the max number of forks that execute through any 1 slot. We bound
+  1. the max number of unrooted blocks at any given time. Most fields
+     can be bounded by this value.
+  2. the max number of forks that execute through any 1 block.  We bound
      fields that are only written to at the epoch boundary by
      the max fork width that can execute through the boundary instead of
-     by the max number of banks. See fd_banks_footprint() for more
+     by the max number of banks.  See fd_banks_footprint() for more
      details.
 
   NOTE: An important invariant is that if a field is CoW, then it must
@@ -126,16 +131,16 @@ FD_PROTOTYPES_BEGIN
   The usage pattern is as follows:
 
    To create an initial bank:
-   fd_bank_t * bank_init = fd_bank_init_bank( banks, slot );
+   fd_bank_t * bank_init = fd_bank_init_bank( banks, block_id );
 
    To clone bank from parent banks:
-   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, slot, parent_slot );
+   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, block_id, parent_block_id );
 
    To publish a bank (aka update the root bank):
-   fd_bank_t * bank_publish = fd_banks_publish( banks, slot );
+   fd_bank_t * bank_publish = fd_banks_publish( banks, block_id );
 
    To query some arbitrary bank:
-   fd_bank_t * bank_query = fd_banks_get_bank( banks, slot );
+   fd_bank_t * bank_query = fd_banks_get_bank( banks, block_id );
 
   To access fields in the bank if a field does not have a lock:
 
@@ -174,6 +179,7 @@ FD_PROTOTYPES_BEGIN
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
+  X(int,                               done_executing,              sizeof(int),                               alignof(int),                               0,   0,                0    )  /* If a bank has executed all of its txns */                 \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
   X(ulong,                             lamports_per_signature,      sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Lamports per signature */                                 \
   X(ulong,                             prev_lamports_per_signature, sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Previous lamports per signature */                        \
@@ -198,10 +204,11 @@ FD_PROTOTYPES_BEGIN
   X(fd_hash_t,                         poh,                         sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* PoH */                                                    \
   X(fd_sol_sysvar_last_restart_slot_t, last_restart_slot,           sizeof(fd_sol_sysvar_last_restart_slot_t), alignof(fd_sol_sysvar_last_restart_slot_t), 0,   0,                0    )  /* Last restart slot */                                      \
   X(fd_cluster_version_t,              cluster_version,             sizeof(fd_cluster_version_t),              alignof(fd_cluster_version_t),              0,   0,                0    )  /* Cluster version */                                        \
+  X(ulong,                             slot,                        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slot */                                                   \
   X(ulong,                             parent_slot,                 sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Previous slot */                                          \
   X(fd_hash_t,                         bank_hash,                   sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Bank hash */                                              \
   X(fd_hash_t,                         prev_bank_hash,              sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Previous bank hash */                                     \
-  X(fd_hash_t,                         block_id,                    sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Block id, merkle root of the last FEC set */              \
+  X(fd_hash_t,                         parent_block_id,             sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Parent block id */                                        \
   X(fd_hash_t,                         genesis_hash,                sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Genesis hash */                                           \
   X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t),               0,   0,                0    )  /* Epoch schedule */                                         \
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
@@ -304,10 +311,10 @@ FD_PROTOTYPES_BEGIN
 */
 
 struct fd_bank {
-  #define FD_BANK_HEADER_SIZE (56UL)
+  #define FD_BANK_HEADER_SIZE (80UL)
 
   /* Fields used for internal pool and bank management */
-  ulong             slot_;       /* slot this node is tracking, also the map key */
+  fd_hash_t         block_id_;   /* block id this node is tracking, also the map key */
   ulong             next;        /* reserved for internal use by fd_pool_para, fd_map_chain_para and fd_banks_publish */
   ulong             parent_idx;  /* index of the parent in the node pool */
   ulong             child_idx;   /* index of the left-child in the node pool */
@@ -418,23 +425,20 @@ fd_bank_footprint( void );
 #define POOL_NAME fd_banks_pool
 #define POOL_T    fd_bank_t
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
 
-#define MAP_NAME  fd_banks_map
-#define MAP_ELE_T fd_bank_t
-#define MAP_KEY   slot_
+#define MAP_NAME               fd_banks_map
+#define MAP_ELE_T              fd_bank_t
+#define MAP_KEY_T              fd_hash_t
+#define MAP_KEY                block_id_
+#define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
+#define MAP_KEY_HASH(key,seed) (fd_funk_rec_key_hash1( (uchar *)key, 0, seed ))
 #include "../../util/tmpl/fd_map_chain.c"
-#undef MAP_NAME
-#undef MAP_ELE_T
-#undef MAP_KEY
 
 struct fd_banks {
   ulong       magic;           /* ==FD_BANKS_MAGIC */
   ulong       max_total_banks; /* Maximum number of banks */
   ulong       max_fork_width;  /* Maximum fork width executing through
                                   any given slot. */
-  ulong       root;            /* root slot */
   ulong       root_idx;        /* root idx */
 
   /* This lock is only used to serialize banks fork tree reads with
@@ -509,9 +513,12 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1
 
-static inline ulong
-fd_bank_slot_get( fd_bank_t const * bank ) {
-  return bank->slot_;
+/* fd_bank_block_id_query() returns a const pointer to the block id of
+   a given bank. */
+
+static inline fd_hash_t const *
+fd_bank_block_id_query( fd_bank_t const * bank ) {
+  return &bank->block_id_;
 }
 
 /* Each bank has a fd_stake_delegations_t object which is delta-based.
@@ -591,7 +598,8 @@ fd_banks_get_bank_map( fd_banks_t const * banks ) {
 }
 
 static inline void
-fd_banks_set_bank_pool( fd_banks_t * banks, fd_bank_t * bank_pool ) {
+fd_banks_set_bank_pool( fd_banks_t * banks,
+                        fd_bank_t *  bank_pool ) {
   void * bank_pool_mem = fd_banks_pool_leave( bank_pool );
   if( FD_UNLIKELY( !bank_pool_mem ) ) {
     FD_LOG_CRIT(( "Failed to leave bank pool" ));
@@ -600,7 +608,8 @@ fd_banks_set_bank_pool( fd_banks_t * banks, fd_bank_t * bank_pool ) {
 }
 
 static inline void
-fd_banks_set_bank_map( fd_banks_t * banks, fd_banks_map_t * bank_map ) {
+fd_banks_set_bank_map( fd_banks_t *     banks,
+                       fd_banks_map_t * bank_map ) {
   void * bank_map_mem = fd_banks_map_leave( bank_map );
   if( FD_UNLIKELY( !bank_map_mem ) ) {
     FD_LOG_CRIT(( "Failed to leave bank map" ));
@@ -632,7 +641,8 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_1
 
 
-/* fd_banks_root returns the current root slot for the bank. */
+/* fd_banks_root() and fd_banks_root_const() returns a non-const and
+   const pointer to the root bank respectively. */
 
 FD_FN_PURE static inline fd_bank_t const *
 fd_banks_root_const( fd_banks_t const * banks ) {
@@ -649,19 +659,19 @@ fd_banks_root( fd_banks_t * banks ) {
 ulong
 fd_banks_align( void );
 
-/* fd_banks_footprint() returns the footprint of fd_banks_t. This
+/* fd_banks_footprint() returns the footprint of fd_banks_t.  This
    includes the struct itself but also the footprint for all of the
    pools.
 
    The footprint of fd_banks_t is determined by the total number
-   of banks that the bank manages. This is an analog for the max number
-   of unrooted slots the bank can manage at any given time.
+   of banks that the bank manages.  This is an analog for the max number
+   of unrooted blocks the bank can manage at any given time.
 
    We can also further bound the memory footprint of the banks by the
-   max width of forks that can exist at any given time. The reason for
+   max width of forks that can exist at any given time.  The reason for
    this is that there are several large CoW structs that are only
    written to during the epoch boundary (e.g. epoch_rewards,
-   epoch_stakes, etc.). These structs are read-only afterwards. This
+   epoch_stakes, etc.).  These structs are read-only afterwards. This
    means if we also bound the max number of forks that can execute
    through the epoch boundary, we can bound the memory footprint of
    the banks. */
@@ -670,10 +680,10 @@ ulong
 fd_banks_footprint( ulong max_total_banks,
                     ulong max_fork_width );
 
-/* fd_banks_new() creates a new fd_banks_t struct. This function lays
+/* fd_banks_new() creates a new fd_banks_t struct.  This function lays
    out the memory for all of the constituent fd_bank_t structs and
-   pools depending on the max_total_banks and the max_fork_width for s
-   given slot. */
+   pools depending on the max_total_banks and the max_fork_width for a
+   given block. */
 
 void *
 fd_banks_new( void * mem,
@@ -697,14 +707,14 @@ fd_banks_delete( void * shmem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
    This should only be used during bootup. This returns an initial
-   fd_bank_t with the corresponding slot. */
+   fd_bank_t with the corresponding block id. */
 
 fd_bank_t *
-fd_banks_init_bank( fd_banks_t * banks,
-                    ulong        slot );
+fd_banks_init_bank( fd_banks_t *      banks,
+                    fd_hash_t const * block_id );
 
-/* fd_bank_get_bank() returns a bank for a given slot. If said bank
-   does not exist, NULL is returned.
+/* fd_banks_get_bank() returns a bank for a given block id.  If said
+   bank does not exist, NULL is returned.
 
    The returned pointer is valid so long as the underlying bank does not
    get pruned by a publishing operation.  Higher level components are
@@ -712,37 +722,55 @@ fd_banks_init_bank( fd_banks_t * banks,
    is being accessed.  This is done through the reference counter. */
 
 fd_bank_t *
-fd_banks_get_bank( fd_banks_t * banks,
-                   ulong        slot );
+fd_banks_get_bank( fd_banks_t *      banks,
+                   fd_hash_t const * block_id );
+
+/* fd_banks_get_bank_idx returns a bank for a given index into the pool
+   of banks.  This function otherwise has the same behavior as
+   fd_banks_get_bank(). */
+
+static inline fd_bank_t *
+fd_banks_get_bank_idx( fd_banks_t * banks,
+                       ulong        idx ) {
+  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), idx );
+}
+
+/* fd_banks_get_pool_idx returns the index of a bank in the pool. */
+
+static inline ulong
+fd_banks_get_pool_idx( fd_banks_t * banks,
+                       fd_bank_t *  bank ) {
+  return fd_banks_pool_idx( fd_banks_get_bank_pool( banks ), bank );
+}
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
-   If the bank corresponding to the parent slot does not exist,
-   NULL is returned. If a bank is not able to be created, NULL is
+   If the bank corresponding to the parent block id does not exist,
+   NULL is returned.  If a bank is not able to be created, NULL is
    returned. The data from the parent bank will copied over into
    the new bank.
 
    A more detailed note: not all of the data is copied over and this
-   is a shallow clone. All of the CoW fields are not copied over and
+   is a shallow clone.  All of the CoW fields are not copied over and
    will only be done so if the caller explicitly calls
-   fd_bank_{*}_modify(). This naming was chosen to emulate the
+   fd_bank_{*}_modify().  This naming was chosen to emulate the
    semantics of the Agave client. */
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t * banks,
-                            ulong        slot,
-                            ulong        parent_slot );
+fd_banks_clone_from_parent( fd_banks_t *      banks,
+                            fd_hash_t const * merkle_hash,
+                            fd_hash_t const * parent_block_id );
 
 /* fd_banks_publish() publishes a bank to the bank manager. This
    should only be used when a bank is no longer needed. This will
    prune off the bank from the bank manager. It returns the new root
    bank.
 
-   All banks that are ancestors or siblings of the slot will be
+   All banks that are ancestors or siblings of the new root bank will be
    cancelled and their resources will be released back to the pool. */
 
 fd_bank_t const *
-fd_banks_publish( fd_banks_t * banks,
-                  ulong        slot );
+fd_banks_publish( fd_banks_t *      banks,
+                  fd_hash_t const * block_id );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children.
@@ -754,20 +782,6 @@ fd_banks_publish( fd_banks_t * banks,
 void
 fd_banks_clear_bank( fd_banks_t * banks,
                      fd_bank_t *  bank );
-
-/* fd_banks_rekey_root_bank() will change the key of the current root
-   bank to a caller-specified slot. This function returns the root bank
-   with the new key.
-
-   This should NOT be called once the root bank has child banks.
-
-   This is useful for snapshot loading where there are an unknown amount
-   of banks to load and the latest snapshot is the root slot. This
-   effectively lowers the memory used by snapshot loading. */
-
-fd_bank_t *
-fd_banks_rekey_root_bank( fd_banks_t * banks,
-                          ulong        slot );
 
 /* Returns the highest block that can be safely published between the
    current published root of the fork tree and the target block.  See
@@ -787,10 +801,26 @@ fd_banks_rekey_root_bank( fd_banks_t * banks,
    Highest publishable block is written to the out pointer.  Returns 1
    if the publishable block can be advanced beyond the current root.
    Returns 0 if no such block can be found. */
+
 int
 fd_banks_publish_prepare( fd_banks_t * banks,
-                          ulong        target_slot,
-                          ulong *      publishable_slot );
+                          fd_hash_t *  target_block_id,
+                          fd_hash_t *  publishable_block_id );
+
+/* Updates the current bank to have a new block id.  The block id of a
+   slot is only fully known at the end of a slot.  However, it is
+   continually updated as the slot progresses because the block id
+   is the last merkle hash of an FEC set.  As the block executes, the
+   key of the bank should be equal to the most recently executed merkle
+   hash.
+
+   This function should NOT be called once the current bank has child
+   banks. */
+
+void
+fd_banks_rekey_bank( fd_banks_t *      banks,
+                     fd_hash_t const * old_block_id,
+                     fd_hash_t const * new_block_id );
 
 FD_PROTOTYPES_END
 
