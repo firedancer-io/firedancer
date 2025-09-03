@@ -64,7 +64,8 @@ device_read_slaves( const char * device,
 
 static void
 init_device( const char * device,
-             uint         combined_channel_count ) {
+             uint         rss_queue_mode,
+             uint         net_tile_count ) {
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
   if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
 
@@ -84,6 +85,16 @@ init_device( const char * device,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
 
+  (void)net_tile_count;
+  uint combined_channel_count = 0;
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
+    // set combined_count xor rx+tx_count to net_tile_count
+  } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    // set combined_count xor rx+tx_count to min(num_phys_cpus, max_queue_count)
+  } else {
+    FD_LOG_ERR(( "error configuring network device, invalid rss_queue_mode (%u)", rss_queue_mode )); //TODO-AM?
+  }
+
   channels.cmd = ETHTOOL_SCHANNELS;
   if( channels.max_combined ) {
     channels.combined_count = combined_channel_count;
@@ -97,6 +108,7 @@ init_device( const char * device,
     FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", device, combined_channel_count, combined_channel_count ));
   }
 
+  /*
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
     if( FD_LIKELY( errno == EBUSY ) )
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
@@ -109,15 +121,23 @@ init_device( const char * device,
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
                    errno, fd_io_strerror( errno ) ));
   }
+  */
 
+  // set rxfh table sharding. [0,N) for simple, [1,N) for dedicated
+
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    // set ntuple rule for queue0
+  }
 
   if( FD_UNLIKELY( close( sock ) ) )
     FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  //TODO-AM set irq affinities?
 }
 
 static void
 init( config_t const * config ) {
-  /* we need one channel for both TX and RX on the NIC for each QUIC
+  /* we need one channel for both TX and RX on the NIC for each net
      tile, but the interface probably defaults to one channel total */
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     /* if using a bonded device, we need to set channels on the
@@ -126,16 +146,17 @@ init( config_t const * config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, config->layout.net_tile_count );
+      init_device( token, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count );
     }
   } else {
-    init_device( config->net.interface, config->layout.net_tile_count );
+    init_device( config->net.interface, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count );
   }
 }
 
 static configure_result_t
 check_device( const char * device,
-              uint         expected_channel_count ) {
+              uint         rss_queue_mode,
+              uint         net_tile_count ) {
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
   if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
 
@@ -173,29 +194,40 @@ check_device( const char * device,
     current_channels = channels.combined_count;
   } else if( channels.rx_count || channels.tx_count ) {
     if( FD_UNLIKELY( channels.rx_count != channels.tx_count ) ) {
-      NOT_CONFIGURED( "device `%s` has unbalanced channel count: (got %u rx, %u tx, expected %u)",
-                      device, channels.rx_count, channels.tx_count, expected_channel_count );
+      NOT_CONFIGURED( "device `%s` has unbalanced channel count: (got %u rx, %u tx)",
+                      device, channels.rx_count, channels.tx_count );
     }
     current_channels = channels.rx_count;
   }
 
-  if( FD_UNLIKELY( current_channels != expected_channel_count ) ) {
-    if( FD_UNLIKELY( !supports_channels ) ) {
-      FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
-                   "but you are running with more than one net tile (expected {%u}), "
-                   "and there must be one channel per tile. You can either use a NIC "
-                   "that supports multiple channels, or run Firedancer with only one "
-                   "net tile. You can configure Firedancer to run with only one QUIC "
-                   "tile by setting `layout.net_tile_count` to 1 in your "
-                   "configuration file. It is not recommended to do this in production "
-                   "as it will limit network performance.",
-                   device, expected_channel_count ));
-    } else {
-      NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
-                      "expected %u)",
-                      device, current_channels, expected_channel_count );
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
+    if( FD_UNLIKELY( current_channels != net_tile_count ) ) {
+      if( FD_UNLIKELY( !supports_channels ) ) {
+        FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
+                     "but you are running with more than one net tile (expected {%u}), "
+                     "and there must be one channel per tile. You can either use a NIC "
+                     "that supports multiple channels, or run Firedancer with only one "
+                     "net tile. You can configure Firedancer to run with only one net "
+                     "tile by setting `layout.net_tile_count` to 1 in your "
+                     "configuration file.",
+                     device, net_tile_count ));
+      } else {
+        NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
+                        "expected %u)",
+                        device, current_channels, net_tile_count );
+      }
     }
+  } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    //TODO-AM: Check net_tile_count == 1 ?
+    // check expected_queue_count = min(num_phys_cpus, max_queue_count)
+    // check ntuple rule for queue0 in place
+    //FD_LOG_ERR(( "TODO" ));
+  } else {
+    FD_LOG_ERR(( "error configuring network device, invalid rss_queue_mode (%u)", rss_queue_mode )); //TODO-AM?
   }
+
+  // check rxfh table sharding across [0,N) or [1,N)
+  //TODO-AM check irq affinities?
 
   CONFIGURE_OK();
 }
@@ -207,13 +239,24 @@ check( config_t const * config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, config->layout.net_tile_count ) );
+      CHECK( check_device( token, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, config->layout.net_tile_count ) );
+    CHECK( check_device( config->net.interface, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count ) );
   }
 
   CONFIGURE_OK();
+}
+
+static void
+fini( config_t const * config,
+      int              pre_init FD_PARAM_UNUSED ) {
+  //TODO-AM
+  // - restore queue count?
+  // - set rxfh table to default / etc.
+  // - delete ntuple rule
+  // - restore irq affinities?
+  (void)config;
 }
 
 configure_stage_t fd_cfg_stage_ethtool_channels = {
@@ -223,7 +266,7 @@ configure_stage_t fd_cfg_stage_ethtool_channels = {
   .init_perm       = init_perm,
   .fini_perm       = NULL,
   .init            = init,
-  .fini            = NULL,
+  .fini            = fini,
   .check           = check,
 };
 
