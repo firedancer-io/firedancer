@@ -844,6 +844,28 @@ user = ""
         # improve throughput.
         flush_timeout_micros = 20
 
+        # RSS (RX hardware flow steering) queue mode
+        #
+        # Each XDP net tile services exactly one hardware queue.  Thus we
+        # must ensure the system routes all incoming Firedancer packets to
+        # the correct queue(s).  The queue setup and initialization has the
+        # following options:
+        #
+        # "simple" (default)
+        #   Reduces the total queue count to equal the number of net tiles.
+        #   All packets (both interesting to Firedancer and not) are sharded
+        #   amongst these queues.  Simple, reliable, and works everywhere
+        #   but suboptimal performance impact, especially to socket-based
+        #   traffic.
+        #
+        # "dedicated" (experimental)
+        #   Reserves a dedicated hardware queue for each net tile.  For
+        #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
+        #   to route interesting packets based on UDP dst port.  This mode
+        #   is considered experimental and may not work with some network
+        #   device setups. This should not yet be used in production.
+        rss_queue_mode = "simple"
+
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
         # Raises net.core.rmem_max accordingly

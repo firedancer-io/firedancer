@@ -507,6 +507,13 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
+    if( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) {
+      if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
+        FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
+    } else if( 0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\" or \"dedicated\"",
+                   config->net.xdp.rss_queue_mode  ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );

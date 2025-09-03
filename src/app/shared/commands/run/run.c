@@ -671,13 +671,6 @@ initialize_stacks( config_t const * config ) {
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-extern configure_stage_t fd_cfg_stage_hugetlbfs;
-extern configure_stage_t fd_cfg_stage_ethtool_channels;
-extern configure_stage_t fd_cfg_stage_ethtool_gro;
-extern configure_stage_t fd_cfg_stage_ethtool_loopback;
-extern configure_stage_t fd_cfg_stage_sysctl;
-extern configure_stage_t fd_cfg_stage_hyperthreads;
-
 void
 fdctl_check_configure( config_t const * config ) {
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config );
