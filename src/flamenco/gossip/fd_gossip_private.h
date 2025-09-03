@@ -276,9 +276,9 @@ struct fd_gossip_view_pull_request {
 typedef struct fd_gossip_view_pull_request fd_gossip_view_pull_request_t;
 
 struct fd_gossip_view_prune {
-  ushort origin_off;
-  ulong  prunes_len;
-  ushort prunes_off;
+  ushort pubkey_off;
+  ulong  origins_len;
+  ushort origins_off;
   ushort destination_off;
   ulong  wallclock;
   ushort signature_off;
