@@ -182,6 +182,14 @@
 #error "STEM_BURST must be defined"
 #endif
 
+#ifndef STEM_PER_LINK_BURST
+#define STEM_PER_LINK_BURST (0)
+#endif
+
+#ifndef STEM_LINK_BURST
+#define STEM_LINK_BURST {0};
+#endif
+
 #ifndef STEM_CALLBACK_CONTEXT_TYPE
 #error "STEM_CALLBACK_CONTEXT_TYPE must be defined"
 #endif
@@ -242,10 +250,12 @@ STEM_(run1)( ulong                        in_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
              ulong                        burst,
+             ulong *                      link_burst,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
              STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
+  (void)link_burst;
   /* in frag stream state */
   ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
@@ -259,6 +269,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* out flow control state */
   ulong *        cr_avail;     /* number of flow control credits available to publish downstream across all outs */
   ulong          min_cr_avail; /* minimum number of flow control credits available to publish downstream */
+  int            backpressured; /* whether tile is backpressured and can't poll frags */
   ulong const ** cons_fseq;    /* cons_fseq[cons_idx] for cons_idx in [0,cons_cnt) is where to receive fctl credits from consumers */
   ulong **       cons_slow;    /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
   ulong *        cons_out;     /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
@@ -426,6 +437,7 @@ STEM_(run1)( ulong                        in_cnt,
         if( FD_LIKELY( min_cr_avail<cr_max ) ) {
           ulong slowest_cons = ULONG_MAX;
           min_cr_avail = cr_max;
+          backpressured = 1;
           for( ulong out_idx=0; out_idx<out_cnt; out_idx++ ) {
             cr_avail[ out_idx ] = out_depth[ out_idx ];
           }
@@ -441,6 +453,10 @@ STEM_(run1)( ulong                        in_cnt,
             slowest_cons = fd_ulong_if( cons_cr_avail<min_cr_avail, cons_idx, slowest_cons );
 
             cr_avail[ out_idx ] = fd_ulong_min( cr_avail[ out_idx ], cons_cr_avail );
+            FD_LOG_WARNING(("cr avail is %lu for out %lu from cons %lu", cr_avail[ out_idx ], out_idx, cons_idx ));
+  #if STEM_PER_LINK_BURST
+            backpressured      &= cr_avail[ out_idx ]<link_burst[ out_idx ];
+  #endif
             min_cr_avail        = fd_ulong_min( cons_cr_avail, min_cr_avail );
           }
 
@@ -521,7 +537,10 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( min_cr_avail<burst ) ) {
+#if !STEM_PER_LINK_BURST
+    backpressured = min_cr_avail<burst;
+#endif
+    if( FD_UNLIKELY( backpressured ) ) {
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -761,6 +780,14 @@ STEM_(run)( fd_topo_t *      topo,
     }
   }
 
+  /* per link burst (max number of flow credits consumed per stem iteration)*/
+  ulong link_burst[] = STEM_LINK_BURST;
+
+#if STEM_PER_LINK_BURST
+    FD_TEST( sizeof(link_burst)==tile->out_cnt*sizeof(ulong) );
+#endif
+
+
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
 
@@ -775,6 +802,7 @@ STEM_(run)( fd_topo_t *      topo,
                cons_out,
                cons_fseq,
                STEM_BURST,
+               link_burst,
                STEM_LAZY,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),

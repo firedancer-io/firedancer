@@ -31,7 +31,7 @@ struct __attribute__((aligned(64))) fd_stem_tile_in {
 
 typedef struct fd_stem_tile_in fd_stem_tile_in_t;
 
-static inline void
+static inline int
 fd_stem_publish( fd_stem_context_t * stem,
                  ulong               out_idx,
                  ulong               sig,
@@ -42,10 +42,13 @@ fd_stem_publish( fd_stem_context_t * stem,
                  ulong               tspub ) {
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
+
+  if( FD_UNLIKELY( stem->cr_avail[ out_idx ]<stem->cr_decrement_amount ) ) return -1;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
   stem->cr_avail[ out_idx ] -= stem->cr_decrement_amount;
   *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
   *seqp = fd_seq_inc( seq, 1UL );
+  return 0;
 }
 
 static inline ulong
