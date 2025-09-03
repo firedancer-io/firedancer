@@ -105,6 +105,10 @@ fd_topo_run_tile( fd_topo_t *          topo,
     rlimit_file_cnt = tile_run->rlimit_file_cnt_fn( topo, tile );
   }
 
+  /* Open /etc/localtime so it is available for fd_log later. */
+  char wallclock_cstr_dummy[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
+  fd_log_wallclock_cstr( 0L, wallclock_cstr_dummy );
+
   if( FD_LIKELY( sandbox ) ) {
     fd_sandbox_enter( uid,
                       gid,
