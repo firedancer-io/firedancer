@@ -887,6 +887,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
     tile->snaprd.http.peers_cnt = resolved_peers_cnt;
+
+    tile->snaprd.gossip.entrypts_cnt = config->gossip.entrypoints_cnt;
+    fd_memcpy( tile->snaprd.gossip.entrypts, config->gossip.resolved_entrypoints, tile->snaprd.gossip.entrypts_cnt*sizeof(fd_ip4_port_t) );
     /* TODO: set up known validators and known validators cnt */
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {

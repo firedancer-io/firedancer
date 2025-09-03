@@ -56,6 +56,8 @@ struct fd_snaprd_tile {
   int   peer_selection;
 
   long diagnostic_deadline_nanos;
+  fd_ip4_port_t gossip_entrypoints[ 16UL ];
+  ulong         gossip_entrypoints_cnt;
 
   fd_ip4_port_t addr;
 
@@ -168,6 +170,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline int
 should_shutdown( fd_snaprd_tile_t * ctx ) {
   return ctx->state==FD_SNAPRD_STATE_SHUTDOWN;
+}
+
+static inline int
+is_entrypoint( fd_snaprd_tile_t * ctx, fd_ip4_port_t addr /* port must be in host order! */ ) {
+  for( ulong i=0UL; i<ctx->gossip_entrypoints_cnt; i++ ) {
+    if( FD_UNLIKELY( ctx->gossip_entrypoints[ i ].l==addr.l ) ) return 1;
+  }
+  return 0;
 }
 
 static void
@@ -712,6 +722,13 @@ after_frag( fd_snaprd_tile_t *  ctx,
             if( FD_LIKELY( !!new_addr.l ) ) {
               FD_LOG_INFO(( "adding contact info for peer "FD_IP4_ADDR_FMT ":%hu ",
                               FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), new_addr.port ));
+              fd_ip4_port_t gossip_addr = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+              gossip_addr.port = fd_ushort_bswap( gossip_addr.port );
+              if( FD_UNLIKELY( is_entrypoint( ctx, gossip_addr ) ) ) {
+                /* TODO */
+                FD_LOG_NOTICE(( "Found RPC URL "FD_IP4_ADDR_FMT ":%hu for gossip entrypoint "FD_IP4_ADDR_FMT ":%hu, ignoring for now",
+                                FD_IP4_ADDR_FMT_ARGS( new_addr.addr ), new_addr.port, FD_IP4_ADDR_FMT_ARGS( gossip_addr.addr ), gossip_addr.port ));
+              }
               fd_ssping_add( ctx->ssping, new_addr );
             }
           }
@@ -935,11 +952,16 @@ unprivileged_init( fd_topo_t *      topo,
   /* zero-out memory so that we can perform null checks in after_frag */
   fd_memset( ctx->gossip.ci_table, 0, sizeof(fd_ip4_port_t)*FD_CONTACT_INFO_TABLE_SIZE );
 
+  ctx->gossip_entrypoints_cnt = tile->snaprd.gossip.entrypts_cnt;
+  for( ulong i=0UL; i<tile->snaprd.gossip.entrypts_cnt; i++ ) {
+    ctx->gossip_entrypoints[ i ].l = tile->snaprd.gossip.entrypts[ i ].l;
+    ctx->gossip_entrypoints[ i ].port = fd_ushort_bswap( tile->snaprd.gossip.entrypts[ i ].port ); /* TODO: should be fixed in a future PR */
+  }
+
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ){
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
-      has_gossip_in         = 1;
       ctx->in_kind[ i ]     = IN_KIND_GOSSIP;
       ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
       ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
