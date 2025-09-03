@@ -116,6 +116,7 @@ struct fd_configf {
     uint writer_tile_count;
     uint sign_tile_count;
     uint gossvf_tile_count;
+    uint snaplt_tile_count;
   } layout;
 
   struct {
@@ -332,6 +333,10 @@ struct fd_config {
     struct {
       char affinity[ AFFINITY_SZ ];
     } udpecho;
+
+    struct {
+      int disable_lthash_verification;
+    } snapshots;
 
     struct {
       char affinity[ AFFINITY_SZ ];
