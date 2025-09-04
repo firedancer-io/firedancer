@@ -10,12 +10,22 @@ extern fd_topo_obj_callbacks_t * CALLBACKS[];
 /* core_subtopo creates the 'core' subtopo: net, metrics, and sign tiles.
    and the links between them.
    Other tiles and links can be attached to these after it returns.
-   Therefore, it does not call finish (neither net nor topo )*/
+   Therefore, it does not call finish (neither net nor topo )
+
+   ALL SUBTOPOS should be disjoint! */
 FD_FN_UNUSED static void
 fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
+  fd_topo_t * topo = &config->topo;
+
+  static char* const tiles_to_add[] = {
+    "metric",
+    "net",
+    "sign",
+  };
+  for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
+
   ulong net_tile_cnt  = config->layout.net_tile_count;
   ulong sign_tile_cnt = config->firedancer.layout.sign_tile_count;
-  fd_topo_t * topo = &config->topo;
 
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
@@ -39,6 +49,9 @@ fd_core_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
 }
 
 
+/* Use fd_link_permit_no_producers with links that do not have any
+   producers.  This may be required in sub-topologies used for
+   development and testing. */
 FD_FN_UNUSED static ulong
 fd_link_permit_no_producers( fd_topo_t * topo, char * link_name ) {
   ulong found = 0UL;
@@ -51,6 +64,9 @@ fd_link_permit_no_producers( fd_topo_t * topo, char * link_name ) {
   return found;
 }
 
+/* Use fd_link_permit_no_consumers with links that do not have any
+   consumers.  This may be required in sub-topologies used for
+   development and testing. */
 FD_FN_UNUSED static ulong
 fd_link_permit_no_consumers( fd_topo_t * topo, char * link_name ) {
   ulong found = 0UL;
