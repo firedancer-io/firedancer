@@ -6,7 +6,6 @@
 #include "fd_ping_tracker.h"
 #include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
-#include "fd_prune_finder.h"
 
 FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_LAST+1UL,
                   "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_LAST+1" );
@@ -284,6 +283,11 @@ fd_gossip_crds_metrics( fd_gossip_t const * gossip ) {
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip ) {
   return fd_ping_tracker_metrics( gossip->ping_tracker );
+}
+
+fd_prune_finder_metrics_t const *
+fd_gossip_prune_finder_metrics( fd_gossip_t const * gossip ) {
+  return fd_prune_finder_metrics( gossip->prune_finder );
 }
 
 static fd_ip4_port_t

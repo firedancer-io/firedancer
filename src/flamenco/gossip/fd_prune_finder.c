@@ -146,8 +146,9 @@ typedef struct fd_prune_origin fd_prune_origin_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_prune_finder_private {
-  fd_prune_origin_t * pool;
+  fd_prune_finder_metrics_t metrics[1];
 
+  fd_prune_origin_t * pool;
   origin_map_t *      origins;
   origin_lru_list_t * lru;
 
@@ -229,6 +230,7 @@ fd_prune_finder_new( void * shmem, ulong origin_max, ulong relayer_max_per_origi
     // relayer_treap_seed( origin->relayers.map, relayer_max_per_origin, fd_rng_ulong( rng ) );
     // FD_TEST( origin->relayers.treap );
   }
+  fd_memset( pf->metrics, 0, sizeof(fd_prune_finder_metrics_t) );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( pf->magic ) = FD_PRUNE_FINDER_MAGIC;
@@ -255,11 +257,17 @@ fd_prune_finder_join( void * shpf ) {
   return pf;
 }
 
+fd_prune_finder_metrics_t const *
+fd_prune_finder_metrics( fd_prune_finder_t const * pf ) {
+  return pf->metrics;
+}
+
 static inline void
-update_relayer_score( fd_prune_origin_t * origin,
-                      uchar const *       relayer,
-                      ulong               relayer_stake,
-                      ulong               num_dups ) {
+update_relayer_score( fd_prune_origin_t *         origin,
+                      fd_prune_finder_metrics_t * metrics,
+                      uchar const *               relayer,
+                      ulong                       relayer_stake,
+                      ulong                       num_dups ) {
   fd_prune_relayer_t * r = relayer_map_ele_query( origin->relayers.map, fd_type_pun_const( relayer ), NULL, origin->relayers.pool );
 
   if( FD_UNLIKELY( !r ) ) {
@@ -268,6 +276,7 @@ update_relayer_score( fd_prune_origin_t * origin,
     } else {
       r = relayer_lru_ele_pop_head( origin->relayers.lru, origin->relayers.pool );
       relayer_map_ele_remove( origin->relayers.map, &r->identity_pubkey, NULL, origin->relayers.pool );
+      metrics->origin_relayer_evicted_cnt++;
     }
 
     r->score[0].hit_count = 0UL;
@@ -315,5 +324,5 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
 
   origin->stake = origin_stake;
   if( FD_UNLIKELY( !num_dups ) ) origin->num_upserts++;
-  update_relayer_score( origin, relayer_pubkey, relayer_stake, num_dups );
+  update_relayer_score( origin, pf->metrics, relayer_pubkey, relayer_stake, num_dups );
 }

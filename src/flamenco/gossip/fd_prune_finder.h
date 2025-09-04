@@ -49,6 +49,11 @@
 struct fd_prune_finder_private;
 typedef struct fd_prune_finder_private fd_prune_finder_t;
 
+struct fd_prune_finder_metrics {
+   ulong origin_relayer_evicted_cnt;
+};
+typedef struct fd_prune_finder_metrics fd_prune_finder_metrics_t;
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -66,6 +71,9 @@ fd_prune_finder_new( void *     shmem,
 
 fd_prune_finder_t *
 fd_prune_finder_join( void * shpf );
+
+fd_prune_finder_metrics_t const *
+fd_prune_finder_metrics( fd_prune_finder_t const * pf );
 
 /* fd_prune_finder_record records a received gossip message from a peer
    in the finder.  This should be called for every message received that
