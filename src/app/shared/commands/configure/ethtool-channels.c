@@ -12,7 +12,7 @@
 #define NAME "ethtool-channels"
 
 static int
-enabled( config_t const * config ) {
+enabled( fd_config_t const * config ) {
 
   /* if we're running in a network namespace, we configure ethtool on
      the virtual device as part of netns setup, not here */
@@ -25,13 +25,19 @@ enabled( config_t const * config ) {
 }
 
 static void
-init_perm( fd_cap_chk_t *   chk,
-           config_t const * config FD_PARAM_UNUSED ) {
+init_perm( fd_cap_chk_t *      chk,
+           fd_config_t const * config FD_PARAM_UNUSED ) {
   fd_cap_chk_root( chk, NAME, "increase network device channels with `ethtool --set-channels`" );
 }
 
+static void
+fini_perm( fd_cap_chk_t *      chk,
+           fd_config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, NAME, "TODO" );
+}
+
 static int
-device_is_bonded( const char * device ) {
+device_is_bonded( char const * device ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding", device ) );
   struct stat st;
@@ -43,7 +49,7 @@ device_is_bonded( const char * device ) {
 }
 
 static void
-device_read_slaves( const char * device,
+device_read_slaves( char const * device,
                     char         output[ 4096 ] ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/slaves", device ) );
@@ -62,53 +68,71 @@ device_read_slaves( const char * device,
   output[ strlen( output ) - 1 ] = '\0';
 }
 
-static void
-init_device( const char * device,
-             uint         rss_queue_mode,
-             uint         net_tile_count ) {
-  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
-  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
-
+static int
+set_device_rxfh_default( char const * device ) {
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock < 0 ) )
     FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
 
-  struct ethtool_channels channels = {0};
-  channels.cmd = ETHTOOL_GCHANNELS;
+  struct ifreq ifr = { 0 };
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
 
-  struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, device, IF_NAMESIZE-1 );
-  ifr.ifr_data = (void *)&channels;
+  struct ethtool_rxfh_indir rxfh = {
+    .cmd = ETHTOOL_SRXFHINDIR,
+    .size = 0, /* default indirection table */
+  };
+  ifr.ifr_data = &rxfh;
+
+  FD_LOG_NOTICE(( "RUN: `ethtool --set-rxfh-indir %s default`", device ));
+
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
+    FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SRXFHINDIR) failed (%i-%s)",
+                      errno, fd_io_strerror( errno ) ));
+    return -errno;
+  }
+
+  close( sock );
+  return 0;
+}
+
+static void
+set_device_num_channels( char const * device,
+                         uint num_channels /* 0 for max */ ) {
+  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
+  if( FD_UNLIKELY( sock < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+
+  struct ifreq ifr = { 0 };
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
+
+  struct ethtool_channels ech = { 0 };
+  ech.cmd = ETHTOOL_GCHANNELS;
+  ifr.ifr_data = &ech;
 
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
 
-  (void)net_tile_count;
-  uint combined_channel_count = 0;
-  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
-    // set combined_count xor rx+tx_count to net_tile_count
-  } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
-    // set combined_count xor rx+tx_count to min(num_phys_cpus, max_queue_count)
-  } else {
-    FD_LOG_ERR(( "error configuring network device, invalid rss_queue_mode (%u)", rss_queue_mode )); //TODO-AM?
+  if( num_channels == 0 ) {
+    uint max_queue_count = fd_uint_max( ech.max_combined, ech.max_rx );
+    num_channels = fd_uint_min( max_queue_count, (uint)fd_shmem_cpu_cnt() );
   }
 
-  channels.cmd = ETHTOOL_SCHANNELS;
-  if( channels.max_combined ) {
-    channels.combined_count = combined_channel_count;
-    channels.rx_count       = 0;
-    channels.tx_count       = 0;
-    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", device, combined_channel_count ));
+  ech.cmd = ETHTOOL_SCHANNELS;
+  if( ech.max_combined ) {
+    ech.combined_count = num_channels;
+    ech.rx_count       = 0;
+    ech.tx_count       = 0;
+    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", device, num_channels ));
   } else {
-    channels.combined_count = 0;
-    channels.rx_count       = combined_channel_count;
-    channels.tx_count       = combined_channel_count;
-    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", device, combined_channel_count, combined_channel_count ));
+    ech.combined_count = 0;
+    ech.rx_count       = num_channels;
+    ech.tx_count       = num_channels;
+    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", device, num_channels, num_channels ));
   }
 
-  /*
   if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
     if( FD_LIKELY( errno == EBUSY ) )
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
@@ -121,22 +145,48 @@ init_device( const char * device,
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
                    errno, fd_io_strerror( errno ) ));
   }
-  */
-
-  // set rxfh table sharding. [0,N) for simple, [1,N) for dedicated
-
-  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
-    // set ntuple rule for queue0
-  }
 
   if( FD_UNLIKELY( close( sock ) ) )
     FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  //TODO-AM set irq affinities?
 }
 
 static void
-init( config_t const * config ) {
+init_device( char const * device,
+             uint         rss_queue_mode,
+             uint         net_tile_count ) {
+  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
+  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
+
+  /* First reset the RXFH indirection table to the default behavior, which
+     is to evenly distribute hashes amongst channels regardless of the
+     number of channels. This allows us to freely change the number of
+     channels. */
+  set_device_rxfh_default( device );
+
+  uint num_channels;
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
+    num_channels = net_tile_count;
+  } else {
+    num_channels = 0; /* maximum allowed */
+  }
+  set_device_num_channels( device, num_channels );
+
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    //TODO-AM: Check net_tile_count == 1
+
+    /* Remove the very first queue from the table and then evenly distribute */
+    //RUN( "ethtool --set-rxfh-indir %s start 1 equal %u", device, channel_count - 1 );
+
+    //RUN( "ethtool --features %s ntuple-filters on", device );
+    //RUN( "ethtool --show-ntuple %s | awk '/^Filter: /{print $2}' | xargs -r -n1 ethtool --config-ntuple %s delete",
+    //     device, device );
+    //RUN( "ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue 0",
+    //     device, fd_ushort_bswap( 9001 ) );
+  }
+}
+
+static void
+init( fd_config_t const * config ) {
   /* we need one channel for both TX and RX on the NIC for each net
      tile, but the interface probably defaults to one channel total */
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
@@ -249,14 +299,32 @@ check( config_t const * config ) {
 }
 
 static void
-fini( config_t const * config,
-      int              pre_init FD_PARAM_UNUSED ) {
-  //TODO-AM
-  // - restore queue count?
-  // - set rxfh table to default / etc.
-  // - delete ntuple rule
-  // - restore irq affinities?
-  (void)config;
+fini_device( char const * device ) {
+  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
+  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
+
+  /* This should happen first, otherwise changing the number of channels may fail */
+  set_device_rxfh_default( device );
+
+  set_device_num_channels( device, 0 /* max */ );
+
+  //TODO-AM: Delete all ntuple rules
+  /* Note: We leave the ntuple feature enabled */
+}
+
+static void
+fini( fd_config_t const * config,
+      int                 pre_init FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
+    char line[ 4096 ];
+    device_read_slaves( config->net.interface, line );
+    char * saveptr;
+    for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
+      fini_device( token );
+    }
+  } else {
+    fini_device( config->net.interface );
+  }
 }
 
 configure_stage_t fd_cfg_stage_ethtool_channels = {
@@ -264,7 +332,7 @@ configure_stage_t fd_cfg_stage_ethtool_channels = {
   .always_recreate = 0,
   .enabled         = enabled,
   .init_perm       = init_perm,
-  .fini_perm       = NULL,
+  .fini_perm       = fini_perm,
   .init            = init,
   .fini            = fini,
   .check           = check,
