@@ -1617,24 +1617,24 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       char vote_key[50];
       fd_base58_encode_32(w->key.uc, 0, vote_key);
 
-      fd_voter_state_t const * state = (fd_voter_state_t const *)fd_type_pun_const( w->vote_acc_data );
-      if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
+      fd_voter_state_t const * state = (fd_voter_state_t const *)fd_type_pun_const( w->acc );
+      if( FD_UNLIKELY( state->kind == fd_vote_state_versioned_enum_v0_23_5 ) ) {
         char node_key[50];
         fd_base58_encode_32(state->v0_23_5.meta.node_pubkey.uc, 0, node_key);
         fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
                              w->stake, (uint)state->v0_23_5.meta.commission, node_key, 0UL, vote_key);
-      } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+      } else if( FD_UNLIKELY( state->kind == fd_vote_state_versioned_enum_v1_14_11 ) ) {
         char node_key[50];
         fd_base58_encode_32(state->v1_14_11.meta.node_pubkey.uc, 0, node_key);
         fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
                              w->stake, (uint)state->v1_14_11.meta.commission, node_key, 0UL, vote_key);
-      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+      } else if ( FD_UNLIKELY( state->kind == fd_vote_state_versioned_enum_current ) ) {
         char node_key[50];
         fd_base58_encode_32(state->meta.node_pubkey.uc, 0, node_key);
         fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
                              w->stake, (uint)state->meta.commission, node_key, 0UL, vote_key);
       } else {
-        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
+        FD_LOG_CRIT(( "[%s] unknown vote state version. kind %u", __func__, state->kind ));
       }
 
       needcomma = 1;

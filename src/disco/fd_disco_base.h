@@ -87,7 +87,8 @@ typedef struct fd_replay_out_vote fd_replay_out_vote_t;
 struct __attribute__((packed)) fd_replay_tower {
   fd_pubkey_t key;
   ulong       stake;
-  uchar       vote_acc_data[FD_REPLAY_TOWER_ACC_DATA_MAX];
+  uchar       acc[FD_REPLAY_TOWER_ACC_DATA_MAX];
+  ulong       acc_sz;
 };
 typedef struct fd_replay_tower fd_replay_tower_t;
 
