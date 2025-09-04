@@ -100,8 +100,7 @@ quic_hs_complete( fd_quic_conn_t * conn,
 
 inline static int
 port_idx_is_quic( ulong port_idx ) {
-  return !!(port_idx == FD_SEND_PORT_QUIC_VOTE_IDX) |
-         !!(port_idx == FD_SEND_PORT_QUIC_TPU_IDX);
+  return (port_idx==FD_SEND_PORT_QUIC_VOTE_IDX) | (port_idx==FD_SEND_PORT_QUIC_TPU_IDX);
 }
 
 /* quic_conn_final is called when the QUIC connection dies. */

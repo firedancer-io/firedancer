@@ -567,12 +567,12 @@ fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pkt_ctx,
   out_buf_sz -= sz;
 
   /* */ sz = safe_snprintf( out_buf, out_buf_sz, "\"src_ip_addr\": \"%s\", \"src_udp_port\": \"%u\", ",
-                            ip4_to_str( tmp_buf, pkt_ctx->ip4_saddr ), fd_ushort_bswap( (ushort)pkt_ctx->udp_sport ) );
+                            ip4_to_str( tmp_buf, pkt_ctx->ip4_saddr ), pkt_ctx->udp_sport );
   out_buf    += sz;
   out_buf_sz -= sz;
 
   /* */ sz = safe_snprintf( out_buf, out_buf_sz, "\"dst_ip_addr\": \"%s\", \"dst_udp_port\": \"%u\", ",
-                            ip4_to_str( tmp_buf, pkt_ctx->ip4_daddr ), fd_ushort_bswap( (ushort)pkt_ctx->udp_dport ) );
+                            ip4_to_str( tmp_buf, pkt_ctx->ip4_daddr ), pkt_ctx->udp_dport );
   out_buf    += sz;
   out_buf_sz -= sz;
 
