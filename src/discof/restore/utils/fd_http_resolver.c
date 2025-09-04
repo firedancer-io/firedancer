@@ -322,12 +322,10 @@ poll_resolve( fd_http_resolver_t *  resolver,
 
       if( resolve_result.base_slot==ULONG_MAX ) {
         peer->ssinfo.full.slot = resolve_result.slot;
-        memcpy( &peer->ssinfo.full.hash, &resolve_result.hash, sizeof(fd_hash_t) );
         peer->full_latency_nanos = PEER_DEADLINE_NANOS_RESOLVE - (ulong)(peer->deadline_nanos - now);
       } else {
         peer->ssinfo.incremental.base_slot = resolve_result.base_slot;
         peer->ssinfo.incremental.slot      = resolve_result.slot;
-        memcpy( &peer->ssinfo.incremental.hash, &resolve_result.hash, sizeof(fd_hash_t) );
         peer->incremental_latency_nanos = PEER_DEADLINE_NANOS_RESOLVE - (ulong)(peer->deadline_nanos - now);
       }
     }
@@ -381,7 +379,7 @@ poll_advance( fd_http_resolver_t * resolver,
       deadline_list_ele_push_tail( resolver->unresolved, peer, resolver->pool );
       remove_peer( resolver, peer->fd.idx );
 
-      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, &peer->ssinfo );
+      resolver->on_resolve_cb( resolver->cb_arg, peer->addr, peer->resolve_latency_nanos, &peer->ssinfo );
     }
   }
 }

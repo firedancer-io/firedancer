@@ -25,6 +25,11 @@
 struct fd_ssping_private;
 typedef struct fd_ssping_private fd_ssping_t;
 
+typedef void
+(* fd_ssping_on_ping_fn_t)( void * ctx,
+                            fd_ip4_port_t addr,
+                            ulong         latency );
+
 FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST ulong
@@ -34,9 +39,11 @@ FD_FN_CONST ulong
 fd_ssping_footprint( ulong max_peers );
 
 void *
-fd_ssping_new( void * shmem,
-               ulong  max_peers,
-               ulong  seed );
+fd_ssping_new( void *                 shmem,
+               ulong                  max_peers,
+               ulong                  seed,
+               fd_ssping_on_ping_fn_t on_ping_cb,
+               void *                 cb_arg );
 
 fd_ssping_t *
 fd_ssping_join( void * shping );

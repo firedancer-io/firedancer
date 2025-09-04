@@ -4,6 +4,7 @@
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_http_resolver.h"
 #include "utils/fd_ssmsg.h"
+#include "utils/fd_sspeer_selector.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -52,6 +53,7 @@ struct fd_snaprd_tile {
   fd_sshttp_t * sshttp;
   fd_http_resolver_t * ssresolver;
   fd_stem_context_t *  stem;
+  fd_sspeer_selector_t * selector;
 
   int   state;
   int   malformed;
@@ -85,11 +87,6 @@ struct fd_snaprd_tile {
       ulong slot;
     } incremental;
   } http;
-
-  struct {
-    ulong         highest_resolved_incremental_slot;
-    fd_ip4_port_t highest_resolved_peer;
-  } resolve;
 
   struct {
     ulong full_snapshot_slot;
@@ -172,6 +169,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   l = FD_LAYOUT_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( FD_SNAPRD_MAX_HTTP_PEERS ) );
+  l = FD_LAYOUT_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( 65536UL ) );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
 
@@ -201,13 +199,31 @@ on_http_download_resolve( void * _ctx,
                           int    full ) {
   fd_snaprd_tile_t * ctx = (fd_snaprd_tile_t *)_ctx;
 
+  FD_LOG_WARNING(("resolved http download with slot %lu (full %d)", slot, full));
+
   if( FD_LIKELY( full ) ) ctx->http.full.slot = slot;
   else                    ctx->http.incremental.slot = slot;
 }
 
 static void
+predict_incremental( fd_snaprd_tile_t * ctx ) {
+  /* Ignore resolve results if not fetching incremental snapshot because
+     we will instead broadcast the full snapshot slot. */
+  if( FD_UNLIKELY( !ctx->config.incremental_snapshot_fetch ) ) return;
+
+  if( FD_UNLIKELY( ctx->http.full.slot==ULONG_MAX ) )          return;
+
+  fd_sspeer_t best_incremental_peer = fd_sspeer_selector_best( ctx->selector, 1, ctx->http.full.slot );
+
+  uint tsorig; uint tspub;
+  fd_ssmsg_slot_to_frag( best_incremental_peer.ssinfo.incremental.slot, &tsorig, &tspub );
+  fd_stem_publish( ctx->stem, 1UL, FD_SSMSG_EXPECTED_SLOT, 0UL, 0UL, 0UL, tsorig, tspub );
+}
+
+static void
 on_resolve( void *                _ctx,
             fd_ip4_port_t         addr,
+            ulong                 latency,
             fd_ssinfo_t const *   ssinfo ) {
   fd_snaprd_tile_t * ctx = (fd_snaprd_tile_t *)_ctx;
 
@@ -216,23 +232,20 @@ on_resolve( void *                _ctx,
                   ssinfo->incremental.slot!=ULONG_MAX ? ssinfo->incremental.slot : ssinfo->full.slot,
                   ssinfo->incremental.base_slot ));
 
-  /* Ignore resolve results if not fetching incremental snapshot because
-     we will instead broadcast the full snapshot slot. */
-  if( FD_UNLIKELY( !ctx->config.incremental_snapshot_fetch ) ) return;
+  fd_sspeer_selector_add( ctx->selector, addr, latency, ssinfo );
 
-  if( FD_LIKELY( ctx->state==FD_SNAPRD_STATE_READING_FULL_HTTP ) ) {
-    if( FD_UNLIKELY( ssinfo->incremental.slot==ULONG_MAX ) ) return;
-    if( FD_UNLIKELY( ctx->http.full.slot==ULONG_MAX ) )      return;
-    if( FD_UNLIKELY( ssinfo->incremental.base_slot!=ctx->http.full.slot ||
-                     ssinfo->incremental.slot<=ctx->resolve.highest_resolved_incremental_slot ) ) return;
-  }
+  predict_incremental( ctx );
+}
 
-  ctx->resolve.highest_resolved_incremental_slot = ssinfo->incremental.slot;
-  ctx->resolve.highest_resolved_peer             = addr;
+static void
+on_ping( void *              _ctx,
+         fd_ip4_port_t       addr,
+         ulong               latency ) {
+  fd_snaprd_tile_t * ctx = (fd_snaprd_tile_t *)_ctx;
 
-  uint tsorig; uint tspub;
-  fd_ssmsg_slot_to_frag( ctx->resolve.highest_resolved_incremental_slot, &tsorig, &tspub );
-  fd_stem_publish( ctx->stem, 1UL, FD_SSMSG_EXPECTED_SLOT, 0UL, 0UL, 0UL, tsorig, tspub );
+  fd_sspeer_selector_add( ctx->selector, addr, latency, NULL );
+
+  predict_incremental( ctx );
 }
 
 static void
@@ -623,7 +636,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
           fd_contact_info_t * cur      = &ctx->gossip.ci_table[ msg->contact_info.idx ];
           fd_ip4_port_t       cur_addr = ctx->gossip.ci_table[ msg->contact_info.idx ].sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
-          if( cur_addr.l ){
+          if( cur_addr.l ) {
             fd_ssping_remove( ctx->ssping, cur_addr );
           }
           fd_contact_info_t * new = msg->contact_info.contact_info;
@@ -789,6 +802,7 @@ unprivileged_init( fd_topo_t *      topo,
   // void * _gossip_peers_rx = FD_SCRATCH_ALLOC_APPEND( l, gossip_peers_rx_align(),    gossip_peers_rx_footprint()    );
   void * _ci_table        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   void * _ssresolver      = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( FD_SNAPRD_MAX_HTTP_PEERS ) );
+  void * _selector        = FD_SCRATCH_ALLOC_APPEND( l, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( 65536UL ) );
 
   ctx->ack_cnt = 0UL;
   ctx->malformed = 0;
@@ -809,11 +823,13 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !tile->snaprd.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
   else                                                            ctx->config.maximum_download_retry_abort = tile->snaprd.maximum_download_retry_abort;
 
-  ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, 65536UL, 1UL ) );
+  ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, 65536UL, 1UL, on_ping, ctx ) );
   FD_TEST( ctx->ssping );
 
   ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp, on_http_download_resolve, ctx ) );
   FD_TEST( ctx->sshttp );
+
+  ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, 65536UL, 1UL ) );
 
   ctx->gossip.ci_table = _ci_table;
   /* zero-out memory so that we can perform null checks in after_frag */
@@ -823,12 +839,11 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<(tile->in_cnt); i++ ){
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     if( 0==strcmp( in_link->name, "gossip_out" ) ) {
-      // has_gossip_in         = 1;
       ctx->in_kind[ i ]     = IN_KIND_GOSSIP;
-      // ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
-      // ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
-      // ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
-      // ctx->gossip_in.mtu    = in_link->mtu;
+      ctx->gossip_in.mem    = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_in.chunk0 = fd_dcache_compact_chunk0( ctx->gossip_in.mem, in_link->dcache );
+      ctx->gossip_in.wmark  = fd_dcache_compact_wmark ( ctx->gossip_in.mem, in_link->dcache, in_link->mtu );
+      ctx->gossip_in.mtu    = in_link->mtu;
     } else if( 0==strcmp( in_link->name, "snapdc_rd" ) ||
                0==strcmp( in_link->name, "snapin_rd" ) ) {
       ctx->in_kind[ i ] = IN_KIND_SNAPCTL;
@@ -864,9 +879,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->http.full.slot                         = ULONG_MAX;
   ctx->http.incremental.slot                  = ULONG_MAX;
-
-  ctx->resolve.highest_resolved_incremental_slot = 0UL;
-  ctx->resolve.highest_resolved_peer             = (fd_ip4_port_t){ .addr = 0, 0};
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */

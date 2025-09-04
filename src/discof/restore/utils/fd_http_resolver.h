@@ -14,14 +14,12 @@ typedef struct fd_http_resolver_private fd_http_resolver_t;
 struct fd_ssinfo {
   struct {
     ulong slot;                      /* slot of the full snapshot */
-    uchar hash[ FD_HASH_FOOTPRINT ]; /* base58 decoded hash of the full snapshot */
     ulong slots_behind;              /* number of slots behind the latest full cluster slot */
   } full;
 
   struct {
     ulong base_slot;
     ulong slot;
-    uchar hash[ FD_HASH_FOOTPRINT ];
     ulong slots_behind;
   } incremental;
 };
@@ -30,6 +28,7 @@ typedef struct fd_ssinfo fd_ssinfo_t;
 typedef void
 (* fd_http_resolver_on_resolve_fn_t)( void * ctx,
                                       fd_ip4_port_t addr,
+                                      ulong         latency,
                                       fd_ssinfo_t const * ssinfo );
 
 FD_PROTOTYPES_BEGIN

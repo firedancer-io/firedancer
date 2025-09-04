@@ -110,6 +110,9 @@ struct fd_ssping_private {
   struct pollfd *    fds;
   ulong *            fds_idx;
 
+  fd_ssping_on_ping_fn_t on_ping_cb;
+  void *                 cb_arg;
+
   ulong              magic; /* ==FD_SSPING_MAGIC */
 };
 
@@ -139,7 +142,9 @@ fd_ssping_footprint( ulong max_peers ) {
 void *
 fd_ssping_new( void * shmem,
                ulong  max_peers,
-               ulong  seed ) {
+               ulong  seed,
+               fd_ssping_on_ping_fn_t on_ping_cb,
+               void *                 cb_arg ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -181,6 +186,9 @@ fd_ssping_new( void * shmem,
   ssping->fds_len = 0UL;
   ssping->fds     = fds;
   ssping->fds_idx = fds_idx;
+
+  ssping->on_ping_cb = on_ping_cb;
+  ssping->cb_arg     = cb_arg;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssping->magic ) = FD_SSPING_MAGIC;
@@ -383,6 +391,8 @@ poll_advance( fd_ssping_t * ssping,
       deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
       score_treap_ele_insert( ssping->score_treap, peer, ssping->pool );
       remove_ping_fd( ssping, i );
+
+      ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->latency_nanos );
     }
   }
 }
