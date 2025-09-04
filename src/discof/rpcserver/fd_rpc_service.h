@@ -21,6 +21,7 @@ struct fd_rpcserver_args {
   uint                       block_index_max;
   uint                       txn_index_max;
   uint                       acct_index_max;
+  int                        include_votes;
   char                       history_file[ PATH_MAX ];
   fd_pubkey_t                identity_key;
 

@@ -89,8 +89,8 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   args->params.max_ws_send_frame_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-send-frame-cnt", NULL, 100 );
   args->params.outgoing_buffer_sz    = fd_env_strip_cmdline_ulong( argc, argv, "--max-send-buf",          NULL, 100U<<20U );
   args->block_index_max              = fd_env_strip_cmdline_uint ( argc, argv, "--max-block_idx",         NULL, 65536 );
-  args->txn_index_max                = fd_env_strip_cmdline_uint ( argc, argv, "--max-txn-idx",           NULL, 1048576 );
-  args->acct_index_max               = fd_env_strip_cmdline_uint ( argc, argv, "--max-acct-idx",          NULL, 1048576 );
+  args->txn_index_max                = fd_env_strip_cmdline_uint ( argc, argv, "--max-txn-idx",           NULL, 1U<<21U );
+  args->acct_index_max               = fd_env_strip_cmdline_uint ( argc, argv, "--max-acct-idx",          NULL, 1U<<21U );
   strncpy(args->history_file,          fd_env_strip_cmdline_cstr ( argc, argv, "--rpc-history-file",      NULL, "rpc_history" ), sizeof(args->history_file)-1 );
 
   const char * tpu_host = fd_env_strip_cmdline_cstr ( argc, argv, "--local-tpu-host", NULL, "127.0.0.1" );
