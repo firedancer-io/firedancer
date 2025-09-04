@@ -17,6 +17,10 @@ $(call add-objs,commands/pktgen/pktgen,fddev_shared)
 $(call add-objs,commands/txn,fddev_shared)
 $(call add-objs,commands/udpecho/udpecho,fddev_shared)
 $(call add-objs,commands/wksp,fddev_shared)
+$(call add-objs,commands/quic_trace/fd_quic_trace_main,fddev_shared)
+$(call add-objs,commands/quic_trace/fd_quic_trace_frame,fddev_shared)
+$(call add-objs,commands/quic_trace/fd_quic_trace_log_tile,fddev_shared)
+$(call add-objs,commands/quic_trace/fd_quic_trace_rx_tile,fddev_shared)
 
 # fddev tiles
 $(call add-objs,commands/bench/fd_bencho,fddev_shared)
