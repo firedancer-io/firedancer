@@ -10,6 +10,9 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
+#include <errno.h>
+#include <fcntl.h>
+
 #define LOGGING 0
 
 #define IN_KIND_GOSSIP ( 0)
@@ -19,7 +22,10 @@
 
 #define SIGN_OUT_IDX (0)
 
-#define VOTER_FOOTPRINT ( 40UL ) /* serialized footprint */
+#define VOTER_MAX       (4096UL)
+#define VOTER_FOOTPRINT (40UL) /* serialized footprint */
+
+#define BUF_MAX (8192UL) /* the maximum size of a bincode-serialized tower. FIXME tighter bound? */
 
 typedef struct {
   fd_wksp_t * mem;
@@ -29,9 +35,17 @@ typedef struct {
 } in_ctx_t;
 
 typedef struct {
-  fd_pubkey_t identity_key[1];
-  fd_pubkey_t vote_acc[1];
-  ulong       seed;
+  fd_pubkey_t       identity_key[1];
+  fd_pubkey_t       vote_acc    [1];
+  char              checkpt_path[PATH_MAX];
+  char              restore_path[PATH_MAX];
+  int               checkpt_fd;
+  int               restore_fd;
+  uchar             buf[BUF_MAX]; /* buffer for checkpointing and restoring towers */
+  ulong             buf_sz;
+
+  fd_funk_rec_key_t funk_key;
+  ulong             seed;
 
   uchar    in_kind [ MAX_IN_LINKS ];
   in_ctx_t in_links[ MAX_IN_LINKS ];
@@ -50,12 +64,15 @@ typedef struct {
 
   fd_epoch_t * epoch;
   fd_ghost_t * ghost;
+  fd_tower_t * scratch;
   fd_tower_t * tower;
+  uchar *      voters;
 
-  ulong root;
+  ulong root;      /* tower root */
+  long  ts;        /* tower timestamp */
   ulong processed; /* highest processed slot (replayed & counted votes) */
-  ulong confirmed; /* highest confirmed slot (2/3 of stake has voted) */
-  ulong finalized; /* highest finalized slot (2/3 of stake has rooted) */
+  ulong confirmed; /* highest confirmed slot (2/3 of stake has voted)   */
+  ulong finalized; /* highest finalized slot (2/3 of stake has rooted)  */
 
   fd_gossip_duplicate_shred_t duplicate_shred;
   fd_gossip_vote_t            vote;
@@ -68,7 +85,28 @@ typedef struct {
   fd_pubkey_t                 vote_keys[FD_REPLAY_TOWER_VOTE_ACC_MAX];
   int                         replay_out_eom;
   fd_snapshot_manifest_t      snapshot_manifest;
+  uchar                       vote_state[FD_REPLAY_TOWER_VOTE_ACC_MAX]; /* our vote state */
 } ctx_t;
+
+static char *
+tower_path( char const * ledger_path,
+            ulong        ledger_path_len,
+            char const * base58_pubkey,
+            ulong        base58_pubkey_len,
+            char const * ext,
+            ulong        ext_len,
+            char *       path_out ) {
+  char * p;
+  p = fd_cstr_init( path_out );
+  p = fd_cstr_append_text( p, ledger_path,   ledger_path_len          );
+  p = fd_cstr_append_char( p, '/'                                     );
+  p = fd_cstr_append_text( p, "tower-1_9-",  sizeof("tower-1_9-") - 1 );
+  p = fd_cstr_append_text( p, base58_pubkey, base58_pubkey_len        );
+  p = fd_cstr_append_char( p, '.'                                     );
+  p = fd_cstr_append_text( p, ext,           ext_len                  );
+  fd_cstr_fini( p );
+  return path_out;
+}
 
 static void
 update_ghost( ctx_t * ctx ) {
@@ -79,7 +117,7 @@ update_ghost( ctx_t * ctx ) {
   for( ulong i = 0; i < ctx->replay_towers_cnt; i++ ) {
     fd_replay_tower_t const * replay_tower = &ctx->replay_towers[i];
     fd_pubkey_t const *       pubkey       = &replay_tower->key;
-    fd_voter_state_t const *  voter_state  = (fd_voter_state_t *)fd_type_pun_const( replay_tower->vote_acc_data );
+    fd_voter_state_t const *  voter_state  = (fd_voter_state_t *)fd_type_pun_const( replay_tower->acc );
     fd_tower_t *              tower        = ctx->vote_towers[i];
 
     /* Look up the voter for this vote account */
@@ -100,7 +138,7 @@ update_ghost( ctx_t * ctx ) {
     if( FD_UNLIKELY( fd_voter_state_cnt( voter_state ) == 0 ) ) continue; /* skip voters with no votes */
 
     ulong vote = fd_tower_votes_peek_tail( tower )->slot; /* peek last vote from the tower */
-    ulong root = fd_voter_state_root( voter_state );
+    ulong root = fd_voter_root_slot( voter_state );
 
     /* Only process votes for slots >= root. */
     if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
@@ -149,29 +187,31 @@ after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig,
   /* Parse the replay vote towers */
   for( ulong i = 0; i < ctx->replay_towers_cnt; i++ ) {
     fd_tower_votes_remove_all( ctx->vote_towers[i] );
-    fd_tower_from_vote_acc_data( ctx->replay_towers[i].vote_acc_data, ctx->vote_towers[i] );
+    fd_tower_from_vote_acc_data( ctx->replay_towers[i].acc, ctx->vote_towers[i] );
     ctx->vote_keys[i] = ctx->replay_towers[i].key;
 
-    /* If this is our vote account, and our tower has not been initialized, initialize it with our vote state */
-    if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) &&
-      memcmp( &ctx->vote_keys[i], ctx->vote_acc, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_tower_from_vote_acc_data( ctx->replay_towers[i].vote_acc_data, ctx->tower );
+    if( FD_UNLIKELY( 0==memcmp( &ctx->vote_keys[i], ctx->vote_acc, sizeof(fd_pubkey_t) ) ) ) {
+
+      /* If this is our vote account, and our tower has not been
+         initialized, initialize it with our vote state */
+
+      if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) {
+        fd_tower_from_vote_acc_data( ctx->replay_towers[i].acc, ctx->tower );
+      }
+
+      /* Copy in our voter state */
+
+      memcpy( &ctx->vote_state, ctx->replay_towers[i].acc, ctx->replay_towers[i].acc_sz );
     }
   }
 
   /* Update ghost with the vote account states received from replay. */
+
   fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
   update_ghost( ctx );
 
-  /* Find the lowest vote slot to vote on. */
-  ulong vote_slot = fd_tower_vote_slot(
-    ctx->tower,
-    ctx->epoch,
-    ctx->vote_keys,
-    ctx->vote_towers,
-    ctx->replay_towers_cnt,
-    ctx->ghost );
+  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
   if( FD_UNLIKELY( vote_slot == FD_SLOT_NULL ) ) return; /* nothing to vote on */
 
   ulong root = fd_tower_vote( ctx->tower, vote_slot );
@@ -189,12 +229,22 @@ after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig,
     ctx->root = root;
   }
 
-  /* Send our updated tower to the cluster. */
-
   fd_txn_p_t * vote_txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->send_out_mem, ctx->send_out_chunk );
   fd_tower_to_vote_txn( ctx->tower, ctx->root, ctx->lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, vote_txn );
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( vote_txn->payload_sz > 0UL );
+
+  /* Checkpt our tower */
+
+  /* TODO update vote_txn to use new fd_tower_sync_serde_t */
+
+  fd_tower_sync_serde_t ser;
+  fd_tower_to_tower_sync( ctx->tower, ctx->root, &slot_info->bank_hash, &slot_info->block_id, ctx->ts, &ser );
+
+  // fd_tower_checkpt( ctx->tower, ctx->root, &ser, ctx->identity_key->uc /* FIXME keyguard client signing*/ , ctx->identity_key->uc, ctx->checkpt_fd, ctx->buf, sizeof(ctx->buf) );
+
+  /* Send our updated tower to the cluster. */
+
   fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
 # if LOGGING
@@ -323,10 +373,39 @@ after_frag( ctx_t *             ctx,
 }
 
 static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+
+  memset( ctx, 0, sizeof(ctx_t) );
+
+  *ctx->identity_key = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->tower.identity_key_path, 1 ) );
+  uchar * vote_key   = fd_base58_decode_32( tile->tower.vote_acc_path, ctx->vote_acc->uc );
+  if( FD_UNLIKELY( !vote_key ) ) vote_key = fd_keyload_load( tile->tower.vote_acc_path, 1 );
+  *ctx->vote_acc     = *(fd_pubkey_t const *)fd_type_pun_const( vote_key );
+
+  char  base58_pubkey[FD_BASE58_ENCODED_32_SZ];
+  ulong base58_pubkey_len;
+  fd_base58_encode_32( ctx->identity_key->uc, &base58_pubkey_len, base58_pubkey );
+
+  tower_path( tile->tower.ledger_path, strlen( tile->tower.ledger_path ), base58_pubkey, base58_pubkey_len, "bin.new", sizeof("bin.new") - 1, ctx->checkpt_path );
+  tower_path( tile->tower.ledger_path, strlen( tile->tower.ledger_path ), base58_pubkey, base58_pubkey_len, "bin",     sizeof("bin") - 1,     ctx->restore_path );
+
+  ctx->checkpt_fd = open( ctx->checkpt_path, O_WRONLY | O_CREAT | O_TRUNC, 0600 );
+  if( FD_UNLIKELY( ctx->checkpt_fd==-1 ) ) FD_LOG_ERR(( "failed to open %s: %s", ctx->checkpt_path, strerror( errno ) ));
+
+  ctx->restore_fd = open( ctx->restore_path, O_RDONLY );
+  if( FD_UNLIKELY( ctx->restore_fd==-1 ) ) FD_LOG_ERR(( "failed to open %s: %s", ctx->restore_path, strerror( errno ) ));
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   ctx_t * ctx            = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),   sizeof(ctx_t)                                       );
   void * epoch_mem       = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX )  );
@@ -355,6 +434,12 @@ unprivileged_init( fd_topo_t *      topo,
     const uchar * vote_key = fd_keyload_load( tile->tower.vote_acc_path, 1 );
     memcpy( ctx->vote_acc->uc, vote_key, sizeof(fd_pubkey_t) );
   }
+
+  /* Any errors encountered during restore are fatal and Firedancer will
+     shutdown with as informative an error message as possible.*/
+
+  // fd_tower_restore( ctx->tower, &ctx->root, &ctx->ts, ctx->identity_key->uc, ctx->restore_fd, ctx->buf, sizeof(ctx->buf), &ctx->buf_sz );
+  // fd_tower_print( ctx->tower, ctx->root );
 
   if( FD_UNLIKELY( tile->in_cnt > MAX_IN_LINKS ) ) FD_LOG_ERR(( "repair tile has too many input links" ));
 
@@ -399,10 +484,12 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  populate_sock_filter_policy_fd_tower_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->checkpt_fd, (uint)ctx->restore_fd );
   return sock_filter_policy_fd_tower_tile_instr_cnt;
 }
 
@@ -411,8 +498,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
+  FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
@@ -420,6 +509,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  out_fds[ out_cnt++ ] = ctx->checkpt_fd;
+  out_fds[ out_cnt++ ] = ctx->restore_fd;
   return out_cnt;
 }
 
@@ -440,5 +531,6 @@ fd_topo_run_tile_t fd_tile_tower = {
     .scratch_align            = scratch_align,
     .scratch_footprint        = scratch_footprint,
     .unprivileged_init        = unprivileged_init,
+    .privileged_init          = privileged_init,
     .run                      = stem_run,
 };

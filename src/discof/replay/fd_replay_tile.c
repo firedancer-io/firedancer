@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+
 #include "../../disco/tiles.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
@@ -1529,7 +1530,7 @@ fd_replay_out_vote_tower_from_funk(
 
   /* Speculatively copy out the raw vote account state from Funk */
   for(;;) {
-    fd_memset( vote_tower_out->vote_acc_data, 0, sizeof(vote_tower_out->vote_acc_data) );
+    fd_memset( vote_tower_out->acc, 0, sizeof(vote_tower_out->acc) );
 
     fd_funk_rec_query_t query;
     fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
@@ -1549,15 +1550,16 @@ fd_replay_out_vote_tower_from_funk(
     }
 
     ulong data_sz = metadata->dlen;
-    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->vote_acc_data) ) ) {
+    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
       FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
         FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
         data_sz,
-        sizeof(vote_tower_out->vote_acc_data) ));
+        sizeof(vote_tower_out->acc) ));
       return -1;
     }
 
-    fd_memcpy( vote_tower_out->vote_acc_data, raw + metadata->hlen, data_sz );
+    fd_memcpy( vote_tower_out->acc, raw + metadata->hlen, data_sz );
+    vote_tower_out->acc_sz = (ushort)data_sz;
 
     if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
       break;
@@ -1662,6 +1664,7 @@ exec_slice_fini_slot( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
      TODO: potentially send only the vote states of the vote accounts that voted in this slot. Not clear whether
            this is worth the complexity. */
+
   if( FD_LIKELY( ctx->tower_out->idx != ULONG_MAX && !ctx->read_only ) ) {
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
     memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
