@@ -82,7 +82,7 @@ sol_compat_init( int log_level ) {
     FD_LOG_ERR(( "sol_compat_init() called multiple times" ));
   }
 
-  ulong footprint = 7UL<<30;
+  ulong footprint = 10UL<<30;
   ulong part_max  = fd_wksp_part_max_est( footprint, 64UL<<10 );
   ulong data_max  = fd_wksp_data_max_est( footprint, part_max );
   wksp = fd_wksp_demand_paged_new( "sol_compat", 42U, part_max, data_max );

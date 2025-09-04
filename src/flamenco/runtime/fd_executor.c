@@ -1125,7 +1125,10 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->instr_trace_length++;
 
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L352-L356 */
-  if( FD_UNLIKELY( txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
+  ulong max_instr_stack_depth = FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, raise_cpi_nesting_limit_to_8 ) ?
+      FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296 :
+      FD_MAX_INSTRUCTION_STACK_DEPTH;
+  if( FD_UNLIKELY( txn_ctx->instr_stack_sz>=max_instr_stack_depth ) ) {
     return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
   }
   txn_ctx->instr_stack_sz++;
