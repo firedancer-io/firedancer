@@ -74,6 +74,7 @@ repair_topo( config_t * config ) {
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
+  fd_core_subtopo(   config, tile_to_cpu );
   fd_gossip_subtopo( config, tile_to_cpu );
 
   /*             topo, name */
@@ -188,7 +189,7 @@ repair_topo( config_t * config ) {
   for( ulong j=0UL; j<shred_tile_cnt; j++ )
                   fd_topos_tile_in_net(  topo,                          "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   for( ulong j=0UL; j<quic_tile_cnt; j++ )
-                  fd_topos_tile_in_net(  topo,                          "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+                  {fd_topos_tile_in_net(  topo,                          "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );} /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   /**/            fd_topob_tile_in(      topo, "gossip",  0UL,         "metric_in", "send_txns",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 

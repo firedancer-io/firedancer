@@ -34,6 +34,7 @@ gossip_cmd_topo( config_t * config ) {
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
+  fd_core_subtopo(   config, tile_to_cpu );
   fd_gossip_subtopo( config, tile_to_cpu );
 
   fd_topob_tile_in( topo, "gossip", 0UL, "metric_in", "sign_gossip",  0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
@@ -43,13 +44,18 @@ gossip_cmd_topo( config_t * config ) {
 }
 
 void
-fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] ) {
+fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] FD_PARAM_UNUSED ) {
+  fd_topo_t * topo = &config->topo;
 
   ulong gossvf_tile_count = config->firedancer.layout.gossvf_tile_count;
   ulong net_tile_cnt = config->layout.net_tile_count;
 
-  fd_topo_t * topo = &config->topo;
-  fd_core_subtopo( config, tile_to_cpu );
+  static char* const tiles_to_add[] = {
+    "gossvf",
+    "ipecho",
+    "gossip",
+  };
+  for( int i=0; i<3; ++i) FD_TEST( fd_topo_find_tile( topo, tiles_to_add[i], 0UL ) == ULONG_MAX );
 
   ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
   if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
