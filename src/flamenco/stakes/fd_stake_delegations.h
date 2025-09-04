@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_stakes_fd_stake_delegations_h
 #define HEADER_fd_src_flamenco_stakes_fd_stake_delegations_h
 
-#include "../fd_flamenco_base.h"
+#include "../rewards/fd_rewards_base.h"
+#include "../runtime/fd_cost_tracker.h"
 #include "../../util/tmpl/fd_map.h"
-#include "../types/fd_types.h"
 
 #define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
 
@@ -58,6 +58,48 @@
       reward distribution.
    The stake accounts are read-only during the epoch boundary. */
 
+/* The max number of stake accounts that can be modified in a current
+   slot from transactions can be bounded based on CU consumption. The
+   best strategy to maximize the max number of stake accounts modified
+   in a single transaction.  A stake program instruction can either
+   modify one or two stake accounts.  Stake program instructions that
+   modify two stake accounts (merge/split) are assumed to be at least 2x
+   as expensive as a stake program instruction that modifies one stake
+   account.  So we will assume that the most efficient strategy is to
+   modify one stake account per instruction and have as many instruction
+   as posssible in this transaction.  We can have 63 stake program
+   instructions in this transaction because one account will be the fee
+   payer/signature and the other 63 are free to be writable accounts.
+
+   Given the above:
+   100000000 - CUs per slot
+   64 - Max number of writable accounts per transaction.
+   63 - Max number of writable stake accounts per transaction.
+   720 - Cost of a signature
+   300 - Cost of a writable account lock.
+   6000 - Cost of a stake program instruction.
+
+   We can have (100000000 / (720 + 300 * 64 + 6000 * 63)) = 251
+   optimal stake program transactions per slot.  With 63 stake accounts
+   per transaction, we can have 251 * 63 = 15813 stake accounts modified
+   in a slot. */
+
+#define MAX_OPTIMAL_STAKE_ACCOUNTS_POSSIBLE_IN_TXN (FD_MAX_BLOCK_UNITS_SIMD_0286/(FD_WRITE_LOCK_UNITS * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION + FD_RUNTIME_MIN_STAKE_INSN_CUS * (FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION - 1UL) + FD_PACK_COST_PER_SIGNATURE))
+FD_STATIC_ASSERT(MAX_OPTIMAL_STAKE_ACCOUNTS_POSSIBLE_IN_TXN==251, "Incorrect MAX_STAKE_ACCOUNTS_POSSIBLE_IN_TXN");
+#define MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS (MAX_OPTIMAL_STAKE_ACCOUNTS_POSSIBLE_IN_TXN * (FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION - 1UL))
+FD_STATIC_ASSERT(MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS==15813, "Incorrect MAX_STAKE_ACCOUNTS_PER_SLOT");
+
+/* The static footprint of fd_stake_delegations_t when it is a delta
+   is determined by the max total number of stake accounts that can get
+   changed in a single slot. Stake accounts can get modified in two ways:
+   1. Through transactions. This bound is calculated using CU
+      consumption as described above.
+   2. Through epoch rewards. This is a protocol-level bound is defined
+      in fd_rewards_base.h and is the max number of stake accounts that
+      can reside in a single reward partition. */
+
+#define FD_STAKE_DELEGATIONS_MAX_PER_SLOT (MAX_STAKE_ACCOUNTS_POSSIBLE_IN_SLOT_FROM_TXNS + STAKE_ACCOUNT_STORES_PER_BLOCK)
+
 /* The static footprint of the vote states assumes that there are
    FD_RUNTIME_MAX_STAKE_ACCOUNTS. It also assumes worst case alignment
    for each struct. fd_stake_delegations_t is laid out as first the
@@ -85,15 +127,15 @@
    can be added in a single slot. We know that there can be up to
    8192 writable accounts in a slot (bound determined from the cost
    tracker). Using the same calculation as above, we get 120 bytes per
-   stake delegation with up to 8192 delegations we have a total
-   footprint of ~1MB. */
+   stake delegation with up to ~19K delegations we have a total
+   footprint of ~2.5MB. */
 
-#define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (4096UL)
+#define FD_STAKE_DELEGATIONS_DELTA_CHAIN_CNT_EST (16384UL)
 #define FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT                                                       \
   /* First, layout the struct with alignment */                                                    \
   sizeof(fd_stake_delegations_t) + alignof(fd_stake_delegations_t) +                               \
   /* Now layout the pool's data footprint */                                                       \
-  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_RUNTIME_MAX_STAKE_ACCS_IN_SLOT + \
+  FD_STAKE_DELEGATIONS_ALIGN + sizeof(fd_stake_delegation_t) * FD_STAKE_DELEGATIONS_MAX_PER_SLOT + \
   /* Now layout the pool's meta footprint */                                                       \
   FD_STAKE_DELEGATIONS_ALIGN + 128UL /* POOL_ALIGN */ +                                            \
   /* Now layout the map.  We must make assumptions about the chain */                              \

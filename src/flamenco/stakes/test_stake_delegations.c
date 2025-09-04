@@ -24,7 +24,7 @@ int main( int argc, char ** argv ) {
      enough to actually hold the footprint of stake delegations for
      the max number of stake accounts that the runtime can support. */
   FD_TEST( fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) <= FD_STAKE_DELEGATIONS_FOOTPRINT );
-  FD_TEST( fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCS_IN_SLOT ) <= FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT );
+  FD_TEST( fd_stake_delegations_footprint( FD_STAKE_DELEGATIONS_MAX_PER_SLOT ) <= FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT );
 
   /* Test stake delegations where is_tombstone == 0 */
 
