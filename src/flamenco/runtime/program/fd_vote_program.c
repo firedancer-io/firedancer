@@ -887,7 +887,7 @@ check_and_filter_proposed_vote_state( fd_vote_state_t *           vote_state,
   if( FD_LIKELY( last_vote ) ) {
     if( FD_UNLIKELY( deq_fd_vote_lockout_t_peek_tail_const( proposed_lockouts )->slot <=
                      last_vote->lockout.slot ) ) {
-      ctx->txn_ctx->custom_err = FD_VOTE_ERROR_VOTE_TOO_OLD;
+      ctx->txn_ctx->custom_err = FD_VOTE_ERR_VOTE_TOO_OLD;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
   }
@@ -907,7 +907,7 @@ check_and_filter_proposed_vote_state( fd_vote_state_t *           vote_state,
   /* Check if the proposed vote is too old to be in the SlotHash history */
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L230
   if( FD_UNLIKELY( last_vote_state_update_slot < earliest_slot_hash_in_history ) ) {
-    ctx->txn_ctx->custom_err = FD_VOTE_ERROR_VOTE_TOO_OLD;
+    ctx->txn_ctx->custom_err = FD_VOTE_ERR_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 
@@ -1174,7 +1174,7 @@ check_slots_are_valid( fd_vote_state_t *        vote_state,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L494
   if( FD_UNLIKELY( j == deq_fd_slot_hash_t_cnt( slot_hashes ) ) ) {
-    ctx->txn_ctx->custom_err = FD_VOTE_ERROR_VOTE_TOO_OLD;
+    ctx->txn_ctx->custom_err = FD_VOTE_ERR_VOTE_TOO_OLD;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
   if( FD_UNLIKELY( i != vote_slots_len ) ) {

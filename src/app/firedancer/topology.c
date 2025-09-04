@@ -1004,6 +1004,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
       strncpy( tile->tower.identity_key_path, config->paths.identity_key, sizeof(tile->tower.identity_key_path) );
       strncpy( tile->tower.vote_acc_path, config->paths.vote_account, sizeof(tile->tower.vote_acc_path) );
+      strncpy( tile->tower.ledger_path, config->paths.ledger, sizeof(tile->tower.ledger_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
       strncpy( tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(tile->replay.blockstore_file) );
       tile->rpcserv.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
