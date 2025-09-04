@@ -1776,6 +1776,13 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     fd_txn_p_t txn_p;
     fd_slice_exec_txn_parse( &ctx->slice_exec_ctx, &txn_p );
 
+    if( FD_UNLIKELY( fd_banks_is_bank_dead( ctx->slot_ctx->bank ) ) ) {
+      /* TODO: This is a temporary hack to handle dead banks.  We simply
+         skip the txn.  This should be removed and instead be handled
+         by the replay dispatcher. */
+      continue;
+    }
+
     /* Insert or reverify invoked programs for this epoch, if needed
        FIXME: this should be done during txn parsing so that we don't have to loop
        over all accounts a second time. */

@@ -65,20 +65,20 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Setup vote states accounts */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_WRITABLE_ACCOUNTS_PER_BLOCK, 999UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   if( FD_UNLIKELY( !vote_states ) ) {
     return 0;
   }
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
-  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_WRITABLE_ACCOUNTS_PER_BLOCK, 999UL ) );
+  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   if( FD_UNLIKELY( !vote_states_prev ) ) {
     fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
     return 0;
   }
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_WRITABLE_ACCOUNTS_PER_BLOCK, 999UL ) );
+  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   if( FD_UNLIKELY( !vote_states_prev_prev ) ) {
     fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
     return 0;
