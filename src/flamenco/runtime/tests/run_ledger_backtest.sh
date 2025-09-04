@@ -152,6 +152,7 @@ fi
 echo "
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
+    download = false
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
