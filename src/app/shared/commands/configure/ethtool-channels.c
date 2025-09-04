@@ -97,6 +97,81 @@ set_device_rxfh_default( char const * device ) {
 }
 
 static void
+set_device_rxfh_from_idx( char const * device,
+                          uint         start_idx ) {
+  //TODO ethtool --set-rxfh-indir %s start %u equal %u"
+  (void)device;
+  (void)start_idx;
+}
+
+static void
+device_enable_feature_ntuple( char const * device ) {
+  //TODO ethtool --features %s ntuple-filters on
+  (void)device;
+}
+
+static void
+device_ntuple_clear( char const * device ) {
+  //TODO-AM ethtool --show-ntuple %s | awk '/^Filter: /{print $2}' | xargs -r -n1 ethtool --config-ntuple %s delete",
+  (void)device;
+}
+
+struct device_channels {
+  int  supported;
+  uint current;
+  uint max;
+};
+typedef struct device_channels device_channels_t;
+
+static void
+get_device_num_channels( char const * device,
+                         device_channels_t* channels ) {
+  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
+  if( FD_UNLIKELY( sock < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+
+  struct ethtool_channels ech = { 0 };
+  ech.cmd = ETHTOOL_GCHANNELS;
+
+  struct ifreq ifr = { 0 };
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
+  ifr.ifr_data = &ech;
+
+  channels->supported = 1;
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
+    if( FD_LIKELY( errno == EOPNOTSUPP ) ) {
+      /* network device doesn't support getting number of channels, so
+         it must always be 1 */
+      channels->supported = 0;
+      channels->current = 1;
+      channels->max = 1;
+    } else {
+      FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
+                   device, errno, fd_io_strerror( errno ) ));
+    }
+    close( sock );
+    return;
+  }
+
+  if( ech.combined_count ) {
+    channels->current = ech.combined_count;
+    channels->max = ech.max_combined;
+  } else if( ech.rx_count || ech.tx_count ) {
+    if( FD_UNLIKELY( ech.rx_count != ech.tx_count ) ) {
+      FD_LOG_WARNING(( "device `%s` has unbalanced channel count: (got %u rx, %u tx)",
+                       device, ech.rx_count, ech.tx_count ));
+    }
+    channels->current = ech.rx_count;
+    channels->max = ech.max_rx;
+  } else {
+    FD_LOG_ERR(( "error configuring network device `%s`, ETHTOOL_GCHANNELS returned invalid results", device ));
+  }
+
+  channels->max = fd_uint_min( channels->max, (uint)fd_shmem_cpu_cnt() );
+}
+
+static void
 set_device_num_channels( char const * device,
                          uint num_channels /* 0 for max */ ) {
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
@@ -172,16 +247,17 @@ init_device( char const * device,
   set_device_num_channels( device, num_channels );
 
   if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
-    //TODO-AM: Check net_tile_count == 1
+    if( FD_UNLIKELY( net_tile_count != 1 ) )
+      FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
 
-    /* Remove the very first queue from the table and then evenly distribute */
-    //RUN( "ethtool --set-rxfh-indir %s start 1 equal %u", device, channel_count - 1 );
+    set_device_rxfh_from_idx( device, 1 );
 
-    //RUN( "ethtool --features %s ntuple-filters on", device );
-    //RUN( "ethtool --show-ntuple %s | awk '/^Filter: /{print $2}' | xargs -r -n1 ethtool --config-ntuple %s delete",
-    //     device, device );
-    //RUN( "ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue 0",
-    //     device, fd_ushort_bswap( 9001 ) );
+    device_enable_feature_ntuple( device );
+
+    device_ntuple_clear( device );
+    //TODO-AM
+    // for port in udp_ports_from_config:
+    //   ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue 0",
   }
 }
 
@@ -204,55 +280,25 @@ init( fd_config_t const * config ) {
 }
 
 static configure_result_t
-check_device( const char * device,
+check_device( char const * device,
               uint         rss_queue_mode,
               uint         net_tile_count ) {
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
   if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
 
-  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) )
-    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
+  int error = 0;    /* is anything not fully configured */
+  int modified = 0; /* is anything changed from the default (fini'd) state */
 
-  struct ethtool_channels channels = {0};
-  channels.cmd = ETHTOOL_GCHANNELS;
-
-  struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, device, IF_NAMESIZE );
-  ifr.ifr_name[ IF_NAMESIZE - 1 ] = '\0'; // silence linter, not needed for correctness
-  ifr.ifr_data = (void *)&channels;
-
-  int  supports_channels = 1;
-  uint current_channels  = 0;
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
-    if( FD_LIKELY( errno == EOPNOTSUPP ) ) {
-      /* network device doesn't support setting number of channels, so
-         it must always be 1 */
-      supports_channels = 0;
-      current_channels  = 1;
-    } else {
-      FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
-                   device, errno, fd_io_strerror( errno ) ));
-    }
-  }
-
-  if( FD_UNLIKELY( close( sock ) ) )
-    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( channels.combined_count ) {
-    current_channels = channels.combined_count;
-  } else if( channels.rx_count || channels.tx_count ) {
-    if( FD_UNLIKELY( channels.rx_count != channels.tx_count ) ) {
-      NOT_CONFIGURED( "device `%s` has unbalanced channel count: (got %u rx, %u tx)",
-                      device, channels.rx_count, channels.tx_count );
-    }
-    current_channels = channels.rx_count;
-  }
-
+  /* Set modified bit if num_channels is not the maximum, and set the
+   * error bit if it is not correct as per the current rss_queue_mode */
+  device_channels_t channels;
+  get_device_num_channels( device, &channels );
+  if( channels.current != channels.max )
+    modified = 1;
   if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
-    if( FD_UNLIKELY( current_channels != net_tile_count ) ) {
-      if( FD_UNLIKELY( !supports_channels ) ) {
+    if( FD_UNLIKELY( channels.current != net_tile_count ) ) {
+      error = 1;
+      if( FD_UNLIKELY( !channels.supported ) ) {
         FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
                      "but you are running with more than one net tile (expected {%u}), "
                      "and there must be one channel per tile. You can either use a NIC "
@@ -262,28 +308,40 @@ check_device( const char * device,
                      "configuration file.",
                      device, net_tile_count ));
       } else {
-        NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
-                        "expected %u)",
-                        device, current_channels, net_tile_count );
+        /*TODO shouldn't log in all checks?
+        FD_LOG_WARNING(( "device `%s` does not have right number of channels (got %u but "
+                         "expected %u)",
+                         device, channels.current, net_tile_count ));
+                         */
       }
     }
   } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
-    //TODO-AM: Check net_tile_count == 1 ?
-    // check expected_queue_count = min(num_phys_cpus, max_queue_count)
-    // check ntuple rule for queue0 in place
-    //FD_LOG_ERR(( "TODO" ));
-  } else {
-    FD_LOG_ERR(( "error configuring network device, invalid rss_queue_mode (%u)", rss_queue_mode )); //TODO-AM?
+    if( FD_UNLIKELY( channels.current != channels.max ) ) {
+      error = 1;
+      /*TODO shouldn't log in all checks?
+      FD_LOG_WARNING(( "device `%s` does not have right number of channels (got %u but "
+                       "expected %u)",
+                       device, channels.current, channels.max )); */
+    }
   }
 
-  // check rxfh table sharding across [0,N) or [1,N)
-  //TODO-AM check irq affinities?
+  //TODO: Set modified bit if rxfh table is not default
+  //TODO: Set error bit if rxfh table is not [0,N) or [1,N] as required by mode
 
-  CONFIGURE_OK();
+  //TODO: Set error bit if ntuple-filters feature does not exist
+
+  //TODO: Set error bit if ntuple filters do not exactly match desired rules
+  //TODO: Set modified bit if any ntuple rules exist
+
+  if( !error )
+    CONFIGURE_OK();
+  if( modified )
+    PARTIALLY_CONFIGURED("TODO");
+  NOT_CONFIGURED("TODO");
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( fd_config_t const * config ) {
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->net.interface, line );
@@ -308,8 +366,8 @@ fini_device( char const * device ) {
 
   set_device_num_channels( device, 0 /* max */ );
 
-  //TODO-AM: Delete all ntuple rules
   /* Note: We leave the ntuple feature enabled */
+  device_ntuple_clear( device );
 }
 
 static void
