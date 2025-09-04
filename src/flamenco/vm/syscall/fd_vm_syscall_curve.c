@@ -1,5 +1,5 @@
 #include "fd_vm_syscall.h"
-
+#include "../../runtime/fd_bank.h"
 #include "../../../ballet/ed25519/fd_curve25519.h"
 #include "../../../ballet/ed25519/fd_ristretto255.h"
 

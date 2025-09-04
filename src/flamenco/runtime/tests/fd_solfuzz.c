@@ -2,6 +2,7 @@
 
 #define _GNU_SOURCE
 #include "fd_solfuzz.h"
+#include "../fd_bank.h"
 #include "../fd_runtime.h"
 #include <errno.h>
 #include <sys/mman.h>

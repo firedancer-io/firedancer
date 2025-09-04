@@ -403,7 +403,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                        fd_sbpf_syscalls_align(),
                                                                        fd_sbpf_syscalls_footprint() ) );
-  FD_TEST( syscalls );
+  if( FD_UNLIKELY( !syscalls ) ) {
+    FD_LOG_CRIT(( "Unable to allocate syscalls" ));
+  }
 
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
