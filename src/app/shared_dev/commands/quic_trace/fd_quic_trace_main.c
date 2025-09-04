@@ -3,41 +3,40 @@
    The goal of quic-trace is to tap QUIC traffic on a live system, which
    requires encryption keys and other annoying connection state.
 
-   quic-trace does this by tapping into the shared memory segments of an
-   fd_quic_tile running on the same host.  It does so strictly read-only
+   quic-trace does this by tapping into the shared memory segments of a
+   target tile running on the same host.  It does so strictly read-only
    to minimize impact to a production system.
 
    This file (fd_quic_trace_main.c) provides the glue code required to
-   join remote fd_quic_tile objects.
+   join remote target tile objects.
 
    fd_quic_trace_rx_tile.c provides a fd_tango consumer for incoming
    QUIC packets. */
 
 #include "fd_quic_trace.h"
 
-#include "../../../shared/fd_config.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/quic/fd_quic_tile.h"
+#include "../../../../discof/send/fd_send_tile.h"
 #include "../../../../waltz/quic/log/fd_quic_log_user.h"
 #include "../../../../ballet/hex/fd_hex.h"
 #include <stdlib.h>
 
 /* Define global variables */
 
-fd_quic_ctx_t         fd_quic_trace_ctx;
-fd_quic_ctx_t const * fd_quic_trace_ctx_remote;
-ulong                 fd_quic_trace_ctx_raddr;
-ulong **              fd_quic_trace_target_fseq;
-ulong volatile *      fd_quic_trace_link_metrics;
-void const *          fd_quic_trace_log_base;
-peer_conn_id_map_t    _fd_quic_trace_peer_map[1UL<<PEER_MAP_LG_SLOT_CNT];
-peer_conn_id_map_t *  fd_quic_trace_peer_map;
+void const         * fd_quic_trace_tile_ctx_remote;
+ulong                fd_quic_trace_tile_ctx_raddr;
+ulong             ** fd_quic_trace_target_fseq;
+ulong volatile     * fd_quic_trace_link_metrics;
+void const         * fd_quic_trace_log_base;
+peer_conn_id_map_t   _fd_quic_trace_peer_map[1UL << PEER_MAP_LG_SLOT_CNT];
+peer_conn_id_map_t * fd_quic_trace_peer_map;
 
 #define EVENT_STREAM 0
 #define EVENT_ERROR  1
 
-void
-quic_trace_cmd_args( int *    pargc,
+static void
+quic_trace_cmd_args( int    * pargc,
                      char *** pargv,
                      args_t * args ) {
   char const * event = fd_env_strip_cmdline_cstr( pargc, pargv, "--event", NULL, "stream" );
@@ -52,6 +51,7 @@ quic_trace_cmd_args( int *    pargc,
   args->quic_trace.dump        = fd_env_strip_cmdline_contains( pargc, pargv, "--dump" );
   args->quic_trace.dump_config = fd_env_strip_cmdline_contains( pargc, pargv, "--dump-config" );
   args->quic_trace.dump_conns  = fd_env_strip_cmdline_contains( pargc, pargv, "--dump-conns" );
+  args->quic_trace.trace_send  = fd_env_strip_cmdline_contains( pargc, pargv, "--send-tile" );
 }
 
 static char const *
@@ -134,7 +134,6 @@ peer_cid_str( fd_quic_conn_t const * conn ) {
 
 static void
 dump_connection( fd_quic_conn_t const * conn ) {
-  (void)conn;
 
 #define CONN_MEMB_LIST(X,CONN,...) \
   X( conn_idx,               "%u",         ( (CONN).conn_idx               ), __VA_ARGS__ ) \
@@ -182,14 +181,6 @@ dump_connection( fd_quic_conn_t const * conn ) {
         ));
 }
 
-static fd_quic_conn_t const *
-fd_quic_trace_conn_at_idx( fd_quic_t const * quic, ulong idx, ulong quic_raddr ) {
-  fd_quic_state_t const * state = fd_quic_get_state_const( quic );
-  ulong const conn_base_off = state->conn_base - quic_raddr;
-  ulong const local_conn_base = (ulong)quic + conn_base_off;
-  return (fd_quic_conn_t *)( local_conn_base + idx * state->conn_sz );
-}
-
 void
 quic_trace_cmd_fn( args_t *   args,
                    config_t * config ) {
@@ -197,68 +188,75 @@ quic_trace_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( topo );
 
-  fd_topo_tile_t * quic_tile = NULL;
-  for( ulong tile_idx=0UL; tile_idx < topo->tile_cnt; tile_idx++ ) {
-    if( 0==strcmp( topo->tiles[ tile_idx ].name, "quic" ) ) {
-      quic_tile = &topo->tiles[ tile_idx ];
+  int trace_send = args->quic_trace.trace_send;
+
+  char const     * tile_names[] = {"quic", "send"};
+  fd_topo_tile_t * target_tile  = NULL;
+  for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+    if( 0==strcmp( topo->tiles[tile_idx].name, tile_names[trace_send] ) ) {
+      target_tile = &topo->tiles[tile_idx];
       break;
     }
   }
-  if( !quic_tile ) FD_LOG_ERR(( "QUIC tile not found in topology" ));
-  if( FD_UNLIKELY( quic_tile->in_cnt!=1UL ) ) { /* FIXME */
+  if( !target_tile ) FD_LOG_ERR(( "%s tile not found in topology", tile_names[trace_send] ));
+
+  ulong const target_in_cnt  = target_tile->in_cnt;
+  ulong const target_out_cnt = target_tile->out_cnt;
+  if( FD_UNLIKELY( !trace_send && target_in_cnt != 1UL ) ) { /* FIXME */
     FD_LOG_ERR(( "Sorry, fd_quic_trace does not support multiple net tiles yet" ));
   }
 
   /* Ugly: fd_quic_ctx_t uses non-relocatable object addressing.
-     We need to rebase pointers.  foreign_{...} refer to the original
-     objects in shared memory, local_{...} refer to translated copies. */
+     We need to rebase pointers. _remote{...} is local pointer to original
+     objects in shared memory, _raddr is the remote address of the original
+     object. */
 
-  void *                quic_tile_base   = fd_topo_obj_laddr( topo, quic_tile->tile_obj_id );
-  fd_quic_ctx_t const * foreign_quic_ctx = quic_tile_base;
-  fd_quic_ctx_t * quic_ctx = &fd_quic_trace_ctx;
-  *quic_ctx                = *foreign_quic_ctx;
-  fd_quic_trace_ctx_remote =  foreign_quic_ctx;
+  fd_quic_trace_tile_ctx_remote = fd_topo_obj_laddr( topo, target_tile->tile_obj_id );
+  ulong quic_raddr              = (ulong)tile_member( fd_quic_trace_tile_ctx_remote, quic, trace_send );
+  ulong tile_align              = fd_ulong_if( trace_send, alignof(fd_send_tile_ctx_t), alignof(fd_quic_ctx_t) );
+  ulong tile_ctx_sz             = fd_ulong_if( trace_send, sizeof(fd_send_tile_ctx_t), sizeof(fd_quic_ctx_t) );
+  fd_quic_trace_tile_ctx_raddr  = quic_raddr - fd_ulong_align_up( tile_ctx_sz, fd_ulong_max( tile_align, fd_quic_align() ) );
 
-  ulong quic_raddr = (ulong)foreign_quic_ctx->quic;
-  ulong ctx_raddr  = quic_raddr - fd_ulong_align_up( sizeof(fd_quic_ctx_t), fd_ulong_max( alignof(fd_quic_ctx_t), fd_quic_align() ) );
-  fd_quic_trace_ctx_raddr = ctx_raddr;
+  FD_LOG_INFO(("quic_raddr %p", (void *)quic_raddr));
+  FD_LOG_INFO((
+      "%s tile state at %p in tile address space and %p in local address space",
+      tile_names[trace_send], (void *)fd_quic_trace_tile_ctx_raddr, fd_quic_trace_tile_ctx_remote));
 
-  FD_LOG_INFO(( "fd_quic_tile state at %p in tile address space", (void *)ctx_raddr ));
-  FD_LOG_INFO(( "fd_quic_tile state at %p in local address space", quic_tile_base ));
+  /* target_net link tracking */
+  char out_link_name[16];
+  snprintf( out_link_name, sizeof(out_link_name), "%s_net", tile_names[trace_send] );
+  ulong link_id = fd_topo_find_link( topo, out_link_name, 0 );
+  if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("%s not found", out_link_name));
+  fd_topo_link_t * target_net = &topo->links[link_id];
 
-  quic_ctx->reasm = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->reasm - ctx_raddr );
-  quic_ctx->stem  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->stem  - ctx_raddr );
-  quic_ctx->quic  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->quic  - ctx_raddr );
+  /* net_target link tracking */
+  snprintf( out_link_name, sizeof(out_link_name), "net_%s", tile_names[trace_send] );
+  link_id = fd_topo_find_link( topo, out_link_name, 0 );
+  if( FD_UNLIKELY( link_id == ULONG_MAX ) ) FD_LOG_ERR(("%s not found", out_link_name));
 
-  /* find quic_net in topology */
-  ulong link_id = fd_topo_find_link( topo, "quic_net", 0 );
-
-  if( link_id == ULONG_MAX ) {
-    FD_LOG_ERR(( "quic_net not found" ));
-  }
-  fd_topo_link_t * quic_net = &topo->links[ link_id ];
-
-  fd_quic_trace_ctx_t trace_ctx[1] =
-                        {{ .dump        = args->quic_trace.dump,
-                           .dump_config = args->quic_trace.dump_config,
-                           .dump_conns  = args->quic_trace.dump_conns }};
-  fd_wksp_t * quic_net_wksp = fd_wksp_containing( quic_net->dcache );
-
-  /* quic_net_wksp is the base address for locating chunks */
-  trace_ctx->net_out_base = (ulong)quic_net_wksp;
-  trace_ctx->net_out      = 1;
-
-  fd_topo_link_t * net_quic = &topo->links[ quic_tile->in_link_id[ 0 ] ];
-  fd_net_rx_bounds_init( &quic_ctx->net_in_bounds[ 0 ], net_quic->dcache );
-  FD_LOG_INFO(( "net->quic dcache at %p", (void *)net_quic->dcache ));
+  fd_topo_link_t * net_target = &topo->links[link_id];
+  fd_net_rx_bounds_t net_in_bounds;
+  fd_net_rx_bounds_init(&net_in_bounds, net_target->dcache);
+  FD_LOG_INFO(("net->%s dcache at %p", tile_names[trace_send], (void *)net_target->dcache));
 
   /* Join shared memory objects
      Mostly nops but verifies object magic numbers to ensure that
      derived pointers are correct. */
 
-  FD_LOG_INFO(( "Joining fd_quic" ));
-  fd_quic_t * quic = fd_quic_join( quic_ctx->quic );
-  if( !quic ) FD_LOG_ERR(( "Failed to join fd_quic" ));
+  FD_LOG_INFO(( "Joining fd_quic in %s tile", tile_names[trace_send] ));
+  fd_quic_t * quic_remote = fd_type_pun( translate_ptr( (void*)quic_raddr ) );
+  fd_quic_t * quic        = fd_quic_join( quic_remote );
+  if( !quic ) FD_LOG_ERR( ("Failed to join fd_quic in %s tile", tile_names[trace_send]));
+
+  /* build ctx */
+  fd_quic_trace_ctx_t trace_ctx[1] = {
+    {.dump          = args->quic_trace.dump,
+     .dump_config   = args->quic_trace.dump_config,
+     .dump_conns    = args->quic_trace.dump_conns,
+     .trace_send    = args->quic_trace.trace_send,
+     .net_out_base  = (ulong)fd_wksp_containing(target_net->dcache),
+     .quic          = quic,
+     .net_in_bounds = {net_in_bounds} } };
 
   /* dump config */
   if( trace_ctx->dump_config ) {
@@ -266,7 +264,7 @@ quic_trace_cmd_fn( args_t *   args,
   }
 
   /* initialize peer conn_id map */
-  void *               shmap    = peer_conn_id_map_new( _fd_quic_trace_peer_map );
+  void               * shmap    = peer_conn_id_map_new( _fd_quic_trace_peer_map );
   peer_conn_id_map_t * peer_map = peer_conn_id_map_join( shmap );
 
   /* set the global */
@@ -283,7 +281,6 @@ quic_trace_cmd_fn( args_t *   args,
   X( ABORT              , __VA_ARGS__ ) SEP \
   X( CLOSE_PENDING      , __VA_ARGS__ ) SEP \
   X( DEAD               , __VA_ARGS__ )
-
   ulong conn_cnt      = quic->limits.conn_cnt;
   ulong state_unknown = 0;
 #define COMMA ,
@@ -292,10 +289,10 @@ quic_trace_cmd_fn( args_t *   args,
   ulong state_cap = sizeof( state_cnt) / sizeof( state_cnt[0] );
 #undef _
 
-  for( ulong j = 0; j < conn_cnt; ++j ) {
-    fd_quic_conn_t const * conn = fd_quic_trace_conn_at_idx( quic, j, quic_raddr );
+  for( ulong j=0UL; j<conn_cnt; ++j ) {
+    fd_quic_conn_t const * conn = fd_quic_trace_conn_at_idx( quic, j );
     ulong state = conn->state;
-    ulong *state_bucket = state < state_cap ? &state_cnt[state] : &state_unknown;
+    ulong * state_bucket = state < state_cap ? &state_cnt[state] : &state_unknown;
 
     (*state_bucket)++;
 
@@ -334,17 +331,17 @@ quic_trace_cmd_fn( args_t *   args,
 
   /* Locate original fseq objects
      These are monitored to ensure the trace RX tile doesn't skip ahead
-     of the quic tile. */
-  fd_quic_trace_target_fseq = malloc( quic_tile->in_cnt * sizeof(ulong) );
-  for( ulong i=0UL; i<quic_tile->in_cnt; i++ ) {
-    fd_quic_trace_target_fseq[ i ] = quic_tile->in_link_fseq[ i ];
+     of the target tile. */
+  fd_quic_trace_target_fseq = malloc( target_in_cnt * sizeof(ulong) );
+  for( ulong i=0UL; i<target_in_cnt; i++ ) {
+    fd_quic_trace_target_fseq[i] = target_tile->in_link_fseq[i];
   }
 
   /* Locate log buffer */
 
-  void * log = (void *)( (ulong)quic + quic->layout.log_off );
+  void * log = (void *)((ulong)quic_remote + quic->layout.log_off);
   fd_quic_log_rx_t log_rx[1];
-  FD_LOG_DEBUG(( "Joining quic_log" ));
+  FD_LOG_DEBUG(( "Joining %s log", tile_names[trace_send] ));
   if( FD_UNLIKELY( !fd_quic_log_rx_join( log_rx, log ) ) ) {
     FD_LOG_ERR(( "fd_quic_log_rx_join failed" ));
   }
@@ -355,25 +352,27 @@ quic_trace_cmd_fn( args_t *   args,
      into the target topology which is read-only. */
 
   /* ... redirect metric updates */
-  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( quic_tile->in_cnt, quic_tile->out_cnt ) );
+  ulong * metrics = aligned_alloc( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( target_in_cnt, target_out_cnt ) );
   if( !metrics ) FD_LOG_ERR(( "out of memory" ));
-  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( quic_tile->in_cnt, quic_tile->out_cnt ) );
+  fd_memset( metrics, 0, FD_METRICS_FOOTPRINT( target_in_cnt, target_out_cnt ) );
   fd_metrics_register( metrics );
 
   fd_quic_trace_link_metrics = fd_metrics_link_in( fd_metrics_base_tl, 0 );
 
-  /* Join net->quic link consumer */
+  /* Join net->target link consumer */
 
-  fd_frag_meta_t const * rx_mcache = net_quic->mcache;
-  fd_frag_meta_t const * tx_mcache = quic_net->mcache;
+  fd_frag_meta_t const *rx_mcache = net_target->mcache;
+  fd_frag_meta_t const *tx_mcache = target_net->mcache;
 
-  FD_LOG_NOTICE(( "quic-trace starting ..." ));
+  trace_ctx->quic = quic;
+
+  FD_LOG_NOTICE(( "quic-trace on %s tile starting ...", tile_names[trace_send] ));
   switch( args->quic_trace.event ) {
   case EVENT_STREAM:
     fd_quic_trace_rx_tile( trace_ctx, rx_mcache, tx_mcache );
     break;
   case EVENT_ERROR:
-    fd_quic_trace_log_tile( log_rx->mcache );
+    fd_quic_trace_log_tile( trace_ctx, log_rx->mcache );
     break;
   default:
     __builtin_unreachable();

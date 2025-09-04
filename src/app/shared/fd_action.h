@@ -94,6 +94,7 @@ union fdctl_args {
     int dump; /* whether the user requested --dump */
     int dump_config; /* whether the user requested to dump the quic config */
     int dump_conns;  /* whether the user requested to dump the quic connections */
+    int trace_send;  /* whether the user requested tracing send tile (1) or quic tile (0) */
   } quic_trace;
 
   struct {
