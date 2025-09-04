@@ -85,9 +85,11 @@ fd_keyguard_authorize_gossip_prune( fd_keyguard_authority_t const * authority,
                                     ulong                           sz,
                                     int                             sign_type ) {
   if( FD_UNLIKELY( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) ) return 0;
-  /* Prune messages always begin with the node's pubkey */
+  /* Prune messages always begin with the prune prefix (18b), followed
+     by node's pubkey.  */
   if( sz<40UL ) return 0;
-  if( 0!=memcmp( authority->identity_pubkey, data, 32 ) ) return 0;
+  if( 0!=memcmp( data, "\xffSOLANA_PRUNE_DATA", 18UL ) ) return 0;
+  if( 0!=memcmp( authority->identity_pubkey, data+18UL, 32 ) ) return 0;
   return 1;
 }
 

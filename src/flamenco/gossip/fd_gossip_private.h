@@ -318,6 +318,20 @@ struct fd_gossip_view {
 
 typedef struct fd_gossip_view fd_gossip_view_t;
 
+/* Max prune keys possible in a prune message:
+      1232UL (Gossip MTU)
+    - 32b (outer pubkey)
+    - 32b (inner pubkey)
+    -  8b (prunes len)
+    - 64b (signature)
+    - 32b (dest pubkey)
+    -  8b (wallclock)
+    = 1056b
+
+    1056b/32 ~= 33 */
+#define FD_GOSSIP_PRUNE_MAX_KEYS (33UL)
+static uchar const fd_gossip_prune_prefix[18] = { 0xffU,'S','O','L','A','N','A','_','P','R','U','N','E','_','D','A','T','A' };
+
 static inline fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
                             uchar                     tag ) {
@@ -383,4 +397,26 @@ fd_gossip_crds_vote_encode( uchar *                       out_buf,
                             long                          now,
                             uchar                         vote_index,
                             fd_gossip_view_crds_value_t * out_view );
+
+
+int
+fd_gossip_prune_get_signable( uchar const * my_pubkey,
+                              uchar const * relayer_pubkey,
+                              uchar const * origin_pubkeys,
+                              ulong         origin_pubkeys_cnt,
+                              long          now,
+                              uchar *       out_buf,
+                              ulong         out_buf_sz,
+                              ulong *       opt_signable_sz );
+
+int
+fd_gossip_prune_encode( uchar const * my_pubkey,
+                        uchar const * relayer_pubkey,
+                        uchar const * origin_pubkeys,
+                        ulong         origin_pubkeys_cnt,
+                        uchar const * signature,
+                        long          now,
+                        uchar *       out_buf, /* must be FD_GOSSIP_MTU sized */
+                        ulong         out_buf_sz,
+                        ulong *       opt_msg_sz );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */

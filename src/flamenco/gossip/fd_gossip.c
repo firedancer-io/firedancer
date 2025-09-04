@@ -4,6 +4,7 @@
 #include "fd_gossip_txbuild.h"
 #include "fd_active_set.h"
 #include "fd_ping_tracker.h"
+#include "fd_prune_finder.h"
 #include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -18,6 +19,8 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_LAST+1UL,
 
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
+
+#define PRUNE_FINDER_MAX_RELAYERS_PER_ORIGIN (128UL)
 
 struct stake {
   fd_pubkey_t pubkey;
@@ -68,6 +71,7 @@ struct fd_gossip_private {
   fd_crds_t *         crds;
   fd_active_set_t *   active_set;
   fd_ping_tracker_t * ping_tracker;
+  fd_prune_finder_t * prune_finder;
 
   fd_sha256_t sha256[1];
   fd_sha512_t sha512[1];
@@ -123,13 +127,14 @@ fd_gossip_footprint( ulong max_values,
                      ulong entrypoints_len ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                                                     );
-  l = FD_LAYOUT_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )                             );
-  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                                               );
-  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len )                            );
-  l = FD_LAYOUT_APPEND( l, stake_pool_align(),      stake_pool_footprint( CRDS_MAX_CONTACT_INFO )                           );
-  l = FD_LAYOUT_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ) ) );
-  l = FD_LAYOUT_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                           );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                                                                      );
+  l = FD_LAYOUT_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )                                              );
+  l = FD_LAYOUT_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                                                                );
+  l = FD_LAYOUT_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len )                                             );
+  l = FD_LAYOUT_APPEND( l, fd_prune_finder_align(), fd_prune_finder_footprint( CRDS_MAX_CONTACT_INFO, PRUNE_FINDER_MAX_RELAYERS_PER_ORIGIN ) );
+  l = FD_LAYOUT_APPEND( l, stake_pool_align(),      stake_pool_footprint( CRDS_MAX_CONTACT_INFO )                                            );
+  l = FD_LAYOUT_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ) )                  );
+  l = FD_LAYOUT_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                                            );
   l = FD_LAYOUT_FINI( l, fd_gossip_align() );
   return l;
 }
@@ -192,13 +197,14 @@ fd_gossip_new( void *                    shmem,
   ulong stake_map_chain_cnt = stake_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                           );
-  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )   );
-  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                     );
-  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len )  );
-  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),      stake_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
-  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt )    );
-  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS ) );
+  fd_gossip_t * gossip  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gossip_t),    sizeof(fd_gossip_t)                                                                      );
+  void * crds           = FD_SCRATCH_ALLOC_APPEND( l, fd_crds_align(),         fd_crds_footprint( max_values, max_values )                                              );
+  void * active_set     = FD_SCRATCH_ALLOC_APPEND( l, fd_active_set_align(),   fd_active_set_footprint()                                                                );
+  void * ping_tracker   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_tracker_align(), fd_ping_tracker_footprint( entrypoints_len )                                             );
+  void * prune_finder   = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(), fd_prune_finder_footprint( CRDS_MAX_CONTACT_INFO, PRUNE_FINDER_MAX_RELAYERS_PER_ORIGIN ) );
+  void * stake_pool     = FD_SCRATCH_ALLOC_APPEND( l, stake_pool_align(),      stake_pool_footprint( CRDS_MAX_CONTACT_INFO )                                            );
+  void * stake_weights  = FD_SCRATCH_ALLOC_APPEND( l, stake_map_align(),       stake_map_footprint( stake_map_chain_cnt )                                               );
+  void * active_ps      = FD_SCRATCH_ALLOC_APPEND( l, push_set_align(),        push_set_footprint( FD_ACTIVE_SET_MAX_PEERS )                                            );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_gossip_align() ) == (ulong)shmem + fd_gossip_footprint( max_values, entrypoints_len  ) );
 
   gossip->gossip_net_out  = gossip_net_out;
@@ -214,6 +220,9 @@ fd_gossip_new( void *                    shmem,
 
   gossip->ping_tracker = fd_ping_tracker_join( fd_ping_tracker_new( ping_tracker, rng, gossip->entrypoints_cnt, gossip->entrypoints, ping_tracker_change, gossip ) );
   FD_TEST( gossip->ping_tracker );
+
+  gossip->prune_finder = fd_prune_finder_join( fd_prune_finder_new( prune_finder, CRDS_MAX_CONTACT_INFO, PRUNE_FINDER_MAX_RELAYERS_PER_ORIGIN, rng ) );
+  FD_TEST( gossip->prune_finder );
 
   gossip->stake.count = 0UL;
   gossip->stake.pool = stake_pool_join( stake_pool_new( stake_pool, CRDS_MAX_CONTACT_INFO ) );
@@ -277,6 +286,11 @@ fd_gossip_crds_metrics( fd_gossip_t const * gossip ) {
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip ) {
   return fd_ping_tracker_metrics( gossip->ping_tracker );
+}
+
+fd_prune_finder_metrics_t const *
+fd_gossip_prune_finder_metrics( fd_gossip_t const * gossip ) {
+  return fd_prune_finder_metrics( gossip->prune_finder );
 }
 
 static fd_ip4_port_t
@@ -544,11 +558,46 @@ rx_pull_response( fd_gossip_t *                          gossip,
   }
 }
 
+static void
+tx_prune( fd_gossip_t *                   gossip,
+          fd_prune_finder_prune_t const * prune,
+          fd_stem_context_t *             stem,
+          long                            now ) {
+  ulong prune_msg_count = (prune->prune_len+(FD_GOSSIP_PRUNE_MAX_KEYS-1UL))/FD_GOSSIP_PRUNE_MAX_KEYS;
+
+  fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds, prune->relayer_pubkey.uc );
+  if( FD_UNLIKELY( !ci ) ) {
+    return;
+  }
+
+  for( ulong i=0UL; i<prune_msg_count; i++ ) {
+    uchar const * keys     = (prune->prunes+i*FD_GOSSIP_PRUNE_MAX_KEYS)->uc;
+    ulong         num_keys = fd_ulong_min( FD_GOSSIP_PRUNE_MAX_KEYS, prune->prune_len - i*FD_GOSSIP_PRUNE_MAX_KEYS );
+
+    uchar buf[ sizeof(fd_gossip_prune_prefix)+FD_GOSSIP_MTU ];
+
+    ulong signable_sz;
+    fd_signature_t sign;
+    fd_gossip_prune_get_signable( gossip->identity_pubkey, prune->relayer_pubkey.uc, keys, num_keys, now, buf, sizeof(buf), &signable_sz );
+    gossip->sign_fn( gossip->sign_ctx, buf, signable_sz, FD_KEYGUARD_SIGN_TYPE_ED25519, sign.uc );
+
+    ulong prune_msg_sz;
+    fd_gossip_prune_encode( gossip->identity_pubkey, prune->relayer_pubkey.uc, keys, num_keys, sign.uc, now, buf, sizeof(buf), &prune_msg_sz );
+    fd_ip4_port_t dest_addr = fd_contact_info_gossip_socket( ci );
+    gossip->send_fn( gossip->send_ctx, stem, buf, prune_msg_sz, &dest_addr, (ulong)now );
+
+    gossip->metrics->message_tx[ FD_GOSSIP_MESSAGE_PRUNE ]++;
+    gossip->metrics->message_tx_bytes[ FD_GOSSIP_MESSAGE_PRUNE ] += prune_msg_sz+42UL; /* 42 = sizeof(fd_ip4_udp_hdrs_t) */
+  }
+}
+
 /* process_push_crds() > 0 holds the duplicate count */
 static int
 process_push_crds( fd_gossip_t *                       gossip,
                    fd_gossip_view_crds_value_t const * value,
                    uchar const *                       payload,
+                   uchar const *                       origin_pubkey,
+                   ulong                               origin_stake,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
   /* overrides_fast here, either count duplicates or purge if older (how!?) */
@@ -568,9 +617,7 @@ process_push_crds( fd_gossip_t *                       gossip,
 
   gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_UPSERTED_PUSH_IDX ]++;
 
-  uchar const * origin_pubkey = payload+value->pubkey_off;
   uchar is_me                 = !memcmp( origin_pubkey, gossip->identity_pubkey, 32UL );
-  ulong origin_stake          = get_stake( gossip, origin_pubkey );
 
 
   fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
@@ -599,20 +646,38 @@ rx_push( fd_gossip_t *                 gossip,
          uchar const *                 payload,
          long                          now,
          fd_stem_context_t *           stem ) {
+  uchar const * relayer_pubkey = payload+push->from_off;
+  ulong relayer_stake          = get_stake( gossip, relayer_pubkey );
+  uchar const * recorded_pubkeys[ FD_GOSSIP_MSG_MAX_CRDS ];
+  ulong         recorded_cnt = 0UL;
+
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
-    int err = process_push_crds( gossip, &push->crds_values[ i ], payload, now, stem );
-    if( FD_UNLIKELY( err>0 ) ) {
-      /* TODO: implement prune finder
-      ulong num_duplicates         = (ulong)err;
-      uchar const * relayer_pubkey = payload+push->from_off;
+    uchar const * pubkey = payload+push->crds_values[ i ].pubkey_off;
+    ulong         stake  = get_stake( gossip, pubkey );
+
+    int err = process_push_crds( gossip, &push->crds_values[ i ], payload, pubkey, stake, now, stem );
+    if( FD_LIKELY( err>=0 ) ) {
+      ulong num_duplicates = (ulong)err;
+      recorded_pubkeys[ recorded_cnt++ ] = pubkey;
       fd_prune_finder_record( gossip->prune_finder,
-                              origin_pubkey,
-                              origin_stake,
+                              pubkey,
+                              stake,
                               relayer_pubkey,
-                              get_stake( gossip, relayer_pubkey ),
-                              num_duplicates ); */
+                              relayer_stake,
+                              num_duplicates );
     }
   }
+
+  fd_prune_finder_prune_t const * prunes = NULL;
+  ulong                           prunes_cnt;
+  fd_prune_finder_get_prunes( gossip->prune_finder,
+                              gossip->identity_stake,
+                              recorded_pubkeys,
+                              recorded_cnt,
+                              &prunes,
+                              &prunes_cnt );
+
+  for( ulong i=0UL; i<prunes_cnt; i++ ) tx_prune( gossip, &prunes[ i ], stem, now );
 }
 
 static void
@@ -632,7 +697,6 @@ rx_prune( fd_gossip_t *                  gossip,
                          gossip->identity_stake );
   }
 }
-
 
 static void
 rx_ping( fd_gossip_t *           gossip,

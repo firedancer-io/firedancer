@@ -3,7 +3,7 @@ $(call add-objs,fd_gossip fd_gossip_msg_parse fd_gossip_msg_ser fd_gossip_out fd
 
 $(call add-hdrs,fd_bloom.h)
 $(call add-hdrs,fd_gossip_types.h)
-$(call add-objs,fd_bloom fd_active_set fd_ping_tracker,fd_flamenco)
+$(call add-objs,fd_bloom fd_active_set fd_ping_tracker fd_prune_finder,fd_flamenco)
 
 $(call make-unit-test,test_bloom,test_bloom,fd_flamenco fd_util)
 $(call run-unit-test,test_bloom)
@@ -16,6 +16,9 @@ $(call run-unit-test,test_ping_tracker)
 
 $(call make-unit-test,test_gossip,test_gossip,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_gossip)
+
+$(call make-unit-test,test_prune_finder,test_prune_finder,fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_prune_finder)
 
 $(call make-unit-test,test_gossip_ser,test_gossip_ser,fd_flamenco fd_ballet fd_util)
 $(call run-unit-test,test_gossip_ser)

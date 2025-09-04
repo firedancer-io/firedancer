@@ -4,6 +4,7 @@
 #include "fd_gossip_types.h"
 #include "fd_gossip_out.h"
 #include "fd_ping_tracker.h"
+#include "fd_prune_finder.h"
 #include "crds/fd_crds.h"
 
 #include "../../disco/metrics/fd_metrics.h"
@@ -125,6 +126,9 @@ fd_gossip_crds_metrics( fd_gossip_t const * gossip );
 
 fd_ping_tracker_metrics_t const *
 fd_gossip_ping_tracker_metrics( fd_gossip_t const * gossip );
+
+fd_prune_finder_metrics_t const *
+fd_gossip_prune_finder_metrics( fd_gossip_t const * gossip );
 
 /* fd_gossip stores the node's contact info for various purposes:
 

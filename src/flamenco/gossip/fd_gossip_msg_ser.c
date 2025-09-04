@@ -302,3 +302,53 @@ fd_gossip_crds_vote_encode( uchar *                       out_buf,
   out_view->length = (ushort)BYTES_CONSUMED;
   return 0;
 }
+
+
+int
+fd_gossip_prune_get_signable( uchar const * my_pubkey,
+                              uchar const * relayer_pubkey,
+                              uchar const * origin_pubkeys,
+                              ulong         origin_pubkeys_cnt,
+                              long          now,
+                              uchar *       out_buf,
+                              ulong         out_buf_sz,
+                              ulong *       opt_signable_sz ) {
+  SER_INIT( out_buf, out_buf_sz, 0U );
+  fd_memcpy( CURSOR, fd_gossip_prune_prefix, sizeof(fd_gossip_prune_prefix) ); INC( sizeof(fd_gossip_prune_prefix) );
+  fd_memcpy( CURSOR, my_pubkey, 32UL )                                       ; INC( 32U );
+  FD_STORE( ulong, CURSOR, origin_pubkeys_cnt )                              ; INC(  8U );
+  fd_memcpy( CURSOR, origin_pubkeys, origin_pubkeys_cnt*32UL )               ; INC( origin_pubkeys_cnt*32U );
+  fd_memcpy( CURSOR, relayer_pubkey, 32UL )                                  ; INC( 32U );
+  FD_STORE( ulong, CURSOR, (ulong)FD_NANOSEC_TO_MILLI( now ) )               ; INC(  8U );
+  if( opt_signable_sz ) {
+    *opt_signable_sz = BYTES_CONSUMED;
+  }
+  return 0;
+
+}
+
+int
+fd_gossip_prune_encode( uchar const * my_pubkey,
+                        uchar const * relayer_pubkey,
+                        uchar const * origin_pubkeys,
+                        ulong         origin_pubkeys_cnt,
+                        uchar const * signature,
+                        long          now,
+                        uchar *       out_buf,
+                        ulong         out_buf_sz,
+                        ulong *       opt_msg_sz ) {
+  SER_INIT( out_buf, out_buf_sz, 0U );
+  FD_STORE( uint, CURSOR, FD_GOSSIP_MESSAGE_PRUNE )           ; INC(  4U );
+  fd_memcpy( CURSOR, my_pubkey, 32U )                         ; INC( 32U );
+  fd_memcpy( CURSOR, my_pubkey, 32U )                         ; INC( 32U ); /* Prune message has my_pubkey twice */
+  FD_STORE( ulong, CURSOR, origin_pubkeys_cnt )               ; INC(  8U );
+  fd_memcpy( CURSOR, origin_pubkeys, origin_pubkeys_cnt*32U ) ; INC( origin_pubkeys_cnt*32U );
+  fd_memcpy( CURSOR, signature, 64U )                         ; INC( 64U );
+  fd_memcpy( CURSOR, relayer_pubkey, 32U )                    ; INC( 32U );
+  FD_STORE( ulong, CURSOR, (ulong)FD_NANOSEC_TO_MILLI( now ) ); INC(  8U );
+
+  if( opt_msg_sz ) {
+    *opt_msg_sz = BYTES_CONSUMED;
+  }
+  return 0;
+}

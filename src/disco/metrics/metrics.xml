@@ -905,6 +905,11 @@ metric introduced.
     <counter name="CrdsExpiredCount" label="The number of entries expired from the data store due to age" />
     <counter name="CrdsEvictedCount" label="The number of entries evicted from the data store to make space for new entries" />
 
+    <counter name="PruneFinderOriginRelayerEvictedCount" label="The number of times an origin's relayer was evicted to make space for a new relayer" />
+    <counter name="PruneFinderInsertionCount" label="The number of times an (origin,relayer) pair was added/updated to the prune finder" />
+    <counter name="PruneFinderTraversalCount" label="The number of time an origin's relayer list was traversed to find relayers to prune" />
+    <counter name="PruneFinderRxFromPrunedPathCount" label="The number of times we received a message from a pruned (relayer,origin) link" />
+
     <gauge name="CrdsPeerCapacity" label="The capacity for storing peers in the data store" />
     <gauge name="CrdsPeerStakedCount" label="The number of staked peers in the data store" />
     <gauge name="CrdsPeerUnstakedCount" label="The number of unstaked peers in the data store" />
