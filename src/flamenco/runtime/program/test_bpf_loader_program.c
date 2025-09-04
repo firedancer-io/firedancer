@@ -6,6 +6,23 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../../ballet/elf/fd_elf64.h"
 #include "../../../ballet/elf/fd_elf.h"
+#include "../../vm/fd_vm.h"
+
+/* A CPI recurses through fd_bpf_execute, so one frame per instruction stack
+   level sits on the tile's 8 MiB native stack -- ~621 KiB each as built, so
+   depth 9 uses 5.5 MiB.  Overflow hits the guard page as a SIGSEGV, so bound
+   it at compile time. */
+
+#define FD_BPF_EXECUTE_STACK_EST                                          \
+  ( sizeof(fd_vm_t)                       /* _vm[1]             */      + \
+    1000UL*sizeof(fd_vm_input_region_t)   /* input_mem_regions  */      + \
+    256UL *sizeof(fd_vm_acc_region_meta_t)/* acc_region_metas   */      + \
+    256UL *sizeof(ulong)                  /* pre_lens           */      + \
+    FD_SBPF_SYSCALLS_FOOTPRINT            /* syscalls_mem       */      + \
+    (64UL<<10)                            /* intervening frames */      )
+
+FD_STATIC_ASSERT( FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268*FD_BPF_EXECUTE_STACK_EST +
+                  (768UL<<10) < FD_TILE_PRIVATE_STACK_SZ, tile_stack_budget );
 
 /* SBPF v0 ELF (e_flags=0). */
 FD_IMPORT_BINARY( elf_v0, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
