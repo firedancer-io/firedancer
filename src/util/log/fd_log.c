@@ -618,11 +618,8 @@ fd_log_private_fprintf_0( int          fd,
 }
 
 /* This is the same as fd_log_private_fprintf_0 except that it does not try to
-   take a lock when writing to the log file.  This should almost never be used
-   except in exceptional cases when logging while the process is shutting down.
-
-   It exists because if a child process dies while holding the lock, we may
-   want to log some diagnostic messages when tearing down the process tree. */
+   take a lock when writing to the log file.  This is useful for O_APPEND file
+   logging, which promises to not fragment individual write(2) appends. */
 void
 fd_log_private_fprintf_nolock_0( int          fd,
                                  char const * fmt, ... ) {
@@ -815,11 +812,13 @@ fd_log_private_1( int          level,
         char then_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( then, then_cstr );
 
-        if( to_logfile )
-          fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
-                                    "stopped repeating (%lu identical messages)\n",
-                                    then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                    fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        if( to_logfile ) {
+          fd_log_private_fprintf_nolock_0(
+              log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s "
+              "stopped repeating (%lu identical messages)\n",
+              then_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+              fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        }
 
         if( to_stderr ) {
           char * then_short_cstr = then_cstr+5; then_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
@@ -848,10 +847,12 @@ fd_log_private_1( int          level,
       if( (now-dedup_last) >= dedup_throttle ) {
         char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
         fd_log_wallclock_cstr( now, now_cstr );
-        if( to_logfile )
-          fd_log_private_fprintf_0( log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
-                                    now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                                    fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        if( to_logfile ) {
+          fd_log_private_fprintf_nolock_0(
+              log_fileno, "SNIP    %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s repeating (%lu identical messages)\n",
+              now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+              fd_log_app(),fd_log_group(),thread, dedup_cnt+1UL );
+        }
         if( to_stderr ) {
           char * now_short_cstr = now_cstr+5; now_short_cstr[21] = '\0'; /* Lop off the year, ns resolution and timezone */
           fd_log_private_fprintf_0( STDERR_FILENO, "SNIP    %s %-6lu %-4s %-4s repeating (%lu identical messages)\n",
@@ -882,10 +883,12 @@ fd_log_private_1( int          level,
     /* 7 */ "EMERG  "
   };
 
-  if( to_logfile )
-    fd_log_private_fprintf_0( log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
-                              level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
-                              fd_log_app(),fd_log_group(),thread, file,line,func, msg );
+  if( to_logfile ) {
+    fd_log_private_fprintf_nolock_0(
+        log_fileno, "%s %s %6lu:%-6lu %s:%s:%-4s %s:%s:%-4s %s(%i)[%s]: %s\n",
+        level_cstr[level], now_cstr, fd_log_group_id(),tid, fd_log_user(),fd_log_host(),cpu,
+        fd_log_app(),fd_log_group(),thread, file,line,func, msg );
+  }
 
   if( to_stderr ) {
     static char const * color_level_cstr[] = {
@@ -1025,7 +1028,7 @@ fd_log_private_sig_abort( int         sig,
 
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
   if( log_fileno!=-1 ) {
-    fd_log_private_fprintf_0( log_fileno, "Caught signal %i, backtrace:\n", sig );
+    fd_log_private_fprintf_nolock_0( log_fileno, "Caught signal %i, backtrace:\n", sig );
     backtrace_symbols_fd( btrace, btrace_cnt, log_fileno );
     fsync( log_fileno );
   }
@@ -1037,7 +1040,7 @@ fd_log_private_sig_abort( int         sig,
 # else /* !FD_HAS_BACKTRACE */
 
   int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( log_fileno!=-1 ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
+  if( log_fileno!=-1 ) fd_log_private_fprintf_nolock_0( log_fileno, "Caught signal %i.\n", sig );
 
   fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i.\n", sig );
 
