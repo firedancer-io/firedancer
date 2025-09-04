@@ -55,10 +55,14 @@ FD_FN_CONST ulong
 fd_prune_finder_align( void );
 
 FD_FN_CONST ulong
-fd_prune_finder_footprint( void );
+fd_prune_finder_footprint( ulong origin_max,
+                           ulong relayer_max_per_origin );
 
 void *
-fd_prune_finder_new( void * shmem );
+fd_prune_finder_new( void *     shmem,
+                     ulong      origin_max,
+                     ulong      relayer_max_per_origin,
+                     fd_rng_t * rng );
 
 fd_prune_finder_t *
 fd_prune_finder_join( void * shpf );
