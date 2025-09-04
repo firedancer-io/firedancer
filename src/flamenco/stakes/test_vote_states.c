@@ -30,7 +30,7 @@ int main( int argc, char ** argv ) {
   void * vote_states_mem = fd_wksp_alloc_laddr( wksp, fd_vote_states_align(), fd_vote_states_footprint( max_vote_accounts ), wksp_tag );
   FD_TEST( vote_states_mem );
 
-  FD_TEST( fd_vote_states_align()>=alignof(fd_vote_states_t)  );
+  FD_TEST( fd_vote_states_align()>=alignof(fd_vote_states_t) );
   FD_TEST( fd_vote_states_align()==FD_VOTE_STATES_ALIGN );
 
   FD_TEST( !fd_vote_states_new( NULL, max_vote_accounts, 999UL ) );

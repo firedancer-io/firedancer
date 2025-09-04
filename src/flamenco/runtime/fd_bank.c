@@ -611,6 +611,12 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   }
 
+  /* If the parent bank is dead, then we also need to mark the child
+     bank as being a dead block. */
+  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
+    new_bank->flags |= FD_BANK_FLAGS_DEAD;
+  }
+
   /* We want to copy over the fields from the parent to the child,
      except for the fields which correspond to the header of the bank
      struct which is used for pool and map management. We can take
@@ -1108,6 +1114,16 @@ fd_banks_rekey_bank( fd_banks_t *      banks,
   bank->block_id_ = *new_block_id;
 
   fd_banks_map_ele_insert( bank_map, bank, bank_pool );
+
+  fd_rwlock_unwrite( &banks->rwlock );
+}
+
+void
+fd_banks_mark_bank_dead( fd_banks_t * banks,
+                         fd_bank_t *  bank ) {
+  fd_rwlock_write( &banks->rwlock );
+
+  fd_banks_subtree_mark_dead( fd_banks_get_bank_pool( banks ), bank );
 
   fd_rwlock_unwrite( &banks->rwlock );
 }

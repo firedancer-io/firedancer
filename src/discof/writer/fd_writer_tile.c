@@ -330,16 +330,15 @@ after_frag( fd_writer_tile_ctx_t * ctx,
     }
 
     if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-      FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-
         fd_runtime_finalize_txn(
           ctx->funk,
           ctx->funk_txn,
           txn_ctx,
           ctx->bank,
           ctx->capture_ctx );
-
-      } FD_SPAD_FRAME_END;
+    } else {
+      /* This means that we should mark the block as dead. */
+      fd_banks_mark_bank_dead( ctx->banks, ctx->bank );
     }
 
     /* Notify the replay tile that we are done with this txn. */

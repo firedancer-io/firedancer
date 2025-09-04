@@ -14,6 +14,7 @@
 #include "../../rewards/fd_rewards.h"
 #include "../../stakes/fd_stakes.h"
 #include "../../types/fd_types.h"
+#include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
 
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
@@ -473,10 +474,6 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       return res;
     }
 
-    /* Initialize the cost tracker */
-    fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runner->spad, FD_COST_TRACKER_ALIGN, sizeof(fd_cost_tracker_t) );
-    fd_cost_tracker_init( cost_tracker, runner->spad );
-
     fd_txn_p_t * txn_ptrs = block_info->microblock_batch_infos[0].microblock_infos[0].txns;
     ulong        txn_cnt  = block_info->microblock_batch_infos[0].txn_cnt;
 
@@ -504,12 +501,11 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
           slot_ctx->bank,
           capture_ctx );
 
-      /* Update the cost tracker */
-      fd_transaction_cost_t transaction_cost = fd_calculate_cost_for_executed_transaction( txn_ctx, runner->spad );
-      res = fd_cost_tracker_try_add( cost_tracker, txn_ctx, &transaction_cost );
-      if( FD_UNLIKELY( res ) ) {
+      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
         break;
       }
+
+      res = FD_RUNTIME_EXECUTE_SUCCESS;
     }
 
     /* Finalize the block */
