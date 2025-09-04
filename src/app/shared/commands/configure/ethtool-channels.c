@@ -99,15 +99,79 @@ set_device_rxfh_default( char const * device ) {
 static void
 set_device_rxfh_from_idx( char const * device,
                           uint         start_idx ) {
-  //TODO ethtool --set-rxfh-indir %s start %u equal %u"
+  //TODO RUN: ethtool --set-rxfh-indir %s start %u equal %u"
   (void)device;
   (void)start_idx;
 }
 
-static void
+static int
 device_enable_feature_ntuple( char const * device ) {
-  //TODO ethtool --features %s ntuple-filters on
-  (void)device;
+  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
+  if( FD_UNLIKELY( sock < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+
+  struct ifreq ifr = { 0 };
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
+
+  struct ethtool_sset_info * esi = fd_alloca( alignof(struct ethtool_sset_info),
+                                              sizeof(struct ethtool_sset_info) + sizeof(uint) );
+  esi->cmd = ETHTOOL_GSSET_INFO;
+  esi->sset_mask = fd_ulong_mask_bit( ETH_SS_FEATURES );
+  ifr.ifr_data = esi;
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
+    FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSSET_INFO) failed (%i-%s)",
+                      errno, fd_io_strerror( errno ) ));
+    return -errno;
+  }
+  uint feature_cnt = esi->data[0];
+
+  struct ethtool_gstrings * egs = calloc( 1, sizeof(struct ethtool_gstrings) + (feature_cnt * ETH_GSTRING_LEN) );
+  if( FD_UNLIKELY( egs == NULL ) ) FD_LOG_ERR(( "out of memory" ));
+  egs->cmd = ETHTOOL_GSTRINGS;
+  egs->string_set = ETH_SS_FEATURES;
+  ifr.ifr_data = egs;
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
+    FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSSET_INFO) failed (%i-%s)",
+                      errno, fd_io_strerror( errno ) ));
+    free( egs );
+    return -errno;
+  }
+  int feature_idx = -1;
+  for( uint j=0U; j<feature_cnt; ++j) {
+    uchar const * gstring = egs->data + (j * ETH_GSTRING_LEN);
+    if( 0 == strncmp( (char const *)gstring, "rx-ntuple-filter", ETH_GSTRING_LEN ) ) {
+      feature_idx = (int)j;
+      break;
+    }
+  }
+  free( egs );
+  if( FD_UNLIKELY( feature_idx < 0 ) ) {
+    FD_LOG_WARNING(( "error configuring network device, ntuple feature string not found" ));
+    return -1;
+  }
+
+  FD_LOG_NOTICE(( "RUN: `ethtool --features %s ntuple-filters on`", device ));
+  uint feature_block = (uint)feature_idx / 32u;
+  uint feature_offset = (uint)feature_idx % 32u;
+  ulong const esf_size = sizeof(struct ethtool_sfeatures) +
+                        ((feature_block + 1) * sizeof(struct ethtool_set_features_block));
+  struct ethtool_sfeatures * esf = fd_alloca( alignof(struct ethtool_sfeatures), esf_size );
+  fd_memset( esf, 0, esf_size );
+  if( FD_UNLIKELY( esf == NULL ) ) FD_LOG_ERR(( "out of memory" ));
+  esf->cmd = ETHTOOL_SFEATURES;
+  esf->size = feature_block + 1;
+  esf->features[ feature_block ].valid     = 1u<<feature_offset;
+  esf->features[ feature_block ].requested = 1u<<feature_offset;
+  ifr.ifr_data = esf;
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
+    FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
+                      errno, fd_io_strerror( errno ) ));
+    return -errno;
+  }
+
+  close( sock );
+  return 0;
 }
 
 static void
