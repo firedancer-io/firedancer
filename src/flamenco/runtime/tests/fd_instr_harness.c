@@ -108,7 +108,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_out->details.compute_budget.compute_meter      = test_ctx->cu_avail;
   runtime->log.enable_vm_tracing                     = runner->enable_vm_tracing;
   runtime->log.tracing_mem                           = runner->enable_vm_tracing ?
-                                                       fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
+                                                       fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 ) :
                                                        NULL;
 
   /* Set up instruction context */

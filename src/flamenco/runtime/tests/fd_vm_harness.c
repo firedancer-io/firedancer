@@ -163,7 +163,7 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
                               ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack. This may also modify the sysvar instructions account, if its present. */
-  int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr );
+  int stack_push_err = fd_instr_stack_push( ctx->runtime, ctx->bank, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr );
   if( FD_UNLIKELY( stack_push_err ) ) {
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;
@@ -400,7 +400,7 @@ fd_solfuzz_pb_vm_serialize_run( fd_solfuzz_runner_t * runner,
                               ( !memcmp( program_acc->owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   /* Push the instruction onto the stack */
-  FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );
+  FD_TEST( !fd_instr_stack_push( ctx->runtime, ctx->bank, ctx->txn_in, ctx->txn_out, (fd_instr_info_t *)ctx->instr ) );
 
   /* Call serialize_parameters */
   ulong                   input_sz                = 0UL;

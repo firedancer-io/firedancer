@@ -17,7 +17,7 @@
 
 #define FD_PROGCACHE_SHMEM_MAGIC (0xf17eda2ce7fc2c03UL)
 
-#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH * (20UL<<20))
+#define FD_PROGCACHE_SPAD_MAX (FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 * (20UL<<20))
 
 struct fd_progcache_shmem {
 
@@ -48,10 +48,10 @@ struct fd_progcache_shmem {
 
   struct {
     fd_rwlock_t        lock;
-    fd_progcache_rec_t rec[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
+    fd_progcache_rec_t rec[ FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 ];
     uint               rec_used;
     uint               spad_used;
-    uint               spad_off[ FD_MAX_INSTRUCTION_STACK_DEPTH ];
+    uint               spad_off[ FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0268 ];
     uchar              spad[ FD_PROGCACHE_SPAD_MAX ] __attribute__((aligned(64UL)));
   } spill;
 
