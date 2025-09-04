@@ -39,7 +39,7 @@ SHAM_LINK_(start)( SHAM_LINK_(t) * self ) {
 }
 
 static void
-SHAM_LINK_(during_frag)( SHAM_LINK_CONTEXT * ctx, void const * msg, int sz );
+SHAM_LINK_(during_frag)( SHAM_LINK_CONTEXT * ctx, ulong sig, ulong ctl, void const * msg, int sz );
 
 static void
 SHAM_LINK_(after_frag)( SHAM_LINK_CONTEXT * ctx );
@@ -64,7 +64,7 @@ SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx ) {
 
     ulong chunk = mline->chunk;
     /* TODO: sanity check chunk,sz */
-    SHAM_LINK_(during_frag)( ctx, fd_chunk_to_laddr( self->wksp, chunk ), mline->sz );
+    SHAM_LINK_(during_frag)( ctx, mline->sig, mline->ctl, fd_chunk_to_laddr( self->wksp, chunk ), mline->sz );
 
     seq_found = fd_frag_meta_seq_query( mline );
     diff      = fd_seq_diff( seq_found, self->seq_expect );

@@ -288,7 +288,6 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
 void
 fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_column * col, fd_store_t * store, fd_reasm_fec_t * fec) {
   ulong slot = fec->slot;
-  FD_LOG_NOTICE(( "assembling slot %lu block", slot ));
 
   /* Get a block from the map */
   fd_rpc_block_t * blk = fd_rpc_history_alloc_block( hist, slot );
@@ -300,29 +299,29 @@ fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_c
   fd_store_fec_t * list[FD_REASM_MAP_COL_HEIGHT];
   for( ulong idx = 0; idx < col->ele_cnt; ) {
     ulong end_idx = ULONG_MAX;
-    /* Query the next batch */
-    fd_store_shacq( store );
-    ulong batch_sz = 0;
-    for( ulong i = idx; i < col->ele_cnt; i++ ) {
-      fd_reasm_fec_t * ele = &col->ele[i];
-      fd_store_fec_t * fec_p = list[i-idx] = fd_store_query( store, &ele->key );
-      if( !fec_p ) {
-        FD_LOG_ERR(( "missing fec" ));
+    FD_SPAD_FRAME_BEGIN( hist->spad ) {
+      /* Query the next batch */
+      fd_store_shacq( store );
+      ulong batch_sz = 0;
+      for( ulong i = idx; i < col->ele_cnt; i++ ) {
+        fd_reasm_fec_t * ele = &col->ele[i];
+        fd_store_fec_t * fec_p = list[i-idx] = fd_store_query( store, &ele->key );
+        if( !fec_p ) {
+          fd_store_shrel( store );
+          FD_LOG_WARNING(( "missing fec when assembling block %lu", slot ));
+          return;
+        }
+        batch_sz += fec_p->data_sz;
+        if( col->ele[i].data_complete ) {
+          end_idx = i;
+          break;
+        }
+      }
+      if( end_idx == ULONG_MAX ) {
         fd_store_shrel( store );
+        FD_LOG_ERR(( "missing data complete flag" ));
         return;
       }
-      batch_sz += fec_p->data_sz;
-      if( col->ele[i].data_complete ) {
-        end_idx = i;
-        break;
-      }
-    }
-    if( end_idx == ULONG_MAX ) {
-      FD_LOG_ERR(( "missing data complete flag" ));
-      fd_store_shrel( store );
-      return;
-    }
-    FD_SPAD_FRAME_BEGIN( hist->spad ) {
       uchar * blk_data = fd_spad_alloc( hist->spad, alignof(ulong), batch_sz );
       ulong batch_off = 0;
       for( ulong i = idx; i <= end_idx; i++ ) {
@@ -331,21 +330,22 @@ fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_c
         batch_off += fec_p->data_sz;
       }
       FD_TEST( batch_off == batch_sz );
+      fd_store_shrel( store );
       /* Scan the block. Trim the padding. */
       batch_sz = fd_rpc_history_scan_block( hist, slot, file_offset, blk_data, batch_sz );
       /* Write the trimmed batch to the file */
       if( pwrite( hist->file_fd, blk_data, batch_sz, (long)file_offset ) != (ssize_t)batch_sz ) {
         FD_LOG_ERR(( "unable to write to rpc history file" ));
-        fd_store_shrel( store );
         return;
       }
       file_offset += batch_sz;
       blk->file_size += batch_sz;
       hist->file_totsz = file_offset;
     } FD_SPAD_FRAME_END;
-    fd_store_shrel( store );
     idx = end_idx + 1;
   }
+
+  FD_LOG_NOTICE(( "processed slot %lu", slot ));
 }
 
 static void
@@ -357,9 +357,6 @@ fd_rpc_history_discard_column(fd_rpc_reasm_map_t * reasm_map, ulong slot) {
 
 void
 fd_rpc_history_save_fec(fd_rpc_history_t * hist, fd_store_t * store, fd_reasm_fec_t * fec_msg ) {
-  fd_store_fec_t * fec_p = fd_store_query( store, &fec_msg->key );
-  if( !fec_p ) return;
-
   fd_rpc_reasm_map_t * reasm_map = hist->reasm_map;
 
   if( reasm_map->head == 0UL ) {
@@ -381,9 +378,7 @@ fd_rpc_history_save_fec(fd_rpc_history_t * hist, fd_store_t * store, fd_reasm_fe
   ulong col_idx = fec_msg->slot & (FD_REASM_MAP_COL_CNT - 1);
   struct fd_rpc_reasm_map_column * col = &reasm_map->cols[col_idx];
 
-  if( col->ele_cnt == 0 ) {
-    FD_TEST( fec_msg->fec_set_idx == 0 );
-  } else {
+  if( col->ele_cnt ) {
     FD_TEST( fec_msg->fec_set_idx > col->ele[col->ele_cnt-1].fec_set_idx );
   }
 

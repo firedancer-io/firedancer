@@ -785,9 +785,10 @@ fd_topo_initialize( config_t * config ) {
     fd_topo_tile_t * rpcserv_tile = fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
     fd_topob_tile_uses( topo, rpcserv_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, rpcserv_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv",  0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_tower", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   }
 
   /* For now the only plugin consumer is the GUI */
