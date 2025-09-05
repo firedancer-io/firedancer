@@ -179,6 +179,7 @@ fd_quic_conn_query( fd_quic_conn_map_t * map,
   fd_quic_conn_map_t sentinel = {0};
   if( !conn_id ) return NULL;
   fd_quic_conn_map_t * entry = fd_quic_conn_map_query( map, conn_id, &sentinel );
+  if( entry->conn && entry->conn->state==FD_QUIC_CONN_STATE_INVALID ) return NULL;
   return entry->conn;
 }
 
