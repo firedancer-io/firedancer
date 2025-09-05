@@ -427,8 +427,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   uchar * input = NULL;
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, direct_mapping, mask_out_rent_epoch_in_vm_serialization,
-                                                  is_deprecated, &input );
+                                                  acc_region_metas, stricter_abi_and_runtime_constraints, direct_mapping,
+                                                  mask_out_rent_epoch_in_vm_serialization, is_deprecated, &input );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

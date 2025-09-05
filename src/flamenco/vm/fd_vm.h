@@ -23,11 +23,11 @@ typedef struct fd_vm_shadow fd_vm_shadow_t;
    within the larger input region. */
 
 struct __attribute__((aligned(8UL))) fd_vm_input_region {
-   ulong         vaddr_offset; /* Represents offset from the start of the input region. */
-   ulong         haddr;        /* Host address corresponding to the start of the mem region. */
-   uint          region_sz;    /* Size of the memory region. */
-   uchar         is_writable;  /* If the region can be written to or is read-only */
-   uchar         is_acct_data; /* Set if this is an account data region (either orig data or resize buffer). */
+   ulong vaddr_offset; /* Represents offset from the start of the input region. */
+   ulong haddr;        /* Host address corresponding to the start of the mem region. */
+   uint  region_sz;    /* Size of the memory region. */
+   uchar is_writable;  /* If the region can be written to or is read-only */
+   uchar is_acct_data; /* Set if this is an account data region (data + resize buffer). */
 };
 typedef struct fd_vm_input_region fd_vm_input_region_t;
 
@@ -36,17 +36,17 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
-   uint                                region_idx;
-   uchar                               has_data_region;
-   uchar                               has_resizing_region;
+   uint  region_idx;
+   uchar has_data_region;
+   uchar has_resizing_region;
    /* offset of the accounts metadata region, relative to the start of the input region.
       importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */
-   ulong                               metadata_region_offset;
+   ulong metadata_region_offset;
    /* FIXME: We can get rid of this field once DM is activated.  This is
       only a hack to make the non-DM code path happy.  When DM is
       activated, we could query the input_mem_region array for the
       original data len. */
-   ulong                               original_data_len;
+   ulong original_data_len;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
