@@ -132,7 +132,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                                                    FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) + FD_BPF_ALIGN_OF_U128)
 
 #define FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                           \
-                                             ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
+                                             ((FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
                                               ((FD_TXN_MTU-FD_TXN_MIN_SERIALIZED_SZ-account_lock_limit)*8UL)) /* We can have roughly this much duplicate offsets */
 
 /* Bincode valloc footprint over the execution of a single transaction.
@@ -179,11 +179,11 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT (2UL*FD_ACC_SZ_MAX*72UL/40UL)
 
 /* Misc other footprint. */
-#define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*FD_ULONG_ALIGN_UP(FD_SBPF_SYSCALLS_FOOTPRINT, FD_SBPF_SYSCALLS_ALIGN))
+#define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296*FD_ULONG_ALIGN_UP(FD_SBPF_SYSCALLS_FOOTPRINT, FD_SBPF_SYSCALLS_ALIGN))
 
 #define FD_RUNTIME_VM_TRACE_EVENT_MAX      (128UL<<20)
 #define FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX (2048UL)
-#define FD_RUNTIME_VM_TRACE_FOOTPRINT      (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
+#define FD_RUNTIME_VM_TRACE_FOOTPRINT      (FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
 
 #define FD_RUNTIME_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT)
 #define FD_SOLFUZZ_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT + FD_RUNTIME_VM_TRACE_FOOTPRINT)
@@ -276,7 +276,7 @@ fd_runtime_spad_private_frame_end( fd_runtime_spad_verify_handle_private_t * _sp
      super fast spad calls everywhere in the runtime, and every now and
      then we invoke verify to check things. */
   /* -1UL because spad pop is called after instr stack pop. */
-  if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
+  if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
     uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( _spad_handle->txn_ctx->txn_descriptor, _spad_handle->txn_ctx->_txn_raw->raw );
     FD_BASE58_ENCODE_64_BYTES( txn_signature, sig );
     FD_LOG_ERR(( "spad corrupted or overflown on transaction %s", sig ));

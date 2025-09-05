@@ -1646,6 +1646,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "enshrine_slashing_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, raise_cpi_nesting_limit_to_8)>>3,
+    .id                        = {"\x51\x24\x7b\x81\x07\x76\x71\x7b\x32\x7a\x3a\x39\x52\x3b\x55\x90\x79\x36\x50\x59\x4c\xfb\xa8\x52\x5a\x52\xe7\xb5\x3c\x80\x92\x8a"},
+                                 /* 6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj */
+    .name                      = "raise_cpi_nesting_limit_to_8",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1892,6 +1898,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xa9e3bfbaf8d67260: return &ids[ 237 ];
   case 0x3711b30f40730240: return &ids[ 238 ];
   case 0xc1309d1b0ae3e80c: return &ids[ 239 ];
+  case 0x7b717607817b2451: return &ids[ 240 ];
   default: break;
   }
   return NULL;
@@ -2137,4 +2144,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked        
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==237UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==238UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==239UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_cpi_nesting_limit_to_8                            )>>3==240UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

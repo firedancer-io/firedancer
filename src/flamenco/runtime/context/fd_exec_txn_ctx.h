@@ -34,8 +34,10 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 
 /* https://github.com/anza-xyz/agave/blob/0d34a1a160129c4293dac248e14231e9e773b4ce/program-runtime/src/compute_budget.rs#L139 */
 #define FD_MAX_INSTRUCTION_TRACE_LENGTH (64UL)
-/* https://github.com/anza-xyz/agave/blob/f70ab5598ccd86b216c3928e4397bf4a5b58d723/compute-budget/src/compute_budget.rs#L13 */
+/* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/execution_budget.rs#L7 */
 #define FD_MAX_INSTRUCTION_STACK_DEPTH  (5UL)
+/* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/execution_budget.rs#L9 */
+#define FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296 (9UL)
 
 struct fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
@@ -66,12 +68,12 @@ struct fd_exec_txn_ctx {
   /* Fields below here are not guaranteed to be local joins in txn execution. */
 
   ulong                                paid_fees;
-  ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
-  fd_txn_t const *                     txn_descriptor;                              /* Descriptor of the transaction. */
-  fd_rawtxn_b_t                        _txn_raw[1];                                 /* Raw bytes of the transaction. */
-  uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
-  uchar                                instr_stack_sz;                              /* Current depth of the instruction execution stack. */
-  fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
+  ulong                                loaded_accounts_data_size;                             /* The actual transaction loaded data size */
+  fd_txn_t const *                     txn_descriptor;                                        /* Descriptor of the transaction. */
+  fd_rawtxn_b_t                        _txn_raw[1];                                           /* Raw bytes of the transaction. */
+  uint                                 custom_err;                                            /* When a custom error is returned, this is where the numeric value gets stashed */
+  uchar                                instr_stack_sz;                                        /* Current depth of the instruction execution stack. */
+  fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH_SIMD_0296]; /* Instruction execution stack. */
   fd_exec_instr_ctx_t *                failed_instr;
   int                                  instr_err_idx;
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
