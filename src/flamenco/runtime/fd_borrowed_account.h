@@ -1,10 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h
 #define HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h
 
+#include "fd_bank.h"
 #include "fd_executor_err.h"
-#include "fd_system_ids.h"
-#include "fd_runtime.h"
-#include "context/fd_exec_txn_ctx.h"
 #include "sysvar/fd_sysvar_rent.h"
 
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */

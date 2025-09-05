@@ -36,8 +36,8 @@ FD_PROTOTYPES_BEGIN
    (FD_BANKS_MAX_STAKE_ACCOUNTS / (STAKE_ACCOUNT_STORES_PER_BLOCK + (FD_BANKS_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK)))
    == 515UL partitions.
 */
-#define FD_REWARDS_MAX_PARTITIONS (FD_RUNTIME_MAX_STAKE_ACCOUNTS / (STAKE_ACCOUNT_STORES_PER_BLOCK + (FD_RUNTIME_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK)))
-FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS == 515UL, "incorrect FD_REWARDS_MAX_PARTITIONS" );
+#define FD_REWARDS_MAX_PARTITIONS ((FD_RUNTIME_MAX_STAKE_ACCOUNTS / STAKE_ACCOUNT_STORES_PER_BLOCK) + (FD_RUNTIME_MAX_STAKE_ACCOUNTS % STAKE_ACCOUNT_STORES_PER_BLOCK != 0))
+FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS == 733, "incorrect FD_REWARDS_MAX_PARTITIONS" );
 FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH, "incorrect FD_REWARDS_MAX_PARTITIONS" );
 
 /* The max of footprint of fd_epoch_stakes is variable depending on the
@@ -52,12 +52,11 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
    all pool members:        128 bytes  * 3M                   = 384 MB
 
    each dlist:              24 bytes for sizeof(DLIST_T)      = 24 bytes
-   all dlists:              24 bytes   * 515 max partitions   = 12360 bytes
+   all dlists:              24 bytes   * 733 max partitions   = 17592 bytes
 
-   total footprint:         4224 bytes + 384 MB + 12360 bytes = 384016584 bytes
+   total footprint:         4224 bytes + 384 MB + 17592 bytes = 384021816 bytes
 */
-#define FD_EPOCH_REWARDS_FOOTPRINT (384016584UL)
-/* TODO: Add some static asserts to validate this calculation */
+#define FD_EPOCH_REWARDS_FOOTPRINT (384021816UL)
 
 #define FD_EPOCH_REWARDS_ALIGN (128UL)
 

@@ -1,10 +1,30 @@
-DUMP_DIR=${DUMP_DIR:="./dump"}
+source contrib/test/ledger_common.sh
+
+DUMP=${DUMP:="./dump"}
 echo $OBJDIR
 
 LEDGER="devnet-398736132-solcap"
+REDOWNLOAD=1
 
-if [[ ! -e $DUMP_DIR/$LEDGER && SKIP_INGEST -eq 0 ]]; then
-    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
+while [[ $# -gt 0 ]]; do
+case $1 in
+    -nr|--no-redownload)
+       REDOWNLOAD=0
+       shift
+       ;;
+    -*|--*)
+       echo "unknown option $1"
+       exit 1
+       ;;
+    *)
+       POSITION_ARGS+=("$1")
+       shift
+       ;;
+  esac
+done
+
+download_and_extract_ledger() {
+  echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
   if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
     if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
       if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
@@ -15,20 +35,30 @@ if [[ ! -e $DUMP_DIR/$LEDGER && SKIP_INGEST -eq 0 ]]; then
       fi
     fi
   fi
-  gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP_DIR/$LEDGER.tar.gz | tar zxf - -C $DUMP_DIR
+  gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
+}
+
+if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+  download_and_extract_ledger
+  create_checksum
+else
+  check_ledger_checksum_and_redownload
 fi
 
-rm -rf $DUMP_DIR/$LEDGER/devnet-398736132_current.toml
-rm -rf $DUMP_DIR/$LEDGER/fd.solcap
+rm -rf $DUMP/$LEDGER/devnet-398736132_current.toml
+rm -rf $DUMP/$LEDGER/fd.solcap
 
-cp $DUMP_DIR/$LEDGER/devnet-398736132.toml $DUMP_DIR/$LEDGER/devnet-398736132_current.toml
+cp $DUMP/$LEDGER/devnet-398736132.toml $DUMP/$LEDGER/devnet-398736132_current.toml
 
-export ledger_dir=$(realpath $DUMP_DIR/$LEDGER)
-sed -i "s#{ledger_dir}#${ledger_dir}#g" "$DUMP_DIR/$LEDGER/devnet-398736132_current.toml"
+export ledger_dir=$(realpath $DUMP/$LEDGER)
+sed -i "s#{ledger_dir}#${ledger_dir}#g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 
-$OBJDIR/bin/firedancer-dev configure init all --config $DUMP_DIR/$LEDGER/devnet-398736132_current.toml &> /dev/null
-$OBJDIR/bin/firedancer-dev backtest --config $DUMP_DIR/$LEDGER/devnet-398736132_current.toml
-$OBJDIR/bin/firedancer-dev configure fini all --config $DUMP_DIR/$LEDGER/devnet-398736132_current.toml &> /dev/null
+$OBJDIR/bin/firedancer-dev configure init all --config $DUMP/$LEDGER/devnet-398736132_current.toml &> /dev/null
+$OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/devnet-398736132_current.toml
+$OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/devnet-398736132_current.toml &> /dev/null
 
-$OBJDIR/bin/fd_solcap_import $DUMP_DIR/$LEDGER/bank_hash_details/ $DUMP_DIR/$LEDGER/solana.solcap
-$OBJDIR/bin/fd_solcap_diff $DUMP_DIR/$LEDGER/solana.solcap $DUMP_DIR/$LEDGER/fd.solcap -v 4
+$OBJDIR/bin/fd_solcap_import $DUMP/$LEDGER/bank_hash_details/ $DUMP/$LEDGER/solana.solcap
+$OBJDIR/bin/fd_solcap_diff $DUMP/$LEDGER/solana.solcap $DUMP/$LEDGER/fd.solcap -v 4
+
+# check that the ledger is not corrupted after a run
+check_ledger_checksum

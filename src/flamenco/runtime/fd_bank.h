@@ -8,7 +8,6 @@
 #include "../stakes/fd_stake_delegations.h"
 #include "../stakes/fd_vote_states.h"
 #include "../fd_rwlock.h"
-#include "fd_runtime_const.h"
 #include "fd_blockhashes.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "../../ballet/lthash/fd_lthash.h"
@@ -215,7 +214,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_lthash_value_t,                 lthash,                      sizeof(fd_lthash_value_t),                 alignof(fd_lthash_value_t),                 0,   0,                1    )  /* LTHash */                                                 \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
   X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
-  X(fd_epoch_leaders_t,                epoch_leaders,               FD_RUNTIME_MAX_EPOCH_LEADERS,              FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
+  X(fd_epoch_leaders_t,                epoch_leaders,               FD_EPOCH_LEADERS_MAX_FOOTPRINT,            FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
                                                                                                                                                                                           /* case. We also can assume 432k slots per epoch. */         \
   X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t),                     0,   0,                0    )  /* Features */                                               \
@@ -542,7 +541,7 @@ fd_bank_stake_delegations_delta_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_write( &bank->stake_delegations_delta_lock );
   if( !bank->stake_delegations_delta_dirty ) {
     bank->stake_delegations_delta_dirty = 1;
-    fd_stake_delegations_new( bank->stake_delegations_delta, FD_RUNTIME_MAX_STAKE_ACCS_IN_SLOT, 1 );
+    fd_stake_delegations_new( bank->stake_delegations_delta, FD_STAKE_DELEGATIONS_MAX_PER_SLOT, 1 );
   }
   return fd_stake_delegations_join( bank->stake_delegations_delta );
 }

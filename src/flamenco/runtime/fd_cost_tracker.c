@@ -1,4 +1,5 @@
 #include "fd_cost_tracker.h"
+#include "fd_bank.h"
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE static inline ulong

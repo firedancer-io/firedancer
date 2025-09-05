@@ -4,7 +4,6 @@
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
-#include "fd_bank.h"
 #include "context/fd_capture_ctx.h"
 
 /* fd_hashes.h provides functions for computing and updating the bank hash

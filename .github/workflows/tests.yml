@@ -134,7 +134,7 @@ jobs:
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          DUMP_DIR=../dump make run-solcap-tests
+          DUMP=../dump make run-solcap-tests
 
       - name: run integration tests
         if: ${{ matrix.run-integration-tests }}

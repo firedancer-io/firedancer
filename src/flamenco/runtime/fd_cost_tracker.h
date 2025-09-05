@@ -7,6 +7,7 @@
 #include "../vm/fd_vm_base.h"
 #include "fd_system_ids.h"
 #include "fd_executor.h"
+#include "fd_runtime_const.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 
@@ -22,6 +23,9 @@
 // https://github.com/anza-xyz/agave/blob/v2.3.0/cost-model/src/block_cost_limits.rs#L50-L56
 #define FD_MAX_BLOCK_UNITS_SIMD_0256 ( 60000000UL )
 
+// https://github.com/anza-xyz/agave/blob/v3.0.0/cost-model/src/block_cost_limits.rs#L30
+#define FD_MAX_BLOCK_UNITS_SIMD_0286 ( 100000000UL )
+
 // https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38
 #define FD_MAX_VOTE_UNITS ( 36000000UL )
 
@@ -36,10 +40,31 @@
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT ( 4 )
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT ( 5 )
 
-/* This is the reasonably tight upper bound for the number of writable
-   accounts in a slot. The block CU limit should always be highest
-   anticipated limit. */
-#define FD_WRITABLE_ACCS_IN_SLOT ((FD_MAX_BLOCK_UNITS_SIMD_0256 + FD_WRITE_LOCK_UNITS - 1UL) / FD_WRITE_LOCK_UNITS)
+/* A reasonably tight bound can be derived based on CUs.  The most
+   optimal use of CUs is to pack as many writable accounts as possible
+   for as cheaply as possible.  This means we should try to pack as many
+   writable accounts as possible into each transaction.  Each
+   transaction requires at least one signature.  We will assume that all
+   of these accounts have no account data.
+
+   64 - Max number of accounts per transaction.  In this case we will
+   assume that all of these accounts are writable and have no data.
+   100000000 - CUs per slot
+   720 - Cost of a signature
+   300 - Cost of a writable account write lock
+
+   We can have (100000000 / (720 + 64 * 300)) = 5020 transactions per
+   slot with maximum writable account utilization.
+
+   So, 5020 transactions per slot * 64 accounts per transaction =
+   321280 writable accounts per slot.
+
+   NOTE: A slightly tighter bound can probably be derived.
+*/
+
+#define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ( \
+  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION * (FD_MAX_BLOCK_UNITS_SIMD_0286 / ( FD_WRITE_LOCK_UNITS * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION + FD_PACK_COST_PER_SIGNATURE)) )
+FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==321280UL, "Incorrect FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT" );
 
 FD_PROTOTYPES_BEGIN
 

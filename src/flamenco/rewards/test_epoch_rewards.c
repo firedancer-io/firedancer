@@ -22,6 +22,9 @@ int main( int argc, char * * argv ) {
   FD_TEST( fd_epoch_rewards_align() >= fd_epoch_stake_reward_pool_align()  );
   FD_TEST( fd_epoch_rewards_align() >= fd_epoch_stake_reward_dlist_align() );
 
+  /* Make sure that the static footprint is at least as large as the
+     dynamic footprint. */
+  FD_TEST( fd_epoch_rewards_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) <= FD_EPOCH_REWARDS_FOOTPRINT );
 
   uchar * epoch_rewards_mem = NULL;
 
@@ -29,7 +32,6 @@ int main( int argc, char * * argv ) {
 
   epoch_rewards_mem = fd_epoch_rewards_new( NULL, STAKE_ACC_MAX );
   FD_TEST( !epoch_rewards_mem );
-
 
   /* Correctly aligned memory. Successful new() call. */
 

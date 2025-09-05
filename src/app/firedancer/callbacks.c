@@ -2,9 +2,10 @@
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../disco/store/fd_store.h"
-#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \

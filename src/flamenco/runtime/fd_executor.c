@@ -333,6 +333,12 @@ fd_executor_check_transaction_age_and_compute_budget_limits( fd_exec_txn_ctx_t *
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
+static inline ulong
+get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
+}
+
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L61-L75 */
 int
 fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
