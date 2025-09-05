@@ -259,7 +259,7 @@ struct __attribute__((packed)) fd_shred {
       /* Total number of coding shreds in FEC set. Must be positive <= FD_REEDSOL_CODE_SHREDS_MAX. */
       /* 0x55 */ ushort code_cnt;
 
-      /* Index within the vector of coding shreds in slot. In [0,
+      /* Index within the vector of coding shreds in FEC set. In [0,
          code_cnt).  Also, shred.code.idx <= shred.idx. */
       /* 0x57 */ ushort idx;
     } code;

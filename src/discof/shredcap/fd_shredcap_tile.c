@@ -293,7 +293,7 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
 
 static int
 is_fec_completes_msg( ulong sz ) {
-  return sz == FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ;
+  return sz == FD_SHRED_DATA_HEADER_SZ + 2 * FD_SHRED_MERKLE_ROOT_SZ;
 }
 
 static inline void
@@ -777,7 +777,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->manifest_exec_slot_ctx );
   ctx->manifest_exec_slot_ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH ) );
   FD_TEST( ctx->manifest_exec_slot_ctx->banks );
-  ctx->manifest_exec_slot_ctx->bank  = fd_banks_init_bank( ctx->manifest_exec_slot_ctx->banks, 0UL );
+  fd_hash_t   init_hash = {.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->manifest_exec_slot_ctx->bank  = fd_banks_init_bank( ctx->manifest_exec_slot_ctx->banks, &init_hash );
   FD_TEST( ctx->manifest_exec_slot_ctx->bank );
 
   strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );

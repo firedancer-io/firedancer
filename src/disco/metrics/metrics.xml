@@ -681,6 +681,8 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
+    <counter name="ShredRepairRcv"       summary="The number of times we received a repair shred" />
+    <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
     <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
         <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
     </histogram>
@@ -719,6 +721,7 @@ metric introduced.
     <int value="0" name="NeededWindow"          label="Need Window" />
     <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
     <int value="2" name="NeededOrphan"          label="Need Orphans" />
+    <int value="4" name="Pong"                  label="Pong" />
 </enum>
 
 <enum name="RepairServPktTypes">
@@ -738,13 +741,21 @@ metric introduced.
     <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
     <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
     <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
-    <counter name="SendPktCnt"                clickhouse_exclude="true"                                 summary="How many packets have sent" />
+    <counter name="ShredRepairReq"            clickhouse_exclude="true"                                 summary="How many repair requests have we sent" />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
+    <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
+    <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
       <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
     </histogram>
     <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
       <summary>Time in seconds spent on linking a new FEC set</summary>
+    </histogram>
+    <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
+      <summary>Time in seconds it took to complete a slot</summary>
+    </histogram>
+    <histogram name="ResponseLatency"  min="10000000" max="1000000000">
+      <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
 </tile>
