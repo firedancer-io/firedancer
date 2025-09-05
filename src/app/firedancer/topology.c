@@ -361,7 +361,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "sign_ping",    "repair_sign",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    2048UL,                        1UL );
+  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  1024UL /* TODO: not sure abt this one */, 128UL,                         1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "repair_sign",  1024UL,                                   sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),                                      1UL );
@@ -948,7 +948,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->repair.repair_intake_listen_port = config->tiles.repair.repair_intake_listen_port;
       tile->repair.repair_serve_listen_port  = config->tiles.repair.repair_serve_listen_port;
       tile->repair.slot_max                  = config->tiles.repair.slot_max;
-      strncpy( tile->repair.good_peer_cache_file, config->tiles.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
+
+      tile->repair.sign_link_depth = 1024; // TODO: fix it
+      tile->repair.sign_link_cnt   = config->firedancer.layout.sign_tile_count - 1;
 
       strncpy( tile->repair.identity_key_path, config->paths.identity_key, sizeof(tile->repair.identity_key_path) );
 

@@ -1,37 +1,18 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-# good_peer_cache_file_fd: The list of known good repair peers, which we read
-#                          at boot and then periodically write to.
-unsigned int logfile_fd, unsigned int good_peer_cache_file_fd
+unsigned int logfile_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
 # 'WARNING' and above are written to the STDERR pipe, while all messages
 # are always written to the log file.
 #
-# good_peer_cache_file: we periodically write out the good peers to the file
-#
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
-           (eq (arg 0) logfile_fd)
-           (eq (arg 0) good_peer_cache_file_fd))
-
-# good_peer_cache_file_fd:
-#
-# We need to seek to the start of the file when we read it in.
-lseek: (eq (arg 0) good_peer_cache_file_fd)
-
-# good_peer_cache_file_fd:
-#
-# We need to truncate the file to 0 before we start writing to it.
-ftruncate: (and (eq (arg 0) good_peer_cache_file_fd)
-                (eq (arg 1) 0))
+           (eq (arg 0) logfile_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
-
-# good_peer_cache_file: we read in the good peer cache file on boot
-read: (eq (arg 0) good_peer_cache_file_fd)
