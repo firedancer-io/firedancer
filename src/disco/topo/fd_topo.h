@@ -487,6 +487,7 @@ struct fd_topo_tile {
       ulong funk_obj_id;
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
+      char  ledger_path[PATH_MAX];
     } tower;
     struct {
       char   folder_path[ PATH_MAX ];
