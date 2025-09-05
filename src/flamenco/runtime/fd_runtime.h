@@ -16,7 +16,6 @@
 #include "../../disco/pack/fd_microblock.h"
 #include "info/fd_microblock_info.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "fd_runtime_public.h"
 #include "../vm/fd_vm_base.h"
 
 /* Various constant values used by the runtime. */
@@ -109,18 +108,18 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    there would be 0 bytes of instruction data, because they exist byte
    for byte in the raw payload, which is not a worthwhile bloat factor.
  */
-#define FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                      \
-                                                        (1UL                         /* dup byte          */                                                + \
-                                                         sizeof(uchar)               /* is_signer         */                                                + \
-                                                         sizeof(uchar)               /* is_writable       */                                                + \
-                                                         sizeof(uchar)               /* executable        */                                                + \
-                                                         sizeof(uint)                /* original_data_len */                                                + \
-                                                         sizeof(fd_pubkey_t)         /* key               */                                                + \
-                                                         sizeof(fd_pubkey_t)         /* owner             */                                                + \
-                                                         sizeof(ulong)               /* lamports          */                                                + \
-                                                         sizeof(ulong)               /* data len          */                                                + \
-                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
-                                                         MAX_PERMITTED_DATA_INCREASE                                                                        + \
+#define FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
+                                                        (1UL                         /* dup byte          */                                                        + \
+                                                         sizeof(uchar)               /* is_signer         */                                                        + \
+                                                         sizeof(uchar)               /* is_writable       */                                                        + \
+                                                         sizeof(uchar)               /* executable        */                                                        + \
+                                                         sizeof(uint)                /* original_data_len */                                                        + \
+                                                         sizeof(fd_pubkey_t)         /* key               */                                                        + \
+                                                         sizeof(fd_pubkey_t)         /* owner             */                                                        + \
+                                                         sizeof(ulong)               /* lamports          */                                                        + \
+                                                         sizeof(ulong)               /* data len          */                                                        + \
+                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
+                                                         MAX_PERMITTED_DATA_INCREASE                                                                                + \
                                                          sizeof(ulong))              /* rent_epoch        */
 
 #define FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                       \
@@ -176,7 +175,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    authorized_voters treaps bloat 40 bytes (epoch+pubkey) in a vote
    account to 72 bytes (sizeof(fd_vote_authorized_voter_t)) in memory.
  */
-#define FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT (2UL*FD_ACC_SZ_MAX*72UL/40UL)
+#define FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT (2UL*FD_RUNTIME_ACC_SZ_MAX*72UL/40UL)
 
 /* Misc other footprint. */
 #define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*FD_ULONG_ALIGN_UP(FD_SBPF_SYSCALLS_FOOTPRINT, FD_SBPF_SYSCALLS_ALIGN))
@@ -203,7 +202,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 /* Footprint here is dominated by vote account decode.  See above for
    why 72/40. */
-#define FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT      (FD_ACC_SZ_MAX*72UL/40UL)
+#define FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT      (FD_RUNTIME_ACC_SZ_MAX*72UL/40UL)
 
 
 /* FD_SLICE_ALIGN specifies the alignment needed for a block slice.

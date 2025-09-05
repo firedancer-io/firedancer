@@ -189,10 +189,10 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L98-L106 */
 
-  if( FD_UNLIKELY( space > FD_ACC_SZ_MAX ) ) {
+  if( FD_UNLIKELY( space > FD_RUNTIME_ACC_SZ_MAX ) ) {
     /* Max msg_sz: 48 - 6 + 2*20 = 82 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Allocate: requested %lu, max allowed %lu", space, FD_ACC_SZ_MAX );
+      "Allocate: requested %lu, max allowed %lu", space, FD_RUNTIME_ACC_SZ_MAX );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_INVALID_ACCT_DATA_LEN;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }

@@ -8,13 +8,13 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/store/fd_store.h"
 #include "../../discof/reasm/fd_reasm.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 #include "../../flamenco/runtime/fd_runtime_init.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/stakes/fd_stake_delegations.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -171,9 +171,6 @@ FD_STATIC_ASSERT( FD_PACK_MAX_BANK_TILES<=64UL, exec_bitset );
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * status_cache_wksp;
-
-  fd_wksp_t  * runtime_public_wksp;
-  fd_runtime_public_t * runtime_public;
 
   int in_kind[ 64 ];
   fd_replay_in_link_t in[ 64 ];
@@ -457,7 +454,7 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
 
   /* Do not modify order! This is join-order in unprivileged_init. */
 
@@ -470,6 +467,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
   l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
   l = FD_LAYOUT_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -602,8 +600,8 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 
 static void
 setup_slot_ctx( fd_replay_tile_ctx_t * ctx ) {
-  uchar * slot_ctx_mem        = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
-  ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
+  uchar * slot_ctx_mem = fd_spad_alloc_check( ctx->runtime_spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
+  ctx->slot_ctx        = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem ) );
 
   ctx->slot_ctx->banks = ctx->banks;
   if( FD_UNLIKELY( !ctx->slot_ctx->banks ) ) {
@@ -618,8 +616,7 @@ setup_slot_ctx( fd_replay_tile_ctx_t * ctx ) {
 
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->status_cache = ctx->status_cache;
-
-  ctx->slot_ctx->capture_ctx = ctx->capture_ctx;
+  ctx->slot_ctx->capture_ctx  = ctx->capture_ctx;
 }
 
 static void
@@ -831,10 +828,6 @@ init_from_snapshot( fd_replay_tile_ctx_t * ctx,
   /* FIXME: We should really only call this once. */
   init_after_snapshot( ctx );
 
-  // Tell the world about the current activate features
-  fd_features_t const * features = fd_bank_features_query( ctx->slot_ctx->bank );
-  fd_memcpy( &ctx->runtime_public->features, features, sizeof(ctx->runtime_public->features) );
-
   /* Publish slot notifs */
   ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
   ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
@@ -965,9 +958,9 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                          ctx,
-                                          fd_runtime_public_account_update_msg_t const * msg,
-                                          uchar const *                                  account_data ) {
+fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                      ctx,
+                                         fd_capture_ctx_account_update_msg_t const * msg,
+                                         uchar const *                               account_data ) {
   if( ctx->capture_ctx && ctx->capture_ctx->capture && fd_bank_slot_get( ctx->slot_ctx->bank )>=ctx->capture_ctx->solcap_start_slot ) {
     /* Write the account to the solcap file */
     fd_solcap_write_account( ctx->capture_ctx->capture,
@@ -979,8 +972,8 @@ fd_replay_process_solcap_account_update( fd_replay_tile_ctx_t *                 
 }
 
 static void
-fd_replay_process_txn_finalized( fd_replay_tile_ctx_t *                                  ctx,
-                                 fd_runtime_public_writer_replay_txn_finalized_t const * msg ) {
+fd_replay_process_txn_finalized( fd_replay_tile_ctx_t *                       ctx,
+                                 fd_writer_replay_txn_finalized_msg_t const * msg ) {
   int exec_tile_id = msg->exec_tile_id;
   if( fd_ulong_extract_bit( ctx->exec_ready_bitset, exec_tile_id )==0 ) {
       ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, exec_tile_id );
@@ -1016,13 +1009,13 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     memcpy( &ctx->fec_out, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_reasm_fec_t) );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_WRITER ) ) {
     fd_replay_in_link_t * in = &ctx->in[ in_idx ];
-    if( sig == FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_TXN_DONE ) {
-      fd_runtime_public_writer_replay_txn_finalized_t const * msg =
-        (fd_runtime_public_writer_replay_txn_finalized_t const *)fd_chunk_to_laddr( in->mem, chunk );
+    if( sig == FD_WRITER_REPLAY_SIG_TXN_DONE ) {
+      fd_writer_replay_txn_finalized_msg_t const * msg =
+        (fd_writer_replay_txn_finalized_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
       fd_replay_process_txn_finalized( ctx, msg );
-    } else if( sig == FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_ACC_UPDATE ) {
-      fd_runtime_public_account_update_msg_t const * msg = (fd_runtime_public_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
-      uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_runtime_public_account_update_msg_t);
+    } else if( sig == FD_WRITER_REPLAY_SIG_ACC_UPDATE ) {
+      fd_capture_ctx_account_update_msg_t const * msg = (fd_capture_ctx_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
+      uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_capture_ctx_account_update_msg_t);
       fd_replay_process_solcap_account_update( ctx, msg, account_data );
     } else {
       FD_LOG_ERR(( "Unknown sig %lu", sig ));
@@ -1216,10 +1209,6 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
     block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, 0UL );
     entry->block_id        = genesis_block_id;
   }
-
-  // Tell the world about the current activate features
-  fd_features_t const * features = fd_bank_features_query( ctx->slot_ctx->bank );
-  fd_memcpy( &ctx->runtime_public->features, features, sizeof(ctx->runtime_public->features) );
 
   /* Publish slot notifs */
   ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
@@ -1795,15 +1784,15 @@ exec_and_handle_slice( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
     ctx->slot_ctx->bank->refcnt++;
 
     /* Dispatch dcache to exec tile */
-    fd_replay_out_link_t *        exec_out = &ctx->exec_out[ exec_idx ];
-    fd_runtime_public_txn_msg_t * exec_msg = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
+    fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
 
     memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
     exec_msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->slot_ctx->bank );
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), 0UL, tsorig, tspub );
-    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_txn_msg_t), exec_out->chunk0, exec_out->wmark );
+    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, tsorig, tspub );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 }
 
@@ -1898,24 +1887,6 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( sizeof(ulong) == getrandom( &ctx->funk_seed, sizeof(ulong), 0 ) );
   FD_TEST( sizeof(ulong) == getrandom( &ctx->status_cache_seed, sizeof(ulong), 0 ) );
 
-  /********************************************************************/
-  /* runtime public                                                   */
-  /********************************************************************/
-
-  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_pub" );
-  if( FD_UNLIKELY( replay_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "no runtime_public" ));
-  }
-
-  ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
-  if( ctx->runtime_public_wksp==NULL ) {
-    FD_LOG_ERR(( "no runtime_public workspace" ));
-  }
-
-  ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
-  if( FD_UNLIKELY( !ctx->runtime_public ) ) {
-    FD_LOG_ERR(( "no runtime_public" ));
-  }
 }
 
 static void
@@ -1938,6 +1909,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * block_id_map_mem   = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
   void * slice_buf          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
   void * exec_slice_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
+  void * spad_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
   ulong  scratch_alloc_mem  = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -2038,7 +2010,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /**********************************************************************/
-  /* spad                                                               */
+  /* spad(s)                                                            */
   /**********************************************************************/
 
   /* Join each of the exec spads. */
@@ -2058,9 +2030,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->exec_spad_cnt++;
   }
 
-  /* Now join the spad that was setup in the runtime public topo obj. */
+  /* Now attach to the runtime spad which is part of the tile memory. */
 
-  ctx->runtime_spad = fd_runtime_public_spad( ctx->runtime_public );
+  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem, fd_spad_footprint( tile->replay.heap_size_gib<<30UL ) ) );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join the runtime_spad" ));
   }
@@ -2350,8 +2322,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
   }
-
-  FD_TEST( ctx->runtime_public!=NULL );
 
   ulong max_exec_slices = tile->replay.max_exec_slices ? tile->replay.max_exec_slices : 65536UL;
   uchar * deque_mem = fd_spad_alloc_check( ctx->runtime_spad, fd_exec_slice_deque_align(), fd_exec_slice_deque_footprint( max_exec_slices ) );

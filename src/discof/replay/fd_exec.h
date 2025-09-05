@@ -2,9 +2,8 @@
 #define HEADER_fd_src_discof_replay_fd_exec_h
 
 #include "../../flamenco/fd_flamenco_base.h"
-#include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/stakes/fd_stakes.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 
@@ -70,20 +69,6 @@ generate_stake_weight_msg_manifest( ulong                                       
   return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
 }
 
-static inline void
-generate_hash_bank_msg( ulong                               task_infos_gaddr,
-                        ulong                               lt_hash_gaddr,
-                        ulong                               start_idx,
-                        ulong                               end_idx,
-                        ulong                               curr_slot,
-                        fd_runtime_public_hash_bank_msg_t * hash_msg_out ) {
-  hash_msg_out->task_infos_gaddr = task_infos_gaddr;
-  hash_msg_out->lthash_gaddr     = lt_hash_gaddr;
-  hash_msg_out->start_idx        = start_idx;
-  hash_msg_out->end_idx          = end_idx;
-  hash_msg_out->slot             = curr_slot;
-}
-
 /* Execution tracking helpers */
 
 struct fd_slice_exec {
@@ -144,5 +129,97 @@ static inline int
 fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->last_batch && slice_exec_ctx->mblks_rem == 0 && slice_exec_ctx->txns_rem == 0;
 }
+
+/* Exec tile msg link formatting. The following take a pointer into
+   a dcache region and formats it as a specific message type. */
+
+/* definition of the public/readable workspace */
+#define EXEC_NEW_TXN_SIG         (0x777777UL)
+
+#define FD_WRITER_BOOT_SIG       (0xAABB0011UL)
+#define FD_WRITER_SLOT_SIG       (0xBBBB1122UL)
+#define FD_WRITER_TXN_SIG        (0xBBCC2233UL)
+
+#define FD_EXEC_STATE_NOT_BOOTED (0xFFFFFFFFUL)
+#define FD_EXEC_STATE_BOOTED     (1<<1UL      )
+
+#define FD_EXEC_ID_SENTINEL      (UINT_MAX    )
+
+/**********************************************************************/
+
+/* exec fseq management apis ******************************************/
+
+static inline uint
+fd_exec_fseq_get_state( ulong fseq ) {
+  return (uint)(fseq & 0xFFFFFFFFU);
+}
+
+static inline ulong
+fd_exec_fseq_set_booted( uint offset ) {
+  ulong state = ((ulong)offset << 32UL);
+  state      |= FD_EXEC_STATE_BOOTED;
+  return state;
+}
+
+static inline uint
+fd_exec_fseq_get_booted_offset( ulong fseq ) {
+  return (uint)(fseq >> 32UL);
+}
+
+static inline uint
+fd_exec_fseq_get_slot( ulong fseq ) {
+  return (uint)(fseq >> 32UL);
+}
+
+static inline int
+fd_exec_fseq_is_not_joined( ulong fseq ) {
+  return fseq==ULONG_MAX;
+}
+
+/* fd_exec_txn_msg_t is the message that is sent from the replay tile to
+   the exec tile.  This represents all of the information that is needed
+   to identify and execute a transaction against a bank.  An idx to the
+   bank in the bank pool must be sent over because the key of the bank
+   will change as FEC sets are processed. */
+
+struct fd_exec_txn_msg {
+  ulong      bank_idx;
+  fd_txn_p_t txn;
+};
+typedef struct fd_exec_txn_msg fd_exec_txn_msg_t;
+
+/* fd_exec_writer_boot_msg_t is the message sent from the exec tile to
+   the writer tile on boot.  This message contains the offset of the
+   txn_ctx in the tile's exec spad. */
+
+struct fd_exec_writer_boot_msg {
+  uint txn_ctx_offset;
+};
+typedef struct fd_exec_writer_boot_msg fd_exec_writer_boot_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_exec_writer_boot_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
+
+/* fd_exec_writer_txn_msg is the message sent from the exec tile to the
+   writer tile after a transaction has been executed.  This message
+   contains the id of the exec tile that executed the transaction. */
+
+struct fd_exec_writer_txn_msg {
+  uchar exec_tile_id;
+};
+typedef struct fd_exec_writer_txn_msg fd_exec_writer_txn_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
+
+/* Writer->Replay message APIs ****************************************/
+
+#define FD_WRITER_REPLAY_SIG_TXN_DONE   (1UL) /* txn finalized */
+#define FD_WRITER_REPLAY_SIG_ACC_UPDATE (2UL) /* solcap account update */
+
+/* fd_writer_replay_txn_finalized_msg_t is the message sent from
+   writer tile to replay tile, notifying the replay tile that a txn has
+   been finalized. */
+
+struct __attribute__((packed)) fd_writer_replay_txn_finalized_msg {
+  int exec_tile_id;
+};
+typedef struct fd_writer_replay_txn_finalized_msg fd_writer_replay_txn_finalized_msg_t;
 
 #endif /* HEADER_fd_src_discof_replay_fd_exec_h */

@@ -40,6 +40,11 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_MIN_STAKE_INSN_CUS (6000UL)
 
+/* FD_RUNTIME_ACC_SZ_MAX is the protocol level hardcoded size limit of a
+   Solana account. */
+
+#define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_const_h */

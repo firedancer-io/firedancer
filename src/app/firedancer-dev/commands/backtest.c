@@ -25,7 +25,8 @@
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/replay/fd_replay_notif.h"
 #include "../../../discof/reasm/fd_reasm.h"
-#include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
+#include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
+
 #include "../main.h"
 
 #include <unistd.h> /* pause */
@@ -221,7 +222,7 @@ backtest_topo( config_t * config ) {
      has been finalized by the writer tile. */
   /**********************************************************************/
   fd_topob_wksp( topo, "writ_repl" );
-  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 1UL, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
   FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
   FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
@@ -235,17 +236,9 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  /* runtime_pub_obj shared by replay, exec and writer tiles */
-  fd_topob_wksp( topo, "runtime_pub" );
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
-  fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" ) );
-
   /* banks_obj shared by replay, exec and writer tiles */
   fd_topob_wksp( topo, "banks" );
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_total_banks, config->firedancer.runtime.limits.max_fork_width );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_total_banks, config->firedancer.runtime.max_fork_width );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -293,9 +286,9 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "bank_busy"   );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
-      config->firedancer.runtime.limits.max_rooted_slots,
-      config->firedancer.runtime.limits.max_live_slots,
-      config->firedancer.runtime.limits.max_transactions_per_slot );
+      config->firedancer.runtime.max_rooted_slots,
+      config->firedancer.runtime.max_live_slots,
+      config->firedancer.runtime.max_transactions_per_slot );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) {

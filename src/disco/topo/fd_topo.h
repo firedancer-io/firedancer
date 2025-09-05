@@ -379,6 +379,8 @@ struct fd_topo_tile {
       int   dump_block_to_pb;
 
       ulong manifest_dcache_obj_id;
+
+      ulong heap_size_gib;
     } replay;
 
     struct {

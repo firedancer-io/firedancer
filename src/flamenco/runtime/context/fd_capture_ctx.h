@@ -2,11 +2,25 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_capture_ctx_h
 
 #include "../../capture/fd_solcap_writer.h"
-#include "../fd_runtime_public.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT */
+#include "../fd_runtime_const.h"
+
+/* fd_capture_ctx_account_update_msg_t is the message sent from
+   writer tile to replay tile that notifies the solcap writer that an
+   account update has occurred. */
+
+struct __attribute__((packed)) fd_capture_ctx_account_update_msg {
+  fd_pubkey_t              pubkey;
+  fd_solana_account_meta_t info;
+  ulong                    data_sz;
+  fd_hash_t                hash;
+  /* Account data follows immediately after this struct */
+};
+typedef struct fd_capture_ctx_account_update_msg fd_capture_ctx_account_update_msg_t;
+#define FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT (FD_RUNTIME_ACC_SZ_MAX + sizeof(fd_capture_ctx_account_update_msg_t))
 
 /* Maximum number of accounts that can be updated in a single transaction */
 #define FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES      (128UL)
-#define FD_CAPTURE_CTX_ACCOUNT_UPDATE_BUFFER_SZ (FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES * FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT)
+#define FD_CAPTURE_CTX_ACCOUNT_UPDATE_BUFFER_SZ (FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES * sizeof(fd_capture_ctx_account_update_msg_t))
 
 /* Context needed to do solcap capture during execution of transactions */
 #define FD_CAPTURE_CTX_ALIGN (8UL)

@@ -2,10 +2,10 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -102,7 +102,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
     }
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
-      fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+      fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
 
       ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
           ctx->banks,
@@ -138,7 +138,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
 
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    fd_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
     msg->exec_tile_id = (uchar)ctx->tile_idx;
 
     fd_stem_publish(
@@ -342,7 +342,7 @@ after_credit( fd_exec_tile_ctx_t * ctx,
 
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
-    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    fd_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
 
     msg->txn_ctx_offset = txn_ctx_offset;
 
