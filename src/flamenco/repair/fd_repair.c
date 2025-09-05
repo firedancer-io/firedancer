@@ -372,7 +372,6 @@ fd_repair_remove_pending_request( fd_repair_t * repair,
   if( FD_UNLIKELY( !pending ) ) {
     return -1;
   }
-
   fd_repair_pending_sign_req_map_ele_remove( repair->pending_sign_map, &nonce, NULL, repair->pending_sign_pool );
   fd_repair_pending_sign_req_pool_ele_release( repair->pending_sign_pool, pending );
   return 0;
