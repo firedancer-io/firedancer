@@ -807,7 +807,7 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
       peer_pool_ele_release( ctx->peers, peer );
       break;
     }
-    default: __builtin_unreachable();
+    default: FD_LOG_ERR(( "unexpected gossip_update tag %u", gossip_update->tag ) );
   }
 }
 
