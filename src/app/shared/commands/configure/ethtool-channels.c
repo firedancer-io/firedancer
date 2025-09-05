@@ -133,7 +133,6 @@ init( fd_config_t const * config ) {
   }
 }
 
-//TODO-AM
 static configure_result_t
 check_device( char const * device,
               uint         rss_queue_mode,
@@ -146,7 +145,7 @@ check_device( char const * device,
   int modified = 0; /* is anything changed from the default (fini'd) state */
 
   /* Set modified bit if num_channels is not the maximum, and set the
-   * error bit if it is not correct as per the current rss_queue_mode */
+     error bit if it is not correct as per the current rss_queue_mode */
   fd_ethtool_ioctl_channels_t channels;
   fd_ethtool_ioctl_channels_get_num( &ioc, &channels );
   if( channels.current != channels.max )
@@ -164,36 +163,59 @@ check_device( char const * device,
                      "configuration file.",
                      device, net_tile_count ));
       } else {
-        /*TODO shouldn't log in all checks?
         FD_LOG_WARNING(( "device `%s` does not have right number of channels (got %u but "
                          "expected %u)",
                          device, channels.current, net_tile_count ));
-                         */
       }
     }
   } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
     if( FD_UNLIKELY( channels.current != channels.max ) ) {
       error = 1;
-      /*TODO shouldn't log in all checks?
       FD_LOG_WARNING(( "device `%s` does not have right number of channels (got %u but "
                        "expected %u)",
-                       device, channels.current, channels.max )); */
+                       device, channels.current, channels.max ));
     }
   }
 
-  //TODO: Set modified bit if rxfh table is not default
-  //TODO: Set error bit if rxfh table is not [0,N) or [1,N] as required by mode
+  /* The default state of the RXFH table should be to round robin over the
+     max number of queues.  The expected state is either [0, net_tile_count)
+     in simple mode or [1, max_channels) in dedicated mode */
+  int rxfh_modified = 0;
+  int rxfh_error = 0;
+  uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ] = { 0 };
+  uint rxfh_table_size = fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table );
+  uint const expected_queue_start = (rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED) ? 1 : 0;
+  uint default_queue = 0;
+  uint expected_queue = expected_queue_start;
+  for( uint j=0u; j<rxfh_table_size; ++j) {
+    rxfh_modified |= (rxfh_table[ j ] != default_queue++);
+    rxfh_error    |= (rxfh_table[ j ] != expected_queue++);
+    if( default_queue >= channels.current )
+      default_queue = 0;
+    if( expected_queue >= channels.current )
+      expected_queue = expected_queue_start;
+  }
+  modified |= rxfh_modified;
+  error    |= rxfh_error;
+  if( FD_UNLIKELY( rxfh_error ) )
+    FD_LOG_WARNING(( "device `%s` does not have the correct rxfh table installed", device ));
 
-  //TODO: Set error bit if ntuple-filters feature does not exist
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    /* Set error bit if ntuple-filters feature does not exist */
+    if( FD_UNLIKELY( !fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE ) ) ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` does not have ntuple feature enabled", device ));
+    }
+  }
 
-  //TODO: Set error bit if ntuple filters do not exactly match desired rules
   //TODO: Set modified bit if any ntuple rules exist
+  //TODO: Set error bit if ntuple filters do not exactly match desired rules
 
   if( !error )
     CONFIGURE_OK();
   if( modified )
-    PARTIALLY_CONFIGURED("TODO");
-  NOT_CONFIGURED("TODO");
+    PARTIALLY_CONFIGURED("device `%s` has partial ethtool-channels network configuration", device );
+  NOT_CONFIGURED("device `%s` missing ethtool-channels network configuration", device );
 }
 
 static configure_result_t

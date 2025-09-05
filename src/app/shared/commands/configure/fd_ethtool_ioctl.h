@@ -32,6 +32,8 @@
 
 #include "../../../../util/fd_util_base.h"
 
+#define FD_ETHTOOL_MAX_RXFH_TABLE_SIZE (2048)
+
 #define FD_ETHTOOL_FEATURE_NTUPLE "rx-ntuple-filter"
 
 struct fd_ethtool_ioctl {
@@ -96,6 +98,15 @@ void
 fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
                                   uint                 start_idx );
 
+/* fd_ethtool_ioctl_rxfh_get_table writes the current state of the
+   RXFH table into the user-supplied array, which must be of size
+   FD_ETHTOOL_MAX_RXFH_TABLE_SIZE.  The actual size of the table
+   is returned. */
+
+uint
+fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
+                                 uint *               table );
+
 /* fd_ethtool_ioctl_feature_set enables or disables the network device
    feature with the given name. */
 
@@ -103,6 +114,13 @@ void
 fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
                               char const *         name,
                               int                  enabled );
+
+/* fd_ethtool_ioctl_feature_test returns whether the feature with
+   the given name is enabled. */
+
+int
+fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
+                               char const *         name );
 
 /* fd_ethtool_ioctl_ntuple_clear deletes any active ntuple flow steering
    rules, which is the default state. */

@@ -9,7 +9,6 @@
 #include "fd_ethtool_ioctl.h"
 #include "../../../../util/fd_util.h"
 
-#define MAX_RXFH_TABLE_SIZE (2048)
 #define MAX_FEATURES        (1024)
 #define MAX_NTUPLE_RULES    (1024)
 
@@ -167,7 +166,7 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
 
   union {
     struct ethtool_rxfh_indir m;
-    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxfh_indir, uint, MAX_RXFH_TABLE_SIZE ) ];
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxfh_indir, uint, FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) ];
   } rxfh = { 0 };
   ioc->ifr.ifr_data = &rxfh;
 
@@ -178,7 +177,7 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXFHINDIR) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
   uint const table_size = rxfh.m.size;
-  if( FD_UNLIKELY( table_size == 0 || table_size > MAX_RXFH_TABLE_SIZE ) )
+  if( FD_UNLIKELY( table_size == 0 || table_size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) )
     FD_LOG_ERR(( "error configuring network device, rxfh table size invalid" ));
 
   /* Set table to round robin over all channels from [start_idx, num_channels) */
@@ -195,6 +194,28 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
   if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SRXFHINDIR) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
+}
+
+uint
+fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
+                                 uint *               table ) {
+  union {
+    struct ethtool_rxfh_indir m;
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxfh_indir, uint, FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) ];
+  } rxfh = { 0 };
+  ioc->ifr.ifr_data = &rxfh;
+
+  rxfh.m.cmd = ETHTOOL_GRXFHINDIR;
+  rxfh.m.size = FD_ETHTOOL_MAX_RXFH_TABLE_SIZE;
+  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXFHINDIR) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+  uint const table_size = rxfh.m.size;
+  if( FD_UNLIKELY( table_size == 0 || table_size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) )
+    FD_LOG_ERR(( "error configuring network device, rxfh table size invalid" ));
+
+  fd_memcpy( table, rxfh.m.ring_index, table_size * sizeof(uint) );
+  return table_size;
 }
 
 void
@@ -254,6 +275,62 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
     FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
                  errno, fd_io_strerror( errno ) ));
+}
+
+int
+fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
+                               char const *         name ) {
+  /* Check size of features string set is not too large (prevent overflow) */
+  union {
+    struct ethtool_sset_info m;
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_sset_info, uint, 1 ) ];
+  } esi = { .m = {
+    .cmd = ETHTOOL_GSSET_INFO,
+    .sset_mask = fd_ulong_mask_bit( ETH_SS_FEATURES )
+  } };
+  ioc->ifr.ifr_data = &esi;
+  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSSET_INFO) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( esi.m.data[0] == 0 || esi.m.data[0] > MAX_FEATURES ) )
+    FD_LOG_ERR(( "error configuring network device, feature string set size invalid" ));
+
+  /* Get strings from features string set */
+  union {
+    struct ethtool_gstrings m;
+    uchar _[ sizeof(struct ethtool_gstrings) + (MAX_FEATURES * ETH_GSTRING_LEN) ];
+  } egs = { 0 };
+  egs.m.cmd = ETHTOOL_GSTRINGS;
+  egs.m.string_set = ETH_SS_FEATURES;
+  ioc->ifr.ifr_data = &egs;
+  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSTRINGS) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+  int feature_idx = -1;
+  for( uint j=0U; j<egs.m.len; ++j) {
+    uchar const * gstring = egs.m.data + (j * ETH_GSTRING_LEN);
+    if( 0==strncmp( (char const *)gstring, name, ETH_GSTRING_LEN ) ) {
+      feature_idx = (int)j;
+      break;
+    }
+  }
+  if( FD_UNLIKELY( feature_idx < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, feature string not found" ));
+
+  uint feature_block = (uint)feature_idx / 32u;
+  uint feature_offset = (uint)feature_idx % 32u;
+  union {
+    struct ethtool_gfeatures m;
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_gfeatures, struct ethtool_get_features_block, MAX_FEATURES / 32u ) ];
+  } egf = { 0 };
+  egf.m.cmd = ETHTOOL_GFEATURES;
+  egf.m.size = MAX_FEATURES / 32u; //TODO feature_block + 1;
+  ioc->ifr.ifr_data = &egf;
+  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+
+  return !!(egf.m.features[ feature_block ].active & fd_uint_mask_bit( (int)feature_offset ));
 }
 
 void
