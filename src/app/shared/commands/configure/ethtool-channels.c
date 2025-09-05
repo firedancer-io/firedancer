@@ -421,9 +421,8 @@ set_device_num_channels( char const * device,
 }
 
 static void
-init_device( char const * device,
-             uint         rss_queue_mode,
-             uint         net_tile_count ) {
+init_device( char const *        device,
+             fd_config_t const * config ) {
   if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
   if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
 
@@ -434,25 +433,33 @@ init_device( char const * device,
   set_device_rxfh_default( device );
 
   uint num_channels;
-  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
-    num_channels = net_tile_count;
+  if( config->net.xdp.rss_queue_mode_ == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
+    num_channels = config->layout.net_tile_count;
   } else {
     num_channels = 0; /* maximum allowed */
   }
   set_device_num_channels( device, num_channels );
 
-  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
-    if( FD_UNLIKELY( net_tile_count != 1 ) )
+  if( config->net.xdp.rss_queue_mode_ == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
       FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
 
     set_device_rxfh_from_idx( device, 1 );
 
+    /* FIXME centrally define listen port list to avoid this configure
+       stage from going out of sync with port mappings */
+    uint rule_idx = 0;
     device_enable_feature_ntuple( device );
-
     device_ntuple_clear( device );
-
-    //TODO-AM: Get actual ports from config
-    device_ntuple_set_rule_udp( device, 0, 9001, 0 );
+    device_ntuple_set_rule_udp( device, rule_idx++, config->tiles.shred.shred_listen_port, 0 );
+    device_ntuple_set_rule_udp( device, rule_idx++, config->tiles.quic.quic_transaction_listen_port, 0 );
+    device_ntuple_set_rule_udp( device, rule_idx++, config->tiles.quic.regular_transaction_listen_port, 0 );
+    if( config->is_firedancer ) {
+      device_ntuple_set_rule_udp( device, rule_idx++, config->gossip.port, 0 );
+      device_ntuple_set_rule_udp( device, rule_idx++, config->tiles.repair.repair_intake_listen_port, 0 );
+      device_ntuple_set_rule_udp( device, rule_idx++, config->tiles.repair.repair_serve_listen_port, 0 );
+      device_ntuple_set_rule_udp( device, rule_idx++, config->tiles.send.send_src_port, 0 );
+    }
   }
 }
 
@@ -467,10 +474,10 @@ init( fd_config_t const * config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count );
+      init_device( token, config );
     }
   } else {
-    init_device( config->net.interface, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count );
+    init_device( config->net.interface, config );
   }
 }
 
