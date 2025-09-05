@@ -9,10 +9,7 @@
    Messages are published one by one incrementally, as they are
    received, although expirations or removals will not be published
    except for contact information which publishes a removal stream so
-   that consumers of the updates can mirror the true gossip table.
-
-   Not all gossip messages are published, and some are consumed just by
-   the gossip tile itself. */
+   that consumers of the updates can mirror the true gossip table.  */
 
 #include "../types/fd_types_custom.h"
 #include "../../util/net/fd_net_headers.h"
@@ -26,6 +23,7 @@
 #define FD_GOSSIP_UPDATE_TAG_VOTE                (3)
 #define FD_GOSSIP_UPDATE_TAG_DUPLICATE_SHRED     (4)
 #define FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES     (5)
+#define FD_GOSSIP_UPDATE_TAG_IN_CRDS_OUTCOME     (6)
 
 /* The maximum number of contact infos that may be present at any one
    time.  If new contact infos are added, a removal will be issued first
@@ -179,6 +177,46 @@ struct fd_gossip_snapshot_hashes {
 
 typedef struct fd_gossip_snapshot_hashes fd_gossip_snapshot_hashes_t;
 
+/* Gossip also tracks the movement of an incoming CRDS value from the
+   moment delivered by the network device until it is either inserted
+   successfully into the table or dropped for any reason. The outcome
+   is published with the FD_GOSSIP_UPDATE_TAG_IN_CRDS_OUTCOME tag,
+   along with the CRDS message type, relayer pubkey, route, and the
+   outcome tag.
+
+   These metrics can be used to understand the health of the cluster
+   and identify problematic nodes.
+
+   NOTE: This is a work in progress. The end goal is to track all
+   incoming CRDS messages. In other words, the sum of outcome messages
+   should match the number of CRDS values received from the network. */
+
+/* The tag describes the outcome of the incoming CRDS value. */
+
+#define FD_CRDS_OUTCOME_TAG_UPSERTED                        (0)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_DUPLICATE               (1)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_HAS_NEWER               (2)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_TOO_OLD                 (3)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_SIGNATURE               (4)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_RELAYER_NO_CONTACT_INFO (5)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_RELAYER_SHRED_VERSION   (6)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_ORIGIN_NO_CONTACT_INFO  (7)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_ORIGIN_SHRED_VERSION    (8)
+#define FD_CRDS_OUTCOME_TAG_DROPPED_INACTIVE                (9)
+
+#define FD_CRDS_OUTCOME_ROUTE_PULL_RESPONSE (0)
+#define FD_CRDS_OUTCOME_ROUTE_PUSH          (1)
+#define FD_CRDS_OUTCOME_ROUTE_SELF          (2)
+
+struct fd_crds_outcome {
+  uchar relayer_pubkey[ 32UL ];
+  uchar crd_tag;     /* The tag of the CRDS value, one of FD_GOSSIP_VALUE_* */
+  uchar outcome_tag;
+  uchar route;
+};
+
+typedef struct fd_crds_outcome fd_crds_outcome_t;
+
 struct fd_gossip_update_message {
   uchar tag;
   uchar origin_pubkey[ 32UL ];
@@ -199,6 +237,7 @@ struct fd_gossip_update_message {
     fd_gossip_vote_t            vote;
     fd_gossip_duplicate_shred_t duplicate_shred;
     fd_gossip_snapshot_hashes_t snapshot_hashes;
+    fd_crds_outcome_t           crds_outcome;
   };
 };
 
