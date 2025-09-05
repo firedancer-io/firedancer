@@ -324,11 +324,6 @@ user = ""
     # completing snapshot download.
     maximum_download_retry_abort = 5
 
-    # The cluster to download snapshots from.  This is a temporary
-    # config option that will be removed once the snapshot tiles
-    # are integrated with gossip
-    cluster = "testnet"
-
     # Controls how many full snapshots are allowed to be kept in the
     # snapshots directory on disk.
     #
@@ -337,6 +332,46 @@ user = ""
     # will be deleted, oldest snapshot slot first.
     max_full_snapshots_to_keep = 1
     max_incremental_snapshots_to_keep = 1
+
+    # Controls for where we look to find snapshots.  If multiple sources
+    # and peers are available, the one with the lowest latency and
+    # fastest download will be automatically selected among them.
+    #
+    # Somtimes, if a slightly slower peer is serving a newer snapshot
+    # than a faster peer, the slower peer will be selected if it will
+    # enable full validator startup to complete earlier, due to reduced
+    # catchup time once the snapshot is loaded.
+    #
+    # Snapshot download is hard to trust, as the protocol has no way to
+    # fully verify the downloaded contents (snapshots are not signed or
+    # fully validated).  If your node downloads a snapshot from an
+    # untrusted or compromised peer, it may initially appear to
+    # validate and work well, but could later crash, corrupt, or cause
+    # your node to vote incorrectly in an attacker controlled way.
+    #
+    # It is strongly recommended to only fetch snapshots from peers that
+    # you highly trust, and this is the default behavior of the
+    # configuration.
+    [snapshots.sources]
+        # If any HTTP peers are listed, the following paths will be
+        # fetched from these peers to determine if they have a snapshot
+        # available:
+        #
+        #  /snapshot.tar.bz2
+        #  /incremental-snapshot.tar.bz2
+        #
+        # If these peers have snapshots at the given paths, they will be
+        # considered as additional sources for downloading snapshots
+        # when enabled alongside gossip and entrypoint sources.
+        [[snapshots.sources.http]]
+            # Whether to enable fetching snapshots from a list of
+            # HTTP peers.
+            enabled = false
+
+            # The url to fetch snapshots from.  The paths /snapshot.tar.bz2
+            # and /incremental-snapshot.tar.bz2 will be queried from this
+            # URL.
+            url = "http://example.com:1234"
 
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
