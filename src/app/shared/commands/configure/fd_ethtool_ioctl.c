@@ -260,7 +260,8 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
     FD_LOG_ERR(( "error configuring network device, feature string not found" ));
 
   /* Now that we know the feature index, enable the feature */
-  FD_LOG_NOTICE(( "RUN: `ethtool --features %s %s on`", ioc->ifr.ifr_name, name ));
+  FD_LOG_NOTICE(( "RUN: `ethtool --features %s %s %s`",
+                  ioc->ifr.ifr_name, name, enabled ? "on" : "off" ));
   uint feature_block = (uint)feature_idx / 32u;
   uint feature_offset = (uint)feature_idx % 32u;
   union {

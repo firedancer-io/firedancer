@@ -13,6 +13,8 @@
 
 #define NAME "ethtool-channels"
 
+//TODO-AM: Handle command failure
+
 static int
 enabled( fd_config_t const * config ) {
 
@@ -203,12 +205,16 @@ check_device( char const * device,
     FD_LOG_WARNING(( "device `%s` does not have the correct rxfh table installed", device ));
   }
 
-  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
-    /* Set error bit if ntuple-filters feature does not exist */
-    if( FD_UNLIKELY( !fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE ) ) ) {
-      error = 1;
-      FD_LOG_WARNING(( "device `%s` does not have ntuple feature enabled", device ));
-    }
+  /* The ntuple feature should be off by default and off in simple
+     mode.  It should be on in dedicated mode. */
+  int const ntuple_feature_expected = (rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED);
+  int const ntuple_feature_active = fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE );
+  modified |= ntuple_feature_active;
+  if ( FD_UNLIKELY( ntuple_feature_active != ntuple_feature_expected ) ) {
+    error = 1;
+    FD_LOG_WARNING(( "device `%s` has incorrect ntuple feature flag"
+                     " (expected %d but got %d)",
+                     device, ntuple_feature_expected, ntuple_feature_active ));
   }
 
   /* Set modified bit if any ntuple rules exist */
@@ -274,7 +280,7 @@ fini_device( char const * device ) {
 
   fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
 
-  /* Note: We leave the ntuple feature enabled */
+  fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 0 );
   fd_ethtool_ioctl_ntuple_clear( &ioc );
 }
 
