@@ -3089,7 +3089,7 @@ fd_quic_service( fd_quic_t * quic ) {
   return cnt;
 }
 
-static inline ulong
+static inline ulong FD_FN_UNUSED
 fd_quic_conn_tx_buf_remaining( fd_quic_conn_t * conn ) {
   return (ulong)( sizeof( conn->tx_buf_conn ) - (ulong)( conn->tx_ptr - conn->tx_buf_conn ) );
 }
