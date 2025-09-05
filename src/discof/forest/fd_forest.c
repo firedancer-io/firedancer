@@ -1129,6 +1129,7 @@ fd_forest_print( fd_forest_t const * forest ) {
   fd_forest_ancestry_print( forest );
   fd_forest_frontier_print( forest );
   fd_forest_orphaned_print( forest );
+  fflush(stdout);
   printf("\n");
 }
 
