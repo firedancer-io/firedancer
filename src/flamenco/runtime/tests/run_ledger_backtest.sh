@@ -178,13 +178,16 @@ echo "
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
-        enable_features = [ $FORMATTED_ONE_OFFS ] " > $DUMP_DIR/${LEDGER}_backtest.toml
+        enable_features = [ $FORMATTED_ONE_OFFS ]
 if [[ -n "$GENESIS" ]]; then
   echo -n "        genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
 fi
 echo "
     [tiles.gui]
         enabled = false
+[capture]
+    solcap_capture = \"$DUMP/$LEDGER/backtest.solcap\"
+    capture_start_slot = 0
 [store]
     max_completed_shred_sets = 32768
 [funk]
@@ -241,6 +244,32 @@ else
     echo "inverted test passed"
     # rm $LOG
     exit 0
+  fi
+
+
+  if [ -f "$DUMP/$LEDGER/backtest.solcap" ]; then
+    echo "Bank hash mismatch detected. Solcap generated for debugging."
+    echo "Solcap file: $DUMP/$LEDGER/backtest.solcap"
+    echo "This solcap contains full account and transaction data for the mismatched slot."
+    
+    REFERENCE_SOLCAP=""
+    if [ -f "$DUMP/$LEDGER/solana.solcap" ]; then
+      REFERENCE_SOLCAP="$DUMP/$LEDGER/solana.solcap"
+      echo "Found reference solcap: $REFERENCE_SOLCAP"
+      echo "Running solcap diff analysis to show detailed differences..."
+      if [ -f "$OBJDIR/bin/fd_solcap_diff" ]; then
+        $OBJDIR/bin/fd_solcap_diff "$DUMP/$LEDGER/backtest.solcap" "$REFERENCE_SOLCAP" -v 4
+      else
+        echo "fd_solcap_diff not available, but solcap files are ready for manual analysis"
+      fi
+    else
+      echo "No reference solcap found. To analyze the mismatch:"
+      echo "1. Run 'fd_solcap_diff $DUMP/$LEDGER/backtest.solcap <reference_solcap> -v 4'"
+      echo "2. The solcap contains account states and transactions that caused the mismatch"
+      echo "3. Use fd_solcap_yaml to inspect the solcap contents"
+    fi
+  else
+    echo "No solcap generated. Enable solcap_capture in replay tile configuration for debugging."
   fi
 
   echo "LAST 40 LINES OF LOG:"

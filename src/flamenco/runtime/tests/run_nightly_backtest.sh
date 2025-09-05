@@ -99,6 +99,9 @@ echo "
         enable_features = [ \"$ONE_OFFS\" ]
     [tiles.gui]
         enabled = false
+[capture]
+    solcap_capture = \"dump/$LEDGER/backtest.solcap\"
+    capture_start_slot = 0
 [funk]
     heap_size_gib = $FUNK_PAGES
     max_account_records = $INDEX_MAX
@@ -137,6 +140,31 @@ then
     status=0
 else
     status=1
+    
+
+    if [ -f "dump/$LEDGER/backtest.solcap" ]; then
+        echo "Bank hash mismatch detected. Solcap generated for debugging."
+        echo "Solcap file: dump/$LEDGER/backtest.solcap"
+        echo "This solcap contains full account and transaction data for the mismatched slot."
+        
+
+        if [ -f "dump/$LEDGER/solana.solcap" ]; then
+            echo "Found reference solcap: dump/$LEDGER/solana.solcap"
+            echo "Running solcap diff analysis to show detailed differences..."
+            if [ -f "$OBJDIR/bin/fd_solcap_diff" ]; then
+                $OBJDIR/bin/fd_solcap_diff "dump/$LEDGER/backtest.solcap" "dump/$LEDGER/solana.solcap" -v 4
+            else
+                echo "fd_solcap_diff not available, but solcap files are ready for manual analysis"
+            fi
+        else
+            echo "No reference solcap found. To analyze the mismatch:"
+            echo "1. Run 'fd_solcap_diff dump/$LEDGER/backtest.solcap <reference_solcap> -v 4'"
+            echo "2. The solcap contains account states and transactions that caused the mismatch"
+            echo "3. Use fd_solcap_yaml to inspect the solcap contents"
+        fi
+    else
+        echo "No solcap generated. Enable solcap_capture in replay tile configuration for debugging."
+    fi
 fi
 
 START_SLOT=$(basename $SNAPSHOT | cut -d '-' -f 2)
