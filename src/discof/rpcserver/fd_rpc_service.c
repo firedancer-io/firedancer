@@ -2529,6 +2529,90 @@ fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx) {
   fd_rpc_history_save_fec( subs->history, subs->store, fec_p );
 }
 
+#define MAX_LOCKOUT_HISTORY 31UL
+
+static fd_landed_vote_t *
+landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
+                            fd_spad_t *         spad ) {
+  if( !lockouts ) return NULL;
+
+  /* Allocate MAX_LOCKOUT_HISTORY (sane case) by default.  In case the
+     vote account is corrupt, allocate as many entries are needed. */
+
+  ulong cnt = deq_fd_vote_lockout_t_cnt( lockouts );
+        cnt = fd_ulong_max( cnt, MAX_LOCKOUT_HISTORY );
+  uchar * deque_mem = fd_spad_alloc( spad,
+                                     deq_fd_landed_vote_t_align(),
+                                     deq_fd_landed_vote_t_footprint( cnt ) );
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, cnt ) );
+
+  for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
+       !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
+       iter = deq_fd_vote_lockout_t_iter_next( lockouts, iter ) ) {
+    fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( lockouts, iter );
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
+    fd_landed_vote_new( elem );
+    elem->latency                    = 0;
+    elem->lockout.slot               = ele->slot;
+    elem->lockout.confirmation_count = ele->confirmation_count;
+  }
+
+  return landed_votes;
+}
+
+static void
+fd_rpc_recompute_confirmed( fd_rpc_global_ctx_t * glob ) {
+  FD_SPAD_FRAME_BEGIN( glob->spad ) {
+    for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
+      fd_replay_tower_t const * w = &glob->replay_towers[i];
+
+      fd_bincode_decode_ctx_t ctx = {
+        .data    = w->vote_acc_data,
+        .dataend = w->vote_acc_data + sizeof(w->vote_acc_data),
+      };
+      ulong total_sz = 0UL;
+      int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_CRIT(( "unable to decode vote state versioned" ));
+        continue;
+      }
+      uchar mem[total_sz];
+      fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
+
+      ulong root_slot;
+      fd_landed_vote_t * votes; /* fd_deque_dynamic (min cnt 32) */
+
+      switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        root_slot = vsv->inner.v0_23_5.root_slot;
+        votes     = landed_votes_from_lockouts( vsv->inner.v0_23_5.votes, glob->spad );
+        break;
+
+      case fd_vote_state_versioned_enum_v1_14_11:
+        root_slot = vsv->inner.v1_14_11.root_slot;
+        votes     = landed_votes_from_lockouts( vsv->inner.v1_14_11.votes, glob->spad );
+        break;
+
+      case fd_vote_state_versioned_enum_current:
+        root_slot = vsv->inner.current.root_slot;
+        votes     = vsv->inner.current.votes;
+        break;
+
+      default:
+        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, vsv->discriminant ));
+        __builtin_unreachable();
+      }
+
+      for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( votes );
+           !deq_fd_landed_vote_t_iter_done( votes, iter );
+           iter = deq_fd_landed_vote_t_iter_next( votes, iter ) ) {
+        fd_landed_vote_t const * ele = deq_fd_landed_vote_t_iter_ele_const( votes, iter );
+        FD_LOG_NOTICE(( "slot %lu, confirmation count %u", ele->lockout.slot, ele->lockout.confirmation_count ));
+      }
+    }
+  } FD_SPAD_FRAME_END;
+}
+
 void
 fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
   fd_rpc_global_ctx_t * glob = ctx->global;
@@ -2541,6 +2625,9 @@ fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * 
     FD_TEST( sz == (int)sizeof(fd_replay_tower_t) );
     memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_tower_t) );
     glob->replay_towers_eom = fd_frag_meta_ctl_eom( ctl );
+    if( glob->replay_towers_eom ) {
+      fd_rpc_recompute_confirmed( glob );
+    }
   }
 }
 

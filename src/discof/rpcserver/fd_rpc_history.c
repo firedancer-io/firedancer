@@ -12,7 +12,6 @@ struct fd_rpc_block {
   ulong slot;
   ulong next;
   fd_replay_notif_msg_t info;
-  fd_rpc_block_state_t state;
   ulong file_offset;
   ulong file_size;
 };
@@ -155,7 +154,6 @@ fd_rpc_history_alloc_block(fd_rpc_history_t * hist, ulong slot) {
   blk->slot = slot;
   blk->file_offset = 0UL;
   blk->file_size = 0UL;
-  blk->state = FD_RPC_BLOCK_STATE_INCOMPLETE;
   memset( &blk->info, 0, sizeof(fd_replay_notif_msg_t) );
   blk->info.slot_exec.slot = slot;
   if( hist->first_slot == ULONG_MAX ) {
@@ -313,7 +311,6 @@ fd_rpc_history_process_column(fd_rpc_history_t * hist, struct fd_rpc_reasm_map_c
   if( blk == NULL ) return;
   ulong file_offset = blk->file_offset = hist->file_totsz;
   blk->file_size = 0;
-  blk->state = FD_RPC_BLOCK_STATE_COMPLETE;
 
   /* Look up all the store_fec_t elements for this column */
   fd_store_fec_t * list[FD_REASM_MAP_COL_HEIGHT];
@@ -413,13 +410,6 @@ fd_rpc_history_save_fec(fd_rpc_history_t * hist, fd_store_t * store, fd_reasm_fe
   }
 }
 
-void
-fd_rpc_history_save_state(fd_rpc_history_t * hist, ulong slot, fd_rpc_block_state_t state) {
-  fd_rpc_block_t * blk = fd_rpc_block_map_query( hist->block_map, &slot, NULL );
-  if( !blk ) return;
-  if( state > blk->state ) blk->state = state;
-}
-
 ulong
 fd_rpc_history_first_slot(fd_rpc_history_t * hist) {
   return hist->first_slot;
@@ -448,17 +438,6 @@ fd_rpc_history_get_block_info_by_hash(fd_rpc_history_t * hist, fd_hash_t * h) {
     if( fd_hash_eq( &ele->info.slot_exec.block_hash, h ) ) return &ele->info;
   }
   return NULL;
-}
-
-fd_rpc_block_state_t
-fd_rpc_history_get_state(fd_rpc_history_t * hist, ulong slot) {
-  fd_rpc_block_t * blk = fd_rpc_block_map_query( hist->block_map, &slot, NULL );
-  if( blk ) return blk->state;
-  fd_rpc_reasm_map_t * reasm_map = hist->reasm_map;
-  if( slot < reasm_map->tail || slot >= reasm_map->head ) return FD_RPC_BLOCK_STATE_UNKNOWN;
-  ulong col_idx = slot & (FD_REASM_MAP_COL_CNT - 1);
-  struct fd_rpc_reasm_map_column * col = &reasm_map->cols[col_idx];
-  return ( col->ele_cnt ? FD_RPC_BLOCK_STATE_INCOMPLETE : FD_RPC_BLOCK_STATE_UNKNOWN );
 }
 
 uchar *
