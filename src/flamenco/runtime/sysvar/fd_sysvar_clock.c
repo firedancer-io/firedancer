@@ -2,8 +2,9 @@
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar_rent.h"
-#include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../fd_system_ids.h"
+#include "../program/fd_program_util.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
 #define MAX_ALLOWABLE_DRIFT_FAST ( 25 )
@@ -45,28 +46,21 @@ fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
 
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_funk_t *             funk,
-                      fd_funk_txn_t *         funk_txn,
+fd_sysvar_clock_read( fd_accdb_client_t *     accdb,
                       fd_sol_sysvar_clock_t * clock ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, funk_txn );
-  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
+  int accdb_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_clock_id, clock_ref ) {
+    clock = fd_bincode_decode_static(
+        sol_sysvar_clock, clock,
+        fd_accdb_ref_data   ( clock_ref ),
+        fd_accdb_ref_data_sz( clock_ref ),
+        NULL );
+  }
+  FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( accdb_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_WARNING(( "Failed to read clock sysvar (%i-%s)", accdb_err, fd_accdb_strerror( accdb_err ) ));
     return NULL;
   }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
-    return NULL;
-  }
-
-  return fd_bincode_decode_static(
-      sol_sysvar_clock, clock,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      &err );
+  return clock;
 }
 
 void
@@ -285,7 +279,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
                         fd_spad_t *          spad,
                         ulong const *        parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( slot_ctx->funk, slot_ctx->funk_txn, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( slot_ctx->accdb, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_bank_t *                 bank           = slot_ctx->bank;

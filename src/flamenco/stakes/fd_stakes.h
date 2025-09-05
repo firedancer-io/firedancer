@@ -29,8 +29,7 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
                           fd_stake_delegations_t const * stake_delegations,
-                          ulong *                        new_rate_activation_epoch,
-                          fd_spad_t *                    runtime_spad );
+                          ulong *                        new_rate_activation_epoch );
 
 fd_stake_history_entry_t
 stake_and_activating( fd_delegation_t const * delegation,

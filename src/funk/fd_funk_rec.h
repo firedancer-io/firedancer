@@ -110,19 +110,6 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is 
 
 typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
 
-/* fd_funk_rec_prepare_t represents a new record that has been
-   prepared but not inserted into the map yet. See documentation for
-   fd_funk_rec_prepare. */
-
-struct _fd_funk_rec_prepare {
-  fd_funk_rec_t * rec;
-  uint *          rec_head_idx;
-  uint *          rec_tail_idx;
-  uchar *         txn_lock;
-};
-
-typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_funk_rec_idx_is_null returns 1 if idx is FD_FUNK_REC_IDX_NULL and
@@ -278,46 +265,6 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
 FD_FN_CONST static inline fd_funk_xid_key_pair_t const * fd_funk_rec_pair( fd_funk_rec_t const * rec ) { return &rec->pair;    }
 FD_FN_CONST static inline fd_funk_txn_xid_t const *      fd_funk_rec_xid ( fd_funk_rec_t const * rec ) { return rec->pair.xid; }
 FD_FN_CONST static inline fd_funk_rec_key_t const *      fd_funk_rec_key ( fd_funk_rec_t const * rec ) { return rec->pair.key; }
-
-/* fd_funk_rec_prepare prepares to insert a new record. This call just
-   allocates a record from the pool and initializes it.
-   The application should then fill in the new
-   value. fd_funk_rec_publish actually does the map insert and
-   should be called once the value is correct. */
-
-fd_funk_rec_t *
-fd_funk_rec_prepare( fd_funk_t *               funk,
-                     fd_funk_txn_t *           txn,
-                     fd_funk_rec_key_t const * key,
-                     fd_funk_rec_prepare_t *   prepare,
-                     int *                     opt_err );
-
-/* fd_funk_rec_publish inserts a prepared record into the record map. */
-
-void
-fd_funk_rec_publish( fd_funk_t *             funk,
-                     fd_funk_rec_prepare_t * prepare );
-
-/* fd_funk_rec_cancel returns a prepared record to the pool without
-   inserting it. */
-
-void
-fd_funk_rec_cancel( fd_funk_t *             funk,
-                    fd_funk_rec_prepare_t * prepare );
-
-/* fd_funk_rec_clone copies a record from an ancestor transaction
-   to create a new record in the given transaction. The record can be
-   modified afterward and must then be published.
-
-   NOTE: fd_funk_rec_clone is NOT thread safe and should not be used
-   concurrently with other funk read/write operations. */
-
-fd_funk_rec_t *
-fd_funk_rec_clone( fd_funk_t *               funk,
-                   fd_funk_txn_t *           txn,
-                   fd_funk_rec_key_t const * key,
-                   fd_funk_rec_prepare_t *   prepare,
-                   int *                     opt_err );
 
 /* fd_funk_rec_insert_para does thread-safe insertion of a funk record.
 

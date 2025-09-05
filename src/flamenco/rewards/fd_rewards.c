@@ -662,8 +662,9 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              fd_calculate_validator_rewards_result_t * result,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-    if( FD_UNLIKELY( !stake_history ) ) {
+  fd_stake_history_t stake_history_[1];
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->accdb, stake_history_ );
+  if( FD_UNLIKELY( !stake_history ) ) {
     FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
   }
 

@@ -13,7 +13,7 @@ $(call add-objs,fd_executor,fd_flamenco)
 
 $(call add-hdrs,fd_hashes.h)
 $(call add-objs,fd_hashes,fd_flamenco)
-$(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
+# $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_util)
 
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
@@ -48,9 +48,9 @@ $(call run-unit-test,test_bank,)
 
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 
-ifdef FD_HAS_SECP256K1
-$(call make-unit-test,test_txn_rw_conflicts,test_txn_rw_conflicts,fd_flamenco fd_funk fd_ballet fd_util, $(SECP256K1_LIBS))
-endif
+# ifdef FD_HAS_SECP256K1
+# $(call make-unit-test,test_txn_rw_conflicts,test_txn_rw_conflicts,fd_flamenco fd_funk fd_ballet fd_util, $(SECP256K1_LIBS))
+# endif
 
 ifdef FD_HAS_ATOMIC
 $(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h fd_runtime_const.h)

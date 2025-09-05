@@ -3,7 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
-#include "../../../funk/fd_funk.h"
+#include "../../accdb/fd_accdb_client.h"
 
 /* FD_SYSVAR_STAKE_HISTORY_CAP is the max number of entries that the
    "stake history" sysvar will include.
@@ -25,15 +25,13 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
    lamports, this function returns NULL. */
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn,
-                              fd_spad_t *     spad );
+fd_sysvar_stake_history_read( fd_accdb_client_t *  accdb,
+                              fd_stake_history_t * out );
 
 /* Update the stake history sysvar account - called during epoch boundary */
 void
 fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot_ctx,
-                                fd_epoch_stake_history_entry_pair_t const * pair,
-                                fd_spad_t *                                 runtime_spad );
+                                fd_epoch_stake_history_entry_pair_t const * pair );
 
 FD_PROTOTYPES_END
 

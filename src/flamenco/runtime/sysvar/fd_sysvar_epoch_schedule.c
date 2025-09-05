@@ -2,6 +2,7 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../fd_txn_account.h"
 
 fd_epoch_schedule_t *
@@ -51,29 +52,21 @@ fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
+fd_sysvar_epoch_schedule_read( fd_accdb_client_t *   accdb,
                                fd_epoch_schedule_t * out ) {
-
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+  int accdb_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_epoch_schedule_id, ref ) {
+    out = fd_bincode_decode_static(
+        epoch_schedule, out,
+        fd_accdb_ref_data   ( ref ),
+        fd_accdb_ref_data_sz( ref ),
+        NULL );
+  }
+  FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( accdb_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_WARNING(( "Failed to read epoch schedule sysvar (%i-%s)", accdb_err, fd_accdb_strerror( accdb_err ) ));
     return NULL;
   }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
-    return NULL;
-  }
-
-  return fd_bincode_decode_static(
-      epoch_schedule, out,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      &err );
+  return out;
 }
 
 void

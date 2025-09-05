@@ -18,6 +18,10 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   fd_rent_t const * rent    = fd_bank_rent_query( slot_ctx->bank );
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
+  fd_accdb_meta_t meta = {0};
+  memcpy( meta.pubkey, address, 32 );
+  memcpy( meta.owner,  &fd_sysvar_owner_id, 32 );
+
   FD_TXN_ACCOUNT_DECL( rec );
   fd_funk_rec_prepare_t prepare = {0};
   fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->funk_txn, 1, sz, &prepare );

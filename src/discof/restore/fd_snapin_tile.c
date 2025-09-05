@@ -4,9 +4,9 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/types/fd_types.h"
-#include "../../funk/fd_funk.h"
 
 #define NAME "snapin"
 
@@ -27,8 +27,11 @@ struct fd_snapin_tile {
   ulong seed;
   long boot_timestamp;
 
-  fd_funk_t       funk[1];
-  fd_funk_txn_t * funk_txn;
+  fd_funk_t funk[1];
+
+  fd_accdb_client_t * accdb;
+  fd_accdb_write_t    accdb_write[1];
+
   uchar *         acc_data;
 
   fd_stem_context_t * stem;
@@ -99,24 +102,19 @@ manifest_cb( void * _ctx ) {
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
+/* is_duplicate_account returns 1 if a newly encountered account
+   revision in an AppendVec is older than a previously seen revision. */
+
 static int
 is_duplicate_account( fd_snapin_tile_t * ctx,
                       uchar const *      account_pubkey ) {
-  fd_account_meta_t const * rec_meta = fd_funk_get_acc_meta_readonly( ctx->funk,
-                                                                      ctx->funk_txn,
-                                                                      (fd_pubkey_t*)account_pubkey,
-                                                                      NULL,
-                                                                      NULL,
-                                                                      NULL );
-  if( FD_UNLIKELY( rec_meta ) ) {
-    if( FD_LIKELY( rec_meta->slot>ctx->ssparse->accv_slot ) ) return 1;
-
-    /* TODO: Reaching here means the existing value is a duplicate
-       account.  We need to hash the existing account and subtract that
-       hash from the running lthash. */
+  fd_accdb_meta_t meta[1];
+  int err = fd_accdb_read_meta( ctx->accdb, account_pubkey, meta );
+  if( FD_LIKELY( err==FD_ACCDB_ERR_KEY ) ) return 0; /* not duplicate */
+  if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_accdb_read_meta failed (%i-%s)", err, fd_accdb_strerror( err ) ));
   }
-
-  return 0;
+  return meta->slot > ctx->ssparse->accv_slot;
 }
 
 static void
@@ -129,24 +127,19 @@ account_cb( void *                          _ctx,
     return;
   }
 
-  FD_TXN_ACCOUNT_DECL( rec );
-  fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                   (fd_pubkey_t*)hdr->meta.pubkey,
-                                                   ctx->funk,
-                                                   ctx->funk_txn,
-                                                   /* do_create */ 1,
-                                                   hdr->meta.data_len,
-                                                   &prepare );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
+  /* Start an account data write */
 
-  fd_txn_account_set_data_len( rec, hdr->meta.data_len );
-  fd_txn_account_set_slot( rec, ctx->ssparse->accv_slot );
-  fd_txn_account_set_meta_info( rec, &hdr->info );
-
-  ctx->acc_data = fd_txn_account_get_data_mut( rec );
+  fd_accdb_write_t * write = ctx->accdb_write;
+  int err = fd_accdb_modify_prepare( ctx->accdb, write, hdr->meta.pubkey, hdr->meta.data_len );
+  if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_accdb_modify_prepare failed (%i-%s)", err, fd_accdb_strerror( err ) ));
+  }
+  fd_accdb_write_slot_set    ( write, ctx->ssparse->accv_slot );
+  fd_accdb_write_lamports_set( write, hdr->info.lamports      );
+  fd_accdb_write_owner_set   ( write, hdr->info.owner         );
+  fd_accdb_write_exec_bit_set( write, hdr->info.executable    );
+  ctx->acc_data = fd_accdb_write_data_buf( write );
   ctx->metrics.accounts_inserted++;
-  fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
 }
 
 static void
@@ -158,6 +151,19 @@ account_data_cb( void *        _ctx,
 
   fd_memcpy( ctx->acc_data, buf, data_sz );
   ctx->acc_data += data_sz;
+}
+
+static void
+account_fini_cb( void * _ctx ) {
+  fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
+  if( FD_UNLIKELY( !ctx->acc_data ) ) return;
+
+  fd_accdb_write_t * write = ctx->accdb_write;
+  int err = fd_accdb_write_publish( ctx->accdb, write );
+  if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_accdb_write_publish failed (%i-%s)", err, fd_accdb_strerror( err ) ));
+  }
+  ctx->acc_data = NULL;
 }
 
 static void

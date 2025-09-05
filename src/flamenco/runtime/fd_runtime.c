@@ -16,6 +16,7 @@
 #include "sysvar/fd_sysvar_recent_hashes.h"
 #include "sysvar/fd_sysvar_stake_history.h"
 
+#include "../accdb/fd_accdb_sync.h"
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
 
@@ -199,15 +200,16 @@ fd_runtime_funk_txn_get( fd_funk_t * funk,
    Returns 0 if validation succeeds
    Returns the amount to burn(==fee) on failure */
 static ulong
-fd_runtime_validate_fee_collector( fd_bank_t *              bank,
-                                   fd_txn_account_t const * collector,
-                                   ulong                    fee ) {
+fd_runtime_validate_fee_collector( fd_bank_t *            bank,
+                                   fd_accdb_ref_t const * collector,
+                                   ulong                  fee ) {
   if( FD_UNLIKELY( fee<=0UL ) ) {
     FD_LOG_ERR(( "expected fee(%lu) to be >0UL", fee ));
   }
 
-  if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( collector ), fd_solana_system_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
+  fd_pubkey_t const * collector_addr = fd_accdb_ref_address( collector );
+  if( FD_UNLIKELY( !fd_pubkey_eq( collector_addr, &fd_solana_system_program_id ) ) ) {
+    FD_BASE58_ENCODE_32_BYTES( collector_addr->key, _out_key );
     FD_LOG_WARNING(( "cannot pay a non-system-program owned account (%s)", _out_key ));
     return fee;
   }
@@ -235,9 +237,9 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
      So TLDR we just check if the account is rent exempt.
    */
   fd_rent_t const * rent = fd_bank_rent_query( bank );
-  ulong minbal = fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( collector ) );
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( collector )+fee<minbal ) ) {
-    FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
+  ulong minbal = fd_rent_exempt_minimum_balance( rent, fd_accdb_ref_data_sz( collector ) );
+  if( FD_UNLIKELY( fd_accdb_ref_lamports( collector )+fee<minbal ) ) {
+    FD_BASE58_ENCODE_32_BYTES( collector_addr->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
     return fee;
   }
@@ -246,42 +248,80 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
 }
 
 static int
-fd_runtime_run_incinerator( fd_bank_t *        bank,
-                            fd_funk_t *        funk,
-                            fd_funk_txn_t *    funk_txn,
-                            fd_capture_ctx_t * capture_ctx ) {
-  FD_TXN_ACCOUNT_DECL( rec );
-  fd_funk_rec_prepare_t prepare = {0};
+fd_runtime_run_incinerator( fd_bank_t *         bank,
+                            fd_accdb_client_t * accdb,
+                            fd_capture_ctx_t *  capture_ctx ) {
+  int db_err = FD_ACCDB_WRITE_BEGIN( accdb, leader.uc, refmut ) {
+    ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_accdb_refmut_lamports( refmut ) );
+    fd_bank_capitalization_set( bank, new_capitalization );
 
-  int err = fd_txn_account_init_from_funk_mutable(
-      rec,
-      &fd_sysvar_incinerator_id,
-      funk,
-      funk_txn,
-      0,
-      0UL,
-      &prepare );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    // TODO: not really an error! This is fine!
-    return -1;
+    fd_accdb_refmut_lamports_set( refmut, 0UL );
+  }
+  FD_ACCDB_WRITE_END;
+  if( FD_UNLIKELY( db_err==FD_ACCDB_ERR_KEY ) ) return -1;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "Failed to run incinerator: FD_ACCDB_WRITE(leader) failed (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+  }
+  return 0;
+}
+
+/* fd_runtime_leader_payout settles accrued transaction fees.  Burns a
+   portion of the fees and pays out the rest to the leader (block
+   producer's identity key). */
+
+static void
+fd_runtime_leader_payout( fd_exec_slot_ctx_t * slot_ctx,
+                          ulong const          execution_fees,
+                          ulong const          priority_fees ) {
+
+  fd_bank_t *         bank  = slot_ctx->bank;
+  fd_accdb_client_t * accdb = slot_ctx->accdb;
+
+  ulong burn = execution_fees / 2;
+  ulong fees = fd_ulong_sat_add( priority_fees, execution_fees - burn );
+
+  /* Find public key of leader */
+  fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( bank );
+  if( FD_UNLIKELY( !leaders ) ) {
+    FD_LOG_CRIT(( "fd_bank_epoch_leaders_locking_query returned NULL" ));
+  }
+  fd_pubkey_t const * leader1 = fd_epoch_leaders_get( leaders, fd_bank_slot_get( bank ) );
+  if( FD_UNLIKELY( !leader1 ) ) {
+    FD_LOG_CRIT(( "fd_epoch_leaders_get(leaders,slot=%lu) failed", fd_bank_slot_get( bank ) ));
+  }
+  fd_pubkey_t leader = *leader1;
+  fd_bank_epoch_leaders_end_locking_query( bank );
+
+  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( accdb, leader.uc, leader_ref ) {
+
+    if( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( bank, validate_fee_collector_account ) ) ) {
+      ulong _burn;
+      if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( bank, leader_ref, fees ) ) ) {
+        if( FD_UNLIKELY( _burn!=fees ) ) {
+          FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fee_lamports ));
+        }
+        burn = fd_ulong_sat_add( burn, fee_lamports );
+        FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fee_lamports ));
+        break;
+      }
+    }
+
+    /* TODO: is it ok to not check the overflow error here? */
+    fd_txn_account_checked_add_lamports( rec, fee_lamports );
+    fd_accdb_refmut_slot_set( rec, fd_bank_slot_get( bank ) );
+
+  }
+  FD_RUNTIME_ACCOUNT_UDPATE_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "Failed to pay out leader reward: FD_ACCDB_WRITE(leader) failed (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
   }
 
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
-  ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_txn_account_get_lamports( rec ) );
-  fd_bank_capitalization_set( bank, new_capitalization );
-
-  fd_txn_account_set_lamports( rec, 0UL );
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( rec, funk, funk_txn, &prepare );
-
-  return 0;
+  fd_bank_execution_fees_set( bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
 }
 
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
-
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank ) != 0UL ) ) {
     fd_sysvar_recent_hashes_update( slot_ctx );
   }
@@ -291,84 +331,9 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong execution_fees = fd_bank_execution_fees_get( slot_ctx->bank );
   ulong priority_fees  = fd_bank_priority_fees_get( slot_ctx->bank );
 
-  ulong burn = execution_fees / 2;
-  ulong fees = fd_ulong_sat_add( priority_fees, execution_fees - burn );
+  fd_runtime_leader_payout( slot_ctx, execution_fees, priority_fees );
 
-  if( FD_LIKELY( fees ) ) {
-    // Look at collect_fees... I think this was where I saw the fee payout..
-    FD_TXN_ACCOUNT_DECL( rec );
-
-    do {
-      /* do_create=1 because we might wanna pay fees to a leader
-         account that we've purged due to 0 balance. */
-
-      fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( slot_ctx->bank );
-      if( FD_UNLIKELY( !leaders ) ) {
-        FD_LOG_CRIT(( "fd_runtime_freeze: leaders not found" ));
-        fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
-        break;
-      }
-
-      fd_pubkey_t const * leader = fd_epoch_leaders_get( leaders, fd_bank_slot_get( slot_ctx->bank ) );
-      if( FD_UNLIKELY( !leader ) ) {
-        FD_LOG_CRIT(( "fd_runtime_freeze: leader not found" ));
-        fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
-        break;
-      }
-
-      fd_funk_rec_prepare_t prepare = {0};
-      int err = fd_txn_account_init_from_funk_mutable(
-          rec,
-          leader,
-          slot_ctx->funk,
-          slot_ctx->funk_txn,
-          1,
-          0UL,
-          &prepare );
-      if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(("fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
-        burn = fd_ulong_sat_add( burn, fees );
-        fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
-        break;
-      }
-
-      fd_lthash_value_t prev_hash[1];
-      fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
-      fd_bank_epoch_leaders_end_locking_query( slot_ctx->bank );
-
-      if ( FD_LIKELY( FD_FEATURE_ACTIVE_BANK( slot_ctx->bank, validate_fee_collector_account ) ) ) {
-        ulong _burn;
-        if( FD_UNLIKELY( _burn=fd_runtime_validate_fee_collector( slot_ctx->bank, rec, fees ) ) ) {
-          if( FD_UNLIKELY( _burn!=fees ) ) {
-            FD_LOG_ERR(( "expected _burn(%lu)==fees(%lu)", _burn, fees ));
-          }
-          burn = fd_ulong_sat_add( burn, fees );
-          FD_LOG_WARNING(("fd_runtime_freeze: burned %lu", fees ));
-          break;
-        }
-      }
-
-      /* TODO: is it ok to not check the overflow error here? */
-      fd_txn_account_checked_add_lamports( rec, fees );
-      fd_txn_account_set_slot( rec, fd_bank_slot_get( slot_ctx->bank ) );
-
-      fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
-
-    } while(0);
-
-    ulong old = fd_bank_capitalization_get( slot_ctx->bank );
-    fd_bank_capitalization_set( slot_ctx->bank, fd_ulong_sat_sub( old, burn ) );
-    FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, fd_bank_capitalization_get( slot_ctx->bank ) ));
-
-    fd_bank_execution_fees_set( slot_ctx->bank, 0UL );
-
-    fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
-  }
-
-  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, slot_ctx->capture_ctx );
-
+  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->accdb, slot_ctx->capture_ctx );
 }
 
 #define FD_RENT_EXEMPT (-1L)

@@ -1,9 +1,8 @@
 #include "fd_sysvar_stake_history.h"
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
-#include "../fd_txn_account.h"
-#include "../fd_acc_mgr.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 /* Ensure that the size declared by our header matches the minimum size
    of the corresponding fd_types entry. */
@@ -24,28 +23,23 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn,
-                              fd_spad_t *     spad ) {
-  FD_TXN_ACCOUNT_DECL( stake_rec );
-  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
+fd_sysvar_stake_history_read( fd_accdb_client_t *  accdb,
+                              fd_stake_history_t * out ) {
+  fd_accdb_ref_t borrow[1];
+  int db_err = fd_accdb_borrow( accdb, borrow, fd_sysvar_stake_history_id.uc );
+  if( FD_UNLIKELY( db_err==FD_ACCDB_ERR_KEY ) ) return NULL;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_accdb_borrow(sysvar_stake_history) failed (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
   }
 
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( stake_rec )==0UL ) ) {
-    return NULL;
-  }
+  fd_stake_history_t * result = fd_bincode_decode_static(
+      stake_history, out,
+      fd_accdb_ref_data   ( borrow ),
+      fd_accdb_ref_data_sz( borrow ),
+      NULL );
 
-  return fd_bincode_decode_spad(
-      stake_history, spad,
-      fd_txn_account_get_data( stake_rec ),
-      fd_txn_account_get_data_len( stake_rec ),
-      &err );
+  fd_accdb_release( accdb, borrow );
+  return result;
 }
 
 void
@@ -57,12 +51,12 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
 void
 fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot_ctx,
-                                fd_epoch_stake_history_entry_pair_t const * pair,
-                                fd_spad_t *                                 runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  // Need to make this maybe zero copies of map...
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+                                fd_epoch_stake_history_entry_pair_t const * pair ) {
+  fd_stake_history_t stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->accdb, stake_history_ );
+  if( FD_UNLIKELY( !stake_history ) ) {
+    FD_LOG_ERR(( "Cannot update stake history: fd_sysvar_stake_history_read failed (corrupt sysvar?)" ));
+  }
 
   if( stake_history->fd_stake_history_offset == 0 ) {
     stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
@@ -83,6 +77,4 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot
   stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
 
   write_stake_history( slot_ctx, stake_history );
-
-  } FD_SPAD_FRAME_END;
 }
