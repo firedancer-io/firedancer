@@ -95,10 +95,11 @@ init_device( char const *        device,
     if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
       FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
 
+    /* Remove queue 0 from the rxfh table.  This queue is dedicated for xdp */
     fd_ethtool_ioctl_rxfh_set_suffix( &ioc, 1 );
 
-    /* FIXME centrally define listen port list to avoid this configure
-       stage from going out of sync with port mappings */
+    /* FIXME Centrally define listen port list to avoid this configure
+       stage from going out of sync with port mappings. */
     uint rule_idx = 0;
     fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 );
     fd_ethtool_ioctl_ntuple_clear( &ioc );
@@ -132,6 +133,7 @@ init( fd_config_t const * config ) {
   }
 }
 
+//TODO-AM
 static configure_result_t
 check_device( char const * device,
               uint         rss_queue_mode,

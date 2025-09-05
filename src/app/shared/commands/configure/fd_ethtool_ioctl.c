@@ -15,6 +15,8 @@
 
 #define ETHTOOL_CMD_SIZE( base_t, data_t, data_len ) ( sizeof(base_t) + (sizeof(data_t)*(data_len)) )
 
+//TODO-AM: Cleanup
+
 fd_ethtool_ioctl_t *
 fd_ethtool_ioctl_init( fd_ethtool_ioctl_t * ioc,
                        char const * device ) {
