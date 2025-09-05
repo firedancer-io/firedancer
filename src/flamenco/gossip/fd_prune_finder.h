@@ -69,6 +69,7 @@ struct fd_prune_finder_prune {
 typedef struct fd_prune_finder_prune fd_prune_finder_prune_t;
 
 struct fd_prune_finder_metrics {
+   ulong origin_evicted_cnt;
    ulong origin_relayer_evicted_cnt;
 };
 typedef struct fd_prune_finder_metrics fd_prune_finder_metrics_t;

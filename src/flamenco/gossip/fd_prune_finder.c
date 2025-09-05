@@ -209,6 +209,7 @@ fd_prune_finder_footprint( ulong origin_max, ulong relayer_max_per_origin ) {
     l = FD_LAYOUT_APPEND( l, relayer_lru_align(),  relayer_lru_footprint() );
     l = FD_LAYOUT_APPEND( l, relayer_treap_align(), relayer_treap_footprint( relayer_max_per_origin ) );
   }
+  l = FD_LAYOUT_FINI( l, fd_prune_finder_align() );
   return l;
 }
 
@@ -229,7 +230,7 @@ fd_prune_finder_new( void * shmem, ulong origin_max, ulong relayer_max_per_origi
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_prune_finder_t * pf = FD_SCRATCH_ALLOC_APPEND( l, FD_PRUNE_FINDER_ALIGN,            sizeof(fd_prune_finder_t) );
+  fd_prune_finder_t * pf = FD_SCRATCH_ALLOC_APPEND( l, fd_prune_finder_align(),            sizeof(fd_prune_finder_t) );
   void * _origins_pool   = FD_SCRATCH_ALLOC_APPEND( l, origin_pool_align(),              origin_pool_footprint( origin_max ) );
   void * _origins_map    = FD_SCRATCH_ALLOC_APPEND( l, origin_map_align(),               origin_map_footprint( origin_map_chain_cnt_est( origin_max ) ) );
   void * _origins_lru    = FD_SCRATCH_ALLOC_APPEND( l, origin_lru_list_align(),          origin_lru_list_footprint() );
@@ -251,12 +252,14 @@ fd_prune_finder_new( void * shmem, ulong origin_max, ulong relayer_max_per_origi
   pf->prunes.map = prunes_map_join( prunes_map_new( _prunes_map, prunes_map_chain_cnt_est( relayer_max_per_origin*FD_GOSSIP_MSG_MAX_CRDS ), fd_rng_ulong( rng ) ) );
   FD_TEST( pf->prunes.map );
 
+  pf->prunes.count = 0UL;
+
   for( ulong i=0UL; i<origin_max; i++ ) {
     fd_prune_origin_t * origin = &pf->pool[i];
 
-    void * _relayers_pool = FD_SCRATCH_ALLOC_APPEND( l, relayer_pool_align(), relayer_pool_footprint( relayer_max_per_origin ) );
-    void * _relayers_map  = FD_SCRATCH_ALLOC_APPEND( l, relayer_map_align(),  relayer_map_footprint( relayer_map_chain_cnt_est( relayer_max_per_origin ) ) );
-    void * _relayers_lru  = FD_SCRATCH_ALLOC_APPEND( l, relayer_lru_align(),  relayer_lru_footprint() );
+    void * _relayers_pool  = FD_SCRATCH_ALLOC_APPEND( l, relayer_pool_align(), relayer_pool_footprint( relayer_max_per_origin ) );
+    void * _relayers_map   = FD_SCRATCH_ALLOC_APPEND( l, relayer_map_align(),  relayer_map_footprint( relayer_map_chain_cnt_est( relayer_max_per_origin ) ) );
+    void * _relayers_lru   = FD_SCRATCH_ALLOC_APPEND( l, relayer_lru_align(),  relayer_lru_footprint() );
     void * _relayers_treap = FD_SCRATCH_ALLOC_APPEND( l, relayer_treap_align(), relayer_treap_footprint( relayer_max_per_origin ) );
 
     origin->relayers.pool = relayer_pool_join( relayer_pool_new( _relayers_pool, relayer_max_per_origin ) );
@@ -272,6 +275,7 @@ fd_prune_finder_new( void * shmem, ulong origin_max, ulong relayer_max_per_origi
     relayer_treap_seed( origin->relayers.pool, relayer_max_per_origin, fd_rng_ulong( rng ) );
     FD_TEST( origin->relayers.treap );
   }
+  FD_SCRATCH_ALLOC_FINI( l, fd_prune_finder_align() );
   fd_memset( pf->metrics, 0, sizeof(fd_prune_finder_metrics_t) );
 
   FD_COMPILER_MFENCE();
@@ -365,6 +369,7 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
     } else {
       origin = origin_lru_list_ele_pop_head( pf->lru, pf->pool );
       origin_map_ele_remove( pf->origins, &origin->identity_pubkey, NULL, pf->pool );
+      pf->metrics->origin_evicted_cnt++;
     }
     origin->num_upserts = 0UL;
     fd_memcpy( origin->identity_pubkey.uc, origin_pubkey, 32UL );
@@ -407,6 +412,8 @@ fd_prune_finder_get_prunes( fd_prune_finder_t *         pf,
     if( FD_LIKELY( origin->num_upserts<PRUNE_MIN_UPSERTS ) ) continue;
     if( FD_LIKELY( relayer_pool_used( origin->relayers.pool )<=PRUNE_MIN_INGRESS_NODES ) ) continue;
 
+    /* TODO: the use of minimum aggregate ingress stake threshold is quite weird to me, discuss with Michael/Greg
+       https://github.com/solana-labs/solana/issues/3214#issuecomment-475211810 */
     ulong min_ingress_stake = (ulong)(PRUNE_STAKE_THRESHOLD_PCT*(double)fd_ulong_min( my_stake, origin->stake ));
 
     relayer_treap_rev_iter_t it = relayer_treap_rev_iter_init( origin->relayers.treap, origin->relayers.pool );
@@ -436,6 +443,7 @@ fd_prune_finder_get_prunes( fd_prune_finder_t *         pf,
       FD_TEST( p->prune_len<FD_GOSSIP_MSG_MAX_CRDS );
       fd_memcpy( p->prunes[ p->prune_len ].uc, origin->identity_pubkey.uc, 32UL );
       p->prune_len++;
+      it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
     }
   }
   *out_prunes = prunes_pool_ele( pf->prunes.pool, 0UL );
