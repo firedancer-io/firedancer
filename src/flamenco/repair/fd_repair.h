@@ -85,6 +85,7 @@ struct fd_active_elem {
 };
 /* Active table */
 typedef struct fd_active_elem fd_active_elem_t;
+
 #define MAP_NAME     fd_active_table
 #define MAP_KEY_T    fd_pubkey_t
 #define MAP_KEY_EQ(a,b) (0==memcmp( (a),(b),sizeof(fd_pubkey_t) ))

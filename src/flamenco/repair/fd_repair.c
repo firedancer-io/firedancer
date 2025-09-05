@@ -31,7 +31,9 @@ fd_repair_new ( void * shmem, ulong sign_tile_depth, ulong sign_tile_cnt, ulong 
   void        * signmap  = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint ( sign_req_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_repair_align() ) == (ulong)shmem + fd_repair_footprint( sign_tile_depth, sign_tile_cnt ) );
 
+  fd_memset(repair, 0, sizeof(fd_repair_t));
   repair->actives        = fd_active_table_join  ( fd_active_table_new  ( actives,  FD_ACTIVE_KEY_MAX,    seed ));
+  FD_TEST(repair->actives);
   repair->dupdetect      = fd_inflight_table_join( fd_inflight_table_new( inflight, FD_NEEDED_KEY_MAX,    seed ));
   repair->inflight_pool  = fd_inflight_pool_join ( fd_inflight_pool_new ( inflpool, FD_NEEDED_KEY_MAX          ));
   repair->inflight_map   = fd_inflight_map_join  ( fd_inflight_map_new  ( inflmap,  FD_NEEDED_KEY_MAX,    seed ));
@@ -40,10 +42,7 @@ fd_repair_new ( void * shmem, ulong sign_tile_depth, ulong sign_tile_cnt, ulong 
   repair->pending_sign_pool = fd_repair_pending_sign_req_pool_join( fd_repair_pending_sign_req_pool_new( signpool, sign_req_max       ) );
   repair->pending_sign_map  = fd_repair_pending_sign_req_map_join ( fd_repair_pending_sign_req_map_new ( signmap,  sign_req_max, seed ) );
 
-  fd_memset(repair, 0, sizeof(fd_repair_t));
   repair->seed = seed;
-  repair->peer_cnt   = 0;
-  repair->peer_idx   = 0;
   repair->last_decay = 0;
   repair->last_print = 0;
   repair->next_nonce = 0;
@@ -352,7 +351,6 @@ fd_repair_insert_pending_request( fd_repair_t *            repair,
 
   fd_inflight_map_ele_insert( repair->inflight_map, inflight_req, repair->inflight_pool );
   fd_inflight_dlist_ele_push_tail( repair->inflight_dlist, inflight_req, repair->inflight_pool );
-  fd_repair_pending_sign_req_map_ele_insert( repair->pending_sign_map, pending, repair->pending_sign_pool );
 
   repair->next_nonce++;
   return pending;
