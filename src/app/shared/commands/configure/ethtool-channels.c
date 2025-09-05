@@ -279,6 +279,38 @@ device_ntuple_clear( char const * device ) {
   close( sock );
 }
 
+static void
+device_ntuple_set_rule_udp( char const * device,
+                            uint         rule_idx,
+                            ushort       dport,
+                            uint         queue_idx ) {
+  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
+  if( FD_UNLIKELY( sock < 0 ) )
+    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+
+  struct ifreq ifr = { 0 };
+  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
+
+  /* Note: mlx5 at least does not seem to support RX_CLS_LOC_ANY,
+   * so we manually specify the rule location indices */
+  FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue %u`",
+                  device, fd_ushort_bswap( dport ), queue_idx ));
+  struct ethtool_rxnfc efc = { 0 };
+  efc.cmd = ETHTOOL_SRXCLSRLINS;
+  efc.fs.flow_type = UDP_V4_FLOW;
+  efc.fs.h_u.udp_ip4_spec.pdst = fd_ushort_bswap( dport );
+  efc.fs.m_u.udp_ip4_spec.pdst = 0xFFFF;
+  efc.fs.ring_cookie = queue_idx;
+  efc.fs.location = rule_idx;
+  ifr.ifr_data = &efc;
+  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
+    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SRXCLSRLINS) failed (%i-%s)",
+                 errno, fd_io_strerror( errno ) ));
+
+  close( sock );
+}
+
 struct device_channels {
   int  supported;
   uint current;
@@ -418,9 +450,9 @@ init_device( char const * device,
     device_enable_feature_ntuple( device );
 
     device_ntuple_clear( device );
-    //TODO-AM
-    // for port in udp_ports_from_config:
-    //   ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue 0",
+
+    //TODO-AM: Get actual ports from config
+    device_ntuple_set_rule_udp( device, 0, 9001, 0 );
   }
 }
 
