@@ -135,11 +135,13 @@ init( fd_config_t const * config ) {
 
 static configure_result_t
 check_device( char const * device,
-              uint         rss_queue_mode,
-              uint         net_tile_count ) {
+              fd_config_t const * config ) {
   fd_ethtool_ioctl_t ioc;
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
     FD_LOG_ERR(( "error configuring network device, unable to init ethtool ioctl" ));
+
+  uint const rss_queue_mode = config->net.xdp.rss_queue_mode_;
+  uint const net_tile_count = config->layout.net_tile_count;
 
   int error = 0;    /* is anything not fully configured */
   int modified = 0; /* is anything changed from the default (fini'd) state */
@@ -196,9 +198,10 @@ check_device( char const * device,
       expected_queue = expected_queue_start;
   }
   modified |= rxfh_modified;
-  error    |= rxfh_error;
-  if( FD_UNLIKELY( rxfh_error ) )
+  if( FD_UNLIKELY( rxfh_error ) ) {
+    error = 1;
     FD_LOG_WARNING(( "device `%s` does not have the correct rxfh table installed", device ));
+  }
 
   if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
     /* Set error bit if ntuple-filters feature does not exist */
@@ -208,8 +211,34 @@ check_device( char const * device,
     }
   }
 
-  //TODO: Set modified bit if any ntuple rules exist
-  //TODO: Set error bit if ntuple filters do not exactly match desired rules
+  /* Set modified bit if any ntuple rules exist */
+  int const rules_empty = fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0 );
+  modified |= !rules_empty;
+
+  /* Set error bit if ntuple filters do not exactly match desired rules */
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
+    if( FD_UNLIKELY( !rules_empty ) ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` should not have ntuple rules installed", device ));
+    }
+  } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+    /* FIXME See above */
+    uint num_ports = 0;
+    ushort ports[ 32 ];
+    ports[ num_ports++ ] = config->tiles.shred.shred_listen_port;
+    ports[ num_ports++ ] = config->tiles.quic.quic_transaction_listen_port;
+    ports[ num_ports++ ] = config->tiles.quic.regular_transaction_listen_port;
+    if( config->is_firedancer ) {
+      ports[ num_ports++ ] = config->gossip.port;
+      ports[ num_ports++ ] = config->tiles.repair.repair_intake_listen_port;
+      ports[ num_ports++ ] = config->tiles.repair.repair_serve_listen_port;
+      ports[ num_ports++ ] = config->tiles.send.send_src_port;
+    }
+    if( FD_UNLIKELY( !fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, num_ports, 0 ) ) ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` is missing or has incorrect ntuple rules", device ));
+    }
+  }
 
   if( !error )
     CONFIGURE_OK();
@@ -225,10 +254,10 @@ check( fd_config_t const * config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count ) );
+      CHECK( check_device( token, config ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, config->net.xdp.rss_queue_mode_, config->layout.net_tile_count ) );
+    CHECK( check_device( config->net.interface, config ) );
   }
 
   CONFIGURE_OK();

@@ -115,7 +115,7 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
                               char const *         name,
                               int                  enabled );
 
-/* fd_ethtool_ioctl_feature_test returns whether the feature with
+/* fd_ethtool_ioctl_feature_test returns 1 if the feature with
    the given name is enabled. */
 
 int
@@ -138,6 +138,21 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
                                        uint                 queue_idx );
+
+/* fd_ethtool_ioctl_ntuple_validate_udp_dport queries all ntuple
+   rules and then returns 1 if they match the expected set of
+   rules for the given UDP destination ports.  In other words,
+   this makes sure the existing rules are correct and that no other
+   rules are active.  If num_dports is zero, then this effectively
+   checks whether any rules exist.  dports is left in an
+   indeterminate state after this function returns. */
+
+int
+fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
+                                            ushort *             dports,
+                                            uint                 num_dports,
+                                            uint                 queue_idx );
+
 
 FD_PROTOTYPES_END
 
