@@ -1614,28 +1614,100 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
         if( !fd_hash_eq( &w->key, &filter_key ) ) continue;
       }
       if( needcomma ) fd_web_reply_sprintf(ws, ",");
-      char vote_key[50];
-      fd_base58_encode_32(w->key.uc, 0, vote_key);
 
-      fd_voter_state_t const * state = (fd_voter_state_t const *)fd_type_pun_const( w->vote_acc_data );
-      if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-        char node_key[50];
-        fd_base58_encode_32(state->v0_23_5.meta.node_pubkey.uc, 0, node_key);
-        fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-                             w->stake, (uint)state->v0_23_5.meta.commission, node_key, 0UL, vote_key);
-      } else if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
-        char node_key[50];
-        fd_base58_encode_32(state->v1_14_11.meta.node_pubkey.uc, 0, node_key);
-        fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-                             w->stake, (uint)state->v1_14_11.meta.commission, node_key, 0UL, vote_key);
-      } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
-        char node_key[50];
-        fd_base58_encode_32(state->meta.node_pubkey.uc, 0, node_key);
-        fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-                             w->stake, (uint)state->meta.commission, node_key, 0UL, vote_key);
-      } else {
-        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->discriminant ));
+      fd_bincode_decode_ctx_t ctx = {
+        .data    = w->vote_acc_data,
+        .dataend = w->vote_acc_data + sizeof(w->vote_acc_data),
+      };
+      ulong total_sz = 0UL;
+      int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_CRIT(( "unable to decode vote state versioned" ));
+        continue;
       }
+      uchar mem[total_sz];
+      fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
+
+      fd_pubkey_t node_account;
+      uchar       commission;
+      ulong       root_slot;
+      ulong       last_vote_slot;
+      ulong       credits_cnt = 0UL;
+      ushort      epoch[EPOCH_CREDITS_MAX];
+      ulong       credits[EPOCH_CREDITS_MAX];
+      ulong       prev_credits[EPOCH_CREDITS_MAX];
+
+      fd_vote_epoch_credits_t * epoch_credits = NULL;
+
+      switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        node_account        = vsv->inner.v0_23_5.node_pubkey;
+        commission          = vsv->inner.v0_23_5.commission;
+        root_slot           = vsv->inner.v0_23_5.root_slot;
+        last_vote_slot      = vsv->inner.v0_23_5.last_timestamp.slot;
+        epoch_credits       = vsv->inner.v0_23_5.epoch_credits;
+        for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+             !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+             iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+          fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+          epoch[credits_cnt]        = (ushort)ele->epoch;
+          credits[credits_cnt]      = ele->credits;
+          prev_credits[credits_cnt] = ele->prev_credits;
+          credits_cnt++;
+        }
+        break;
+
+      case fd_vote_state_versioned_enum_v1_14_11:
+        node_account        = vsv->inner.v1_14_11.node_pubkey;
+        commission          = vsv->inner.v1_14_11.commission;
+        root_slot           = vsv->inner.v1_14_11.root_slot;
+        last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
+        epoch_credits       = vsv->inner.v1_14_11.epoch_credits;
+        for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+             !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+             iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+          fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+          epoch[credits_cnt]        = (ushort)ele->epoch;
+          credits[credits_cnt]      = ele->credits;
+          prev_credits[credits_cnt] = ele->prev_credits;
+          credits_cnt++;
+        }
+        break;
+
+      case fd_vote_state_versioned_enum_current:
+        node_account        = vsv->inner.current.node_pubkey;
+        commission          = vsv->inner.current.commission;
+        root_slot           = vsv->inner.current.root_slot;
+        last_vote_slot      = vsv->inner.current.last_timestamp.slot;
+        epoch_credits       = vsv->inner.current.epoch_credits;
+        for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+             !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+             iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+          fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+          epoch[credits_cnt]        = (ushort)ele->epoch;
+          credits[credits_cnt]      = ele->credits;
+          prev_credits[credits_cnt] = ele->prev_credits;
+          credits_cnt++;
+        }
+        break;
+
+      default:
+        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, vsv->discriminant ));
+        __builtin_unreachable();
+      }
+
+      char vote_account_s[50];
+      fd_base58_encode_32(w->key.uc, 0, vote_account_s);
+      char node_account_s[50];
+      fd_base58_encode_32(node_account.uc, 0, node_account_s);
+      fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[",
+                           w->stake, (uint)commission);
+      for( ulong j=0UL; j<credits_cnt; j++ ) {
+        fd_web_reply_sprintf(ws, "[%u,%lu,%lu]", epoch[j], credits[j], prev_credits[j]);
+        if( j < credits_cnt - 1 ) fd_web_reply_sprintf(ws, ",");
+      }
+      fd_web_reply_sprintf(ws, "],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":%lu}",
+                           node_account_s, last_vote_slot, vote_account_s, root_slot);
 
       needcomma = 1;
     }
