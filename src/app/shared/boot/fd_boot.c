@@ -283,6 +283,12 @@ fd_main( int                        argc,
     "--config",
     "FIREDANCER_CONFIG_TOML",
     NULL );
+  const char * opt_log_path = fd_env_strip_cmdline_cstr(
+    &argc,
+    &argv,
+    "--log-path",
+    "FD_LOG_PATH",
+    NULL );
 
   action_t * action = NULL;
   for( ulong i=0UL; ACTIONS[ i ]; i++ ) {
@@ -300,7 +306,7 @@ fd_main( int                        argc,
   }
 
   int is_local_cluster = action ? action->is_local_cluster : 0;
-  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, NULL, configs, topo_init );
+  fd_main_init( &argc, &argv, &config, opt_user_config_path, is_firedancer, is_local_cluster, opt_log_path, configs, topo_init );
 
   if( FD_UNLIKELY( !action ) ) {
     help_action->fn( NULL, NULL );
