@@ -6,7 +6,7 @@
 
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
+#include "../../discof/replay/fd_exec.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -69,14 +69,14 @@ struct fd_writer_tile_ctx {
   fd_bank_t *                  bank;
 
   /* Buffers to hold fragments received during during_frag */
-  fd_runtime_public_exec_writer_boot_msg_t boot_msg;
-  fd_runtime_public_exec_writer_txn_msg_t txn_msg;
+  fd_exec_writer_boot_msg_t boot_msg;
+  fd_exec_writer_txn_msg_t  txn_msg;
 
   /* Buffer to hold the writer->replay notification that a txn has been finalized.
      We need to store it here before publishing it, because we need to ensure that
      all solcap updates have been published before this message. */
-  fd_runtime_public_writer_replay_txn_finalized_t txn_finalized_buffer;
-  int                                             pending_txn_finalized_msg;
+  fd_writer_replay_txn_finalized_msg_t txn_finalized_buffer;
+  int                                  pending_txn_finalized_msg;
 };
 typedef struct fd_writer_tile_ctx fd_writer_tile_ctx_t;
 
@@ -131,10 +131,10 @@ publish_next_capture_ctx_account_update( fd_writer_tile_ctx_t * ctx, fd_stem_con
   /* Copy the account update event to the buffer */
   ulong chunk     = ctx->writer_replay_out->chunk;
   uchar * out_ptr = fd_chunk_to_laddr( ctx->writer_replay_out->mem, chunk );
-  fd_runtime_public_account_update_msg_t * msg = (fd_runtime_public_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
-  memcpy( out_ptr, msg, sizeof(fd_runtime_public_account_update_msg_t) );
-  ctx->solcap_publish_buffer_ptr += sizeof(fd_runtime_public_account_update_msg_t);
-  out_ptr                        += sizeof(fd_runtime_public_account_update_msg_t);
+  fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
+  memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
+  ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
+  out_ptr                        += sizeof(fd_capture_ctx_account_update_msg_t);
 
   /* Copy the data to the buffer */
   ulong data_sz = msg->data_sz;
@@ -143,11 +143,11 @@ publish_next_capture_ctx_account_update( fd_writer_tile_ctx_t * ctx, fd_stem_con
   out_ptr                        += data_sz;
 
   /* Stem publish the account update event */
-  ulong msg_sz = sizeof(fd_runtime_public_account_update_msg_t) + msg->data_sz;
+  ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
   fd_stem_publish(
     stem,
     ctx->writer_replay_out->idx,
-    FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_ACC_UPDATE,
+    FD_WRITER_REPLAY_SIG_ACC_UPDATE,
     chunk,
     msg_sz,
     0UL,
@@ -180,21 +180,21 @@ publish_txn_finalized_msg( fd_writer_tile_ctx_t * ctx, fd_stem_context_t * stem 
 
   /* Copy the txn finalized message to the buffer */
   uchar * out_ptr = fd_chunk_to_laddr( ctx->writer_replay_out->mem, ctx->writer_replay_out->chunk );
-  memcpy( out_ptr, &ctx->txn_finalized_buffer, sizeof(fd_runtime_public_writer_replay_txn_finalized_t) );
+  memcpy( out_ptr, &ctx->txn_finalized_buffer, sizeof(fd_writer_replay_txn_finalized_msg_t) );
 
   /* Publish the txn finalized message */
   fd_stem_publish(
     stem,
     ctx->writer_replay_out->idx,
-    FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_TXN_DONE,
+    FD_WRITER_REPLAY_SIG_TXN_DONE,
     ctx->writer_replay_out->chunk,
-    sizeof(fd_runtime_public_writer_replay_txn_finalized_t),
+    sizeof(fd_writer_replay_txn_finalized_msg_t),
     0UL,
     0UL,
     0UL );
   ctx->writer_replay_out->chunk = fd_dcache_compact_next(
     ctx->writer_replay_out->chunk,
-    sizeof(fd_runtime_public_writer_replay_txn_finalized_t),
+    sizeof(fd_writer_replay_txn_finalized_msg_t),
     ctx->writer_replay_out->chunk0,
     ctx->writer_replay_out->wmark );
   ctx->pending_txn_finalized_msg = 0;
@@ -265,12 +265,12 @@ during_frag( fd_writer_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( sig == FD_WRITER_BOOT_SIG ) ) {
-    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
+    fd_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     ctx->boot_msg = *msg;
   }
 
   if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
+    fd_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     ctx->txn_msg = *msg;
   }
 }
@@ -283,15 +283,12 @@ after_frag( fd_writer_tile_ctx_t * ctx,
             ulong                  sz FD_PARAM_UNUSED,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub FD_PARAM_UNUSED,
-            fd_stem_context_t *    stem ) {
-
-  (void)seq;
-  (void)stem;
+            fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
 
   /* Process messages from exec tiles. */
 
   if( FD_UNLIKELY( sig == FD_WRITER_BOOT_SIG ) ) {
-    fd_runtime_public_exec_writer_boot_msg_t * msg = &ctx->boot_msg;
+    fd_exec_writer_boot_msg_t * msg = &ctx->boot_msg;
     join_txn_ctx( ctx, in_idx, msg->txn_ctx_offset );
     ulong txn_ctx_cnt = 0UL;
     for( ulong i=0UL; i<ctx->exec_tile_cnt; i++ ) {
@@ -304,7 +301,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
   }
 
   if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
-    fd_runtime_public_exec_writer_txn_msg_t * msg = &ctx->txn_msg;
+    fd_exec_writer_txn_msg_t * msg = &ctx->txn_msg;
     if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
       FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
     }

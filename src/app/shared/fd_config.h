@@ -119,9 +119,6 @@ struct fd_configf {
   } layout;
 
   struct {
-    ulong heap_size_gib;
-
-    struct {
       ulong max_rooted_slots;
       ulong max_live_slots;
       ulong max_transactions_per_slot;
@@ -129,7 +126,6 @@ struct fd_configf {
       ulong max_vote_accounts;
       ulong max_total_banks;
       ulong max_fork_width;
-    } limits;
   } runtime;
 
   struct {
@@ -441,6 +437,7 @@ struct fd_config {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
       ulong max_exec_slices;
+      ulong heap_size_gib;
     } replay;
 
     struct {

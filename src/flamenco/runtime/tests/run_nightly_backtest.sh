@@ -97,6 +97,7 @@ echo "
         snapshot = \"$SNAPSHOT\"
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ \"$ONE_OFFS\" ]
+        heap_size_gib = 50
     [tiles.gui]
         enabled = false
 [funk]
@@ -104,10 +105,8 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
 [runtime]
-    heap_size_gib = 200
-    [runtime.limits]
-        max_total_banks = 128
-        max_fork_width = 32
+    max_total_banks = 128
+    max_fork_width = 32
 [blockstore]
     shred_max = 16777216
     block_max = 8192
