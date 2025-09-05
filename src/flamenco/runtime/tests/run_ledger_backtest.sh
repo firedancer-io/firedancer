@@ -179,6 +179,7 @@ echo "
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
+        heap_size_gib = 50
         enable_features = [ $FORMATTED_ONE_OFFS ] " > $DUMP_DIR/${LEDGER}_backtest.toml
 if [[ -n "$GENESIS" ]]; then
   echo -n "        genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
@@ -193,10 +194,8 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 64
 [runtime]
-    heap_size_gib = 50
-    [runtime.limits]
-        max_total_banks = 4
-        max_fork_width = 4
+    max_total_banks = 4
+    max_fork_width = 4
 [development]
     sandbox = false
     no_agave = true

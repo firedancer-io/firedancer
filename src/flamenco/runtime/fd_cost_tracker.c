@@ -160,13 +160,13 @@ calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L373-L380 */
-    if( FD_UNLIKELY( space>FD_ACC_SZ_MAX ) ) return 0UL;
+    if( FD_UNLIKELY( space>FD_RUNTIME_ACC_SZ_MAX ) ) return 0UL;
 
     allocated_accounts_data_size = fd_ulong_sat_add( allocated_accounts_data_size, space );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L396-L397 */
-  return fd_ulong_min( 2UL*FD_ACC_SZ_MAX, allocated_accounts_data_size );
+  return fd_ulong_min( 2UL*FD_RUNTIME_ACC_SZ_MAX, allocated_accounts_data_size );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L123-L149 */
