@@ -1702,7 +1702,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_base58_encode_32(node_account.uc, 0, node_account_s);
       fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[",
                            w->stake, (uint)commission);
-      for( ulong j=0UL; j<credits_cnt; j++ ) {
+      for( ulong j=(credits_cnt >= 5U ? credits_cnt - 5U : 0UL); j<credits_cnt; j++ ) {
         fd_web_reply_sprintf(ws, "[%u,%lu,%lu]", epoch[j], credits[j], prev_credits[j]);
         if( j < credits_cnt - 1 ) fd_web_reply_sprintf(ws, ",");
       }
