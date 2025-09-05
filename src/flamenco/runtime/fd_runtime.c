@@ -8,8 +8,6 @@
 #include "fd_pubkey_utils.h"
 
 #include "fd_executor.h"
-#include "fd_cost_tracker.h"
-#include "fd_runtime_public.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -20,8 +18,6 @@
 #include "../rewards/fd_rewards.h"
 
 #include "context/fd_exec_txn_ctx.h"
-#include "info/fd_microblock_batch_info.h"
-#include "info/fd_microblock_info.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
@@ -40,8 +36,8 @@
 #include "tests/fd_dump_pb.h"
 
 #include "fd_system_ids.h"
-#include "../vm/fd_vm.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../discof/replay/fd_exec.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -1077,12 +1073,12 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
   }
 
   /* Write the message to the buffer */
-  fd_runtime_public_account_update_msg_t * account_update_msg = (fd_runtime_public_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
+  fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
   account_update_msg->pubkey               = *account->pubkey;
   account_update_msg->info                 = meta->info;
   account_update_msg->data_sz              = meta->dlen;
   memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
-  capture_ctx->account_updates_buffer_ptr += sizeof(fd_runtime_public_account_update_msg_t);
+  capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
 
   /* Write the account data to the buffer */
   memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );

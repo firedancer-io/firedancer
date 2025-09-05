@@ -5,10 +5,8 @@
 #include "fd_executor_err.h"
 #include "sysvar/fd_sysvar_rent.h"
 
-/* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
-
-#define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
-#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10L<<21 ) /* 20MiB */
+#define MAX_PERMITTED_DATA_LENGTH                 (FD_RUNTIME_ACC_SZ_MAX) /* 10MiB */
+#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
 
 /* TODO: Not all Agave Borrowed Account API functions are implemented here */
 
@@ -423,8 +421,8 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
   /* The resize can not exceed the per-transaction maximum
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1104-L1108 */
-  long length_delta = fd_long_sat_sub( (long)new_length, (long)fd_txn_account_get_data_len( acct ) );
-  long new_accounts_resize_delta = fd_long_sat_add( (long)borrowed_acct->instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  ulong length_delta              = fd_ulong_sat_sub( new_length, fd_txn_account_get_data_len( acct ) );
+  ulong new_accounts_resize_delta = fd_ulong_sat_add( borrowed_acct->instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;

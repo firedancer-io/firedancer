@@ -3,7 +3,7 @@
 #include "fd_ssmanifest_parser.h"
 
 #include "../../../util/archive/fd_tar.h"
-#include "../../../flamenco/runtime/fd_runtime_public.h" /* FD_ACC_SZ_MAX */
+#include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_ACC_SZ_MAX */
 
 #include <errno.h>
 #include <assert.h>
@@ -345,8 +345,8 @@ static int
 fd_snapshot_parser_restore_account_hdr( fd_snapshot_parser_t * self ) {
   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( self->buf );
 
-  if( FD_UNLIKELY( hdr->meta.data_len > FD_ACC_SZ_MAX ) ) {
-    FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", hdr->meta.data_len, FD_ACC_SZ_MAX ));
+  if( FD_UNLIKELY( hdr->meta.data_len > FD_RUNTIME_ACC_SZ_MAX ) ) {
+    FD_LOG_ERR(( "account data size (%lu) exceeds max (%lu) (possible memory corruption?)", hdr->meta.data_len, FD_RUNTIME_ACC_SZ_MAX ));
   }
 
   ulong data_sz    = hdr->meta.data_len;

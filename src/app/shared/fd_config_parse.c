@@ -95,14 +95,13 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
   CFG_POP      ( bool,   funk.lock_pages                                     );
 
-  CFG_POP      ( ulong,  runtime.heap_size_gib                               );
-  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                     );
-  CFG_POP      ( ulong,  runtime.limits.max_live_slots                       );
-  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot            );
-  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds        );
-  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                    );
-  CFG_POP      ( ulong,  runtime.limits.max_total_banks                      );
-  CFG_POP      ( ulong,  runtime.limits.max_fork_width                       );
+  CFG_POP      ( ulong,  runtime.max_rooted_slots                            );
+  CFG_POP      ( ulong,  runtime.max_live_slots                              );
+  CFG_POP      ( ulong,  runtime.max_transactions_per_slot                   );
+  CFG_POP      ( ulong,  runtime.snapshot_grace_period_seconds               );
+  CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
+  CFG_POP      ( ulong,  runtime.max_total_banks                             );
+  CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
 
@@ -260,6 +259,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
   CFG_POP      ( ulong,  tiles.replay.max_exec_slices                     );
+  CFG_POP      ( ulong,  tiles.replay.heap_size_gib                       );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
