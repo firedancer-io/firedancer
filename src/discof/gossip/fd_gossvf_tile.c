@@ -349,16 +349,16 @@ verify_prune( fd_gossip_view_prune_t const * view,
               uchar const *                  payload,
               fd_sha512_t *                  sha ) {
   uchar sign_data[ FD_NET_MTU ];
-  fd_memcpy(       sign_data,                            "\xffSOLANA_PRUNE_DATA",       18UL );
-  fd_memcpy(       sign_data+18UL,                       payload+view->origin_off,      32UL );
-  FD_STORE( ulong, sign_data+50UL,                       view->prunes_len );
-  fd_memcpy(       sign_data+58UL,                       payload+view->prunes_off,      view->prunes_len*32UL );
-  fd_memcpy(       sign_data+58UL+view->prunes_len*32UL, payload+view->destination_off, 32UL );
-  FD_STORE( ulong, sign_data+90UL+view->prunes_len*32UL, view->wallclock );
+  fd_memcpy(       sign_data,                             "\xffSOLANA_PRUNE_DATA",       18UL );
+  fd_memcpy(       sign_data+18UL,                        payload+view->pubkey_off,      32UL );
+  FD_STORE( ulong, sign_data+50UL,                        view->origins_len );
+  fd_memcpy(       sign_data+58UL,                        payload+view->origins_off,     view->origins_len*32UL );
+  fd_memcpy(       sign_data+58UL+view->origins_len*32UL, payload+view->destination_off, 32UL );
+  FD_STORE( ulong, sign_data+90UL+view->origins_len*32UL, view->wallclock );
 
-  ulong sign_data_len = 98UL+view->prunes_len*32UL;
-  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      payload+view->signature_off, payload+view->origin_off, sha );
-  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, payload+view->signature_off, payload+view->origin_off, sha );
+  ulong sign_data_len = 98UL+view->origins_len*32UL;
+  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      payload+view->signature_off, payload+view->pubkey_off, sha );
+  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, payload+view->signature_off, payload+view->pubkey_off, sha );
 
   if( FD_LIKELY( err_prefix==FD_ED25519_SUCCESS || err_no_prefix==FD_ED25519_SUCCESS ) ) return 0;
   else                                                                                   return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;

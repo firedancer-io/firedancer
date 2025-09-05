@@ -613,14 +613,18 @@ static void
 rx_prune( fd_gossip_t *                  gossip,
           uchar const *                  payload,
           fd_gossip_view_prune_t const * prune ) {
-  fd_active_set_prunes( gossip->active_set,
-                        gossip->identity_pubkey,
-                        gossip->identity_stake,
-                        payload+prune->prunes_off,
-                        prune->prunes_len,
-                        payload+prune->origin_off,
-                        get_stake( gossip, payload+prune->origin_off ),
-                        NULL /* TODO: use out_node_idx to update push states */ );
+  uchar const * push_dest_pubkey = payload+prune->pubkey_off;
+  uchar const * origins          = payload+prune->origins_off;
+  for( ulong i=0UL; i<prune->origins_len; i++ ) {
+    uchar const * origin_pubkey = &origins[ i*32UL ];
+    ulong         origin_stake  = get_stake( gossip, origin_pubkey );
+    fd_active_set_prune( gossip->active_set,
+                         push_dest_pubkey,
+                         origin_pubkey,
+                         origin_stake,
+                         gossip->identity_pubkey,
+                         gossip->identity_stake );
+  }
 }
 
 

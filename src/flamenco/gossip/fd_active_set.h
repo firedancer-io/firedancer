@@ -43,7 +43,7 @@ struct fd_active_set_peer {
 typedef struct fd_active_set_peer fd_active_set_peer_t;
 
 struct fd_active_set_entry {
-  ulong                nodes_idx;
+  ulong                nodes_idx; /* points to oldest entry in set */
   ulong                nodes_len;
   fd_active_set_peer_t nodes[ FD_ACTIVE_SET_PEERS_PER_ENTRY ][ 1UL ];
 };
@@ -108,14 +108,12 @@ fd_active_set_node_pubkey( fd_active_set_t * active_set,
                            ulong             peer_idx );
 
 void
-fd_active_set_prunes( fd_active_set_t * active_set,
-                      uchar const *     identity_pubkey,
-                      ulong             identity_stake,
-                      uchar const *     peers,
-                      ulong             peers_len,
-                      uchar const *     origin,
-                      ulong             origin_stake,
-                      ulong *           opt_out_node_idx );
+fd_active_set_prune( fd_active_set_t * active_set,
+                     uchar const *     push_dest,
+                     uchar const *     origin,
+                     ulong             origin_stake,
+                     uchar const *     identity_pubkey,
+                     ulong             identity_stake );
 
 /* fd_active_set_rotate chooses a random active set entry to swap/introduce
    a peer into. The peer is sampled from a distribution
