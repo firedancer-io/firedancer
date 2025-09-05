@@ -119,23 +119,29 @@ fd_slice_exec_begin( fd_slice_exec_t * slice_exec_ctx,
                      ulong             slice_sz,
                      int               last_batch );
 
+static inline void
+fd_slice_exec_skip_slice( fd_slice_exec_t * slice_exec_ctx ) {
+  slice_exec_ctx->mblks_rem = 0UL;
+  slice_exec_ctx->txns_rem  = 0UL;
+}
+
 static inline int
-fd_slice_exec_txn_ready( fd_slice_exec_t * slice_exec_ctx ) {
+fd_slice_exec_txn_ready( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->txns_rem > 0UL;
 }
 
 static inline int
-fd_slice_exec_microblock_ready( fd_slice_exec_t * slice_exec_ctx ) {
+fd_slice_exec_microblock_ready( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->txns_rem == 0 && slice_exec_ctx->mblks_rem > 0UL;
 }
 
 static inline int
-fd_slice_exec_slice_ready( fd_slice_exec_t * slice_exec_ctx ) {
+fd_slice_exec_slice_ready( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->txns_rem == 0 && slice_exec_ctx->mblks_rem == 0UL;
 }
 
 static inline int
-fd_slice_exec_slot_complete( fd_slice_exec_t * slice_exec_ctx ) {
+fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->last_batch && slice_exec_ctx->mblks_rem == 0 && slice_exec_ctx->txns_rem == 0;
 }
 
