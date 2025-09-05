@@ -133,7 +133,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
-    .sin_port   = addr.port,
+    .sin_port   = fd_ushort_bswap( addr.port ),
     .sin_addr   = { .s_addr = addr.addr }
   };
 
@@ -259,7 +259,7 @@ follow_redirect( fd_sshttp_t *        http,
   }
 
   FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), http->addr.port,
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
   fd_sshttp_cancel( http );
