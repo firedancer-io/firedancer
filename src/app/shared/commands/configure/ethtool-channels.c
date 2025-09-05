@@ -9,11 +9,12 @@
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 
+#include "fd_ethtool_ioctl.h"
+
 #define NAME "ethtool-channels"
 
 #define MAX_FEATURES (1024)
 #define MAX_NTUPLE_RULES (1024)
-#define MAX_RXFH_TABLE_SIZE (2048)
 
 #define ETHTOOL_CMD_SZ( base_t, data_t, data_len ) ( sizeof(base_t) + (sizeof(data_t)*(data_len)) )
 
@@ -74,91 +75,6 @@ device_read_slaves( char const * device,
   if( FD_UNLIKELY( fclose( fp ) ) )
     FD_LOG_ERR(( "error configuring network device, fclose(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   output[ strlen( output ) - 1 ] = '\0';
-}
-
-static void
-set_device_rxfh_default( char const * device ) {
-  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) )
-    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-
-  struct ifreq ifr = { 0 };
-  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
-
-  struct ethtool_rxfh_indir rxfh = {
-    .cmd = ETHTOOL_SRXFHINDIR,
-    .size = 0, /* default indirection table */
-  };
-  ifr.ifr_data = &rxfh;
-
-  FD_LOG_NOTICE(( "RUN: `ethtool --set-rxfh-indir %s default`", device ));
-
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
-    if( FD_UNLIKELY( errno != EOPNOTSUPP ) ) {
-      FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SRXFHINDIR) failed (%i-%s)",
-                        errno, fd_io_strerror( errno ) ));
-    }
-  }
-
-  close( sock );
-}
-
-static void
-set_device_rxfh_from_idx( char const * device,
-                          uint         start_idx ) {
-  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) )
-    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-
-  struct ifreq ifr = { 0 };
-  fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( ifr.ifr_name ), device, IF_NAMESIZE-1 ));
-
-  /* Get current channel count */
-  struct ethtool_channels ech = { 0 };
-  ech.cmd = ETHTOOL_GCHANNELS;
-  ifr.ifr_data = &ech;
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
-                 device, errno, fd_io_strerror( errno ) ));
-  uint const num_channels = ech.combined_count + ech.rx_count;
-  if( FD_UNLIKELY( start_idx >= num_channels ))
-    FD_LOG_ERR(( "error configuring network device `%s`, rxfh start index %u"
-                 " is too large for current chanenl count %u", device, start_idx, num_channels ));
-
-  union {
-    struct ethtool_rxfh_indir m;
-    uchar _[ ETHTOOL_CMD_SZ( struct ethtool_rxfh_indir, uint, MAX_RXFH_TABLE_SIZE ) ];
-  } rxfh = { 0 };
-  ifr.ifr_data = &rxfh;
-
-  /* Get size of rx indirection table */
-  rxfh.m.cmd = ETHTOOL_GRXFHINDIR;
-  rxfh.m.size = 0;
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXFHINDIR) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-  uint const table_size = rxfh.m.size;
-  if( FD_UNLIKELY( table_size == 0 || table_size > MAX_RXFH_TABLE_SIZE ) )
-    FD_LOG_ERR(( "error configuring network device, rxfh table size invalid" ));
-
-  /* Set table to round robin over all channels from [start_idx, num_channels) */
-  rxfh.m.cmd = ETHTOOL_SRXFHINDIR;
-  rxfh.m.size = table_size;
-  uint i = start_idx;
-  for(uint j=0u; j<table_size; ++j) {
-    rxfh.m.ring_index[ j ] = i++;
-    if( i >= num_channels )
-      i = start_idx;
-  }
-  FD_LOG_NOTICE(( "RUN: `ethtool --set-rxfh-indir %s start %u equal %u`",
-                  device, start_idx, num_channels - start_idx ));
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SRXFHINDIR) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-
-  close( sock );
 }
 
 static void
@@ -423,14 +339,15 @@ set_device_num_channels( char const * device,
 static void
 init_device( char const *        device,
              fd_config_t const * config ) {
-  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
-  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
+  fd_ethtool_ioctl_t ioc;
+  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device, unable to init ethtool ioctl" ));
 
   /* First reset the RXFH indirection table to the default behavior, which
      is to evenly distribute hashes amongst channels regardless of the
      number of channels. This allows us to freely change the number of
      channels. */
-  set_device_rxfh_default( device );
+  fd_ethtool_ioctl_rxfh_set_default( &ioc );
 
   uint num_channels;
   if( config->net.xdp.rss_queue_mode_ == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
@@ -444,7 +361,7 @@ init_device( char const *        device,
     if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
       FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
 
-    set_device_rxfh_from_idx( device, 1 );
+    fd_ethtool_ioctl_rxfh_isolate_prefix( &ioc, 1 );
 
     /* FIXME centrally define listen port list to avoid this configure
        stage from going out of sync with port mappings */
@@ -560,11 +477,12 @@ check( fd_config_t const * config ) {
 
 static void
 fini_device( char const * device ) {
-  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
-  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
+  fd_ethtool_ioctl_t ioc;
+  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device, unable to init ethtool ioctl" ));
 
   /* This should happen first, otherwise changing the number of channels may fail */
-  set_device_rxfh_default( device );
+  fd_ethtool_ioctl_rxfh_set_default( &ioc );
 
   set_device_num_channels( device, 0 /* max */ );
 
