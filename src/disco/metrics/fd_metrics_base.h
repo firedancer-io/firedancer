@@ -78,7 +78,7 @@ typedef struct {
           ulong min;
           ulong max;
         } none;
-        
+
         struct {
           double min;
           double max;

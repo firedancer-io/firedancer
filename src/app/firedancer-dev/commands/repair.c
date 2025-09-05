@@ -21,7 +21,8 @@
 
 #include <unistd.h> /* pause */
 
-fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
+fd_topo_run_tile_t
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static ulong
 link_permit_no_producers( fd_topo_t * topo, char * link_name ) {
@@ -384,6 +385,102 @@ repair_cmd_args( int *    pargc,
   FD_LOG_NOTICE(( "repair manifest_path %s", args->repair.manifest_path ));
 }
 
+static char *
+fmt_count( char buf[ static 64 ], ulong count ) {
+  char tmp[ 64 ];
+  if( FD_LIKELY( count<1000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%lu", count ) );
+  else if( FD_LIKELY( count<1000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%.1f K", (double)count/1000.0 ) );
+  else if( FD_LIKELY( count<1000000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, 64UL, NULL, "%.1f M", (double)count/1000000.0 ) );
+
+  FD_TEST( fd_cstr_printf_check( buf, 64UL, NULL, "%12s", tmp ) );
+  return buf;
+}
+
+static void
+print_histogram_buckets( volatile ulong * metrics,
+                         ulong offset,
+                         int converter,
+                         double histmin,
+                         double histmax,
+                         char * title ) {
+  fd_histf_t hist[1];
+
+  /* Create histogram structure only to get bucket edges for display */
+  if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
+    /* For SLOT_COMPLETE_TIME: min=0.2, max=2.0 seconds */
+    FD_TEST( fd_histf_new( hist, fd_metrics_convert_seconds_to_ticks( histmin ), fd_metrics_convert_seconds_to_ticks( histmax ) ) );
+  } else if( FD_LIKELY( converter == FD_METRICS_CONVERTER_NONE ) ) {
+    /* For non-time histograms, we'd need the actual min/max values */
+    FD_TEST( fd_histf_new( hist, (ulong)histmin, (ulong)histmax ) );
+  } else {
+    FD_LOG_ERR(( "unknown converter %i", converter ));
+  }
+
+  printf( " +---------------------+--------------------+--------------+\n" );
+  printf( " | %-19s |                    | Count        |\n", title );
+  printf( " +---------------------+--------------------+--------------+\n" );
+
+  ulong total_count = 0;
+  for( ulong k = 0; k < FD_HISTF_BUCKET_CNT; k++ ) {
+    ulong bucket_count = metrics[ offset + k ];
+    total_count += bucket_count;
+  }
+
+  for( ulong k = 0; k < FD_HISTF_BUCKET_CNT; k++ ) {
+    /* Get individual bucket count directly from metrics array */
+    ulong bucket_count = metrics[ offset + k ];
+
+    char * le_str;
+    char le_buf[ 64 ];
+    if( FD_UNLIKELY( k == FD_HISTF_BUCKET_CNT - 1UL ) ) {
+      le_str = "+Inf";
+    } else {
+      ulong edge = fd_histf_right( hist, k );
+      if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
+        double edgef = fd_metrics_convert_ticks_to_seconds( edge - 1 );
+        FD_TEST( fd_cstr_printf_check( le_buf, sizeof( le_buf ), NULL, "%.3f", edgef ) );
+      } else {
+        FD_TEST( fd_cstr_printf_check( le_buf, sizeof( le_buf ), NULL, "%.3f", (double)(edge - 1) / 1000000.0 ) );
+      }
+      le_str = le_buf;
+    }
+
+    char count_buf[ 64 ];
+    fmt_count( count_buf, bucket_count );
+
+    /* Create visual bar - scale to max 20 characters */
+    char bar_buf[ 22 ];
+    if( bucket_count > 0 && total_count > 0 ) {
+      ulong bar_length = (bucket_count * 22UL) / total_count;
+      if( bar_length == 0 ) bar_length = 1;
+      for( ulong i = 0; i < bar_length; i++ ) { bar_buf[ i ] = '|'; }
+      bar_buf[ bar_length ] = '\0';
+    } else {
+      bar_buf[ 0 ] = '\0';
+    }
+
+    printf( " | %-19s | %-18s | %s |\n", le_str, bar_buf, count_buf );
+  }
+
+  /* Print sum and total count */
+  char sum_buf[ 64 ];
+  char avg_buf[ 64 ];
+  if( FD_LIKELY( converter == FD_METRICS_CONVERTER_SECONDS ) ) {
+    double sumf = fd_metrics_convert_ticks_to_seconds( metrics[ offset + FD_HISTF_BUCKET_CNT ] );
+    FD_TEST( fd_cstr_printf_check( sum_buf, sizeof( sum_buf ), NULL, "%.6f", sumf ) );
+    double avg = sumf / (double)total_count;
+    FD_TEST( fd_cstr_printf_check( avg_buf, sizeof( avg_buf ), NULL, "%.6f", avg ) );
+  } else {
+    FD_TEST( fd_cstr_printf_check( sum_buf, sizeof( sum_buf ), NULL, "%lu", metrics[ offset + FD_HISTF_BUCKET_CNT ] ));
+  }
+
+  printf( " +---------------------+--------------------+---------------+\n" );
+  printf( " | Sum: %-14s | Count: %-11lu | Avg: %-8s |\n", sum_buf, total_count, avg_buf );
+  printf( " +---------------------+--------------------+---------------+\n" );
+}
+
+
+
 static void
 repair_cmd_fn( args_t *   args,
                config_t * config ) {
@@ -423,10 +520,78 @@ repair_cmd_fn( args_t *   args,
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  fd_topo_fill( &config->topo );
+
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  FD_TEST( repair_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t * repair_tile = &config->topo.tiles[ repair_tile_idx ];
+
+  ulong shred_tile_idx = fd_topo_find_tile( &config->topo, "shred", 0UL );
+  FD_TEST( shred_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t * shred_tile = &config->topo.tiles[ shred_tile_idx ];
+
+  volatile ulong * shred_metrics = fd_metrics_tile( shred_tile->metrics );
+  FD_TEST( shred_metrics );
+
+  volatile ulong * repair_metrics = fd_metrics_tile( repair_tile->metrics );
+  FD_TEST( repair_metrics );
+
   FD_LOG_NOTICE(( "Repair profiler run" ));
 
+  ulong shred_repair_link_idx = fd_topo_find_link( &config->topo, "shred_repair", 0UL );
+  FD_TEST( shred_repair_link_idx!=ULONG_MAX );
+  fd_topo_link_t * shred_repair_link = &config->topo.links[ shred_repair_link_idx ];
+  FD_TEST( shred_repair_link );
+  fd_frag_meta_t * shred_repair_mcache = shred_repair_link->mcache;
+
+  ulong turbine_slot0 = 0;
+
   fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
-  for(;;) pause();
+  for(;;) { /* collect metrics */
+
+    if( FD_UNLIKELY( !turbine_slot0 ) ) {
+      fd_frag_meta_t * frag = &shred_repair_mcache[1]; /* hack to get first frag */
+      if ( frag->sz > 0 ) {
+        turbine_slot0 = fd_disco_shred_repair_shred_sig_slot( frag->sig );
+        FD_LOG_NOTICE(("turbine_slot0: %lu", turbine_slot0));
+      }
+    }
+
+    char buf2[ 64 ];
+    ulong rcvd = shred_metrics [ MIDX( COUNTER, SHRED,  SHRED_REPAIR_RCV ) ];
+    ulong sent = repair_metrics[ MIDX( COUNTER, REPAIR, SHRED_REPAIR_REQ ) ];
+    printf(" Requests received: (%lu/%lu) %.1f%% \n", rcvd, sent, (double)rcvd / (double)sent * 100.0 );
+    printf( " +---------------+--------------+\n" );
+    printf( " | Request Type  | Count        |\n" );
+    printf( " +---------------+--------------+\n" );
+    printf( " | Orphan        | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_ORPHAN         ) ] ) );
+    printf( " | HighestWindow | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_HIGHEST_WINDOW ) ] ) );
+    printf( " | Index         | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_WINDOW         ) ] ) );
+    printf( " +---------------+--------------+\n" );
+
+    print_histogram_buckets( repair_metrics,
+                             MIDX( HISTOGRAM, REPAIR, RESPONSE_LATENCY ),
+                             FD_METRICS_CONVERTER_NONE,
+                             FD_METRICS_HISTOGRAM_REPAIR_RESPONSE_LATENCY_MIN,
+                             FD_METRICS_HISTOGRAM_REPAIR_RESPONSE_LATENCY_MAX,
+                             "Response Latency" );
+
+    printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ], turbine_slot0, turbine_slot0 - repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] );
+    /* Print histogram buckets similar to Prometheus format */
+    print_histogram_buckets( repair_metrics,
+                             MIDX( HISTOGRAM, REPAIR, SLOT_COMPLETE_TIME ),
+                             FD_METRICS_CONVERTER_SECONDS,
+                             FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_TIME_MIN,
+                             FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_TIME_MAX,
+                             "Slot Complete Time" );
+
+    printf( " Repair Peers: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_PEERS ) ] );
+
+    printf("\n");
+    fflush( stdout );
+
+    sleep( 1 );
+  }
 }
 
 action_t fd_action_repair = {

@@ -364,7 +364,48 @@ def completion_times( fec_stats, shred_data, first_turbine, pdf ):
     for fec_line, slot_line in catchup:
         print('{:<50} {:<50}'.format(fec_line, slot_line))
 
+    # Time in between slot completions
 
+    time_between_slots_live = slot_cmpl_live['timestamp_fec1'].sort_values().diff().fillna(0)
+    time_between_slots_catchup = slot_cmpl_catchup['timestamp_fec1'].sort_values().diff().fillna(0)
+    time_between_slots_live = time_between_slots_live / 1_000_000  # Convert to milliseconds
+    time_between_slots_catchup = time_between_slots_catchup / 1_000_000  # Convert to milliseconds
+
+    # plot the time between slots
+    fig = plt.figure(figsize=(12, 6))
+    sns.histplot(time_between_slots_live, bins=50, kde=True)
+    plt.title('Time Between Completing Live Slots')
+    plt.xlabel('Time Between Slots (ms)')
+    plt.ylabel('Frequency')
+
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
+
+    print("\n\033[1mTime Between Completing Live Slots\033[0m\n")
+    print(time_between_slots_live.describe())
+    print("\n\033[1mTime Between Completing Catchup Slots\033[0m\n")
+    print(time_between_slots_catchup.describe())
+
+
+def show_turbine_arrivals(live, pdf):
+    # plot the turbine arrivals
+    fig = plt.figure(figsize=(12, 6))
+    live_turbine = live[live['is_turbine']]
+    live_turbine = live_turbine[live_turbine['slot'] >= 348905600]
+    #bucket it by every 10 ms, and round to to the nearest int
+    live_turbine['timestamp'] = (live_turbine['timestamp'] // 10_000_000).astype(int)
+    live_turbine = live_turbine.groupby('timestamp').size().reset_index(name='count')
+    sns.barplot(data=live_turbine, x='timestamp', y='count')
+    plt.title('Turbine Arrivals')
+    plt.xlabel('Timestamp')
+    plt.ylabel('count')
+    # show labels for every 10 ticks only
+    plt.setp(plt.gca().get_xticklabels(), visible=False)
+    plt.setp(plt.gca().get_xticklabels()[::5], visible=True)
+
+    plt.tight_layout()
+    pdf.savefig(fig, bbox_inches='tight')
+    plt.close(fig)
 
 def turbine_stats(catchup, live):
     print('\n\033[1mTurbine Statistics\033[0m\n')
@@ -1355,9 +1396,13 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
                                    skipfooter=1 ) # because of the buffered writer the last row is probably incomplete
 
     if request_data_path:
-        repair_requests = pd.read_csv( request_data_path,
-                                    dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
-                                    skipfooter=1 )
+        try:
+            repair_requests = pd.read_csv( request_data_path,
+                                        dtype={'dst_ip': str, 'dst_port': int, 'timestamp': int, 'slot': int, 'idx': int, 'nonce': int },
+                                        skipfooter=1 )
+        except Exception as e:
+            print(f'Error reading repair requests: {e}')
+            request_data_path = None
 
     if peers_data_path:
         peers_data      = pd.read_csv( peers_data_path,
@@ -1388,6 +1433,7 @@ def generate_report( log_path, request_data_path, shred_data_path, peers_data_pa
     catchup = shreds_data[shreds_data['slot'].between(snapshot_slot, first_turbine - 1)]
     live    = shreds_data[shreds_data['slot'].between(first_turbine, last_executed)]
 
+    show_turbine_arrivals(live, pdf)
 
     create_title_page(pdf)
 

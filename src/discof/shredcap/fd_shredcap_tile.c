@@ -293,7 +293,7 @@ handle_new_contact_info( fd_capture_tile_ctx_t * ctx,
 
 static int
 is_fec_completes_msg( ulong sz ) {
-  return sz == FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ;
+  return sz == FD_SHRED_DATA_HEADER_SZ + 2 * FD_SHRED_MERKLE_ROOT_SZ;
 }
 
 static inline void
