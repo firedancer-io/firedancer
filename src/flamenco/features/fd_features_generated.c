@@ -1546,6 +1546,18 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {2, 3, 0},
     .hardcode_for_fuzzing = 1 },
 
+  { .index                     = offsetof(fd_features_t, raise_block_limits_to_60m)>>3,
+    .id                        = {"\x56\x29\xfd\x5b\x06\x1d\x78\x49\xfc\x80\x45\xef\xbe\x42\x3f\xbc\x45\x8b\x26\xf1\x43\x04\xd8\x27\x0e\xfb\xba\x13\x22\x82\x30\xc6"},
+                                 /* 6oMCUgfY6BzZ6jwB681J6ju5Bh6CjVXbd7NeWYqiXBSu */
+    .name                      = "raise_block_limits_to_60m",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, raise_block_limits_to_100m)>>3,
+    .id                        = {"\x05\xa2\xfa\x02\xbf\x06\x9b\xb5\xcf\xeb\xc7\x5c\x1d\xc9\x2a\x8b\x6c\x88\x83\x7e\xad\x76\x0e\x05\x45\xf5\xa8\x63\x63\x9c\xe7\xad"},
+                                 /* P1BCUMpAC7V2GRBRiJCNUgpMyWZhoqt3LKo712ePqsz */
+    .name                      = "raise_block_limits_to_100m",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index                     = offsetof(fd_features_t, move_precompile_verification_to_svm)>>3,
     .id                        = {"\x85\x6c\x3d\xbc\xfd\xf4\xf4\x8e\x9f\xfa\xe7\xd0\xf8\xfc\x84\xda\x5a\x8b\x15\x32\x54\xe0\xe1\xa2\xe4\x64\x57\x89\x94\x0b\x38\x47"},
                                  /* 9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp */
@@ -1876,22 +1888,24 @@ fd_feature_id_query( ulong prefix ) {
   case 0x56b57bbf5f6afc04: return &ids[ 221 ];
   case 0xc66648576f67b1a5: return &ids[ 222 ];
   case 0x08dc7e6d724d4e47: return &ids[ 223 ];
-  case 0x8ef4f4fdbc3d6c85: return &ids[ 224 ];
-  case 0xd571e3dc9532c905: return &ids[ 225 ];
-  case 0x4d86ca23d81d6d11: return &ids[ 226 ];
-  case 0x68b66c984ac5e709: return &ids[ 227 ];
-  case 0x28f6b335e2fb2040: return &ids[ 228 ];
-  case 0xa841eda250bdcc9c: return &ids[ 229 ];
-  case 0x0272a3278356fa9c: return &ids[ 230 ];
-  case 0x494f963ae12b5106: return &ids[ 231 ];
-  case 0x210aba8db8103506: return &ids[ 232 ];
-  case 0xec3a4c069e71cb0e: return &ids[ 233 ];
-  case 0xbbec21266d76cb0e: return &ids[ 234 ];
-  case 0xe72f76507222e3bb: return &ids[ 235 ];
-  case 0x7170cf84367fbb1a: return &ids[ 236 ];
-  case 0xa9e3bfbaf8d67260: return &ids[ 237 ];
-  case 0x3711b30f40730240: return &ids[ 238 ];
-  case 0xc1309d1b0ae3e80c: return &ids[ 239 ];
+  case 0x49781d065bfd2956: return &ids[ 224 ];
+  case 0xb59b06bf02faa205: return &ids[ 225 ];
+  case 0x8ef4f4fdbc3d6c85: return &ids[ 226 ];
+  case 0xd571e3dc9532c905: return &ids[ 227 ];
+  case 0x4d86ca23d81d6d11: return &ids[ 228 ];
+  case 0x68b66c984ac5e709: return &ids[ 229 ];
+  case 0x28f6b335e2fb2040: return &ids[ 230 ];
+  case 0xa841eda250bdcc9c: return &ids[ 231 ];
+  case 0x0272a3278356fa9c: return &ids[ 232 ];
+  case 0x494f963ae12b5106: return &ids[ 233 ];
+  case 0x210aba8db8103506: return &ids[ 234 ];
+  case 0xec3a4c069e71cb0e: return &ids[ 235 ];
+  case 0xbbec21266d76cb0e: return &ids[ 236 ];
+  case 0xe72f76507222e3bb: return &ids[ 237 ];
+  case 0x7170cf84367fbb1a: return &ids[ 238 ];
+  case 0xa9e3bfbaf8d67260: return &ids[ 239 ];
+  case 0x3711b30f40730240: return &ids[ 240 ];
+  case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
   default: break;
   }
   return NULL;
@@ -2121,20 +2135,22 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_accounts_delta_hash           
 FD_STATIC_ASSERT( offsetof( fd_features_t, snapshots_lt_hash                                       )>>3==221UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, reserve_minimal_cus_for_builtin_instructions            )>>3==222UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m                               )>>3==223UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==224UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==225UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, disable_partitioned_rent_collection                     )>>3==226UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_full_fec_sets                                 )>>3==227UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, drop_unchained_merkle_shreds                            )>>3==228UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, verify_retransmitter_signature                          )>>3==229UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_turbine_extended_fanout_experiments              )>>3==230UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_sets                 )>>3==231UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, mask_out_rent_epoch_in_vm_serialization                 )>>3==232UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, disable_zk_elgamal_proof_program                        )>>3==233UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_zk_elgamal_proof_program                       )>>3==234UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, formalize_loaded_transaction_data_size                  )>>3==235UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked                           )>>3==236UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==237UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==238UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==239UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_60m                               )>>3==224UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_100m                              )>>3==225UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==226UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==227UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_partitioned_rent_collection                     )>>3==228UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_full_fec_sets                                 )>>3==229UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, drop_unchained_merkle_shreds                            )>>3==230UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, verify_retransmitter_signature                          )>>3==231UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_turbine_extended_fanout_experiments              )>>3==232UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_only_retransmitter_signed_fec_sets                 )>>3==233UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, mask_out_rent_epoch_in_vm_serialization                 )>>3==234UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_zk_elgamal_proof_program                        )>>3==235UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reenable_zk_elgamal_proof_program                       )>>3==236UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, formalize_loaded_transaction_data_size                  )>>3==237UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked                           )>>3==238UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==239UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

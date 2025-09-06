@@ -786,6 +786,17 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
+  /* Setup cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_cost_tracker_new(
+      fd_bank_cost_tracker_locking_modify( slot_ctx->bank ),
+      fd_bank_features_query( slot_ctx->bank ),
+      fd_bank_slot_get( slot_ctx->bank ),
+      999UL ) );
+  if( FD_UNLIKELY( !cost_tracker ) ) {
+    FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
+  }
+  fd_bank_cost_tracker_end_locking_modify( slot_ctx->bank );
+
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
@@ -1251,6 +1262,14 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
 
   ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
   FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
+
+  /* Update the cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_bank_cost_tracker_locking_modify( bank ) );
+  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+  if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
+    txn_ctx->flags = 0U;
+  }
+  fd_bank_cost_tracker_end_locking_modify( bank );
 
 }
 

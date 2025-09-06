@@ -11,6 +11,11 @@ It takes two required arguments:
 These two files should include lines from the 'solana gossip' and
 'solana validators' commands, respectively. It is recommended to run
 with a known good subset of nodes while tuning the send tile.
+
+send_test can also run with live gossip, if --gossip-file is set to "live".
+This will populate contact info from the live cluster, and requires the
+config's gossip section populated appropriately. 'live' mode will spin
+up the entire gossip subtopo.
 */
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h" /* initialize_workspaces */
@@ -24,12 +29,19 @@ with a known good subset of nodes while tuning the send tile.
 #include "../../../../app/firedancer/topology.h" /* fd_topo_configure_tile */
 #include "../../../../disco/keyguard/fd_keyload.h"
 
+#include "../core_subtopo.h"
+#include "../gossip.h"
 #include "send_test_helpers.c"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
+
+struct {
+  char gossip_file[256];
+  char stake_file[256];
+} send_test_args = {0};
 
 static void
 send_test_topo( config_t * config ) {
@@ -40,23 +52,6 @@ send_test_topo( config_t * config ) {
   /* Setup topology */
   fd_topo_t * topo    = fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
-
-  /* tile wksps */
-  fd_topob_wksp( topo, "metric_in" );
-  fd_topob_wksp( topo, "metric" );
-  fd_topob_wksp( topo, "sign" );
-  fd_topob_wksp( topo, "send" );
-
-  /* wksps for real links */
-  fd_topob_wksp( topo, "send_net" );
-  fd_topob_wksp( topo, "sign_send" );
-  fd_topob_wksp( topo, "send_sign" );
-
-  /* wksps for mock links */
-  fd_topob_wksp( topo, "gossip_out" );
-  fd_topob_wksp( topo, "stake_out"  );
-  fd_topob_wksp( topo, "tower_send" );
-  fd_topob_wksp( topo, "send_txns"  );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
@@ -77,48 +72,70 @@ send_test_topo( config_t * config ) {
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
+  /* Check if we should use live gossip or mock gossip */
+  int use_live_gossip = !strcmp( send_test_args.gossip_file, "live" );
+
+  fd_core_subtopo( config, tile_to_cpu );
+  if( use_live_gossip ) fd_gossip_subtopo( config, tile_to_cpu );
+
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
-  /* tiles */
-  fd_topos_net_tiles( topo, net_tile_cnt, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
-  fd_topob_tile( topo, "metric",    "metric",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topob_tile( topo, "send",      "send",      "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  fd_topob_tile( topo, "sign",      "sign",      "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+  /* Add send tile */
+  fd_topob_wksp( topo, "send" );
+  fd_topob_tile( topo, "send", "send", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
-  /* real links */
-  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_send",   i, ingress_buf_sz );
+  /* wksps for send links */
+  fd_topob_wksp( topo, "send_net" );
+  fd_topob_wksp( topo, "sign_send" );
+  fd_topob_wksp( topo, "send_sign" );
+
+  /* real links for send */
+  FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_send", i, ingress_buf_sz );
 
   FOR(net_tile_cnt) fd_topob_link( topo, "send_net",  "send_net",  ingress_buf_sz, FD_NET_MTU, 1UL  );
   /**/              fd_topob_link( topo, "send_sign", "send_sign", 128UL,          FD_TXN_MTU, 1UL  );
   /**/              fd_topob_link( topo, "sign_send", "sign_send", 128UL,          64UL,       1UL  );
 
   /* mock links */
-  fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL )
-                 ->permit_no_producers = 1;
-  fd_topob_link( topo, "stake_out",   "stake_out",   128UL,   FD_STAKE_OUT_MTU,   1UL  )
-                 ->permit_no_producers = 1;
-  fd_topob_link( topo, "tower_send",  "tower_send",  65536UL, sizeof(fd_txn_p_t), 1UL  )
-                 ->permit_no_producers = 1;
-  fd_topob_link( topo, "send_txns", "send_txns", 128UL,   40200UL * 38UL,     1UL  )
-                 ->permit_no_consumers = 1;
+  /* braces shut up clang's 'misleading identation' warning */
+  if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out" ); }
+  /**/                    fd_topob_wksp( topo, "stake_out"  );
+  /**/                    fd_topob_wksp( topo, "tower_send" );
+  /**/                    fd_topob_wksp( topo, "send_txns"  );
 
-  /* attach mock links */
-  fd_topob_tile_in( topo, "send", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in( topo, "send", 0UL, "metric_in", "stake_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in( topo, "send", 0UL, "metric_in", "tower_send",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out", "gossip_out", 65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
+  /**/                    fd_topob_link( topo, "stake_out",  "stake_out",  128UL,       FD_STAKE_OUT_MTU,                   1UL );
+  /**/                    fd_topob_link( topo, "tower_send", "tower_send", 65536UL,     sizeof(fd_txn_p_t),                 1UL );
+  /**/                    fd_topob_link( topo, "send_txns",  "send_txns",  128UL,       40200UL * 38UL,                     1UL );
 
-  /* attach real links */
-  fd_topos_tile_in_net( topo, "metric_in", "send_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in ( topo, "send", 0UL, "metric_in", "net_send", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  if( !use_live_gossip ) {fd_link_permit_no_producers( topo, "gossip_out" ); }
+  if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "send_txns"  ); }
+  /**/                    fd_link_permit_no_producers( topo, "stake_out"  );
+  /**/                    fd_link_permit_no_producers( topo, "tower_send" );
 
+  if( use_live_gossip ) {
+    /* finish off gossip in_links */
+    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "send_txns",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "gossip",  0UL, "metric_in", "sign_gossip", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  }
+
+  /* attach send in links */
+  fd_topos_tile_in_net( topo, /* ***** */  "metric_in", "send_net",   0UL,  FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in (    topo, "send", 0UL, "metric_in", "net_send",   0UL,  FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "gossip_out",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "stake_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_send",  0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+
+  /* attach out links */
   fd_topob_tile_out( topo, "send", 0UL, "send_net", 0UL );
+  fd_topob_tile_out( topo, "send", 0UL, "send_txns", 0UL );
 
   /* unpolled links have to be last! */
   fd_topob_tile_in ( topo, "sign", 0UL, "metric_in", "send_sign", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   fd_topob_tile_in ( topo, "send", 0UL, "metric_in", "sign_send", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   fd_topob_tile_out( topo, "send", 0UL, "send_sign", 0UL );
   fd_topob_tile_out( topo, "sign", 0UL, "sign_send", 0UL );
-  fd_topob_tile_out( topo, "send", 0UL, "send_txns", 0UL );
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 
@@ -133,11 +150,6 @@ send_test_topo( config_t * config ) {
   if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
 }
-
-struct {
-  char gossip_file[256];
-  char stake_file[256];
-} send_test_args = {0};
 
 static void
 send_test_cmd_args( int *    pargc,
@@ -186,6 +198,8 @@ init( send_test_ctx_t * ctx, config_t * config ) {
   fd_memcpy( ctx->gossip_file, send_test_args.gossip_file, sizeof(ctx->gossip_file) );
   fd_memcpy( ctx->stake_file,  send_test_args.stake_file,  sizeof(ctx->stake_file ) );
 
+  int live_gossip = !strcmp( send_test_args.gossip_file, "live" );
+
   ctx->identity_key  [ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( config->paths.identity_key, /* pubkey only: */ 1 ) );
   ctx->vote_acct_addr[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( config->paths.vote_account, /* pubkey only: */ 1 ) );
 
@@ -205,6 +219,9 @@ init( send_test_ctx_t * ctx, config_t * config ) {
   ctx->delay    [    MOCK_CI_IDX   ] = (long)(tick_per_ns * 5e9);
   ctx->delay    [  MOCK_STAKE_IDX  ] = (long)(tick_per_ns * 400e6 * MAX_SLOTS_PER_EPOCH);
   ctx->delay    [ MOCK_TRIGGER_IDX ] = (long)(tick_per_ns * 400e6); /* 400ms */
+  if( live_gossip ) {
+    ctx->delay[ MOCK_CI_IDX ] = LONG_MAX;
+  }
 
   encode_vote( ctx, ctx->txn_buf );
 

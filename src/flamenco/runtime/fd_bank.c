@@ -646,7 +646,13 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
-  new_bank->flags  = FD_BANK_FLAGS_INIT;
+  new_bank->flags = FD_BANK_FLAGS_INIT;
+  /* If the parent bank is dead, then we also need to mark the child
+     bank as being a dead block. */
+  if( FD_UNLIKELY( parent_bank->flags & FD_BANK_FLAGS_DEAD ) ) {
+    new_bank->flags |= FD_BANK_FLAGS_DEAD;
+  }
+
   new_bank->refcnt = 0UL;
 
   /* Delta field does not need to be copied over. The dirty flag just
@@ -960,6 +966,10 @@ int
 fd_banks_publish_prepare( fd_banks_t * banks,
                           fd_hash_t *  target_block_id,
                           fd_hash_t *  publishable_block_id ) {
+  /* TODO: An optimization here is to do a single traversal of the tree
+     that would mark minority forks as dead while accumulating
+     refcnts to determine which bank is the highest publishable. */
+
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
@@ -987,7 +997,8 @@ fd_banks_publish_prepare( fd_banks_t * banks,
     return 0;
   }
 
-  /* Mark rooted fork. */
+  /* Mark every node from the target bank up through its parents to the
+     root as being  rooted.  */
   fd_bank_t * curr = target_bank;
   fd_bank_t * prev = NULL;
   while( curr ) {
@@ -997,7 +1008,7 @@ fd_banks_publish_prepare( fd_banks_t * banks,
   }
 
   /* If we didn't reach the old root, target is not a descendant. */
-  if( prev!=root ) {
+  if( FD_UNLIKELY( prev!=root ) ) {
     FD_LOG_CRIT(( "target block_id %s is not a descendant of root block_id %s", FD_BASE58_ENC_32_ALLOCA( target_block_id ), FD_BASE58_ENC_32_ALLOCA( root_block_id ) ));
   }
 
@@ -1015,9 +1026,11 @@ fd_banks_publish_prepare( fd_banks_t * banks,
     }
 
     /* For this node to be pruned, all minority forks that branch off
-       from it must be entirely eligible for pruning.  This means
-       checking all children (except for the one on the rooted fork) and
-       their entire subtrees. */
+       from it must be entirely eligible for pruning.  A fork is
+       eligible for pruning if there are no outstanding references to
+       any of the nodes on the fork.  This means checking all children
+       (except for the one on the rooted fork) and their entire
+       subtrees. */
     int all_minority_forks_can_be_pruned = 1;
     ulong child_idx = prune_candidate->child_idx;
     while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
@@ -1069,17 +1082,31 @@ fd_banks_publish_prepare( fd_banks_t * banks,
     }
   }
 
-  /* Now mark all minority forks as dead. */
+  /* At this point the highest publishable bank has been identified. */
+
+  /* We know that the majority fork that is not getting pruned off is
+     the child of the target bank.  All other child/sibling nodes off of
+     the other nodes that were just marked as root are minority forks
+     which should be pruned off. */
+  ulong target_bank_idx = fd_banks_pool_idx( bank_pool, target_bank );
+
+  /* Now mark all minority forks as being dead.  This involves
+     traversing the tree down from the old root through its descendants
+     that are marked as rooted.  Any child/sibling nodes of these rooted
+     nodes are minority forks which should be marked as dead. */
+
   curr = root;
   while( curr && curr->flags & FD_BANK_FLAGS_ROOTED ) {
     fd_bank_t * rooted_child_bank = NULL;
-    ulong child_idx = curr->child_idx;
+    ulong       child_idx         = curr->child_idx;
     while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
       fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
       if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
         rooted_child_bank = sibling;
-      } else {
-        /* This is a minority fork. */
+      } else if( sibling->parent_idx!=target_bank_idx ) {
+        /* This is a minority fork.  Every node in the subtree should
+           be marked as dead.  We know that it is a minority fork
+           this node is not a child of the new target root. */
         fd_banks_subtree_mark_dead( bank_pool, sibling );
       }
       child_idx = sibling->sibling_idx;
@@ -1108,6 +1135,16 @@ fd_banks_rekey_bank( fd_banks_t *      banks,
   bank->block_id_ = *new_block_id;
 
   fd_banks_map_ele_insert( bank_map, bank, bank_pool );
+
+  fd_rwlock_unwrite( &banks->rwlock );
+}
+
+void
+fd_banks_mark_bank_dead( fd_banks_t * banks,
+                         fd_bank_t *  bank ) {
+  fd_rwlock_write( &banks->rwlock );
+
+  fd_banks_subtree_mark_dead( fd_banks_get_bank_pool( banks ), bank );
 
   fd_rwlock_unwrite( &banks->rwlock );
 }
