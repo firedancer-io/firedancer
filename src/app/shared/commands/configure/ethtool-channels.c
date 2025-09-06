@@ -13,7 +13,7 @@
 
 #define NAME "ethtool-channels"
 
-//TODO-AM: Handle command failure
+//TODO-AM: Break into separate configure stages?
 
 static int
 enabled( fd_config_t const * config ) {
@@ -91,30 +91,44 @@ init_device( char const *        device,
   } else {
     num_channels = 0; /* maximum allowed */
   }
-  fd_ethtool_ioctl_channels_set_num( &ioc, num_channels );
+  int ret = fd_ethtool_ioctl_channels_set_num( &ioc, num_channels );
+  if( FD_UNLIKELY( ret != 0 ) ) {
+    if( FD_LIKELY( ret == EBUSY ) )
+      FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
+                   "This is most commonly caused by an issue with the Intel ice driver on certain versions "
+                   "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
+                   "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
+                   "blacklisting the irdma kernel module.",
+                   ret, fd_io_strerror( ret ), device ));
+    else
+      FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
+                   ret, fd_io_strerror( ret ) ));
+  }
 
   if( config->net.xdp.rss_queue_mode_ == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
     if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
       FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
 
-    /* Remove queue 0 from the rxfh table.  This queue is dedicated for xdp */
-    fd_ethtool_ioctl_rxfh_set_suffix( &ioc, 1 );
+    /* Remove queue 0 from the rxfh table.  This queue is dedicated for xdp. */
+    FD_TEST( 0==fd_ethtool_ioctl_rxfh_set_suffix( &ioc, 1 ) );
 
     /* FIXME Centrally define listen port list to avoid this configure
        stage from going out of sync with port mappings. */
     uint rule_idx = 0;
-    fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 );
-    fd_ethtool_ioctl_ntuple_clear( &ioc );
-    fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.shred.shred_listen_port, 0 );
-    fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.quic_transaction_listen_port, 0 );
-    fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.regular_transaction_listen_port, 0 );
+    FD_TEST( 0==fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_clear( &ioc ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.shred.shred_listen_port, 0 ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.quic_transaction_listen_port, 0 ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.regular_transaction_listen_port, 0 ) );
     if( config->is_firedancer ) {
-      fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->gossip.port, 0 );
-      fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_intake_listen_port, 0 );
-      fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_serve_listen_port, 0 );
-      fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.send.send_src_port, 0 );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->gossip.port, 0 ) );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_intake_listen_port, 0 ) );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_serve_listen_port, 0 ) );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.send.send_src_port, 0 ) );
     }
   }
+
+  fd_ethtool_ioctl_fini( &ioc );
 }
 
 static void
@@ -135,6 +149,7 @@ init( fd_config_t const * config ) {
   }
 }
 
+//TODO-AM: Command failure
 static configure_result_t
 check_device( char const * device,
               fd_config_t const * config ) {
@@ -246,6 +261,8 @@ check_device( char const * device,
     }
   }
 
+  fd_ethtool_ioctl_fini( &ioc );
+
   if( !error )
     CONFIGURE_OK();
   if( modified )
@@ -280,8 +297,10 @@ fini_device( char const * device ) {
 
   fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
 
-  fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 0 );
   fd_ethtool_ioctl_ntuple_clear( &ioc );
+  fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 0 );
+
+  fd_ethtool_ioctl_fini( &ioc );
 }
 
 static void

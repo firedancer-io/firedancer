@@ -24,9 +24,7 @@
 
    - ntuple: n-tuple is a kernel name for hardware flow steering. These
      APIs allow us to create rules that match packets and perform actions
-     on them, such as steering them towards specific queues.
-
-   Note: These APIs generally crash the process with FD_LOG_ERR on failure. */
+     on them, such as steering them towards specific queues. */
 
 #include <linux/if.h>
 
@@ -59,9 +57,9 @@ fd_ethtool_ioctl_fini( fd_ethtool_ioctl_t * ioc );
 
 /* fd_ethtool_ioctl_channels_set_num sets the number of active channels
    or queues.  If 0 is given, it will set to the maximum number of
-   queues allowed by the hardware. */
+   queues allowed by the hardware.  Returns nonzero on failure. */
 
-void
+int
 fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
                                    uint                 num /* 0 for max */ );
 
@@ -83,18 +81,19 @@ fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t *          ioc,
 /* fd_ethtool_ioctl_rxfh_set_default sets the RXFH indirection table
    to its default state, which is to round-robin all hashes across all
    active queues.  In this state, changing the active queue count will
-   not be blocked by the RXFH table. */
+   not be blocked by the RXFH table.  Returns nonzero on failure. */
 
-void
+int
 fd_ethtool_ioctl_rxfh_set_default( fd_ethtool_ioctl_t * ioc );
 
 /* fd_ethtool_ioctl_rxfh_set_suffix modifies the RXFH table to isolate
    a prefix of queues.  The typical use case is to prevent general
    packets from landing on these queues so ntuple rules can steer
    special packets to them instead.  start_idx is inclusive, so the
-   table will be distributed across [start_idx, num_channels). */
+   table will be distributed across [start_idx, num_channels).
+   Returns nonzero on failure. */
 
-void
+int
 fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
                                   uint                 start_idx );
 
@@ -108,9 +107,9 @@ fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
                                  uint *               table );
 
 /* fd_ethtool_ioctl_feature_set enables or disables the network device
-   feature with the given name. */
+   feature with the given name.  Returns nonzero on failure. */
 
-void
+int
 fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
                               char const *         name,
                               int                  enabled );
@@ -123,17 +122,17 @@ fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
                                char const *         name );
 
 /* fd_ethtool_ioctl_ntuple_clear deletes any active ntuple flow steering
-   rules, which is the default state. */
+   rules, which is the default state.  Returns nonzero on failure. */
 
-void
+int
 fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc );
 
 /* fd_ethtool_ioctl_ntuple_set_udp_dport installs a flow steering rule
    at the given rule_idx to route all UDP/IPv4 packets with the given
    destination port to the given queue_idx.  Note that if a rule already
-   exists at rule_idx, it will be overwritten. */
+   exists at rule_idx, it will be overwritten.  Returns nonzero on failure. */
 
-void
+int
 fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
