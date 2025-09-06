@@ -13,8 +13,6 @@
 
 #define NAME "ethtool-channels"
 
-//TODO-AM: Break into separate configure stages?
-
 static int
 enabled( fd_config_t const * config ) {
 
@@ -149,7 +147,6 @@ init( fd_config_t const * config ) {
   }
 }
 
-//TODO-AM: Command failure
 static configure_result_t
 check_device( char const * device,
               fd_config_t const * config ) {
@@ -166,7 +163,7 @@ check_device( char const * device,
   /* Set modified bit if num_channels is not the maximum, and set the
      error bit if it is not correct as per the current rss_queue_mode */
   fd_ethtool_ioctl_channels_t channels;
-  fd_ethtool_ioctl_channels_get_num( &ioc, &channels );
+  FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
   if( channels.current != channels.max )
     modified = 1;
   if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
@@ -196,53 +193,63 @@ check_device( char const * device,
     }
   }
 
+  /* For the following checks, we ignore command failures when running
+     in simple queue mode.  This is because some network devices may
+     not support these commands, and a failure essentially means we are
+     in the correct state for simple mode. In dedicated queue mode we
+     enforce that the command ran successfully. */
+
   /* The default state of the RXFH table should be to round robin over the
      max number of queues.  The expected state is either [0, net_tile_count)
-     in simple mode or [1, max_channels) in dedicated mode */
-  int rxfh_modified = 0;
-  int rxfh_error = 0;
+     in simple mode or [1, max_channels) in dedicated mode.  */
   uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ] = { 0 };
-  uint rxfh_table_size = fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table );
-  uint const expected_queue_start = (rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED) ? 1 : 0;
-  uint default_queue = 0;
-  uint expected_queue = expected_queue_start;
-  for( uint j=0u; j<rxfh_table_size; ++j) {
-    rxfh_modified |= (rxfh_table[ j ] != default_queue++);
-    rxfh_error    |= (rxfh_table[ j ] != expected_queue++);
-    if( default_queue >= channels.current )
-      default_queue = 0;
-    if( expected_queue >= channels.current )
-      expected_queue = expected_queue_start;
-  }
-  modified |= rxfh_modified;
-  if( FD_UNLIKELY( rxfh_error ) ) {
-    error = 1;
-    FD_LOG_WARNING(( "device `%s` does not have the correct rxfh table installed", device ));
-  }
+  uint rxfh_table_size;
+  if( FD_LIKELY( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_size ) ) ) {
+    int rxfh_error = 0;
+    uint const expected_queue_start = (rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED) ? 1 : 0;
+    uint default_queue = 0;
+    uint expected_queue = expected_queue_start;
+    for( uint j=0u; j<rxfh_table_size; ++j) {
+      modified   |= (rxfh_table[ j ] != default_queue++);
+      rxfh_error |= (rxfh_table[ j ] != expected_queue++);
+      if( default_queue >= channels.current )
+        default_queue = 0;
+      if( expected_queue >= channels.current )
+        expected_queue = expected_queue_start;
+    }
+    if( FD_UNLIKELY( rxfh_error ) ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` does not have the correct rxfh table installed", device ));
+    }
+  } else FD_TEST( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE );
 
   /* The ntuple feature should be off by default and off in simple
      mode.  It should be on in dedicated mode. */
-  int const ntuple_feature_expected = (rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED);
-  int const ntuple_feature_active = fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE );
-  modified |= ntuple_feature_active;
-  if ( FD_UNLIKELY( ntuple_feature_active != ntuple_feature_expected ) ) {
-    error = 1;
-    FD_LOG_WARNING(( "device `%s` has incorrect ntuple feature flag"
-                     " (expected %d but got %d)",
-                     device, ntuple_feature_expected, ntuple_feature_active ));
-  }
-
-  /* Set modified bit if any ntuple rules exist */
-  int const rules_empty = fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0 );
-  modified |= !rules_empty;
-
-  /* Set error bit if ntuple filters do not exactly match desired rules */
-  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
-    if( FD_UNLIKELY( !rules_empty ) ) {
+  int ntuple_feature_active;
+  if( FD_LIKELY( 0==fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, &ntuple_feature_active ) ) ) {
+    modified |= ntuple_feature_active;
+    int ntuple_feature_expected = (rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED);
+    if( FD_UNLIKELY( ntuple_feature_active != ntuple_feature_expected ) ) {
       error = 1;
-      FD_LOG_WARNING(( "device `%s` should not have ntuple rules installed", device ));
+      FD_LOG_WARNING(( "device `%s` has incorrect ntuple feature flag"
+                       " (expected %d but got %d)",
+                       device, ntuple_feature_expected, ntuple_feature_active ));
     }
-  } else if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
+  } else FD_TEST( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE );
+
+  /* Set modified bit if any ntuple rules exist, and set error
+     bit if ntuple filters do not exactly match desired rules. */
+  int rules_empty;
+  if( FD_LIKELY( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &rules_empty ) ) ) {
+    modified |= !rules_empty;
+    if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE ) {
+      if( FD_UNLIKELY( !rules_empty ) ) {
+        error = 1;
+        FD_LOG_WARNING(( "device `%s` should not have ntuple rules installed", device ));
+      }
+    }
+  } else FD_TEST( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_SIMPLE );
+  if( rss_queue_mode == FD_CONFIG_NET_XDP_RSS_QUEUE_MODE_DEDICATED ) {
     /* FIXME See above */
     uint num_ports = 0;
     ushort ports[ 32 ];
@@ -255,7 +262,9 @@ check_device( char const * device,
       ports[ num_ports++ ] = config->tiles.repair.repair_serve_listen_port;
       ports[ num_ports++ ] = config->tiles.send.send_src_port;
     }
-    if( FD_UNLIKELY( !fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, num_ports, 0 ) ) ) {
+    int ports_valid;
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, num_ports, 0, &ports_valid ));
+    if( FD_UNLIKELY( !ports_valid ) ) {
       error = 1;
       FD_LOG_WARNING(( "device `%s` is missing or has incorrect ntuple rules", device ));
     }

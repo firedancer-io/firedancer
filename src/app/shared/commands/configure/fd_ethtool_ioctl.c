@@ -91,45 +91,38 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
   return run_ioctl( ioc, "ETHTOOL_SCHANNELS", &ech );
 }
 
-//TODO-AM: Cleanup
-void
+int
 fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
                                    fd_ethtool_ioctl_channels_t * channels ) {
-  struct ethtool_channels ech = { 0 };
-  ech.cmd = ETHTOOL_GCHANNELS;
-  ioc->ifr.ifr_data = &ech;
-
-  channels->supported = 1;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) ) {
-    if( FD_LIKELY( errno == EOPNOTSUPP ) ) {
+  struct ethtool_channels ech = { .cmd = ETHTOOL_GCHANNELS };
+  int ret = run_ioctl( ioc, "ETHTOOL_GCHANNELS", &ech );
+  if( FD_UNLIKELY( ret != 0 ) ) {
+    if( FD_LIKELY( ret == EOPNOTSUPP ) ) {
       /* network device doesn't support getting number of channels, so
          it must always be 1 */
       channels->supported = 0;
       channels->current = 1;
       channels->max = 1;
-    } else {
-      FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
-                   ioc->ifr.ifr_name, errno, fd_io_strerror( errno ) ));
+      return 0;
     }
-    return;
+    return ret;
   }
+  channels->supported = 1;
 
-  if( ech.combined_count ) {
+  if( FD_LIKELY( ech.combined_count ) ) {
     channels->current = ech.combined_count;
-    channels->max = ech.max_combined;
-  } else if( ech.rx_count || ech.tx_count ) {
-    if( FD_UNLIKELY( ech.rx_count != ech.tx_count ) ) {
+    channels->max = fd_uint_min( ech.max_combined, (uint)fd_shmem_cpu_cnt() );
+    return 0;
+  }
+  if( ech.rx_count || ech.tx_count ) {
+    if( FD_UNLIKELY( ech.rx_count != ech.tx_count ) )
       FD_LOG_WARNING(( "device `%s` has unbalanced channel count: (got %u rx, %u tx)",
                        ioc->ifr.ifr_name, ech.rx_count, ech.tx_count ));
-    }
     channels->current = ech.rx_count;
-    channels->max = ech.max_rx;
-  } else {
-    FD_LOG_ERR(( "error configuring network device `%s`, ETHTOOL_GCHANNELS returned invalid results",
-                 ioc->ifr.ifr_name ));
+    channels->max = fd_uint_min( ech.max_rx, (uint)fd_shmem_cpu_cnt() );
+    return 0;
   }
-
-  channels->max = fd_uint_min( channels->max, (uint)fd_shmem_cpu_cnt() );
+  return EINVAL;
 }
 
 int
@@ -179,27 +172,22 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
   return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh );
 }
 
-//TODO-AM: Cleanup
-uint
+int
 fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
-                                 uint *               table ) {
+                                 uint *               table,
+                                 uint *               table_size ) {
   union {
     struct ethtool_rxfh_indir m;
     uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxfh_indir, uint, FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) ];
   } rxfh = { 0 };
-  ioc->ifr.ifr_data = &rxfh;
-
   rxfh.m.cmd = ETHTOOL_GRXFHINDIR;
   rxfh.m.size = FD_ETHTOOL_MAX_RXFH_TABLE_SIZE;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXFHINDIR) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-  uint const table_size = rxfh.m.size;
-  if( FD_UNLIKELY( table_size == 0 || table_size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) )
-    FD_LOG_ERR(( "error configuring network device, rxfh table size invalid" ));
-
-  fd_memcpy( table, rxfh.m.ring_index, table_size * sizeof(uint) );
-  return table_size;
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXFHINDIR", &rxfh );
+  if( FD_UNLIKELY( (rxfh.m.size == 0) | (rxfh.m.size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE) ) )
+    return EINVAL;
+  *table_size = rxfh.m.size;
+  fd_memcpy( table, rxfh.m.ring_index, *table_size * sizeof(uint) );
+  return 0;
 }
 
 static int
@@ -261,61 +249,26 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   return run_ioctl( ioc, "ETHTOOL_SFEATURES", &esf );
 }
 
-//TODO-AM: Cleanup
 int
 fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
-                               char const *         name ) {
-  /* Check size of features string set is not too large (prevent overflow) */
-  union {
-    struct ethtool_sset_info m;
-    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_sset_info, uint, 1 ) ];
-  } esi = { .m = {
-    .cmd = ETHTOOL_GSSET_INFO,
-    .sset_mask = fd_ulong_mask_bit( ETH_SS_FEATURES )
-  } };
-  ioc->ifr.ifr_data = &esi;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSSET_INFO) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( esi.m.data[0] == 0 || esi.m.data[0] > MAX_FEATURES ) )
-    FD_LOG_ERR(( "error configuring network device, feature string set size invalid" ));
+                               char const *         name,
+                               int *                enabled ) {
+  uint feature_idx;
+  if( FD_UNLIKELY( 0!=get_feature_idx( ioc, name, &feature_idx ) ) )
+    return EINVAL;
 
-  /* Get strings from features string set */
-  union {
-    struct ethtool_gstrings m;
-    uchar _[ sizeof(struct ethtool_gstrings) + (MAX_FEATURES * ETH_GSTRING_LEN) ];
-  } egs = { 0 };
-  egs.m.cmd = ETHTOOL_GSTRINGS;
-  egs.m.string_set = ETH_SS_FEATURES;
-  ioc->ifr.ifr_data = &egs;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GSTRINGS) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-  int feature_idx = -1;
-  for( uint j=0U; j<egs.m.len; ++j) {
-    uchar const * gstring = egs.m.data + (j * ETH_GSTRING_LEN);
-    if( 0==strncmp( (char const *)gstring, name, ETH_GSTRING_LEN ) ) {
-      feature_idx = (int)j;
-      break;
-    }
-  }
-  if( FD_UNLIKELY( feature_idx < 0 ) )
-    FD_LOG_ERR(( "error configuring network device, feature string not found" ));
-
-  uint feature_block = (uint)feature_idx / 32u;
-  uint feature_offset = (uint)feature_idx % 32u;
+  uint feature_block = feature_idx / 32u;
+  uint feature_offset = feature_idx % 32u;
   union {
     struct ethtool_gfeatures m;
     uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_gfeatures, struct ethtool_get_features_block, MAX_FEATURES / 32u ) ];
   } egf = { 0 };
   egf.m.cmd = ETHTOOL_GFEATURES;
   egf.m.size = MAX_FEATURES / 32u;
-  ioc->ifr.ifr_data = &egf;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GFEATURES", &egf );
 
-  return !!(egf.m.features[ feature_block ].active & fd_uint_mask_bit( (int)feature_offset ));
+  *enabled = !!(egf.m.features[ feature_block ].active & fd_uint_mask_bit( (int)feature_offset ));
+  return 0;
 }
 
 int
@@ -373,53 +326,52 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
   return run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc );
 }
 
-//TODO-AM: Cleanup
 int
 fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
                                             ushort *             dports,
                                             uint                 num_dports,
-                                            uint                 queue_idx ) {
+                                            uint                 queue_idx,
+                                            int *                valid ) {
   union {
     struct ethtool_rxnfc m;
     uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxnfc, uint, MAX_NTUPLE_RULES ) ];
   } efc = { 0 };
-  ioc->ifr.ifr_data = &efc;
 
   /* Get count of currently defined rules */
   efc.m.cmd = ETHTOOL_GRXCLSRLCNT;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXCLSRLCNT) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLCNT", &efc );
   uint const rule_cnt = efc.m.rule_cnt;
   if( FD_UNLIKELY( rule_cnt > MAX_NTUPLE_RULES ) )
-    FD_LOG_ERR(( "error configuring network device, ntuple rules count invalid" ));
-  if( rule_cnt == 0 )
-    return num_dports == 0;
-  if( num_dports == 0 )
+    return EINVAL;
+  if( rule_cnt == 0 ) {
+    *valid = (num_dports == 0);
     return 0;
+  }
+  if( num_dports == 0 ) {
+    *valid = 0;
+    return 0;
+  }
 
   /* Get location indices of all rules */
   efc.m.cmd = ETHTOOL_GRXCLSRLALL;
   efc.m.rule_cnt = rule_cnt;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXCLSRLALL) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLALL", &efc );
 
-  /* Loop over all rules, returning 0 early if any are invalid */
+  /* Loop over all rules, returning early if any are invalid */
   static const union ethtool_flow_union EXPECTED_MASK = { .udp_ip4_spec = { .pdst = 0xFFFF } };
   static const struct ethtool_flow_ext EXPECTED_EXT_MASK = { 0 };
-  for( uint i=0u; i<efc.m.rule_cnt; i++) {
-    struct ethtool_rxnfc get = { 0 };
-    get.cmd = ETHTOOL_GRXCLSRULE;
-    get.fs.location = efc.m.rule_locs[ i ];
-    ioc->ifr.ifr_data = &get;
-    if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) )
-      FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GRXCLSRULE) failed (%i-%s)",
-                   errno, fd_io_strerror( errno ) ));
+  for( uint i=0u; i<efc.m.rule_cnt; ++i) {
+    struct ethtool_rxnfc get = {
+      .cmd = ETHTOOL_GRXCLSRULE,
+      .fs = { .location = efc.m.rule_locs[ i ] }
+    };
+    TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRULE", &get );
     if( FD_UNLIKELY( ((get.fs.flow_type != UDP_V4_FLOW) | (get.fs.ring_cookie != queue_idx)) ||
                      0!=memcmp( &get.fs.m_u, &EXPECTED_MASK, sizeof(EXPECTED_MASK) ) ||
-                     0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) )
+                     0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
+      *valid = 0;
       return 0;
+    }
     /* This is a valid udp rule, find the expected port(s) it matches or return error */
     int found = 0;
     for( uint j=0u; j<num_dports; ++j) {
@@ -428,15 +380,17 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
         found = 1;
       }
     }
-    if( !found )
+    if( !found ) {
+      *valid = 0;
       return 0;
+    }
   }
 
   /* All rules are valid and matched expected ports. Lastly, check that
      no expected ports were missing */
+  *valid = 1;
   for( uint i=0u; i<num_dports; ++i)
     if( dports[ i ] != 0 )
-      return 0;
-
-  return 1;
+      *valid = 0;
+  return 0;
 }

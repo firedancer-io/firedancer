@@ -65,7 +65,8 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
 
 /* fd_ethtool_ioctl_channels_get_num gets information about the state
    of hardware channels, including whether multiqueue is supported at
-   all, how many queues are currently in use, and the max allowed. */
+   all, how many queues are currently in use, and the max allowed.
+   Returns nonzero on failure. */
 
 struct fd_ethtool_ioctl_channels {
   int  supported;
@@ -74,7 +75,7 @@ struct fd_ethtool_ioctl_channels {
 };
 typedef struct fd_ethtool_ioctl_channels fd_ethtool_ioctl_channels_t;
 
-void
+int
 fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t *          ioc,
                                    fd_ethtool_ioctl_channels_t * channels );
 
@@ -98,13 +99,14 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
                                   uint                 start_idx );
 
 /* fd_ethtool_ioctl_rxfh_get_table writes the current state of the
-   RXFH table into the user-supplied array, which must be of size
-   FD_ETHTOOL_MAX_RXFH_TABLE_SIZE.  The actual size of the table
-   is returned. */
+   RXFH table into the user-supplied table array, which must be of
+   size FD_ETHTOOL_MAX_RXFH_TABLE_SIZE.  The actual size of the
+   table is stored in table_size.  Returns nonzero on failure. */
 
-uint
+int
 fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
-                                 uint *               table );
+                                 uint *               table,
+                                 uint *               table_size );
 
 /* fd_ethtool_ioctl_feature_set enables or disables the network device
    feature with the given name.  Returns nonzero on failure. */
@@ -114,12 +116,13 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
                               char const *         name,
                               int                  enabled );
 
-/* fd_ethtool_ioctl_feature_test returns 1 if the feature with
-   the given name is enabled. */
+/* fd_ethtool_ioctl_feature_test sets enabled to 1 if the feature
+   with the given name is enabled.  Returns nonzero on failure. */
 
 int
 fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
-                               char const *         name );
+                               char const *         name,
+                               int *                enabled );
 
 /* fd_ethtool_ioctl_ntuple_clear deletes any active ntuple flow steering
    rules, which is the default state.  Returns nonzero on failure. */
@@ -139,18 +142,20 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 queue_idx );
 
 /* fd_ethtool_ioctl_ntuple_validate_udp_dport queries all ntuple
-   rules and then returns 1 if they match the expected set of
+   rules and then sets valid to 1 if they match the expected set of
    rules for the given UDP destination ports.  In other words,
    this makes sure the existing rules are correct and that no other
    rules are active.  If num_dports is zero, then this effectively
    checks whether any rules exist.  dports is left in an
-   indeterminate state after this function returns. */
+   indeterminate state after this function returns.  Returns
+   nonzero on failure (uncertain if valid or not). */
 
 int
 fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
                                             ushort *             dports,
                                             uint                 num_dports,
-                                            uint                 queue_idx );
+                                            uint                 queue_idx,
+                                            int *                valid );
 
 
 FD_PROTOTYPES_END
