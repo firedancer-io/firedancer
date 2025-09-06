@@ -651,6 +651,11 @@ privileged_init( fd_topo_t *      topo,
                                                  &incremental_slot,
                                                  full_path,
                                                  incremental_path ) ) ) {
+    if( FD_UNLIKELY( !tile->snaprd.do_download ) ) {
+      FD_LOG_ERR(( "No snapshots found in `%s` and downloading is disabled. "
+                   "Please enable downloading via [snapshots.download] and restart.", tile->snaprd.snapshots_path ));
+    }
+
     ctx->local_in.full_snapshot_slot        = ULONG_MAX;
     ctx->local_in.incremental_snapshot_slot = ULONG_MAX;
 
