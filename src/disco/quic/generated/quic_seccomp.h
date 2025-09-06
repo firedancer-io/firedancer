@@ -21,40 +21,52 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_quic_instr_cnt = 17;
+static const unsigned int sock_filter_policy_quic_instr_cnt = 23;
 
 static void populate_sock_filter_policy_quic( ulong out_cnt, struct sock_filter * out, uint logfile_fd, uint keylog_fd) {
-  FD_TEST( out_cnt >= 17 );
-  struct sock_filter filter[17] = {
+  FD_TEST( out_cnt >= 23 );
+  struct sock_filter filter[23] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 13 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 19 ),
     /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow write based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 3, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 5, 0 ),
     /* allow fsync based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 8, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 10, 0 ),
     /* simply allow getrandom */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getrandom, /* RET_ALLOW */ 10, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_getrandom, /* RET_ALLOW */ 16, 0 ),
+    /* allow clock_nanosleep based on expression */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clock_nanosleep, /* check_clock_nanosleep */ 10, 0 ),
+    /* simply allow sched_yield */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_sched_yield, /* RET_ALLOW */ 14, 0 ),
     /* none of the syscalls matched */
-    { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 8 },
+    { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 12 },
 //  check_write:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 7, /* lbl_1 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 2, /* RET_ALLOW */ 11, /* lbl_1 */ 0 ),
 //  lbl_1:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 5, /* lbl_2 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 9, /* lbl_2 */ 0 ),
 //  lbl_2:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, keylog_fd, /* RET_ALLOW */ 3, /* RET_KILL_PROCESS */ 2 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, keylog_fd, /* RET_ALLOW */ 7, /* RET_KILL_PROCESS */ 6 ),
 //  check_fsync:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, logfile_fd, /* RET_ALLOW */ 5, /* RET_KILL_PROCESS */ 4 ),
+//  check_clock_nanosleep:
+    /* load syscall argument 0 in accumulator */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, CLOCK_REALTIME, /* lbl_3 */ 0, /* RET_KILL_PROCESS */ 2 ),
+//  lbl_3:
+    /* load syscall argument 1 in accumulator */
+    BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
 //  RET_KILL_PROCESS:
     /* KILL_PROCESS is placed before ALLOW since it's the fallthrough case. */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),
