@@ -15,6 +15,7 @@
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../waltz/quic/fd_quic.h"
+#include "../../util/clock/fd_clock.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
@@ -32,13 +33,13 @@
 #define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
 /* so each of our connections must survive at least 60/8 = 7.5 seconds
    Let's conservatively go to 10 */
-#define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10UL)
+#define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
 
 /* the 1M lets this be integer math */
 FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*FD_AGAVE_MAX_CONNS_PER_MINUTE, "QUIC conn lifetime too low for rate limit");
 
-#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (2e9)  /*  2 s  */
-#define FD_SEND_QUIC_ACK_DELAY_NS    (25e6) /* 25 ms */
+#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (2e9L)  /*  2 s  */
+#define FD_SEND_QUIC_ACK_DELAY_NS    (25e6L) /* 25 ms */
 
 /* quic ports first, so we can re-use idx to select conn ptr
    Don't rearrange, lots of stuff depends on this order. */
@@ -76,7 +77,7 @@ struct fd_send_conn_entry {
   uint             hash;
 
   fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* first non-quic port */
-  long             last_ci_ticks;
+  long             last_ci_ns;
   uint             ip4s [ FD_SEND_PORT_CNT ]; /* net order */
   ushort           ports[ FD_SEND_PORT_CNT ]; /* host order */
   int              got_ci_msg;
@@ -131,9 +132,13 @@ struct fd_send_tile_ctx {
   fd_send_conn_entry_t * conn_map;
 
   /* timekeeping */
-  long                now;
-  ulong               ticks_per_sec;
-  ulong               housekeeping_ctr;
+  long             now;            /* current time in ns!     */
+  fd_clock_t     * clock;          /* live join to fd_clock_t */
+  fd_clock_t       clock_ljoin[1]; /* memory for fd_clock_t   */
+  fd_clock_epoch_t epoch[1];       /* track current epoch     */
+  long             recal_next;
+  ulong            housekeeping_ctr;
+
 
   struct {
     ulong leader_not_found;
@@ -159,6 +164,7 @@ struct fd_send_tile_ctx {
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 };
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
 
