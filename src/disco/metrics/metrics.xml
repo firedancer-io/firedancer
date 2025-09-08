@@ -1023,6 +1023,7 @@ metric introduced.
     <gauge name="IncrementalBytesWritten" summary="Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
+    <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
 </tile>
 
 <tile name="snapdc">

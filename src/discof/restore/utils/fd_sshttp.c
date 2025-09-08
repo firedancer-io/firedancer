@@ -36,8 +36,8 @@ struct fd_sshttp_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-  char full_snapshot_name[ PATH_MAX ];
-  char incremental_snapshot_name[ PATH_MAX ];
+  char  full_snapshot_name[ PATH_MAX ];
+  char  incremental_snapshot_name[ PATH_MAX ];
 
   ulong content_len;
   ulong content_read;
@@ -54,7 +54,7 @@ FD_FN_CONST ulong
 fd_sshttp_footprint( void ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN,       sizeof(fd_sshttp_t) );
+  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
   return FD_LAYOUT_FINI( l, FD_SSHTTP_ALIGN );
 }
 
@@ -134,7 +134,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
-    .sin_port   = addr.port,
+    .sin_port   = fd_ushort_bswap( addr.port ),
     .sin_addr   = { .s_addr = addr.addr }
   };
 
@@ -260,7 +260,7 @@ follow_redirect( fd_sshttp_t *        http,
   }
 
   FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), http->addr.port,
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
   fd_sshttp_cancel( http );
@@ -313,7 +313,7 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 
-  int is_redirect = (status==301) | (status==303) | (status==304) | (status==307) | (status==308);
+  int is_redirect = (status==301) | (status==302) | (status==303) | (status==304) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {
     return follow_redirect( http, headers, header_cnt, now );
   }

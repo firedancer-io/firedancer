@@ -405,6 +405,21 @@ user = ""
     # you highly trust, and this is the default behavior of the
     # configuration.
     [snapshots.sources]
+        # Allow fetching of snapshots from peers specified in the gossip
+        # entrypoints.  Gossip entrypoints must be peers that are highly
+        # trusted as they are used to bootstrap your node.
+        [snapshots.sources.entrypoints]
+            enabled = true
+
+        # Allow fetching of snapshots from arbitrary gossip peers that
+        # are hosting a snapshot server.  This may allow faster snapshot
+        # download if a peer in a local data-center is serving a good
+        # snapshot, but it is extremely dangerous as the peer could
+        # serve you a specially crafted malicious snapshot with no way
+        # to tell.
+        [snapshots.sources.gossip]
+            enabled = false
+
         # If any HTTP peers are listed, the following paths will be
         # fetched from these peers to determine if they have a snapshot
         # available:

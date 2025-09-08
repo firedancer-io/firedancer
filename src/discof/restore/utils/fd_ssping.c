@@ -1,4 +1,5 @@
 #include "fd_ssping.h"
+#include "fd_sspeer_selector.h"
 
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
@@ -20,6 +21,8 @@
 #define PEER_DEADLINE_NANOS_VALID   (2L*60L*1000L*1000L*1000L) /* 2 minutes */
 #define PEER_DEADLINE_NANOS_INVALID (5L*60L*1000L*1000L*1000L) /* 5 minutes */
 
+#define FD_SSPING_RATE_LIMIT (64UL) /* Only ping up to 64 peers at a time */
+
 struct fd_ssping_peer {
   ulong         refcnt;
   fd_ip4_port_t addr;
@@ -32,13 +35,6 @@ struct fd_ssping_peer {
     ulong next;
     ulong prev;
   } map;
-
-  struct {
-    ulong parent;
-    ulong left;
-    ulong right;
-    ulong prio;
-  } score_treap;
 
   struct {
     ulong next;
@@ -73,21 +69,6 @@ typedef struct fd_ssping_peer fd_ssping_peer_t;
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #include "../../../util/tmpl/fd_map_chain.c"
 
-#define COMPARE_WORSE(x,y) ( (x)->latency_nanos<(y)->latency_nanos )
-
-#define TREAP_T         fd_ssping_peer_t
-#define TREAP_NAME      score_treap
-#define TREAP_QUERY_T   void *                                         /* We don't use query ... */
-#define TREAP_CMP(a,b)  (__extension__({ (void)(a); (void)(b); -1; })) /* which means we don't need to give a real
-                                                                          implementation to cmp either */
-#define TREAP_IDX_T     ulong
-#define TREAP_LT        COMPARE_WORSE
-#define TREAP_PARENT    score_treap.parent
-#define TREAP_LEFT      score_treap.left
-#define TREAP_RIGHT     score_treap.right
-#define TREAP_PRIO      score_treap.prio
-#include "../../../util/tmpl/fd_treap.c"
-
 #define DLIST_NAME  deadline_list
 #define DLIST_ELE_T fd_ssping_peer_t
 #define DLIST_PREV  deadline.prev
@@ -96,21 +77,24 @@ typedef struct fd_ssping_peer fd_ssping_peer_t;
 #include "../../../util/tmpl/fd_dlist.c"
 
 struct fd_ssping_private {
-  fd_ssping_peer_t * pool;
-  peer_map_t *       map;
-  score_treap_t *    score_treap;
+  fd_ssping_peer_t *     pool;
+  peer_map_t *           map;
 
-  deadline_list_t *  unpinged;
-  deadline_list_t *  pinged;
-  deadline_list_t *  valid;
-  deadline_list_t *  refreshing;
-  deadline_list_t *  invalid;
+  deadline_list_t *      unpinged;
+  deadline_list_t *      pinged;
+  deadline_list_t *      valid;
+  deadline_list_t *      refreshing;
+  deadline_list_t *      invalid;
 
-  ulong              fds_len;
-  struct pollfd *    fds;
-  ulong *            fds_idx;
+  ulong                  fds_len;
+  struct pollfd *        fds;
+  ulong *                fds_idx;
+  ulong                  poll_idx;
 
-  ulong              magic; /* ==FD_SSPING_MAGIC */
+  fd_ssping_on_ping_fn_t on_ping_cb;
+  void *                 cb_arg;
+
+  ulong                  magic; /* ==FD_SSPING_MAGIC */
 };
 
 FD_FN_CONST ulong
@@ -125,7 +109,6 @@ fd_ssping_footprint( ulong max_peers ) {
   l = FD_LAYOUT_APPEND( l, FD_SSPING_ALIGN,       sizeof(fd_ssping_t) );
   l = FD_LAYOUT_APPEND( l, peer_pool_align(),     peer_pool_footprint( max_peers ) );
   l = FD_LAYOUT_APPEND( l, peer_map_align(),      peer_map_footprint( max_peers ) );
-  l = FD_LAYOUT_APPEND( l, score_treap_align(),   score_treap_footprint( max_peers ) );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
@@ -137,9 +120,11 @@ fd_ssping_footprint( ulong max_peers ) {
 }
 
 void *
-fd_ssping_new( void * shmem,
-               ulong  max_peers,
-               ulong  seed ) {
+fd_ssping_new( void *                 shmem,
+               ulong                  max_peers,
+               ulong                  seed,
+               fd_ssping_on_ping_fn_t on_ping_cb,
+               void *                 cb_arg ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -159,7 +144,6 @@ fd_ssping_new( void * shmem,
   fd_ssping_t * ssping = FD_SCRATCH_ALLOC_APPEND( l, FD_SSPING_ALIGN,     sizeof(fd_ssping_t) );
   void * _pool         = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),   peer_pool_footprint( max_peers ) );
   void * _map          = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),    peer_map_footprint( max_peers ) );
-  void * _score_treap  = FD_SCRATCH_ALLOC_APPEND( l, score_treap_align(), score_treap_footprint( max_peers ) );
   void * _unpinged     = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _pinged       = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _valid        = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
@@ -169,8 +153,7 @@ fd_ssping_new( void * shmem,
   ulong * fds_idx      = FD_SCRATCH_ALLOC_APPEND( l, sizeof(ulong), max_peers*sizeof(ulong) );
 
   ssping->pool = peer_pool_join( peer_pool_new( _pool, max_peers ) );
-  ssping->map = peer_map_join( peer_map_new( _map, max_peers, seed ) );
-  ssping->score_treap = score_treap_join( score_treap_new( _score_treap, max_peers ) );
+  ssping->map  = peer_map_join( peer_map_new( _map, max_peers, seed ) );
 
   ssping->unpinged   = deadline_list_join( deadline_list_new( _unpinged ) );
   ssping->pinged     = deadline_list_join( deadline_list_new( _pinged ) );
@@ -178,9 +161,13 @@ fd_ssping_new( void * shmem,
   ssping->refreshing = deadline_list_join( deadline_list_new( _refreshing ) );
   ssping->invalid    = deadline_list_join( deadline_list_new( _invalid ) );
 
-  ssping->fds_len = 0UL;
-  ssping->fds     = fds;
-  ssping->fds_idx = fds_idx;
+  ssping->fds_len  = 0UL;
+  ssping->fds      = fds;
+  ssping->fds_idx  = fds_idx;
+  ssping->poll_idx = 0UL;
+
+  ssping->on_ping_cb = on_ping_cb;
+  ssping->cb_arg     = cb_arg;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( ssping->magic ) = FD_SSPING_MAGIC;
@@ -219,9 +206,10 @@ fd_ssping_add( fd_ssping_t * ssping,
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
     peer = peer_pool_ele_acquire( ssping->pool );
     FD_TEST( peer );
-    peer->refcnt = 0UL;
-    peer->state  = PEER_STATE_UNPINGED;
-    peer->addr   = addr;
+    peer->refcnt        = 0UL;
+    peer->state         = PEER_STATE_UNPINGED;
+    peer->addr          = addr;
+    peer->latency_nanos = ULONG_MAX;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
@@ -247,7 +235,7 @@ remove_ping_fd( fd_ssping_t * ssping,
   ssping->fds_len--;
 }
 
-void
+int
 fd_ssping_remove( fd_ssping_t * ssping,
                   fd_ip4_port_t addr ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
@@ -264,12 +252,10 @@ fd_ssping_remove( fd_ssping_t * ssping,
         deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
         break;
       case PEER_STATE_VALID:
-        score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
         deadline_list_ele_remove( ssping->valid, peer, ssping->pool );
         break;
       case PEER_STATE_REFRESHING:
         remove_ping_fd( ssping, peer->fd.idx );
-        score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
         deadline_list_ele_remove( ssping->refreshing, peer, ssping->pool );
         break;
       case PEER_STATE_INVALID:
@@ -278,7 +264,9 @@ fd_ssping_remove( fd_ssping_t * ssping,
     }
     peer_map_ele_remove_fast( ssping->map, peer, ssping->pool );
     peer_pool_ele_release( ssping->pool, peer );
+    return 1;
   }
+  return 0;
 }
 
 static inline void
@@ -291,7 +279,6 @@ unping_peer( fd_ssping_t *      ssping,
   if( FD_UNLIKELY( peer->state==PEER_STATE_PINGED ) ) {
     deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
   } else if( FD_UNLIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
-    score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
     deadline_list_ele_remove( ssping->refreshing, peer, ssping->pool );
   }
   peer->state = PEER_STATE_INVALID;
@@ -313,7 +300,6 @@ fd_ssping_invalidate( fd_ssping_t * ssping,
     if( FD_LIKELY( peer->state==PEER_STATE_UNPINGED ) ) {
       deadline_list_ele_remove( ssping->unpinged, peer, ssping->pool );
     } else if( FD_UNLIKELY( peer->state==PEER_STATE_VALID ) ) {
-      score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
       deadline_list_ele_remove( ssping->valid, peer, ssping->pool );
     }
     peer->state = PEER_STATE_INVALID;
@@ -327,12 +313,14 @@ poll_advance( fd_ssping_t * ssping,
               long          now ) {
   if( FD_LIKELY( !ssping->fds_len ) ) return;
 
-  int nfds = poll( ssping->fds, ssping->fds_len, 0 );
+  ulong next_poll_idx = fd_ulong_min( ssping->poll_idx+FD_SSPING_RATE_LIMIT, ssping->fds_len );
+  ulong fds_cnt       = fd_ulong_min( next_poll_idx - ssping->poll_idx, FD_SSPING_RATE_LIMIT );
+  int   nfds          = poll( ssping->fds+ssping->poll_idx, fds_cnt, 0 );
   if( FD_LIKELY( !nfds ) ) return;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
 
-  for( ulong i=0UL; i<ssping->fds_len; i++ ) {
+  for( ulong i=ssping->poll_idx; i<next_poll_idx; i++ ) {
     struct pollfd * pfd = &ssping->fds[ i ];
     if( FD_UNLIKELY( pfd->revents & (POLLERR|POLLHUP) ) ) {
       unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
@@ -369,22 +357,23 @@ poll_advance( fd_ssping_t * ssping,
 
       fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
       FD_TEST( peer->deadline_nanos>now );
-      peer->latency_nanos = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
-
-      if( FD_LIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
-        score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
-      }
-
-      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), peer->latency_nanos ));
-      peer->state = PEER_STATE_VALID;
+      peer->latency_nanos  = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
+      peer->state          = PEER_STATE_VALID;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_VALID;
 
       deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
       deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
-      score_treap_ele_insert( ssping->score_treap, peer, ssping->pool );
       remove_ping_fd( ssping, i );
+
+      ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->latency_nanos );
+
+      /* fds_len could have decreased if we removed a ping fd */
+      next_poll_idx = fd_ulong_min( next_poll_idx, ssping->fds_len );
     }
   }
+
+  if( FD_UNLIKELY( next_poll_idx>=ssping->fds_len ) ) ssping->poll_idx = 0UL;
+  else                                                ssping->poll_idx = next_poll_idx;
 }
 
 static int
@@ -395,7 +384,7 @@ peer_connect( fd_ssping_t *      ssping,
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
-    .sin_port   = peer->addr.port,
+    .sin_port   = fd_ushort_bswap( peer->addr.port ),
     .sin_addr   = { .s_addr = peer->addr.addr }
   };
 
@@ -417,12 +406,13 @@ peer_connect( fd_ssping_t *      ssping,
 }
 
 void
-fd_ssping_advance( fd_ssping_t * ssping,
-                   long          now ) {
+fd_ssping_advance( fd_ssping_t *          ssping,
+                   long                   now,
+                   fd_sspeer_selector_t * selector) {
   while( !deadline_list_is_empty( ssping->unpinged, ssping->pool ) ) {
     fd_ssping_peer_t * peer = deadline_list_ele_pop_head( ssping->unpinged, ssping->pool );
 
-    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
+    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port ));
     int result = peer_connect( ssping, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state = PEER_STATE_INVALID;
@@ -445,6 +435,7 @@ fd_ssping_advance( fd_ssping_t * ssping,
     peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
     remove_ping_fd( ssping, peer->fd.idx );
+    fd_sspeer_selector_remove( selector, peer->addr );
   }
 
   while( !deadline_list_is_empty( ssping->valid, ssping->pool ) ) {
@@ -457,8 +448,8 @@ fd_ssping_advance( fd_ssping_t * ssping,
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state = PEER_STATE_INVALID;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
-      score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
       deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
+      fd_sspeer_selector_remove( selector, peer->addr );
     } else {
       peer->state = PEER_STATE_REFRESHING;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_PING;
@@ -475,8 +466,8 @@ fd_ssping_advance( fd_ssping_t * ssping,
     peer->state = PEER_STATE_INVALID;
     peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-    score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
     remove_ping_fd( ssping, peer->fd.idx );
+    fd_sspeer_selector_remove( selector, peer->addr );
   }
 
   while( !deadline_list_is_empty( ssping->invalid, ssping->pool ) ) {
@@ -491,13 +482,4 @@ fd_ssping_advance( fd_ssping_t * ssping,
   }
 
   poll_advance( ssping, now );
-}
-
-fd_ip4_port_t
-fd_ssping_best( fd_ssping_t const * ssping ) {
-  score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_ip4_port_t){ .l=0UL };
-
-  fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-  return best->addr;
 }

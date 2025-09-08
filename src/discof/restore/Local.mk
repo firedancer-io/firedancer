@@ -14,6 +14,9 @@ $(call add-objs,utils/fd_ssload,fd_discof)
 $(call add-objs,utils/fd_slot_delta_parser,fd_discof)
 $(call make-unit-test,test_ssmanifest_parser,utils/test_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_slot_delta_parser,utils/test_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof fd_flamenco fd_ballet fd_util)
+$(call run-unit-test,test_slot_delta_parser)
+$(call run-unit-test,test_sspeer_selector)
 
 ifdef FD_HAS_HOSTED
 $(call make-fuzz-test,fuzz_snapshot_parser,utils/fuzz_snapshot_parser,fd_discof fd_flamenco fd_ballet fd_util)
@@ -24,5 +27,8 @@ endif
 
 endif
 $(call add-objs,utils/fd_ssping,fd_discof)
+$(call add-objs,utils/fd_ssresolve,fd_discof)
+$(call add-objs,utils/fd_http_resolver,fd_discof)
 $(call add-objs,utils/fd_sshttp,fd_discof)
 $(call add-objs,utils/fd_ssarchive,fd_discof)
+$(call add-objs,utils/fd_sspeer_selector,fd_discof)

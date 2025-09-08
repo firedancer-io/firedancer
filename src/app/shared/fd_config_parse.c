@@ -102,6 +102,8 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
+  CFG_POP      ( bool,   snapshots.sources.entrypoints.enabled               );
+  CFG_POP      ( bool,   snapshots.sources.gossip.enabled                    );
   CFG_POP_TABLE( bool,   snapshots.sources.http, snapshots.sources.http.peers, enabled, 0 );
   CFG_POP_TABLE( cstr,   snapshots.sources.http, snapshots.sources.http.peers, url,     1 );
   CFG_POP_TABLE_FINI( snapshots.sources.http );

@@ -59,12 +59,17 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_link( topo, "snap_zstd", "snap_zstd", 8192UL, 16384, 1UL );
 
+  fd_topob_wksp( topo, "snaprd_rp" );
+  fd_topo_link_t * snaprd_rp_link = fd_topob_link( topo, "snaprd_rp", "snaprd_rp", 128UL, 0UL, 1UL );
+  snaprd_rp_link->permit_no_consumers = 1;
+
   /* Uncompressed data stream */
   fd_topob_wksp( topo, "snap_stream" );
   fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
 
   /* snaprd tile -> compressed stream */
   fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_out( topo, "snaprd", 0UL, "snaprd_rp", 0UL );
 
   /* compressed stream -> snapdc tile */
   fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -128,6 +133,9 @@ extern int * fd_log_private_shared_lock;
 static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
+  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.enabled || config->firedancer.snapshots.sources.entrypoints.enabled ) ) {
+    FD_LOG_ERR(( "snapshot-load command is incompatible with gossip or entrypoint snapshot sources" ));
+  }
   snapshot_load_topo( config, args );
   fd_topo_t * topo = &config->topo;
 

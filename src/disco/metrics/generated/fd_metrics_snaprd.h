@@ -69,5 +69,11 @@
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_DESC "Number of times we retried the incremental snapshot download because the peer was too slow"
 #define FD_METRICS_GAUGE_SNAPRD_INCREMENTAL_DOWNLOAD_RETRIES_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_SNAPRD_TOTAL (11UL)
+#define FD_METRICS_GAUGE_SNAPRD_PREDICTED_SLOT_OFF  (27UL)
+#define FD_METRICS_GAUGE_SNAPRD_PREDICTED_SLOT_NAME "snaprd_predicted_slot"
+#define FD_METRICS_GAUGE_SNAPRD_PREDICTED_SLOT_TYPE (FD_METRICS_TYPE_GAUGE)
+#define FD_METRICS_GAUGE_SNAPRD_PREDICTED_SLOT_DESC "The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted"
+#define FD_METRICS_GAUGE_SNAPRD_PREDICTED_SLOT_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_SNAPRD_TOTAL (12UL)
 extern const fd_metrics_meta_t FD_METRICS_SNAPRD[FD_METRICS_SNAPRD_TOTAL];
