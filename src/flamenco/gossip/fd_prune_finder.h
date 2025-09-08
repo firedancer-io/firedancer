@@ -51,6 +51,7 @@ struct fd_prune_finder_private;
 typedef struct fd_prune_finder_private fd_prune_finder_t;
 
 struct fd_prune_finder_prune {
+   /* TODO: convert pubkey refs to pointers to avoid redundant memcpies */
    fd_pubkey_t relayer_pubkey;
    ulong       prune_len;
    fd_pubkey_t prunes[ FD_GOSSIP_MSG_MAX_CRDS ];

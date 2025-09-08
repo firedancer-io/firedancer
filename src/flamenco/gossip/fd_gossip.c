@@ -553,6 +553,36 @@ rx_pull_response( fd_gossip_t *                          gossip,
   }
 }
 
+static void
+tx_prune( fd_gossip_t *                   gossip,
+          fd_prune_finder_prune_t const * prune,
+          fd_stem_context_t *             stem,
+          long                            now ) {
+  ulong prune_msg_count = (prune->prune_len+(FD_GOSSIP_PRUNE_MAX_KEYS-1UL))/FD_GOSSIP_PRUNE_MAX_KEYS;
+
+  fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds, prune->relayer_pubkey.uc );
+  if( FD_UNLIKELY( !ci ) ) {
+    return;
+  }
+
+  for( ulong i=0UL; i<prune_msg_count; i++ ) {
+    uchar const * keys     = (prune->prunes+i*FD_GOSSIP_PRUNE_MAX_KEYS)->uc;
+    ulong         num_keys = fd_ulong_min( FD_GOSSIP_PRUNE_MAX_KEYS, prune->prune_len - i*FD_GOSSIP_PRUNE_MAX_KEYS );
+
+    uchar buf[ sizeof(fd_gossip_prune_prefix)+FD_GOSSIP_MTU ];
+
+    ulong signable_sz;
+    fd_signature_t sign;
+    fd_gossip_prune_get_signable( gossip->identity_pubkey, prune->relayer_pubkey.uc, keys, num_keys, now, buf, sizeof(buf), &signable_sz );
+    gossip->sign_fn( gossip->sign_ctx, buf, signable_sz, FD_KEYGUARD_SIGN_TYPE_ED25519, sign.uc );
+
+    ulong prune_msg_sz;
+    fd_gossip_prune_encode( gossip->identity_pubkey, prune->relayer_pubkey.uc, keys, num_keys, sign.uc, now, buf, sizeof(buf), &prune_msg_sz );
+    fd_ip4_port_t dest_addr = fd_contact_info_gossip_socket( ci );
+    gossip->send_fn( gossip->send_ctx, stem, buf, prune_msg_sz, &dest_addr, (ulong)now );
+  }
+}
+
 /* process_push_crds() > 0 holds the duplicate count */
 static int
 process_push_crds( fd_gossip_t *                       gossip,
@@ -636,9 +666,7 @@ rx_push( fd_gossip_t *                 gossip,
                               &prunes,
                               &prunes_cnt );
 
-  for( ulong i=0UL; i<prunes_cnt; i++ ) {
-    /* TODO: generate and send prune message */
-  }
+  for( ulong i=0UL; i<prunes_cnt; i++ ) tx_prune( gossip, &prunes[ i ], stem, now );
 }
 
 static void
@@ -658,7 +686,6 @@ rx_prune( fd_gossip_t *                  gossip,
                          gossip->identity_stake );
   }
 }
-
 
 static void
 rx_ping( fd_gossip_t *           gossip,
