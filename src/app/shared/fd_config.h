@@ -123,6 +123,14 @@ struct fd_configf {
     struct {
 
       struct {
+        int enabled;
+      } entrypoints;
+
+      struct {
+        int enabled;
+      } gossip;
+
+      struct {
         ulong            peers_cnt;
         struct {
           int  enabled;

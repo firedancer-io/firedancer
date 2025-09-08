@@ -501,14 +501,20 @@ struct fd_topo_tile {
     } shredcap;
 
     struct {
-      char  snapshots_path[ PATH_MAX ];
-      int   incremental_snapshot_fetch;
-      int   do_download;
-      uint  maximum_local_snapshot_age;
-      uint  minimum_download_speed_mib;
-      uint  maximum_download_retry_abort;
-      uint  max_full_snapshots_to_keep;
-      uint  max_incremental_snapshots_to_keep;
+      char snapshots_path[ PATH_MAX ];
+      int  incremental_snapshot_fetch;
+      int  do_download;
+      uint maximum_local_snapshot_age;
+      uint minimum_download_speed_mib;
+      uint maximum_download_retry_abort;
+      uint max_full_snapshots_to_keep;
+      uint max_incremental_snapshots_to_keep;
+
+      int entrypoints_enabled;
+      int gossip_peers_enabled;
+
+      ulong         gossip_entrypoints_cnt;
+      fd_ip4_port_t gossip_entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
       struct {
         ulong         peers_cnt;
