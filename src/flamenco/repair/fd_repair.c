@@ -214,6 +214,38 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
   return 0;
 }
 
+/*
+ * This function is called when the inflight table becomes full and we need to insert
+ * a new repair request. Rather than failing the new request, we attempt to free up
+ * space by removing old entries that are unlikely to receive responses. This happens
+ * in fd_repair_create_inflight_request() when fd_inflight_table_is_full() returns true.
+ */
+static int
+fd_repair_evict_old_inflight_request( fd_repair_t * glob, long now ) {
+  int evicted = 0;
+
+  /* Iterate through all entries in the inflight request tracking table.
+   * This table (glob->dupdetect) maps repair request keys to tracking info. */
+  for( fd_inflight_table_iter_t iter = fd_inflight_table_iter_init( glob->dupdetect );
+       !fd_inflight_table_iter_done( glob->dupdetect, iter );
+       iter = fd_inflight_table_iter_next( glob->dupdetect, iter ) ) {
+
+    fd_inflight_elem_t * ele = fd_inflight_table_iter_ele( glob->dupdetect, iter );
+
+    /* Check if this request is stale (older than 80ms).
+     * last_send_time is in nanoseconds, so 80e6 = 80 million nanoseconds = 80ms.
+     * FD_UNLIKELY hint suggests most entries will not be stale when this function is called. */
+    if( FD_UNLIKELY( ele->last_send_time + (long)80e6 < now ) ) {
+      /* Remove the stale entry from the inflight table.
+       * This frees up space and allows the same shred to be requested again. */
+      fd_inflight_table_remove( glob->dupdetect, &ele->key );
+      evicted++;
+    }
+  }
+
+  return evicted;
+}
+
 /* Returns 1 if its valid to send a request for the given shred. 0 if
    it is not, i.e., there is an inflight request for it that was sent
    within the last x ms. */
@@ -227,12 +259,24 @@ fd_repair_create_dedup_request( fd_repair_t * glob, int type, ulong slot, uint s
   fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
 
   if( dupelem == NULL ) {
+    /* No existing inflight request for this shred, need to create a new tracking entry.
+     * First check if the inflight table has space available. */
     if( FD_UNLIKELY( fd_inflight_table_is_full( glob->dupdetect ) ) ) {
-      FD_LOG_WARNING(( "Failed to insert duplicate detection element for slot %lu, shred_index %u. Eviction unimplemented.", slot, shred_index ));
-      return 0;
+      /* Table is full - attempt to free space by evicting stale entries.
+       * This prevents the repair system from getting stuck when the table fills up
+       * with old requests that will never receive responses. */
+      if( 0 == fd_repair_evict_old_inflight_request( glob, now ) ) {
+        /* No stale entries found to evict - all requests are recent.
+         * This likely indicates high repair request volume or very slow network. */
+        FD_LOG_WARNING(( "Failed to evict old inflight requests for slot %lu, shred_index %u.", slot, shred_index ));
+        return 0;
+      }
+      /* Verify that eviction freed up space as expected */
+      FD_TEST( !fd_inflight_table_is_full( glob->dupdetect ) );
     }
+    /* Insert new tracking entry for this repair request */
     dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
-    dupelem->last_send_time = 0L;
+    dupelem->last_send_time = 0L;  /* Will be set to current time below if request is sent */
   }
 
   if( FD_LIKELY( dupelem->last_send_time+(long)80e6  < now ) ) { /* 80ms */
