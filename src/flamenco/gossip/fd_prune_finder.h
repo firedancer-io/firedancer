@@ -125,15 +125,17 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
 
 /* fd_prune_finder_get_prunes generates a list of out_prunes_len
    fd_prune_finder_prune_t entries in out_prunes. This should be called
-   at the end of every rx_push loop. out_prunes_len can be unbounded.
+   at the end of every push rx loop. out_prunes_len is bounded by
+   origins_len*relayer_max_per_origin (supplied in
+   fd_prune_finder_new).
 
-   origins holds a unique list of pubkeys which should be considered
-   for pruning. All origins must have been recorded with
-   fd_prune_finder_record at least once since the last call to
-   fd_prune_finder_get_prunes. Since the maximum number of unique
-   origins that can be encountered during a single rx_push loop is
-   bounded by FD_GOSSIP_MSG_MAX_CRDS, origins_len should not exceed
-   that.
+   origins holds a list of pubkeys which should be considered
+   for pruning. Duplicates are OK, and will be skipped.
+   All origins must have been recorded with fd_prune_finder_record at
+   least once since the last call to fd_prune_finder_get_prunes. Since
+   the maximum number of unique origins that can be encountered during
+   a single rx_push loop is bounded by FD_GOSSIP_MSG_MAX_CRDS,
+   origins_len should not exceed that.
 
    Origins that appear in any out_prunes entry will have their prune
    finder state reset. Therefore all prune messages must be
@@ -142,12 +144,12 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
    call. */
 
 void
-fd_prune_finder_get_prunes( fd_prune_finder_t *         pf,
-                            ulong                       my_stake,
-                            uchar const * const *       origins,
-                            ulong                       origins_len,
-                            fd_prune_finder_prune_t **  out_prunes,
-                            ulong                   *   out_prunes_len );
+fd_prune_finder_get_prunes( fd_prune_finder_t *              pf,
+                            ulong                            my_stake,
+                            uchar const * const *            origins,
+                            ulong                            origins_len,
+                            fd_prune_finder_prune_t const ** out_prunes,
+                            ulong *                          out_prunes_len );
 
 FD_PROTOTYPES_END
 

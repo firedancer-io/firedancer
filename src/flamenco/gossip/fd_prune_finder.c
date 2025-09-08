@@ -446,12 +446,12 @@ prune_origin( fd_prune_finder_t * pf,
 }
 
 void
-fd_prune_finder_get_prunes( fd_prune_finder_t *         pf,
-                            ulong                       my_stake,
-                            uchar const * const *       origins,
-                            ulong                       origins_len,
-                            fd_prune_finder_prune_t **  out_prunes,
-                            ulong                   *   out_prunes_len ) {
+fd_prune_finder_get_prunes( fd_prune_finder_t *               pf,
+                            ulong                             my_stake,
+                            uchar const * const *             origins,
+                            ulong                             origins_len,
+                            fd_prune_finder_prune_t const **  out_prunes,
+                            ulong *                           out_prunes_len ) {
   /* Clear out current prunes map */
   for( ulong i=0UL; i<pf->prunes.count; i++ ) {
     fd_prune_finder_prune_t * p = prunes_pool_ele( pf->prunes.pool, i );

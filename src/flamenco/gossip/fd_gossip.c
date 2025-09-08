@@ -608,8 +608,11 @@ rx_push( fd_gossip_t *                 gossip,
          fd_stem_context_t *           stem ) {
   uchar const * relayer_pubkey = payload+push->from_off;
   ulong relayer_stake          = get_stake( gossip, relayer_pubkey );
+  uchar const * origin_pubkeys[ FD_GOSSIP_MSG_MAX_CRDS ];
+
   for( ulong i=0UL; i<push->crds_values_len; i++ ) {
     uchar const * pubkey = payload+push->crds_values[ i ].pubkey_off;
+    origin_pubkeys[ i ] = pubkey;
     ulong         stake  = get_stake( gossip, pubkey );
 
     int err = process_push_crds( gossip, &push->crds_values[ i ], payload, pubkey, stake, now, stem );
@@ -622,6 +625,19 @@ rx_push( fd_gossip_t *                 gossip,
                               relayer_stake,
                               num_duplicates );
     }
+  }
+
+  fd_prune_finder_prune_t const * prunes = NULL;
+  ulong                           prunes_cnt;
+  fd_prune_finder_get_prunes( gossip->prune_finder,
+                              gossip->identity_stake,
+                              origin_pubkeys,
+                              push->crds_values_len,
+                              &prunes,
+                              &prunes_cnt );
+
+  for( ulong i=0UL; i<prunes_cnt; i++ ) {
+    /* TODO: generate and send prune message */
   }
 }
 

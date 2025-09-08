@@ -92,7 +92,7 @@ test_get_prunes_insufficient_upserts( void ) {
   }
 
   uchar const * origins[1] = { origin.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
@@ -128,7 +128,7 @@ test_get_prunes_insufficient_ingress_nodes( void ) {
   }
 
   uchar const * origins[1] = { origin.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
@@ -178,7 +178,7 @@ test_get_prunes_basic( void ) {
   fd_prune_finder_record( pf, origin.pubkey, origin.stake, good_relayer_1.pubkey, good_relayer_1.stake, 0UL );
 
   uchar const * origins[1] = { origin.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
@@ -227,7 +227,7 @@ test_get_prunes_tiebreaker( void ) {
   }
 
   uchar const * origins[1] = { origin.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
@@ -266,7 +266,7 @@ test_get_prunes_reset_origin( void ) {
   }
 
   uchar const * origins[1] = { origin.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
@@ -297,6 +297,51 @@ test_get_prunes_reset_origin( void ) {
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
   FD_TEST( out_prunes_len == 0UL );
 
+
+  free( bytes );
+}
+
+void
+test_get_prunes_duplicate_origins( void ) {
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  FD_TEST( rng );
+
+  ulong origin_max = 16UL;
+  ulong relayer_max_per_origin = 8UL;
+
+  void * bytes = aligned_alloc( fd_prune_finder_align(), fd_prune_finder_footprint( origin_max, relayer_max_per_origin ) );
+  FD_TEST( bytes );
+
+  fd_prune_finder_t * pf = fd_prune_finder_join( fd_prune_finder_new( bytes, origin_max, relayer_max_per_origin, rng ) );
+  FD_TEST( pf );
+
+  test_peer_t origin = generate_random_peer( rng );
+  test_peer_t good_relayer_1 = generate_random_peer( rng );
+  test_peer_t good_relayer_2 = generate_random_peer( rng );
+  test_peer_t bad_relayer    = generate_random_peer( rng );
+
+  /* Record enough messages to trigger pruning */
+  for( ulong i=0UL; i<25UL; i++ ) {
+    fd_prune_finder_record( pf, origin.pubkey, origin.stake, good_relayer_1.pubkey, good_relayer_1.stake, 0UL );
+    fd_prune_finder_record( pf, origin.pubkey, origin.stake, good_relayer_2.pubkey, good_relayer_2.stake, 0UL );
+    /* Bad relayer gets duplicates (num_dups=2) */
+    fd_prune_finder_record( pf, origin.pubkey, origin.stake, bad_relayer.pubkey, bad_relayer.stake, 1UL );
+  }
+
+  /* add extra record for one of the good relayers since to avoid tiebreaker */
+  fd_prune_finder_record( pf, origin.pubkey, origin.stake, good_relayer_1.pubkey, good_relayer_1.stake, 0UL );
+
+  /* Pass in duplicate origins */
+  uchar const * origins[3] = { origin.pubkey, origin.pubkey, origin.pubkey };
+  fd_prune_finder_prune_t const * out_prunes;
+  ulong out_prunes_len;
+
+  fd_prune_finder_get_prunes( pf, 1000000UL, origins, 3UL, &out_prunes, &out_prunes_len );
+  /* Should generate prunes for the bad relayer */
+  FD_TEST( out_prunes_len == 1UL );
+  FD_TEST( !memcmp( out_prunes[0].relayer_pubkey.uc, bad_relayer.pubkey, 32UL ) );
+  FD_TEST( out_prunes[0].prune_len == 1UL );
+  FD_TEST( !memcmp( out_prunes[0].prunes[0].uc, origin.pubkey, 32UL ) );
 
   free( bytes );
 }
@@ -395,7 +440,7 @@ test_multiple_origins( void ) {
   }
 
   uchar const * origins[2] = { origin1.pubkey, origin2.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 2UL, &out_prunes, &out_prunes_len );
@@ -455,7 +500,7 @@ test_stake_threshold_with_pruning( void ) {
   }
 
   uchar const * origins[1] = { origin.pubkey };
-  fd_prune_finder_prune_t * out_prunes;
+  fd_prune_finder_prune_t const * out_prunes;
   ulong out_prunes_len;
 
   fd_prune_finder_get_prunes( pf, 1000000UL, origins, 1UL, &out_prunes, &out_prunes_len );
@@ -494,6 +539,9 @@ main( int     argc,
 
   test_get_prunes_tiebreaker();
   FD_LOG_NOTICE(( "test_get_prunes_tiebreaker() passed" ));
+
+  test_get_prunes_duplicate_origins();
+  FD_LOG_NOTICE(( "test_get_prunes_duplicate_origins() passed" ));
 
   test_relayer_eviction();
   FD_LOG_NOTICE(( "test_relayer_eviction() passed" ));
