@@ -263,10 +263,24 @@ after_frag_snap( ctx_t                  * ctx,
   fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
   fd_ghost_init( ctx->ghost, manifest->slot, &manifest_block_id );
 
+  /* As per the documentation in fd_ssmsg.h, we use manifest->epoch_stakes[1] to
+     initialize the epoch voters. These correspond to the amount staked to each
+     vote account at the beginning of the current epoch:
+
+     manifest->epoch_stakes[0] represents the stakes used to generate the leader
+     schedule at the end of the current epoch. These are the stakes as of the end
+     of two epochs ago.
+
+     manifest->epoch_stakes[1] represents the stakes used to generate the leader
+     schedule at the end of the next epoch. These are the stakes as of the end
+     of the previous epoch, so these will be the stakes throughout the current
+     epoch.
+  */
   fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
-  for(ulong i = 0; i< manifest->vote_accounts_len; i++) {
-    if( FD_UNLIKELY( manifest->vote_accounts[i].stake == 0 ) ) continue;
-    fd_pubkey_t const * pubkey = (fd_pubkey_t const *)fd_type_pun_const( manifest->vote_accounts[i].vote_account_pubkey );
+  fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes = &manifest->epoch_stakes[1];
+  for(ulong i = 0; i< epoch_stakes->vote_stakes_len; i++) {
+    if( FD_UNLIKELY( epoch_stakes->vote_stakes[i].stake == 0 ) ) continue;
+    fd_pubkey_t const * pubkey = (fd_pubkey_t const *)fd_type_pun_const( epoch_stakes->vote_stakes[i].vote );
 #   if FD_EPOCH_USE_HANDHOLDING
     FD_TEST( !fd_epoch_voters_query( epoch_voters, *pubkey, NULL ) );
     FD_TEST( fd_epoch_voters_key_cnt( epoch_voters ) < fd_epoch_voters_key_max( epoch_voters ) );
@@ -276,7 +290,7 @@ after_frag_snap( ctx_t                  * ctx,
     FD_TEST( 0==memcmp( voter->key.uc, pubkey->uc, sizeof(fd_pubkey_t) ) );
     FD_TEST( fd_epoch_voters_query( epoch_voters, voter->key, NULL ) );
 #   endif
-    voter->stake             = manifest->vote_accounts[i].stake;
+    voter->stake             = epoch_stakes->vote_stakes[i].stake;
     voter->replay_vote.slot  = FD_SLOT_NULL;
     voter->gossip_vote.slot  = FD_SLOT_NULL;
     voter->rooted_vote.slot  = FD_SLOT_NULL;
