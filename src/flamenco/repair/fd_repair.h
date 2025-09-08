@@ -35,8 +35,6 @@
 #define FD_PING_PRE_IMAGE_SZ (48UL)
 /* Number of peers to send requests to. */
 #define FD_REPAIR_NUM_NEEDED_PEERS (1)
-/* Max number of pending sign requests */
-#define FD_REPAIR_PENDING_SIGN_REQ_MAX (1<<10)
 /* Maximum size for sign buffer, typically <= 160 bytes (e.g., pings, repairs) */
 #define FD_REPAIR_MAX_SIGN_BUF_SIZE (256UL)
 
@@ -212,6 +210,7 @@ struct fd_repair_metrics {
 };
 typedef struct fd_repair_metrics fd_repair_metrics_t;
 #define FD_REPAIR_METRICS_FOOTPRINT ( sizeof( fd_repair_metrics_t ) )
+
 /* Global data for repair service */
 struct fd_repair {
     /* Current time in nanosecs */
@@ -222,15 +221,8 @@ struct fd_repair {
     /* My repair addresses */
     fd_ip4_port_t service_addr;
     fd_ip4_port_t intake_addr;
-    /* Function used to send raw packets on the network */
-    void * fun_arg;
     /* Table of validators that we are actively pinging, keyed by repair address */
     fd_active_elem_t * actives;
-
-    /* TODO remove, along with good peer cache file */
-    fd_pubkey_t actives_sticky[FD_REPAIR_STICKY_MAX]; /* cache of chosen repair peer samples */
-    ulong       actives_sticky_cnt;
-    ulong       actives_random_seed;
 
     fd_peer_t peers[ FD_ACTIVE_KEY_MAX ];
     ulong     peer_cnt; /* number of peers in the peers array */
@@ -238,10 +230,7 @@ struct fd_repair {
 
     /* Duplicate request detection table */
     fd_inflight_elem_t * dupdetect;
-
     /* Table of needed shreds */
-    fd_repair_nonce_t oldest_nonce;
-    fd_repair_nonce_t current_nonce;
     fd_repair_nonce_t next_nonce;
     /* Table of validator clients that we have pinged */
     fd_pinged_elem_t * pinged;
@@ -251,22 +240,14 @@ struct fd_repair {
     long last_decay;
     /* Last statistics printout */
     long last_print;
-    /* Last write to good peer cache file */
-    long last_good_peer_cache_file_write;
     /* Random number generator */
     fd_rng_t rng[1];
     /* RNG seed */
     ulong seed;
     /* Stake weights */
-    ulong stake_weights_cnt;
-    fd_vote_stake_weight_t * stake_weights;
-    ulong stake_weights_temp_cnt;
-    fd_vote_stake_weight_t * stake_weights_temp;
-    /* Path to the file where we write the cache of known good repair peers, to make cold booting faster */
-    int good_peer_cache_file_fd;
     /* Pending sign requests for async operations */
-    fd_repair_pending_sign_req_t      * pending_sign_req_pool;
-    fd_repair_pending_sign_req_map_t  * pending_sign_req_map;
+    fd_repair_pending_sign_req_t      * pending_sign_pool;
+    fd_repair_pending_sign_req_map_t  * pending_sign_map;
     /* Metrics */
     fd_repair_metrics_t metrics;
 };
@@ -276,25 +257,25 @@ FD_FN_CONST static inline ulong
 fd_repair_align ( void ) { return 128UL; }
 
 FD_FN_CONST static inline ulong
-fd_repair_footprint( void ) {
+fd_repair_footprint( ulong sign_tile_depth, ulong sign_tile_cnt ) {
+  ulong sign_req_max = sign_tile_depth * sign_tile_cnt;
+        sign_req_max = fd_ulong_pow2_up( sign_req_max );
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_t),                    sizeof(fd_repair_t) );
   l = FD_LAYOUT_APPEND( l, fd_active_table_align(),                 fd_active_table_footprint(FD_ACTIVE_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_inflight_table_align(),               fd_inflight_table_footprint(FD_NEEDED_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_pinged_table_align(),                 fd_pinged_table_footprint(FD_REPAIR_PINGED_MAX) );
-  /* regular and temp stake weights */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),         FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_vote_stake_weight_t),         FD_STAKE_WEIGHTS_MAX * sizeof(fd_vote_stake_weight_t) );
-  /* pending sign request structures */
-  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint( FD_REPAIR_PENDING_SIGN_REQ_MAX ) );
+  /* pending sign request structures - TODO: i think move this to the repair tile.... ts is pretty tile specific */
+  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_pool_align(), fd_repair_pending_sign_req_pool_footprint( sign_req_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_repair_pending_sign_req_map_align(),  fd_repair_pending_sign_req_map_footprint ( sign_req_max ) );
   return FD_LAYOUT_FINI(l, fd_repair_align() );
 }
 
 /* Global state of repair protocol */
 FD_FN_CONST ulong         fd_repair_align    ( void );
-FD_FN_CONST ulong         fd_repair_footprint( void );
-            void *        fd_repair_new      ( void * shmem, ulong seed );
+FD_FN_CONST ulong         fd_repair_footprint( ulong sign_tile_depth, ulong sign_tile_cnt );
+            void *        fd_repair_new      ( void * shmem, ulong sign_tile_depth, ulong sign_tile_cnt, ulong seed );
             fd_repair_t * fd_repair_join     ( void * shmap );
             void *        fd_repair_leave    ( fd_repair_t * join );
             void *        fd_repair_delete   ( void * shmap );
@@ -304,7 +285,6 @@ struct fd_repair_config {
     uchar * private_key;
     fd_ip4_port_t service_addr;
     fd_ip4_port_t intake_addr;
-    int good_peer_cache_file_fd;
 };
 typedef struct fd_repair_config fd_repair_config_t;
 
@@ -350,14 +330,6 @@ fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       fd_pubkey_t const    * recipient,
                                       uint                   nonce,
                                       long                   now );
-
-void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
-
-void fd_repair_set_stake_weights_init( fd_repair_t             * repair,
-                                       fd_vote_stake_weight_t const * stake_weights,
-                                       ulong                     stake_weights_cnt );
-
-void fd_repair_set_stake_weights_fini( fd_repair_t * repair );
 
 fd_repair_metrics_t *
 fd_repair_get_metrics( fd_repair_t * repair );
