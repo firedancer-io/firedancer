@@ -275,7 +275,6 @@ fd_repair_start( fd_repair_t * glob ) {
   return fd_read_in_good_peer_cache_file( glob );
 }
 
-static void fd_repair_print_all_stats( fd_repair_t * glob );
 static int fd_write_good_peer_cache_file( fd_repair_t * repair );
 
 /* Dispatch timed events and other protocol behavior. This should be
@@ -283,7 +282,6 @@ static int fd_write_good_peer_cache_file( fd_repair_t * repair );
 int
 fd_repair_continue( fd_repair_t * glob ) {
   if ( glob->now - glob->last_print > (long)30e9 ) { /* 30 seconds */
-    fd_repair_print_all_stats( glob );
     glob->last_print = glob->now;
     fd_repair_decay_stats( glob );
     glob->last_decay = glob->now;
@@ -364,13 +362,11 @@ fd_repair_create_inflight_request( fd_repair_t * glob, int type, ulong slot, uin
   fd_inflight_elem_t * dupelem = fd_inflight_table_query( glob->dupdetect, &dupkey, NULL );
 
   if( dupelem == NULL ) {
-    dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
-
-    if ( FD_UNLIKELY( dupelem == NULL ) ) {
-      FD_LOG_ERR(( "Eviction unimplemented. Failed to insert duplicate detection element for slot %lu, shred_index %u", slot, shred_index ));
+    if( FD_UNLIKELY( fd_inflight_table_is_full( glob->dupdetect ) ) ) {
+      FD_LOG_WARNING(( "Failed to insert duplicate detection element for slot %lu, shred_index %u. Eviction unimplemented.", slot, shred_index ));
       return 0;
     }
-
+    dupelem = fd_inflight_table_insert( glob->dupdetect, &dupkey );
     dupelem->last_send_time = 0L;
   }
 
@@ -472,34 +468,6 @@ int
 fd_repair_need_orphan( fd_repair_t * glob, ulong slot ) {
   // FD_LOG_NOTICE( ( "[repair] need orphan %lu", slot ) );
   return fd_repair_create_inflight_request( glob, fd_needed_orphan, slot, UINT_MAX, glob->now );
-}
-
-static void
-print_stats( fd_active_elem_t * val ) {
-  fd_pubkey_t const * id = &val->key;
-  if( FD_UNLIKELY( NULL == val ) ) return;
-  if( val->avg_reqs == 0 )
-    FD_LOG_INFO(( "repair peer %s: no requests sent, stake=%lu", FD_BASE58_ENC_32_ALLOCA( id ), val->stake / (ulong)1e9 ));
-  else if( val->avg_reps == 0 )
-    FD_LOG_INFO(( "repair peer %s: avg_requests=%lu, no responses received, stake=%lu", FD_BASE58_ENC_32_ALLOCA( id ), val->avg_reqs, val->stake / (ulong)1e9 ));
-  else
-    FD_LOG_INFO(( "repair peer %s: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
-                    FD_BASE58_ENC_32_ALLOCA( id ),
-                    val->avg_reqs,
-                    ((double)val->avg_reps)/((double)val->avg_reqs),
-                    1.0e-9*((double)val->avg_lat)/((double)val->avg_reps),
-                    val->stake / (ulong)1e9 ));
-}
-
-static void
-fd_repair_print_all_stats( fd_repair_t * glob ) {
-  for( fd_active_table_iter_t iter = fd_active_table_iter_init( glob->actives );
-       !fd_active_table_iter_done( glob->actives, iter );
-       iter = fd_active_table_iter_next( glob->actives, iter ) ) {
-    fd_active_elem_t * val = fd_active_table_iter_ele( glob->actives, iter );
-    print_stats( val );
-  }
-  FD_LOG_INFO( ( "peer count: %lu", fd_active_table_key_cnt( glob->actives ) ) );
 }
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id ) {

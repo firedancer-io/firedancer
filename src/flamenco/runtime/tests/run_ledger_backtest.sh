@@ -1,12 +1,6 @@
 #!/bin/bash -f
 
-echo_notice() {
-  echo -e "\033[34m$1\033[0m"
-}
-
-echo_error() {
-  echo -e "\033[31m$1$2\033[0m"
-}
+source contrib/test/ledger_common.sh
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -27,6 +21,7 @@ ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
+REDOWNLOAD=1
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -101,6 +96,10 @@ while [[ $# -gt 0 ]]; do
        HAS_INCREMENTAL="$2"
        shift
        ;;
+    -nr|--no-redownload)
+       REDOWNLOAD=0
+       shift
+       ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -120,27 +119,36 @@ mkdir -p $OBJDIR/cov/raw
 DUMP=$(realpath $DUMP_DIR)
 mkdir -p $DUMP
 
-if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
-  if [[ -n "$ZST" ]]; then
-    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
-  else
-    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
-  fi
-  if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
-    if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
-      if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
-        gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
-      fi
-      if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
-        gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
+download_and_extract_ledger() {
+  if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+    if [[ -n "$ZST" ]]; then
+      echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
+    else
+      echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
+    fi
+    if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
+      if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
+        if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
+          gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
+        fi
+        if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
+          gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
+        fi
       fi
     fi
+    if [[ -n "$ZST" ]]; then
+      gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP
+    else
+      gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
+    fi
   fi
-  if [[ -n "$ZST" ]]; then
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP
-  else
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
-  fi
+}
+
+if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+  download_and_extract_ledger
+  create_checksum
+else
+  check_ledger_checksum_and_redownload
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
@@ -220,6 +228,9 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 echo_notice "Finished on-demand ingest and replay\n"
 
 echo "Log for ledger $LEDGER at $LOG"
+
+# check that the ledger is not corrupted after a run
+check_ledger_checksum
 
 if grep -q "Backtest playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
 then

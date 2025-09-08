@@ -3,7 +3,7 @@
 #include "fd_types_custom.h"
 #include "fd_types_reflect_private.h"
 #pragma GCC diagnostic ignored "-Wpedantic"
-ulong fd_types_vt_list_cnt = 214;
+ulong fd_types_vt_list_cnt = 211;
 fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_hash", .name_len=7, .align=FD_HASH_ALIGN, .new_=(void *)fd_hash_new, .decode=(void *)fd_hash_decode, .size=(void *)fd_hash_size, .walk=(void *)fd_hash_walk, .decode_footprint=(void *)fd_hash_decode_footprint, .encode=(void *)fd_hash_encode  },
   { .name="fd_pubkey", .name_len=9, .align=FD_PUBKEY_ALIGN, .new_=(void *)fd_pubkey_new, .decode=(void *)fd_pubkey_decode, .size=(void *)fd_pubkey_size, .walk=(void *)fd_pubkey_walk, .decode_footprint=(void *)fd_pubkey_decode_footprint, .encode=(void *)fd_pubkey_encode  },
@@ -214,9 +214,6 @@ fd_types_vt_t const fd_types_vt_list[] = {
   { .name="fd_epoch_info_pair", .name_len=18, .align=FD_EPOCH_INFO_PAIR_ALIGN, .new_=(void *)fd_epoch_info_pair_new, .decode=(void *)fd_epoch_info_pair_decode, .size=(void *)fd_epoch_info_pair_size, .walk=(void *)fd_epoch_info_pair_walk, .decode_footprint=(void *)fd_epoch_info_pair_decode_footprint, .encode=(void *)fd_epoch_info_pair_encode  },
   { .name="fd_usage_cost_details", .name_len=21, .align=FD_USAGE_COST_DETAILS_ALIGN, .new_=(void *)fd_usage_cost_details_new, .decode=(void *)fd_usage_cost_details_decode, .size=(void *)fd_usage_cost_details_size, .walk=(void *)fd_usage_cost_details_walk, .decode_footprint=(void *)fd_usage_cost_details_decode_footprint, .encode=(void *)fd_usage_cost_details_encode  },
   { .name="fd_transaction_cost", .name_len=19, .align=FD_TRANSACTION_COST_ALIGN, .new_=(void *)fd_transaction_cost_new, .decode=(void *)fd_transaction_cost_decode, .size=(void *)fd_transaction_cost_size, .walk=(void *)fd_transaction_cost_walk, .decode_footprint=(void *)fd_transaction_cost_decode_footprint, .encode=(void *)fd_transaction_cost_encode  },
-  { .name="fd_account_costs_pair", .name_len=21, .align=FD_ACCOUNT_COSTS_PAIR_ALIGN, .new_=(void *)fd_account_costs_pair_new, .decode=(void *)fd_account_costs_pair_decode, .size=(void *)fd_account_costs_pair_size, .walk=(void *)fd_account_costs_pair_walk, .decode_footprint=(void *)fd_account_costs_pair_decode_footprint, .encode=(void *)fd_account_costs_pair_encode  },
-  { .name="fd_account_costs", .name_len=16, .align=FD_ACCOUNT_COSTS_ALIGN, .new_=(void *)fd_account_costs_new, .decode=(void *)fd_account_costs_decode, .size=(void *)fd_account_costs_size, .walk=(void *)fd_account_costs_walk, .decode_footprint=(void *)fd_account_costs_decode_footprint, .encode=(void *)fd_account_costs_encode  },
-  { .name="fd_cost_tracker", .name_len=15, .align=FD_COST_TRACKER_ALIGN, .new_=(void *)fd_cost_tracker_new, .decode=(void *)fd_cost_tracker_decode, .size=(void *)fd_cost_tracker_size, .walk=(void *)fd_cost_tracker_walk, .decode_footprint=(void *)fd_cost_tracker_decode_footprint, .encode=(void *)fd_cost_tracker_encode  },
   { .name="fd_rent_paying", .name_len=14, .align=FD_RENT_PAYING_ALIGN, .new_=(void *)fd_rent_paying_new, .decode=(void *)fd_rent_paying_decode, .size=(void *)fd_rent_paying_size, .walk=(void *)fd_rent_paying_walk, .decode_footprint=(void *)fd_rent_paying_decode_footprint, .encode=(void *)fd_rent_paying_encode  },
   { .name="fd_rent_state", .name_len=13, .align=FD_RENT_STATE_ALIGN, .new_=(void *)fd_rent_state_new, .decode=(void *)fd_rent_state_decode, .size=(void *)fd_rent_state_size, .walk=(void *)fd_rent_state_walk, .decode_footprint=(void *)fd_rent_state_decode_footprint, .encode=(void *)fd_rent_state_encode  },
   { .name=NULL }

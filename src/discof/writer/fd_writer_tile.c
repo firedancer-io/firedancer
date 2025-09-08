@@ -4,9 +4,9 @@
 
 #include "../../util/pod/fd_pod_format.h"
 
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_runtime_public.h"
-#include "../../flamenco/runtime/fd_executor.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -57,10 +57,6 @@ struct fd_writer_tile_ctx {
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
   fd_writer_tile_out_ctx_t    writer_replay_out[1];
 
-  /* Runtime public and local joins of its members. */
-  fd_wksp_t const *           runtime_public_wksp;
-  fd_runtime_public_t const * runtime_public;
-
   /* Local joins of exec spads.  Read-only. */
   fd_spad_t *                 exec_spad[ FD_PACK_MAX_BANK_TILES ];
   fd_wksp_t *                 exec_spad_wksp[ FD_PACK_MAX_BANK_TILES ];
@@ -68,7 +64,7 @@ struct fd_writer_tile_ctx {
   /* Local joins of exec tile txn ctx.  Read-only. */
   fd_exec_txn_ctx_t *         txn_ctx[ FD_PACK_MAX_BANK_TILES ];
 
-  /* Local join of bank manager. R/W */
+  /* Local join of bank manager.  R/W. */
   fd_banks_t *                 banks;
   fd_bank_t *                  bank;
 
@@ -314,7 +310,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
     }
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx[ in_idx ];
 
-    ctx->bank = fd_banks_get_bank( ctx->banks, txn_ctx->slot );
+    ctx->bank = fd_banks_get_bank_idx( ctx->banks, txn_ctx->bank_idx );
     if( FD_UNLIKELY( !ctx->bank ) ) {
       FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
     }
@@ -334,20 +330,18 @@ after_frag( fd_writer_tile_ctx_t * ctx,
     }
 
     if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-      FD_SPAD_FRAME_BEGIN( ctx->spad ) {
-
         fd_runtime_finalize_txn(
           ctx->funk,
           ctx->funk_txn,
           txn_ctx,
           ctx->bank,
           ctx->capture_ctx );
-
-      } FD_SPAD_FRAME_END;
+    } else {
+      /* This means that we should mark the block as dead. */
+      fd_banks_mark_bank_dead( ctx->banks, ctx->bank );
     }
 
     /* Notify the replay tile that we are done with this txn. */
-    ctx->txn_finalized_buffer.txn_id = msg->txn_id;
     ctx->txn_finalized_buffer.exec_tile_id = msg->exec_tile_id;
     ctx->pending_txn_finalized_msg = 1;
     return;
@@ -409,25 +403,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->exec_writer_in[ i ].wmark  = fd_dcache_compact_wmark( ctx->exec_writer_in[ i ].mem,
                                                                exec_writer_in_link->dcache,
                                                                exec_writer_in_link->mtu );
-  }
-
-  /********************************************************************/
-  /* Setup runtime public                                             */
-  /********************************************************************/
-
-  ulong runtime_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_pub" );
-  if( FD_UNLIKELY( runtime_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for runtime public" ));
-  }
-
-  ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ runtime_obj_id ].wksp_id ].wksp;
-  if( FD_UNLIKELY( !ctx->runtime_public_wksp ) ) {
-    FD_LOG_ERR(( "No runtime_public workspace" ));
-  }
-
-  ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, runtime_obj_id ) );
-  if( FD_UNLIKELY( !ctx->runtime_public ) ) {
-    FD_LOG_ERR(( "Failed to join runtime public" ));
   }
 
   /********************************************************************/

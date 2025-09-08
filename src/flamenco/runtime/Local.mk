@@ -23,6 +23,8 @@ $(call add-objs,fd_txncache,fd_flamenco)
 
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)
+$(call make-unit-test,test_cost_tracker,test_cost_tracker,fd_flamenco fd_funk fd_ballet fd_util)
+$(call run-unit-test,test_cost_tracker,)
 
 $(call add-hdrs,fd_compute_budget_details.h)
 $(call add-objs,fd_compute_budget_details,fd_flamenco)

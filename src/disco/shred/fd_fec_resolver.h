@@ -160,7 +160,12 @@ fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
 #define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT 4
 #define FD_FEC_RESOLVER_ADD_SHRED_RETVAL_OFF 2
 
-
+struct fd_fec_resolver_spilled {
+  ulong slot;
+  uint  fec_set_idx;
+  uint  max_dshred_idx; /* position in FEC set, in [0, FD_REEDSOL_DATA_SHREDS_MAX) */
+};
+typedef struct fd_fec_resolver_spilled fd_fec_resolver_spilled_t;
 
 /* fd_fec_resolver_add_shred notifies the FEC resolver of a newly
    received shred.  The FEC resolver validates the shred and copies it
@@ -193,14 +198,31 @@ fd_fec_resolver_set_shred_version( fd_fec_resolver_t * resolver,
 
    This function returns SHRED_COMPLETES when the received shred is the
    last one and completes the FEC set.  In this case, the function
-   populates any missing shreds in the FEC set stored in out_fec_set. */
-int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t const     * shred,
-                               ulong                  shred_sz,
-                               uchar const          * leader_pubkey,
-                               fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t const   * * out_shred,
-                               fd_bmtree_node_t     * out_merkle_root );
+   populates any missing shreds in the FEC set stored in out_fec_set.
+
+   Regardless of success/failure, if an incomplete FEC set was evicted
+   from the current map during this add_shred call, the metadata of the
+   evicted FEC set will be written to out_spilled_fec_set.  The FEC set
+   metadata includes slot, fec_set_idx, and also highest data shred
+   index received thus far in this FEC set, in the range
+   [0, FD_REEDSOL_DATA_SHREDS_MAX).  If no data shreds have been
+   received yet (i.e., only parity shreds have been received),
+   max_dshred_idx will be FD_SHRED_BLK_MAX.  If no FEC set was evicted,
+   out_spilled_fec_set will remain unmodified.  Similar to
+   out_merkle_root, the caller owns and provides the memory for
+   out_spilled_fec_set.  If the out_spilled_fec_set pointer is NULL, the
+   argument will be ignored and the evicted FEC set metadata will not be
+   written. */
+
+int
+fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
+                           fd_shred_t const          * shred,
+                           ulong                       shred_sz,
+                           uchar const               * leader_pubkey,
+                           fd_fec_set_t const      * * out_fec_set,
+                           fd_shred_t const        * * out_shred,
+                           fd_bmtree_node_t          * out_merkle_root,
+                           fd_fec_resolver_spilled_t * out_spilled_fec_set );
 
 
 /* fd_fec_resolver_done_contains returns 1 if the FEC with signature

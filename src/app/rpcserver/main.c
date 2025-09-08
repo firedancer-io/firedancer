@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include "../../discof/rpcserver/fd_rpc_service.h"
 #include "../../funk/fd_funk.h"
+#include "../../util/shmem/fd_shmem_private.h"
+#include "../../disco/keyguard/fd_keyload.h"
 
 #define SHAM_LINK_CONTEXT fd_rpc_ctx_t
 #define SHAM_LINK_NAME    replay_sham_link
@@ -21,13 +23,28 @@
 #define SHAM_LINK_NAME    stake_sham_link
 #include "sham_link.h"
 
+#define SHAM_LINK_CONTEXT fd_rpc_ctx_t
+#define SHAM_LINK_NAME    repair_sham_link
+#include "sham_link.h"
+
+#define SHAM_LINK_CONTEXT fd_rpc_ctx_t
+#define SHAM_LINK_NAME    tower_sham_link
+#include "sham_link.h"
+
 static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
 
+  const char * mount_path = fd_env_strip_cmdline_cstr( argc, argv, "--mount-path", NULL, "/mnt/.fd" );
+  if( FD_UNLIKELY( mount_path )) {
+    strncpy( fd_shmem_private_base, mount_path, sizeof(fd_shmem_private_base)-1 );
+    fd_shmem_private_base_len = strlen( mount_path );
+  }
+
   const char * funk_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--funk-wksp-name", NULL, "fd1_funk.wksp" );
   if( FD_UNLIKELY( !funk_wksp_name ))
     FD_LOG_ERR(( "--funk-wksp-name argument is required" ));
+  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", funk_wksp_name ));
   fd_wksp_t * funk_wksp = fd_wksp_attach( funk_wksp_name );
   if( FD_UNLIKELY( !funk_wksp ))
     FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", funk_wksp_name ));
@@ -41,21 +58,31 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( FD_UNLIKELY( !funk ))
     FD_LOG_ERR(( "failed to join funk" ));
 
-
-  const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, "fd1_blockstore.wksp" );
-  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
-  fd_wksp_t * wksp = fd_wksp_attach( wksp_name );
-  if( FD_UNLIKELY( !wksp ) )
-    FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-  tag = 1;
-  if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
-    FD_LOG_ERR(( "workspace \"%s\" does not contain a blockstore", wksp_name ));
+  const char * store_wksp_name = fd_env_strip_cmdline_cstr( argc, argv, "--store-wksp-name", NULL, "fd1_store.wksp" );
+  if( FD_UNLIKELY( !store_wksp_name ))
+    FD_LOG_ERR(( "--store-wksp-name argument is required" ));
+  FD_LOG_NOTICE(( "attaching to workspace \"%s\"", store_wksp_name ));
+  fd_wksp_t * store_wksp = fd_wksp_attach( store_wksp_name );
+  if( FD_UNLIKELY( !store_wksp ))
+    FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", store_wksp_name ));
+  if( fd_wksp_tag_query( store_wksp, &tag, 1, &info, 1 ) <= 0 ) {
+    FD_LOG_ERR(( "workspace does not contain a store" ));
   }
-  fd_wksp_mprotect( wksp, 1 );
+  void * store_shmem = fd_wksp_laddr_fast( store_wksp, info.gaddr_lo );
+  fd_store_t * store = fd_store_join( store_shmem );
+  if( FD_UNLIKELY( !store ))
+    FD_LOG_ERR(( "failed to join store" ));
+  args->store = store;
+
+  const char * identity_key_path = fd_env_strip_cmdline_cstr( argc, argv, "--identity-key-path", NULL, "/home/fire/.firedancer/fd1/identity.json" );
+  uchar const * identity_key = fd_keyload_load( identity_key_path, /* pubkey only: */ 1 );
+  if( FD_UNLIKELY( !identity_key ))
+    FD_LOG_ERR(( "failed to load identity key from %s", identity_key_path ));
+  memcpy( args->identity_key.uc, identity_key, sizeof(args->identity_key) );
 
   args->port    = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
-  args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 30 );
+  args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 10 );
   args->params.max_ws_connection_cnt = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-connection-cnt", NULL, 10 );
   args->params.max_request_len =       fd_env_strip_cmdline_ulong( argc, argv, "--max-request-len",       NULL, 1<<16 );
   args->params.max_ws_recv_frame_len = fd_env_strip_cmdline_ulong( argc, argv, "--max-ws-recv-frame-len", NULL, 1<<16 );
@@ -107,30 +134,6 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( FD_UNLIKELY( !funk ))
     FD_LOG_ERR(( "failed to join funk" ));
 
-  fd_wksp_t * wksp;
-  const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, NULL );
-  if( wksp_name != NULL ) {
-    FD_LOG_NOTICE(( "attaching to workspace \"%s\"", wksp_name ));
-    wksp = fd_wksp_attach( wksp_name );
-    if( !wksp ) FD_LOG_ERR(( "unable to attach to \"%s\"\n\tprobably does not exist or bad permissions", wksp_name ));
-  } else {
-    char const * restore = fd_env_strip_cmdline_cstr ( argc, argv, "--restore-blockstore", NULL, NULL );
-    if( restore == NULL ) FD_LOG_ERR(( "must use --wksp-name-blockstore or --restore-blockstore in offline mode" ));
-    fd_wksp_preview_t preview[1];
-    int err = fd_wksp_preview( restore, preview );
-    if( err ) FD_LOG_ERR(( "unable to restore %s: error %d", restore, err ));
-    ulong page_cnt = (preview->data_max + FD_SHMEM_GIGANTIC_PAGE_SZ-1U)/FD_SHMEM_GIGANTIC_PAGE_SZ;
-    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, page_cnt, 0, "wksp-blockstore", 0UL );
-    if( !wksp ) FD_LOG_ERR(( "unable to restore %s: failed to create wksp", restore ));
-    FD_LOG_NOTICE(( "restoring blockstore wksp %s", restore ));
-    fd_wksp_restore( wksp, restore, preview->seed );
-  }
-  tag = 1;
-  if( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) <= 0 ) {
-    FD_LOG_ERR(( "workspace does not contain a blockstore" ));
-  }
-  fd_wksp_mprotect( wksp, 1 );
-
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );
 
   args->params.max_connection_cnt =    fd_env_strip_cmdline_ulong( argc, argv, "--max-connection-cnt",    NULL, 50 );
@@ -158,6 +161,8 @@ int main( int argc, char ** argv ) {
 
   replay_sham_link_t * rep_notify = NULL;
   stake_sham_link_t * stake_notify = NULL;
+  repair_sham_link_t * repair_notify = NULL;
+  tower_sham_link_t * tower_notify = NULL;
 
   ulong offline = fd_env_strip_cmdline_ulong( &argc, &argv, "--offline", NULL, 0 );
   if( !offline ) {
@@ -168,6 +173,12 @@ int main( int argc, char ** argv ) {
 
     wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-stake-out", NULL, "fd1_stake_out.wksp" );
     stake_notify = stake_sham_link_new( aligned_alloc( stake_sham_link_align(), stake_sham_link_footprint() ), wksp_name );
+
+    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-repair-repla", NULL, "fd1_repair_repla.wksp" );
+    repair_notify = repair_sham_link_new( aligned_alloc( repair_sham_link_align(), repair_sham_link_footprint() ), wksp_name );
+
+    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-tower", NULL, "fd1_replay_tower.wksp" );
+    tower_notify = tower_sham_link_new( aligned_alloc( tower_sham_link_align(), tower_sham_link_footprint() ), wksp_name );
 
   } else {
     init_args_offline( &argc, &argv, &args );
@@ -202,10 +213,14 @@ int main( int argc, char ** argv ) {
 
   replay_sham_link_start( rep_notify );
   stake_sham_link_start( stake_notify );
+  repair_sham_link_start( repair_notify );
+  tower_sham_link_start( tower_notify );
+
   while( !stopflag ) {
     replay_sham_link_poll( rep_notify, ctx );
-
     stake_sham_link_poll( stake_notify, ctx );
+    repair_sham_link_poll( repair_notify, ctx );
+    tower_sham_link_poll( tower_notify, ctx );
 
     fd_rpc_ws_poll( ctx );
   }
@@ -215,7 +230,9 @@ int main( int argc, char ** argv ) {
 }
 
 static void
-replay_sham_link_during_frag(fd_rpc_ctx_t * ctx, void const * msg, int sz) {
+replay_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+  (void)sig;
+  (void)ctl;
   fd_rpc_replay_during_frag( ctx, msg, sz );
 }
 
@@ -225,11 +242,35 @@ replay_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
 }
 
 static void
-stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, void const * msg, int sz) {
+stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+  (void)sig;
+  (void)ctl;
   fd_rpc_stake_during_frag( ctx, msg, sz );
 }
 
 static void
 stake_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
   fd_rpc_stake_after_frag( ctx );
+}
+
+static void
+repair_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+  (void)sig;
+  (void)ctl;
+  fd_rpc_repair_during_frag( ctx, msg, sz );
+}
+
+static void
+repair_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
+  fd_rpc_repair_after_frag( ctx );
+}
+
+static void
+tower_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+  fd_rpc_tower_during_frag( ctx, sig, ctl, msg, sz );
+}
+
+static void
+tower_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
+  fd_rpc_tower_after_frag( ctx );
 }

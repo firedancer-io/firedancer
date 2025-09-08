@@ -873,9 +873,10 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
+    fd_fec_resolver_spilled_t spilled_fec = { 0 };
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &out_merkle_root, &spilled_fec );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -912,6 +913,14 @@ after_frag( fd_shred_ctx_t *    ctx,
           default   : fanout =  200UL;
         }
       }
+    }
+
+    if( FD_UNLIKELY( spilled_fec.slot!=0 && spilled_fec.max_dshred_idx!=FD_SHRED_BLK_MAX ) ) {
+      /* We've spilled an in-progress FEC set in the fec_resolver. We
+         need to let repair know to clear out it's cached info for that
+         fec set and re-repair those shreds. */
+      ulong sig_ = fd_disco_shred_repair_shred_sig( 0, spilled_fec.slot, spilled_fec.fec_set_idx, 0, spilled_fec.max_dshred_idx );
+      fd_stem_publish( stem, ctx->repair_out_idx, sig_, ctx->repair_out_chunk, 0, 0, ctx->tsorig, ctx->tsorig );
     }
 
     if( (rv==FD_FEC_RESOLVER_SHRED_OKAY) | (rv==FD_FEC_RESOLVER_SHRED_COMPLETES) ) {
@@ -1059,7 +1068,16 @@ after_frag( fd_shred_ctx_t *    ctx,
          we don't know whether shred will finish inserting into store
          first or repair will finish validating the FEC set first. The
          header and merkle root of the last shred in the FEC set are
-         sent as part of this frag. */
+         sent as part of this frag.
+
+         This message, the shred msg, and the FEC evict msg constitute
+         the max 3 possible messages to repair per after_frag.  In
+         reality, it is only possible to publish all 3 in the case where
+         we receive a coding shred first for a FEC set where (N=1,K=18),
+         which allows for the FEC set to be instantly completed by the
+         singular coding shred, and that also happens to evict a FEC set
+         from the curr_map. When fix-32 arrives, the link burst value
+         can be lowered to 2. */
 
       ulong   sig   = fd_disco_shred_repair_fec_sig( last->slot, last->fec_set_idx, (uint)set->data_shred_cnt, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
       uchar * chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );

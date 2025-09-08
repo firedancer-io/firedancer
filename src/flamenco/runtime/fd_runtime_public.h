@@ -114,7 +114,12 @@ fd_exec_fseq_is_not_joined( ulong fseq ) {
 
 
 struct fd_runtime_public_txn_msg {
-  ulong      slot;
+  /* This is the message that is sent from the replay tile to the exec
+     tile. This represents all of the information that is needed to
+     identify and execute a transaction against a bank. An idx to the
+     bank in the bank pool must be sent over because the key of the bank
+     will change as FEC sets are processed. */
+  ulong      bank_idx;
   fd_txn_p_t txn;
 };
 typedef struct fd_runtime_public_txn_msg fd_runtime_public_txn_msg_t;
@@ -135,7 +140,6 @@ typedef struct fd_runtime_public_exec_writer_boot_msg fd_runtime_public_exec_wri
 FD_STATIC_ASSERT( sizeof(fd_runtime_public_exec_writer_boot_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
 
 struct fd_runtime_public_exec_writer_txn_msg {
-  uint  txn_id;
   uchar exec_tile_id;
 };
 typedef struct fd_runtime_public_exec_writer_txn_msg fd_runtime_public_exec_writer_txn_msg_t;
@@ -170,8 +174,7 @@ FD_STATIC_ASSERT( sizeof(fd_runtime_public_account_update_msg_t) == 124, account
 /* Message sent from writer tile to replay tile,
    notifying the replay tile that a txn has been finalized. */
 struct __attribute__((packed)) fd_runtime_public_writer_replay_txn_finalized {
-  uint txn_id;
-  int  exec_tile_id;
+  int exec_tile_id;
 };
 typedef struct fd_runtime_public_writer_replay_txn_finalized fd_runtime_public_writer_replay_txn_finalized_t;
 

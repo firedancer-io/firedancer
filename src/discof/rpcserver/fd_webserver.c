@@ -195,6 +195,9 @@ request( fd_http_server_request_t const * request ) {
       .upgrade_websocket = 0,
       .content_type      = ( ws->status_code == 200 ? "application/json" : "text/html" ),
       .access_control_allow_origin = "*",
+      .access_control_allow_methods = "POST, GET, OPTIONS",
+      .access_control_allow_headers = "*",
+      .access_control_max_age       = 86400,
     };
     if( FD_UNLIKELY( fd_http_server_stage_body( ws->server, &response ) ) ) {
       FD_LOG_WARNING(( "fd_http_server_stage_body failed" ));
@@ -203,6 +206,9 @@ request( fd_http_server_request_t const * request ) {
         .upgrade_websocket           = 0,
         .content_type                = "text/html",
         .access_control_allow_origin = "*",
+        .access_control_allow_methods = "POST, GET, OPTIONS",
+        .access_control_allow_headers = "*",
+        .access_control_max_age       = 86400,
       };
       return response;
     }

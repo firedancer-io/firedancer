@@ -127,7 +127,7 @@ quic_conn_final( fd_quic_conn_t * conn,
   }
 
   if( FD_UNLIKELY( clr_idx == ~0UL ) ) {
-    FD_LOG_CRIT(( "conn not found in entry" ));
+    FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
   }
 }
 
@@ -405,12 +405,11 @@ handle_contact_info_removal( fd_send_tile_ctx_t *                ctx FD_PARAM_UN
                               fd_gossip_update_message_t const * msg FD_PARAM_UNUSED ) {
   fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
   if( FD_LIKELY( entry ) ) {
-    /* clear entry */
     for( ulong i=0UL; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
       if( FD_UNLIKELY( entry->conn[i] ) ) fd_quic_conn_close( entry->conn[i], 0 );
+      entry->ip4s[i]  = 0;
+      entry->ports[i] = 0;
     }
-    /* clear entry */
-    *entry = (fd_send_conn_entry_t){.pubkey = entry->pubkey, .hash = entry->hash };
     ctx->metrics.ci_removed++;
   }
 }

@@ -2,6 +2,7 @@
 
 #define _GNU_SOURCE
 #include "fd_solfuzz.h"
+#include "../fd_bank.h"
 #include "../fd_runtime.h"
 #include <errno.h>
 #include <sys/mman.h>
@@ -100,7 +101,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  runner->bank = fd_banks_init_bank( runner->banks, 0UL );
+  fd_hash_t null = {0};
+  runner->bank = fd_banks_init_bank( runner->banks, &null );
   if( FD_UNLIKELY( !runner->bank ) ) {
     FD_LOG_WARNING(( "fd_banks_init_bank failed" ));
     goto bail2;

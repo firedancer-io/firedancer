@@ -190,7 +190,7 @@ fd_runtime_funk_txn_get( fd_funk_t * funk,
   fd_funk_txn_start_read( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
   if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
+    FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", slot ));
   }
   fd_funk_txn_end_read( funk );
   return funk_txn;
@@ -751,6 +751,17 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
+  /* Setup cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_cost_tracker_new(
+      fd_bank_cost_tracker_locking_modify( slot_ctx->bank ),
+      fd_bank_features_query( slot_ctx->bank ),
+      fd_bank_slot_get( slot_ctx->bank ),
+      999UL ) );
+  if( FD_UNLIKELY( !cost_tracker ) ) {
+    FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
+  }
+  fd_bank_cost_tracker_end_locking_modify( slot_ctx->bank );
+
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
@@ -833,7 +844,7 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t * slot_ctx ) {
    transaction sanitization checks. */
 
 int
-fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
+fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
 
   int err;
 
@@ -873,14 +884,14 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
      the compute budget instructions. */
   err = fd_executor_verify_transaction( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn->flags = 0U;
+    txn_ctx->flags = 0U;
     return err;
   }
 
   /* Resolve and verify ALUT-referenced account keys, if applicable */
   err = fd_executor_setup_txn_alut_account_keys( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn->flags = 0U;
+    txn_ctx->flags = 0U;
     return err;
   }
 
@@ -893,7 +904,7 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
   err = fd_executor_validate_account_locks( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn->flags = 0U;
+    txn_ctx->flags = 0U;
     return err;
   }
 
@@ -901,7 +912,7 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
   err = fd_executor_check_transactions( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn->flags = 0U;
+    txn_ctx->flags = 0U;
     return err;
   }
 
@@ -910,7 +921,7 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
   err = fd_executor_validate_transaction_fee_payer( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    txn->flags = 0U;
+    txn_ctx->flags = 0U;
     return err;
   }
 
@@ -920,7 +931,7 @@ fd_runtime_pre_execute_check( fd_txn_p_t * txn, fd_exec_txn_ctx_t * txn_ctx ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-    txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
+    txn_ctx->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
 
     /* If the transaction fails to load, the "rollback" accounts will include one of the following:
         1. Nonce account only
@@ -1217,33 +1228,43 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
   ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
   FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
 
+  /* Update the cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_bank_cost_tracker_locking_modify( bank ) );
+  int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+  if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
+    txn_ctx->flags = 0U;
+  }
+  fd_bank_cost_tracker_end_locking_modify( bank );
+
 }
 
 int
 fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
+                                    ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
                                     fd_spad_t *         exec_spad,
-                                    ulong               slot,
                                     fd_capture_ctx_t *  capture_ctx,
                                     uchar               do_sigverify ) {
   FD_SPAD_FRAME_BEGIN( exec_spad ) {
   int exec_res = 0;
+
+  fd_bank_t * bank = fd_banks_get_bank_idx( banks, bank_idx );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "Could not get bank at pool idx %lu", bank_idx ));
+  }
+
+  ulong slot = fd_bank_slot_get( bank );
 
   fd_funk_txn_t * funk_txn = fd_runtime_funk_txn_get( txn_ctx->funk, slot );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_CRIT(( "Could not get funk transaction for slot %lu", slot ));
   }
 
-  /* Get the bank for the given slot. */
-  fd_bank_t * bank = fd_banks_get_bank( banks, slot );
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "Could not get bank for slot %lu", slot ));
-  }
-
   /* Setup and execute the transaction. */
   txn_ctx->bank                  = bank;
   txn_ctx->slot                  = fd_bank_slot_get( bank );
+  txn_ctx->bank_idx              = bank_idx;
   txn_ctx->features              = fd_bank_features_get( bank );
   txn_ctx->status_cache          = NULL; // TODO: Make non-null once implemented
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
@@ -1256,7 +1277,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
     .txn_sz = (ushort)txn->payload_sz
   };
 
-  txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  txn_ctx->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, &raw_txn );
 
   /* Set up the core account keys. These are the account keys directly
@@ -1268,21 +1289,21 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   if( FD_LIKELY( do_sigverify ) ) {
     exec_res = fd_executor_txn_verify( txn_ctx );
     if( FD_UNLIKELY( exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      txn->flags = 0U;
+      txn_ctx->flags = 0U;
       return exec_res;
     }
   }
 
   /* Pre-execution checks */
-  exec_res = fd_runtime_pre_execute_check( txn, txn_ctx );
-  if( FD_UNLIKELY( !( txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+  exec_res = fd_runtime_pre_execute_check( txn_ctx );
+  if( FD_UNLIKELY( !( txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     return exec_res;
   }
 
   /* Execute the transaction. Note that fees-only transactions are still
      marked as "executed". */
-  txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  if( FD_LIKELY( !( txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) ) {
+  txn_ctx->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+  if( FD_LIKELY( !( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) ) {
     exec_res = fd_execute_txn( txn_ctx );
   }
 
@@ -2347,6 +2368,8 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
     bank_hash );
 
   fd_bank_lthash_end_locking_query( slot_ctx->bank );
+
+  fd_bank_done_executing_set( slot_ctx->bank, 1 );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
