@@ -1,4 +1,3 @@
-#include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -101,9 +100,9 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_ghost_t const * ghost,
                         ulong              slot,
                         fd_hash_t const  * block_id ) {
-  #if FD_TOWER_USE_HANDHOLDING
+# if FD_TOWER_USE_HANDHOLDING
   FD_TEST( !fd_tower_votes_empty( tower ) ); /* caller error */
-  #endif
+# endif
 
   /* Simulate a vote to pop off all the votes that have been expired at
      the top of the tower. */
@@ -176,9 +175,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
 
   */
 
-  #if FD_TOWER_USE_HANDHOLDING
+# if FD_TOWER_USE_HANDHOLDING
   FD_TEST( !fd_ghost_is_ancestor( ghost, fd_ghost_hash( ghost, vote->slot ), block_id ) );
-  #endif
+# endif
   fd_hash_t     const * vote_block_id = fd_ghost_hash( ghost, vote->slot );
   fd_ghost_hash_map_t const * maph    = fd_ghost_hash_map_const( ghost );
   fd_ghost_ele_t      const * pool    = fd_ghost_pool_const( ghost );
@@ -741,11 +740,6 @@ fd_tower_serialize( fd_tower_serde_t * ser,
 
   #undef SER
   #undef OFF
-
-  /* fill in signature and data_sz */
-
-  // FD_STORE( ulong, ser->data_sz, off - sizeof(ulong) /* data_sz */ - FD_ED25519_SIG_SZ /* signature */ - sizeof(uint) /* kind */ );
-  // fd_sha512_t sha[1]; fd_ed25519_sign( *ser->signature, (uchar *)ser->node_pubkey, *ser->data_sz, pubkey, pvtkey, sha );
 
   *buf_sz = off;
 
