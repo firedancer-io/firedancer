@@ -1567,7 +1567,7 @@ buffer_vote_towers( fd_replay_tile_ctx_t * ctx ) {
   ctx->vote_tower_out_idx = 0;
   ctx->vote_tower_out_len = 0;
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->slot_ctx->bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_prev_locking_query( ctx->slot_ctx->bank );
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
        !fd_vote_states_iter_done( iter );
@@ -1581,7 +1581,7 @@ buffer_vote_towers( fd_replay_tile_ctx_t * ctx ) {
         FD_LOG_ERR(( "failed to get vote state for vote account %s", FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
       }
   }
-  fd_bank_vote_states_end_locking_query( ctx->slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_query( ctx->slot_ctx->bank );
 }
 
 static void
