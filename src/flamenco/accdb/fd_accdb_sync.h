@@ -189,7 +189,7 @@ FD_PROTOTYPES_BEGIN
    - FD_ACCDB_ERR_DISK_FULL:  database persistent storage full (FIXME is this return value possible?)
    - FD_ACCDB_ERR_CACHE_FULL: cache full, tried to evict to no avail */
 
-void
+int
 fd_accdb_write( fd_accdb_client_t *     client,
                 fd_accdb_meta_t const * meta,
                 void const *            data,

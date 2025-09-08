@@ -185,19 +185,10 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 static int
 fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
                    fd_pubkey_t const  * pubkey ) {
-
-
-  fd_funk_t *     funk = slot_ctx->funk;
-  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
-  FD_TXN_ACCOUNT_DECL( rec );
-
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, txn );
-  if( !!err ) {
-    return 0;
+  FD_ACCDB_READ_BEGIN( slot_ctx->accdb, pubkey, rec ) {
+    return 0==memcmp( fd_accdb_ref_owner( rec ), &fd_solana_bpf_loader_upgradeable_program_id, 32 );
   }
-
-  fd_pubkey_t const * owner = fd_txn_account_get_owner( rec );
-  return memcmp( owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_solana_bpf_loader_upgradeable_program_id) )==0;
+  FD_ACCDB_READ_END;
 }
 
 
@@ -213,36 +204,17 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           fd_pubkey_t const    pubkey,
                           char const *         data,
                           ulong                sz ) {
-
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
-  FD_TXN_ACCOUNT_DECL( rec );
-  fd_funk_rec_prepare_t prepare = {0};
-
-  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz, &prepare );
-  FD_TEST( !err );
-
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash(
-    &pubkey,
-    fd_txn_account_get_meta( rec ),
-    fd_txn_account_get_data( rec ),
-    prev_hash );
-
-  fd_txn_account_set_data( rec, data, sz );
-  fd_txn_account_set_lamports( rec, 1UL );
-  fd_txn_account_set_rent_epoch( rec, 0UL );
-  fd_txn_account_set_executable( rec, 1 );
-  fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
-
-  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
-
-  fd_bank_capitalization_set( slot_ctx->bank, fd_bank_capitalization_get( slot_ctx->bank ) + 1UL );
-
-  // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
-  FD_TEST( !err );
+  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, pubkey, rec, sz ) {
+    fd_txn_account_set_data( rec, data, sz );
+    fd_txn_account_set_lamports( rec, 1UL );
+    fd_txn_account_set_rent_epoch( rec, 0UL );
+    fd_txn_account_set_executable( rec, 1 );
+    fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
+  }
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "Failed to write builtin account: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+  }
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
@@ -256,34 +228,24 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
-  fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
-  FD_TXN_ACCOUNT_DECL( rec );
-
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
   static uchar const data[] = {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data), &prepare );
-  FD_TEST( !err );
-
-  fd_txn_account_set_lamports( rec, 1000000000UL );
-  fd_txn_account_set_rent_epoch( rec, 1UL );
-  fd_txn_account_set_executable( rec, 0 );
-  fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
-  fd_txn_account_set_data( rec, data, sizeof(data) );
-
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
-
-  FD_TEST( !err );
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, fd_solana_spl_native_mint_id, rec ) {
+    fd_accdb_refmut_set_lamports( rec, 1000000000UL );
+    fd_accdb_refmut_set_rent_epoch( rec, 1UL );
+    fd_accdb_refmut_set_executable( rec, 0 );
+    fd_accdb_refmut_set_owner( rec, &fd_solana_spl_token_id );
+    fd_accdb_refmut_data_copy( rec, data, sizeof(data) );
+  }
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
 }
 
 // <rant> Why are these not in the genesis block themselves?! the hackery to deal with subtle solana variants
-//        because of the "special knowledge" required for these accounts is counter productive... </rant>
+//        because of the "special knowledge" erequired for these accounts is counter productive... </rant>
 
 void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/builtins/src/lib.rs#L52 */

@@ -43,10 +43,6 @@ stake_activating_and_deactivating( fd_delegation_t const * delegation,
                                    fd_stake_history_t *    stake_history,
                                    ulong *                 new_rate_activation_epoch );
 
-int
-write_stake_state( fd_txn_account_t *    stake_acc_rec,
-                   fd_stake_state_v2_t * stake_state );
-
 void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *           slot_ctx,
                           fd_stake_delegations_t const * stake_delegations,

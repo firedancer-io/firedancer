@@ -116,21 +116,6 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
 FD_FN_CONST char const *
 fd_acc_mgr_strerror( int err );
 
-/* FD_RUNTIME_ACCOUNT_UPDATE_{BEGIN,END} are convenience methods for
-   doing slot boundary account updates (e.g. sysvars).  These update
-   the account set hash (lthash) and lamport capitalization
-   automatically. */
-
-#define FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, address, handle ) \
-  __extension__({ \
-    fd_accdb_refmut_t handle[1]; \
-    do
-
-#define FD_RUNTIME_ACCOUNT_UDPATE_END \
-    while(0); \
-    0; \
-  })
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_acc_mgr_h */

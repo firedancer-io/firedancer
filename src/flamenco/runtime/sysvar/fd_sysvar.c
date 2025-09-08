@@ -22,12 +22,6 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   memcpy( meta.pubkey, address, 32 );
   memcpy( meta.owner,  &fd_sysvar_owner_id, 32 );
 
-  FD_TXN_ACCOUNT_DECL( rec );
-  fd_funk_rec_prepare_t prepare = {0};
-  fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->funk_txn, 1, sz, &prepare );
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( address, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
   ulong const slot            = fd_bank_slot_get( slot_ctx->bank );
   ulong const lamports_before = fd_txn_account_get_lamports( rec );
   ulong const lamports_after  = fd_ulong_max( lamports_before, min_bal );
@@ -35,6 +29,8 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   fd_txn_account_set_owner   ( rec, &fd_sysvar_owner_id );
   fd_txn_account_set_slot    ( rec, slot                );
   fd_txn_account_set_data    ( rec, data, sz );
+
+  fd_runtime_account_write( ... );
 
   ulong lamports_minted;
   if( FD_UNLIKELY( __builtin_usubl_overflow( lamports_after, lamports_before, &lamports_minted ) ) ) {
@@ -51,9 +47,6 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   } else {
     __builtin_unreachable();
   }
-
-  fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
 
   FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu slot=%lu lamports=%lu lamports_minted=%lu",
                  FD_BASE58_ENC_32_ALLOCA( address ), sz, slot, lamports_after, lamports_minted ));

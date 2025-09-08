@@ -1000,13 +1000,15 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
            Now figure out the state that the nonce account should
            advance to.
          */
-        fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-            txn_ctx->funk,
-            txn_ctx->funk_txn,
-            &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
-            NULL,
-            &err,
-            NULL );
+        void const * nonce_account = &txn_ctx->account_keys[ instr_accts[ 0UL ] ];
+        fd_accdb_meta_t nonce_meta;
+        int err = fd_accdb_read_meta( client, nonce_account, &nonce_meta );
+        if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
+          if( FD_UNLIKELY( err!=FD_ACCDB_ERR_KEY ) ) {
+            FD_LOG_WARNING(( "Failed to query nonce account: database error (%i-%s)", err, fd_accdb_strerror( err ) ));
+          }
+          return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+        }
         ulong acc_data_len = meta->dlen;
 
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {

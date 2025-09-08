@@ -1694,84 +1694,39 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
      stateless, we want to create the account. Otherwise, we want a
      writable handle to modify the existing account.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L246-L249 */
-  FD_TXN_ACCOUNT_DECL( new_target_program_account );
-  fd_funk_rec_prepare_t new_target_program_prepare = {0};
-  err = fd_txn_account_init_from_funk_mutable(
-      new_target_program_account,
-      builtin_program_id,
-      slot_ctx->funk,
-      slot_ctx->funk_txn,
-      stateless,
-      SIZE_OF_PROGRAM,
-      &new_target_program_prepare );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "Builtin program ID %s does not exist", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
-    goto fail;
-  }
-  fd_lthash_value_t prev_new_target_program_account_hash[1];
-  fd_hashes_account_lthash(
-    builtin_program_id,
-    fd_txn_account_get_meta( new_target_program_account ),
-    fd_txn_account_get_data( new_target_program_account ),
-    prev_new_target_program_account_hash );
-  fd_txn_account_set_data_len( new_target_program_account, SIZE_OF_PROGRAM );
-  fd_txn_account_set_slot( new_target_program_account, fd_bank_slot_get( slot_ctx->bank ) );
+  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, builtin_program_id, rec, SIZE_OF_PROGRAM ) {
+    fd_txn_account_set_data_len( new_target_program_account, SIZE_OF_PROGRAM );
+    fd_txn_account_set_slot( new_target_program_account, fd_bank_slot_get( slot_ctx->bank ) );
 
-  /* Create a new target program account. This modifies the existing record. */
-  err = fd_new_target_program_account( slot_ctx, target_program_data_address, new_target_program_account );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "Failed to write new program state to %s", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
-    goto fail;
+    /* Create a new target program account. This modifies the existing record. */
+    err = fd_new_target_program_account( slot_ctx, target_program_data_address, new_target_program_account );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Failed to write new program state to %s", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
+      goto fail;
+    }
   }
-
-  fd_hashes_update_lthash(
-    new_target_program_account,
-    prev_new_target_program_account_hash,
-    slot_ctx->bank,
-    slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( new_target_program_account, slot_ctx->funk, slot_ctx->funk_txn, &new_target_program_prepare );
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
+  /* FIXME handle db_err */
 
   /* Create a new target program data account. */
-  ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + fd_txn_account_get_data_len( source_buffer_account );
-  FD_TXN_ACCOUNT_DECL( new_target_program_data_account );
-  fd_funk_rec_prepare_t new_target_program_data_prepare = {0};
-  err = fd_txn_account_init_from_funk_mutable(
-      new_target_program_data_account,
-      target_program_data_address,
-      slot_ctx->funk,
-      slot_ctx->funk_txn,
-      1,
-      new_target_program_data_account_sz,
-      &new_target_program_data_prepare );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
-    goto fail;
-  }
-  fd_lthash_value_t prev_new_target_program_data_account_hash[1];
-  fd_hashes_account_lthash(
-    target_program_data_address,
-    fd_txn_account_get_meta( new_target_program_data_account ),
-    fd_txn_account_get_data( new_target_program_data_account ),
-    prev_new_target_program_data_account_hash );
-  fd_txn_account_set_data_len( new_target_program_data_account, new_target_program_data_account_sz );
-  fd_txn_account_set_slot( new_target_program_data_account, fd_bank_slot_get( slot_ctx->bank ) );
+  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, target_program_data_address, rec, new_target_program_data_account_sz ) {
+    ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + fd_txn_account_get_data_len( source_buffer_account );
+    FD_TXN_ACCOUNT_DECL( new_target_program_data_account );
+    fd_txn_account_set_data_len( new_target_program_data_account, new_target_program_data_account_sz );
+    fd_txn_account_set_slot( new_target_program_data_account, fd_bank_slot_get( slot_ctx->bank ) );
 
-  err = fd_new_target_program_data_account( slot_ctx,
-                                            upgrade_authority_address,
-                                            source_buffer_account,
-                                            new_target_program_data_account,
-                                            runtime_spad );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "Failed to write new program data state to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
-    goto fail;
+    err = fd_new_target_program_data_account( slot_ctx,
+                                              upgrade_authority_address,
+                                              source_buffer_account,
+                                              new_target_program_data_account,
+                                              runtime_spad );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "Failed to write new program data state to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
+      goto fail;
+    }
   }
-
-  fd_hashes_update_lthash(
-    new_target_program_data_account,
-    prev_new_target_program_data_account_hash,
-    slot_ctx->bank,
-    slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( new_target_program_data_account, slot_ctx->funk, slot_ctx->funk_txn, &new_target_program_data_prepare );
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
+  /* FIXME handle db_err */
 
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
@@ -1875,72 +1830,42 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t *   slot_ctx,
 }
 
 static void
-fd_feature_activate( fd_features_t *         features,
-                     fd_exec_slot_ctx_t *    slot_ctx,
+fd_feature_activate( fd_exec_slot_ctx_t *    slot_ctx,
                      fd_feature_id_t const * id,
-                     uchar const             acct[ static 32 ],
-                     fd_spad_t *             runtime_spad ) {
+                     uchar const             acct[ static 32 ] ) {
 
   // Skip reverted features from being activated
   if( id->reverted==1 ) {
     return;
   }
 
-  FD_TXN_ACCOUNT_DECL( acct_rec );
-  int err = fd_txn_account_init_from_funk_readonly( acct_rec, (fd_pubkey_t*)acct, slot_ctx->funk, slot_ctx->funk_txn );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    return;
-  }
+  FD_BASE58_ENCODE_32_BYTES( acct, acct_b58 );
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, acct, rec, 9UL ) {
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  int decode_err = 0;
-  fd_feature_t * feature = fd_bincode_decode_spad(
-      feature, runtime_spad,
-      fd_txn_account_get_data( acct_rec ),
-      fd_txn_account_get_data_len( acct_rec ),
-      &decode_err );
-  if( FD_UNLIKELY( decode_err ) ) {
-    FD_LOG_WARNING(( "Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
-    return;
-  }
-
-  if( feature->has_activated_at ) {
-    FD_LOG_DEBUG(( "feature already activated - acc: %s, slot: %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
-    fd_features_set( features, id, feature->activated_at);
-  } else {
-    FD_LOG_DEBUG(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
-
-    FD_TXN_ACCOUNT_DECL( modify_acct_rec );
-    fd_funk_rec_prepare_t modify_acct_prepare = {0};
-    err = fd_txn_account_init_from_funk_mutable( modify_acct_rec, (fd_pubkey_t *)acct, slot_ctx->funk, slot_ctx->funk_txn, 0, 0UL, &modify_acct_prepare );
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+    fd_feature_t feature_[1];
+    fd_feature_t * feature = fd_bincode_decode_static(
+        feature, feature_,
+        fd_accdb_refmut_data( acct_rec ),
+        fd_accdb_refmut_data_sz( acct_rec ),
+        NULL );
+    if( FD_UNLIKELY( !feature ) ) {
+      FD_LOG_WARNING(( "Failed to decode feature account %s", acct_b58 ));
       return;
     }
 
-    fd_lthash_value_t prev_hash[1];
-    fd_hashes_account_lthash(
-      fd_type_pun_const( acct ),
-      fd_txn_account_get_meta( modify_acct_rec ),
-      fd_txn_account_get_data( modify_acct_rec ),
-      prev_hash );
-
-    feature->has_activated_at = 1;
-    feature->activated_at     = fd_bank_slot_get( slot_ctx->bank );
-    fd_bincode_encode_ctx_t encode_ctx = {
-      .data    = fd_txn_account_get_data_mut( modify_acct_rec ),
-      .dataend = fd_txn_account_get_data_mut( modify_acct_rec ) + fd_txn_account_get_data_len( modify_acct_rec ),
-    };
-    int encode_err = fd_feature_encode( feature, &encode_ctx );
-    if( FD_UNLIKELY( encode_err != FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "Failed to encode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
+    if( feature->has_activated_at ) {
+      FD_LOG_DEBUG(( "Feature %s already activated at slot=%lu", acct_b58, feature->activated_at ));
+    } else {
+      FD_LOG_DEBUG(( "Feature %s not activated, activating at slot=%lu", acct_b58, feature->activated_at ));
+      uchar buf[ 9 ];
+      buf[ 0 ] = 1;
+      FD_STORE( ulong, buf+1, fd_bank_slot_get( slot_ctx->bank ) );
+      fd_accdb_refmut_data_copy( rec, buf, 9UL );
     }
 
-    fd_hashes_update_lthash( modify_acct_rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-    fd_txn_account_mutable_fini( modify_acct_rec, slot_ctx->funk, slot_ctx->funk_txn, &modify_acct_prepare );
   }
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
 
-  } FD_SPAD_FRAME_END;
 }
 
 static void
@@ -2446,31 +2371,20 @@ fd_runtime_init_accounts_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
 
-    fd_funk_rec_prepare_t prepare = {0};
-
-    FD_TXN_ACCOUNT_DECL( rec );
-    int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                    &a->key,
-                                                    slot_ctx->funk,
-                                                    slot_ctx->funk_txn,
-                                                    1, /* do_create */
-                                                    a->account.data_len,
-                                                    &prepare );
-
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
-    }
-
-    fd_txn_account_set_data( rec, a->account.data, a->account.data_len );
+    fd_accdb_meta_t meta = {0};
     fd_txn_account_set_lamports( rec, a->account.lamports );
     fd_txn_account_set_rent_epoch( rec, a->account.rent_epoch );
     fd_txn_account_set_executable( rec, a->account.executable );
     fd_txn_account_set_owner( rec, &a->account.owner );
+
+    int db_err = fd_accdb_write( slot_ctx->accdb, &meta, a->account.data, a->account.data_len );
+    if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+      FD_LOG_ERR(( "Failed to create genesis account: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+    }
+
+    /* FIXME capitalization update? */
     fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-    fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
   }
-
-
 }
 
 
