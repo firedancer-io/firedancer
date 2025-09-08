@@ -925,8 +925,8 @@ publish( fd_replay_tile_ctx_t * ctx ) {
       fd_store_publish( ctx->store, &block_id->block_id );
     } FD_STORE_EXCLUSIVE_LOCK_END;
 
-    fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max(exacq_end - exacq_start, 0) );
-    fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max(exrel_end - exacq_end,   0) );
+    fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max( exacq_end - exacq_start, 0UL ) );
+    fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end - exacq_end,   0UL ) );
 
     block_id_map_remove( ctx->block_id_map, block_id );
   }
