@@ -586,51 +586,52 @@ credits_for_vote_at_index( fd_vote_state_t * self, ulong index ) {
   return credits;
 }
 
-// https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L639
+/* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L282-L309 */
 static void
 increment_credits( fd_vote_state_t * self, ulong epoch, ulong credits ) {
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L643
+  /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L305 */
   if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_empty( self->epoch_credits ) ) ) {
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L644
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L286-L288 */
     deq_fd_vote_epoch_credits_t_push_tail_wrap(
         self->epoch_credits,
         ( fd_vote_epoch_credits_t ){ .epoch = epoch, .credits = 0, .prev_credits = 0 } );
   } else if( FD_LIKELY( epoch !=
                         deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->epoch ) ) {
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L290 */
     fd_vote_epoch_credits_t * last = deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits );
 
     ulong credits      = last->credits;
     ulong prev_credits = last->prev_credits;
 
-    if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_empty( self->epoch_credits ) )  ) {
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L644 */
-      deq_fd_vote_epoch_credits_t_push_tail(
-          self->epoch_credits,
-          ( fd_vote_epoch_credits_t ){
-              .epoch = epoch, .credits = 0, .prev_credits = 0 } );
-
-    } else if( FD_LIKELY( epoch!=last->epoch ) ) {
-      /* Although Agave performs a `.remove(0)` AFTER the call to `.push()`, there is an edge case
-         where the epoch credits is full, making the call to `_push_tail()` unsafe. Since Agave's
-         structures are dynamically allocated, it is safe for them to simply call `.push()`
-         and then popping afterwards. We have to reverse the order of operations to maintain
-         correct behavior and avoid overflowing the deque.
-         https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L658 */
+    /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L292-L299 */
+    if( FD_LIKELY( credits!=prev_credits ) ) {
       if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( self->epoch_credits )>=MAX_EPOCH_CREDITS_HISTORY ) ) {
+        /* Although Agave performs a `.remove(0)` AFTER the call to
+          `.push()`, there is an edge case where the epoch credits is
+          full, making the call to `_push_tail()` unsafe. Since Agave's
+          structures are dynamically allocated, it is safe for them to
+          simply call `.push()` and then popping afterwards. We have to
+          reverse the order of operations to maintain correct behavior
+          and avoid overflowing the deque.
+          https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L303 */
         deq_fd_vote_epoch_credits_t_pop_head( self->epoch_credits );
       }
 
-      if( FD_LIKELY( credits!=prev_credits ) ) {
-        /* This will not fail because we already popped if we're at capacity,
-           since the epoch_credits deque is allocated with a minimum
-           capacity of MAX_EPOCH_CREDITS_HISTORY. */
-        deq_fd_vote_epoch_credits_t_push_tail(
-            self->epoch_credits,
-            ( fd_vote_epoch_credits_t ){
-                .epoch = epoch, .credits = credits, .prev_credits = credits } );
-      } else {
-        // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L654
-        deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->epoch = epoch;
+      /* This will not fail because we already popped if we're at
+         capacity, since the epoch_credits deque is allocated with a
+         minimum capacity of MAX_EPOCH_CREDITS_HISTORY. */
+      deq_fd_vote_epoch_credits_t_push_tail(
+          self->epoch_credits,
+          ( fd_vote_epoch_credits_t ){
+              .epoch = epoch, .credits = credits, .prev_credits = credits } );
+    } else {
+      /* https://github.com/anza-xyz/solana-sdk/blob/vote-interface%40v3.0.0/vote-interface/src/state/vote_state_v3.rs#L297-L298 */
+      deq_fd_vote_epoch_credits_t_peek_tail( self->epoch_credits )->epoch = epoch;
+
+      /* Here we can perform the same deque size check and pop if
+         we're beyond the maximum epoch credits len. */
+      if( FD_UNLIKELY( deq_fd_vote_epoch_credits_t_cnt( self->epoch_credits )>MAX_EPOCH_CREDITS_HISTORY ) ) {
+        deq_fd_vote_epoch_credits_t_pop_head( self->epoch_credits );
       }
     }
   }
