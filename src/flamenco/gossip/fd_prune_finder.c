@@ -104,9 +104,9 @@ typedef struct fd_prune_relayer fd_prune_relayer_t;
 #include "../../util/tmpl/fd_treap.c"
 struct fd_prune_origin {
   fd_pubkey_t identity_pubkey;
+  ulong       stake;
 
   ulong num_upserts;
-  ulong stake;
 
   struct {
     fd_prune_relayer_t * pool;
@@ -115,7 +115,9 @@ struct fd_prune_origin {
     relayer_treap_t *    treap;
   } relayers;
 
-  ulong pool_next;
+  struct {
+    ulong next;
+  } pool;
 
   struct {
     ulong next;
@@ -131,7 +133,7 @@ struct fd_prune_origin {
 typedef struct fd_prune_origin fd_prune_origin_t;
 
 #define POOL_NAME origin_pool
-#define POOL_NEXT pool_next
+#define POOL_NEXT pool.next
 #define POOL_T    fd_prune_origin_t
 #include "../../util/tmpl/fd_pool.c"
 
@@ -309,6 +311,17 @@ fd_prune_finder_metrics( fd_prune_finder_t const * pf ) {
 }
 
 static inline void
+reset_origin_state( fd_prune_origin_t * origin ) {
+  while( !relayer_lru_is_empty( origin->relayers.lru, origin->relayers.pool ) ) {
+    fd_prune_relayer_t * r = relayer_lru_ele_pop_head( origin->relayers.lru, origin->relayers.pool );
+    relayer_map_ele_remove( origin->relayers.map, &r->identity_pubkey, NULL, origin->relayers.pool );
+    relayer_treap_ele_remove( origin->relayers.treap, r, origin->relayers.pool );
+    relayer_pool_ele_release( origin->relayers.pool, r );
+  }
+  origin->num_upserts = 0UL;
+}
+
+static inline void
 update_relayer_score( fd_prune_origin_t *         origin,
                       fd_prune_finder_metrics_t * metrics,
                       uchar const *               relayer,
@@ -362,12 +375,14 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
                         ulong               relayer_stake,
                         ulong               num_dups  ) {
   fd_prune_origin_t * origin = origin_map_ele_query( pf->origins, fd_type_pun_const( origin_pubkey ), NULL, pf->pool );
+  pf->metrics->prune_record_insertions_cnt++;
 
   if( FD_UNLIKELY( !origin ) ) {
     if( FD_LIKELY( origin_pool_free( pf->pool ) ) ) {
       origin = origin_pool_ele_acquire( pf->pool );
     } else {
       origin = origin_lru_list_ele_pop_head( pf->lru, pf->pool );
+      reset_origin_state( origin );
       origin_map_ele_remove( pf->origins, &origin->identity_pubkey, NULL, pf->pool );
       pf->metrics->origin_evicted_cnt++;
     }
@@ -378,7 +393,7 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
     origin_lru_list_ele_push_tail( pf->lru, origin, pf->pool );
   } else {
     /* Move to back of the LRU list */
-    origin_lru_list_ele_remove( pf->lru, origin, pf->pool );
+    origin_lru_list_ele_remove   ( pf->lru, origin, pf->pool );
     origin_lru_list_ele_push_tail( pf->lru, origin, pf->pool );
   }
 
@@ -387,6 +402,48 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
   update_relayer_score( origin, pf->metrics, relayer_pubkey, relayer_stake, num_dups );
 }
 
+/* Akin to ReceivedCacheEntry::prune */
+static inline void
+prune_origin( fd_prune_finder_t * pf,
+              fd_prune_origin_t * origin,
+              ulong               my_stake ) {
+  if( FD_LIKELY( relayer_pool_used( origin->relayers.pool )<=PRUNE_MIN_INGRESS_NODES ) ) return;
+
+  /* TODO: the use of minimum aggregate ingress stake threshold is quite weird to me, discuss with Michael/Greg
+      https://github.com/solana-labs/solana/issues/3214#issuecomment-475211810 */
+  ulong min_ingress_stake = (ulong)(PRUNE_STAKE_THRESHOLD_PCT*(double)fd_ulong_min( my_stake, origin->stake ));
+
+  relayer_treap_rev_iter_t it = relayer_treap_rev_iter_init( origin->relayers.treap, origin->relayers.pool );
+  pf->metrics->prune_record_traversals_cnt++;
+
+  /* Skip first PRUNE_MIN_INGRESS_NODES for threshold checks */
+  for( ulong skip=0; skip<PRUNE_MIN_INGRESS_NODES && !relayer_treap_rev_iter_done( it ); skip++ ) it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
+
+  /* Skip until min_ingress_stake threshold is exceeded */
+  ulong cumulative_stake = 0UL;
+  while( !relayer_treap_rev_iter_done( it ) ) {
+    fd_prune_relayer_t const * r = relayer_treap_rev_iter_ele_const( it, origin->relayers.pool );
+    cumulative_stake += r->score[0].stake;
+    if( FD_LIKELY( cumulative_stake>min_ingress_stake ) ) break;
+    it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
+  }
+  while( !relayer_treap_rev_iter_done( it ) ) {
+    fd_prune_relayer_t const * r = relayer_treap_rev_iter_ele_const( it, origin->relayers.pool );
+
+    fd_prune_finder_prune_t * p = prunes_map_ele_query( pf->prunes.map, &r->identity_pubkey, NULL, pf->prunes.pool );
+    if( FD_UNLIKELY( !p ) ) {
+      p = prunes_pool_ele( pf->prunes.pool, pf->prunes.count );
+      fd_memcpy( p->relayer_pubkey.uc, r->identity_pubkey.uc, 32UL );
+      p->prune_len = 0UL;
+      prunes_map_ele_insert( pf->prunes.map, p, pf->prunes.pool );
+      pf->prunes.count++;
+    }
+    FD_TEST( p->prune_len<FD_GOSSIP_MSG_MAX_CRDS );
+    fd_memcpy( p->prunes[ p->prune_len ].uc, origin->identity_pubkey.uc, 32UL );
+    p->prune_len++;
+    it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
+  }
+}
 
 void
 fd_prune_finder_get_prunes( fd_prune_finder_t *         pf,
@@ -410,41 +467,8 @@ fd_prune_finder_get_prunes( fd_prune_finder_t *         pf,
 
     /* Akin to ReceivedCache::prune */
     if( FD_LIKELY( origin->num_upserts<PRUNE_MIN_UPSERTS ) ) continue;
-    if( FD_LIKELY( relayer_pool_used( origin->relayers.pool )<=PRUNE_MIN_INGRESS_NODES ) ) continue;
-
-    /* TODO: the use of minimum aggregate ingress stake threshold is quite weird to me, discuss with Michael/Greg
-       https://github.com/solana-labs/solana/issues/3214#issuecomment-475211810 */
-    ulong min_ingress_stake = (ulong)(PRUNE_STAKE_THRESHOLD_PCT*(double)fd_ulong_min( my_stake, origin->stake ));
-
-    relayer_treap_rev_iter_t it = relayer_treap_rev_iter_init( origin->relayers.treap, origin->relayers.pool );
-
-    /* Skip first PRUNE_MIN_INGRESS_NODES for threshold checks */
-    for( ulong skip=0; skip<PRUNE_MIN_INGRESS_NODES && !relayer_treap_rev_iter_done( it ); skip++ ) it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
-
-    ulong cumulative_stake = 0UL;
-    while( !relayer_treap_rev_iter_done( it ) ) {
-      fd_prune_relayer_t const * r = relayer_treap_rev_iter_ele_const( it, origin->relayers.pool );
-      cumulative_stake += r->score[0].stake;
-      if( FD_LIKELY( cumulative_stake>min_ingress_stake ) ) break;
-      it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
-    }
-
-    while( !relayer_treap_rev_iter_done( it ) ) {
-      fd_prune_relayer_t const * r = relayer_treap_rev_iter_ele_const( it, origin->relayers.pool );
-
-      fd_prune_finder_prune_t * p = prunes_map_ele_query( pf->prunes.map, &r->identity_pubkey, NULL, pf->prunes.pool );
-      if( FD_UNLIKELY( !p ) ) {
-        p = prunes_pool_ele( pf->prunes.pool, pf->prunes.count );
-        fd_memcpy( p->relayer_pubkey.uc, r->identity_pubkey.uc, 32UL );
-        p->prune_len = 0UL;
-        prunes_map_ele_insert( pf->prunes.map, p, pf->prunes.pool );
-        pf->prunes.count++;
-      }
-      FD_TEST( p->prune_len<FD_GOSSIP_MSG_MAX_CRDS );
-      fd_memcpy( p->prunes[ p->prune_len ].uc, origin->identity_pubkey.uc, 32UL );
-      p->prune_len++;
-      it = relayer_treap_rev_iter_next( it, origin->relayers.pool );
-    }
+    prune_origin( pf, origin, my_stake );
+    reset_origin_state( origin );
   }
   *out_prunes = prunes_pool_ele( pf->prunes.pool, 0UL );
   *out_prunes_len = pf->prunes.count;

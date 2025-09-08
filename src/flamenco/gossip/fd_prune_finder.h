@@ -71,6 +71,9 @@ typedef struct fd_prune_finder_prune fd_prune_finder_prune_t;
 struct fd_prune_finder_metrics {
    ulong origin_evicted_cnt;
    ulong origin_relayer_evicted_cnt;
+
+   ulong prune_record_insertions_cnt;
+   ulong prune_record_traversals_cnt;
 };
 typedef struct fd_prune_finder_metrics fd_prune_finder_metrics_t;
 
@@ -107,7 +110,10 @@ fd_prune_finder_metrics( fd_prune_finder_t const * pf );
 
    If the message is the 20th recorded for a given originator, the
    finder will prune any peers relaying that origin which have not been
-   performing well, and reset the record counter to zero. */
+   performing well, and reset the record counter to zero.
+
+   NOTE: for a fixed CRDS value, each call to this function must
+   have a unique num_dups value. */
 
 void
 fd_prune_finder_record( fd_prune_finder_t * pf,
@@ -124,9 +130,10 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
    origins holds a unique list of pubkeys which should be considered
    for pruning. All origins must have been recorded with
    fd_prune_finder_record at least once since the last call to
-   fd_prune_finder_get_prunes. Since the maximum number of unique origins that can be
-   encountered during a single rx_push loop is bounded by
-   FD_GOSSIP_MSG_MAX_CRDS, origins_len should not exceed that.
+   fd_prune_finder_get_prunes. Since the maximum number of unique
+   origins that can be encountered during a single rx_push loop is
+   bounded by FD_GOSSIP_MSG_MAX_CRDS, origins_len should not exceed
+   that.
 
    Origins that appear in any out_prunes entry will have their prune
    finder state reset. Therefore all prune messages must be
