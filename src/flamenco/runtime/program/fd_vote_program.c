@@ -356,7 +356,7 @@ landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
   uchar * deque_mem = fd_spad_alloc( spad,
                                      deq_fd_landed_vote_t_align(),
                                      deq_fd_landed_vote_t_footprint( cnt ) );
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, deq_fd_landed_vote_t_footprint( cnt ) ) );
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, cnt ) );
 
   for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
        !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
