@@ -206,7 +206,13 @@ setup_snapshots( config_t *       config,
   tile->snaprd.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
   tile->snaprd.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
   tile->snaprd.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+  tile->snaprd.entrypoints_enabled               = config->firedancer.snapshots.sources.entrypoints.enabled;
+  tile->snaprd.gossip_peers_enabled              = config->firedancer.snapshots.sources.gossip.enabled;
   resolve_snapshot_peers( config, tile );
+
+  tile->snaprd.gossip_entrypoints_cnt = config->gossip.entrypoints_cnt;
+  fd_memcpy( tile->snaprd.gossip_entrypoints, config->gossip.resolved_entrypoints, tile->snaprd.gossip_entrypoints_cnt * sizeof(fd_ip4_port_t) );
+
   /* TODO: set up known validators and known validators cnt */
 }
 
@@ -316,8 +322,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snap_stream" );
     fd_topob_wksp( topo, "snap_zstd" );
     fd_topob_wksp( topo, "snap_out" );
+    fd_topob_wksp( topo, "snap_signal" );
   }
-  fd_topob_wksp( topo, "replay_manif" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -393,16 +399,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL   );
   if( FD_LIKELY( !disable_snap_loader ) ) {
   /**/                 fd_topob_link( topo, "snap_zstd",    "snap_zstd",    8192UL,                                   16384UL,                       1UL );
+  /**/                 fd_topob_link( topo, "snap_signal",  "snap_signal",  128UL,                                    1UL,                           1UL )->permit_no_consumers = 1; /* TODO: plumb into repair */
   /**/                 fd_topob_link( topo, "snap_stream",  "snap_stream",  2048UL,                                   USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
   /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
   /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
   }
-
-  /* Replay decoded manifest dcache topo obj */
-  fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-  fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-  fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
 
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
@@ -549,9 +551,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( NULL!=snapin_tile ) ) {
     fd_topob_tile_uses( topo, snapin_tile, funk_obj,               FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
-  fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
   /* There's another special fseq that's used to communicate the shred
     version from the Agave boot path to the shred tile. */
@@ -724,6 +724,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snaprd", 0UL, "snap_signal", 0UL );
 
     fd_topob_tile_in ( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );

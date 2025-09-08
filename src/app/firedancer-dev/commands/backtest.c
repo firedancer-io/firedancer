@@ -129,11 +129,13 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapdc_rd" );
     fd_topob_wksp( topo, "snapin_rd" );
     fd_topob_wksp( topo, "snap_out" );
-    fd_topob_wksp( topo, "replay_manif" );
+    fd_topob_wksp( topo, "snap_signal" );
     /* TODO: Should be depth of 1 or 2, not 4, but it causes backpressure
       from the replay tile parsing the manifest, remove when this is
       fixed. */
     fd_topob_link( topo, "snap_out", "snap_out", 4UL, sizeof(fd_snapshot_manifest_t), 1UL );
+    fd_topo_link_t * snap_signal_link = fd_topob_link( topo, "snap_signal", "snap_signal", 128UL, 1UL, 1UL );
+    snap_signal_link->permit_no_consumers = 1; /* TODO: plumb into repair */
 
     fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,  1UL );
     fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
@@ -146,6 +148,7 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in",   "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_out( topo, "snapin", 0UL, "snap_out",  0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in",   "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snaprd", 0UL, "snap_signal", 0UL );
 
     fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
@@ -289,14 +292,7 @@ backtest_topo( config_t * config ) {
   }
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    /* Replay decoded manifest dcache topo obj */
-    fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-    fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-    fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
-
     fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

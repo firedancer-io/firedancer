@@ -28,6 +28,7 @@ struct fd_snapin_tile {
   long boot_timestamp;
 
   fd_funk_t       funk[1];
+  fd_funk_txn_t * root_funk_txn;
   fd_funk_txn_t * funk_txn;
   uchar *         acc_data;
 
@@ -217,8 +218,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
       ctx->full = 0;
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
-      if( FD_UNLIKELY( !ctx->funk_txn ) ) fd_funk_txn_cancel_root( ctx->funk );
-      else                                fd_funk_txn_cancel( ctx->funk, ctx->funk_txn, 0 );
+      fd_funk_txn_cancel( ctx->funk, ctx->funk_txn, 0 );
+      fd_funk_txn_xid_t xid = fd_funk_generate_xid();
+      ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->root_funk_txn, &xid, 0 );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
@@ -231,8 +233,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
 
-      fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
-      ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
+      fd_funk_txn_xid_t incr_xid = fd_funk_generate_xid();
+      ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->root_funk_txn, &incr_xid, 0 );
       ctx->full     = 0;
       ctx->state    = FD_SNAPIN_STATE_LOADING;
       break;
@@ -311,7 +313,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->boot_timestamp = fd_log_wallclock();
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  ctx->funk_txn = fd_funk_txn_query( fd_funk_root( ctx->funk ), ctx->funk->txn_map );
+  ctx->root_funk_txn = fd_funk_txn_query( fd_funk_root( ctx->funk ), ctx->funk->txn_map );
+  ctx->funk_txn      = ctx->root_funk_txn;
 
   ctx->ssparse = fd_snapshot_parser_new( _ssparse, ctx, ctx->seed, 1UL<<24UL, manifest_cb, account_cb, account_data_cb );
 

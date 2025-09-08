@@ -59,12 +59,17 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "snap_zstd" );
   fd_topob_link( topo, "snap_zstd", "snap_zstd", 8192UL, 16384, 1UL );
 
+  fd_topob_wksp( topo, "snap_signal" );
+  fd_topo_link_t * snap_signal_link = fd_topob_link( topo, "snap_signal", "snap_signal", 128UL, 1UL, 1UL );
+  snap_signal_link->permit_no_consumers = 1;
+
   /* Uncompressed data stream */
   fd_topob_wksp( topo, "snap_stream" );
   fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
 
   /* snaprd tile -> compressed stream */
-  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
+  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd",   0UL );
+  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_signal", 0UL );
 
   /* compressed stream -> snapdc tile */
   fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
