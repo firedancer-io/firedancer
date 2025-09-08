@@ -391,7 +391,9 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
   fd_ghost_ele_t const * vote_ele = fd_ghost_query_const( ghost, hash );
   ulong slot = vote_ele->slot;
 
-  FD_LOG_DEBUG(( "[%s] voter: %s slot_hash: (%s, %lu) last: %lu", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), FD_BASE58_ENC_32_ALLOCA(hash), slot, vote.slot ));
+# if FD_GHOST_USE_LOGGING
+  FD_LOG_NOTICE(( "[%s] voter: %s slot_hash: (%s, %lu) last: %lu", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), FD_BASE58_ENC_32_ALLOCA(hash), slot, vote.slot ));
+# endif
 
   /* Short-circuit if the vote slot is older than the root. */
 
@@ -425,7 +427,9 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
 
   fd_ghost_ele_t * prev = fd_ghost_query( ghost, &vote.hash );
   if( FD_LIKELY( prev && vote.slot != FD_SLOT_NULL ) ) { /* no previous vote or pruned */
-    FD_LOG_DEBUG(( "[%s] subtracting (%s, %lu, %lu, %s)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, vote.slot, FD_BASE58_ENC_32_ALLOCA( &vote.hash ) ));
+#   if FD_GHOST_USE_LOGGING
+    FD_LOG_NOTICE(( "[%s] subtracting (%s, %lu, %lu, %s)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, vote.slot, FD_BASE58_ENC_32_ALLOCA( &vote.hash ) ));
+#   endif
     int cf = __builtin_usubl_overflow( prev->replay_stake, voter->stake, &prev->replay_stake );
     if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. prev->replay_stake %lu voter->stake %lu", __func__, prev->replay_stake, voter->stake ));
     fd_ghost_ele_t * ancestor = prev;
@@ -445,7 +449,9 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
   fd_ghost_ele_t * curr = fd_ghost_query( ghost, hash );
   if( FD_UNLIKELY( !curr ) ) FD_LOG_CRIT(( "corrupt ghost" ));
 
-  FD_LOG_DEBUG(( "[%s] adding (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, slot ));
+# if FD_GHOST_USE_LOGGING
+  FD_LOG_NOTICE(( "[%s] adding (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, slot ));
+# endif
   int cf = __builtin_uaddl_overflow( curr->replay_stake, voter->stake, &curr->replay_stake );
   if( FD_UNLIKELY( cf ) ) FD_LOG_ERR(( "[%s] add overflow. ele->stake %lu latest_vote->stake %lu", __func__, curr->replay_stake, voter->stake ));
   fd_ghost_ele_t * ancestor = curr;
@@ -469,7 +475,9 @@ void
 fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root ) {
   VER_INC;
 
-  FD_LOG_DEBUG(( "[%s] root %lu, pubkey %s, stake %lu", __func__, root, FD_BASE58_ENC_32_ALLOCA(&voter->key), voter->stake ));
+# if FD_GHOST_USE_LOGGING
+  FD_LOG_NOTICE(( "[%s] voter: (pubkey: %s stake: %lu) root: %lu", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), voter->stake, root ));
+# endif
 
   /* It is invariant that the voter's root is found in ghost (as long as
      voter's root >= our root ). This is because voter's root is sourced
@@ -558,7 +566,12 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
   fd_ghost_ele_t const * curr = fd_ghost_query_const( ghost, hash );
   fd_ghost_ele_t const * anc  = fd_ghost_query_const( ghost, ancestor );
 
-  if( FD_UNLIKELY( !anc ) ) { FD_LOG_DEBUG(( "[%s] ancestor %s missing", __func__, FD_BASE58_ENC_32_ALLOCA(ancestor) )); return 0; }
+  if( FD_UNLIKELY( !anc ) ) {
+#   if FD_GHOST_USE_LOGGING
+    FD_LOG_NOTICE(( "[%s] ancestor %s missing", __func__, FD_BASE58_ENC_32_ALLOCA(ancestor) ));
+#   endif
+    return 0;
+  }
 
 # if FD_GHOST_USE_HANDHOLDING
   if( FD_UNLIKELY( anc->slot < root->slot ) ) { FD_LOG_WARNING(( "[%s] ancestor %lu too old. root %lu.", __func__, anc->slot, root->slot )); return 0; }

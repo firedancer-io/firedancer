@@ -196,7 +196,9 @@ fd_tower_switch_check( fd_tower_t const * tower,
   }
 
   double switch_pct = (double)switch_stake / (double)epoch->total_stake;
-  FD_LOG_DEBUG(( "[%s] ok? %d. top: %lu. switch: %lu. switch stake: %.0lf%%.", __func__, switch_pct > SWITCH_PCT, fd_tower_votes_peek_tail_const( tower )->slot, slot, switch_pct * 100.0 ));
+# if FD_TOWER_USE_LOGGING
+  FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. switch: %lu. switch stake: %.0lf%%.", __func__, switch_pct > SWITCH_PCT, fd_tower_votes_peek_tail_const( tower )->slot, slot, switch_pct * 100.0 ));
+# endif
   return switch_pct > SWITCH_PCT;
 }
 
@@ -344,6 +346,9 @@ fd_tower_vote_slot( fd_tower_t *          tower,
   }
   fd_hash_t const * vote_block_id = fd_ghost_hash( ghost, vote->slot );
   if( FD_UNLIKELY( !fd_ghost_is_ancestor( ghost, &root->key, vote_block_id ) ) ) {
+#   if FD_TOWER_USE_LOGGING
+    FD_LOG_NOTICE(( "[%s] pass. return: %lu. last: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
+#   endif
     return head->slot;
   }
 
@@ -356,10 +361,14 @@ fd_tower_vote_slot( fd_tower_t *          tower,
        can vote fork it as long as we pass the threshold check. */
 
     if( FD_LIKELY( head->slot > vote->slot && fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, scratch ) ) ) {
-      FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
+#     if FD_TOWER_USE_LOGGING
+      FD_LOG_NOTICE(( "[%s] pass. return: %lu. last: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
+#     endif
       return head->slot;
     }
-    FD_LOG_DEBUG(( "[%s] failure (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
+#   if FD_TOWER_USE_LOGGING
+    FD_LOG_NOTICE(( "[%s] fail. return: %lu. last: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
+#   endif
     return FD_SLOT_NULL; /* can't vote. need to wait for threshold check. */
   }
 
@@ -377,7 +386,9 @@ fd_tower_vote_slot( fd_tower_t *          tower,
 
 ulong
 fd_tower_vote( fd_tower_t * tower, ulong slot ) {
-  FD_LOG_DEBUG(( "[%s] voting for slot %lu", __func__, slot ));
+# if FD_TOWER_USE_LOGGING
+  FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
+# endif
 
   #if FD_TOWER_USE_HANDHOLDING
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );

@@ -425,10 +425,17 @@
 #include "../../disco/pack/fd_microblock.h"
 
 /* FD_TOWER_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
+   to turn on additional runtime checks. */
 
 #ifndef FD_TOWER_USE_HANDHOLDING
 #define FD_TOWER_USE_HANDHOLDING 1
+#endif
+
+/* FD_TOWER_USE_LOGGING:  Define this to non-zero at compile time to
+   turn on additional logging. */
+
+#ifndef FD_TOWER_USE_LOGGING
+#define FD_TOWER_USE_LOGGING 0
 #endif
 
 #define FD_TOWER_VOTE_MAX (31UL)

@@ -117,10 +117,17 @@
 #include "../../tango/fseq/fd_fseq.h"
 
 /* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
+   to turn on additional runtime checks. */
 
 #ifndef FD_GHOST_USE_HANDHOLDING
 #define FD_GHOST_USE_HANDHOLDING 1
+#endif
+
+/* FD_GHOST_USE_LOGGING:  Define this to non-zero at compile time to
+   turn on additional logging. */
+
+#ifndef FD_GHOST_USE_LOGGING
+#define FD_GHOST_USE_LOGGING 0
 #endif
 
 /* fd_ghost_ele_t implements a left-child, right-sibling n-ary tree.
