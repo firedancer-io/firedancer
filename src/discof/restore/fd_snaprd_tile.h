@@ -12,19 +12,22 @@
    it goes through the process of discovering and selecting elegible
    peers from gossip to download from. */
 
-#define FD_SNAPRD_STATE_WAITING_FOR_PEERS         ( 0) /* Waiting for first peer to arrive from gossip to download from */
-#define FD_SNAPRD_STATE_COLLECTING_PEERS          ( 1) /* First peer arrived, wait a little longer to see if a better one arrives */
-#define FD_SNAPRD_STATE_READING_FULL_FILE         ( 2) /* Full file looks better than peer, reading it from disk */
-#define FD_SNAPRD_STATE_FLUSHING_FULL_FILE        ( 3) /* Full file was read ok, confirm it decompressed and inserted ok */
-#define FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET  ( 4) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
-#define FD_SNAPRD_STATE_READING_FULL_HTTP         ( 5) /* Peer was selected, reading full snapshot from HTTP */
-#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP        ( 6) /* Full snapshot was downloaded ok, confirm it decompressed and inserted ok */
-#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET  ( 7) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
-#define FD_SNAPRD_STATE_READING_INCREMENTAL_FILE  ( 8) /* Incremental file looks better than peer, reading it from disk */
-#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE ( 9) /* Incremental file was read ok, confirm it decompressed and inserted ok */
-#define FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP  (10) /* Peer was selected, reading incremental snapshot from HTTP */
-#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP (11) /* Incremental snapshot was downloaded ok, confirm it decompressed and inserted ok */
-#define FD_SNAPRD_STATE_SHUTDOWN                  (12) /* The tile is done, and has likely already exited */
+#define FD_SNAPRD_STATE_WAITING_FOR_PEERS               ( 0) /* Waiting for first peer to arrive from gossip to download from */
+#define FD_SNAPRD_STATE_WAITING_FOR_PEERS_INCREMENTAL   ( 1) /* Waiting for peers when attempting to download an incremental snapshot */
+#define FD_SNAPRD_STATE_COLLECTING_PEERS                ( 2) /* First peer arrived, wait a little longer to see if a better one arrives */
+#define FD_SNAPRD_STATE_COLLECTING_PEERS_INCREMENTAL    ( 3) /* Collecting peers to download an incremental snapshot */
+#define FD_SNAPRD_STATE_READING_FULL_FILE               ( 4) /* Full file looks better than peer, reading it from disk */
+#define FD_SNAPRD_STATE_FLUSHING_FULL_FILE              ( 5) /* Full file was read ok, confirm it decompressed and inserted ok */
+#define FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET        ( 6) /* Resetting to load full snapshot from file again, confirm decompress and inserter are reset too */
+#define FD_SNAPRD_STATE_READING_INCREMENTAL_FILE        ( 7) /* Incremental file looks better than peer, reading it from disk */
+#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE       ( 8) /* Incremental file was read ok, confirm it decompressed and inserted ok */
+#define FD_SNAPRD_STATE_READING_FULL_HTTP               ( 9) /* Peer was selected, reading full snapshot from HTTP */
+#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP              (10) /* Full snapshot was downloaded ok, confirm it decompressed and inserted ok */
+#define FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET        (11) /* Resetting to load full snapshot from HTTP again, confirm decompress and inserter are reset too */
+#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP_RESET (12) /* Resetting to load incremental snapshot from HTTP again, confirm decompress and inserter are reset too */
+#define FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP        (13) /* Peer was selected, reading incremental snapshot from HTTP */
+#define FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP       (14) /* Incremental snapshot was downloaded ok, confirm it decompressed and inserted ok */
+#define FD_SNAPRD_STATE_SHUTDOWN                        (15) /* The tile is done, and has likely already exited */
 
 static inline const char *
 fd_snaprd_state_str( ulong state ) {
