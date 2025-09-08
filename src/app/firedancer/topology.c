@@ -181,6 +181,9 @@ setup_snapshots( config_t *       config,
   tile->snaprd.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
   tile->snaprd.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
   tile->snaprd.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+
+  tile->snaprd.gossip_entrypoints_cnt = config->gossip.entrypoints_cnt;
+  fd_memcpy( tile->snaprd.gossip_entrypoints, config->gossip.resolved_entrypoints, tile->snaprd.gossip_entrypoints_cnt * sizeof(fd_ip4_port_t) );
   /* TODO: set up known validators and known validators cnt */
 }
 
