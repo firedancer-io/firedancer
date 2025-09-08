@@ -410,12 +410,14 @@ fd_funk_txn_cancel_root( fd_funk_t * funk ) {
   fd_funk_rec_map_t * rec_map = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+  fd_funk_rec_map_iter_t iter_next;
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
         fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
         !fd_funk_rec_map_iter_done( iter );
-        iter = fd_funk_rec_map_iter_next( iter )
+        iter = iter_next
     ) {
+      iter_next = fd_funk_rec_map_iter_next( iter );
       for (;;) {
         fd_funk_rec_map_query_t rec_query[1];
         int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( iter.ele ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
@@ -428,7 +430,6 @@ fd_funk_txn_cancel_root( fd_funk_t * funk ) {
       }
     }
   }
-
   return 0UL;
 }
 
