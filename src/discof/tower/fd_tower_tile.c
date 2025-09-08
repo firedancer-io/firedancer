@@ -35,14 +35,16 @@ typedef struct {
 } in_ctx_t;
 
 typedef struct {
-  fd_pubkey_t       identity_key[1];
-  fd_pubkey_t       vote_acc    [1];
-  char              checkpt_path[PATH_MAX];
-  char              restore_path[PATH_MAX];
-  int               checkpt_fd;
-  int               restore_fd;
-  uchar             buf[BUF_MAX]; /* buffer for checkpointing and restoring towers */
-  ulong             buf_sz;
+  fd_pubkey_t          identity_key[1];
+  fd_pubkey_t          vote_acc[1];
+  fd_keyguard_client_t keyguard_client[1];
+
+  char  checkpt_path[PATH_MAX];
+  char  restore_path[PATH_MAX];
+  int   checkpt_fd;
+  int   restore_fd;
+  uchar buf[BUF_MAX]; /* buffer for checkpointing and restoring towers */
+  ulong buf_sz;
 
   fd_funk_rec_key_t funk_key;
   ulong             seed;
@@ -395,10 +397,10 @@ privileged_init( fd_topo_t *      topo,
   tower_path( tile->tower.ledger_path, strlen( tile->tower.ledger_path ), base58_pubkey, base58_pubkey_len, "bin",     sizeof("bin") - 1,     ctx->restore_path );
 
   ctx->checkpt_fd = open( ctx->checkpt_path, O_WRONLY | O_CREAT | O_TRUNC, 0600 );
-  if( FD_UNLIKELY( ctx->checkpt_fd==-1 ) ) FD_LOG_ERR(( "failed to open %s: %s", ctx->checkpt_path, strerror( errno ) ));
+  if( FD_UNLIKELY( ctx->checkpt_fd==-1 ) ) FD_LOG_WARNING(( "failed to open %s: %s", ctx->checkpt_path, strerror( errno ) ));
 
   ctx->restore_fd = open( ctx->restore_path, O_RDONLY );
-  if( FD_UNLIKELY( ctx->restore_fd==-1 ) ) FD_LOG_ERR(( "failed to open %s: %s", ctx->restore_path, strerror( errno ) ));
+  if( FD_UNLIKELY( ctx->restore_fd==-1 ) ) FD_LOG_WARNING(( "failed to open %s: %s", ctx->restore_path, strerror( errno ) ));
 }
 
 static void
