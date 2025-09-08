@@ -6,7 +6,7 @@ so Firedancer can run correctly. It does the following:
 
 * **hugetlbfs** Reserves huge and gigantic pages for use by Firedancer.
 * **sysctl** Sets required kernel parameters.
-* **hyperthreads** Disables hyperthreaded pair for critical CPU cores.
+* **hyperthreads** Checks hyperthreaded pair for critical CPU cores.
 * **ethtool-channels** Configures the number of channels on the network
 device.
 * **ethtool-gro** Disable generic-receive-offload (GRO) on the network
@@ -17,7 +17,7 @@ device.
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
 `ethtool-channels` and `ethtool-gro` to reconfigure the networking
-device, and `hyperthreads` to configure CPU cores.
+device.
 
 The configure command is run like `fdctl configure <mode> <stage>...`
 where `mode` is one of:
@@ -124,29 +124,21 @@ blocks, Firedancer expects them to get a dedicated core. This means on
 machines with a hyperthreaded CPU, the hyperthreaded pair of these tiles
 should be switched to offline.
 
-This stage looks to see if the CPU is hyperthreaded, and will switch the
-pair of these tiles to `offline`. All other CPU cores, if `offline` will
-be switched back to `online`.
+This stage looks to see if the CPU is hyperthreaded, and will print a
+warning for the operator if the pair of these tiles are used or online.
 
-The specific command run by the stage is toggling values in
-`/sys/devices/system/cpu/cpu<id>/online` between `0` and `1`. We can run
-the command with a typical auto layout to see:
+A typical warning on a hyperthreaded system with `auto` layout looks
+like this:
 
 <<< @/snippets/hyperthreads.ansi
 
 When using the `auto` layout, Firedancer will ensure no other tiles are
 assigned to run on the hyperthread pairs, but if using a manual layout,
-it is possible to assign another tile to the pair, in which case
-configuration will succeed without turning the pair off.
+it is possible to assign another tile to the pair.
 
-The stage only needs to be run once after boot but before running
-Firedancer. It has no dependencies on any other stage, although it is
-dependent on the topology specified in your configuration.
-
-Changing CPUs to offline or online requires root privileges, and cannot
-be performed with capabilities.
-
-The `fini` mode will switch all CPUs back to online.
+This stage has no dependencies on any other stage, but it is dependent
+on the topology specified in your configuration. It is recommended that
+you turn off the CPUs specified in the warning for optimal performance.
 
 ## ethtool-channels
 In addition to XDP, Firedancer uses receive side scaling (RSS) to
