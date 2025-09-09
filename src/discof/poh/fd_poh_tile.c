@@ -608,7 +608,6 @@ static poh_link_t stake_out;
 static poh_link_t crds_shred;
 static poh_link_t replay_resolv;
 
-static poh_link_t replay_plugin;
 static poh_link_t gossip_plugin;
 static poh_link_t start_progress_plugin;
 static poh_link_t vote_listener_plugin;
@@ -2113,20 +2112,6 @@ fd_ext_poh_publish_cluster_info( uchar * data,
 }
 
 void
-fd_ext_plugin_publish_replay_stage( ulong   sig,
-                                    uchar * data,
-                                    ulong   data_len ) {
-  poh_link_publish( &replay_plugin, sig, data, data_len );
-}
-
-void
-fd_ext_plugin_publish_genesis_hash( ulong   sig,
-                                    uchar * data,
-                                    ulong   data_len ) {
-  poh_link_publish( &replay_plugin, sig, data, data_len );
-}
-
-void
 fd_ext_plugin_publish_start_progress( ulong   sig,
                                       uchar * data,
                                       ulong   data_len ) {
@@ -2251,7 +2236,6 @@ unprivileged_init( fd_topo_t *      topo,
 #endif
 
   if( FD_LIKELY( tile->poh.plugins_enabled ) ) {
-    poh_link_init( &replay_plugin,         topo, tile, out1( topo, tile, "replay_plugi" ).idx );
     poh_link_init( &gossip_plugin,         topo, tile, out1( topo, tile, "gossip_plugi" ).idx );
     poh_link_init( &start_progress_plugin, topo, tile, out1( topo, tile, "startp_plugi" ).idx );
     poh_link_init( &vote_listener_plugin,  topo, tile, out1( topo, tile, "votel_plugin" ).idx );
@@ -2261,7 +2245,6 @@ unprivileged_init( fd_topo_t *      topo,
        memory is not set so nothing will actually get published via.
        the links. */
     FD_COMPILER_MFENCE();
-    replay_plugin.mcache = (fd_frag_meta_t*)1;
     gossip_plugin.mcache = (fd_frag_meta_t*)1;
     start_progress_plugin.mcache = (fd_frag_meta_t*)1;
     vote_listener_plugin.mcache = (fd_frag_meta_t*)1;
