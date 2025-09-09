@@ -1122,7 +1122,7 @@ fd_banks_publish_prepare( fd_banks_t * banks,
   return advanced_publishable_block;
 }
 
-void
+fd_bank_t *
 fd_banks_rekey_bank( fd_banks_t *      banks,
                      fd_hash_t const * old_block_id,
                      fd_hash_t const * new_block_id ) {
@@ -1141,6 +1141,8 @@ fd_banks_rekey_bank( fd_banks_t *      banks,
   fd_banks_map_ele_insert( bank_map, bank, bank_pool );
 
   fd_rwlock_unwrite( &banks->rwlock );
+
+  return bank;
 }
 
 void

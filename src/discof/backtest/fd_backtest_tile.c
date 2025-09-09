@@ -27,8 +27,10 @@ typedef struct {
 
   /* Metadata */
 
-  ulong root;
-  ulong staged_root;
+  ulong     root;
+  ulong     staged_root;
+  fd_hash_t staged_root_block_id;
+
   ulong start_slot;
   ulong end_slot;
   long  replay_time;
@@ -64,7 +66,6 @@ typedef struct {
   fd_store_t *           store;
   fd_shred_t const *     curr;
   fd_shred_t const *     prev;
-  fd_hash_t              prev_mr;
 
   /* Links */
 
@@ -273,14 +274,8 @@ after_credit( ctx_t *             ctx,
      chain) so link the merkle roots to the previous one. */
 
   fd_store_exacq ( ctx->store );
-  fd_store_link( ctx->store, &mr, &ctx->prev_mr );
+  fd_store_link( ctx->store, &mr, &cmr );
   fd_store_exrel( ctx->store );
-
-  /* Instead of using the shred->chained_mr, there's a known issue where
-  the cluster can converge on bad chained merkle roots across slots.  So
-  we just track the previous mr ourselves vs. relying on chained mr. */
-
-  ctx->prev_mr = mr;
 
   fd_reasm_fec_t out = {
     .key           = mr,
@@ -379,13 +374,14 @@ after_frag( ctx_t *             ctx,
       /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
 
       fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-      msg->new_root = 1;
-      msg->root_slot = ctx->staged_root;
-      fd_memset( &msg->root_block_id, 0, sizeof(fd_hash_t) ); /* TODO ... should we set this? */
+      msg->new_root      = 1;
+      msg->root_slot     = ctx->staged_root;
+      msg->root_block_id = ctx->staged_root_block_id;
 
       if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
-      ctx->staged_root = slot;
+      ctx->staged_root          = slot;
+      ctx->staged_root_block_id = ctx->replay_slot_info.block_id;
       ctx->credit = 1;
     }
     break;
@@ -453,7 +449,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->store );
   ctx->curr    = NULL;
   ctx->prev    = NULL;
-  ctx->prev_mr = (fd_hash_t){0};
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
