@@ -142,7 +142,7 @@ sol_compat_instr_execute_v1( uchar *       out,
                              uchar const * in,
                              ulong         in_sz ) {
   fd_exec_test_instr_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_instr_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_instr_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   int ok = 0;
@@ -164,7 +164,7 @@ sol_compat_txn_execute_v1( uchar *       out,
                            uchar const * in,
                            ulong         in_sz ) {
   fd_exec_test_txn_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_txn_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_txn_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   int ok = 0;
@@ -186,7 +186,7 @@ sol_compat_block_execute_v1( uchar *       out,
                              uchar const * in,
                              ulong         in_sz ) {
   fd_exec_test_block_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_block_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_block_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
@@ -230,7 +230,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
                                   uchar const * in,
                                   ulong         in_sz ) {
   fd_exec_test_syscall_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
@@ -252,7 +252,7 @@ sol_compat_vm_interp_v1( uchar *       out,
                          uchar const * in,
                          ulong         in_sz ) {
   fd_exec_test_syscall_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_syscall_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
@@ -274,7 +274,7 @@ sol_compat_shred_parse_v1( uchar *       out,
                            uchar const * in,
                            ulong         in_sz ) {
     fd_exec_test_shred_binary_t input[1] = {0};
-    void                      * res      = sol_compat_decode( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
+    void                      * res      = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
     if( FD_UNLIKELY( res==NULL ) ) {
         return 0;
     }
@@ -296,7 +296,7 @@ sol_compat_type_execute_v1( uchar *       out,
   // Setup
   // Decode context
   fd_exec_test_type_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_type_context_t_msg );
+  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_type_context_t_msg );
   if( FD_UNLIKELY( !res ) ) return 0;
 
   fd_spad_push( runner->spad );
