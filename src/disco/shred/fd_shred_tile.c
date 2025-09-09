@@ -915,7 +915,8 @@ after_frag( fd_shred_ctx_t *    ctx,
       }
     }
 
-    if( FD_UNLIKELY( spilled_fec.slot!=0 && spilled_fec.max_dshred_idx!=FD_SHRED_BLK_MAX ) ) {
+    if( FD_UNLIKELY( ctx->repair_out_idx!=ULONG_MAX &&  /* Only send to repair in full Firedancer */
+                     spilled_fec.slot!=0 && spilled_fec.max_dshred_idx!=FD_SHRED_BLK_MAX ) ) {
       /* We've spilled an in-progress FEC set in the fec_resolver. We
          need to let repair know to clear out it's cached info for that
          fec set and re-repair those shreds. */
