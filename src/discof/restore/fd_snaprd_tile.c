@@ -398,7 +398,7 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
     }
     case FD_SNAPRD_STATE_READING_FULL_HTTP: {
       double progress = 0.0;
-      if( FD_LIKELY( ctx->metrics.incremental.bytes_total ) ) progress = 100.0 * (double)ctx->metrics.full.bytes_read / (double)ctx->metrics.full.bytes_total;
+      if( FD_LIKELY( ctx->metrics.full.bytes_total ) ) progress = 100.0 * (double)ctx->metrics.full.bytes_read / (double)ctx->metrics.full.bytes_total;
       FD_LOG_NOTICE(( "%.1f %% ... downloading full snapshot from peer", progress ));
       break;
     }
