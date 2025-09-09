@@ -2,7 +2,7 @@
 #include "fd_sysvar.h"
 #include "fd_sysvar_rent.h"
 #include "../fd_system_ids.h"
-#include "../fd_txn_account.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../../../funk/fd_funk_txn.h"
 
 /* FIXME These constants should be header defines */
@@ -83,27 +83,25 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int
 fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
-  /* Set current_slot, and update next_slot */
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
+  fd_slot_history_global_t * history = NULL;
+  int db_err = FD_ACCDB_READ_BEGIN( slot_ctx->accdb, &fd_sysvar_slot_history_id, rec ) {
 
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->funk, slot_ctx->funk_txn );
-  if (err)
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = fd_accdb_ref_data_const( rec ),
+      .dataend = fd_accdb_ref_data_const( rec ) + fd_accdb_ref_data_sz( rec )
+    };
 
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data( rec ),
-    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
-  };
+    ulong total_sz = 0UL;
+    int err = fd_slot_history_decode_footprint( &ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_CRIT(( "fd_slot_history_decode_footprint failed %d", err ));
+    }
 
-  ulong total_sz = 0UL;
-  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_CRIT(( "fd_slot_history_decode_footprint failed %d", err ));
+    void * mem = fd_alloca( FD_SLOT_HISTORY_ALIGN, total_sz );
+    history = fd_slot_history_decode_global( mem, &ctx );
   }
-
-  uchar mem[ total_sz ];
-  fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
+  FD_ACCDB_READ_END;
+  if( db_err ) FD_LOG_ERR(( "Failed to read slot history sysvar" ));
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
   fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
@@ -115,45 +113,17 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_funk_t *     funk,
-                             fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad ) {
-
-  /* Set current_slot, and update next_slot */
-
-  fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
-
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, funk_txn );
-  if( err ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
+fd_sysvar_slot_history_read( fd_accdb_client_t * accdb,
+                             fd_spad_t *         spad ) {
+  FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_slot_history_id, rec ) {
+    return fd_bincode_decode_spad_global(
+        slot_history, spad,
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
+        NULL );
   }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0UL ) ) {
-    return NULL;
-  }
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data( rec ),
-    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
-  };
-
-  ulong total_sz = 0UL;
-  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
-  if( err ) {
-    FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_slot_history_align(), total_sz );
-  if( !mem ) {
-    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
-  }
-
-  return fd_slot_history_decode_global( mem, &ctx );
+  FD_ACCDB_READ_END;
+  return NULL;
 }
 
 int

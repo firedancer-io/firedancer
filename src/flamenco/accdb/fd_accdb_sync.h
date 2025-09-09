@@ -5,6 +5,7 @@
    account database. */
 
 #include "fd_accdb_client.h"
+#include "fd_accdb_ref.h"
 #include "../../funk/fd_funk.h"
 #include "../../util/valloc/fd_valloc.h"
 
@@ -90,15 +91,6 @@ FD_PROTOTYPES_END
      ... process the account data ...
      fd_accdb_release( client, ref ); */
 
-/* fd_accdb_ref_t is an ephemeral counted reference to an account in
-   the database cache. */
-
-struct fd_accdb_ref {
-  fd_funk_rec_t const * rec;
-};
-
-typedef struct fd_accdb_ref fd_accdb_ref_t;
-
 /* fd_accdb_borrow does a zero-copy read.  Queries the account database
    for the given address.  If an account was found, fills *ref.
    The underlying account is guaranteed to stay in cache for as long the
@@ -118,13 +110,13 @@ typedef struct fd_accdb_ref fd_accdb_ref_t;
    - FD_ACCDB_ERR_CACHE_FULL: cache heap is full, cannot fill cache */
 
 int
-fd_accdb_borrow( fd_accdb_client_t * client,
-                 fd_accdb_ref_t *    ref,
-                 void const *        address );
+fd_accdb_read_open( fd_accdb_client_t * client,
+                    fd_accdb_ro_t *     ro,
+                    void const *        address );
 
 void
-fd_accdb_release( fd_accdb_client_t * client,
-                  fd_accdb_ref_t *    ref );
+fd_accdb_read_close( fd_accdb_client_t * client,
+                     fd_accdb_ro_t *     ro );
 
 /* Speculative non-blocking zero-copy read API ************************/
 
@@ -201,12 +193,6 @@ FD_PROTOTYPES_END
    this API appear atomic to other clients (invisible until publish is
    called). */
 
-struct fd_accdb_refmut {
-  fd_funk_rec_t * rec;
-};
-
-typedef struct fd_accdb_refmut fd_accdb_refmut_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_accdb_write_prepare prepares an account write.  On success,
@@ -219,7 +205,7 @@ FD_PROTOTYPES_BEGIN
 
 int
 fd_accdb_write_prepare( fd_accdb_client_t * client,
-                        fd_accdb_refmut_t * refmut,
+                        fd_accdb_rw_t *     rw,
                         void const *        address,
                         ulong               data_sz );
 
@@ -233,7 +219,7 @@ fd_accdb_write_prepare( fd_accdb_client_t * client,
 
 int
 fd_accdb_modify_prepare( fd_accdb_client_t * client,
-                         fd_accdb_refmut_t * refmut,
+                         fd_accdb_rw_t *     rw,
                          void const *        address,
                          ulong               data_min );
 
@@ -243,7 +229,7 @@ fd_accdb_modify_prepare( fd_accdb_client_t * client,
 
 void
 fd_accdb_write_cancel( fd_accdb_client_t * client,
-                       fd_accdb_refmut_t * write );
+                       fd_accdb_rw_t *     rw );
 
 /* fd_accdb_write_publish publishes a previously prepared account write.
 
@@ -254,7 +240,7 @@ fd_accdb_write_cancel( fd_accdb_client_t * client,
 
 int
 fd_accdb_write_publish( fd_accdb_client_t * client,
-                        fd_accdb_refmut_t * write ); /* destroyed */
+                        fd_accdb_rw_t *     write ); /* destroyed */
 
 /* fd_accdb_write_publish_demote is like fd_accdb_write_publish, but
    atomically creates a accdb_borrow read-only handle to the just
@@ -262,7 +248,7 @@ fd_accdb_write_publish( fd_accdb_client_t * client,
 
 int
 fd_accdb_write_publish_demote( fd_accdb_client_t * client,
-                               fd_accdb_refmut_t * refmut,   /* destroyed */
+                               fd_accdb_rw_t *     refmut,   /* destroyed */
                                fd_accdb_ref_t *    borrow ); /* created */
 
 /* fd_accdb_write_data_copy copies account data bytes from the provided
@@ -283,27 +269,27 @@ fd_accdb_cache_fill( fd_accdb_client_t * client,
 
 /* Syntax sugar for accessors *****************************************/
 
-struct fd_accdb_borrow_guard {
+struct fd_accdb_ro_guard {
   fd_accdb_client_t * client_;
-  fd_accdb_ref_t *    handle_;
+  fd_accdb_ro_t *     handle_;
 };
-typedef struct fd_accdb_borrow_guard fd_accdb_borrow_guard_t;
+typedef struct fd_accdb_ro_guard fd_accdb_ro_guard_t;
 
 FD_FN_UNUSED static void
-fd_accdb_borrow_guard_cleanup( fd_accdb_borrow_guard_t * guard ) {
-  fd_accdb_release( guard->client_, guard->handle_ );
+fd_accdb_ro_guard_cleanup( fd_accdb_ro_guard_t * guard ) {
+  fd_accdb_read_close( guard->client_, guard->handle_ );
 }
 
-#define FD_ACCDB_READ_BEGIN( accdb, address, handle )           \
-  __extension__({                                               \
-    fd_accdb_ref_t      handle[1];                              \
-    void const *        address_ = (address);                   \
-    fd_accdb_client_t * client_  = (accdb);                     \
-    int db_err_ = fd_accdb_borrow( client_, handle, address_ ); \
-    if( db_err_==FD_ACCDB_SUCCESS ) {                           \
-      fd_accdb_borrow_guard_t __attribute__((cleanup(fd_accdb_borrow_guard_cleanup))) guard_ = \
-        { .client_=client_, .handle_=handle };                  \
-      if( 1 ) {                                                 \
+#define FD_ACCDB_READ_BEGIN( accdb, address, handle )              \
+  __extension__({                                                  \
+    fd_accdb_ro_t       handle[1];                                 \
+    void const *        address_ = (address);                      \
+    fd_accdb_client_t * client_  = (accdb);                        \
+    int db_err_ = fd_accdb_read_open( client_, handle, address_ ); \
+    if( db_err_==FD_ACCDB_SUCCESS ) {                              \
+      fd_accdb_ro_guard_t __attribute__((cleanup(fd_accdb_ro_guard_cleanup))) guard_ = \
+        { .client_=client_, .handle_=handle };                     \
+      if( 1 ) {                                                    \
         /* User code goes here */
 #define FD_ACCDB_READ_END \
       }      \
@@ -330,74 +316,10 @@ fd_accdb_borrow_guard_cleanup( fd_accdb_borrow_guard_t * guard ) {
 void const * /* 32 bytes */
 fd_accdb_ref_address( fd_accdb_ref_t const * ref );
 
-void const *
-fd_accdb_ref_data( fd_accdb_ref_t const * ref );
-
-ulong
-fd_accdb_ref_data_sz( fd_accdb_ref_t const * ref );
-
-ulong
-fd_accdb_ref_slot( fd_accdb_ref_t const * ref );
-
-ulong
-fd_accdb_ref_lamports( fd_accdb_ref_t const * ref );
-
-void const * /* 32 bytes */
-fd_accdb_ref_owner( fd_accdb_ref_t const * ref );
-
-uint
-fd_accdb_ref_exec_bit( fd_accdb_ref_t const * ref );
-
-void
-fd_accdb_ref_lthash( fd_accdb_refmut_t const * refmut,
-                     void *                    lthash ); /* 2048 bytes */
-
 void *
-fd_accdb_refmut_data_copy( fd_accdb_refmut_t * refmut,
-                           void const *        data,
-                           ulong               data_sz );
-
-void *
-fd_accdb_refmut_data_buf( fd_accdb_refmut_t * refmut );
-
-ulong
-fd_accdb_refmut_data_max( fd_accdb_refmut_t const * refmut );
-
-void
-fd_accdb_refmut_data_sz_set( fd_accdb_refmut_t * refmut,
-                             ulong               data_sz );
-
-ulong
-fd_accdb_refmut_slot( fd_accdb_refmut_t const * refmut );
-
-void
-fd_accdb_refmut_slot_set( fd_accdb_refmut_t * refmut,
-                         ulong                slot );
-
-ulong
-fd_accdb_refmut_lamports( fd_accdb_refmut_t const * refmut );
-
-void
-fd_accdb_refmut_lamports_set( fd_accdb_refmut_t * refmut,
-                              ulong               lamports );
-
-void const *
-fd_accdb_refmut_owner( fd_accdb_refmut_t const * refmut );
-
-void
-fd_accdb_refmut_owner_set( fd_accdb_refmut_t * refmut,
-                           void const *        owner ); /* 32 bytes */
-
-uint
-fd_accdb_refmut_exec_bit( fd_accdb_refmut_t const * refmut );
-
-void
-fd_accdb_refmut_exec_bit_set( fd_accdb_refmut_t * refmut,
-                              uint                executable ); /* in [0,1] */
-
-void
-fd_accdb_refmut_lthash( fd_accdb_refmut_t const * refmut,
-                        void *                    lthash ); /* 2048 bytes */
+fd_accdb_refmut_data_copy( fd_accdb_rw_t * refmut,
+                           void const *    data,
+                           ulong           data_sz );
 
 FD_PROTOTYPES_END
 

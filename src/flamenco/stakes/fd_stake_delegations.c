@@ -2,6 +2,7 @@
 #include "../../funk/fd_funk_base.h"
 #include "../runtime/fd_txn_account.h"
 #include "../runtime/program/fd_stake_program.h"
+#include "../accdb/fd_accdb_sync.h"
 
 #define POOL_NAME fd_stake_delegation_pool
 #define POOL_T    fd_stake_delegation_t
@@ -332,8 +333,7 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
 
 void
 fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
-                              fd_funk_t *              funk,
-                              fd_funk_txn_t *          funk_txn ) {
+                              fd_accdb_client_t *      accdb ) {
 
   fd_stake_delegation_map_t * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_map ) ) {
@@ -359,29 +359,25 @@ fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
       continue;
     }
 
-    FD_TXN_ACCOUNT_DECL( acct_rec );
-    int err = fd_txn_account_init_from_funk_readonly(
-        acct_rec,
-        &stake_delegation->stake_account,
-        funk,
-        funk_txn );
-
-    if( FD_UNLIKELY( err || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
+    fd_stake_state_v2_t stake_state;
+    int db_err = FD_ACCDB_READ_BEGIN( accdb, &stake_delegation->stake_account, rec ) {
+      if( FD_UNLIKELY( fd_accdb_ref_lamports( rec )==0 ) ) goto remove;
+      if( FD_UNLIKELY( !fd_bincode_decode_static(
+          stake_state_v2, &stake_state,
+          fd_accdb_ref_data_const( rec ), fd_accdb_ref_data_sz( rec ),
+          NULL ) ) ) {
+        goto remove;
+      }
+      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) goto remove;
+    }
+    FD_ACCDB_READ_END;
+    if( db_err==FD_ACCDB_ERR_KEY ) {
+remove:
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
       fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
       continue;
-    }
-
-    fd_stake_state_v2_t stake_state;
-    err = fd_stake_get_state( acct_rec, &stake_state );
-    if( FD_UNLIKELY( err ) ) {
-      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
-      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
-    }
-
-    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-      fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );
-      fd_stake_delegation_pool_idx_release( stake_delegation_pool, i );
+    } else if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+      FD_LOG_ERR(( "Failed to read stake account: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
     }
 
     fd_stake_delegations_update(

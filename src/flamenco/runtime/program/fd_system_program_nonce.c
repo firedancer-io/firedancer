@@ -7,6 +7,7 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../fd_executor.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 static int
 require_acct( fd_exec_instr_ctx_t * ctx,
@@ -34,9 +35,9 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rent ) )
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  fd_rent_t rent_[1];
+  fd_rent_t const * rent = fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent_ );
+  if( FD_UNLIKELY( !rent ) ) return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
   *out_rent = rent;
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -52,7 +53,7 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->accdb, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !rbh ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -945,28 +946,30 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
-  FD_TXN_ACCOUNT_DECL( durable_nonce_rec );
-  int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
-                                                    &txn_ctx->account_keys[ nonce_idx ],
-                                                    txn_ctx->funk,
-                                                    txn_ctx->funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_nonce_state_versions_t state[1];
+  int db_err = FD_ACCDB_READ_BEGIN( txn_ctx->accdb, &txn_ctx->account_keys[ nonce_idx ], durable_nonce_rec ) {
+    /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
+    /* verify_nonce_account */
+    fd_pubkey_t const * owner_pubkey = fd_accdb_ref_owner( durable_nonce_rec );
+    if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
+      return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+    }
+
+    if( FD_UNLIKELY( !fd_bincode_decode_static(
+        nonce_state_versions, state,
+        fd_accdb_ref_data_const( durable_nonce_rec ),
+        fd_accdb_ref_data_sz   ( durable_nonce_rec ),
+        &err ) ) ) {
+      return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+    }
+  }
+  FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    if( FD_UNLIKELY( db_err!=FD_ACCDB_ERR_KEY ) ) {
+      FD_LOG_WARNING(( "Failed to query nonce account: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+    }
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
-
-  /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
-  /* verify_nonce_account */
-  fd_pubkey_t const * owner_pubkey = fd_txn_account_get_owner( durable_nonce_rec );
-  if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
-    return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
-  }
-
-  fd_nonce_state_versions_t * state = fd_bincode_decode_spad(
-      nonce_state_versions, txn_ctx->spad,
-      fd_txn_account_get_data( durable_nonce_rec ),
-      fd_txn_account_get_data_len( durable_nonce_rec ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. Thjis checks that the decoded nonce record is

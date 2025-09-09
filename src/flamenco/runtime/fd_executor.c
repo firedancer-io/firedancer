@@ -1,9 +1,9 @@
 #include "fd_executor.h"
-#include "fd_acc_mgr.h"
 #include "fd_bank.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
 #include "fd_runtime_err.h"
+#include "../accdb/fd_accdb_sync.h"
 
 #include "context/fd_exec_txn_ctx.h"
 
@@ -586,35 +586,37 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
        total size of accounts and their owners are accumulated: duplicate owners
        should be avoided.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
-    FD_TXN_ACCOUNT_DECL( owner_account );
-    err = fd_txn_account_init_from_funk_readonly( owner_account,
-                                                  fd_txn_account_get_owner( program_account ),
-                                                  txn_ctx->funk,
-                                                  txn_ctx->funk_txn );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
-      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    fd_pubkey_t const * program_owner = fd_txn_account_get_owner( program_account );
+    int db_err = FD_ACCDB_READ_BEGIN( txn_ctx->accdb, program_owner, owner_rec ) {
+
+      /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L502-L510 */
+      if( FD_UNLIKELY( memcmp( fd_accdb_ref_owner( owner_rec ), fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
+                      ( !FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, remove_accounts_executable_flag_checks ) &&
+                        !fd_accdb_ref_exec_bit( owner_rec ) ) ) ) {
+        return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+      }
+
+      /* Count the owner's data in the loaded account size for program accounts.
+        However, it is important to not double count repeated owners.
+        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L511-L517 */
+      err = accumulate_and_check_loaded_account_data_size( fd_accdb_ref_data_sz( owner_rec ),
+                                                           requested_loaded_accounts_data_size,
+                                                           &txn_ctx->loaded_accounts_data_size );
+      if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        return err;
+      }
+
     }
+    validated_loaders[ validated_loaders_cnt++ ] = *program_owner;
 
-
-    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L502-L510 */
-    if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( owner_account ), fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
-                     ( !FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, remove_accounts_executable_flag_checks ) &&
-                       !fd_txn_account_is_executable( owner_account ) ) ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
+    FD_ACCDB_READ_END;
+    if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+      if( FD_LIKELY( db_err==FD_ACCDB_ERR_KEY ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
+        return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+      }
+      FD_LOG_ERR(( "Failed to check program owner: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
     }
-
-    /* Count the owner's data in the loaded account size for program accounts.
-       However, it is important to not double count repeated owners.
-       https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L511-L517 */
-    err = accumulate_and_check_loaded_account_data_size( fd_txn_account_get_data_len( owner_account ),
-                                                         requested_loaded_accounts_data_size,
-                                                         &txn_ctx->loaded_accounts_data_size );
-    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      return err;
-    }
-
-    fd_memcpy( validated_loaders[ validated_loaders_cnt++ ].key, owner_account->pubkey, sizeof(fd_pubkey_t) );
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -695,19 +697,19 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
   }
 
   /* Load the programdata account from Funk to read the programdata length */
-  FD_TXN_ACCOUNT_DECL( programdata_account );
-  err = fd_txn_account_init_from_funk_readonly( programdata_account,
-                                                &loader_state->inner.program.programdata_address,
-                                                txn_ctx->funk,
-                                                txn_ctx->funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return FD_RUNTIME_EXECUTE_SUCCESS;
+  ulong programdata_len = 0UL;
+  int db_err = FD_ACCDB_READ_BEGIN( txn_ctx->accdb, &loader_state->inner.program.programdata_address, rec ) {
+    programdata_len = fd_accdb_ref_data_sz( rec );
+  }
+  FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    if( FD_LIKELY( db_err==FD_ACCDB_ERR_KEY ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+    FD_LOG_ERR(( "Failed to peek prorgram data account: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
   }
 
   /* Try to accumulate the programdata's data size
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L625-L630 */
-  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE,
-                                                   fd_txn_account_get_data_len( programdata_account ) );
+  ulong programdata_size_delta = fd_ulong_sat_add( FD_TRANSACTION_ACCOUNT_BASE_SIZE, programdata_len );
   err = fd_increase_calculated_data_size( txn_ctx, programdata_size_delta );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return err;
@@ -947,33 +949,28 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
        from the fee payer account (since the rollback account does not reflect these changes yet) */
     fd_txn_account_set_rent_epoch( rollback_fee_payer_acc, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
   } else {
-    int err = FD_ACC_MGR_SUCCESS;
-    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-        txn_ctx->funk,
-        txn_ctx->funk_txn,
-        fee_payer_key,
-        NULL,
-        &err,
-        NULL );
+    ulong data_len = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
+    int db_err = FD_ACCDB_READ_BEGIN( txn_ctx->accdb, fee_payer_key, rec ) {
+      void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
+      fd_memcpy( fee_payer_data, fd_accdb_ref_data_const( rec ), sizeof(fd_account_meta_t) + data_len );
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+            txn_ctx->rollback_fee_payer_account,
+            fee_payer_key,
+            (fd_account_meta_t *)fee_payer_data,
+            1 ), txn_ctx->spad_wksp ) ) ) {
+        FD_LOG_CRIT(( "Failed to join txn account" ));
+      }
 
-    ulong  data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
-    void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
-    fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + data_len );
-    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
-          txn_ctx->rollback_fee_payer_account,
-          fee_payer_key,
-          (fd_account_meta_t *)fee_payer_data,
-          1 ), txn_ctx->spad_wksp ) ) ) {
-      FD_LOG_CRIT(( "Failed to join txn account" ));
+      /* There's another weird edge case where if the transaction contains a nonce account, you also have
+         to save the rent epoch field of the fee payer account.
+         https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L68-L75 */
+      if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
+        fd_txn_account_set_rent_epoch( txn_ctx->rollback_fee_payer_account, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
+      }
+      rollback_fee_payer_acc = txn_ctx->rollback_fee_payer_account;
     }
-
-    /* There's another weird edge case where if the transaction contains a nonce account, you also have
-       to save the rent epoch field of the fee payer account.
-       https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L68-L75 */
-    if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-      fd_txn_account_set_rent_epoch( txn_ctx->rollback_fee_payer_account, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
-    }
-    rollback_fee_payer_acc = txn_ctx->rollback_fee_payer_account;
+    FD_ACCDB_READ_END;
+    if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) FD_LOG_ERR(( "Failed to read fee payer account: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
   }
 
   /* Deduct the transaction fees from the rollback account. Because of prior checks, this should never fail. */
@@ -1065,8 +1062,7 @@ fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
                                                          txn_ctx->_txn_raw->raw,
-                                                         txn_ctx->funk,
-                                                         txn_ctx->funk_txn,
+                                                         txn_ctx->accdb,
                                                          txn_ctx->slot,
                                                          slot_hashes,
                                                          accts_alt );
@@ -1387,14 +1383,14 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     ulong                      funk_txn_gaddr,
                                     ulong                      funk_gaddr,
                                     fd_bank_hash_cmp_t *       bank_hash_cmp ) {
-  ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
-  if( FD_UNLIKELY( !ctx->funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
+  // ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
+  // if( FD_UNLIKELY( !ctx->funk_txn ) ) {
+  //   FD_LOG_ERR(( "Could not find valid funk transaction" ));
+  // }
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
-    FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
-  }
+  // if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
+  //   FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
+  // }
 
   ctx->status_cache = slot_ctx->status_cache;
 

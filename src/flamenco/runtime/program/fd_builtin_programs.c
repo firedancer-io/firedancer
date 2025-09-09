@@ -184,10 +184,15 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 static int
 fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
                    fd_pubkey_t const  * pubkey ) {
-  FD_ACCDB_READ_BEGIN( slot_ctx->accdb, pubkey, rec ) {
+  int db_err = FD_ACCDB_READ_BEGIN( slot_ctx->accdb, pubkey, rec ) {
     return 0==memcmp( fd_accdb_ref_owner( rec ), &fd_solana_bpf_loader_upgradeable_program_id, 32 );
   }
   FD_ACCDB_READ_END;
+  if( FD_LIKELY( db_err==FD_ACCDB_ERR_KEY ) ) return 0;
+  FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+  FD_LOG_ERR(( "Failed to read builtin account %s: database error (%i-%s)",
+               pubkey_b58, db_err, fd_accdb_strerror( db_err ) ));
+  return 0;
 }
 
 
@@ -204,10 +209,10 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           char const *         data,
                           ulong                sz ) {
   int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &pubkey, rec, sz ) {
-    fd_accdb_refmut_data_copy   ( rec, data, sz );
-    fd_accdb_refmut_lamports_set( rec, 1UL );
-    fd_accdb_refmut_exec_bit_set( rec, 1 );
-    fd_accdb_refmut_owner_set   ( rec, &fd_solana_native_loader_id );
+    fd_accdb_ref_data_set    ( rec, data, sz );
+    fd_accdb_ref_lamports_set( rec, 1UL );
+    fd_accdb_ref_exec_bit_set( rec, 1 );
+    fd_accdb_ref_owner_set   ( rec, &fd_solana_native_loader_id );
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
   if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
@@ -232,11 +237,11 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, fd_solana_spl_native_mint_id, rec, sizeof(data) ) {
-    fd_accdb_refmut_lamports_set( rec, 1000000000UL );
-    fd_accdb_refmut_exec_bit_set( rec, 0 );
-    fd_accdb_refmut_owner_set   ( rec, &fd_solana_spl_token_id );
-    fd_accdb_refmut_data_copy   ( rec, data, sizeof(data) );
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &fd_solana_spl_native_mint_id, rec, sizeof(data) ) {
+    fd_accdb_ref_lamports_set( rec, 1000000000UL );
+    fd_accdb_ref_exec_bit_set( rec, 0 );
+    fd_accdb_ref_owner_set   ( rec, &fd_solana_spl_token_id );
+    fd_accdb_ref_data_set    ( rec, data, sizeof(data) );
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
 }

@@ -10,6 +10,7 @@
 struct fd_accdb_client {
   fd_funk_t       funk[1];
   fd_funk_txn_t * funk_txn;
+  /* vinyl ... client for a shm message queue */
 };
 
 typedef struct fd_accdb_client fd_accdb_client_t;

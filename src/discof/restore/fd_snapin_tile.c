@@ -5,7 +5,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
-#include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/types/fd_types.h"
 
 #define NAME "snapin"
@@ -128,16 +127,16 @@ account_cb( void *                          _ctx,
 
   /* Start an account data write */
 
-  fd_accdb_write_t * write = ctx->accdb_write;
+  fd_accdb_rw_t * write = ctx->accdb_write;
   int err = fd_accdb_modify_prepare( ctx->accdb, write, hdr->meta.pubkey, hdr->meta.data_len );
   if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
     FD_LOG_ERR(( "fd_accdb_modify_prepare failed (%i-%s)", err, fd_accdb_strerror( err ) ));
   }
-  fd_accdb_write_slot_set    ( write, ctx->ssparse->accv_slot );
-  fd_accdb_write_lamports_set( write, hdr->info.lamports      );
-  fd_accdb_write_owner_set   ( write, hdr->info.owner         );
-  fd_accdb_write_exec_bit_set( write, hdr->info.executable    );
-  ctx->acc_data = fd_accdb_write_data_buf( write );
+  fd_accdb_ref_slot_set    ( write, ctx->ssparse->accv_slot );
+  fd_accdb_ref_lamports_set( write, hdr->info.lamports      );
+  fd_accdb_ref_owner_set   ( write, hdr->info.owner         );
+  fd_accdb_ref_exec_bit_set( write, hdr->info.executable    );
+  ctx->acc_data = fd_accdb_ref_data_buf( write );
   ctx->metrics.accounts_inserted++;
 }
 

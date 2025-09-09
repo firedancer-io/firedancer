@@ -51,8 +51,8 @@ fd_sysvar_clock_read( fd_accdb_client_t *     accdb,
   int accdb_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_clock_id, clock_ref ) {
     clock = fd_bincode_decode_static(
         sol_sysvar_clock, clock,
-        fd_accdb_ref_data   ( clock_ref ),
-        fd_accdb_ref_data_sz( clock_ref ),
+        fd_accdb_ref_data_const( clock_ref ),
+        fd_accdb_ref_data_sz   ( clock_ref ),
         NULL );
   }
   FD_ACCDB_READ_END;

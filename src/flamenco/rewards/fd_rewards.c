@@ -843,15 +843,17 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           sl
        vote_reward_node = fd_vote_reward_t_map_successor( rewards_calc_result->vote_reward_map_pool, vote_reward_node ) ) {
     if( FD_UNLIKELY( !vote_reward_node->elem.needs_store ) ) continue;
 
-    fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
+    fd_pubkey_t const * vote_pubkey       = &vote_reward_node->elem.pubkey;
+    ulong               vote_post_balance = 0UL;
     int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, vote_pubkey, vote_rec, 0UL ) {
       if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
         FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
       }
+      vote_post_balance = fd_accdb_ref_lamports( vote_rec->ro );
     }
     FD_RUNTIME_ACCOUNT_UPDATE_END;
     if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
-      FD_BASE58_ENCODE_32_BYTES( vote_pubkey, vote_pubkey_b58 );
+      FD_BASE58_ENCODE_32_BYTES( vote_pubkey->uc, vote_pubkey_b58 );
       FD_LOG_ERR(( "Failed to distribute rewards to vote account %s (%i-%s)", vote_pubkey_b58, db_err, fd_accdb_strerror( db_err ) ));
     }
 
@@ -861,7 +863,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           sl
       fd_solcap_write_vote_account_payout( capture_ctx->capture,
           vote_pubkey,
           fd_bank_slot_get( slot_ctx->bank ),
-          fd_txn_account_get_lamports( vote_rec ),
+          vote_post_balance,
           (long)vote_reward_node->elem.vote_rewards );
     }
   }
@@ -892,16 +894,20 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong                new_credits_observed ) {
   int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, stake_pubkey, stake_rec, 0UL ) {
 
-    fd_stake_state_v2_t stake_state[1] = {0};
-    if( fd_stake_get_state( stake_acc_rec, stake_state )!=0 ||
-        !fd_stake_state_v2_is_stake( stake_state ) ) {
-      FD_BASE58_ENCODE_32_BYTES( stake_pubkey, stake_pubkey_b58 );
+    fd_stake_state_v2_t stake_state[1];
+    if( FD_UNLIKELY( !fd_bincode_decode_static(
+          stake_state_v2, stake_state,
+          fd_accdb_ref_data_const( stake_rec->ro ),
+          fd_accdb_ref_data_sz   ( stake_rec->ro ),
+          NULL ) ||
+        !fd_stake_state_v2_is_stake( stake_state ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( stake_pubkey->uc, stake_pubkey_b58 );
       FD_LOG_WARNING(( "Failed to pay rewards to stake account %s: invalid stake account", stake_pubkey_b58));
       return 1;
     }
 
-    if( fd_accdb_refmut_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
-      FD_BASE58_ENCODE_32_BYTES( stake_pubkey, stake_pubkey_b58 );
+    if( fd_accdb_refmut_checked_add_lamports( stake_rec, reward_lamports ) ) {
+      FD_BASE58_ENCODE_32_BYTES( stake_pubkey->uc, stake_pubkey_b58 );
       FD_LOG_WARNING(( "Failed to pay rewards to stake account %s: lamport overflow", stake_pubkey_b58 ));
       return 1;
     }
@@ -912,17 +918,17 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                                                         reward_lamports );
 
     /* Ensure account is large enough to persist back content */
-    if( FD_UNLIKELY( fd_accdb_refmut_data_sz( stake_rec ) )<=fd_stake_state_v2_size( stake_state ) ) {
-      FD_BASE58_ENCODE_32_BYTES( stake_pubkey, stake_pubkey_b58 );
+    if( FD_UNLIKELY( fd_accdb_ref_data_sz( stake_rec->ro )<=fd_stake_state_v2_size( stake_state ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( stake_pubkey->uc, stake_pubkey_b58 );
       FD_LOG_WARNING(( "Failed to pay rewards stake account %s: account data too small (need %lu bytes, have %lu bytes)",
-                       stake_pubkey_b58, fd_stake_state_v2_size( stake_state ), fd_accdb_refmut_data_sz( stake_rec ) ));
+                       stake_pubkey_b58, fd_stake_state_v2_size( stake_state ), fd_accdb_ref_data_sz( stake_rec->ro ) ));
       return 1;
     }
 
     /* Overwrite data */
     fd_bincode_encode_ctx_t ctx = {
-      .data    = fd_txn_account_get_data_mut( stake_acc_rec ),
-      .dataend = fd_txn_account_get_data_mut( stake_acc_rec ) + encoded_stake_state_size,
+      .data    = fd_accdb_ref_data( stake_rec ),
+      .dataend = fd_accdb_ref_data( stake_rec ) + fd_stake_state_v2_size( stake_state ),
     };
     if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx )!=FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(( "fd_stake_state_v2_encode failed" ));
@@ -942,23 +948,23 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
         stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
     fd_bank_stake_delegations_delta_end_locking_modify( slot_ctx->bank );
 
+    if( capture_ctx ) {
+      fd_solcap_write_stake_account_payout( capture_ctx->capture,
+          stake_pubkey,
+          fd_bank_slot_get( slot_ctx->bank ),
+          fd_accdb_ref_lamports( stake_rec->ro ),
+          (long)reward_lamports,
+          new_credits_observed,
+          (long)( new_credits_observed-old_credits_observed ),
+          stake_state->inner.stake.stake.delegation.stake,
+          (long)reward_lamports );
+    }
+
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
   if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
-    FD_BASE58_ENCODE_32_BYTES( stake_pubkey, stake_pubkey_b58 );
+    FD_BASE58_ENCODE_32_BYTES( stake_pubkey->uc, stake_pubkey_b58 );
     FD_LOG_ERR(( "Failed to distribute rewards to stake account %s: database error (%i-%s)", stake_pubkey_b58, db_err, fd_accdb_strerror( db_err ) ));
-  }
-
-  if( capture_ctx ) {
-    fd_solcap_write_stake_account_payout( capture_ctx->capture,
-        stake_pubkey,
-        fd_bank_slot_get( slot_ctx->bank ),
-        fd_txn_account_get_lamports( stake_acc_rec ),
-        (long)reward_lamports,
-        new_credits_observed,
-        (long)( new_credits_observed-old_credits_observed ),
-        stake_state->inner.stake.stake.delegation.stake,
-        (long)reward_lamports );
   }
 
   return 0;

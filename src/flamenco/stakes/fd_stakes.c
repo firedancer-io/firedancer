@@ -228,8 +228,11 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
   }
 
   fd_stake_state_v2_t stake_state;
-  int err = fd_stake_get_state( stake_account, &stake_state );
-  if( FD_UNLIKELY( err != 0 ) ) {
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      stake_state_v2, &stake_state,
+      fd_txn_account_get_data( stake_account ),
+      fd_txn_account_get_data_len( stake_account ),
+      NULL ) ) ) {
     FD_LOG_WARNING(( "Failed to get stake state" ));
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;

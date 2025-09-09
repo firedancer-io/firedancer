@@ -6,7 +6,7 @@
 #include "fd_sysvar_cache_private.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../fd_txn_account.h"
-#include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include <errno.h>
 
 static int
@@ -19,30 +19,30 @@ sysvar_data_fill( fd_sysvar_cache_t *  cache,
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
   /* Read account from database */
-  fd_funk_t *     funk     = slot_ctx->funk;
-  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
-  FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, funk_txn );
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+  int db_err = FD_ACCDB_READ_BEGIN( slot_ctx->accdb, key, rec ) {
+
+    /* Work around instruction fuzzer quirk */
+    if( FD_UNLIKELY( fd_accdb_ref_lamports( rec )==0 ) ) {
+      if( log_fails ) FD_LOG_WARNING(( "Skipping sysvar %s: zero balance", pos->name ));
+      return 0;
+    }
+
+    /* Fill data cache entry */
+    ulong data_sz = fd_accdb_ref_data_sz( rec );
+    data_sz = fd_ulong_min( data_sz, pos->data_max );
+    uchar * data = (uchar *)cache+pos->data_off;
+    fd_memcpy( data, fd_accdb_ref_data_const( rec ), data_sz );
+    desc->data_sz = (uint)data_sz;
+
+  }
+  FD_ACCDB_READ_END;
+  if( db_err==FD_ACCDB_ERR_KEY ) {
     if( log_fails ) FD_LOG_DEBUG(( "Sysvar %s not found", pos->name ));
     return 0;
-  } else if( err!=FD_ACC_MGR_SUCCESS ) {
-    FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly failed: %i", err ));
+  } else if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
+    FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly failed: %i", db_err ));
     return EIO;
   }
-
-  /* Work around instruction fuzzer quirk */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( rec )==0 ) ) {
-    if( log_fails ) FD_LOG_WARNING(( "Skipping sysvar %s: zero balance", pos->name ));
-    return 0;
-  }
-
-  /* Fill data cache entry */
-  ulong data_sz = fd_txn_account_get_data_len( rec );
-  data_sz = fd_ulong_min( data_sz, pos->data_max );
-  uchar * data = (uchar *)cache+pos->data_off;
-  fd_memcpy( data, fd_txn_account_get_data( rec ), data_sz );
-  desc->data_sz = (uint)data_sz;
 
   /* Recover object cache entry from data cache entry */
   return fd_sysvar_obj_restore( cache, desc, pos, log_fails );

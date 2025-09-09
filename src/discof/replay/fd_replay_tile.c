@@ -745,7 +745,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->slot_ctx->banks );
 
-  fd_stake_delegations_refresh( root_delegations, ctx->funk, ctx->slot_ctx->funk_txn );
+  fd_stake_delegations_refresh( root_delegations, ctx->slot_ctx->accdb );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -810,7 +810,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 static void
 init_from_snapshot( fd_replay_tile_ctx_t * ctx,
                     fd_stem_context_t *    stem ) {
-  fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+  fd_features_restore( ctx->slot_ctx );
 
   fd_lthash_value_t const * lthash = fd_bank_lthash_locking_query( ctx->slot_ctx->bank );
   if( fd_lthash_is_zero( (fd_lthash_value_t *)lthash ) ) {

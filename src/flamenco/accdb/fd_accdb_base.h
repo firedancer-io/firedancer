@@ -12,11 +12,10 @@
 #define FD_ACCDB_ERR_KEY_RACE   (-6) /* failed due to concurrent key-level operation */
 
 struct fd_accdb_meta {
-  uchar address[ 32 ];
-  uchar owner  [ 32 ];
+  uchar owner[ 32 ];
   ulong lamports;
-  ulong data_sz;
   ulong slot;
+  uint  data_sz;
   uint  executable : 1;
 };
 

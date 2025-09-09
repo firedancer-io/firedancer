@@ -44,7 +44,7 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_runtime_account_update_guard {
   fd_exec_slot_ctx_t * slot_ctx;
-  fd_accdb_refmut_t *  handle_;
+  fd_accdb_rw_t *      handle_;
 };
 typedef struct fd_runtime_account_update_guard fd_runtime_account_update_guard_t;
 
@@ -56,14 +56,14 @@ fd_runtime_account_update_cleanup( fd_runtime_account_update_guard_t * guard ) {
 
 #define FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, address, handle, min_sz ) \
   __extension__({                                                            \
-    fd_accdb_refmut_t    handle[1];                                          \
+    fd_accdb_rw_t        handle[1];                                          \
     void const *         address_  = (address);                              \
     fd_exec_slot_ctx_t * slot_ctx_ = (slot_ctx);                             \
     ulong const          min_sz_   = (min_sz);                               \
     int db_err_ = fd_accdb_write_prepare( slot_ctx_->accdb, handle, address_, min_sz_ ); \
     if( db_err_==FD_ACCDB_SUCCESS ) {                                        \
       fd_runtime_account_update_guard_t __attribute__((cleanup(fd_runtime_account_update_cleanup))) guard_ = \
-        { .slot_ctx = slot_ctx, .handle_ = handle };                          \
+        { .slot_ctx = slot_ctx, .handle_ = handle };                         \
       if( 1 ) {                                                              \
         /* User code goes here */
 #define FD_RUNTIME_ACCOUNT_UPDATE_END \

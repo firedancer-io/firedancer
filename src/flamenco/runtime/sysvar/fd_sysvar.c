@@ -13,11 +13,11 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
   FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, address, rec, sz ) {
-    fd_accdb_refmut_owner_set( rec, &fd_sysvar_owner_id );
-    ulong const lamports_before = fd_accdb_refmut_lamports( rec );
+    fd_accdb_ref_owner_set( rec, &fd_sysvar_owner_id );
+    ulong const lamports_before = fd_accdb_ref_lamports( rec->ro );
     ulong const lamports_after  = fd_ulong_max( lamports_before, min_bal );
-    fd_accdb_refmut_lamports_set( rec, lamports_after );
-    fd_accdb_refmut_data_copy( rec, data, sz );
+    fd_accdb_ref_lamports_set( rec, lamports_after );
+    fd_accdb_ref_data_set( rec, data, sz );
 
     FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu slot=%lu lamports=%lu",
                    FD_BASE58_ENC_32_ALLOCA( address ), sz, fd_bank_slot_get( slot_ctx->bank ), lamports_after ));

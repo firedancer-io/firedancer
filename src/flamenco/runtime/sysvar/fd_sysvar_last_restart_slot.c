@@ -56,14 +56,16 @@ fd_sysvar_last_restart_slot_read(
     fd_accdb_client_t *                 accdb,
     fd_sol_sysvar_last_restart_slot_t * out
 ) {
-  FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_last_restart_slot_id, rec ) {
+  int db_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_last_restart_slot_id, rec ) {
     return fd_bincode_decode_static(
         sol_sysvar_last_restart_slot, out,
-        fd_accdb_ref_data   ( rec ),
-        fd_accdb_ref_data_sz( rec ),
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
         &err );
   }
   FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_ERR_KEY ) ) FD_LOG_ERR(( "Failed to read sysvar last restart slot: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+  return NULL;
 }
 
 /* fd_sysvar_last_restart_slot_update is equivalent to

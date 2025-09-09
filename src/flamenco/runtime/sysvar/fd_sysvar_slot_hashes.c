@@ -1,7 +1,5 @@
 #include "fd_sysvar_slot_hashes.h"
 #include "fd_sysvar.h"
-#include "../fd_acc_mgr.h"
-#include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../../accdb/fd_accdb_sync.h"
@@ -139,12 +137,14 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
 fd_slot_hashes_global_t *
 fd_sysvar_slot_hashes_read( fd_accdb_client_t * accdb,
                             fd_spad_t *         spad ) {
-  FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_slot_hashes_id, rec ) {
+  int db_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_slot_hashes_id, rec ) {
     return fd_bincode_decode_spad_global(
         slot_hashes, spad,
-        fd_accdb_ref_data   ( rec ),
-        fd_accdb_ref_data_sz( rec ),
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
         NULL );
   }
   FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_ERR_KEY ) ) FD_LOG_ERR(( "Failed to read slot hashes sysvar: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+  return NULL;
 }

@@ -26,8 +26,8 @@ fd_sysvar_epoch_rewards_read( fd_accdb_client_t *         accdb,
   FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_epoch_rewards_id, rec ) {
     return fd_bincode_decode_static(
         sysvar_epoch_rewards, out,
-        fd_accdb_ref_data   ( rec ),
-        fd_accdb_ref_data_sz( rec ),
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
         &err );
   }
   FD_ACCDB_READ_END;

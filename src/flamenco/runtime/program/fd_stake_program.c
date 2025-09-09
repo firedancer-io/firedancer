@@ -3242,16 +3242,16 @@ write_stake_config( fd_exec_slot_ctx_t *      slot_ctx,
                     fd_stake_config_t const * stake_config ) {
   ulong const data_sz = fd_stake_config_size( stake_config );
   FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &fd_solana_stake_program_config_id, rec, data_sz ) {
-    fd_accdb_refmut_lamports_set( rec, 960480UL ); /* FIXME where does this number come from? */
-    fd_accdb_refmut_exec_bit_set( rec, 0 );
+    fd_accdb_ref_lamports_set( rec, 960480UL ); /* FIXME where does this number come from? */
+    fd_accdb_ref_exec_bit_set( rec, 0 );
 
     /* FIXME */
     fd_bincode_encode_ctx_t ctx3;
-    ctx3.data    = fd_accdb_refmut_data_buf( rec );
-    ctx3.dataend = fd_accdb_refmut_data_buf( rec ) + data_sz;
+    ctx3.data    = fd_accdb_ref_data( rec );
+    ctx3.dataend = fd_accdb_ref_data( rec ) + data_sz;
     if( fd_stake_config_encode( stake_config, &ctx3 ) )
       FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
-    fd_accdb_refmut_data_sz_set( rec, data_sz );
+    fd_accdb_ref_data_sz_set( rec, data_sz );
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
 }
@@ -3264,12 +3264,6 @@ fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
       .slash_penalty        = DEFAULT_SLASH_PENALTY,
   };
   write_stake_config( slot_ctx, &stake_config );
-}
-
-int
-fd_stake_get_state( fd_txn_account_t const * self,
-                    fd_stake_state_v2_t *    out ) {
-  return get_state( self, out );
 }
 
 fd_stake_history_entry_t

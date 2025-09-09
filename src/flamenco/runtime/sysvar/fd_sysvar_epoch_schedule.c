@@ -57,8 +57,8 @@ fd_sysvar_epoch_schedule_read( fd_accdb_client_t *   accdb,
   int accdb_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_epoch_schedule_id, ref ) {
     out = fd_bincode_decode_static(
         epoch_schedule, out,
-        fd_accdb_ref_data   ( ref ),
-        fd_accdb_ref_data_sz( ref ),
+        fd_accdb_ref_data_const( ref ),
+        fd_accdb_ref_data_sz   ( ref ),
         NULL );
   }
   FD_ACCDB_READ_END;

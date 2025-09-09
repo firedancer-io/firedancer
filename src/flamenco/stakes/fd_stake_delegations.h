@@ -289,8 +289,7 @@ fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
 
 void
 fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
-                              fd_funk_t *              funk,
-                              fd_funk_txn_t *          funk_txn );
+                              fd_accdb_client_t *      accdb );
 
 /* fd_stake_delegations_cnt returns the number of stake delegations
    in the stake delegations struct. fd_stake_delegations_t must be a

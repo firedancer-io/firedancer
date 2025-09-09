@@ -25,21 +25,15 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
 fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_accdb_client_t *  accdb,
                               fd_stake_history_t * out ) {
-  fd_accdb_ref_t borrow[1];
-  int db_err = fd_accdb_borrow( accdb, borrow, fd_sysvar_stake_history_id.uc );
-  if( FD_UNLIKELY( db_err==FD_ACCDB_ERR_KEY ) ) return NULL;
-  if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_accdb_borrow(sysvar_stake_history) failed (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+  FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_stake_history_id, rec ) {
+    return fd_bincode_decode_static(
+        stake_history, out,
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
+        NULL );
   }
-
-  fd_stake_history_t * result = fd_bincode_decode_static(
-      stake_history, out,
-      fd_accdb_ref_data   ( borrow ),
-      fd_accdb_ref_data_sz( borrow ),
-      NULL );
-
-  fd_accdb_release( accdb, borrow );
-  return result;
+  FD_ACCDB_READ_END;
+  return NULL;
 }
 
 void

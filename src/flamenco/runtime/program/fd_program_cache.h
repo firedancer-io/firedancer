@@ -235,8 +235,7 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
    This is essentially load_program_with_pubkey(), sans the ELF parsing
    and whatnot which is done in load_program_from_bytes(). */
 uchar const *
-fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
-                                          fd_funk_txn_t const *    funk_txn,
+fd_program_cache_get_account_programdata( fd_accdb_client_t *      accdb,
                                           fd_txn_account_t const * program_acc,
                                           ulong *                  out_program_data_len );
 
