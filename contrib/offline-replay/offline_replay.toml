@@ -11,7 +11,6 @@
         rocksdb_path = "{ledger}/rocksdb"
     [tiles.replay]
         cluster_version = "{cluster_version}"
-        max_exec_slices = 256
         heap_size_gib = {heap_size}
     [tiles.gui]
         enabled = false
