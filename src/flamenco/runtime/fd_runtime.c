@@ -2289,45 +2289,21 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
          inserted into the vote states. Even after the vote account is
          inserted, we still don't know the total amount of stake that is
          delegated to the vote account. This must be calculated later. */
-      FD_TXN_ACCOUNT_DECL( vote_acc );
-      int err = fd_txn_account_init_from_funk_readonly(
-          vote_acc,
-          &acc->key,
-          slot_ctx->funk,
-          slot_ctx->funk_txn );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_CRIT(( "Failed to init vote account from funk" ));
-      }
-      uchar const * vote_account_data = fd_txn_account_get_data( vote_acc );
-      ulong         vote_account_dlen = fd_txn_account_get_data_len( vote_acc );
-      fd_vote_states_update_from_account( vote_states, &acc->key, vote_account_data, vote_account_dlen );
-
+      fd_vote_states_update_from_account( vote_states, &acc->key, acc->account.data, acc->account.data_len );
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that
          have a valid non-zero stake. */
-      FD_TXN_ACCOUNT_DECL( stake_acc );
-      int err = fd_txn_account_init_from_funk_readonly(
-          stake_acc,
-          &acc->key,
-          slot_ctx->funk,
-          slot_ctx->funk_txn );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_CRIT(( "Failed to init stake account from ffunk" ));
-      }
-
       fd_stake_state_v2_t stake_state = {0};
-      if( FD_UNLIKELY( fd_stake_get_state( stake_acc, &stake_state )!=0 ) ) {
-        FD_LOG_CRIT(( "Failed to get stake state" ));
+      if( FD_UNLIKELY( !fd_bincode_decode_static(
+          stake_state_v2, &stake_state,
+          acc->account.data, acc->account.data_len,
+          NULL ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( acc->key.key, stake_b58 );
+        FD_LOG_ERR(( "Failed to deserialize genesis stake account %s", stake_b58 ));
       }
-
-      if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-        continue;
-      }
-
-      if( !stake_state.inner.stake.stake.delegation.stake ) {
-        continue;
-      }
+      if( !fd_stake_state_v2_is_stake( &stake_state )     ) continue;
+      if( !stake_state.inner.stake.stake.delegation.stake ) continue;
 
       fd_stake_delegations_update(
           stake_delegations,
