@@ -1,37 +1,16 @@
 {
-  "version": "0.2.0",
   "configurations": [
     {
-      "name": "fddev",
-      "type": "cppdbg",
+      "type": "lldb-dap",
       "request": "launch",
-      "cwd": "${workspaceFolder}/build/native/gcc/bin",
-      "program": "${workspaceFolder}/build/native/gcc/bin/fddev",
-      "args": ["--no-sandbox"],
-      "miDebuggerPath": "${workspaceFolder}/build/native/gcc/bin/fddbg",
-      "MIMode": "gdb",
-      "setupCommands": [
-          {
-              "description": "Enable pretty-printing for gdb",
-              "text": "-enable-pretty-printing",
-              "ignoreFailures": true
-          },
-          {
-              "description": "Set Disassembly Flavor to Intel",
-              "text": "-gdb-set disassembly-flavor intel",
-              "ignoreFailures": true
-          },
-          {
-              "description": "Don't detach on fork",
-              "text": "-gdb-set detach-on-fork off",
-              "ignoreFailures": false
-          },
-          {
-            "description": "Stay parent after fork",
-            "text": "-gdb-set follow-fork-mode parent",
-            "ignoreFailures": false
-        }
-      ]
+      "name": "testnet",
+      "program": "${workspaceRoot}/build/native/gcc/bin/firedancer-dev",
+      "args": [
+        "--testnet"
+      ],
+      "env": [],
+      "cwd": "${workspaceRoot}",
+      "preLaunchTask": "build-firedancer-dev",
     }
   ]
 }

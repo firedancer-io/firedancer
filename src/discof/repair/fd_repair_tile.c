@@ -1302,8 +1302,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Keyguard join failed" ));
   }
 
-  FD_LOG_NOTICE(( "repair starting" ));
-
   /* Repair set up */
 
   ctx->repair                 = fd_repair_join                       ( fd_repair_new                       ( ctx->repair, ctx->repair_seed ) );
@@ -1325,7 +1323,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->turbine_slot = 0;
 
-  FD_LOG_NOTICE(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
+  FD_LOG_INFO(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
 

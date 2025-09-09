@@ -611,7 +611,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
-  FD_LOG_NOTICE(("send_tile: identity key %s", FD_BASE58_ENC_32_ALLOCA( ctx->identity_key[ 0 ].key )));
 }
 
 static fd_send_link_in_t *

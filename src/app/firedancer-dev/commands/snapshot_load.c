@@ -106,6 +106,10 @@ snapshot_load_topo( config_t *     config,
     }
   }
 
+  /* No need for diagnostics, this is a diagnostic tool which prints on
+     its own. */
+  snaprd_tile->snaprd.diagnostics = 0;
+
   if( !args->snapshot_load.tile_cpus[0] ) {
     fd_topob_auto_layout( topo, 0 );
   }
@@ -227,9 +231,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
     next+=1000L*1000L*1000L;
   }
-
-  long end = fd_log_wallclock();
-  FD_LOG_NOTICE(( "Loaded %.1fM accounts in %.1f seconds", (double)snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) ]/1e6, ((double)(end-start))/(1e9)));
 }
 
 action_t fd_action_snapshot_load = {

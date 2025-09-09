@@ -66,7 +66,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
                    ctx->expected_shred_version, ctx->shred_version ));
     }
 
-    FD_LOG_NOTICE(( "retrieved shred version %hu from entrypoint", ctx->shred_version ));
+    FD_LOG_INFO(( "retrieved shred version %hu from entrypoint", ctx->shred_version ));
     FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
     fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, 0UL, 0UL );
     fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->shred_version );

@@ -410,11 +410,11 @@ privileged_init( fd_topo_t *      topo,
   tower_path( tile->tower.ledger_path, strlen( tile->tower.ledger_path ), base58_pubkey, base58_pubkey_len, "bin.new", sizeof("bin.new") - 1, ctx->checkpt_path );
   tower_path( tile->tower.ledger_path, strlen( tile->tower.ledger_path ), base58_pubkey, base58_pubkey_len, "bin",     sizeof("bin") - 1,     ctx->restore_path );
 
-  ctx->checkpt_fd = open( ctx->checkpt_path, O_WRONLY | O_CREAT | O_TRUNC, 0600 );
-  if( FD_UNLIKELY( ctx->checkpt_fd==-1 ) ) FD_LOG_WARNING(( "failed to open %s: %s", ctx->checkpt_path, strerror( errno ) ));
+  ctx->checkpt_fd = open( ctx->checkpt_path, O_WRONLY|O_CREAT|O_TRUNC, 0600 );
+  if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", ctx->checkpt_path, errno, fd_io_strerror( errno ) ));
 
   ctx->restore_fd = open( ctx->restore_path, O_RDONLY );
-  if( FD_UNLIKELY( ctx->restore_fd==-1 ) ) FD_LOG_WARNING(( "failed to open %s: %s", ctx->restore_path, strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_WARNING(( "open(`%s`) failed (%i-%s)", ctx->restore_path, errno, fd_io_strerror( errno ) ));
 }
 
 static void

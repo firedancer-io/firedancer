@@ -802,7 +802,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     fd_solcap_writer_flush( ctx->capture_ctx->capture );
   }
 
-  FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
+  FD_LOG_INFO(( "snapshot slot %lu", snapshot_slot ));
 }
 
 static void
@@ -1836,12 +1836,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  charge_busy FD_PARAM_UNUSED ) {
 
   if( !ctx->snapshot_init_done ) {
-    if( ctx->plugin_out->mem ) {
-      uchar msg[56];
-      fd_memset( msg, 0, sizeof(msg) );
-      msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
+    // TODO: Broken ... sends millions of init messages
+    // if( ctx->plugin_out->mem ) {
+    //   uchar msg[56];
+    //   fd_memset( msg, 0, sizeof(msg) );
+    //   msg[ 0 ] = 0; // ValidatorStartProgress::Initializing
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
+    // }
 
     if( strlen( ctx->genesis )>0 ) {
       setup_slot_ctx( ctx );
@@ -2346,8 +2347,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
-
-  FD_LOG_NOTICE(("Finished unprivileged init"));
 }
 
 static ulong
