@@ -83,7 +83,8 @@
 #define IN_KIND_REPAIR (0)
 #define IN_KIND_ROOT   (1)
 #define IN_KIND_SNAP   (2)
-#define IN_KIND_WRITER (3)
+#define IN_KIND_TOWER  (3)
+#define IN_KIND_WRITER (4)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
@@ -1008,6 +1009,10 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     }
     FD_TEST( sz==sizeof(fd_reasm_fec_t) );
     memcpy( &ctx->fec_out, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_reasm_fec_t) );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
+
+    /* TODO fill in reset bank logic  */
+
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_WRITER ) ) {
     fd_replay_in_link_t * in = &ctx->in[ in_idx ];
     if( sig == FD_WRITER_REPLAY_SIG_TXN_DONE ) {
@@ -1034,26 +1039,8 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_ROOT ) ) {
-    /* We have recieved a root message.  We don't want to update the
-       rooted slot and block id if we are processing the genesis
-       block. */
-    if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )==0UL )) return;
-    ctx->consensus_root_slot = sig;
-
-    block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, sig, NULL );
-    if( FD_UNLIKELY( !block_id ) ) {
-      FD_LOG_CRIT(( "invariant violation: no block id found for root slot %lu", sig ));
-    }
-    ctx->consensus_root = block_id->block_id;
-
-    publish( ctx );
-
-  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
-
-    on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig );
-
-  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
+  switch( ctx->in_kind[in_idx] ) {
+  case IN_KIND_REPAIR: {
 
     /* Forks form a partial ordering over FEC sets. The Repair tile
        delivers FEC sets in-order per fork, but FEC set ordering across
@@ -1110,6 +1097,45 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
       block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, fec->slot );
       entry->block_id = fec->key; /* the "block_id" is the last FEC set's merkle root */
     }
+    break;
+  }
+
+  case IN_KIND_ROOT: {
+    /* We have recieved a root message.  We don't want to update the
+       rooted slot and block id if we are processing the genesis
+       block. */
+    if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )==0UL )) return;
+    ctx->consensus_root_slot = sig;
+
+    block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, sig, NULL );
+    if( FD_UNLIKELY( !block_id ) ) {
+      FD_LOG_CRIT(( "invariant violation: no block id found for root slot %lu", sig ));
+    }
+    ctx->consensus_root = block_id->block_id;
+
+    publish( ctx );
+    break;
+  }
+
+  case IN_KIND_SNAP: {
+    on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig );
+    break;
+  }
+
+  case IN_KIND_TOWER: {
+
+    /* TODO fill in reset bank logic */
+
+    break;
+  }
+
+  case IN_KIND_WRITER: {
+    /* no op */
+    break;
+  }
+
+  default:
+    FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[in_idx] ));
   }
 }
 
@@ -2225,6 +2251,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_ROOT;
     } else if( !strcmp( link->name, "writ_repl" ) ) {
       ctx->in_kind[ i ] = IN_KIND_WRITER;
+    } else if( !strcmp( link->name, "tower_replay" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_TOWER;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }

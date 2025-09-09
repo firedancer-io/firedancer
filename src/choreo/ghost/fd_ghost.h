@@ -325,8 +325,6 @@ FD_FN_PURE static inline fd_ghost_slot_map_t       * fd_ghost_slot_map      ( fd
 FD_FN_PURE static inline fd_ghost_slot_map_t const * fd_ghost_slot_map_const( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->slot_map_gaddr ); }
 FD_FN_PURE static inline fd_dup_seen_t             * fd_ghost_dup_map       ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->dup_map_gaddr ); }
 FD_FN_PURE static inline fd_dup_seen_t       const * fd_ghost_dup_map_const ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->dup_map_gaddr ); }
-FD_FN_PURE static inline fd_ghost_ele_t            * fd_ghost_root          ( fd_ghost_t       * ghost ) { return fd_ghost_pool_ele      ( fd_ghost_pool( ghost ),       ghost->root ); }
-FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_root_const    ( fd_ghost_t const * ghost ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ghost->root ); }
 
 /* fd_ghost_{parent,child,sibling} returns a pointer in the caller's
    address space to the corresponding {parent,left-child,right-sibling}
@@ -334,12 +332,14 @@ FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_root_const    ( fd
    pointer to a pool element inside ghost.  const versions for each are
    also provided. */
 
- FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_parent       ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->parent  ); }
- FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_parent_const ( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->parent  ); }
- FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_child        ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->child   ); }
- FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_child_const  ( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->child   ); }
- FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_sibling      ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->sibling ); }
- FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_sibling_const( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->sibling ); }
+FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_root         ( fd_ghost_t       * ghost                             ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ghost->root  ); }
+FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_root_const   ( fd_ghost_t const * ghost                             ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ghost->root  ); }
+FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_parent       ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->parent  ); }
+FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_parent_const ( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->parent  ); }
+FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_child        ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->child   ); }
+FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_child_const  ( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->child   ); }
+FD_FN_PURE static inline fd_ghost_ele_t       * fd_ghost_sibling      ( fd_ghost_t       * ghost, fd_ghost_ele_t       * ele ) { return fd_ghost_pool_ele      ( fd_ghost_pool      ( ghost ), ele->sibling ); }
+FD_FN_PURE static inline fd_ghost_ele_t const * fd_ghost_sibling_const( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) { return fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), ele->sibling ); }
 
 /* fd_ghost_{query,query_const} returns the ele keyed by `hash_id`,
    NULL if not found. */
@@ -394,6 +394,11 @@ fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * bid1, fd_hash_t const 
 
 int
 fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_hash_t const * slot );
+
+/* fd_ghost_anc_eqvoc. */
+
+int
+fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele );
 
 /* Operations */
 

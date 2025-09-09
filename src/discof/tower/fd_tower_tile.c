@@ -52,6 +52,12 @@ typedef struct {
   uchar    in_kind [ MAX_IN_LINKS ];
   in_ctx_t in_links[ MAX_IN_LINKS ];
 
+  ulong       replay_out_idx;
+  fd_wksp_t * replay_out_mem;
+  ulong       replay_out_chunk0;
+  ulong       replay_out_wmark;
+  ulong       replay_out_chunk;
+
   ulong       root_out_idx;
   fd_wksp_t * root_out_mem;
   ulong       root_out_chunk0;
@@ -248,6 +254,16 @@ after_frag_replay( ctx_t * ctx, fd_replay_slot_info_t * slot_info, ulong tsorig,
   /* Send our updated tower to the cluster. */
 
   fd_stem_publish( stem, ctx->send_out_idx, vote_slot, ctx->send_out_chunk, sizeof(fd_txn_p_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+
+  /* Send replay the slot to reset to. */
+
+  ulong             reset_slot = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
+  uchar *           chunk      = fd_chunk_to_laddr( ctx->root_out_mem, ctx->root_out_chunk );
+  fd_hash_t const * block_id   = fd_ghost_hash( ctx->ghost, reset_slot );
+  FD_TEST( block_id );
+  memcpy( chunk, block_id, sizeof(fd_hash_t) );
+  fd_stem_publish( stem, ctx->replay_out_idx, reset_slot, ctx->replay_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->root_out_chunk = fd_dcache_compact_next( ctx->root_out_chunk, sizeof(fd_hash_t), ctx->root_out_chunk0, ctx->root_out_wmark );
 
 # if LOGGING
   fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
@@ -475,6 +491,15 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in_links[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in_links[ in_idx ].mem, link->dcache, link->mtu );
     ctx->in_links[ in_idx ].mtu    = link->mtu;
   }
+
+  ctx->replay_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_replay", 0 );
+  FD_TEST( ctx->replay_out_idx!= ULONG_MAX );
+  fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ ctx->replay_out_idx ] ];
+  ctx->replay_out_mem         = topo->workspaces[ topo->objs[ replay_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->replay_out_chunk0      = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );
+  ctx->replay_out_wmark       = fd_dcache_compact_wmark ( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu );
+  ctx->replay_out_chunk       = ctx->replay_out_chunk0;
+  FD_TEST( fd_dcache_compact_is_safe( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu, replay_out->depth ) );
 
   ctx->root_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
   FD_TEST( ctx->root_out_idx!= ULONG_MAX );

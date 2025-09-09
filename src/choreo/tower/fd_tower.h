@@ -424,11 +424,11 @@
 #include "../ghost/fd_ghost.h"
 #include "../../disco/pack/fd_microblock.h"
 
-/* FD_TOWER_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
+/* FD_TOWER_PARANOID:  Define this to non-zero at compile time
+   to turn on additional runtime integrity checks. */
 
-#ifndef FD_TOWER_USE_HANDHOLDING
-#define FD_TOWER_USE_HANDHOLDING 1
+#ifndef FD_TOWER_PARANOID
+#define FD_TOWER_PARANOID 1
 #endif
 
 #define FD_TOWER_VOTE_MAX (31UL)
@@ -713,7 +713,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 /* fd_tower_reset_slot returns the slot to reset PoH to when building
    the next leader block.  Assumes tower and ghost are both valid local
    joins and in-sync ie. every vote slot in tower corresponds to a node
-   in ghost.  Returns FD_SLOT_NULL if this is not true.
+   in ghost.  There is always a reset slot (never returns ULONG_MAX).
 
    In general our reset slot is the fork head of our last vote slot, but
    there are 3 cases in which that doesn't apply:
@@ -735,6 +735,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
+                     fd_epoch_t const * epoch,
                      fd_ghost_t const * ghost );
 
 /* fd_tower_vote_slot returns the correct vote slot to pick given the

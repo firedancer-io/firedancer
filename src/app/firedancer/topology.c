@@ -276,8 +276,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "repair_repla" );
   fd_topob_wksp( topo, "replay_poh"   );
   fd_topob_wksp( topo, "replay_tower" );
+  fd_topob_wksp( topo, "tower_replay" );
   fd_topob_wksp( topo, "bank_busy"    );
-  fd_topob_wksp( topo, "tower_send"  );
+  fd_topob_wksp( topo, "tower_send"   );
   fd_topob_wksp( topo, "send_txns"    );
 
   fd_topob_wksp( topo, "quic"        );
@@ -363,6 +364,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "ipecho_out",   "ipecho_out",   4UL,                                      0UL,                           1UL );
 
   /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", fd_ulong_pow2_up( config->firedancer.runtime.max_total_banks * FD_REPLAY_TOWER_VOTE_ACC_MAX ), sizeof(fd_replay_tower_t), 1UL );
+  /**/                 fd_topob_link( topo, "tower_replay", "tower_replay", 4UL, sizeof(fd_hash_t), 1UL );
 
   FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
   /**/                 fd_topob_link( topo, "gossip_gossv", "gossip_gossv", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL );
@@ -624,13 +626,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "repair",  0UL,                       "repair_net",    0UL                                                  );
 
   /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "gossip_out",   0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "replay_tower", 0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
   if( !disable_snap_loader ) {
                        fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "snap_out",     0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   }
+  /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_replay", 0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "root_out",     0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_send",   0UL                                                   );
-
-  /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "replay_tower", 0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
 
   /**/                 fd_topob_tile_out( topo, "ipecho", 0UL,                        "ipecho_out",   0UL                                                   );
   FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",  i,             "metric_in", "ipecho_out",   0UL,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
@@ -681,6 +683,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                    ); /* TODO check order in fd_replay.c macros*/
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
+  /**/                 fd_topob_tile_in ( topo, "replay", 0UL,          "metric_in",  "tower_replay", 0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
 
   FOR(exec_tile_cnt)   fd_topob_tile_in(  topo, "exec",    i,            "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "exec",    i,                         "exec_writer",  i                                                     );
