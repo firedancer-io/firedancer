@@ -211,7 +211,6 @@ echo "
 " >> $DUMP_DIR/${LEDGER}_backtest.toml
 
 echo "Running backtest for $LEDGER"
-sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
