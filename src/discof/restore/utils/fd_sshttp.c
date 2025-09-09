@@ -377,11 +377,16 @@ read_body( fd_sshttp_t * http,
 }
 
 void
-fd_sshttp_snapshot_names( fd_sshttp_t * http,
-                         char const **  full_snapshot_name,
-                         char const **  incremental_snapshot_name ) {
+fd_sshttp_snapshot_names( fd_sshttp_t const * http,
+                          char const **       full_snapshot_name,
+                          char const **       incremental_snapshot_name ) {
   *full_snapshot_name        = http->full_snapshot_name;
   *incremental_snapshot_name = http->incremental_snapshot_name;
+}
+
+ulong
+fd_sshttp_content_len( fd_sshttp_t const * http ) {
+  return http->content_len;
 }
 
 int

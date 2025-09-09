@@ -24,11 +24,13 @@ fd_sshttp_new( void * shmem );
 fd_sshttp_t *
 fd_sshttp_join( void * sshttp );
 
-/* Sets points to snapshot names */
 void
-fd_sshttp_snapshot_names( fd_sshttp_t * http,
-                         char const **  full_snapshot_name,
-                         char const **  incremental_snapshot_name );
+fd_sshttp_snapshot_names( fd_sshttp_t const * http,
+                          char const **       full_snapshot_name,
+                          char const **       incremental_snapshot_name );
+
+ulong
+fd_sshttp_content_len( fd_sshttp_t const * http );
 
 void
 fd_sshttp_init( fd_sshttp_t * http,

@@ -281,7 +281,7 @@ user = ""
     # newly downloaded snapshots will replace ones that are already
     # present.
     #
-    # TODO: implement the "at most one downloaded " logic. "
+    # TODO: implement the "at most one downloaded" logic. "
     download = true
 
     # A snapshot hash must be published in gossip by one of the

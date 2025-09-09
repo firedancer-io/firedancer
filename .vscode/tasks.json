@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build-firedancer-dev",
+            "type": "shell",
+            "command": "make",
+            "args": [
+                "-j",
+                "firedancer-dev"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "silent",
+                "close": true,
+                "clear": true,
+                "focus": false,
+                "panel": "shared",
+                "group": "build",
+                "revealProblems": "onProblem",
+                "showReuseMessage": false,
+            },
+            "problemMatcher": []
+        }
+    ]
+}
