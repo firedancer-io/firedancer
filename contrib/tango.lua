@@ -178,7 +178,8 @@ local link_hashes = {
   [0x8ebf3e] = "bundle_plugi",
   [0x06c577] = "pack_sign",
   [0x6a974e] = "sign_pack",
-  [0x2080d6] = "bank_pack"
+  [0x2080d6] = "bank_pack",
+  [0x534f91] = "pack_poh"
 }
 
 
@@ -219,7 +220,7 @@ function tango.dissector (tvb, pinfo, tree)
   if link_name == "net_netmux" or link_name == "quic_netmux" or link_name == "shred_netmux" or link_name == "net_quic" or link_name == "quic_net" or link_name == "shred_net" or link_name == "net_shred" then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or "quic_verify" or link_name == "gossip_verif" or link_name == "send_txns" or link_name == "gossip_dedup" then
+  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "send_txns" or link_name == "gossip_dedup" then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_shred" then
@@ -261,6 +262,11 @@ function tango.dissector (tvb, pinfo, tree)
   elseif link_name == "poh_pack" then
     local dissector = Dissector.get("fd_became_leader_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
+  elseif link_name == "pack_poh" then
+    if dcache_contents:len() ~= 0 then
+      local dissector = Dissector.get("fd_done_packing_t")
+      dissector:call(dcache_contents, pinfo, dcache_tree)
+    end
   end
 end
 
@@ -529,6 +535,19 @@ function fd_became_leader.dissector(buffer, pinfo, tree)
   subtree:add_le(f_bank_ptr, buffer(16, 8))
   subtree:add_le(f_max_microblocks_in_slot, buffer(24, 8))
   subtree:add_le(f_ticks_per_slot, buffer(32, 8))
+end
+
+
+-- Define a new protocol
+local fd_done_packing = Proto("fd_done_packing_t", "FD Pack to PoH Done Packing Message")
+
+local f_microblocks_in_slot = ProtoField.uint64("fd_done_packing_t.microblocks_in_slot", "Microblocks in slot")
+
+fd_done_packing.fields = { f_microblocks_in_slot }
+
+function fd_done_packing.dissector(buffer, pinfo, tree)
+  local subtree = tree:add(fd_done_packing, buffer(), "fd_done_packing_t")
+  subtree:add_le(f_microblocks_in_slot, buffer(0, 8))
 end
 
 

@@ -349,10 +349,9 @@ fd_pcap_iter_next_split( fd_pcap_iter_t * iter,
 
 #define FD_PCAP_SNAPLEN (USHORT_MAX + 64UL + 4UL)
 
-ulong
-fd_pcap_fwrite_hdr( void * file,
-                    uint   link_layer_type ) {
-  fd_pcap_hdr_t hdr[1];
+static void
+fd_pcap_write_hdr( fd_pcap_hdr_t * hdr,
+                   uint            link_layer_type ) {
   hdr->magic_number  = 0xa1b23c4dU;
   hdr->version_major = (ushort)2;
   hdr->version_minor = (ushort)4;
@@ -360,7 +359,64 @@ fd_pcap_fwrite_hdr( void * file,
   hdr->sigfigs       = 0U;
   hdr->snaplen       = (uint)FD_PCAP_SNAPLEN;
   hdr->network       = link_layer_type;
+}
+
+ulong
+fd_pcap_fwrite_hdr( void * file,
+                    uint   link_layer_type ) {
+  fd_pcap_hdr_t hdr[1];
+  fd_pcap_write_hdr( hdr, link_layer_type );
   return fwrite( hdr, sizeof(fd_pcap_hdr_t), 1UL, (FILE *)file );
+}
+
+int
+fd_pcap_ostream_hdr( fd_io_buffered_ostream_t * out,
+                     uint                       link_layer_type ) {
+  fd_pcap_hdr_t hdr[1];
+  fd_pcap_write_hdr( hdr, link_layer_type );
+  return fd_io_buffered_ostream_write( out, hdr, sizeof(fd_pcap_hdr_t) );
+}
+
+long
+fd_pcap_pkt_sz( ulong hdr_sz,
+                ulong payload_sz ) {
+  ulong pkt_sz = hdr_sz + payload_sz;
+  if( FD_UNLIKELY( ( (pkt_sz<hdr_sz) /* overflow */                                    |
+                     (pkt_sz>(FD_PCAP_SNAPLEN-sizeof(fd_pcap_pkt_hdr_t)-sizeof(uint))) ) ) ) {
+    FD_LOG_WARNING(( "packet size too large for pcap" ));
+    return -1;
+  }
+  pkt_sz += sizeof(fd_pcap_pkt_hdr_t) + sizeof(uint);
+  return (long)pkt_sz;
+}
+
+long
+fd_pcap_pkt( void *       out,
+             long         ts,
+             void const * _hdr,
+             ulong        hdr_sz,
+             void const * _payload,
+             ulong        payload_sz,
+             uint         _fcs ) {
+  long pkt_sz = fd_pcap_pkt_sz( hdr_sz, payload_sz );
+  if( FD_UNLIKELY( pkt_sz < 0 ) ) return -1;
+
+  uchar * p = out;
+  fd_pcap_pkt_hdr_t * pcap    = (fd_pcap_pkt_hdr_t *)p; p += sizeof(fd_pcap_pkt_hdr_t);
+  uchar *             hdr     = (uchar *            )p; p += hdr_sz;
+  uchar *             payload = (uchar *            )p; p += payload_sz;
+  uint *              fcs     = (uint *             )p; p += sizeof(uint);
+
+  pcap->sec      = (uint)(((ulong)ts) / (ulong)1e9);
+  pcap->usec     = (uint)(((ulong)ts) % (ulong)1e9); /* Actually nsec */
+  pcap->incl_len = (uint)( (ulong)pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
+  pcap->orig_len = (uint)( (ulong)pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
+
+  fd_memcpy( hdr,     _hdr,     hdr_sz     );
+  fd_memcpy( payload, _payload, payload_sz );
+  fcs[0] = _fcs;
+
+  return pkt_sz;
 }
 
 ulong
@@ -371,34 +427,39 @@ fd_pcap_fwrite_pkt( long         ts,
                     ulong        payload_sz,
                     uint         _fcs,
                     void *       file ) {
-
-  ulong pkt_sz = hdr_sz + payload_sz;
-  if( FD_UNLIKELY( ( (pkt_sz<hdr_sz) /* overflow */                                    |
-                     (pkt_sz>(FD_PCAP_SNAPLEN-sizeof(fd_pcap_pkt_hdr_t)-sizeof(uint))) ) ) ) {
-    FD_LOG_WARNING(( "packet size too large for pcap" ));
-    return 0UL;
-  }
-  pkt_sz += sizeof(fd_pcap_pkt_hdr_t) + sizeof(uint);
-
   uchar pkt[ FD_PCAP_SNAPLEN ];
+  long pkt_sz = fd_pcap_pkt( pkt, ts, _hdr, hdr_sz, _payload, payload_sz, _fcs );
+  if( FD_UNLIKELY( pkt_sz < 0 ) ) return 0UL;
+  if( FD_UNLIKELY( fwrite( pkt, (ulong)pkt_sz, 1UL, (FILE *)file )!=1UL ) ) { FD_LOG_WARNING(( "fwrite failed" )); return 0UL; }
+  return 1UL;
+}
 
-  uchar * p = pkt;
-  fd_pcap_pkt_hdr_t * pcap    = (fd_pcap_pkt_hdr_t *)p; p += sizeof(fd_pcap_pkt_hdr_t);
-  uchar *             hdr     = (uchar *            )p; p += hdr_sz;
-  uchar *             payload = (uchar *            )p; p += payload_sz;
-  uint *              fcs     = (uint *             )p; p += sizeof(uint);
+int
+fd_pcap_ostream_pkt( fd_io_buffered_ostream_t * out,
+                     long                       ts,
+                     void const *               _hdr,
+                     ulong                      hdr_sz,
+                     void const *               _payload,
+                     ulong                      payload_sz,
+                     uint                       _fcs ) {
+  long pkt_sz = fd_pcap_pkt_sz( hdr_sz, payload_sz );
+  if( FD_UNLIKELY( pkt_sz < 0 ) ) return EINVAL;
 
+  fd_pcap_pkt_hdr_t pcap[1];
   pcap->sec      = (uint)(((ulong)ts) / (ulong)1e9);
   pcap->usec     = (uint)(((ulong)ts) % (ulong)1e9); /* Actually nsec */
-  pcap->incl_len = (uint)( pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
-  pcap->orig_len = (uint)( pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
+  pcap->incl_len = (uint)( (ulong)pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
+  pcap->orig_len = (uint)( (ulong)pkt_sz - sizeof(fd_pcap_pkt_hdr_t) );
 
-  fd_memcpy( hdr,     _hdr,     hdr_sz     );
-  fd_memcpy( payload, _payload, payload_sz );
-  fcs[0] = _fcs;
-
-  if( FD_UNLIKELY( fwrite( pkt, pkt_sz, 1UL, (FILE *)file )!=1UL ) ) { FD_LOG_WARNING(( "fwrite failed" )); return 0UL; }
-  return 1UL;
+  int ret = fd_io_buffered_ostream_write( out, pcap, sizeof(fd_pcap_pkt_hdr_t) );
+  if( FD_UNLIKELY( ret != 0 ) ) return ret;
+  ret = fd_io_buffered_ostream_write( out, _hdr, hdr_sz );
+  if( FD_UNLIKELY( ret != 0 ) ) return ret;
+  ret = fd_io_buffered_ostream_write( out, _payload, payload_sz );
+  if( FD_UNLIKELY( ret != 0 ) ) return ret;
+  ret = fd_io_buffered_ostream_write( out, &_fcs, sizeof(uint) );
+  if( FD_UNLIKELY( ret != 0 ) ) return ret;
+  return 0;
 }
 
 #else
