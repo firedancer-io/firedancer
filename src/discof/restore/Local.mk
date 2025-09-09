@@ -23,3 +23,4 @@ endif
 $(call add-objs,utils/fd_ssping,fd_discof)
 $(call add-objs,utils/fd_sshttp,fd_discof)
 $(call add-objs,utils/fd_ssarchive,fd_discof)
+$(call add-objs,utils/fd_ssresolve,fd_discof)
