@@ -106,6 +106,7 @@ struct fd_rpc_history {
   ulong latest_slot;
   int file_fd;
   ulong file_totsz;
+  int include_votes;
 };
 
 fd_rpc_history_t *
@@ -134,6 +135,8 @@ fd_rpc_history_create(fd_rpcserver_args_t * args) {
   hist->file_fd = open( args->history_file, O_CREAT | O_RDWR | O_TRUNC, 0644 );
   if( hist->file_fd == -1 ) FD_LOG_ERR(( "unable to open rpc history file: %s", args->history_file ));
   hist->file_totsz = 0;
+
+  hist->include_votes = args->include_votes;
 
   return hist;
 }
@@ -215,6 +218,21 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
         }
         fd_txn_t * txn = (fd_txn_t *)txn_out;
 
+        fd_pubkey_t * accs = (fd_pubkey_t *)((uchar *)raw + txn->acct_addr_off);
+        if( !hist->include_votes ) {
+          int skip_txn = 0;
+          for( ulong i = 0UL; i < txn->acct_addr_cnt; i++ ) {
+            if( !memcmp(&accs[i], fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
+              skip_txn = 1;
+              break;
+            }
+          }
+          if( skip_txn ) {
+            blockoff += pay_sz;
+            continue;
+          }
+        }
+
         /* Loop across signatures */
         fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)(raw + txn->signature_off);
         for ( uchar j = 0; j < txn->signature_cnt; j++ ) {
@@ -247,7 +265,6 @@ fd_rpc_history_scan_block(fd_rpc_history_t * hist, ulong slot, ulong file_offset
         /* Loop across accounts */
         fd_rpc_txn_key_t sig0;
         memcpy(&sig0, (const uchar*)sigs, sizeof(sig0));
-        fd_pubkey_t * accs = (fd_pubkey_t *)((uchar *)raw + txn->acct_addr_off);
         for( ulong i = 0UL; i < txn->acct_addr_cnt; i++ ) {
           if( !memcmp(&accs[i], fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) continue; /* Ignore votes */
 

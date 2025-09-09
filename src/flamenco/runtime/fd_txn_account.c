@@ -51,9 +51,9 @@ fd_txn_account_new( void *              mem,
     return NULL;
   }
 
-  txn_account->meta              = meta;
-  txn_account->data              = data;
-  txn_account->is_mutable        = is_mutable;
+  txn_account->meta       = meta;
+  txn_account->data       = data;
+  txn_account->is_mutable = is_mutable;
 
   return mem;
 }

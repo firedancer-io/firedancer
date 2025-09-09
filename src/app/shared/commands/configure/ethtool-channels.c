@@ -3,16 +3,14 @@
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <sys/ioctl.h>
 #include <sys/stat.h>
-#include <linux/if.h>
-#include <linux/ethtool.h>
-#include <linux/sockios.h>
+
+#include "fd_ethtool_ioctl.h"
 
 #define NAME "ethtool-channels"
 
 static int
-enabled( config_t const * config ) {
+enabled( fd_config_t const * config ) {
 
   /* if we're running in a network namespace, we configure ethtool on
      the virtual device as part of netns setup, not here */
@@ -25,13 +23,19 @@ enabled( config_t const * config ) {
 }
 
 static void
-init_perm( fd_cap_chk_t *   chk,
-           config_t const * config FD_PARAM_UNUSED ) {
-  fd_cap_chk_root( chk, NAME, "increase network device channels with `ethtool --set-channels`" );
+init_perm( fd_cap_chk_t *      chk,
+           fd_config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, NAME, "modify network device configuration with ethtool" );
+}
+
+static void
+fini_perm( fd_cap_chk_t *      chk,
+           fd_config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, NAME, "modify network device configuration with ethtool" );
 }
 
 static int
-device_is_bonded( const char * device ) {
+device_is_bonded( char const * device ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding", device ) );
   struct stat st;
@@ -43,7 +47,7 @@ device_is_bonded( const char * device ) {
 }
 
 static void
-device_read_slaves( const char * device,
+device_read_slaves( char const * device,
                     char         output[ 4096 ] ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "/sys/class/net/%s/bonding/slaves", device ) );
@@ -63,61 +67,61 @@ device_read_slaves( const char * device,
 }
 
 static void
-init_device( const char * device,
-             uint         combined_channel_count ) {
-  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
-  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
+init_device( char const *        device,
+             fd_config_t const * config ) {
+  fd_ethtool_ioctl_t ioc;
+  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device, unable to init ethtool ioctl" ));
 
-  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) )
-    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-
-  struct ethtool_channels channels = {0};
-  channels.cmd = ETHTOOL_GCHANNELS;
-
-  struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, device, IF_NAMESIZE-1 );
-  ifr.ifr_data = (void *)&channels;
-
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) )
-    FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
-
-  channels.cmd = ETHTOOL_SCHANNELS;
-  if( channels.max_combined ) {
-    channels.combined_count = combined_channel_count;
-    channels.rx_count       = 0;
-    channels.tx_count       = 0;
-    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s combined %u`", device, combined_channel_count ));
+  uint num_channels;
+  if( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) ) {
+    num_channels = config->layout.net_tile_count;
   } else {
-    channels.combined_count = 0;
-    channels.rx_count       = combined_channel_count;
-    channels.tx_count       = combined_channel_count;
-    FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", device, combined_channel_count, combined_channel_count ));
+    num_channels = 0; /* maximum allowed */
   }
-
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
-    if( FD_LIKELY( errno == EBUSY ) )
+  int ret = fd_ethtool_ioctl_channels_set_num( &ioc, num_channels );
+  if( FD_UNLIKELY( ret != 0 ) ) {
+    if( FD_LIKELY( ret == EBUSY ) )
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s). "
                    "This is most commonly caused by an issue with the Intel ice driver on certain versions "
                    "of Ubuntu.  If you are using the ice driver, `sudo dmesg | grep %s` contains "
                    "messages about RDMA, and you do not need RDMA, try running `rmmod irdma` and/or "
                    "blacklisting the irdma kernel module.",
-                   errno, fd_io_strerror( errno ), device ));
+                   ret, fd_io_strerror( ret ), device ));
     else
       FD_LOG_ERR(( "error configuring network device, ioctl(SIOCETHTOOL,ETHTOOL_SCHANNELS) failed (%i-%s)",
-                   errno, fd_io_strerror( errno ) ));
+                   ret, fd_io_strerror( ret ) ));
   }
 
+  if( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) {
+    if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
+      FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
 
-  if( FD_UNLIKELY( close( sock ) ) )
-    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    /* Remove queue 0 from the rxfh table.  This queue is dedicated for xdp. */
+    FD_TEST( 0==fd_ethtool_ioctl_rxfh_set_suffix( &ioc, 1 ) );
+
+    /* FIXME Centrally define listen port list to avoid this configure
+       stage from going out of sync with port mappings. */
+    uint rule_idx = 0;
+    FD_TEST( 0==fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_clear( &ioc ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.shred.shred_listen_port, 0 ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.quic_transaction_listen_port, 0 ) );
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.quic.regular_transaction_listen_port, 0 ) );
+    if( config->is_firedancer ) {
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->gossip.port, 0 ) );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_intake_listen_port, 0 ) );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.repair.repair_serve_listen_port, 0 ) );
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_set_udp_dport( &ioc, rule_idx++, config->tiles.send.send_src_port, 0 ) );
+    }
+  }
+
+  fd_ethtool_ioctl_fini( &ioc );
 }
 
 static void
-init( config_t const * config ) {
-  /* we need one channel for both TX and RX on the NIC for each QUIC
+init( fd_config_t const * config ) {
+  /* we need one channel for both TX and RX on the NIC for each net
      tile, but the interface probably defaults to one channel total */
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     /* if using a bonded device, we need to set channels on the
@@ -126,94 +130,169 @@ init( config_t const * config ) {
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      init_device( token, config->layout.net_tile_count );
+      init_device( token, config );
     }
   } else {
-    init_device( config->net.interface, config->layout.net_tile_count );
+    init_device( config->net.interface, config );
   }
 }
 
 static configure_result_t
-check_device( const char * device,
-              uint         expected_channel_count ) {
-  if( FD_UNLIKELY( strlen( device ) >= IF_NAMESIZE ) ) FD_LOG_ERR(( "device name `%s` is too long", device ));
-  if( FD_UNLIKELY( strlen( device ) == 0 ) ) FD_LOG_ERR(( "device name `%s` is empty", device ));
+check_device( char const * device,
+              fd_config_t const * config ) {
+  fd_ethtool_ioctl_t ioc;
+  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device, unable to init ethtool ioctl" ));
 
-  int sock = socket( AF_INET, SOCK_DGRAM, 0 );
-  if( FD_UNLIKELY( sock < 0 ) )
-    FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",
-                 errno, fd_io_strerror( errno ) ));
+  fd_ethtool_ioctl_channels_t channels;
+  FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
 
-  struct ethtool_channels channels = {0};
-  channels.cmd = ETHTOOL_GCHANNELS;
+  if( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) ) {
+    fd_ethtool_ioctl_fini( &ioc );
+    if( FD_UNLIKELY( channels.current != config->layout.net_tile_count ) ) {
+      if( FD_UNLIKELY( !channels.supported ) ) {
+        FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
+                     "but you are running with more than one net tile (expected {%u}), "
+                     "and there must be one channel per tile. You can either use a NIC "
+                     "that supports multiple channels, or run Firedancer with only one "
+                     "net tile. You can configure Firedancer to run with only one net "
+                     "tile by setting `layout.net_tile_count` to 1 in your "
+                     "configuration file.",
+                     device, config->layout.net_tile_count ));
+      } else {
+        NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
+                        "expected %u)",
+                        device, channels.current, config->layout.net_tile_count );
+      }
+    }
+    CONFIGURE_OK();
+  } else {
+    int error = 0;    /* is anything not fully configured */
+    int modified = 0; /* is anything changed from the default (fini'd) state */
 
-  struct ifreq ifr = {0};
-  strncpy( ifr.ifr_name, device, IF_NAMESIZE );
-  ifr.ifr_name[ IF_NAMESIZE - 1 ] = '\0'; // silence linter, not needed for correctness
-  ifr.ifr_data = (void *)&channels;
+    if( FD_UNLIKELY( channels.current != channels.max ) ) {
+      error = 1;
+      modified = 1;
+      FD_LOG_WARNING(( "device `%s` does not have right number of channels (got %u but "
+                       "expected %u)",
+                       device, channels.current, channels.max ));
+    }
 
-  int  supports_channels = 1;
-  uint current_channels  = 0;
-  if( FD_UNLIKELY( ioctl( sock, SIOCETHTOOL, &ifr ) ) ) {
-    if( FD_LIKELY( errno == EOPNOTSUPP ) ) {
-      /* network device doesn't support setting number of channels, so
-         it must always be 1 */
-      supports_channels = 0;
-      current_channels  = 1;
+    uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ] = { 0 };
+    uint rxfh_table_size;
+    FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_size ) );
+    int rxfh_error = 0;
+    uint default_queue = 0;
+    uint configured_queue = 1; /* If properly configured the 0th queue is excluded */
+    for( uint j=0u; j<rxfh_table_size; j++) {
+      modified   |= (rxfh_table[ j ] != default_queue++);
+      rxfh_error |= (rxfh_table[ j ] != configured_queue++);
+      if( default_queue >= channels.current )
+        default_queue = 0;
+      if( configured_queue >= channels.current )
+        configured_queue = 1;
+    }
+    if( FD_UNLIKELY( rxfh_error ) ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` does not have the correct rxfh table installed", device ));
+    }
+
+    int ntuple_feature_active;
+    FD_TEST( 0==fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, &ntuple_feature_active ) );
+    if( !ntuple_feature_active ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` has incorrect ntuple feature flag, should be enabled", device ));
+    }
+
+    int ntuple_rules_empty;
+    FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty ) );
+    if( ntuple_rules_empty ) {
+      error = 1;
+      FD_LOG_WARNING(( "device `%s` is missing ntuple rules", device ));
     } else {
-      FD_LOG_ERR(( "error configuring network device `%s`, ioctl(SIOCETHTOOL,ETHTOOL_GCHANNELS) failed (%i-%s)",
-                   device, errno, fd_io_strerror( errno ) ));
+      modified = 1;
+
+      /* FIXME Centrally define listen port list to avoid this configure
+         stage from going out of sync with port mappings. */
+      uint num_ports = 0;
+      ushort ports[ 32 ];
+      ports[ num_ports++ ] = config->tiles.shred.shred_listen_port;
+      ports[ num_ports++ ] = config->tiles.quic.quic_transaction_listen_port;
+      ports[ num_ports++ ] = config->tiles.quic.regular_transaction_listen_port;
+      if( config->is_firedancer ) {
+        ports[ num_ports++ ] = config->gossip.port;
+        ports[ num_ports++ ] = config->tiles.repair.repair_intake_listen_port;
+        ports[ num_ports++ ] = config->tiles.repair.repair_serve_listen_port;
+        ports[ num_ports++ ] = config->tiles.send.send_src_port;
+      }
+      int ports_valid;
+      FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, ports, num_ports, 0, &ports_valid ));
+      if( FD_UNLIKELY( !ports_valid ) ) {
+        error = 1;
+        FD_LOG_WARNING(( "device `%s` has incorrect ntuple rules", device ));
+      }
     }
+
+    fd_ethtool_ioctl_fini( &ioc );
+
+    if( !error )
+      CONFIGURE_OK();
+    if( modified )
+      PARTIALLY_CONFIGURED( "device `%s` has partial ethtool-channels network configuration", device );
+    NOT_CONFIGURED( "device `%s` missing ethtool-channels network configuration", device );
   }
-
-  if( FD_UNLIKELY( close( sock ) ) )
-    FD_LOG_ERR(( "error configuring network device, close() socket failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  if( channels.combined_count ) {
-    current_channels = channels.combined_count;
-  } else if( channels.rx_count || channels.tx_count ) {
-    if( FD_UNLIKELY( channels.rx_count != channels.tx_count ) ) {
-      NOT_CONFIGURED( "device `%s` has unbalanced channel count: (got %u rx, %u tx, expected %u)",
-                      device, channels.rx_count, channels.tx_count, expected_channel_count );
-    }
-    current_channels = channels.rx_count;
-  }
-
-  if( FD_UNLIKELY( current_channels != expected_channel_count ) ) {
-    if( FD_UNLIKELY( !supports_channels ) ) {
-      FD_LOG_ERR(( "Network device `%s` does not support setting number of channels, "
-                   "but you are running with more than one net tile (expected {%u}), "
-                   "and there must be one channel per tile. You can either use a NIC "
-                   "that supports multiple channels, or run Firedancer with only one "
-                   "net tile. You can configure Firedancer to run with only one QUIC "
-                   "tile by setting `layout.net_tile_count` to 1 in your "
-                   "configuration file. It is not recommended to do this in production "
-                   "as it will limit network performance.",
-                   device, expected_channel_count ));
-    } else {
-      NOT_CONFIGURED( "device `%s` does not have right number of channels (got %u but "
-                      "expected %u)",
-                      device, current_channels, expected_channel_count );
-    }
-  }
-
-  CONFIGURE_OK();
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( fd_config_t const * config ) {
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line, " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      CHECK( check_device( token, config->layout.net_tile_count ) );
+      CHECK( check_device( token, config ) );
     }
   } else {
-    CHECK( check_device( config->net.interface, config->layout.net_tile_count ) );
+    CHECK( check_device( config->net.interface, config ) );
   }
 
   CONFIGURE_OK();
+}
+
+static void
+fini_device( char const *        device,
+             fd_config_t const * config ) {
+  if( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) )
+    return;
+
+  fd_ethtool_ioctl_t ioc;
+  if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
+    FD_LOG_ERR(( "error configuring network device, unable to init ethtool ioctl" ));
+
+  /* This should happen first, otherwise changing the number of channels may fail */
+  fd_ethtool_ioctl_rxfh_set_default( &ioc );
+
+  fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
+
+  /* Note: We leave the ntuple feature flag as-is in fini */
+  fd_ethtool_ioctl_ntuple_clear( &ioc );
+
+  fd_ethtool_ioctl_fini( &ioc );
+}
+
+static void
+fini( fd_config_t const * config,
+      int                 pre_init FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
+    char line[ 4096 ];
+    device_read_slaves( config->net.interface, line );
+    char * saveptr;
+    for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
+      fini_device( token, config );
+    }
+  } else {
+    fini_device( config->net.interface, config );
+  }
 }
 
 configure_stage_t fd_cfg_stage_ethtool_channels = {
@@ -221,9 +300,9 @@ configure_stage_t fd_cfg_stage_ethtool_channels = {
   .always_recreate = 0,
   .enabled         = enabled,
   .init_perm       = init_perm,
-  .fini_perm       = NULL,
+  .fini_perm       = fini_perm,
   .init            = init,
-  .fini            = NULL,
+  .fini            = fini,
   .check           = check,
 };
 

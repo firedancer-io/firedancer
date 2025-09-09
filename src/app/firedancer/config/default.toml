@@ -281,7 +281,7 @@ user = ""
     # newly downloaded snapshots will replace ones that are already
     # present.
     #
-    # TODO: implement the "at most one downloaded " logic. "
+    # TODO: implement the "at most one downloaded" logic. "
     download = true
 
     # A snapshot hash must be published in gossip by one of the
@@ -324,11 +324,6 @@ user = ""
     # completing snapshot download.
     maximum_download_retry_abort = 5
 
-    # The cluster to download snapshots from.  This is a temporary
-    # config option that will be removed once the snapshot tiles
-    # are integrated with gossip
-    cluster = "testnet"
-
     # Controls how many full snapshots are allowed to be kept in the
     # snapshots directory on disk.
     #
@@ -337,6 +332,46 @@ user = ""
     # will be deleted, oldest snapshot slot first.
     max_full_snapshots_to_keep = 1
     max_incremental_snapshots_to_keep = 1
+
+    # Controls for where we look to find snapshots.  If multiple sources
+    # and peers are available, the one with the lowest latency and
+    # fastest download will be automatically selected among them.
+    #
+    # Somtimes, if a slightly slower peer is serving a newer snapshot
+    # than a faster peer, the slower peer will be selected if it will
+    # enable full validator startup to complete earlier, due to reduced
+    # catchup time once the snapshot is loaded.
+    #
+    # Snapshot download is hard to trust, as the protocol has no way to
+    # fully verify the downloaded contents (snapshots are not signed or
+    # fully validated).  If your node downloads a snapshot from an
+    # untrusted or compromised peer, it may initially appear to
+    # validate and work well, but could later crash, corrupt, or cause
+    # your node to vote incorrectly in an attacker controlled way.
+    #
+    # It is strongly recommended to only fetch snapshots from peers that
+    # you highly trust, and this is the default behavior of the
+    # configuration.
+    [snapshots.sources]
+        # If any HTTP peers are listed, the following paths will be
+        # fetched from these peers to determine if they have a snapshot
+        # available:
+        #
+        #  /snapshot.tar.bz2
+        #  /incremental-snapshot.tar.bz2
+        #
+        # If these peers have snapshots at the given paths, they will be
+        # considered as additional sources for downloading snapshots
+        # when enabled alongside gossip and entrypoint sources.
+        [[snapshots.sources.http]]
+            # Whether to enable fetching snapshots from a list of
+            # HTTP peers.
+            enabled = false
+
+            # The url to fetch snapshots from.  The paths /snapshot.tar.bz2
+            # and /incremental-snapshot.tar.bz2 will be queried from this
+            # URL.
+            url = "http://example.com:1234"
 
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
@@ -405,50 +440,30 @@ user = ""
     lock_pages = true
 
 [runtime]
-    # Specifies the size in gigibytes of the runtime heap allocator.
-    #
-    # Persistent usages of the runtime heap include:
-    # - Epoch state (scales with number of vote and stake accounts)
-    # - Slot state (scale with number of vote accounts)
-    # - Sysvar cache (tiny)
-    #
-    # Notable temporary usages of the runtime heap include:
-    # - Computing a full/snapshot account hash (scales with number of
-    #   funk records / accounts)
-    # - Snapshot deserialize scratch space (~8 GiB)
-    # - Computing bank hashes
-    # - Distributing stake rewards
-    #
-    # Full Firedancer still lacks an ability to robustly scale above
-    # runtime heap allocations dynamically.  Thus, a conservative
-    # default is chosen below.
-    heap_size_gib = 50
+    max_rooted_slots = 300
+    max_live_slots = 2048
+    max_transactions_per_slot = 65536
+    snapshot_grace_period_seconds = 409
+    max_vote_accounts = 2000000
 
-    [runtime.limits]
-        max_rooted_slots = 300
-        max_live_slots = 2048
-        max_transactions_per_slot = 65536
-        snapshot_grace_period_seconds = 409
-        max_vote_accounts = 2000000
+    # max_total_banks and max_fork_width are parameters used to size
+    # out the total memory footprint of the bank in the runtime. The
+    # bank represents all of the in-memory state in the runtime that
+    # is not stored as an account. Examples of members of the bank
+    # are the total capitalization of the chain and the vote account
+    # states for previous epochs.
 
-        # max_total_banks and max_fork_width are parameters used to size
-        # out the total memory footprint of the bank in the runtime. The
-        # bank represents all of the in-memory state in the runtime that
-        # is not stored as an account. Examples of members of the bank
-        # are the total capitalization of the chain and the vote account
-        # states for previous epochs.
-
-        # max_total_banks specifies the maximum number of unrooted slots
-        # that the firedancer can support. This will define the max
-        # amount of time that the full firedancer client can stay up
-        # without falling over.
-        max_total_banks = 128
-        # max_fork_width specifies the maximum number of forks that will
-        # play through the same slot. Specifically, the maximum number
-        # of forks that will compute the epoch boundary. If the number
-        # of forks that play through the epoch boundary is greater than
-        # max_fork_width, the client will crash.
-        max_fork_width = 32
+    # max_total_banks specifies the maximum number of unrooted slots
+    # that the firedancer can support. This will define the max
+    # amount of time that the full firedancer client can stay up
+    # without falling over.
+    max_total_banks = 128
+    # max_fork_width specifies the maximum number of forks that will
+    # play through the same slot. Specifically, the maximum number
+    # of forks that will compute the epoch boundary. If the number
+    # of forks that play through the epoch boundary is greater than
+    # max_fork_width, the client will crash.
+    max_fork_width = 32
 
 # This section configures the "groove" persistent account database.
 # [groove]
@@ -899,6 +914,28 @@ user = ""
         # may improve throughput.
         flush_timeout_micros = 20
 
+        # RSS (RX hardware flow steering) queue mode
+        #
+        # Each XDP net tile services exactly one hardware queue.  Thus we
+        # must ensure the system routes all incoming Firedancer packets to
+        # the correct queue(s).  The queue setup and initialization has the
+        # following options:
+        #
+        # "simple" (default)
+        #   Reduces the total queue count to equal the number of net tiles.
+        #   All packets (both interesting to Firedancer and not) are sharded
+        #   amongst these queues.  Simple, reliable, and works everywhere
+        #   but suboptimal performance impact, especially to socket-based
+        #   traffic.
+        #
+        # "dedicated" (experimental)
+        #   Reserves a dedicated hardware queue for each net tile.  For
+        #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
+        #   to route interesting packets based on UDP dst port.  This mode
+        #   is considered experimental and may not work with some network
+        #   device setups. This should not yet be used in production.
+        rss_queue_mode = "simple"
+
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
         # Raises net.core.rmem_max accordingly
@@ -1280,8 +1317,25 @@ user = ""
     [tiles.replay]
         cluster_version =  "1.18.0"
 
-        # Maximum number of exec slices that can be buffered in the deque.
-        max_exec_slices = 65536
+        # Specifies the size in gigibytes of the replay heap allocator.
+        #
+        # Persistent usages of the replay heap include:
+        # - Epoch state (scales with number of vote and stake accounts)
+        # - Slot state (scale with number of vote accounts)
+        # - Sysvar cache (tiny)
+        #
+        # Notable temporary usages of the replay heap include:
+        # - In-memory allocations
+        # - Distributing stake rewards
+        #
+        # Full Firedancer still lacks an ability to robustly scale above
+        # runtime heap allocations dynamically.  Thus, a conservative
+        # default is chosen below.
+        #
+        # TODO: These will be replaced in favor of more granular
+        # per object allocations in the replay tile's context
+        heap_size_gib = 50
+
 
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other

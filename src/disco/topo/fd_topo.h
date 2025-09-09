@@ -348,11 +348,9 @@ struct fd_topo_tile {
 
       int   tx_metadata_storage;
       ulong funk_obj_id;
-      char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  shred_cap[ PATH_MAX ];
-      char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
       int   plugins_enabled;
@@ -371,14 +369,14 @@ struct fd_topo_tile {
 
       ulong enable_bank_hash_cmp;
 
-      ulong max_exec_slices;
-
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
 
       ulong manifest_dcache_obj_id;
+
+      ulong heap_size_gib;
     } replay;
 
     struct {
@@ -487,6 +485,7 @@ struct fd_topo_tile {
       ulong funk_obj_id;
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
+      char  ledger_path[PATH_MAX];
     } tower;
     struct {
       char   folder_path[ PATH_MAX ];
@@ -506,7 +505,6 @@ struct fd_topo_tile {
 
     struct {
       char  snapshots_path[ PATH_MAX ];
-      char  cluster[ 8UL ];
       int   incremental_snapshot_fetch;
       int   do_download;
       uint  maximum_local_snapshot_age;
@@ -514,6 +512,13 @@ struct fd_topo_tile {
       uint  maximum_download_retry_abort;
       uint  max_full_snapshots_to_keep;
       uint  max_incremental_snapshots_to_keep;
+
+      struct {
+        ulong         peers_cnt;
+        fd_ip4_port_t peers[ 16UL ];
+      } http;
+
+      int diagnostics;
     } snaprd;
 
     struct {

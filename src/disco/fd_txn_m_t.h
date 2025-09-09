@@ -93,6 +93,11 @@ fd_txn_m_payload( fd_txn_m_t * txnm ) {
   return (uchar *)(txnm+1UL);
 }
 
+static inline uchar const *
+fd_txn_m_payload_const( fd_txn_m_t const * txnm ) {
+  return (uchar const *)(txnm+1UL);
+}
+
 static inline fd_txn_t *
 fd_txn_m_txn_t( fd_txn_m_t * txnm ) {
   return (fd_txn_t *)fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) );

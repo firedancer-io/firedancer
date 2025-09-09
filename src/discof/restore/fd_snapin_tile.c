@@ -100,35 +100,13 @@ manifest_cb( void * _ctx ) {
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
-/* is_duplicate_account returns 1 if a newly encountered account
-   revision in an AppendVec is older than a previously seen revision. */
-
-static int
-is_duplicate_account( fd_snapin_tile_t * ctx,
-                      uchar const *      account_pubkey ) {
-  fd_accdb_meta_t meta[1];
-  int err = fd_accdb_read_meta( ctx->accdb, account_pubkey, meta );
-  if( FD_LIKELY( err==FD_ACCDB_ERR_KEY ) ) return 0; /* not duplicate */
-  if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_accdb_read_meta failed (%i-%s)", err, fd_accdb_strerror( err ) ));
-  }
-  return meta->slot > ctx->ssparse->accv_slot;
-}
-
 static void
 account_cb( void *                          _ctx,
             fd_solana_account_hdr_t const * hdr ) {
   fd_snapin_tile_t * ctx = (fd_snapin_tile_t*)_ctx;
-
-  if( FD_UNLIKELY( is_duplicate_account( ctx, hdr->meta.pubkey ) ) ) {
-    ctx->acc_data = NULL;
-    return;
-  }
-
-  /* Start an account data write */
-
   fd_accdb_rw_t * write = ctx->accdb_write;
   int err = fd_accdb_modify_prepare( ctx->accdb, write, hdr->meta.pubkey, hdr->meta.data_len );
+  /* FIXME check for duplicate */
   if( FD_UNLIKELY( err!=FD_ACCDB_SUCCESS ) ) {
     FD_LOG_ERR(( "fd_accdb_modify_prepare failed (%i-%s)", err, fd_accdb_strerror( err ) ));
   }
@@ -136,7 +114,7 @@ account_cb( void *                          _ctx,
   fd_accdb_ref_lamports_set( write, hdr->info.lamports      );
   fd_accdb_ref_owner_set   ( write, hdr->info.owner         );
   fd_accdb_ref_exec_bit_set( write, hdr->info.executable    );
-  ctx->acc_data = fd_accdb_ref_data_buf( write );
+  ctx->acc_data = fd_accdb_ref_data( write );
   ctx->metrics.accounts_inserted++;
 }
 

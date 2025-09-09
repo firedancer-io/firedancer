@@ -424,11 +424,11 @@
 #include "../ghost/fd_ghost.h"
 #include "../../disco/pack/fd_microblock.h"
 
-/* FD_TOWER_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
+/* FD_TOWER_PARANOID:  Define this to non-zero at compile time
+   to turn on additional runtime integrity checks. */
 
-#ifndef FD_TOWER_USE_HANDHOLDING
-#define FD_TOWER_USE_HANDHOLDING 1
+#ifndef FD_TOWER_PARANOID
+#define FD_TOWER_PARANOID 1
 #endif
 
 #define FD_TOWER_VOTE_MAX (31UL)
@@ -458,6 +458,62 @@ typedef struct fd_tower_vote fd_tower_vote_t;
    function signatures. */
 
 typedef fd_tower_vote_t fd_tower_t;
+
+/* fd_tower_sync_serde describes a serialization / deserialization
+   schema for a bincode-encoded TowerSync transaction.  The serde is
+   structured for zero-copy access ie. x-raying individual fields. */
+
+struct fd_tower_sync_serde /* CompactTowerSync */ {
+  ulong const * root;
+  struct /* short_vec */ {
+    ushort lockouts_cnt; /* variable-length so copied (ShortU16) */
+    struct /* Lockout */ {
+      ulong         offset; /* variable-length so copied (VarInt) */
+      uchar const * confirmation_count;
+    } lockouts[31];
+  };
+  fd_hash_t const * hash;
+  struct /* Option<UnixTimestamp> */ {
+    uchar const * timestamp_option;
+    long  const * timestamp;
+  };
+  fd_hash_t const * block_id;
+};
+typedef struct fd_tower_sync_serde fd_tower_sync_serde_t;
+
+/* fd_tower_serde describes a serialization / deserialization schema for
+   an Agave-compatible bincode encoding of a tower.  This corresponds
+   exactly with the binary layout of a tower file that Agave interfaces
+   with during boot, set-identity, and voting.
+
+   The serde is structured for zero-copy access ie. x-raying individual
+   fields. */
+
+struct fd_tower_serde /* SavedTowerVersions::Current */ {
+  uint const *             kind;
+  fd_ed25519_sig_t const * signature;
+  ulong const *            data_sz; /* serialized sz of data field below */
+  struct /* Tower1_14_11 */ {
+    fd_pubkey_t const *   node_pubkey;
+    ulong const *         threshold_depth;
+    double const *        threshold_size;
+    fd_voter_v2_serde_t   vote_state;
+    struct {
+      uint const *          last_vote_kind;
+      fd_tower_sync_serde_t last_vote;
+    };
+    struct /* BlockTimestamp */ {
+      ulong const * slot;
+      long const *  timestamp;
+    } last_timestamp;
+  } /* data */;
+};
+typedef struct fd_tower_serde fd_tower_serde_t;
+
+/* fd_tower_sign_fn is the signing callback used for signing tower
+   checkpoints after serialization. */
+
+typedef void (fd_tower_sign_fn)( void const * ctx, uchar * sig, uchar const * ser, ulong ser_sz );
 
 /* FD_TOWER_{ALIGN,FOOTPRINT} specify the alignment and footprint needed
    for tower.  ALIGN is double x86 cache line to mitigate various kinds
@@ -639,7 +695,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
       simulating a vote on our own tower the same way), then add
       validator's stake to threshold_stake.
 
-   return threshold_stake >= FD_TOWER_THRESHOLD_PCT
+   return threshold_stake >= FD_TOWER_THRESHOLD_RATIO
    ```
 
    The threshold check simulates voting for the current slot to expire
@@ -657,7 +713,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 /* fd_tower_reset_slot returns the slot to reset PoH to when building
    the next leader block.  Assumes tower and ghost are both valid local
    joins and in-sync ie. every vote slot in tower corresponds to a node
-   in ghost.  Returns FD_SLOT_NULL if this is not true.
+   in ghost.  There is always a reset slot (never returns ULONG_MAX).
 
    In general our reset slot is the fork head of our last vote slot, but
    there are 3 cases in which that doesn't apply:
@@ -679,6 +735,7 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
+                     fd_epoch_t const * epoch,
                      fd_ghost_t const * ghost );
 
 /* fd_tower_vote_slot returns the correct vote slot to pick given the
@@ -728,6 +785,25 @@ fd_tower_vote( fd_tower_t * tower, ulong slot );
 
 /* Misc */
 
+/* fd_tower_sync_serde populates serde using the provided tower and args
+   to create a zero-copy view of a TowerSync vote transaction payload
+   ready for serialization. */
+
+fd_tower_sync_serde_t *
+fd_tower_to_tower_sync( fd_tower_t const * tower, ulong root, fd_hash_t * bank_hash, fd_hash_t * block_id, long ts, fd_tower_sync_serde_t * ser );
+
+/* fd_tower_sync_serde populates serde using the provided tower and args
+   to create a zero-copy view of an Agave-compatible serialized Tower
+   ready for serialization. */
+
+fd_tower_serde_t *
+fd_tower_serde( fd_tower_t const *      tower,
+                ulong                   root,
+                fd_tower_sync_serde_t * last_vote,
+                uchar const             pvtkey[static 32],
+                uchar const             pubkey[static 32],
+                fd_tower_serde_t *      ser );
+
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes
    tower is a valid local join. */
@@ -742,6 +818,90 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
                       fd_pubkey_t const *   vote_authority,
                       fd_pubkey_t const *   vote_acc,
                       fd_txn_p_t *          vote_txn );
+
+/* fd_tower_checkpt bincode-serializes tower into the provided file
+   descriptor.  Returns 0 on success meaning the above has been
+   successfully written to fd, -1 if an error occurred during
+   checkpointing.  Assumes tower is non-empty and a valid local join of
+   the current tower, root is the current tower root, last_vote is the
+   serde of the last vote sent, pvtkey / pubkey is the validator
+   identity keypair, fd is a valid open file descriptor to write to, buf
+   is a buffer of at least buf_max bytes to serialize to and write from.
+
+   The binary layout of the file is compatible with Agave and specified
+   in bincode.  fd_tower_serde_t describes the schema.  Firedancer can
+   restore towers checkpointed by Agave (>=2.3.7) and vice versa.
+
+   IMPORTANT SAFETY TIP! No other process should be writing to either
+   the memory pointed by tower or the file pointed to by path while
+   fd_tower_checkpt is in progress. */
+
+int
+fd_tower_checkpt( fd_tower_t const *      tower,
+                  ulong                   root,
+                  fd_tower_sync_serde_t * last_vote,
+                  uchar const             pubkey[static 32],
+                  fd_tower_sign_fn *      sign_fn,
+                  int                     fd,
+                  uchar *                 buf,
+                  ulong                   buf_max );
+
+/* fd_tower_restore restores tower from the bytes pointed to by restore.
+   Returns 0 on success, -1 on error.  Assumes tower is a valid local
+   join of an empty tower, pubkey is the identity key of the validator
+   associated with the tower, and fd is a valid open file descriptor to
+   read from.  On return, the state of the tower, tower root and tower
+   timestamp as of the time the file was checkpointed will be restored
+   into tower, root and ts respectively. Any errors encountered during
+   restore are logged with as informative an error message as can be
+   contextualized before returning -1.
+
+   The binary layout of the file is compatible with Agave and specified
+   in bincode.  fd_tower_serde_t describes the schema.  Firedancer can
+   restore towers checkpointed by Agave (>=2.3.7) and vice versa.
+
+   IMPORTANT SAFETY TIP! No other process should be writing to either
+   the memory pointed by tower or the file pointed to by path while
+   fd_tower_restore is in progress. */
+
+int
+fd_tower_restore( fd_tower_t * tower,
+                  ulong *      root,
+                  long *       ts,
+                  uchar const  pubkey[static 32],
+                  int          fd,
+                  uchar *      buf,
+                  ulong        buf_max,
+                  ulong *      buf_sz );
+
+/* fd_tower_serialize serializes the provided serde into buf.  Returns 0
+   on success, -1 if an error is encountered during serialization.
+   Assumes serde is populated with valid local pointers to values to
+   serialize (NULL if a field should be skipped) and buf is at least as
+   large as the serialized size of ser.  Populates the number of bytes
+   serialized in buf_sz.
+
+   serde is a zero-copy view of the Agave-compatible bincode-encoding of
+   a tower.  See also the struct definition of fd_tower_serde_t. */
+
+int
+fd_tower_serialize( fd_tower_serde_t * ser,
+                    uchar *            buf,
+                    ulong              buf_max,
+                    ulong *            buf_sz );
+
+/* fd_tower_deserialize deserializes buf into serde.  Returns 0 on
+   success, -1 if an error is encountered during deserialization.  buf
+   must be at least as large as is required during bincode-decoding of
+   ser otherwise returns an error.
+
+   serde is a zero-copy view of the Agave-compatible bincode-encoding of
+   a tower.  See also the struct definition of fd_tower_serde_t. */
+
+int
+fd_tower_deserialize( uchar *            buf,
+                      ulong              buf_sz,
+                      fd_tower_serde_t * de );
 
 /* fd_tower_verify checks tower is in a valid state. Valid iff:
    - cnt < FD_TOWER_VOTE_MAX

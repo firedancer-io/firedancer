@@ -95,14 +95,13 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
   CFG_POP      ( bool,   funk.lock_pages                                     );
 
-  CFG_POP      ( ulong,  runtime.heap_size_gib                               );
-  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                     );
-  CFG_POP      ( ulong,  runtime.limits.max_live_slots                       );
-  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot            );
-  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds        );
-  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                    );
-  CFG_POP      ( ulong,  runtime.limits.max_total_banks                      );
-  CFG_POP      ( ulong,  runtime.limits.max_fork_width                       );
+  CFG_POP      ( ulong,  runtime.max_rooted_slots                            );
+  CFG_POP      ( ulong,  runtime.max_live_slots                              );
+  CFG_POP      ( ulong,  runtime.max_transactions_per_slot                   );
+  CFG_POP      ( ulong,  runtime.snapshot_grace_period_seconds               );
+  CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
+  CFG_POP      ( ulong,  runtime.max_total_banks                             );
+  CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
 
@@ -112,9 +111,11 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP_ARRAY( cstr,   snapshots.known_validators                          );
   CFG_POP      ( uint,   snapshots.minimum_download_speed_mib                );
   CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
-  CFG_POP      ( cstr,   snapshots.cluster                                   );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
+  CFG_POP_TABLE( bool,   snapshots.sources.http, snapshots.sources.http.peers, enabled, 0 );
+  CFG_POP_TABLE( cstr,   snapshots.sources.http, snapshots.sources.http.peers, url,     1 );
+  CFG_POP_TABLE_FINI( snapshots.sources.http );
 
   return config;
 }
@@ -181,6 +182,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
+  CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
@@ -259,7 +261,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
-  CFG_POP      ( ulong,  tiles.replay.max_exec_slices                     );
+  CFG_POP      ( ulong,  tiles.replay.heap_size_gib                       );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );

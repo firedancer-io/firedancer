@@ -2,9 +2,8 @@
 #define HEADER_fd_src_discof_replay_fd_exec_h
 
 #include "../../flamenco/fd_flamenco_base.h"
-#include "../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/stakes/fd_stakes.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 
@@ -16,23 +15,40 @@
    a dcache region and formats it as a specific message type. */
 
 static inline ulong
-generate_stake_weight_msg( fd_exec_slot_ctx_t *              slot_ctx,
-                           ulong                             epoch,
-                           fd_vote_states_t const *          vote_states,
-                           ulong *                           stake_weight_msg_out ) {
-  fd_stake_weight_msg_t *     stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t *    stake_weights    = stake_weight_msg->weights;
-  ulong                       staked_cnt       = fd_stake_weights_by_node( vote_states, stake_weights );
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+generate_stake_weight_msg( ulong                       epoch,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           fd_vote_states_t const *    epoch_stakes,
+                           ulong *                     stake_weight_msg_out ) {
+  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
 
-  stake_weight_msg->epoch          = epoch;
-  stake_weight_msg->staked_cnt     = staked_cnt;
-  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
-  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake = 0UL;
-  stake_weight_msg->vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( slot_ctx->bank );
+  stake_weight_msg->epoch             = epoch;
+  stake_weight_msg->staked_cnt        = fd_vote_states_cnt( epoch_stakes );
+  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake    = 0UL;
+  stake_weight_msg->vote_keyed_lsched = 1UL;
 
-  return fd_stake_weight_msg_sz( staked_cnt );
+  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
+     This code can be removed once the feature is active. */
+  if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
+      (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
+    stake_weight_msg->vote_keyed_lsched = 0UL;
+  }
+
+  /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
+  fd_vote_states_iter_t iter_[1];
+  ulong idx = 0UL;
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    stake_weights[ idx ].stake = vote_state->stake;
+    memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+    idx++;
+  }
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, fd_vote_states_cnt( epoch_stakes ) );
+
+  return fd_stake_weight_msg_sz( fd_vote_states_cnt( epoch_stakes ) );
 }
 
 static inline ulong
@@ -68,20 +84,6 @@ generate_stake_weight_msg_manifest( ulong                                       
   sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_len);
 
   return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
-}
-
-static inline void
-generate_hash_bank_msg( ulong                               task_infos_gaddr,
-                        ulong                               lt_hash_gaddr,
-                        ulong                               start_idx,
-                        ulong                               end_idx,
-                        ulong                               curr_slot,
-                        fd_runtime_public_hash_bank_msg_t * hash_msg_out ) {
-  hash_msg_out->task_infos_gaddr = task_infos_gaddr;
-  hash_msg_out->lthash_gaddr     = lt_hash_gaddr;
-  hash_msg_out->start_idx        = start_idx;
-  hash_msg_out->end_idx          = end_idx;
-  hash_msg_out->slot             = curr_slot;
 }
 
 /* Execution tracking helpers */
@@ -144,5 +146,68 @@ static inline int
 fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->last_batch && slice_exec_ctx->mblks_rem == 0 && slice_exec_ctx->txns_rem == 0;
 }
+
+/* Exec tile msg link formatting. The following take a pointer into
+   a dcache region and formats it as a specific message type. */
+
+/* definition of the public/readable workspace */
+#define EXEC_NEW_TXN_SIG         (0x777777UL)
+
+#define FD_WRITER_BOOT_SIG       (0xAABB0011UL)
+#define FD_WRITER_SLOT_SIG       (0xBBBB1122UL)
+#define FD_WRITER_TXN_SIG        (0xBBCC2233UL)
+
+#define FD_EXEC_STATE_NOT_BOOTED (0xFFFFFFFFUL)
+#define FD_EXEC_STATE_BOOTED     (1<<1UL      )
+
+#define FD_EXEC_ID_SENTINEL      (UINT_MAX    )
+
+/**********************************************************************/
+
+/* fd_exec_txn_msg_t is the message that is sent from the replay tile to
+   the exec tile.  This represents all of the information that is needed
+   to identify and execute a transaction against a bank.  An idx to the
+   bank in the bank pool must be sent over because the key of the bank
+   will change as FEC sets are processed. */
+
+struct fd_exec_txn_msg {
+  ulong      bank_idx;
+  fd_txn_p_t txn;
+};
+typedef struct fd_exec_txn_msg fd_exec_txn_msg_t;
+
+/* fd_exec_writer_boot_msg_t is the message sent from the exec tile to
+   the writer tile on boot.  This message contains the offset of the
+   txn_ctx in the tile's exec spad. */
+
+struct fd_exec_writer_boot_msg {
+  uint txn_ctx_offset;
+};
+typedef struct fd_exec_writer_boot_msg fd_exec_writer_boot_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_exec_writer_boot_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
+
+/* fd_exec_writer_txn_msg is the message sent from the exec tile to the
+   writer tile after a transaction has been executed.  This message
+   contains the id of the exec tile that executed the transaction. */
+
+struct fd_exec_writer_txn_msg {
+  uchar exec_tile_id;
+};
+typedef struct fd_exec_writer_txn_msg fd_exec_writer_txn_msg_t;
+FD_STATIC_ASSERT( sizeof(fd_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
+
+/* Writer->Replay message APIs ****************************************/
+
+#define FD_WRITER_REPLAY_SIG_TXN_DONE   (1UL) /* txn finalized */
+#define FD_WRITER_REPLAY_SIG_ACC_UPDATE (2UL) /* solcap account update */
+
+/* fd_writer_replay_txn_finalized_msg_t is the message sent from
+   writer tile to replay tile, notifying the replay tile that a txn has
+   been finalized. */
+
+struct __attribute__((packed)) fd_writer_replay_txn_finalized_msg {
+  int exec_tile_id;
+};
+typedef struct fd_writer_replay_txn_finalized_msg fd_writer_replay_txn_finalized_msg_t;
 
 #endif /* HEADER_fd_src_discof_replay_fd_exec_h */

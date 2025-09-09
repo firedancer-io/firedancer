@@ -3,6 +3,7 @@
 #include "../../choreo/fd_choreo_base.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_replay_notif.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
@@ -14,6 +15,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/gossip/fd_gossip.h"
+#include "../../flamenco/runtime/context/fd_capture_ctx.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -74,16 +76,6 @@ setup_topo_funk( fd_topo_t *  topo,
 }
 
 fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo,
-                        char const * wksp_name,
-                        ulong        mem_max ) {
-  fd_topo_obj_t * obj = fd_topob_obj( topo, "runtime_pub", wksp_name );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, mem_max, "obj.%lu.mem_max",  obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, 12UL,    "obj.%lu.wksp_tag", obj->id ) );
-  return obj;
-}
-
-fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
@@ -134,10 +126,16 @@ resolve_address( char const * address,
 }
 
 static int
-resolve_gossip_entrypoint( char const *    host_port,
-                           fd_ip4_port_t * ip4_port ) {
+resolve_peer( char const *    peer,
+              fd_ip4_port_t * ip4_port ) {
 
   /* Split host:port */
+  char const * host_port = peer;
+  if( FD_LIKELY( strncmp( peer, "http://", 7UL )==0 ) ) {
+    host_port += 7UL;
+  } else if( FD_LIKELY( strncmp( peer, "https://", 8UL )==0 ) ) {
+    host_port += 8UL;
+  }
 
   char const * colon = strrchr( host_port, ':' );
   if( FD_UNLIKELY( !colon ) ) {
@@ -171,17 +169,36 @@ static void
 resolve_gossip_entrypoints( config_t * config ) {
   ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<entrypoint_cnt; i++ ) {
-    if( FD_UNLIKELY( 0==resolve_gossip_entrypoint( config->gossip.entrypoints[ i ], &config->gossip.resolved_entrypoints[ i ] )) ) {
+    if( FD_UNLIKELY( 0==resolve_peer( config->gossip.entrypoints[ i ], &config->gossip.resolved_entrypoints[ i ] ) ) ) {
       FD_LOG_ERR(( "failed to resolve address of [gossip.entrypoints] entry \"%s\"", config->gossip.entrypoints[ i ] ));
     }
   }
 }
 
 static void
+resolve_snapshot_peers( config_t *       config,
+                        fd_topo_tile_t * tile ) {
+  ulong peers_cnt          = config->firedancer.snapshots.sources.http.peers_cnt;
+  ulong resolved_peers_cnt = 0UL;
+
+  for( ulong j=0UL; j<peers_cnt; j++ ) {
+    if( FD_UNLIKELY( !config->firedancer.snapshots.sources.http.peers[ j ].enabled ) ) continue;
+
+    if( FD_UNLIKELY( 0==resolve_peer( config->firedancer.snapshots.sources.http.peers[ j ].url, &tile->snaprd.http.peers[ resolved_peers_cnt ] ) ) ) {
+      FD_LOG_ERR(( "failed to resolve address of [snapshots.sources.http.peers] entry \"%s\"", config->firedancer.snapshots.sources.http.peers[ j ].url ));
+    } else {
+      resolved_peers_cnt++;
+    }
+  }
+
+  tile->snaprd.http.peers_cnt = resolved_peers_cnt;
+}
+
+static void
 setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
   fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
-  fd_memcpy( tile->snaprd.cluster, config->firedancer.snapshots.cluster, sizeof(tile->snaprd.cluster) );
+  tile->snaprd.diagnostics                       = 1;
   tile->snaprd.incremental_snapshot_fetch        = config->firedancer.snapshots.incremental_snapshots;
   tile->snaprd.do_download                       = config->firedancer.snapshots.download;
   tile->snaprd.maximum_local_snapshot_age        = config->firedancer.snapshots.maximum_local_snapshot_age;
@@ -189,6 +206,7 @@ setup_snapshots( config_t *       config,
   tile->snaprd.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
   tile->snaprd.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
   tile->snaprd.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+  resolve_snapshot_peers( config, tile );
   /* TODO: set up known validators and known validators cnt */
 }
 
@@ -258,8 +276,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "repair_repla" );
   fd_topob_wksp( topo, "replay_poh"   );
   fd_topob_wksp( topo, "replay_tower" );
+  fd_topob_wksp( topo, "tower_replay" );
   fd_topob_wksp( topo, "bank_busy"    );
-  fd_topob_wksp( topo, "tower_send"  );
+  fd_topob_wksp( topo, "tower_send"   );
   fd_topob_wksp( topo, "send_txns"    );
 
   fd_topob_wksp( topo, "quic"        );
@@ -275,9 +294,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip"      );
   fd_topob_wksp( topo, "metric"      );
   fd_topob_wksp( topo, "replay"      );
-  fd_topob_wksp( topo, "runtime_pub" );
   fd_topob_wksp( topo, "banks"       );
-  fd_topob_wksp( topo, "bh_cmp" );
+  fd_topob_wksp( topo, "bh_cmp"      );
   fd_topob_wksp( topo, "exec"        );
   fd_topob_wksp( topo, "writer"      );
   fd_topob_wksp( topo, "store"       );
@@ -287,8 +305,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "send"        );
   fd_topob_wksp( topo, "tower"       );
   fd_topob_wksp( topo, "exec_spad"   );
-  fd_topob_wksp( topo, "exec_fseq"   );
-  fd_topob_wksp( topo, "funk" );
+  fd_topob_wksp( topo, "funk"        );
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_wksp( topo, "snapdc" );
@@ -345,7 +362,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "root_out",     "root_out",     128UL,                                    sizeof(fd_block_id_t),         1UL );
   /**/                 fd_topob_link( topo, "ipecho_out",   "ipecho_out",   4UL,                                      0UL,                           1UL );
 
-  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", fd_ulong_pow2_up( config->firedancer.runtime.limits.max_total_banks * FD_REPLAY_TOWER_VOTE_ACC_MAX ), sizeof(fd_replay_tower_t), 1UL );
+  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", fd_ulong_pow2_up( config->firedancer.runtime.max_total_banks * FD_REPLAY_TOWER_VOTE_ACC_MAX ), sizeof(fd_replay_tower_t), 1UL );
+  /**/                 fd_topob_link( topo, "tower_replay", "tower_replay", 4UL, sizeof(fd_hash_t), 1UL );
 
   FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
   /**/                 fd_topob_link( topo, "gossip_gossv", "gossip_gossv", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL );
@@ -469,7 +487,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* Setup a shared wksp object for banks. */
 
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.limits.max_total_banks, config->firedancer.runtime.limits.max_fork_width );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_total_banks, config->firedancer.runtime.max_fork_width );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -495,14 +513,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, repair_tile, fec_sets_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   FD_TEST( fd_pod_insertf_ulong( topo->props, fec_sets_obj->id, "fec_sets" ) );
 
-  /* Setup a shared wksp object for runtime pub. */
-
-  fd_topo_obj_t * runtime_pub_obj = setup_topo_runtime_pub( topo, "runtime_pub", config->firedancer.runtime.heap_size_gib<<30 );
-
-  fd_topob_tile_uses( topo, replay_tile, runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, pack_tile,   runtime_pub_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, runtime_pub_obj->id, "runtime_pub" ) );
-
   /* Setup a shared wksp object for store. */
 
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, (uint)shred_tile_cnt );
@@ -513,9 +523,9 @@ fd_topo_initialize( config_t * config ) {
 
   /* Create a txncache to be used by replay. */
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
-      config->firedancer.runtime.limits.max_rooted_slots,
-      config->firedancer.runtime.limits.max_live_slots,
-      config->firedancer.runtime.limits.max_transactions_per_slot );
+      config->firedancer.runtime.max_rooted_slots,
+      config->firedancer.runtime.max_live_slots,
+      config->firedancer.runtime.max_transactions_per_slot );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
@@ -537,15 +547,8 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
   }
 
-  for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-    fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
-    fd_topob_tile_uses( topo, replay_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_fseq_obj->id, "exec_fseq.%lu", i ) );
-  }
-
   if( FD_LIKELY( NULL!=snapin_tile ) ) {
     fd_topob_tile_uses( topo, snapin_tile, funk_obj,               FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, snapin_tile, runtime_pub_obj,        FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
   fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
@@ -616,13 +619,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "repair",  0UL,                       "repair_net",    0UL                                                  );
 
   /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "gossip_out",   0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "replay_tower", 0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
   if( !disable_snap_loader ) {
                        fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "snap_out",     0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   }
+  /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_replay", 0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "root_out",     0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_send",   0UL                                                   );
-
-  /**/                 fd_topob_tile_in ( topo, "tower",  0UL,          "metric_in",  "replay_tower", 0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
 
   /**/                 fd_topob_tile_out( topo, "ipecho", 0UL,                        "ipecho_out",   0UL                                                   );
   FOR(shred_tile_cnt)  fd_topob_tile_in ( topo, "shred",  i,             "metric_in", "ipecho_out",   0UL,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
@@ -673,6 +676,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                    ); /* TODO check order in fd_replay.c macros*/
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
+  /**/                 fd_topob_tile_in ( topo, "replay", 0UL,          "metric_in",  "tower_replay", 0UL,           FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
 
   FOR(exec_tile_cnt)   fd_topob_tile_in(  topo, "exec",    i,            "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED    );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "exec",    i,                         "exec_writer",  i                                                     );
@@ -815,7 +819,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
   fd_topob_wksp( topo, "writ_repl" );
-  FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 1UL, FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+  FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 1UL, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
   FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",    i,                               "writ_repl", i );
   FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,      "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
@@ -955,7 +959,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
       tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
-      tile->replay.max_vote_accounts = config->firedancer.runtime.limits.max_vote_accounts;
+      tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
 
       /* specified by [tiles.replay] */
 
@@ -963,7 +967,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(tile->replay.blockstore_checkpt) );
 
       tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
-      strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
 
       tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       tile->replay.plugins_enabled = fd_topo_find_tile( &config->topo, "plugin", 0UL ) != ULONG_MAX;
@@ -975,11 +978,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
 
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
-      strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
 
-      tile->replay.max_exec_slices = config->tiles.replay.max_exec_slices;
+      tile->replay.heap_size_gib = config->tiles.replay.heap_size_gib;
 
       /* not specified by [tiles.replay] */
 
@@ -1021,6 +1023,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
       strncpy( tile->tower.identity_key_path, config->paths.identity_key, sizeof(tile->tower.identity_key_path) );
       strncpy( tile->tower.vote_acc_path, config->paths.vote_account, sizeof(tile->tower.vote_acc_path) );
+      strncpy( tile->tower.ledger_path, config->paths.ledger, sizeof(tile->tower.ledger_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
       strncpy( tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(tile->replay.blockstore_file) );
       tile->rpcserv.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );

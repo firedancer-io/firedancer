@@ -29,9 +29,6 @@ $(call run-unit-test,test_cost_tracker,)
 $(call add-hdrs,fd_compute_budget_details.h)
 $(call add-objs,fd_compute_budget_details,fd_flamenco)
 
-$(call add-hdrs,fd_runtime_public.h)
-$(call add-objs,fd_runtime_public,fd_flamenco)
-
 $(call add-hdrs,fd_borrowed_account.h)
 $(call add-objs,fd_borrowed_account,fd_flamenco)
 

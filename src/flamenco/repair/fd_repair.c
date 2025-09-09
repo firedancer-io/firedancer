@@ -84,7 +84,7 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( config->public_key->uc, NULL, keystr );
-  FD_LOG_NOTICE(("configuring address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), &config->intake_addr), keystr));
+  FD_LOG_INFO(("configuring address %s key %s", fd_repair_addr_str(tmp, sizeof(tmp), &config->intake_addr), keystr));
 
   glob->public_key = config->public_key;
   glob->private_key = config->private_key;
@@ -97,7 +97,7 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
 int
 fd_repair_update_addr( fd_repair_t * glob, const fd_ip4_port_t * intake_addr, const fd_ip4_port_t * service_addr ) {
   char tmp[100];
-  FD_LOG_NOTICE(("updating address %s", fd_repair_addr_str(tmp, sizeof(tmp), intake_addr)));
+  FD_LOG_INFO(("updating address %s", fd_repair_addr_str(tmp, sizeof(tmp), intake_addr)));
 
   fd_repair_peer_addr_copy(&glob->intake_addr, intake_addr);
   fd_repair_peer_addr_copy(&glob->service_addr, service_addr);
@@ -190,7 +190,7 @@ read_line( int fd, char * buf ) {
 static int
 fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {
   if( repair->good_peer_cache_file_fd==-1 ) {
-    FD_LOG_NOTICE(( "No repair good_peer_cache_file specified, not loading cached peers" ));
+    FD_LOG_INFO(( "No repair good_peer_cache_file specified, not loading cached peers" ));
     return 0;
   }
 

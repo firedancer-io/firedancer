@@ -1137,6 +1137,8 @@ void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_capture_ctx_t *   capture_ctx,
                                             fd_spad_t *          runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->accdb, epoch_rewards ) ) ) {
     FD_LOG_DEBUG(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
@@ -1231,4 +1233,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
   } else {
     set_epoch_reward_status_inactive( slot_ctx->bank );
   }
+
+  } FD_SPAD_FRAME_END;
 }
