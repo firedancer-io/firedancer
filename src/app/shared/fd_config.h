@@ -120,13 +120,13 @@ struct fd_configf {
   } layout;
 
   struct {
-      ulong max_rooted_slots;
-      ulong max_live_slots;
-      ulong max_transactions_per_slot;
-      ulong snapshot_grace_period_seconds;
-      ulong max_vote_accounts;
-      ulong max_total_banks;
-      ulong max_fork_width;
+    ulong max_rooted_slots;
+    ulong max_live_slots;
+    ulong max_transactions_per_slot;
+    ulong snapshot_grace_period_seconds;
+    ulong max_vote_accounts;
+    ulong max_total_banks;
+    ulong max_fork_width;
   } runtime;
 
   struct {
@@ -450,7 +450,6 @@ struct fd_config {
       char  tower_checkpt[ PATH_MAX ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
-      ulong max_exec_slices;
       ulong heap_size_gib;
     } replay;
 

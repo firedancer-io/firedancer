@@ -305,8 +305,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "send"        );
   fd_topob_wksp( topo, "tower"       );
   fd_topob_wksp( topo, "exec_spad"   );
-  fd_topob_wksp( topo, "exec_fseq"   );
-  fd_topob_wksp( topo, "funk" );
+  fd_topob_wksp( topo, "funk"        );
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topob_wksp( topo, "snapdc" );
@@ -546,12 +545,6 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", j ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     }
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-  }
-
-  for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-    fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
-    fd_topob_tile_uses( topo, replay_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_fseq_obj->id, "exec_fseq.%lu", i ) );
   }
 
   if( FD_LIKELY( NULL!=snapin_tile ) ) {
@@ -974,7 +967,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(tile->replay.blockstore_checkpt) );
 
       tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
-      strncpy( tile->replay.funk_checkpt, config->tiles.replay.funk_checkpt, sizeof(tile->replay.funk_checkpt) );
 
       tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
       tile->replay.plugins_enabled = fd_topo_find_tile( &config->topo, "plugin", 0UL ) != ULONG_MAX;
@@ -986,12 +978,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
 
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
-      strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
       strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
 
-      tile->replay.max_exec_slices = config->tiles.replay.max_exec_slices;
-      tile->replay.heap_size_gib   = config->tiles.replay.heap_size_gib;
+      tile->replay.heap_size_gib = config->tiles.replay.heap_size_gib;
 
       /* not specified by [tiles.replay] */
 
