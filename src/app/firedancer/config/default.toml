@@ -1317,9 +1317,6 @@ user = ""
     [tiles.replay]
         cluster_version =  "1.18.0"
 
-        # Maximum number of exec slices that can be buffered in the deque.
-        max_exec_slices = 65536
-
         # Specifies the size in gigibytes of the replay heap allocator.
         #
         # Persistent usages of the replay heap include:

@@ -121,7 +121,6 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "bank_busy"   );
   fd_topob_wksp( topo, "exec_spad"   );
-  fd_topob_wksp( topo, "exec_fseq"   );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
@@ -152,13 +151,9 @@ sim_topo( config_t * config ) {
 
   for( ulong i=0UL; i<config->firedancer.layout.exec_tile_count; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topo_obj_t * exec_fseq_obj = fd_topob_obj( topo, "fseq", "exec_fseq" );
     fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, exec_tile, exec_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_fseq_obj->id, "exec_fseq.%lu", i ) );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -177,7 +172,6 @@ sim_topo( config_t * config ) {
     /* Override */
     if( !strcmp( tile->name, "replay" ) ) {
       strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
-      strncpy( tile->replay.status_cache, config->tiles.replay.status_cache, sizeof(tile->replay.status_cache) );
     }
   }
 

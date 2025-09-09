@@ -559,7 +559,7 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   /* Now acquire a new bank */
 
-  FD_LOG_INFO(( "new bank, fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
+  FD_LOG_NOTICE(( "new bank, fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
 
   if( FD_UNLIKELY( !fd_banks_pool_free( bank_pool ) ) ) {
     FD_LOG_WARNING(( "No free banks" ));

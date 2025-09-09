@@ -348,11 +348,9 @@ struct fd_topo_tile {
 
       int   tx_metadata_storage;
       ulong funk_obj_id;
-      char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  shred_cap[ PATH_MAX ];
-      char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
       int   plugins_enabled;
@@ -370,8 +368,6 @@ struct fd_topo_tile {
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
 
       ulong enable_bank_hash_cmp;
-
-      ulong max_exec_slices;
 
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];

@@ -15,23 +15,40 @@
    a dcache region and formats it as a specific message type. */
 
 static inline ulong
-generate_stake_weight_msg( fd_exec_slot_ctx_t *              slot_ctx,
-                           ulong                             epoch,
-                           fd_vote_states_t const *          vote_states,
-                           ulong *                           stake_weight_msg_out ) {
-  fd_stake_weight_msg_t *     stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
-  fd_vote_stake_weight_t *    stake_weights    = stake_weight_msg->weights;
-  ulong                       staked_cnt       = fd_stake_weights_by_node( vote_states, stake_weights );
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
+generate_stake_weight_msg( ulong                       epoch,
+                           fd_epoch_schedule_t const * epoch_schedule,
+                           fd_vote_states_t const *    epoch_stakes,
+                           ulong *                     stake_weight_msg_out ) {
+  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
 
-  stake_weight_msg->epoch          = epoch;
-  stake_weight_msg->staked_cnt     = staked_cnt;
-  stake_weight_msg->start_slot     = fd_epoch_slot0( epoch_schedule, stake_weight_msg_out[0] );
-  stake_weight_msg->slot_cnt       = epoch_schedule->slots_per_epoch;
-  stake_weight_msg->excluded_stake = 0UL;
-  stake_weight_msg->vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( slot_ctx->bank );
+  stake_weight_msg->epoch             = epoch;
+  stake_weight_msg->staked_cnt        = fd_vote_states_cnt( epoch_stakes );
+  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake    = 0UL;
+  stake_weight_msg->vote_keyed_lsched = 1UL;
 
-  return fd_stake_weight_msg_sz( staked_cnt );
+  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
+     This code can be removed once the feature is active. */
+  if( (1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET) ||
+      (0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET) ) {
+    stake_weight_msg->vote_keyed_lsched = 0UL;
+  }
+
+  /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
+  fd_vote_states_iter_t iter_[1];
+  ulong idx = 0UL;
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    stake_weights[ idx ].stake = vote_state->stake;
+    memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+    idx++;
+  }
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, fd_vote_states_cnt( epoch_stakes ) );
+
+  return fd_stake_weight_msg_sz( fd_vote_states_cnt( epoch_stakes ) );
 }
 
 static inline ulong
@@ -146,35 +163,6 @@ fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
 #define FD_EXEC_ID_SENTINEL      (UINT_MAX    )
 
 /**********************************************************************/
-
-/* exec fseq management apis ******************************************/
-
-static inline uint
-fd_exec_fseq_get_state( ulong fseq ) {
-  return (uint)(fseq & 0xFFFFFFFFU);
-}
-
-static inline ulong
-fd_exec_fseq_set_booted( uint offset ) {
-  ulong state = ((ulong)offset << 32UL);
-  state      |= FD_EXEC_STATE_BOOTED;
-  return state;
-}
-
-static inline uint
-fd_exec_fseq_get_booted_offset( ulong fseq ) {
-  return (uint)(fseq >> 32UL);
-}
-
-static inline uint
-fd_exec_fseq_get_slot( ulong fseq ) {
-  return (uint)(fseq >> 32UL);
-}
-
-static inline int
-fd_exec_fseq_is_not_joined( ulong fseq ) {
-  return fseq==ULONG_MAX;
-}
 
 /* fd_exec_txn_msg_t is the message that is sent from the replay tile to
    the exec tile.  This represents all of the information that is needed
