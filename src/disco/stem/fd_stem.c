@@ -186,6 +186,10 @@
 #error "STEM_CALLBACK_CONTEXT_TYPE must be defined"
 #endif
 
+#ifndef STEM_CALLBACK_CONTEXT_ALIGN
+#error "STEM_CALLBACK_CONTEXT_ALIGN must be defined"
+#endif
+
 #ifndef STEM_LAZY
 #define STEM_LAZY (0L)
 #endif
@@ -798,6 +802,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_
 #undef STEM_BURST
 #undef STEM_CALLBACK_CONTEXT_TYPE
+#undef STEM_CALLBACK_CONTEXT_ALIGN
 #undef STEM_LAZY
 #undef STEM_CALLBACK_SHOULD_SHUTDOWN
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
@@ -808,3 +813,4 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_DURING_FRAG
 #undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG
+#undef STEM_CALLBACK_AFTER_POLL_OVERRUN

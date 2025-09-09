@@ -648,6 +648,23 @@ fd_topo_obj_laddr( fd_topo_t const * topo,
   return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
 }
 
+/* Returns a pointer in the local address space to the base address of
+   the workspace out of which the given object was allocated. */
+
+static inline void *
+fd_topo_obj_wksp_base( fd_topo_t const * topo,
+                       ulong             obj_id ) {
+  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
+  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  FD_TEST( obj->id == obj_id );
+  ulong const wksp_id = obj->wksp_id;
+
+  FD_TEST( wksp_id<FD_TOPO_MAX_WKSPS );
+  fd_topo_wksp_t const * wksp = &topo->workspaces[ wksp_id ];
+  FD_TEST( wksp->id == wksp_id );
+  return wksp->wksp;
+}
+
 FD_FN_PURE static inline ulong
 fd_topo_tile_name_cnt( fd_topo_t const * topo,
                        char const *      name ) {
