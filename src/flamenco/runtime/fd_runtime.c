@@ -1982,8 +1982,6 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_lthash_end_locking_query( slot_ctx->bank );
 
-  fd_bank_done_executing_set( slot_ctx->bank, 1 );
-
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 

@@ -178,7 +178,6 @@ FD_PROTOTYPES_BEGIN
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
-  X(int,                               done_executing,              sizeof(int),                               alignof(int),                               0,   0,                0    )  /* If a bank has executed all of its txns */                 \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
   X(ulong,                             lamports_per_signature,      sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Lamports per signature */                                 \
   X(ulong,                             prev_lamports_per_signature, sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Previous lamports per signature */                        \
@@ -743,6 +742,12 @@ fd_banks_get_pool_idx( fd_banks_t * banks,
   return fd_banks_pool_idx( fd_banks_get_bank_pool( banks ), bank );
 }
 
+static inline fd_bank_t *
+fd_banks_get_parent( fd_banks_t * banks,
+                     fd_bank_t *  bank ) {
+  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
+}
+
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
    If the bank corresponding to the parent block id does not exist,
    NULL is returned.  If a bank is not able to be created, NULL is
@@ -817,7 +822,7 @@ fd_banks_publish_prepare( fd_banks_t * banks,
    This function should NOT be called once the current bank has child
    banks. */
 
-void
+fd_bank_t *
 fd_banks_rekey_bank( fd_banks_t *      banks,
                      fd_hash_t const * old_block_id,
                      fd_hash_t const * new_block_id );
