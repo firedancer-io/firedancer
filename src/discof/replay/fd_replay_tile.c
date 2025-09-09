@@ -531,35 +531,23 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   notify_time_ns += fd_log_wallclock();
   FD_LOG_DEBUG(("TIMING: notify_slot_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)notify_time_ns * 1e-6));
 
-  if( ctx->plugin_out->mem ) {
-    /*
-    fd_replay_complete_msg_t msg2 = {
-      .slot = curr_slot,
-      .total_txn_count = ctx->slot_ctx->txn_count,
-      .nonvote_txn_count = ctx->slot_ctx->nonvote_txn_count,
-      .failed_txn_count = ctx->slot_ctx->failed_txn_count,
-      .nonvote_failed_txn_count = ctx->slot_ctx->nonvote_failed_txn_count,
-      .compute_units = ctx->slot_ctx->total_compute_units_used,
-      .transaction_fee = ctx->slot_ctx->slot_bank.collected_execution_fees,
-      .priority_fee = ctx->slot_ctx-2842>slot_bank.collected_priority_fees,
-      .parent_slot = fd_bank_parent_slot_get( ctx->slot_ctx->bank ),
-    };
-    */
-
-    ulong msg[11];
-    msg[ 0 ]  = fd_bank_slot_get( ctx->slot_ctx->bank );
-    msg[ 1 ]  = fd_bank_txn_count_get( ctx->slot_ctx->bank );
-    msg[ 2 ]  = fd_bank_nonvote_txn_count_get( ctx->slot_ctx->bank );
-    msg[ 3 ]  = fd_bank_failed_txn_count_get( ctx->slot_ctx->bank );
-    msg[ 4 ]  = fd_bank_nonvote_failed_txn_count_get( ctx->slot_ctx->bank );
-    msg[ 5 ]  = fd_bank_total_compute_units_used_get( ctx->slot_ctx->bank );
-    msg[ 6 ]  = fd_bank_execution_fees_get( ctx->slot_ctx->bank );
-    msg[ 7 ]  = fd_bank_priority_fees_get( ctx->slot_ctx->bank );
-    msg[ 8 ]  = 0UL; /* todo ... track tips */
-    msg[ 9 ]  = fd_bank_parent_slot_get( ctx->slot_ctx->bank );
-    msg[ 10 ] = 0UL;  /* todo ... max compute units */
-    replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_COMPLETED, (uchar const *)msg, sizeof(msg) );
-  }
+  // TODO: fix broken plugin integration
+  (void)stem; (void) replay_plugin_publish;
+  // if( ctx->plugin_out->mem ) {
+  //   ulong msg[11];
+  //   msg[ 0 ] = fd_bank_slot_get( ctx->slot_ctx->bank );
+  //   msg[ 1 ] = fd_bank_txn_count_get( ctx->slot_ctx->bank );
+  //   msg[ 2 ] = fd_bank_nonvote_txn_count_get( ctx->slot_ctx->bank );
+  //   msg[ 3 ] = fd_bank_failed_txn_count_get( ctx->slot_ctx->bank );
+  //   msg[ 4 ] = fd_bank_nonvote_failed_txn_count_get( ctx->slot_ctx->bank );
+  //   msg[ 5 ] = fd_bank_total_compute_units_used_get( ctx->slot_ctx->bank );
+  //   msg[ 6 ] = fd_bank_execution_fees_get( ctx->slot_ctx->bank );
+  //   msg[ 7 ] = fd_bank_priority_fees_get( ctx->slot_ctx->bank );
+  //   msg[ 8 ] = 0UL; /* todo ... track tips */
+  //   msg[ 9 ] = fd_bank_parent_slot_get( ctx->slot_ctx->bank );
+  //   msg[ 10 ] = 0UL;  /* todo ... max compute units */
+  //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_COMPLETED, (uchar const *)msg, sizeof(msg) );
+  // }
 }
 
 static void
@@ -1444,11 +1432,12 @@ init_from_genesis( fd_replay_tile_ctx_t * ctx,
   init_after_snapshot( ctx );
 
   if( strlen( ctx->genesis )>0 ) {
-    fd_hash_t const * genesis_hash = fd_bank_genesis_hash_query( ctx->slot_ctx->bank );
 
-    if( !!ctx->plugin_out->mem ) {
-      replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, genesis_hash->hash, sizeof(fd_hash_t) );
-    }
+    // TODO: fix broken plugin integration
+    // fd_hash_t const * genesis_hash = fd_bank_genesis_hash_query( ctx->slot_ctx->bank );
+    // if( !!ctx->plugin_out->mem ) {
+    //   replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_GENESIS_HASH_KNOWN, genesis_hash->hash, sizeof(fd_hash_t) );
+    // }
 
     /* Initialize store for genesis case, similar to snapshot case */
     fd_hash_t genesis_block_id = { .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
@@ -1720,12 +1709,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
   exec_and_handle_slice( ctx, stem );
 
-  long now = fd_log_wallclock();
-  if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
-    ctx->last_plugin_push_time = now;
-    publish_votes_to_plugin( ctx, stem );
-  }
-
+  // TODO: fix broken plugin integration
+  (void)publish_votes_to_plugin;
+  // long now = fd_log_wallclock();
+  // if( ctx->votes_plugin_out->mem && FD_UNLIKELY( ( now - ctx->last_plugin_push_time )>PLUGIN_PUBLISH_TIME_NS ) ) {
+  //   ctx->last_plugin_push_time = now;
+  //   publish_votes_to_plugin( ctx, stem );
+  // }
 }
 
 static void
