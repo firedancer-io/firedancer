@@ -100,7 +100,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
                         fd_ghost_t const * ghost,
                         ulong              slot,
                         fd_hash_t const  * block_id ) {
-# if FD_TOWER_USE_HANDHOLDING
+# if FD_TOWER_PARANOID
   FD_TEST( !fd_tower_votes_empty( tower ) ); /* caller error */
 # endif
 
@@ -134,7 +134,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
                        fd_ghost_t const * ghost,
                        ulong              slot,
                        fd_hash_t const *  block_id ) {
-  #if FD_TOWER_USE_HANDHOLDING
+  #if FD_TOWER_PARANOID
   FD_TEST( !fd_tower_votes_empty( tower ) ); /* caller error */
   #endif
 
@@ -175,7 +175,7 @@ fd_tower_switch_check( fd_tower_t const * tower,
 
   */
 
-# if FD_TOWER_USE_HANDHOLDING
+# if FD_TOWER_PARANOID
   FD_TEST( !fd_ghost_is_ancestor( ghost, fd_ghost_hash( ghost, vote->slot ), block_id ) );
 # endif
   fd_hash_t     const * vote_block_id = fd_ghost_hash( ghost, vote->slot );
@@ -291,40 +291,70 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
+                     fd_epoch_t const * epoch,
                      fd_ghost_t const * ghost ) {
 
-  fd_tower_vote_t const *    vote = fd_tower_votes_peek_tail_const( tower );
-  fd_ghost_ele_t const *     root = fd_ghost_root_const( ghost );
-  fd_ghost_ele_t const *     head = fd_ghost_head( ghost, root );
-  fd_hash_t const * vote_block_id = fd_ghost_hash( ghost, vote->slot );
+  fd_tower_vote_t const * last = fd_tower_votes_peek_tail_const( tower );
+  fd_ghost_ele_t const *  vote = last ? fd_ghost_query_const( ghost, fd_ghost_hash( ghost, last->slot ) ) : NULL;
+  fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
+  fd_ghost_ele_t const *  head = fd_ghost_head( ghost, root );
 
-  /* Reset to the ghost head if any of the following is true:
-       1. haven't voted
-       2. last vote < ghost root
-       3. ghost root is not an ancestory of last vote */
+# if FD_TOWER_PARANOID
+  if( FD_UNLIKELY( !vote ) ) FD_LOG_CRIT(( "[%s] missing vote %lu", __func__, last->slot  ));
+  if( FD_UNLIKELY( !root ) ) FD_LOG_CRIT(( "[%s] missing root",     __func__              ));
+  if( FD_UNLIKELY( !head ) ) FD_LOG_CRIT(( "[%s] missing head",     __func__              ));
+# endif
 
-  if( FD_UNLIKELY( !vote || vote->slot < root->slot ||
-                   !fd_ghost_is_ancestor( ghost, &root->key, vote_block_id ) ) ) {
+  /* Case 0: reset to the ghost head if any of the following is true:
+
+     a. haven't voted
+     b. last vote slot < ghost root slot
+     c. ghost root is not an ancestor of last vote
+
+     Normally we reset to our last vote slot's fork, but in all three of
+     these cases we do not have that, so we reset to the ghost head
+     (heaviest slot)'s fork.
+
+     The remaining cases 1-4 assume we have voted and determine how to
+     reset relative to the ghost head.
+
+     TODO can c. happen in non-exceptional conditions? error out? */
+
+  if( FD_UNLIKELY( !vote || vote->slot < root->slot || !fd_ghost_is_ancestor( ghost, &root->key, &vote->key ) ) )
     return head->slot;
-  }
 
-  /* Find the ghost node keyed by our last vote slot. It is invariant
-     that this node must always be found after doing the above check.
-     Otherwise ghost and tower contain implementation bugs and/or are
-     corrupt. */
+  /* Case 1: last vote on same fork as ghost head (ie. last vote slot is
+     an ancestor of ghost head slot ). This is the common case. */
 
-  fd_ghost_ele_t const * vote_node = fd_ghost_query_const( ghost, vote_block_id );
-  #if FD_TOWER_USE_HANDHOLDING
-  if( FD_UNLIKELY( !vote_node ) ) {
-    fd_ghost_print( ghost, 0, root );
-    FD_LOG_ERR(( "[%s] invariant violation: unable to find last tower vote slot %lu in ghost.", __func__, vote->slot ));
-  }
-  #endif
+  else if( FD_LIKELY( fd_ghost_is_ancestor( ghost, &vote->key, &head->key ) ) )
+    return head->slot;
 
-  /* Starting from the node keyed by the last vote slot, greedy traverse
-     for the head. */
+  /* Case 2: last vote is on different fork from ghost head (ie. last
+     vote slot is _not_ an ancestor of ghost head slot), but we have a
+     valid switch proof for the ghost head. So reset to ghost head. */
 
-  return fd_ghost_head( ghost, vote_node )->slot;
+  else if( FD_LIKELY( fd_tower_switch_check( tower, epoch, ghost, head->slot, &head->key ) ) )
+    return head->slot;
+
+  /* Case 3: same as case 2 except we don't have a valid switch proof,
+     but we detect last vote is now on an "invalid" fork (ie. ancestor
+     of our last vote slot equivocates AND has not reached 52% of
+     stake). If we do find such an ancestor, we reset to the ghost head
+     anyways, despite not having a valid switch proof. This is done to
+     prevent propagating the invalid fork (our last vote) and instead
+     propagate what ghost head selected (recall ghost head only selects
+     valid forks). */
+
+  else if( FD_LIKELY( fd_ghost_invalid( ghost, vote ) ) )
+    return head->slot;
+
+  /* Case 4: same as case 3 except last vote's fork is not invalid. In
+     this case we reset to the head of our last vote fork instead of the
+     overall ghost head. This is done to ensure votes propagate (see
+     top-level documentation in fd_tower.h for details) */
+
+  else
+    return fd_ghost_head( ghost, vote )->slot;
 }
 
 ulong
@@ -387,7 +417,7 @@ ulong
 fd_tower_vote( fd_tower_t * tower, ulong slot ) {
   FD_LOG_DEBUG(( "[%s] voting for slot %lu", __func__, slot ));
 
-  #if FD_TOWER_USE_HANDHOLDING
+  #if FD_TOWER_PARANOID
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
   if( FD_UNLIKELY( vote && slot < vote->slot ) ) FD_LOG_ERR(( "[%s] slot %lu < vote->slot %lu", __func__, slot, vote->slot )); /* caller error*/
   #endif
@@ -435,7 +465,7 @@ fd_tower_vote( fd_tower_t * tower, ulong slot ) {
 
 ulong
 fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot ) {
-# if FD_TOWER_USE_HANDHOLDING
+# if FD_TOWER_PARANOID
   FD_TEST( !fd_tower_votes_empty( tower ) ); /* caller error */
 # endif
 
@@ -1024,7 +1054,7 @@ fd_tower_print( fd_tower_t const * tower, ulong root ) {
 void
 fd_tower_from_vote_acc_data( uchar const * data,
                              fd_tower_t *  tower_out ) {
-# if FD_TOWER_USE_HANDHOLDING
+# if FD_TOWER_PARANOID
   FD_TEST( fd_tower_votes_empty( tower_out ) );
 # endif
 

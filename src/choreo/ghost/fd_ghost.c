@@ -314,7 +314,7 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
   fd_ghost_ele_t * ele = fd_ghost_pool_ele_acquire( pool );
   ele->key             = *hash;
   ele->slot            = slot;
-  ele->eqvoc            = null;
+  ele->eqvoc           = null;
   ele->next            = null;
   ele->nexts           = null;
   ele->parent          = null;
@@ -554,7 +554,7 @@ fd_ghost_gca( fd_ghost_t const * ghost, fd_hash_t const * hash1, fd_hash_t const
 
 int
 fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_hash_t const * hash ) {
-  fd_ghost_ele_t const * root = fd_ghost_root_const( ghost );
+  fd_ghost_ele_t const * root = fd_ghost_root_const ( ghost );
   fd_ghost_ele_t const * curr = fd_ghost_query_const( ghost, hash );
   fd_ghost_ele_t const * anc  = fd_ghost_query_const( ghost, ancestor );
 
@@ -576,6 +576,16 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
     curr = fd_ghost_pool_ele_const( fd_ghost_pool_const( ghost ), curr->parent );
   }
   return 0; /* not found */
+}
+
+int
+fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) {
+  fd_ghost_ele_t const * anc = ele;
+  while( FD_LIKELY( anc ) ) {
+    if( FD_UNLIKELY( ( !anc->valid ) ) ) return 1;
+    anc = fd_ghost_parent_const( ghost, anc );
+  }
+  return 0;
 }
 
 
