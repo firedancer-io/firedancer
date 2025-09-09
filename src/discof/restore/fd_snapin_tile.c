@@ -30,7 +30,6 @@ struct fd_snapin_tile {
   fd_funk_t funk[1];
 
   fd_accdb_client_t * accdb;
-  fd_accdb_write_t    accdb_write[1];
 
   uchar *         acc_data;
 

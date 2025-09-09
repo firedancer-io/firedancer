@@ -105,6 +105,8 @@ typedef struct fd_accdb_ref fd_accdb_ref_t;
    ref is held.  It is the caller's responsibility to call
    fd_accdb_release to drop the account reference.
 
+   FIXME update API
+
    Side effects:
    - Fills in-memory account cache
    - Lazily evicts old cache entries
@@ -119,10 +121,6 @@ int
 fd_accdb_borrow( fd_accdb_client_t * client,
                  fd_accdb_ref_t *    ref,
                  void const *        address );
-
-/* fd_accdb_release releases an account reference.
-   Attempts to detect double release of the same ref and crashes with
-   FD_LOG_CRIT (core dumps) in that case. */
 
 void
 fd_accdb_release( fd_accdb_client_t * client,
@@ -285,14 +283,32 @@ fd_accdb_cache_fill( fd_accdb_client_t * client,
 
 /* Syntax sugar for accessors *****************************************/
 
-#define FD_ACCDB_READ_BEGIN( client, address, handle ) \
-  __extension__({ \
-    fd_accdb_ref_t handle[1]; \
-    do
+struct fd_accdb_borrow_guard {
+  fd_accdb_client_t * client_;
+  fd_accdb_ref_t *    handle_;
+};
+typedef struct fd_accdb_borrow_guard fd_accdb_borrow_guard_t;
 
+FD_FN_UNUSED static void
+fd_accdb_borrow_guard_cleanup( fd_accdb_borrow_guard_t * guard ) {
+  fd_accdb_release( guard->client_, guard->handle_ );
+}
+
+#define FD_ACCDB_READ_BEGIN( accdb, address, handle )           \
+  __extension__({                                               \
+    fd_accdb_ref_t      handle[1];                              \
+    void const *        address_ = (address);                   \
+    fd_accdb_client_t * client_  = (accdb);                     \
+    int db_err_ = fd_accdb_borrow( client_, handle, address_ ); \
+    if( db_err_==FD_ACCDB_SUCCESS ) {                           \
+      fd_accdb_borrow_guard_t __attribute__((cleanup(fd_accdb_borrow_guard_cleanup))) guard_ = \
+        { .client_=client_, .handle_=handle };                  \
+      if( 1 ) {                                                 \
+        /* User code goes here */
 #define FD_ACCDB_READ_END \
-    while(0); \
-    0; \
+      }      \
+    }        \
+    db_err_; \
   })
 
 #define FD_ACCDB_WRITE_BEGIN( client, address, handle ) \
@@ -343,6 +359,13 @@ fd_accdb_refmut_data_copy( fd_accdb_refmut_t * refmut,
 
 void *
 fd_accdb_refmut_data_buf( fd_accdb_refmut_t * refmut );
+
+ulong
+fd_accdb_refmut_data_max( fd_accdb_refmut_t const * refmut );
+
+void
+fd_accdb_refmut_data_sz_set( fd_accdb_refmut_t * refmut,
+                             ulong               data_sz );
 
 ulong
 fd_accdb_refmut_slot( fd_accdb_refmut_t const * refmut );

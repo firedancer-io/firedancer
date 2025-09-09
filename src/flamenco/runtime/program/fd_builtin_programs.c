@@ -1,9 +1,8 @@
 #include "fd_builtin_programs.h"
 #include "fd_precompiles.h"
-#include "../fd_runtime.h"
-#include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../fd_system_ids_pp.h"
+#include "../fd_runtime_account.h"
 
 #define BUILTIN_PROGRAM(program_id, name, feature_offset, migration_config) \
     {                                                                       \
@@ -204,12 +203,11 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           fd_pubkey_t const    pubkey,
                           char const *         data,
                           ulong                sz ) {
-  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, pubkey, rec, sz ) {
-    fd_txn_account_set_data( rec, data, sz );
-    fd_txn_account_set_lamports( rec, 1UL );
-    fd_txn_account_set_rent_epoch( rec, 0UL );
-    fd_txn_account_set_executable( rec, 1 );
-    fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
+  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &pubkey, rec, sz ) {
+    fd_accdb_refmut_data_copy   ( rec, data, sz );
+    fd_accdb_refmut_lamports_set( rec, 1UL );
+    fd_accdb_refmut_exec_bit_set( rec, 1 );
+    fd_accdb_refmut_owner_set   ( rec, &fd_solana_native_loader_id );
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
   if( FD_UNLIKELY( db_err!=FD_ACCDB_SUCCESS ) ) {
@@ -234,12 +232,11 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, fd_solana_spl_native_mint_id, rec ) {
-    fd_accdb_refmut_set_lamports( rec, 1000000000UL );
-    fd_accdb_refmut_set_rent_epoch( rec, 1UL );
-    fd_accdb_refmut_set_executable( rec, 0 );
-    fd_accdb_refmut_set_owner( rec, &fd_solana_spl_token_id );
-    fd_accdb_refmut_data_copy( rec, data, sizeof(data) );
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, fd_solana_spl_native_mint_id, rec, sizeof(data) ) {
+    fd_accdb_refmut_lamports_set( rec, 1000000000UL );
+    fd_accdb_refmut_exec_bit_set( rec, 0 );
+    fd_accdb_refmut_owner_set   ( rec, &fd_solana_spl_token_id );
+    fd_accdb_refmut_data_copy   ( rec, data, sizeof(data) );
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
 }

@@ -474,8 +474,7 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               tx
 int
 fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
                                            uchar const *    payload,
-                                           fd_funk_t *      funk,
-                                           fd_funk_txn_t *  funk_txn,
+                                           fd_accdb_client_t * accdb,
                                            ulong            slot,
                                            fd_slot_hash_t const * hashes,
                                            fd_acct_addr_t * out_accts_alt );

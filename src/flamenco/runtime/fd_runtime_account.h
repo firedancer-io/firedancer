@@ -12,6 +12,7 @@
    - violate rent-exemption rules */
 
 #include "../accdb/fd_accdb_sync.h"
+#include "context/fd_exec_slot_ctx.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -41,24 +42,47 @@ FD_PROTOTYPES_BEGIN
    visible change was detected leaves no observable effects to the bank
    or account. */
 
-#define FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, address, handle, min_sz ) \
-  __extension__({ \
-    fd_accdb_refmut_t handle[1]; \
-    do
+struct fd_runtime_account_update_guard {
+  fd_exec_slot_ctx_t * slot_ctx;
+  fd_accdb_refmut_t *  handle_;
+};
+typedef struct fd_runtime_account_update_guard fd_runtime_account_update_guard_t;
 
-#define FD_RUNTIME_ACCOUNT_UDPATE_END \
-    while(0); \
-    0; \
+FD_FN_UNUSED static void
+fd_runtime_account_update_cleanup( fd_runtime_account_update_guard_t * guard ) {
+  int pub_err = fd_accdb_write_publish( guard->slot_ctx->accdb, guard->handle_ );
+  if( FD_UNLIKELY( pub_err!=FD_ACCDB_SUCCESS ) ) FD_LOG_ERR(( "fd_accdb_write_publish failed (%i-%s)", pub_err, fd_accdb_strerror( pub_err ) ));
+}
+
+#define FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, address, handle, min_sz ) \
+  __extension__({                                                            \
+    fd_accdb_refmut_t    handle[1];                                          \
+    void const *         address_  = (address);                              \
+    fd_exec_slot_ctx_t * slot_ctx_ = (slot_ctx);                             \
+    ulong const          min_sz_   = (min_sz);                               \
+    int db_err_ = fd_accdb_write_prepare( slot_ctx_->accdb, handle, address_, min_sz_ ); \
+    if( db_err_==FD_ACCDB_SUCCESS ) {                                        \
+      fd_runtime_account_update_guard_t __attribute__((cleanup(fd_runtime_account_update_cleanup))) guard_ = \
+        { .slot_ctx = slot_ctx, .handle_ = handle };                          \
+      if( 1 ) {                                                              \
+        /* User code goes here */
+#define FD_RUNTIME_ACCOUNT_UPDATE_END \
+      }      \
+    }        \
+    db_err_; \
   })
 
-/* fd_runtime_account_write inserts or overwrites an account (at address
-   meta->address).  Updates the account's owner (meta->owner), balance
-   (meta->lamports), and executable bit (meta->executable).  Other
-   params in *meta are ignored.  Replaces the account's data with the
-   bytes at data and sets the account data size to data_sz. */
+/* fd_runtime_account_write inserts or overwrites an account (with the
+   provided address).  If meta is NULL, deletes the account (deleting a
+   non-existent account is no-op).  If meta is non-NULL, updates the
+   account's owner (meta->owner), balance (meta->lamports), and
+   executable bit (meta->executable).  Other params in meta are ignored.
+   Replaces the account's data with the bytes at data and sets the
+   account data size to data_sz. */
 
 int
 fd_runtime_account_write( fd_exec_slot_ctx_t *    slot_ctx,
+                          void const *            pubkey,
                           fd_accdb_meta_t const * meta,
                           void const *            data,
                           ulong                   data_sz );

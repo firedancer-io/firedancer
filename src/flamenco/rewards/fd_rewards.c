@@ -10,7 +10,7 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/context/fd_capture_ctx.h"
-#include "../runtime/fd_runtime.h"
+#include "../runtime/fd_runtime_account.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -843,7 +843,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           sl
        vote_reward_node = fd_vote_reward_t_map_successor( rewards_calc_result->vote_reward_map_pool, vote_reward_node ) ) {
     if( FD_UNLIKELY( !vote_reward_node->elem.needs_store ) ) continue;
 
-    int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, vote_pubkey, vote_rec ) {
+    fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
+    int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, vote_pubkey, vote_rec, 0UL ) {
       if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
         FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
       }
@@ -889,7 +890,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_pubkey_t *        stake_pubkey,
                                       ulong                reward_lamports,
                                       ulong                new_credits_observed ) {
-  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, stake_pubkey, stake_rec ) {
+  int db_err = FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, stake_pubkey, stake_rec, 0UL ) {
 
     fd_stake_state_v2_t stake_state[1] = {0};
     if( fd_stake_get_state( stake_acc_rec, stake_state )!=0 ||
@@ -1131,7 +1132,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_capture_ctx_t *   capture_ctx,
                                             fd_spad_t *          runtime_spad ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->accdb, epoch_rewards ) ) ) {
     FD_LOG_DEBUG(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx->bank );
     return;
@@ -1164,7 +1165,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    fd_stake_history_t stake_history_[1];
+    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->accdb, stake_history_ );
     if( FD_UNLIKELY( !stake_history ) ) {
       FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
     }

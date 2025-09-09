@@ -56,13 +56,13 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
     }
   };
   fd_sysvar_stake_history_init( env->slot_ctx );
-  fd_sysvar_stake_history_update( env->slot_ctx, &entry0, spad );
+  fd_sysvar_stake_history_update( env->slot_ctx, &entry0 );
   fd_sysvar_cache_restore( env->slot_ctx );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
   fd_bank_slot_set( env->slot_ctx->bank, 432000 );
   fd_bank_parent_slot_set( env->slot_ctx->bank, 431999 );
-  fd_sysvar_stake_history_update( env->slot_ctx, &entry0, spad );
+  fd_sysvar_stake_history_update( env->slot_ctx, &entry0 );
   fd_sysvar_cache_restore( env->slot_ctx );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 

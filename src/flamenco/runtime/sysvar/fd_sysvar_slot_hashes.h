@@ -51,9 +51,8 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
    If the account doesn't exist in funk or if the account has zero
    lamports, this function returns NULL. */
 fd_slot_hashes_global_t *
-fd_sysvar_slot_hashes_read( fd_funk_t *     funk,
-                            fd_funk_txn_t * funk_txn,
-                            fd_spad_t *     spad );
+fd_sysvar_slot_hashes_read( fd_accdb_client_t * accdb,
+                            fd_spad_t *         spad );
 
 FD_PROTOTYPES_END
 

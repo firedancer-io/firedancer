@@ -3,6 +3,7 @@
 #include "../types/fd_types.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_system_ids.h"
+#include "../accdb/fd_accdb_sync.h"
 
 /* fd_feature_restore loads a feature from the accounts database and
    updates the bank's feature activation state, given a feature account
@@ -20,12 +21,17 @@ fd_feature_restore( fd_features_t *         features,
     return;
   }
 
-  FD_TXN_ACCOUNT_DECL( acct_rec );
-  int err = fd_txn_account_init_from_funk_readonly( acct_rec,
-                                                    (fd_pubkey_t *)acct,
-                                                    slot_ctx->funk,
-                                                    slot_ctx->funk_txn );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+  fd_feature_t feature_[1];
+  int db_err = FD_ACCDB_READ_BEGIN( slot_ctx->accdb, acct, rec ) {
+
+  }
+  FD_ACCDB_READ_END;
+  if( db_err!=FD_ACCDB_SUCCESS ) {
+    if( FD_UNLIKELY( db_err!=FD_ACCDB_ERR_KEY ) ) {
+      FD_BASE58_ENCODE_32_BYTES( acct, acct_b58 );
+      FD_LOG_ERR(( "Failed to peek feature account %s: database error (%i-%s)", acct_b58, db_err, fd_accdb_strerror( db_err ) ));
+    }
+    /* Feature account does not exist */
     return;
   }
 

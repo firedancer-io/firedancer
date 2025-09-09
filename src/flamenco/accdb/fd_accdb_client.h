@@ -16,11 +16,20 @@ typedef struct fd_accdb_client fd_accdb_client_t;
 
 FD_PROTOTYPES_BEGIN
 
+// - errors should immediately fail
+// - cache memory management
+// - doesnt need to be general-purpose
+//   - replay (pick a transaction)
+//   - exec (low priority pick a transaction)
+//   - RPC answer a batch query[{""}]}
+
 /* Client session API *************************************************/
 
 /* fd_accdb_client_new creates a new account database client.  Attaches
    to a funk shared memory objects and selects the "floating root" DB
-   transaction. */
+   transaction.
+
+   REMOVE FLOATING ROOT */
 
 fd_accdb_client_t *
 fd_accdb_client_new( fd_accdb_client_t * client,
@@ -45,15 +54,6 @@ fd_accdb_client_view_set( fd_accdb_client_t *       client,
 void
 fd_accdb_client_cache_hint_set( fd_accdb_client_t *       client,
                                 fd_funk_txn_xid_t const * txn_xid );
-
-/* fd_accdb_client_block_mode_set configures the accdb_client's behavior
-   when blocked by another concurrently active client. */
-
-/* FIXME */
-
-/* Transaction modification APIs */
-
-
 
 FD_PROTOTYPES_END
 

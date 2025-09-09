@@ -99,6 +99,9 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 struct fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
 
+struct fd_accdb_client;
+typedef struct fd_accdb_client fd_accdb_client_t;
+
 /* fd_rawtxn_b_t is a convenience type to store a pointer to a
    serialized transaction.  Should probably be removed in the future. */
 

@@ -11,6 +11,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar.h"
+#include "../fd_runtime_account.h"
 
 /* A note on fd_borrowed_account_acquire_write:
 
@@ -3237,22 +3238,20 @@ done:
 /* Public API *********************************************************/
 
 static void
-write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * stake_config ) {
-  ulong                   data_sz  = fd_stake_config_size( stake_config );
-  fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
-
-  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, acc_key, rec, data_sz ) {
-    fd_accdb_refmut_set_lamports( rec, 960480UL );
-    fd_accdb_refmut_set_rent_epoch( rec, 0UL );
-    fd_accdb_refmut_set_executable( rec, 0 );
+write_stake_config( fd_exec_slot_ctx_t *      slot_ctx,
+                    fd_stake_config_t const * stake_config ) {
+  ulong const data_sz = fd_stake_config_size( stake_config );
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &fd_solana_stake_program_config_id, rec, data_sz ) {
+    fd_accdb_refmut_lamports_set( rec, 960480UL ); /* FIXME where does this number come from? */
+    fd_accdb_refmut_exec_bit_set( rec, 0 );
 
     /* FIXME */
     fd_bincode_encode_ctx_t ctx3;
-    ctx3.data    = fd_txn_account_get_data_mut( rec );
-    ctx3.dataend = fd_txn_account_get_data_mut( rec ) + data_sz;
+    ctx3.data    = fd_accdb_refmut_data_buf( rec );
+    ctx3.dataend = fd_accdb_refmut_data_buf( rec ) + data_sz;
     if( fd_stake_config_encode( stake_config, &ctx3 ) )
       FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
-    fd_txn_account_set_data( rec, stake_config, data_sz );
+    fd_accdb_refmut_data_sz_set( rec, data_sz );
   }
   FD_RUNTIME_ACCOUNT_UPDATE_END;
 }
@@ -3269,7 +3268,7 @@ fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_stake_get_state( fd_txn_account_t const * self,
-                    fd_stake_state_v2_t *         out ) {
+                    fd_stake_state_v2_t *    out ) {
   return get_state( self, out );
 }
 
