@@ -33,6 +33,7 @@ fd_active_set_new( void *     shmem,
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_active_set_t * as = FD_SCRATCH_ALLOC_APPEND( l, FD_ACTIVE_SET_ALIGN, sizeof(fd_active_set_t) );
   uchar * _blooms = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, 25UL*12UL*bloom_footprint );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_ACTIVE_SET_ALIGN ) == (ulong)shmem + fd_active_set_footprint() );
 
   as->rng = rng;
   for( ulong i=0UL; i<25UL; i++ ) {
