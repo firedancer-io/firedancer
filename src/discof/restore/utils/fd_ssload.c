@@ -66,10 +66,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   fd_bank_slot_set( slot_ctx->bank, manifest->slot );
 
-  /* Mark the bank for a snapshot slot to be done executing. */
-
-  fd_bank_done_executing_set( slot_ctx->bank, 1 );
-
   /* Bank Hash */
 
   fd_hash_t hash;
