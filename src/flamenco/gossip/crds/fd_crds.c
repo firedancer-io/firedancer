@@ -416,12 +416,12 @@ fd_crds_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !ele_max || !fd_ulong_is_pow2( ele_max ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( ele_max ) ) ) {
     FD_LOG_WARNING(( "ele_max must be a power of 2" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !purged_max || !fd_ulong_is_pow2( purged_max ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( purged_max ) ) ) {
     FD_LOG_WARNING(( "purged_max must be a power of 2" ));
     return NULL;
   }
@@ -451,6 +451,7 @@ fd_crds_new( void *                    shmem,
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );

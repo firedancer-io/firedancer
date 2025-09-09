@@ -68,6 +68,7 @@ fd_bloom_new( void *     shmem,
   fd_bloom_t * bloom = FD_SCRATCH_ALLOC_APPEND( l, FD_BLOOM_ALIGN, sizeof(fd_bloom_t) );
   void * _keys       = FD_SCRATCH_ALLOC_APPEND( l, 8UL, num_keys*sizeof(ulong) );
   void * _bits       = FD_SCRATCH_ALLOC_APPEND( l, 8UL, (max_bits+7UL)/8UL );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_BLOOM_ALIGN ) == (ulong)shmem + fd_bloom_footprint( false_positive_rate, max_bits ) );
 
   bloom->keys      = (ulong *)_keys;
   bloom->keys_len  = 0UL;
