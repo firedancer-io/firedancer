@@ -130,6 +130,10 @@ struct fd_configf {
   } runtime;
 
   struct {
+    char host[ 256 ];
+  } gossip;
+
+  struct {
 
     struct {
 
@@ -251,7 +255,6 @@ struct fd_config {
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
 
     ushort        port;
-    char          host[ 256 ];
   } gossip;
 
   struct {
