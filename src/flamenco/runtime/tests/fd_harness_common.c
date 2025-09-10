@@ -1,5 +1,6 @@
 #include "../program/fd_program_cache.h"
 #include "generated/context.pb.h"
+#include "fd_sol_compat.h"
 #include <assert.h>
 
 int
@@ -56,12 +57,33 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
 int
 fd_runtime_fuzz_restore_features( fd_features_t *                    features,
                                   fd_exec_test_feature_set_t const * feature_set ) {
+  sol_compat_features_t const * compat_features = sol_compat_get_features_v1();
   fd_features_disable_all( features );
   for( ulong j=0UL; j < feature_set->features_count; j++ ) {
     ulong                   prefix = feature_set->features[j];
     fd_feature_id_t const * id     = fd_feature_id_query( prefix );
     if( FD_UNLIKELY( !id ) ) {
-      FD_LOG_WARNING(( "unsupported feature ID 0x%016lx", prefix ));
+      FD_LOG_WARNING(( "unknown feature ID 0x%016lx", prefix ));
+      return 0;
+    }
+    /* Check if feature is in hardcoded_features or supported_features */
+    int found = 0;
+    for( ulong k=0UL; k < compat_features->hardcoded_features_cnt; k++ ) {
+      if( compat_features->hardcoded_features[k] == prefix ) {
+        found = 1;
+        break;
+      }
+    }
+    if( !found ) {
+      for( ulong k=0UL; k < compat_features->supported_feature_cnt; k++ ) {
+        if( compat_features->supported_features[k] == prefix ) {
+          found = 1;
+          break;
+        }
+      }
+    }
+    if( FD_UNLIKELY( !found ) ) {
+      FD_LOG_WARNING(( "feature ID 0x%016lx not in hardcoded or supported features", prefix ));
       return 0;
     }
     /* Enabled since genesis */
