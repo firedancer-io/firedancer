@@ -1619,9 +1619,9 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
       }
     }
 
-    FD_LOG_NOTICE(( "fec %lu %lu %u %s %s", fec->slot, fec->slot - (ulong)fec->parent_off, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ), FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
+    // FD_LOG_NOTICE(( "fec %lu %lu %u %s %s", fec->slot, fec->slot - (ulong)fec->parent_off, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ), FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
     if( FD_UNLIKELY( fec->slot_complete ) ) {
-      FD_LOG_NOTICE(( "block_id %lu %lu %s", fec->slot, fec->slot - (ulong)fec->parent_off, FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
+      // FD_LOG_NOTICE(( "block_id %lu %lu %s", fec->slot, fec->slot - (ulong)fec->parent_off, FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
     }
 
     if( FD_UNLIKELY( fec->data_complete ) ) {

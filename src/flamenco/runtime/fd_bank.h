@@ -621,6 +621,14 @@ fd_bank_vote_states_prev_prev_query( fd_bank_t const * bank ) {
   return vote_states;
 }
 
+static inline void
+fd_bank_vote_states_prev_prev_reset( fd_bank_t * bank ) {
+  if( bank->vote_states_prev_prev_dirty ) {
+    fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( fd_bank_get_vote_states_prev_prev_pool( bank ), bank->vote_states_prev_prev_pool_idx );
+    fd_vote_states_new( bank_vote_states_prev_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL );
+  }
+}
+
 /* Cost tracker.  The cost tracker is reset on each block and does not
    hold state across blocks. */
 
