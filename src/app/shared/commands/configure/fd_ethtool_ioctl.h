@@ -30,7 +30,7 @@
 
 #include "../../../../util/fd_util_base.h"
 
-#define FD_ETHTOOL_MAX_RXFH_TABLE_SIZE (2048)
+#define FD_ETHTOOL_MAX_RXFH_TABLE_SIZE (32768)
 
 #define FD_ETHTOOL_FEATURE_NTUPLE "rx-ntuple-filter"
 
