@@ -76,8 +76,7 @@ main( int argc, char ** argv ) {
   fd_txn_account_set_lamports( txn_account, 1000UL );
   FD_TEST( fd_txn_account_get_lamports( txn_account ) == 1000UL );
 
-  fd_txn_account_set_rent_epoch( txn_account, 100UL );
-  FD_TEST( fd_txn_account_get_rent_epoch( txn_account ) == 100UL );
+  FD_TEST( fd_txn_account_get_rent_epoch( txn_account ) == ULONG_MAX );
 
   fd_txn_account_set_data_len( txn_account, 102UL );
   FD_TEST( fd_txn_account_get_data_len( txn_account ) == 102UL );

@@ -133,11 +133,11 @@ account_cb( void *                          _ctx,
     FD_TEST( meta );
   }
 
-  meta->magic = FD_ACCOUNT_META_MAGIC;
-  meta->hlen  = sizeof(fd_account_meta_t);
-  meta->dlen  = hdr->meta.data_len;
-  meta->slot  = ctx->ssparse->accv_slot;
-  meta->info  = hdr->info;
+  meta->dlen       = (uint)hdr->meta.data_len;
+  meta->slot       = ctx->ssparse->accv_slot;
+  memcpy( meta->owner, hdr->info.owner, sizeof(fd_pubkey_t) );
+  meta->lamports   = hdr->info.lamports;
+  meta->executable = hdr->info.executable;
 
   ctx->acc_data = (uchar*)meta + sizeof(fd_account_meta_t);
   ctx->metrics.accounts_inserted++;

@@ -3247,7 +3247,6 @@ write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * sta
   FD_TEST( !err );
 
   fd_txn_account_set_lamports( rec, 960480UL );
-  fd_txn_account_set_rent_epoch( rec, 0UL );
   fd_txn_account_set_executable( rec, 0 );
 
   fd_bincode_encode_ctx_t ctx3;

@@ -1613,7 +1613,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x06\x35\x10\xb8\x8d\xba\x0a\x21\x00\x8d\x28\x53\xaf\xe3\xa7\x61\x15\x06\x67\x97\x6d\x00\x38\x42\x50\xb5\x71\xf9\x6a\x30\x65\xf7"},
                                  /* RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx */
     .name                      = "mask_out_rent_epoch_in_vm_serialization",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {3, 1, 0},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_zk_elgamal_proof_program)>>3,
     .id                        = {"\x0e\xcb\x71\x9e\x06\x4c\x3a\xec\xc3\xa9\x71\xb0\x61\x33\x9b\x7e\xdc\x71\xc0\x35\x81\x8f\xf0\x0a\xb0\x53\x46\xaa\x28\xd7\x0b\xe1"},

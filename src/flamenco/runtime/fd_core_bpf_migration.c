@@ -20,9 +20,6 @@ static int
 fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
                                fd_pubkey_t const *  target_program_data_address,
                                fd_txn_account_t *   out_rec ) {
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/account/src/lib.rs#L471 */
-  fd_txn_account_set_rent_epoch( out_rec, 0UL );
-
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L86-L88 */
   fd_bpf_upgradeable_loader_state_t state = {
     .discriminant = fd_bpf_upgradeable_loader_state_enum_program,

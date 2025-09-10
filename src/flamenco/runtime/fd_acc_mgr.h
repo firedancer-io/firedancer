@@ -18,7 +18,6 @@
 #define FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT (-1)
 #define FD_ACC_MGR_ERR_WRITE_FAILED    (-2)
 #define FD_ACC_MGR_ERR_READ_FAILED     (-3)
-#define FD_ACC_MGR_ERR_WRONG_MAGIC     (-4)
 
 #define FD_ACC_NONCE_SZ_MAX (80UL)     /* 80 bytes */
 
@@ -40,9 +39,6 @@ FD_PROTOTYPES_BEGIN
 static inline void
 fd_account_meta_init( fd_account_meta_t * m ) {
   fd_memset( m, 0, sizeof(fd_account_meta_t) );
-  m->magic           = FD_ACCOUNT_META_MAGIC;
-  m->hlen            = sizeof(fd_account_meta_t);
-  m->info.rent_epoch = ULONG_MAX;
 }
 
 /* fd_account_meta_exists checks if the account in a funk record exists or was
@@ -56,30 +52,30 @@ fd_account_meta_exists( fd_account_meta_t const * m ) {
   if( !m ) return 0;
 
 # if FD_HAS_AVX
-  wl_t o = wl_ldu( m->info.owner );
+  wl_t o = wl_ldu( m->owner );
   int has_owner = !_mm256_testz_si256( o, o );
 # else
   int has_owner = 0;
   for( ulong i=0UL; i<32UL; i++ )
-    has_owner |= m->info.owner[i];
+    has_owner |= m->owner[i];
   has_owner = !!has_owner;
 # endif
 
-  return ((m->info.lamports > 0UL) |
-          (m->dlen          > 0UL) |
-          (has_owner             ) );
+  return ((m->lamports > 0UL) |
+          (m->dlen     > 0UL) |
+          (has_owner        ) );
 
 }
 
 /* Account meta helpers */
 static inline void *
 fd_account_meta_get_data( fd_account_meta_t * m ) {
-  return ((uchar *) m) + m->hlen;
+  return ((uchar *) m) + sizeof(fd_account_meta_t);
 }
 
 static inline void const *
 fd_account_meta_get_data_const( fd_account_meta_t const * m ) {
-  return ((uchar const *) m) + m->hlen;
+  return ((uchar const *) m) + sizeof(fd_account_meta_t);
 }
 
 static inline ulong
@@ -134,7 +130,7 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    - notably, leaves *opt_err untouched, even if opt_err!=NULL
 
    First byte of returned pointer is first byte of fd_account_meta_t.
-   To find data region of account, add (fd_account_meta_t)->hlen.
+   To find data region of account, add sizeof(fd_account_meta_t).
 
    Lifetime of returned fd_funk_rec_t and account record pointers ends
    when user calls modify_data for same account, or tranasction ends.

@@ -294,7 +294,7 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
-                         fd_rpc_history_latest_slot( ctx->global->history ), metadata->info.lamports, ctx->call_id);
+                         fd_rpc_history_latest_slot( ctx->global->history ), metadata->lamports, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }

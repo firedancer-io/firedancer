@@ -72,15 +72,15 @@ typedef struct fd_block_entry_batch fd_block_entry_batch_t;
 // TODO: Use this struct at allocation sites so it's clear we use this layout
 struct __attribute__((packed)) fd_account_rec {
   fd_account_meta_t meta;
-  uchar data[];
+  uchar data[] __attribute__((aligned(8)));
 };
 typedef struct fd_account_rec fd_account_rec_t;
 #define FD_ACCOUNT_REC_ALIGN      (8UL)
 #define FD_ACCOUNT_REC_DATA_ALIGN (8UL)
-FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_META_ALIGN,     account_rec_meta_align );
-FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_REC_DATA_ALIGN, account_rec_data_align );
-FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, meta)%FD_ACCOUNT_META_ALIGN)==0,     account_rec_meta_offset );
-FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, data)%FD_ACCOUNT_REC_DATA_ALIGN)==0, account_rec_data_offset );
+FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=alignof(fd_account_meta_t), account_rec_meta_align );
+FD_STATIC_ASSERT( FD_ACCOUNT_REC_ALIGN>=FD_ACCOUNT_REC_DATA_ALIGN,  account_rec_data_align );
+FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, meta)%alignof(fd_account_meta_t))==0, account_rec_meta_offset );
+FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, data)%FD_ACCOUNT_REC_DATA_ALIGN )==0, account_rec_data_offset );
 
 #define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
 #define FD_BPF_ALIGN_OF_U128        (8UL    )

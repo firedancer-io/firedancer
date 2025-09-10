@@ -5,7 +5,6 @@
 #include "fd_bincode.h"
 #include "../../ballet/utf8/fd_utf8.h"
 #include "fd_types_custom.h"
-#define FD_ACCOUNT_META_MAGIC 9823
 
 /* sdk/program/src/feature.rs#L22 */
 /* Encoded Size: Dynamic */
@@ -180,17 +179,6 @@ struct __attribute__((packed)) fd_solana_account_hdr {
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
-
-/* Encoded Size: Fixed (72 bytes) */
-struct __attribute__((packed)) fd_account_meta {
-  ushort magic;
-  ushort hlen;
-  ulong dlen;
-  ulong slot;
-  fd_solana_account_meta_t info;
-};
-typedef struct fd_account_meta fd_account_meta_t;
-#define FD_ACCOUNT_META_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 /* Encoded Size: Fixed (64 bytes) */
@@ -2743,14 +2731,6 @@ static inline ulong fd_solana_account_hdr_size( fd_solana_account_hdr_t const * 
 static inline ulong fd_solana_account_hdr_align( void ) { return FD_SOLANA_ACCOUNT_HDR_ALIGN; }
 int fd_solana_account_hdr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_solana_account_hdr_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_account_meta_new( fd_account_meta_t * self );
-int fd_account_meta_encode( fd_account_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_account_meta_walk( void * w, fd_account_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_account_meta_size( fd_account_meta_t const * self ) { (void)self; return 72UL; }
-static inline ulong fd_account_meta_align( void ) { return FD_ACCOUNT_META_ALIGN; }
-int fd_account_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_account_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_delegation_new( fd_delegation_t * self ) { fd_memset( self, 0, sizeof(fd_delegation_t) ); }
 int fd_delegation_encode( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
