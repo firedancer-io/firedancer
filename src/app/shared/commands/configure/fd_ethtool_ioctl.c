@@ -9,26 +9,29 @@
 #include "fd_ethtool_ioctl.h"
 #include "../../../../util/fd_util.h"
 
-#define MAX_FEATURES        (1024)
-#define MAX_NTUPLE_RULES    (1024)
+#define MAX_RXFH_KEY_SIZE   (1024)
+#define MAX_FEATURES        (2048)
+#define MAX_NTUPLE_RULES    (8192)
 
 #define ETHTOOL_CMD_SIZE( base_t, data_t, data_len ) ( sizeof(base_t) + (sizeof(data_t)*(data_len)) )
 
 static int
 run_ioctl( fd_ethtool_ioctl_t * ioc,
            char const *         cmd,
-           void*                data ) {
+           void *               data,
+           int                  log ) {
   ioc->ifr.ifr_data = data;
   if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) ) {
-    FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,%s) failed (%i-%s)",
-                     cmd, errno, fd_io_strerror( errno ) ));
+    if( log )
+      FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,%s) failed (%i-%s)",
+                       cmd, errno, fd_io_strerror( errno ) ));
     return errno;
   }
   return 0;
 }
 
 #define TRY_RUN_IOCTL(ioc, cmd, data) \
-  do { int __ret__ = run_ioctl( (ioc), (cmd), (data) ); \
+  do { int __ret__ = run_ioctl( (ioc), (cmd), (data), 1 ); \
        if( FD_UNLIKELY( __ret__ != 0 ) ) { return __ret__; } } while(0)
 
 fd_ethtool_ioctl_t *
@@ -88,14 +91,14 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
     ech.tx_count       = num;
     FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", ioc->ifr.ifr_name, num, num ));
   }
-  return run_ioctl( ioc, "ETHTOOL_SCHANNELS", &ech );
+  return run_ioctl( ioc, "ETHTOOL_SCHANNELS", &ech, 1 );
 }
 
 int
 fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
                                    fd_ethtool_ioctl_channels_t * channels ) {
   struct ethtool_channels ech = { .cmd = ETHTOOL_GCHANNELS };
-  int ret = run_ioctl( ioc, "ETHTOOL_GCHANNELS", &ech );
+  int ret = run_ioctl( ioc, "ETHTOOL_GCHANNELS", &ech, 1 );
   if( FD_UNLIKELY( ret != 0 ) ) {
     if( FD_LIKELY( ret == EOPNOTSUPP ) ) {
       /* network device doesn't support getting number of channels, so
@@ -132,7 +135,7 @@ fd_ethtool_ioctl_rxfh_set_default( fd_ethtool_ioctl_t * ioc ) {
     .cmd = ETHTOOL_SRXFHINDIR,
     .size = 0, /* default indirection table */
   };
-  return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh );
+  return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh, 1 );
 }
 
 int
@@ -169,24 +172,34 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
     if( i >= num_channels )
       i = start_idx;
   }
-  return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh );
+  return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh, 1 );
 }
 
 int
 fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
                                  uint *               table,
                                  uint *               table_size ) {
+  /* Note: A simpler implementation of this would use ETHTOOL_GRXFHINDIR
+     as we are only concerned with the indirection table and do not need
+     the other information. However, it appears that the ice driver has
+     a bugged implementation of this command. */
+
   union {
-    struct ethtool_rxfh_indir m;
-    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxfh_indir, uint, FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) ];
+    struct ethtool_rxfh m;
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_rxfh, uint, FD_ETHTOOL_MAX_RXFH_TABLE_SIZE ) + MAX_RXFH_KEY_SIZE ];
   } rxfh = { 0 };
-  rxfh.m.cmd = ETHTOOL_GRXFHINDIR;
-  rxfh.m.size = FD_ETHTOOL_MAX_RXFH_TABLE_SIZE;
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXFHINDIR", &rxfh );
-  if( FD_UNLIKELY( (rxfh.m.size == 0) | (rxfh.m.size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE) ) )
+
+  /* First get the size of the indirection table and hash key */
+  rxfh.m.cmd = ETHTOOL_GRSSH;
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRSSH", &rxfh );
+  if( FD_UNLIKELY( (rxfh.m.indir_size == 0) | (rxfh.m.indir_size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE) |
+                   (rxfh.m.key_size   == 0) | (rxfh.m.key_size   > MAX_RXFH_KEY_SIZE) ) )
     return EINVAL;
-  *table_size = rxfh.m.size;
-  fd_memcpy( table, rxfh.m.ring_index, *table_size * sizeof(uint) );
+  *table_size = rxfh.m.indir_size;
+
+  /* Now get the table contents itself. We also get the key bytes. */
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRSSH", &rxfh );
+  fd_memcpy( table, rxfh.m.rss_config, *table_size * sizeof(uint) );
   return 0;
 }
 
@@ -246,7 +259,7 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   esf.m.size = feature_block + 1;
   esf.m.features[ feature_block ].valid = fd_uint_mask_bit( (int)feature_offset );
   esf.m.features[ feature_block ].requested = enabled ? fd_uint_mask_bit( (int)feature_offset ) : 0;
-  return run_ioctl( ioc, "ETHTOOL_SFEATURES", &esf );
+  return run_ioctl( ioc, "ETHTOOL_SFEATURES", &esf, 1 );
 }
 
 int
@@ -309,8 +322,10 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
                                        uint                 rule_idx,
                                        ushort               dport,
                                        uint                 queue_idx ) {
-  /* Note: mlx5 at least does not seem to support RX_CLS_LOC_ANY,
-   * so we manually specify the rule location indices. */
+  /* Note: Some drivers do not support RX_CLS_LOC_ANY (e.g. mlx5), and
+     some drivers only support it (e.g. bnxt). So first we try with
+     the explicit rule index and then again with the any location if
+     the former failed. */
   FD_LOG_NOTICE(( "RUN: `ethtool --config-ntuple %s flow-type udp4 dst-port %hu queue %u`",
                   ioc->ifr.ifr_name, dport, queue_idx ));
   struct ethtool_rxnfc efc = {
@@ -323,7 +338,10 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
       .location = rule_idx
     }
   };
-  return run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc );
+  if( FD_LIKELY( 0==run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc, 0 ) ) )
+    return 0;
+  efc.fs.location = RX_CLS_LOC_ANY;
+  return run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc, 1 );
 }
 
 int

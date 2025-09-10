@@ -128,12 +128,12 @@ init( config_t const * config ) {
 
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init FD_PARAM_UNUSED ) {
   DIR * dir = opendir( config->paths.ledger );
   if( FD_UNLIKELY( !dir ) ) {
-    if( errno == ENOENT ) return;
+    if( errno == ENOENT ) return 0;
     FD_LOG_ERR(( "opendir `%s` failed (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
   }
 
@@ -164,6 +164,8 @@ fini( config_t const * config,
 
   if( FD_UNLIKELY( errno && errno!=ENOENT ) ) FD_LOG_ERR(( "readdir `%s` failed (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( closedir( dir ) ) ) FD_LOG_ERR(( "closedir `%s` failed (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
+
+  return 1;
 }
 
 static configure_result_t

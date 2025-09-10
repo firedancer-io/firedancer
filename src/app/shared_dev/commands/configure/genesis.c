@@ -263,7 +263,7 @@ init( config_t const * config ) {
   FD_LOG_INFO(( "Shred version: %hu", shred_version ));
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
@@ -272,6 +272,7 @@ fini( config_t const * config,
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+  return 1;
 }
 
 static configure_result_t

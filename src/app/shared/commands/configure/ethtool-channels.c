@@ -259,11 +259,11 @@ check( fd_config_t const * config ) {
   CONFIGURE_OK();
 }
 
-static void
+static int
 fini_device( char const *        device,
              fd_config_t const * config ) {
   if( 0==strcmp( config->net.xdp.rss_queue_mode, "simple" ) )
-    return;
+    return 0;
 
   fd_ethtool_ioctl_t ioc;
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
@@ -274,25 +274,32 @@ fini_device( char const *        device,
 
   fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ );
 
+  /* Some drivers (i40e) do not always evenly redistribute the RXFH table
+     when increasing the channel count, so we run this again just in case. */
+  fd_ethtool_ioctl_rxfh_set_default( &ioc );
+
   /* Note: We leave the ntuple feature flag as-is in fini */
   fd_ethtool_ioctl_ntuple_clear( &ioc );
 
   fd_ethtool_ioctl_fini( &ioc );
+  return 1;
 }
 
-static void
+static int
 fini( fd_config_t const * config,
       int                 pre_init FD_PARAM_UNUSED ) {
+  int done = 0;
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->net.interface, line );
     char * saveptr;
     for( char * token=strtok_r( line , " \t", &saveptr ); token!=NULL; token=strtok_r( NULL, " \t", &saveptr ) ) {
-      fini_device( token, config );
+      done |= fini_device( token, config );
     }
   } else {
-    fini_device( config->net.interface, config );
+    done |= fini_device( config->net.interface, config );
   }
+  return done;
 }
 
 configure_stage_t fd_cfg_stage_ethtool_channels = {
