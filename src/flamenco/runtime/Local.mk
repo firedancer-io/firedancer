@@ -8,6 +8,8 @@ $(call add-objs,fd_bank_hash_cmp,fd_flamenco)
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
 
+$(call add-objs,fd_core_bpf_migration,fd_flamenco)
+
 $(call add-hdrs,fd_executor.h)
 $(call add-objs,fd_executor,fd_flamenco)
 
