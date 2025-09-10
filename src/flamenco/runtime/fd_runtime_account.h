@@ -69,7 +69,6 @@ fd_runtime_account_update_cleanup( fd_runtime_account_update_guard_t * guard ) {
 #define FD_RUNTIME_ACCOUNT_UPDATE_END \
       }      \
     }        \
-    db_err_; \
   })
 
 /* fd_runtime_account_write inserts or overwrites an account (with the
