@@ -40,6 +40,7 @@ struct fd_sshttp_private {
   char incremental_snapshot_name[ PATH_MAX ];
 
   ulong content_len;
+  ulong content_read;
 
   ulong magic;
 };
@@ -323,6 +324,7 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
+  http->content_read = 0UL;
   http->content_len = ULONG_MAX;
   for( ulong i=0UL; i<header_cnt; i++ ) {
     if( FD_LIKELY( headers[i].name_len!=14UL ) ) continue;
@@ -340,10 +342,11 @@ read_response( fd_sshttp_t * http,
 
   http->state = FD_SSHTTP_STATE_DL;
   if( FD_UNLIKELY( (ulong)parsed<http->response_len ) ) {
+    if( FD_UNLIKELY( *data_len<http->response_len-(ulong)parsed ) ) FD_LOG_ERR(( "data buffer too small %lu %lu %lu", *data_len, http->response_len, (ulong)parsed ));
     FD_TEST( *data_len>=http->response_len-(ulong)parsed );
     *data_len = http->response_len - (ulong)parsed;
     fd_memcpy( data, http->response+parsed, *data_len );
-    http->content_len -= *data_len;
+    http->content_read += *data_len;
     return FD_SSHTTP_ADVANCE_DATA;
   } else {
     FD_TEST( http->response_len==(ulong)parsed );
@@ -355,13 +358,14 @@ static int
 read_body( fd_sshttp_t * http,
            ulong *       data_len,
            uchar *       data ) {
-  if( FD_UNLIKELY( !http->content_len ) ) {
+  if( FD_UNLIKELY( http->content_read>=http->content_len ) ) {
     fd_sshttp_cancel( http );
     http->state = FD_SSHTTP_STATE_INIT;
     return FD_SSHTTP_ADVANCE_DONE;
   }
 
-  long read = recv( http->sockfd, data, fd_ulong_min( *data_len, http->content_len ), 0 );
+  FD_TEST( http->content_read<http->content_len );
+  long read = recv( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0 );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
     fd_sshttp_cancel( http );
@@ -371,7 +375,7 @@ read_body( fd_sshttp_t * http,
   if( FD_UNLIKELY( !read ) ) return FD_SSHTTP_ADVANCE_AGAIN;
 
   *data_len = (ulong)read;
-  http->content_len -= (ulong)read;
+  http->content_read += (ulong)read;
 
   return FD_SSHTTP_ADVANCE_DATA;
 }
