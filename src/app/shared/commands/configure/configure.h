@@ -54,6 +54,8 @@ typedef struct {
     return result;                \
   } while( 0 )
 
+/* fini() returns whether or not it took any actions. */
+
 typedef struct configure_stage {
   const char *       name;
   int                always_recreate;
@@ -61,7 +63,7 @@ typedef struct configure_stage {
   void               (*init_perm)( fd_cap_chk_t * chk, config_t const * config );
   void               (*fini_perm)( fd_cap_chk_t * chk, config_t const * config );
   void               (*init)     ( config_t const * config );
-  void               (*fini)     ( config_t const * config, int pre_init );
+  int                (*fini)     ( config_t const * config, int pre_init );
   configure_result_t (*check)    ( config_t const * config );
 } configure_stage_t;
 
