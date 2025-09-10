@@ -231,7 +231,7 @@ warn_mount_users( char const * mount_path ) {
   if( FD_UNLIKELY( -1==closedir( dir ) ) ) FD_LOG_ERR(( "closedir (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
@@ -285,6 +285,8 @@ fini( config_t const * config,
   FD_LOG_NOTICE(( "RUN: `rmdir %s`", config->hugetlbfs.mount_path ));
   if( FD_UNLIKELY( rmdir( config->hugetlbfs.mount_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "error removing hugetlbfs directory at `%s` (%i-%s)", config->hugetlbfs.mount_path, errno, fd_io_strerror( errno ) ));
+
+  return 1;
 }
 
 static configure_result_t

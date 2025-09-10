@@ -137,11 +137,12 @@ configure_stage( configure_stage_t * stage,
       }
 
       FD_LOG_NOTICE(( "%s ... finishing", stage->name ));
-      if( FD_LIKELY( stage->fini ) ) stage->fini( config, 0 );
+      int fini_done = 0;
+      if( FD_LIKELY( stage->fini ) ) fini_done = stage->fini( config, 0 );
 
       result = stage->check( config );
-      if( FD_UNLIKELY( result.result == CONFIGURE_OK && stage->init && stage->fini ) ) {
-        /* if the step does nothing, it's fine if it's fully configured
+      if( FD_UNLIKELY( result.result == CONFIGURE_OK && stage->init && fini_done ) ) {
+        /* if the fini step does nothing, it's fine if it's fully configured
             after being undone */
         FD_LOG_ERR(( "%s ... not undone", stage->name ));
       } else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) ) {
