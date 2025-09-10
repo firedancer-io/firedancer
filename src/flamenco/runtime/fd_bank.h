@@ -214,7 +214,6 @@ FD_PROTOTYPES_BEGIN
   X(fd_lthash_value_t,                 lthash,                      sizeof(fd_lthash_value_t),                 alignof(fd_lthash_value_t),                 0,   0,                1    )  /* LTHash */                                                 \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
   X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
-  X(fd_cost_tracker_t,                 cost_tracker,                FD_COST_TRACKER_FOOTPRINT,                 FD_COST_TRACKER_ALIGN,                      0,   0,                1    )  /* Cost tracker */                                           \
   X(fd_epoch_leaders_t,                epoch_leaders,               FD_EPOCH_LEADERS_MAX_FOOTPRINT,            FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
                                                                                                                                                                                           /* case. We also can assume 432k slots per epoch. */         \
@@ -311,7 +310,7 @@ FD_PROTOTYPES_BEGIN
 */
 
 struct fd_bank {
-  #define FD_BANK_HEADER_SIZE (80UL)
+  #define FD_BANK_TEMPLATE_OFFSET (offsetof(fd_bank_t, stake_delegations_delta_lock) + sizeof(fd_rwlock_t))
 
   /* Fields used for internal pool and bank management */
   fd_hash_t         block_id_;   /* block id this node is tracking, also the map key */
@@ -321,6 +320,18 @@ struct fd_bank {
   ulong             sibling_idx; /* index of the right-sibling in the node pool */
   ulong             flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
   ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
+
+  /* Cost tracker. */
+
+  uchar       cost_tracker[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
+  int         cost_tracker_dirty;
+  fd_rwlock_t cost_tracker_lock;
+
+  /* Stake delegations delta. */
+
+  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  int         stake_delegations_delta_dirty;
+  fd_rwlock_t stake_delegations_delta_lock;
 
   /* First, layout all non-CoW fields contiguously. This is done to
      allow for cloning the bank state with a simple memcpy. Each
@@ -370,12 +381,6 @@ struct fd_bank {
   #undef X
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
-
-  /* Stake delegations delta. */
-
-  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-  int         stake_delegations_delta_dirty;
-  fd_rwlock_t stake_delegations_delta_lock;
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -521,15 +526,47 @@ fd_bank_block_id_query( fd_bank_t const * bank ) {
   return &bank->block_id_;
 }
 
+/* Cost tracker.  The cost tracker is reset on each block and does not
+   hold state across blocks. */
+
+static inline fd_cost_tracker_t *
+fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->cost_tracker_lock );
+  if( FD_UNLIKELY( !bank->cost_tracker_dirty ) ) {
+    bank->cost_tracker_dirty = 1;
+    uchar * mem = fd_cost_tracker_new( bank->cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ), 999UL );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_CRIT(( "Failed to allocate memory for cost tracker" ));
+    }
+  }
+  return fd_cost_tracker_join( bank->cost_tracker );
+}
+
+static inline void
+fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+}
+
+static inline fd_cost_tracker_t *
+fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_read( &bank->cost_tracker_lock );
+  return bank->cost_tracker_dirty ? fd_cost_tracker_join( bank->cost_tracker ) : NULL;
+}
+
+static inline void
+fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->cost_tracker_lock );
+}
+
 /* Each bank has a fd_stake_delegations_t object which is delta-based.
    The usage pattern is the same as other bank fields:
    1. fd_bank_stake_dleegations_delta_locking_modify( bank ) will return
-      a mutable pointer to the stake delegations delta object. If the
+      a mutable pointer to the stake delegations delta object.  If the
       caller has not yet initialized the delta object, then it will
       be initialized. Because it is a delta it is not copied over from
       a parent bank.
    2. fd_bank_stake_delegations_delta_locking_query( bank ) will return
-      a const pointer to the stake delegations delta object. If the
+      a const pointer to the stake delegations delta object.  If the
       delta object has not been initialized, then NULL is returned.
    3. fd_bank_stake_delegations_delta_locking_end_modify( bank ) will
       release the write lock on the object.

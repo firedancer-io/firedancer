@@ -559,7 +559,7 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   /* Now acquire a new bank */
 
-  FD_LOG_INFO(( "new bank, fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
+  FD_LOG_NOTICE(( "new bank, fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
 
   if( FD_UNLIKELY( !fd_banks_pool_free( bank_pool ) ) ) {
     FD_LOG_WARNING(( "No free banks" ));
@@ -619,7 +619,7 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
      TODO: We don't need to copy over the stake delegations delta. */
 
-  memcpy( (uchar *)new_bank + FD_BANK_HEADER_SIZE, (uchar *)parent_bank + FD_BANK_HEADER_SIZE, sizeof(fd_bank_t) - FD_BANK_HEADER_SIZE );
+  memcpy( (uchar *)new_bank + FD_BANK_TEMPLATE_OFFSET, (uchar *)parent_bank + FD_BANK_TEMPLATE_OFFSET, sizeof(fd_bank_t) - FD_BANK_TEMPLATE_OFFSET );
 
   /* Setup all of the CoW fields. */
   #define HAS_COW_1(name)                                                   \
@@ -655,7 +655,12 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   new_bank->refcnt = 0UL;
 
-  /* Delta field does not need to be copied over. The dirty flag just
+  /* The cost tracker does not need to be copied over.  The dirty flag
+     needs to be cleared. */
+  new_bank->cost_tracker_dirty = 0;
+  fd_rwlock_unwrite( &new_bank->cost_tracker_lock );
+
+  /* Delta field does not need to be copied over.  The dirty flag just
      needs to be cleared if it was set. */
   new_bank->stake_delegations_delta_dirty = 0;
   fd_rwlock_unwrite( &new_bank->stake_delegations_delta_lock );
@@ -909,6 +914,12 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #undef X
   #undef HAS_COW_0
   #undef HAS_COW_1
+
+  bank->cost_tracker_dirty = 0;
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+
+  bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
 
   fd_rwlock_unread( &banks->rwlock );
 }
