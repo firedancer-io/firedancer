@@ -506,6 +506,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_BURST (1UL)
 
+/* STEM_LAZY is calculated as cr_max/(frag production rate * 1.5).  We
+   have cr_max ~ 16K and frag production rate ~ 1M/s.  In reality, we
+   probably need more than one writer tile to get to 1M TPS, so we
+   forget about the 1.5 factor. That gives O(10^7 ns). */
+#define STEM_LAZY  ((long)1e7)
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_writer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_writer_tile_ctx_t)
 
