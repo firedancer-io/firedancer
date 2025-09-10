@@ -11,6 +11,7 @@
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar.h"
+#include "../fd_runtime_account.h"
 
 /* A note on fd_borrowed_account_acquire_write:
 
@@ -3237,28 +3238,22 @@ done:
 /* Public API *********************************************************/
 
 static void
-write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * stake_config ) {
-  ulong                   data_sz  = fd_stake_config_size( stake_config );
-  fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
+write_stake_config( fd_exec_slot_ctx_t *      slot_ctx,
+                    fd_stake_config_t const * stake_config ) {
+  ulong const data_sz = fd_stake_config_size( stake_config );
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &fd_solana_stake_program_config_id, rec, data_sz ) {
+    fd_accdb_ref_lamports_set( rec, 960480UL ); /* FIXME where does this number come from? */
+    fd_accdb_ref_exec_bit_set( rec, 0 );
 
-  FD_TXN_ACCOUNT_DECL(rec);
-  fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->funk_txn, 1, data_sz, &prepare );
-  FD_TEST( !err );
-
-  fd_txn_account_set_lamports( rec, 960480UL );
-  fd_txn_account_set_rent_epoch( rec, 0UL );
-  fd_txn_account_set_executable( rec, 0 );
-
-  fd_bincode_encode_ctx_t ctx3;
-  ctx3.data    = fd_txn_account_get_data_mut( rec );
-  ctx3.dataend = fd_txn_account_get_data_mut( rec ) + data_sz;
-  if( fd_stake_config_encode( stake_config, &ctx3 ) )
-    FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
-
-  fd_txn_account_set_data( rec, stake_config, data_sz );
-
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+    /* FIXME */
+    fd_bincode_encode_ctx_t ctx3;
+    ctx3.data    = fd_accdb_ref_data( rec );
+    ctx3.dataend = fd_accdb_ref_data( rec ) + data_sz;
+    if( fd_stake_config_encode( stake_config, &ctx3 ) )
+      FD_LOG_ERR( ( "fd_stake_config_encode failed" ) );
+    fd_accdb_ref_data_sz_set( rec, data_sz );
+  }
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
 }
 
 void
@@ -3269,12 +3264,6 @@ fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
       .slash_penalty        = DEFAULT_SLASH_PENALTY,
   };
   write_stake_config( slot_ctx, &stake_config );
-}
-
-int
-fd_stake_get_state( fd_txn_account_t const * self,
-                    fd_stake_state_v2_t *         out ) {
-  return get_state( self, out );
 }
 
 fd_stake_history_entry_t

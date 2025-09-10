@@ -1,5 +1,5 @@
 #include "fd_sysvar_recent_hashes.h"
-#include "../fd_acc_mgr.h"
+#include "../fd_runtime_account.h"
 #include "fd_sysvar.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../fd_system_ids.h"
@@ -70,41 +70,17 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, funk_txn );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
-    return NULL;
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data( acc ),
-    .dataend = fd_txn_account_get_data( acc ) + fd_txn_account_get_data_len( acc ),
-  };
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
-    return NULL;
+fd_sysvar_recent_hashes_read( fd_accdb_client_t * accdb,
+                              fd_spad_t *         spad ) {
+  int db_err = FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_recent_block_hashes_id, rec ) {
+    return fd_bincode_decode_spad(
+        recent_block_hashes,
+        spad,
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
+        NULL );
   }
-
-  ulong total_sz = 0;
-  err = fd_recent_block_hashes_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    return NULL;
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_recent_block_hashes_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_CRIT(( "fd_spad_alloc failed" ));
-  }
-
-  /* This would never happen in a real cluster, this is a workaround
-     for fuzz-generated cases where sysvar accounts are not funded. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc ) == 0 ) ) {
-    return NULL;
-  }
-
-  return fd_recent_block_hashes_decode( mem, &ctx );
+  FD_ACCDB_READ_END;
+  if( FD_UNLIKELY( db_err!=FD_ACCDB_ERR_KEY ) ) FD_LOG_ERR(( "Failed to read sysvar recent block hashes: database error (%i-%s)", db_err, fd_accdb_strerror( db_err ) ));
+  return NULL;
 }

@@ -103,48 +103,6 @@ fd_txn_account_delete( void * mem );
    replaced with a new factory constructor or removed entirely in favor
    of the generic constructors defined above. */
 
-/* fd_txn_account_init_from_funk_readonly initializes a fd_txn_account_t
-   object with a readonly handle into its funk record.
-
-   IMPORTANT: When we access the account metadata and data pointer later
-   on in the execution pipeline, we assume that nothing else will change
-   these.
-
-   This is safe because we assume that we hold a read lock on the
-   account, since we are inside a Solana transaction. */
-
-int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
-                                        fd_pubkey_t const *   pubkey,
-                                        fd_funk_t const *     funk,
-                                        fd_funk_txn_t const * funk_txn );
-
-/* fd_txn_account_init_from_funk_mutable initializes a fd_txn_account_t
-   object with a mutable handle into its funk record.
-
-   IMPORTANT: Cannot be called in the executor tile. */
-
-int
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
-                                       fd_pubkey_t const *     pubkey,
-                                       fd_funk_t *             funk,
-                                       fd_funk_txn_t *         funk_txn,
-                                       int                     do_create,
-                                       ulong                   min_data_sz,
-                                       fd_funk_rec_prepare_t * prepare_out );
-
-/* Publishes the record contents of a mutable fd_txn_account_t object
-   obtained from fd_txn_account_init_from_funk_mutable into funk
-   if the record does not yet exist in the current funk txn.
-   ie. the record was created / cloned from an ancestor funk txn
-   by fd_txn_account_init_from_funk_mutable. */
-
-void
-fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
-                             fd_funk_t *             funk,
-                             fd_funk_txn_t *         txn,
-                             fd_funk_rec_prepare_t * prepare );
-
 /* Simple accesssors and mutators. */
 
 fd_pubkey_t const *

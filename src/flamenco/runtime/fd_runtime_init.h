@@ -20,7 +20,7 @@ FD_PROTOTYPES_BEGIN
    snapshot. */
 
 void
-fd_features_restore( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
+fd_features_restore( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

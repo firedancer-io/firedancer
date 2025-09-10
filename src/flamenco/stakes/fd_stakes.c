@@ -163,15 +163,15 @@ fd_accumulate_stake_infos( ulong                          epoch,
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
                           fd_stake_delegations_t const * stake_delegations,
-                          ulong *                        new_rate_activation_epoch,
-                          fd_spad_t *                    runtime_spad ) {
+                          ulong *                        new_rate_activation_epoch ) {
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_stake_history_t history_[1];
+  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->accdb, history_ );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   fd_stake_history_entry_t accumulator = {
@@ -198,25 +198,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
     }
   };
 
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );
+  fd_sysvar_stake_history_update( slot_ctx, &new_elem );
 
-}
-
-int
-write_stake_state( fd_txn_account_t *    stake_acc_rec,
-                   fd_stake_state_v2_t * stake_state ) {
-
-  ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
-
-  fd_bincode_encode_ctx_t ctx = {
-    .data    = fd_txn_account_get_data_mut( stake_acc_rec ),
-    .dataend = fd_txn_account_get_data_mut( stake_acc_rec ) + encoded_stake_state_size,
-  };
-  if( FD_UNLIKELY( fd_stake_state_v2_encode( stake_state, &ctx ) != FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_stake_state_encode failed" ));
-  }
-
-  return 0;
 }
 
 /* Removes stake delegation from stakes */
@@ -245,8 +228,11 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
   }
 
   fd_stake_state_v2_t stake_state;
-  int err = fd_stake_get_state( stake_account, &stake_state );
-  if( FD_UNLIKELY( err != 0 ) ) {
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      stake_state_v2, &stake_state,
+      fd_txn_account_get_data( stake_account ),
+      fd_txn_account_get_data_len( stake_account ),
+      NULL ) ) ) {
     FD_LOG_WARNING(( "Failed to get stake state" ));
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;

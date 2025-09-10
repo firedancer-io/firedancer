@@ -2,6 +2,7 @@
 #include "fd_bpf_loader_program.h"
 #include "fd_loader_v4_program.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../accdb/fd_accdb_sync.h"
 
 #include <assert.h>
 
@@ -151,8 +152,7 @@ fd_get_executable_program_content_for_v4_loader( fd_txn_account_t const * progra
    - The program account data cannot be decoded or is not in the `program` state.
    - The programdata account is not large enough to hold at least `PROGRAMDATA_METADATA_SIZE` bytes. */
 static uchar const *
-fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *        funk,
-                                                          fd_funk_txn_t const *    funk_txn,
+fd_get_executable_program_content_for_upgradeable_loader( fd_accdb_client_t *      accdb,
                                                           fd_txn_account_t const * program_acc,
                                                           ulong *                  program_data_len ) {
   fd_bpf_upgradeable_loader_state_t program_account_state[1];
@@ -168,11 +168,13 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
     return NULL;
   }
 
-  fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
-  FD_TXN_ACCOUNT_DECL( programdata_acc );
-  if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, funk, funk_txn )!=FD_ACC_MGR_SUCCESS ) {
-    return NULL;
+  fd_pubkey_t const * programdata_address = &program_account_state->inner.program.programdata_address;
+  FD_ACCDB_READ_BEGIN( accdb, programdata_address, rec ) {
+
   }
+  FD_ACCDB_READ_END;
+  FD_TXN_ACCOUNT_DECL( programdata_acc );
+
 
   /* We don't actually need to decode here, just make sure that the account
      can be decoded successfully. */

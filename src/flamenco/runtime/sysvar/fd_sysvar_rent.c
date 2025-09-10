@@ -1,6 +1,6 @@
 #include "fd_sysvar_rent.h"
 #include "fd_sysvar.h"
-#include "../fd_acc_mgr.h"
+#include "../../accdb/fd_accdb_sync.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
 
@@ -32,27 +32,15 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_rent_t const *
-fd_sysvar_rent_read( fd_funk_t *     funk,
-                     fd_funk_txn_t * funk_txn,
-                     fd_spad_t *     spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, funk_txn );
-  if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
-    return NULL;
+fd_sysvar_rent_read( fd_accdb_client_t * accdb,
+                     fd_rent_t *         rent_out ) {
+  FD_ACCDB_READ_BEGIN( accdb, &fd_sysvar_rent_id, rec ) {
+    return fd_bincode_decode_static(
+        rent, rent_out,
+        fd_accdb_ref_data_const( rec ),
+        fd_accdb_ref_data_sz   ( rec ),
+        NULL );
   }
-
-  /* This check is needed as a quirk of the fuzzer. If a sysvar account
-     exists in the accounts database, but doesn't have any lamports,
-     this means that the account does not exist. This wouldn't happen
-     in a real execution environment. */
-  if( FD_UNLIKELY( fd_txn_account_get_lamports( acc )==0UL ) ) {
-    return NULL;
-  }
-
-  int err;
-  return fd_bincode_decode_spad(
-      rent, spad,
-      fd_txn_account_get_data( acc ),
-      fd_txn_account_get_data_len( acc ),
-      &err );
+  FD_ACCDB_READ_END;
+  return NULL;
 }

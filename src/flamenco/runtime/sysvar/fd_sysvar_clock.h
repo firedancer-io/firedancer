@@ -4,6 +4,7 @@
 /* The clock sysvar provides an approximate measure of network time. */
 
 #include "fd_sysvar_base.h"
+#include "../../accdb/fd_accdb_base.h"
 #include "../../types/fd_types.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
@@ -47,8 +48,7 @@ fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
    has zero lamports, this function returns NULL. */
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_funk_t *             funk,
-                      fd_funk_txn_t *         funk_txn,
+fd_sysvar_clock_read( fd_accdb_client_t *     accdb,
                       fd_sol_sysvar_clock_t * clock );
 
 FD_PROTOTYPES_END

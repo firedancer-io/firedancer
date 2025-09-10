@@ -1284,7 +1284,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->slot_ctx->banks );
 
-  fd_stake_delegations_refresh( root_delegations, ctx->funk, ctx->slot_ctx->funk_txn );
+  fd_stake_delegations_refresh( root_delegations, ctx->slot_ctx->accdb );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -1375,7 +1375,7 @@ on_snapshot_message( fd_replay_tile_ctx_t * ctx,
     block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, snapshot_slot );
     entry->block_id = manifest_block_id;
 
-    fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+    fd_features_restore( ctx->slot_ctx );
 
     fd_runtime_update_leaders(
         ctx->slot_ctx->bank,
@@ -1892,7 +1892,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_CRIT(( "invariant violation: initial bank does not exist" ));
   }
 
-  ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->status_cache = NULL; /* TODO: Integrate status cache */
   ctx->slot_ctx->capture_ctx  = ctx->capture_ctx;
 
