@@ -931,9 +931,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
-      if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
-        if( !resolve_address( config->gossip.host, &tile->gossip.ip_addr ) )
-          FD_LOG_ERR(( "could not resolve [gossip.host] %s", config->gossip.host ));
+      if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+        if( !resolve_address( config->firedancer.gossip.host, &tile->gossip.ip_addr ) )
+          FD_LOG_ERR(( "could not resolve [gossip.host] %s", config->firedancer.gossip.host ));
       } else {
         tile->gossip.ip_addr = config->net.ip_addr;
       }

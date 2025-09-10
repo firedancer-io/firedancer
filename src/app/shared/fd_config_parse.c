@@ -77,6 +77,8 @@ fd_config_extract_podh( uchar *        pod,
 fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
+  CFG_POP      ( cstr,   gossip.host                                      );
+
   CFG_POP      ( uint,   layout.exec_tile_count                           );
   CFG_POP      ( uint,   layout.writer_tile_count                         );
 
@@ -141,7 +143,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP_ARRAY( cstr,   gossip.entrypoints                               );
   CFG_POP      ( ushort, gossip.port                                      );
-  CFG_POP      ( cstr,   gossip.host                                      );
 
   CFG_POP      ( ushort, consensus.expected_shred_version                 );
 

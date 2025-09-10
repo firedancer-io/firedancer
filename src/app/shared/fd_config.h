@@ -130,6 +130,10 @@ struct fd_configf {
   } runtime;
 
   struct {
+    char host[ 256 ];
+  } gossip;
+
+  struct {
     int   incremental_snapshots;
     uint  maximum_local_snapshot_age;
     int   download;
@@ -234,7 +238,6 @@ struct fd_config {
     ulong         resolved_entrypoints_cnt; /* ??? why during config ... */
     fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
     ushort        port;
-    char          host[ 256 ];
   } gossip;
 
   struct {
