@@ -604,7 +604,6 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
       }
 
       out_acct->executable = fd_txn_account_is_executable( acc );
-      out_acct->rent_epoch = fd_txn_account_get_rent_epoch( acc );
       memcpy( out_acct->owner, fd_txn_account_get_owner( acc ), sizeof(fd_pubkey_t) );
 
       txn_result->resulting_state.acct_states_count++;

@@ -99,6 +99,16 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 struct fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
 
+struct fd_account_meta {
+  uchar owner[32];
+  ulong lamports;
+  ulong slot;
+  uint  dlen;
+  uchar executable;
+  uchar padding[3];
+};
+typedef struct fd_account_meta fd_account_meta_t;
+
 /* fd_rawtxn_b_t is a convenience type to store a pointer to a
    serialized transaction.  Should probably be removed in the future. */
 

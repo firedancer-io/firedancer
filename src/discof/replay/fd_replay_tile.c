@@ -630,11 +630,6 @@ fd_replay_out_vote_tower_from_funk(
 
     uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-    if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) ) {
-      FD_LOG_WARNING(( "account %s has wrong magic",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-      return -1;
-    }
 
     ulong data_sz = metadata->dlen;
     if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
@@ -645,7 +640,7 @@ fd_replay_out_vote_tower_from_funk(
       return -1;
     }
 
-    fd_memcpy( vote_tower_out->acc, raw + metadata->hlen, data_sz );
+    fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
     vote_tower_out->acc_sz = (ushort)data_sz;
 
     if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {

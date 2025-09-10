@@ -367,51 +367,6 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
 
 }
 
-#define FD_RENT_EXEMPT (-1L)
-
-static long
-fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
-                         fd_rent_t const *           rent,
-                         double                      slots_per_year,
-                         fd_txn_account_t *          acc,
-                         ulong                       epoch ) {
-  /* Nothing due if account is rent-exempt
-     https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L90 */
-  ulong min_balance = fd_rent_exempt_minimum_balance( rent, fd_txn_account_get_data_len( acc ) );
-  if( fd_txn_account_get_lamports( acc )>=min_balance ) {
-    return FD_RENT_EXEMPT;
-  }
-
-  /* Count the number of slots that have passed since last collection. This
-     inlines the agave function get_slots_in_peohc
-     https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L93-L98 */
-  ulong slots_elapsed = 0UL;
-  if( FD_UNLIKELY( fd_txn_account_get_rent_epoch( acc )<schedule->first_normal_epoch ) ) {
-    /* Count the slots before the first normal epoch separately */
-    for( ulong i=fd_txn_account_get_rent_epoch( acc ); i<schedule->first_normal_epoch && i<=epoch; i++ ) {
-      slots_elapsed += fd_epoch_slot_cnt( schedule, i+1UL );
-    }
-    slots_elapsed += fd_ulong_sat_sub( epoch+1UL, schedule->first_normal_epoch ) * schedule->slots_per_epoch;
-  }
-  // slots_elapsed should remain 0 if rent_epoch is greater than epoch
-  else if( fd_txn_account_get_rent_epoch( acc )<=epoch ) {
-    slots_elapsed = (epoch - fd_txn_account_get_rent_epoch( acc ) + 1UL) * schedule->slots_per_epoch;
-  }
-  /* Consensus-critical use of doubles :( */
-
-  double years_elapsed;
-  if( FD_LIKELY( slots_per_year!=0.0 ) ) {
-    years_elapsed = (double)slots_elapsed / slots_per_year;
-  } else {
-    years_elapsed = 0.0;
-  }
-
-  ulong lamports_per_year = rent->lamports_per_uint8_year * (fd_txn_account_get_data_len( acc ) + 128UL);
-  /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/src/rent_collector.rs#L108 */
-  /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/program/src/rent.rs#L95 */
-  return (long)fd_rust_cast_double_to_ulong(years_elapsed * (double)lamports_per_year);
-}
-
 /* fd_runtime_collect_rent_from_account performs rent collection duties.
    Although the Solana runtime prevents the creation of new accounts
    that are subject to rent, some older accounts are still undergo the
@@ -424,19 +379,9 @@ fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
                                       double                      slots_per_year,
                                       fd_txn_account_t *          acc,
                                       ulong                       epoch ) {
-
-  if( FD_UNLIKELY( fd_txn_account_get_rent_epoch( acc )!=FD_RENT_EXEMPT_RENT_EPOCH &&
-                     fd_runtime_get_rent_due( schedule,
-                                              rent,
-                                              slots_per_year,
-                                              acc,
-                                              epoch )==FD_RENT_EXEMPT ) ) {
-      fd_txn_account_set_rent_epoch( acc, FD_RENT_EXEMPT_RENT_EPOCH );
-  }
+  (void)schedule; (void)rent; (void)slots_per_year; (void)acc; (void)epoch;
   return 0UL;
 }
-
-#undef FD_RENT_EXEMPT
 
 /******************************************************************************/
 /* Block-Level Execution Preparation/Finalization                             */
@@ -1075,7 +1020,7 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
   /* Write the message to the buffer */
   fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
   account_update_msg->pubkey               = *account->pubkey;
-  account_update_msg->info                 = meta->info;
+  account_update_msg->info                 = fd_txn_account_get_solana_meta( account );
   account_update_msg->data_sz              = meta->dlen;
   memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
   capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
@@ -2019,7 +1964,6 @@ fd_runtime_init_accounts_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
     fd_txn_account_set_data( rec, a->account.data, a->account.data_len );
     fd_txn_account_set_lamports( rec, a->account.lamports );
-    fd_txn_account_set_rent_epoch( rec, a->account.rent_epoch );
     fd_txn_account_set_executable( rec, a->account.executable );
     fd_txn_account_set_owner( rec, &a->account.owner );
     fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );

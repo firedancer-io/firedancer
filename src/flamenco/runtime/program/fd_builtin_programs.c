@@ -231,7 +231,6 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_txn_account_set_data( rec, data, sz );
   fd_txn_account_set_lamports( rec, 1UL );
-  fd_txn_account_set_rent_epoch( rec, 0UL );
   fd_txn_account_set_executable( rec, 1 );
   fd_txn_account_set_owner( rec, &fd_solana_native_loader_id );
 
@@ -272,7 +271,6 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TEST( !err );
 
   fd_txn_account_set_lamports( rec, 1000000000UL );
-  fd_txn_account_set_rent_epoch( rec, 1UL );
   fd_txn_account_set_executable( rec, 0 );
   fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
   fd_txn_account_set_data( rec, data, sizeof(data) );

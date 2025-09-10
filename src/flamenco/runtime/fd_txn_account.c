@@ -35,7 +35,7 @@ fd_txn_account_new( void *              mem,
   txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
 
   txn_account->starting_dlen     = meta->dlen;
-  txn_account->starting_lamports = meta->info.lamports;
+  txn_account->starting_lamports = meta->lamports;
 
   uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
@@ -291,7 +291,7 @@ fd_txn_account_get_owner( fd_txn_account_t const * acct ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  return (fd_pubkey_t const *)acct->meta->info.owner;
+  return (fd_pubkey_t const *)acct->meta->owner;
 }
 
 fd_account_meta_t const *
@@ -322,7 +322,7 @@ fd_txn_account_is_executable( fd_txn_account_t const * acct ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  return !!acct->meta->info.executable;
+  return !!acct->meta->executable;
 }
 
 ulong
@@ -330,23 +330,13 @@ fd_txn_account_get_lamports( fd_txn_account_t const * acct ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  return acct->meta->info.lamports;
+  return acct->meta->lamports;
 }
 
 ulong
 fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->meta ) ) {
-    FD_LOG_CRIT(( "account is not setup" ));
-  }
-  return acct->meta->info.rent_epoch;
-}
-
-fd_solana_account_meta_t const *
-fd_txn_account_get_info( fd_txn_account_t const * acct ) {
-  if( FD_UNLIKELY( !acct->meta ) ) {
-    FD_LOG_CRIT(( "account is not setup" ));
-  }
-  return &acct->meta->info;
+  (void)acct;
+  return ULONG_MAX;
 }
 
 void
@@ -368,7 +358,7 @@ fd_txn_account_set_executable( fd_txn_account_t * acct, int is_executable ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  acct->meta->info.executable = !!is_executable;
+  acct->meta->executable = !!is_executable;
 }
 
 void
@@ -379,7 +369,7 @@ fd_txn_account_set_owner( fd_txn_account_t * acct, fd_pubkey_t const * owner ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  fd_memcpy( acct->meta->info.owner, owner, sizeof(fd_pubkey_t) );
+  fd_memcpy( acct->meta->owner, owner, sizeof(fd_pubkey_t) );
 }
 
 void
@@ -390,7 +380,7 @@ fd_txn_account_set_lamports( fd_txn_account_t * acct, ulong lamports ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  acct->meta->info.lamports = lamports;
+  acct->meta->lamports = lamports;
 }
 
 int
@@ -420,17 +410,6 @@ fd_txn_account_checked_sub_lamports( fd_txn_account_t * acct, ulong lamports ) {
 }
 
 void
-fd_txn_account_set_rent_epoch( fd_txn_account_t * acct, ulong rent_epoch ) {
-  if( FD_UNLIKELY( !acct->is_mutable ) ) {
-    FD_LOG_CRIT(( "account is not mutable" ));
-  }
-  if( FD_UNLIKELY( !acct->meta ) ) {
-    FD_LOG_CRIT(( "account is not setup" ));
-  }
-  acct->meta->info.rent_epoch = rent_epoch;
-}
-
-void
 fd_txn_account_set_data( fd_txn_account_t * acct,
                          void const *       data,
                          ulong              data_sz ) {
@@ -440,7 +419,7 @@ fd_txn_account_set_data( fd_txn_account_t * acct,
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  acct->meta->dlen = data_sz;
+  acct->meta->dlen = (uint)data_sz;
   fd_memcpy( acct->data, data, data_sz );
 }
 
@@ -452,7 +431,7 @@ fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  acct->meta->dlen = data_len;
+  acct->meta->dlen = (uint)data_len;
 }
 
 void
@@ -474,18 +453,7 @@ fd_txn_account_clear_owner( fd_txn_account_t * acct ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  fd_memset( acct->meta->info.owner, 0, sizeof(fd_pubkey_t) );
-}
-
-void
-fd_txn_account_set_meta_info( fd_txn_account_t * acct, fd_solana_account_meta_t const * info ) {
-  if( FD_UNLIKELY( !acct->is_mutable ) ) {
-    FD_LOG_CRIT(( "account is not mutable" ));
-  }
-  if( FD_UNLIKELY( !acct->meta ) ) {
-    FD_LOG_CRIT(( "account is not setup" ));
-  }
-  acct->meta->info = *info;
+  fd_memset( acct->meta->owner, 0, sizeof(fd_pubkey_t) );
 }
 
 void
@@ -505,7 +473,7 @@ fd_txn_account_resize( fd_txn_account_t * acct,
   ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
   fd_memset( acct->data+old_sz, 0, memset_sz );
 
-  acct->meta->dlen = dlen;
+  acct->meta->dlen = (uint)dlen;
 }
 
 ushort
@@ -543,4 +511,15 @@ fd_txn_account_set_readonly( fd_txn_account_t * acct ) {
 void
 fd_txn_account_set_mutable( fd_txn_account_t * acct ) {
   acct->is_mutable = 1;
+}
+
+fd_solana_account_meta_t
+fd_txn_account_get_solana_meta( fd_txn_account_t const * acct ) {
+  fd_solana_account_meta_t meta = {
+    .lamports   = acct->meta->lamports,
+    .rent_epoch = ULONG_MAX,
+    .executable = acct->meta->executable,
+  };
+  memcpy( meta.owner, acct->meta->owner, sizeof(fd_pubkey_t) );
+  return meta;
 }

@@ -831,11 +831,11 @@ fd_account_to_json( fd_webserver_t * ws,
   fd_web_reply_sprintf(ws, "{\"data\":[\"");
 
   fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-  if (val_sz < sizeof(fd_account_meta_t) && val_sz < metadata->hlen) {
+  if (val_sz < sizeof(fd_account_meta_t)) {
     return "failed to load account data";
   }
-  val = (uchar*)val + metadata->hlen;
-  val_sz = val_sz - metadata->hlen;
+  val = (uchar*)val + sizeof(fd_account_meta_t);
+  val_sz = val_sz - sizeof(fd_account_meta_t);
   if (val_sz > metadata->dlen)
     val_sz = metadata->dlen;
 
@@ -891,16 +891,15 @@ fd_account_to_json( fd_webserver_t * ws,
   }
 
   char owner[50];
-  fd_base58_encode_32((uchar*)metadata->info.owner, 0, owner);
+  fd_base58_encode_32((uchar*)metadata->owner, 0, owner);
   char addr[50];
   fd_base58_encode_32(acct.uc, 0, addr);
-  fd_web_reply_sprintf(ws, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"address\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
+  fd_web_reply_sprintf(ws, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"address\":\"%s\",\"space\":%lu}",
                        encstr,
-                       (metadata->info.executable ? "true" : "false"),
-                       metadata->info.lamports,
+                       (metadata->executable ? "true" : "false"),
+                       metadata->lamports,
                        owner,
                        addr,
-                       metadata->info.rent_epoch,
                        val_sz);
 
   return NULL;
