@@ -128,11 +128,10 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   ulong slot0    = fd_epoch_slot0   ( epoch_schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( bank );
   ulong                    vote_acc_cnt          = fd_vote_states_cnt( vote_states_prev_prev ) ;
   fd_vote_stake_weight_t * epoch_weights         = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* Derive leader schedule */
 
@@ -1386,10 +1385,9 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
 static void
 fd_update_vote_states_prev_prev( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank );
+  fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_modify( slot_ctx->bank );
   fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
   fd_memcpy( vote_states_prev_prev, vote_states_prev, fd_bank_vote_states_footprint );
-  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
   fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 }
 
@@ -2405,7 +2403,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   fd_vote_states_t const * vote_states_curr = fd_bank_vote_states_locking_query( slot_ctx->bank );
 
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
@@ -2420,7 +2418,6 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
     }
   }
 
-  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
   fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 

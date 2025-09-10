@@ -134,16 +134,18 @@ fd_banks_align( void ) {
 }
 
 ulong
-fd_banks_footprint( ulong max_total_banks, ulong FD_PARAM_UNUSED max_fork_width ) {
+fd_banks_footprint( ulong max_total_banks,
+                    ulong max_fork_width ) {
 
   /* max_fork_width is used in the macro below. */
 
   ulong map_chain_cnt = fd_ulong_pow2_up( max_total_banks );
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
-  l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_total_banks ) );
-  l = FD_LAYOUT_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_t) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( max_total_banks ) );
+  l = FD_LAYOUT_APPEND( l, fd_banks_map_align(),                       fd_banks_map_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( max_fork_width ) );
 
   /* Need to count the footprint for all of the CoW pools. The footprint
      on each CoW pool depends on if the field limits the fork width. */
@@ -190,9 +192,10 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
 
   /* First, layout the banks and the pool/map used by fd_banks_t. */
   FD_SCRATCH_ALLOC_INIT( l, banks );
-  banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
-  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( max_total_banks ) );
-  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
+  banks                                  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                          sizeof(fd_banks_t) );
+  void * pool_mem                        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                     fd_banks_pool_footprint( max_total_banks ) );
+  void * map_mem                         = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),                      fd_banks_map_footprint( map_chain_cnt ) );
+  void * vote_states_prev_prev_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( max_fork_width ) );
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name) \
@@ -244,6 +247,18 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
   }
 
   fd_banks_set_bank_map( banks, bank_map );
+
+  void * vote_states_prev_prev_mem = fd_bank_vote_states_prev_prev_pool_new( vote_states_prev_prev_pool_mem, max_fork_width );
+  if( FD_UNLIKELY( !vote_states_prev_prev_mem ) ) {
+    FD_LOG_WARNING(( "Failed to create vote states prev prev pool" ));
+    return NULL;
+  }
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_vote_states_prev_prev_pool_join( vote_states_prev_prev_mem );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+  fd_banks_set_vote_states_prev_prev_pool( banks, vote_states_prev_prev_pool );
 
   /* Now, call _new() and _join() for all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name)                                                     \
@@ -321,9 +336,10 @@ fd_banks_join( void * mem ) {
   ulong map_chain_cnt = fd_ulong_pow2_up( banks->max_total_banks );
 
   FD_SCRATCH_ALLOC_INIT( l, banks );
-  banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),      sizeof(fd_banks_t) );
-  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(), fd_banks_pool_footprint( banks->max_total_banks ) );
-  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),  fd_banks_map_footprint( map_chain_cnt ) );
+  banks                                 = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                           sizeof(fd_banks_t) );
+  void * pool_mem                       = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),                      fd_banks_pool_footprint( banks->max_total_banks ) );
+  void * map_mem                        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_map_align(),                       fd_banks_map_footprint( map_chain_cnt ) );
+  void * vote_states_prev_prev_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_vote_states_prev_prev_pool_align(), fd_bank_vote_states_prev_prev_pool_footprint( banks->max_fork_width ) );
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name) \
@@ -364,6 +380,16 @@ fd_banks_join( void * mem ) {
 
   if( FD_UNLIKELY( bank_map!=fd_banks_map_join( map_mem ) ) ) {
     FD_LOG_WARNING(( "Failed to join bank map" ));
+    return NULL;
+  }
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( vote_states_prev_prev_pool!=fd_bank_vote_states_prev_prev_pool_join( vote_states_prev_prev_pool_mem ) ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
     return NULL;
   }
 
@@ -452,6 +478,11 @@ fd_banks_init_bank( fd_banks_t *      banks,
   bank->parent_idx  = null_idx;
   bank->child_idx   = null_idx;
   bank->sibling_idx = null_idx;
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  fd_bank_set_vote_states_prev_prev_pool( bank, vote_states_prev_prev_pool );
+  bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
+  bank->vote_states_prev_prev_dirty    = 0;
 
   /* Set all CoW fields to null. */
   #define HAS_COW_1(name)                                                             \
@@ -620,6 +651,15 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
      TODO: We don't need to copy over the stake delegations delta. */
 
   memcpy( (uchar *)new_bank + FD_BANK_TEMPLATE_OFFSET, (uchar *)parent_bank + FD_BANK_TEMPLATE_OFFSET, sizeof(fd_bank_t) - FD_BANK_TEMPLATE_OFFSET );
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  if( FD_UNLIKELY( !vote_states_prev_prev_pool ) ) {
+    FD_LOG_WARNING(( "Failed to join vote states prev prev pool" ));
+    return NULL;
+  }
+  fd_bank_set_vote_states_prev_prev_pool( new_bank, vote_states_prev_prev_pool );
+  new_bank->vote_states_prev_prev_pool_idx = parent_bank->vote_states_prev_prev_pool_idx;
+  new_bank->vote_states_prev_prev_dirty    = 0;
 
   /* Setup all of the CoW fields. */
   #define HAS_COW_1(name)                                                   \
@@ -840,6 +880,11 @@ fd_banks_publish( fd_banks_t *      banks,
 
     fd_bank_t * next = fd_banks_pool_ele( bank_pool, head->next );
 
+    if( head->vote_states_prev_prev_dirty && head->vote_states_prev_prev_pool_idx!=new_root->vote_states_prev_prev_pool_idx ) {
+      fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+      fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, head->vote_states_prev_prev_pool_idx );
+    }
+
     /* Decide if we need to free any CoW fields. We free a CoW member
        from its pool if the dirty flag is set unless it is the same
        pool that the new root uses. */
@@ -862,6 +907,10 @@ fd_banks_publish( fd_banks_t *      banks,
     head = next;
   }
 
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_banks_get_vote_states_prev_prev_pool( banks );
+  if( new_root->vote_states_prev_prev_pool_idx!=fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool ) ) {
+    new_root->vote_states_prev_prev_dirty = 1;
+  }
   /* If the new root did not have the dirty bit set, that means the node
      didn't own the pool index. Change the ownership to the new root. */
   #define HAS_COW_1(name)                                                            \
@@ -914,6 +963,16 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #undef X
   #undef HAS_COW_0
   #undef HAS_COW_1
+
+  fd_bank_vote_states_prev_prev_t * vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( bank->vote_states_prev_prev_dirty ) {
+    /* If the dirty flag is set, then we have a pool allocated for */
+    /* this specific bank. We need to release the pool index and   */
+    /* assign the bank to the idx corresponding to the parent.     */
+    fd_bank_vote_states_prev_prev_pool_idx_release( vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    bank->vote_states_prev_prev_dirty    = 0;
+    bank->vote_states_prev_prev_pool_idx = parent_bank ? parent_bank->vote_states_prev_prev_pool_idx : fd_bank_vote_states_prev_prev_pool_idx_null( vote_states_prev_prev_pool );
+  }
 
   bank->cost_tracker_dirty = 0;
   fd_rwlock_unwrite( &bank->cost_tracker_lock );

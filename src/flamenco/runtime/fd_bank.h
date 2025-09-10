@@ -229,9 +229,7 @@ FD_PROTOTYPES_BEGIN
   X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
                                                                                                                                                                                           /* epoch E is the one that is currently being executed */    \
   X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of of the end of */  \
-                                                                                                                                                                                          /* epoch E-1 if epoch E is currently being executed */       \
-  X(fd_vote_states_t,                  vote_states_prev_prev,       FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of the end of */     \
-                                                                                                                                                                                          /* epoch E-2 if epoch E is currently being executed */
+                                                                                                                                                                                          /* epoch E-1 if epoch E is currently being executed */
 
 /* Invariant Every CoW field must have a rw-lock */
 #define X(type, name, footprint, align, cow, limit_fork_width, has_lock)                                              \
@@ -265,6 +263,14 @@ FD_PROTOTYPES_BEGIN
 #undef X
 #undef HAS_COW_0
 #undef HAS_COW_1
+
+static const ulong fd_bank_vote_states_prev_prev_align     = FD_VOTE_STATES_ALIGN;
+static const ulong fd_bank_vote_states_prev_prev_footprint = FD_VOTE_STATES_FOOTPRINT;
+struct fd_bank_vote_states_prev_prev {
+  ulong next;
+  uchar data[FD_VOTE_STATES_FOOTPRINT] __attribute__((aligned(FD_VOTE_STATES_ALIGN)));
+};
+typedef struct fd_bank_vote_states_prev_prev fd_bank_vote_states_prev_prev_t;
 
 #define POOL_NAME fd_bank_epoch_leaders_pool
 #define POOL_T    fd_bank_epoch_leaders_t
@@ -310,16 +316,24 @@ FD_PROTOTYPES_BEGIN
 */
 
 struct fd_bank {
+  /* The offset of the template fields in the bank struct. */
   #define FD_BANK_TEMPLATE_OFFSET (offsetof(fd_bank_t, stake_delegations_delta_lock) + sizeof(fd_rwlock_t))
 
   /* Fields used for internal pool and bank management */
-  fd_hash_t         block_id_;   /* block id this node is tracking, also the map key */
-  ulong             next;        /* reserved for internal use by fd_pool_para, fd_map_chain_para and fd_banks_publish */
-  ulong             parent_idx;  /* index of the parent in the node pool */
-  ulong             child_idx;   /* index of the left-child in the node pool */
-  ulong             sibling_idx; /* index of the right-sibling in the node pool */
-  ulong             flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
-  ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
+
+  fd_hash_t block_id_;   /* block id this node is tracking, also the map key */
+  ulong     next;        /* reserved for internal use by fd_pool_para, fd_map_chain_para and fd_banks_publish */
+  ulong     parent_idx;  /* index of the parent in the node pool */
+  ulong     child_idx;   /* index of the left-child in the node pool */
+  ulong     sibling_idx; /* index of the right-sibling in the node pool */
+  ulong     flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong     refcnt;      /* (r) reference count on the bank, see replay for more details */
+
+  /* Vote states prev prev. */
+
+  int   vote_states_prev_prev_dirty;
+  ulong vote_states_prev_prev_pool_idx;
+  ulong vote_states_prev_prev_pool_offset;
 
   /* Cost tracker. */
 
@@ -394,7 +408,7 @@ fd_bank_set_##name##_pool( fd_bank_t * bank, fd_bank_##name##_t * bank_pool ) { 
   bank->name##_pool_offset = (ulong)bank_pool_mem - (ulong)bank;                 \
 }                                                                                \
 static inline fd_bank_##name##_t *                                               \
-fd_bank_get_##name##_pool( fd_bank_t * bank ) {                                  \
+fd_bank_get_##name##_pool( fd_bank_t const * bank ) {                            \
   return fd_bank_##name##_pool_join( (uchar *)bank + bank->name##_pool_offset ); \
 }
 #define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
@@ -405,6 +419,20 @@ FD_BANKS_ITER(X)
 #undef X
 #undef HAS_COW_0
 #undef HAS_COW_1
+
+static inline void
+fd_bank_set_vote_states_prev_prev_pool( fd_bank_t * bank, fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev_pool ) {
+  void * bank_vote_states_prev_prev_pool_mem = fd_bank_vote_states_prev_prev_pool_leave( bank_vote_states_prev_prev_pool );
+  if( FD_UNLIKELY( !bank_vote_states_prev_prev_pool_mem ) ) {
+    FD_LOG_CRIT(( "Failed to leave vote states prev prev pool" ));
+  }
+  bank->vote_states_prev_prev_pool_offset = (ulong)bank_vote_states_prev_prev_pool_mem-(ulong)bank;
+}
+
+static inline fd_bank_vote_states_prev_prev_t *
+fd_bank_get_vote_states_prev_prev_pool( fd_bank_t const * bank ) {
+  return fd_bank_vote_states_prev_prev_pool_join( (uchar *)bank + bank->vote_states_prev_prev_pool_offset );
+}
 
 /* fd_bank_t is the alignment for the bank state. */
 
@@ -482,7 +510,7 @@ struct fd_banks {
   /* Layout all CoW pools. */
 
   #define HAS_COW_1(type, name, footprint, align) \
-    ulong           name##_pool_offset; /* offset of pool from banks */
+    ulong name##_pool_offset; /* offset of pool from banks */
 
   #define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
 
@@ -492,6 +520,8 @@ struct fd_banks {
   #undef X
   #undef HAS_COW_0
   #undef HAS_COW_1
+
+  ulong vote_states_prev_prev_pool_offset;
 };
 typedef struct fd_banks fd_banks_t;
 
@@ -524,6 +554,71 @@ FD_BANKS_ITER(X)
 static inline fd_hash_t const *
 fd_bank_block_id_query( fd_bank_t const * bank ) {
   return &bank->block_id_;
+}
+
+/* Vote states prev prev.  The value for the vote states from the end
+   of epoch T-2 is only updated at boot or at the epoch boundary.  When
+   it is updated, it doesn't matter what the previous values are.  Reads
+   are also only done at the slot boundary so locks are not needed. */
+
+static inline fd_vote_states_t *
+fd_bank_vote_states_prev_prev_modify( fd_bank_t * bank ) {
+  fd_bank_vote_states_prev_prev_t * fd_bank_vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( FD_UNLIKELY( fd_bank_vote_states_prev_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states prev prev pool" ));
+  }
+  if( bank->vote_states_prev_prev_dirty ) {
+    fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( fd_bank_vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+    return fd_vote_states_join( bank_vote_states_prev_prev->data );
+  }
+  if( FD_UNLIKELY( !fd_bank_vote_states_prev_prev_pool_free( fd_bank_vote_states_prev_prev_pool ) ) ) {
+    FD_LOG_CRIT(( "Failed to acquire vote states prev prev pool element" ));
+  }
+
+  if( fd_bank_vote_states_prev_prev_pool_used( fd_bank_vote_states_prev_prev_pool )==0UL ) {
+    /* The case where we boot and no elements have been allocated.
+       We need to allocate a new pool element, and call _new() and
+       _join() on the vote states object. */
+    fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele_acquire( fd_bank_vote_states_prev_prev_pool );
+    if( FD_UNLIKELY( bank_vote_states_prev_prev==NULL ) ) {
+      FD_LOG_CRIT(( "Failed to acquire vote states prev prev pool element" ));
+    }
+    bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx( fd_bank_vote_states_prev_prev_pool, bank_vote_states_prev_prev );
+    bank->vote_states_prev_prev_dirty    = 1;
+    return fd_vote_states_join( fd_vote_states_new( bank_vote_states_prev_prev->data, FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  } else {
+    /* The case where we have already allocated elements.  We know that
+       the value for the vote states will always be copied in.  We can
+       return a pool element without a _new() or _join() call. */
+    fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele_acquire( fd_bank_vote_states_prev_prev_pool );
+    if( FD_UNLIKELY( bank_vote_states_prev_prev==NULL ) ) {
+      FD_LOG_CRIT(( "Failed to acquire vote states prev prev pool element" ));
+    }
+    bank->vote_states_prev_prev_pool_idx = fd_bank_vote_states_prev_prev_pool_idx( fd_bank_vote_states_prev_prev_pool, bank_vote_states_prev_prev );
+    bank->vote_states_prev_prev_dirty    = 1;
+    return (fd_vote_states_t *)bank_vote_states_prev_prev->data;
+  }
+  return NULL;
+}
+
+static inline fd_vote_states_t const *
+fd_bank_vote_states_prev_prev_query( fd_bank_t const * bank ) {
+  fd_bank_vote_states_prev_prev_t * fd_bank_vote_states_prev_prev_pool = fd_bank_get_vote_states_prev_prev_pool( bank );
+  if( FD_UNLIKELY( fd_bank_vote_states_prev_prev_pool==NULL ) ) {
+    FD_LOG_CRIT(( "NULL vote states prev prev pool" ));
+  }
+  if( bank->vote_states_prev_prev_pool_idx==fd_bank_vote_states_prev_prev_pool_idx_null( fd_bank_vote_states_prev_prev_pool ) ) {
+    return NULL;
+  }
+  fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev = fd_bank_vote_states_prev_prev_pool_ele( fd_bank_vote_states_prev_prev_pool, bank->vote_states_prev_prev_pool_idx );
+  if( FD_UNLIKELY( bank_vote_states_prev_prev==NULL ) ) {
+    FD_LOG_CRIT(( "Failed to acquire vote states prev prev pool element" ));
+  }
+  fd_vote_states_t * vote_states = fd_vote_states_join( bank_vote_states_prev_prev->data );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "Failed to join vote states" ));
+  }
+  return vote_states;
 }
 
 /* Cost tracker.  The cost tracker is reset on each block and does not
@@ -563,7 +658,7 @@ fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
    1. fd_bank_stake_dleegations_delta_locking_modify( bank ) will return
       a mutable pointer to the stake delegations delta object.  If the
       caller has not yet initialized the delta object, then it will
-      be initialized. Because it is a delta it is not copied over from
+      be initialized.  Because it is a delta it is not copied over from
       a parent bank.
    2. fd_bank_stake_delegations_delta_locking_query( bank ) will return
       a const pointer to the stake delegations delta object.  If the
@@ -677,6 +772,20 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
+
+static inline fd_bank_vote_states_prev_prev_t *
+fd_banks_get_vote_states_prev_prev_pool( fd_banks_t * banks ) {
+  return fd_bank_vote_states_prev_prev_pool_join( (uchar *)banks + banks->vote_states_prev_prev_pool_offset );
+}
+
+static inline void
+fd_banks_set_vote_states_prev_prev_pool( fd_banks_t * banks, fd_bank_vote_states_prev_prev_t * bank_vote_states_prev_prev_pool ) {
+  void * bank_vote_states_prev_prev_pool_mem = fd_bank_vote_states_prev_prev_pool_leave( bank_vote_states_prev_prev_pool );
+  if( FD_UNLIKELY( !bank_vote_states_prev_prev_pool_mem ) ) {
+    FD_LOG_CRIT(( "Failed to leave vote states prev prev pool" ));
+  }
+  banks->vote_states_prev_prev_pool_offset = (ulong)bank_vote_states_prev_prev_pool_mem - (ulong)banks;
+}
 
 /* fd_banks_root() and fd_banks_root_const() returns a non-const and
    const pointer to the root bank respectively. */

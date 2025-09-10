@@ -78,12 +78,10 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), MAX_TX_ACCOUNT_LOCKS, 999UL ) );
+  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_modify( slot_ctx->bank ), MAX_TX_ACCOUNT_LOCKS, 999UL ) );
   if( FD_UNLIKELY( !vote_states_prev_prev ) ) {
-    fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
     return 0;
   }
-  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
 

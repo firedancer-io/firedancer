@@ -444,14 +444,13 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
 
   /* current epoch (stakes from epoch E-2) */
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( slot_ctx->bank );
   ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
   ulong stake_weights_sz = generate_stake_weight_msg( epoch, schedule, vote_states_prev_prev, stake_weights_msg );
   ulong stake_weights_sig = 4UL;
   fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
   FD_LOG_NOTICE(( "sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3] ));
-  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
 
   /* next current epoch (stakes from epoch E-1) */
   fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
@@ -876,7 +875,8 @@ handle_bank_change( fd_replay_tile_ctx_t * ctx,
   fd_bank_t * parent_bank = fd_banks_get_bank( ctx->banks, parent_merkle_hash );
   if( FD_UNLIKELY( !parent_bank ) ) {
     fd_banks_print( ctx->banks );
-    FD_LOG_CRIT(( "invariant violation: parent bank is NULL for slot %lu parent merkle hash %s", slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
+    block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, parent_slot, NULL );
+    FD_LOG_CRIT(( "invariant violation: parent bank is NULL for slot %lu parent merkle hash %s, parent slot %lu, parent slot block id %s ", slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ), parent_slot, FD_BASE58_ENC_32_ALLOCA( &block_id->block_id ) ));
   }
 
   if( fd_bank_done_executing_get( parent_bank ) ) {;
@@ -1617,6 +1617,11 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
       if( FD_UNLIKELY( fec->slot!=0UL && fec->fec_set_idx==0U && memcmp( &entry->block_id, &fec->cmr, sizeof(fd_hash_t) )!=0 ) ) {
         FD_LOG_CRIT(( "invariant violation: slot %lu, block_id_map_query returned block_id %s for slot %lu, but FEC set has cmr %s", fec->slot, FD_BASE58_ENC_32_ALLOCA( &entry->block_id ), parent_slot, FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
       }
+    }
+
+    FD_LOG_NOTICE(( "fec %lu %lu %u %s %s", fec->slot, fec->slot - (ulong)fec->parent_off, fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &fec->key ), FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
+    if( FD_UNLIKELY( fec->slot_complete ) ) {
+      FD_LOG_NOTICE(( "block_id %lu %lu %s", fec->slot, fec->slot - (ulong)fec->parent_off, FD_BASE58_ENC_32_ALLOCA( &fec->cmr ) ));
     }
 
     if( FD_UNLIKELY( fec->data_complete ) ) {

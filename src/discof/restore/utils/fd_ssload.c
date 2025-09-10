@@ -62,6 +62,8 @@ void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
                    fd_exec_slot_ctx_t *     slot_ctx ) {
 
+  fd_banks_clear_bank( slot_ctx->banks, slot_ctx->bank );
+
   /* Slot */
 
   fd_bank_slot_set( slot_ctx->bank, manifest->slot );
@@ -273,7 +275,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_total_epoch_stake_set( slot_ctx->bank, manifest->epoch_stakes[1].total_stake );
 
   /* Vote stakes for the previous epoch (E-2) */
-  fd_vote_states_t * vote_stakes_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_stakes_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
     /* First convert the epoch credits to the format expected by the
@@ -303,6 +305,5 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
       fd_vote_states_remove( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote );
     }
   }
-  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
 }
