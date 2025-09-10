@@ -287,18 +287,6 @@ dynamic_port_range = "8900-9000"
     # to find a default will always fail.
     port = 8001
 
-    # DNS name or IP address to advertise to the network in gossip.  If
-    # none is provided, the default is to ask the first entrypoint which
-    # replies to the port check described above what our IP address is.
-    # If no entrypoints are specified, then this will be defaulted to
-    # 127.0.0.1.  If connecting to a public cluster like mainnet or
-    # testnet, this IP must be externally resolvable and should not be
-    # on a local subnet.
-    #
-    # This option is passed to the Agave client with the
-    # `--gossip-host` argument.
-    host = ""
-
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.  This option is
