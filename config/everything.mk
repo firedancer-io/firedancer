@@ -11,8 +11,9 @@ OBJDIR:=$(BASEDIR)/$(BUILDDIR)
 
 # Grab all the Local.mk files in the source tree, save to a variable so that
 # other rules can depend on this list. We will include these files later on.
-# Don't use "-L" if source code directory structure has symlink loops
-LOCAL_MKS := $(shell $(FIND) -L src -type f -name Local.mk)
+# Don't use "-L" if source code directory structure has symlink loops.
+# Use ?= so that mischevious
+LOCAL_MKS?=$(shell $(FIND) -L src -type f -name Local.mk)
 
 CPPFLAGS+=-DFD_BUILD_INFO=\"$(OBJDIR)/info\"
 CPPFLAGS+=$(EXTRA_CPPFLAGS)
