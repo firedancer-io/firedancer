@@ -386,6 +386,10 @@ fd_config_fill( fd_config_t * config,
     fd_config_fillh( config );
   }
 
+  if(      FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "stable" ) ) ) config->development.gui.frontend_release_channel_enum = 0;
+  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "alpha"  ) ) ) config->development.gui.frontend_release_channel_enum = 1;
+  else FD_LOG_ERR(( "[development.gui.release_channel] %s not recognized", config->development.gui.frontend_release_channel ));
+
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
