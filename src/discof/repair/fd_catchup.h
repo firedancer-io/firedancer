@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_repair_fd_catchup_h
-#define HEADER_fd_src_flamenco_repair_fd_catchup_h
+#ifndef HEADER_fd_src_discof_repair_fd_catchup_h
+#define HEADER_fd_src_discof_repair_fd_catchup_h
 
 /* fd_catchup tracks metadata on the N most recent slots, in particular
    the time it took to complete the slot.  As this purpose of this
@@ -57,4 +57,4 @@ fd_catchup_add_slot( fd_catchup_t * catchup, ulong slot, long first_ts, long slo
 
 
 
-#endif /* HEADER_fd_src_flamenco_repair_fd_catchup_h */
+#endif /* HEADER_fd_src_discof_repair_fd_catchup_h */
