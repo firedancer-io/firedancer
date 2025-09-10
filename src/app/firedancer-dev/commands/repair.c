@@ -441,7 +441,7 @@ print_histogram_buckets( volatile ulong * metrics,
 }
 
 static void
-print_catchup_slots( fd_wksp_t * repair_tile_wksp, fd_repair_tile_ctx_t * repair_ctx ) {
+print_catchup_slots( fd_wksp_t * repair_tile_wksp, ctx_t * repair_ctx ) {
   fd_catchup_t * catchup = repair_ctx->catchup;
   ulong catchup_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, catchup );
   fd_catchup_t * catchup_table = (fd_catchup_t *)fd_wksp_laddr( repair_tile_wksp, catchup_gaddr );
@@ -449,22 +449,22 @@ print_catchup_slots( fd_wksp_t * repair_tile_wksp, fd_repair_tile_ctx_t * repair
 }
 
 static void
-sort_peers_by_latency( fd_active_elem_t * active_table, fd_peer_t * peer_arr, ulong peer_cnt ) {
+sort_peers_by_latency( fd_policy_peer_t * active_table, fd_pubkey_t * peer_arr, ulong peer_cnt ) {
   for( uint i = 0; i < peer_cnt - 1; i++ ) {
     int swapped = 0;
     for( uint j = 0; j < peer_cnt - 1 - i; j++ ) {
-      fd_active_elem_t const * active_j  = fd_active_table_query_const( active_table, &peer_arr[ j ].key,     NULL );
-      fd_active_elem_t const * active_j1 = fd_active_table_query_const( active_table, &peer_arr[ j + 1 ].key, NULL );
+      fd_policy_peer_t const * active_j  = fd_policy_peer_map_query( active_table, peer_arr[ j ], NULL );
+      fd_policy_peer_t const * active_j1 = fd_policy_peer_map_query( active_table, peer_arr[ j + 1 ], NULL );
 
       /* Skip peers with no responses */
       double latency_j  = 10e9;
       double latency_j1 = 10e9;
-      if( FD_LIKELY( active_j && active_j->resp_cnt > 0   ) ) latency_j  = ((double)active_j->total_latency / (double)active_j->resp_cnt);
-      if( FD_LIKELY( active_j1 && active_j1->resp_cnt > 0 ) ) latency_j1 = ((double)active_j1->total_latency / (double)active_j1->resp_cnt);
+      if( FD_LIKELY( active_j  && active_j->res_cnt > 0  ) ) latency_j  = ((double)active_j->total_lat / (double)active_j->res_cnt);
+      if( FD_LIKELY( active_j1 && active_j1->res_cnt > 0 ) ) latency_j1 = ((double)active_j1->total_lat / (double)active_j1->res_cnt);
 
       /* Swap if j has higher latency than j+1 */
       if( latency_j > latency_j1 ) {
-        fd_peer_t temp    = peer_arr[ j ];
+        fd_pubkey_t temp  = peer_arr[ j ];
         peer_arr[ j ]     = peer_arr[ j + 1 ];
         peer_arr[ j + 1 ] = temp;
         swapped           = 1;
@@ -476,32 +476,35 @@ sort_peers_by_latency( fd_active_elem_t * active_table, fd_peer_t * peer_arr, ul
 
 
 
-fd_peer_t peers_copy[ FD_ACTIVE_KEY_MAX ];
+fd_location_info_t * location_table;
+fd_pubkey_t peers_copy[ FD_ACTIVE_KEY_MAX ];
 
 static void
-print_peer_location_latency( fd_wksp_t * repair_tile_wksp, fd_repair_tile_ctx_t * repair_ctx, fd_location_info_t * location_table ) {
-  ulong              repair_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->repair );
-  fd_repair_t *      repair       = fd_wksp_laddr( repair_tile_wksp, repair_gaddr );
-  ulong              active_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair->actives );
-  fd_active_elem_t * active_table = (fd_active_elem_t *)fd_wksp_laddr( repair_tile_wksp, active_gaddr );
+print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
+  ulong              policy_gaddr  = fd_wksp_gaddr_fast( tile_ctx->wksp, tile_ctx->policy );
+  fd_policy_t *      policy        = fd_wksp_laddr     ( repair_tile_wksp, policy_gaddr );
+  ulong              peermap_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.map );
+  ulong              peerarr_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.arr );
+  fd_policy_peer_t * peers_map     = (fd_policy_peer_t *)fd_wksp_laddr( repair_tile_wksp, peermap_gaddr );
+  fd_pubkey_t *      peers_arr     = (fd_pubkey_t *)fd_wksp_laddr( repair_tile_wksp, peerarr_gaddr );
 
-  ulong peer_cnt = repair->peer_cnt;
+  ulong peer_cnt = policy->peers.cnt;
   FD_COMPILER_MFENCE();
-  memcpy( peers_copy, repair->peers, peer_cnt * sizeof(fd_peer_t) );
+  memcpy( peers_copy, peers_arr, peer_cnt * sizeof(fd_pubkey_t) );
   /* Assumption is that peer_cnt is always increasing, so it's valid
      to copy the peers array from repair tile as it's being modified. */
 
-  sort_peers_by_latency( active_table, peers_copy, peer_cnt );
+  sort_peers_by_latency( peers_map, peers_copy, peer_cnt );
   printf("\nPeer Location/Latency Information\n");
   printf( "| %-46s | %-7s | %-8s | %-8s | %-7s | %12s | %s\n", "Pubkey", "Req Cnt", "Req B/s", "Rx B/s", "Rx Rate", "Avg Latency", "Location Info" );
   for( uint i = 0; i < peer_cnt; i++ ) {
-    fd_active_elem_t const * active = fd_active_table_query_const( active_table, &peers_copy[ i ].key, NULL );
-    if( FD_LIKELY( active && active->resp_cnt > 0 ) ) {
-      fd_location_info_t * info = fd_location_table_query( location_table, active->addr.addr, NULL );
+    fd_policy_peer_t const * active = fd_policy_peer_map_query( peers_map, peers_copy[ i ], NULL );
+    if( FD_LIKELY( active && active->res_cnt > 0 ) ) {
+      fd_location_info_t * info = fd_location_table_query( location_table, active->ip4, NULL );
       char * geolocation = info ? info->location : "Unknown";
-      double peer_bps    = (double)(active->resp_cnt * FD_SHRED_MIN_SZ) / ((double)(active->last_resp_ts - active->first_resp_ts) / 1e9);
+      double peer_bps    = (double)(active->res_cnt * FD_SHRED_MIN_SZ) / ((double)(active->last_resp_ts - active->first_resp_ts) / 1e9);
       double req_bps     = (double)active->req_cnt * 202 / ((double)(active->last_req_ts - active->first_req_ts) / 1e9);
-      printf( "| %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", FD_BASE58_ENC_32_ALLOCA( &active->key ), active->req_cnt, req_bps, peer_bps, (double)active->resp_cnt / (double)active->req_cnt, ((double)active->total_latency / (double)active->resp_cnt) / 1e6, geolocation );
+      printf( "| %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", FD_BASE58_ENC_32_ALLOCA( &active->key ), active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, geolocation );
     }
   }
   fflush( stdout );
@@ -556,13 +559,13 @@ repair_cmd_fn_metrics_mode( args_t *   args,
   if( FD_UNLIKELY( !scratch ) ) FD_LOG_ERR(( "Failed to access repair tile scratch memory" ));
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_repair_tile_ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
+  ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t), sizeof(ctx_t) );
 
   /* catchup cmd owned memory */
-  fd_location_info_t * location_table = fd_location_table_join( fd_location_table_new( location_table_mem ) );
+  location_table = fd_location_table_join( fd_location_table_new( location_table_mem ) );
 
   read_iptable( args->repair.iptable_path, location_table );
-  print_peer_location_latency( repair_wksp->wksp, repair_ctx, location_table );
+  print_peer_location_latency( repair_wksp->wksp, repair_ctx );
   print_catchup_slots( repair_wksp->wksp, repair_ctx );
   printf( "\nCatchup tool completed successfully.\n" );
 }

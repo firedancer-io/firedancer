@@ -700,11 +700,17 @@ test_invalid_frontier_insert( fd_wksp_t * wksp ) {
 
   fd_forest_blk_data_shred_insert( forest, 109, 108, 0, 0, 0, 0 );
 
+  ulong _109 = 109;
+  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_109, NULL, fd_forest_pool( forest ) ) );
+
   fd_forest_blk_data_shred_insert( forest, 101, 100, 0, 0, 0, 0 );
 
   /* turbine resume, state: [100, 101]         [109] */
+  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_109, NULL, fd_forest_pool( forest ) ) );
 
   fd_forest_blk_data_shred_insert( forest, 108, 100, 0, 0, 0, 0 );
+
+  FD_TEST( !fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_109, NULL, fd_forest_pool( forest ) ) );
 
   /* turbine resume, state: [100, 101] -  [108, 109]*/
 
@@ -712,7 +718,6 @@ test_invalid_frontier_insert( fd_wksp_t * wksp ) {
   FD_TEST( !fd_forest_verify( forest ) );
   ulong _101 = 101;
   ulong _108 = 108;
-  ulong _109 = 109;
   FD_TEST( fd_forest_consumed_ele_query ( fd_forest_consumed( forest ), &_101, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( fd_forest_consumed_ele_query ( fd_forest_consumed( forest ), &_108, NULL, fd_forest_conspool( forest ) ) );
   FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_109, NULL, fd_forest_conspool( forest ) ) );
