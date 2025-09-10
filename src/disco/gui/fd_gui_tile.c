@@ -6,7 +6,12 @@
 
    from the repository root. */
 
+#ifdef FIREDANCER_MAJOR_VERSION
+#include "../../discof/generated/http_import_dist.h"
+#else
 #include "generated/http_import_dist.h"
+#endif
+
 #define DIST_COMPRESSION_LEVEL (19)
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
