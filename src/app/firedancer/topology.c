@@ -280,6 +280,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "bank_busy"    );
   fd_topob_wksp( topo, "tower_send"   );
   fd_topob_wksp( topo, "send_txns"    );
+  fd_topob_wksp( topo, "send_writer"  );
 
   fd_topob_wksp( topo, "quic"        );
   fd_topob_wksp( topo, "verify"      );
@@ -390,6 +391,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "tower_send",   "tower_send",   65536UL,                                  sizeof(fd_txn_p_t),            1UL   );
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TPU_RAW_MTU,                1UL   );
   /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    FD_TXN_MTU,                    1UL   );
+  /**/                 fd_topob_link( topo, "send_writer",  "send_writer",  128UL,                                    sizeof(fd_signature_t),        1UL   );
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL   );
   if( FD_LIKELY( !disable_snap_loader ) ) {
   /**/                 fd_topob_link( topo, "snap_zstd",    "snap_zstd",    8192UL,                                   16384UL,                       1UL );
@@ -693,6 +695,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "send",   0UL,                      "send_txns",     0UL                                            );
   /**/                 fd_topob_tile_out( topo, "send",   0UL,                      "send_sign",     0UL                                            );
   /**/                 fd_topob_tile_in ( topo, "sign",   0UL,         "metric_in", "send_sign",     0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  /**/                 fd_topob_tile_out( topo, "send",   0UL,                      "send_writer",     0UL                                           );
   /**/                 fd_topob_tile_out( topo, "sign",   0UL,                      "sign_send",     0UL                                            );
   /**/                 fd_topob_tile_in ( topo, "send",   0UL,         "metric_in", "sign_send",     0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
@@ -821,7 +824,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "writ_repl" );
   FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 16384UL, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
   FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",    i,                               "writ_repl", i );
-  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,      "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,    "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "writer",    i,      "metric_in", "send_writer", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"          );

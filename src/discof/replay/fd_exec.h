@@ -156,6 +156,7 @@ fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
 #define FD_WRITER_BOOT_SIG       (0xAABB0011UL)
 #define FD_WRITER_SLOT_SIG       (0xBBBB1122UL)
 #define FD_WRITER_TXN_SIG        (0xBBCC2233UL)
+#define FD_WRITER_VOTE_SIG       (0xBBCC2234UL)
 
 #define FD_EXEC_STATE_NOT_BOOTED (0xFFFFFFFFUL)
 #define FD_EXEC_STATE_BOOTED     (1<<1UL      )

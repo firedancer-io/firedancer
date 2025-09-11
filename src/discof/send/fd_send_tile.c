@@ -3,6 +3,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/fd_txn_m_t.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../discof/replay/fd_exec.h"
 #include "generated/fd_send_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 
@@ -489,6 +490,19 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
   gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
       gossip_verify_out->wmark );
+
+  /* The vote message's signature is also sent out to the writer tile.
+     The reason for this is to avoid becoming the leader and producing
+     a block if we have yet to have a vote land on a rooted slot.  See
+     fd_replay_tile.c and fd_writer_tile.c for more details. */
+  FD_LOG_WARNING(("Sending vote signature to writer tile"));
+
+  fd_send_link_out_t * writer_out = ctx->writer_out;
+  uchar * signature_msg = fd_chunk_to_laddr( writer_out->mem, writer_out->chunk );
+  fd_memcpy( signature_msg, signature, 64UL );
+  fd_stem_publish( ctx->stem, writer_out->idx, FD_WRITER_VOTE_SIG, writer_out->chunk, 64UL, 0UL, 0, 0 );
+  writer_out->chunk = fd_dcache_compact_next( writer_out->chunk, 64UL, writer_out->chunk0,
+      writer_out->wmark );
 }
 
 /* Stem callbacks */
@@ -704,14 +718,15 @@ unprivileged_init( fd_topo_t *      topo,
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
   setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out" );
-  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out"   );
-  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send"  );
+  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out"  );
+  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send" );
 
   fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
   fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );
 
-  setup_output_link( ctx->gossip_verify_out, topo, tile, "send_txns" );
-  setup_output_link( ctx->net_out,           topo, tile, "send_net"  );
+  setup_output_link( ctx->gossip_verify_out, topo, tile, "send_txns"   );
+  setup_output_link( ctx->net_out,           topo, tile, "send_net"    );
+  setup_output_link( ctx->writer_out,        topo, tile, "send_writer" );
 
   /* Set up keyguard(s) */
   ulong             sign_in_idx  =  fd_topo_find_tile_in_link(  topo, tile, "sign_send", 0 );

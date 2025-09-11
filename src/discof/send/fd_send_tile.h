@@ -93,6 +93,7 @@ struct fd_send_tile_ctx {
   fd_net_rx_bounds_t   net_in_bounds;
   fd_send_link_out_t   gossip_verify_out[ 1 ];
   fd_send_link_out_t   net_out          [ 1 ];
+  fd_send_link_out_t   writer_out       [ 1 ];
 
   fd_keyguard_client_t keyguard_client  [ 1 ];
 

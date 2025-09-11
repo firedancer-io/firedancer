@@ -220,6 +220,13 @@ struct fd_replay_tile_ctx {
   /* Maps slot to block id */
   block_id_map_t * block_id_map;
 
+  /* This flag is 1 If we have seen a vote signature that our node has
+     sent out get rooted at least one time.  The value is 0 otherwise.
+     We can't become leader and pack blocks until this flag has been
+     set.  This parallels the Agave 'has_new_vote_been_rooted'.
+     TODO: Add documentation for this flag more in depth. */
+  int has_identity_vote_rooted;
+
   /* slot_ctx is a wrapper used across the execution pipeline as a
      wrapper around funk, banks, and the capture ctx.  */
   fd_exec_slot_ctx_t * slot_ctx;
@@ -794,6 +801,8 @@ handle_new_block( fd_replay_tile_ctx_t * ctx,
 
   fd_bank_done_executing_set( ctx->slot_ctx->bank, 0 );
 
+  fd_bank_has_identity_vote_set( ctx->slot_ctx->bank, 0 );
+
   fd_bank_slot_set( ctx->slot_ctx->bank, slot );
 
   fd_bank_parent_block_id_set( ctx->slot_ctx->bank, *parent_merkle_hash );
@@ -1235,6 +1244,22 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 /* Advance the published root as much as we can. */
 static void
 publish( fd_replay_tile_ctx_t * ctx ) {
+
+  /* We need to check mark if our own vote signature is on a bank that
+     is rooted if we have not seen it before.  We don't need to check
+     this condition after it has been observed once. */
+
+  if( FD_UNLIKELY( ctx->has_identity_vote_rooted==0 ) ) {
+    fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, &ctx->consensus_root );
+    if( FD_UNLIKELY( !consensus_root_bank ) ) {
+      FD_LOG_CRIT(( "invariant violation: failed to get consensus root bank by block id %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
+    }
+    if( fd_bank_has_identity_vote_get( consensus_root_bank )!=0 ) {
+      ctx->has_identity_vote_rooted = 1;
+      FD_LOG_NOTICE(( "identity vote rooted" ));
+    }
+  }
+
   fd_hash_t publishable_root;
   if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, &ctx->consensus_root, &publishable_root ) ) ) {
     /* Nothing to publish. */
@@ -1807,6 +1832,12 @@ unprivileged_init( fd_topo_t *      topo,
     one_off_features[i] = tile->replay.enable_features[i];
   }
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
+
+  /**********************************************************************/
+  /* identity vote tracking                                             */
+  /**********************************************************************/
+
+  ctx->has_identity_vote_rooted = 0;
 
   /**********************************************************************/
   /* funk                                                               */
