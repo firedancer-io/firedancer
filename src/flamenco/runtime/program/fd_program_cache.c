@@ -26,11 +26,11 @@ fd_program_cache_entry_new( void *                     mem,
 
   /* calldests backing memory */
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
-  cache_entry->calldests_shmem = (uchar *)mem + l;
+  cache_entry->calldests_shmem_off = l;
 
   /* rodata backing memory */
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
-  cache_entry->rodata = (uchar *)mem + l;
+  cache_entry->rodata_off = l;
 
   /* SBPF version */
   cache_entry->sbpf_version = elf_info->sbpf_version;
@@ -258,7 +258,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   ulong               prog_align     = fd_sbpf_program_align();
   ulong               prog_footprint = fd_sbpf_program_footprint( elf_info );
   void              * prog_mem       = fd_spad_alloc_check( runtime_spad, prog_align, prog_footprint );
-  fd_sbpf_program_t * prog           = fd_sbpf_program_new( prog_mem , elf_info, cache_entry->rodata );
+  fd_sbpf_program_t * prog           = fd_sbpf_program_new( prog_mem , elf_info, fd_program_cache_get_rodata( cache_entry ) );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_new() failed" ));
     cache_entry->failed_verification = 1;
@@ -334,9 +334,8 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   /* FIXME: Super expensive memcpy. */
-  fd_memcpy( cache_entry->calldests_shmem, prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
+  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
 
-  cache_entry->calldests           = fd_sbpf_calldests_join( cache_entry->calldests_shmem );
   cache_entry->entry_pc            = prog->entry_pc;
   cache_entry->text_off            = prog->text_off;
   cache_entry->text_cnt            = prog->text_cnt;
