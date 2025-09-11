@@ -848,6 +848,8 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t * slot_ctx ) {
                     FD_BASE58_ENC_32_ALLOCA( fd_bank_poh_query( slot_ctx->bank )->hash ) ));
   }
 
+  FD_LOG_NOTICE(("DONE EXECUTING"));
+
   if( slot_ctx->capture_ctx != NULL && slot_ctx->capture_ctx->capture != NULL &&
     fd_bank_slot_get( slot_ctx->bank )>=slot_ctx->capture_ctx->solcap_start_slot ) {
 
@@ -863,8 +865,10 @@ fd_runtime_update_bank_hash( fd_exec_slot_ctx_t * slot_ctx ) {
           fd_bank_poh_query( slot_ctx->bank )->hash,
           fd_bank_signature_count_get( slot_ctx->bank ) );
   }
+  FD_LOG_NOTICE(("DONE EXECUTING2"));
 
   fd_bank_lthash_end_locking_query( slot_ctx->bank );
+  FD_LOG_NOTICE(("DONE EXECUTING3"));
 }
 
 /******************************************************************************/
@@ -1168,12 +1172,11 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
                          fd_capture_ctx_t *  capture_ctx ) {
 
   /* Collect fees */
-
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->priority_fee );
-
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_ctx->txn_descriptor->signature_cnt );
+  fd_txn_t const * txn_descriptor = TXN( &txn_ctx->txn );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_descriptor->signature_cnt );
 
   if( FD_UNLIKELY( txn_ctx->exec_err ) ) {
 
@@ -1240,7 +1243,7 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
       }
   }
 
-  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+  int is_vote = fd_txn_is_simple_vote_transaction( txn_descriptor, txn_ctx->txn.payload );
   if( !is_vote ){
     ulong * nonvote_txn_count = fd_bank_nonvote_txn_count_modify( bank );
     FD_ATOMIC_FETCH_AND_ADD(nonvote_txn_count, 1);
@@ -1301,6 +1304,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->funk_txn              = funk_txn;
   txn_ctx->capture_ctx           = capture_ctx;
+  txn_ctx->txn                   = *txn;
 
   fd_txn_t const * txn_descriptor = TXN( txn );
   fd_rawtxn_b_t    raw_txn        = {
@@ -1337,6 +1341,8 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   if( FD_LIKELY( !( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) ) {
     exec_res = fd_execute_txn( txn_ctx );
   }
+
+  FD_LOG_NOTICE(("DONE EXECUTING"));
 
   return exec_res;
 

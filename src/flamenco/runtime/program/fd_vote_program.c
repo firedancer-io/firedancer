@@ -2032,28 +2032,39 @@ process_tower_sync( fd_borrowed_account_t *       vote_account,
   /* A temporary hack to accumulate the stake-weighted bank hash from
      all vote transactions.  This determines whether our validator has
      bank hash mismatched.  TODO: move to a tile. */
+  FD_LOG_NOTICE(("process_tower_sync"));
   if( FD_LIKELY( !!ctx->txn_ctx->bank_hash_cmp ) ) {
+    FD_LOG_NOTICE(("bank_hash_cmp"));
     if( !deq_fd_vote_lockout_t_empty( tower_sync->lockouts ) ) {
+      FD_LOG_NOTICE(("bank_hash_cmp"));
       fd_vote_lockout_t *  lockout       = deq_fd_vote_lockout_t_peek_tail( tower_sync->lockouts );
       fd_bank_hash_cmp_t * bank_hash_cmp = ctx->txn_ctx->bank_hash_cmp;
+      FD_LOG_NOTICE(("bank_hash_cmp"));
+
       fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( ctx->txn_ctx->bank );
       if( !vote_states ) {
         FD_LOG_CRIT(( "vote_states is NULL" ));
       }
+      FD_LOG_NOTICE(("bank_hash_cmp"));
       fd_vote_state_ele_t const * vote_state_ele = fd_vote_states_query_const( vote_states, vote_account->acct->pubkey );
       if( FD_LIKELY( lockout && bank_hash_cmp && vote_state_ele ) ) {
+        FD_LOG_NOTICE(("bank_hash_cmp"));
         fd_bank_hash_cmp_lock( bank_hash_cmp );
+        FD_LOG_NOTICE(("bank_hash_cmp"));
         fd_bank_hash_cmp_insert(
             bank_hash_cmp,
             lockout->slot,
             &tower_sync->hash,
             0,
             vote_state_ele->stake );
+        FD_LOG_NOTICE(("bank_hash_cmp"));
         fd_bank_hash_cmp_unlock( bank_hash_cmp );
+        FD_LOG_NOTICE(("bank_hash_cmp"));
       }
       fd_bank_vote_states_end_locking_query( ctx->txn_ctx->bank );
     }
   }
+  FD_LOG_NOTICE(("process_tower_sync"));
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1194
   fd_vote_state_t vote_state;
@@ -2229,6 +2240,7 @@ process_authorize_with_seed_instruction(
 // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L57
 int
 fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
+  FD_LOG_NOTICE(("FD_VOTE_PROGRAM_EXECUTE"));
   /* FD-specific init */
   int rc = FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -2288,6 +2300,8 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( decoded_sz > FD_TXN_MTU ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
+
+  FD_LOG_NOTICE(("FD_VOTE_PROGRAM_EXECUTE2 %d", instruction->discriminant));
 
   /* PLEASE PRESERVE SWITCH-CASE ORDERING TO MIRROR LABS IMPL:
    */

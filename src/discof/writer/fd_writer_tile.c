@@ -301,6 +301,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
   }
 
   if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
+    FD_LOG_WARNING(("WRITER TILE %lu RECEIVED TXN", ctx->tile_idx));
     fd_exec_writer_txn_msg_t * msg = &ctx->txn_msg;
     if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
       FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
@@ -326,6 +327,8 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       fd_funk_txn_end_read( ctx->funk );
     }
 
+    txn_ctx->spad      = ctx->exec_spad[ in_idx ];
+    txn_ctx->spad_wksp = ctx->exec_spad_wksp[ in_idx ];
     if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
         fd_runtime_finalize_txn(
           ctx->funk,
@@ -337,6 +340,8 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       /* This means that we should mark the block as dead. */
       fd_banks_mark_bank_dead( ctx->banks, ctx->bank );
     }
+
+    FD_LOG_NOTICE(("DONE IN WRITER TILE %lu", ctx->tile_idx));
 
     /* Notify the replay tile that we are done with this txn. */
     ctx->txn_finalized_buffer.exec_tile_id = msg->exec_tile_id;

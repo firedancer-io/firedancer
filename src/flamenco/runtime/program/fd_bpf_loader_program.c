@@ -398,6 +398,7 @@ int
 fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
                 fd_program_cache_entry_t const * cache_entry,
                 uchar                            is_deprecated ) {
+  FD_LOG_NOTICE(("ASDF"));
 
   int err                       = FD_EXECUTOR_INSTR_SUCCESS;
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( instr_ctx->txn_ctx->spad,
@@ -407,11 +408,15 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
     FD_LOG_CRIT(( "Unable to allocate syscalls" ));
   }
 
+    FD_LOG_NOTICE(("ASDF"));
+
+
   /* TODO do we really need to re-do this on every instruction? */
   fd_vm_syscall_register_slot( syscalls,
                                instr_ctx->txn_ctx->slot,
                                &instr_ctx->txn_ctx->features,
                                0 );
+  FD_LOG_NOTICE(("ASDF"));
 
   /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1362-L1368 */
   ulong                   input_sz                                = 0UL;
@@ -421,6 +426,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   uint                    input_mem_regions_cnt                   = 0U;
   int                     direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, bpf_account_data_direct_mapping );
   int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, mask_out_rent_epoch_in_vm_serialization );
+  FD_LOG_NOTICE(("ASDF"));
 
   uchar * input = NULL;
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
@@ -430,6 +436,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   if( FD_UNLIKELY( input==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -450,6 +457,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   if( FD_UNLIKELY( heap_cost_result ) ) {
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   /* For dumping syscalls for seed corpora */
   int dump_syscall_to_pb = instr_ctx->txn_ctx->capture_ctx &&
@@ -488,6 +496,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
     FD_LOG_WARNING(( "null vm" ));
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   if( FD_UNLIKELY( instr_ctx->txn_ctx->fuzz_config.enable_vm_tracing ) ) {
     ulong event_max      = FD_RUNTIME_VM_TRACE_EVENT_MAX;
@@ -496,9 +505,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
     instr_ctx->txn_ctx->spad, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
+  FD_LOG_NOTICE(("ASDF"));
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -506,6 +517,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
       FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
     }
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   /* Log consumed compute units and return data.
      https://github.com/anza-xyz/agave/blob/v2.0.6/programs/bpf_loader/src/lib.rs#L1418-L1429 */
@@ -513,6 +525,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   if( FD_UNLIKELY( instr_ctx->txn_ctx->return_data.len ) ) {
     fd_log_collector_program_return( instr_ctx );
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   /* We have a big error-matching arm here
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1674-L1744 */
@@ -622,10 +635,13 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
   }
 
+  FD_LOG_NOTICE(("ASDF"));
+
   err = fd_bpf_loader_input_deserialize_parameters( instr_ctx, pre_lens, input, input_sz, direct_mapping, is_deprecated );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
+  FD_LOG_NOTICE(("ASDF"));
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -2392,6 +2408,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
+
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L403-L404 */
@@ -2407,7 +2424,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
-
     /* Program management instruction */
     if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, fd_borrowed_account_get_owner( &program_account ), sizeof(fd_pubkey_t) ) ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.3/programs/bpf_loader/src/lib.rs#L416 */
@@ -2589,6 +2605,8 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
     fd_borrowed_account_drop( &program_account );
+
+    FD_LOG_NOTICE(("ASDF"));
 
     return fd_bpf_execute( ctx, cache_entry, is_deprecated );
   } FD_SPAD_FRAME_END;

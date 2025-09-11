@@ -176,15 +176,25 @@
 
 
 # define FD_VM_INTERP_INSTR_EXEC                                                                 \
+  FD_LOG_NOTICE(("ASDF1")); \
   if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
+    FD_LOG_NOTICE(("ASDF2")); \
   instr   = text[ pc ];                  /* Guaranteed in-bounds */                              \
+    FD_LOG_NOTICE(("ASDF3")); \
   opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                      \
+    FD_LOG_NOTICE(("ASD4")); \
   dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                      \
+    FD_LOG_NOTICE(("ASDF5")); \
   src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                      \
+    FD_LOG_NOTICE(("ASDF6")); \
   offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                 \
+    FD_LOG_NOTICE(("ASDF7")); \
   imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
+    FD_LOG_NOTICE(("ASDF8")); \
   reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
+    FD_LOG_NOTICE(("ASDF9")); \
   reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
+  FD_LOG_NOTICE(("ASDF %lu", opcode)); \
   goto *interp_jump_table[ sbpf_version ][ opcode ]      /* Guaranteed in-bounds */
 
 /* FD_VM_INTERP_SYSCALL_EXEC
@@ -249,7 +259,9 @@
   }                                                                           \
   /* Execution */                                                             \
   ulong ret[1];                                                               \
+  FD_LOG_NOTICE(("ASDF")); \
   err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
+  FD_LOG_NOTICE(("ASDF")); \
   reg[0] = ret[0];                                                            \
   /* Error handling */                                                        \
   ulong cu_req = vm->cu;                                                      \

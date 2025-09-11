@@ -276,7 +276,8 @@ fd_runtime_spad_private_frame_end( fd_runtime_spad_verify_handle_private_t * _sp
      then we invoke verify to check things. */
   /* -1UL because spad pop is called after instr stack pop. */
   if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
-    uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( _spad_handle->txn_ctx->txn_descriptor, _spad_handle->txn_ctx->_txn_raw->raw );
+    fd_txn_t const * txn_descriptor = TXN( &_spad_handle->txn_ctx->txn );
+    uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( txn_descriptor, _spad_handle->txn_ctx->txn.payload );
     FD_BASE58_ENCODE_64_BYTES( txn_signature, sig );
     FD_LOG_ERR(( "spad corrupted or overflown on transaction %s", sig ));
   }

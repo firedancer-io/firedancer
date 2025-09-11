@@ -4,6 +4,7 @@
 #include "fd_exec_instr_ctx.h"
 #include "../../log_collector/fd_log_collector_base.h"
 #include "../../../ballet/txn/fd_txn.h"
+#include "../../../disco/pack/fd_microblock.h"
 #include "../../features/fd_features.h"
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
@@ -57,18 +58,18 @@ struct fd_exec_txn_ctx {
   fd_funk_t                            funk[1];
   ulong                                slot;
   ulong                                bank_idx;
+  fd_txn_p_t                           txn;
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
 
   fd_compute_budget_details_t          compute_budget_details;                      /* Compute budget details */
 
+
   /* Fields below here are not guaranteed to be local joins in txn execution. */
 
   ulong                                paid_fees;
   ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
-  fd_txn_t const *                     txn_descriptor;                              /* Descriptor of the transaction. */
-  fd_rawtxn_b_t                        _txn_raw[1];                                 /* Raw bytes of the transaction. */
   uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
   uchar                                instr_stack_sz;                              /* Current depth of the instruction execution stack. */
   fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */

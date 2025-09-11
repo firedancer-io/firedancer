@@ -10,6 +10,7 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 
 # undef FD_VM_INTERP_EXE_TRACING_ENABLED
 # undef FD_VM_INTERP_MEM_TRACING_ENABLED
+FD_LOG_NOTICE(("ASDF"));
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
@@ -30,6 +31,8 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
   int err = FD_VM_SUCCESS;
+
+  FD_LOG_NOTICE(("ASDF"));
 
   /* Run the VM */
 # include "fd_vm_interp_core.c"

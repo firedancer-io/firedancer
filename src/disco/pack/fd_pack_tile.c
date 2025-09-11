@@ -1274,15 +1274,15 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ctx->bank_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->bank_out_chunk0 = fd_dcache_compact_chunk0( ctx->bank_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->bank_out_wmark  = fd_dcache_compact_wmark ( ctx->bank_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->bank_out_chunk  = ctx->bank_out_chunk0;
+  // ctx->bank_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  // ctx->bank_out_chunk0 = fd_dcache_compact_chunk0( ctx->bank_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  // ctx->bank_out_wmark  = fd_dcache_compact_wmark ( ctx->bank_out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  // ctx->bank_out_chunk  = ctx->bank_out_chunk0;
 
-  ctx->poh_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
-  ctx->poh_out_wmark  = fd_dcache_compact_wmark ( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
-  ctx->poh_out_chunk  = ctx->poh_out_chunk0;
+  // ctx->poh_out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
+  // ctx->poh_out_chunk0 = fd_dcache_compact_chunk0( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
+  // ctx->poh_out_wmark  = fd_dcache_compact_wmark ( ctx->poh_out_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
+  // ctx->poh_out_chunk  = ctx->poh_out_chunk0;
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
