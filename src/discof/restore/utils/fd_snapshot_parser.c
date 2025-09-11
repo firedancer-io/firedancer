@@ -183,6 +183,8 @@ fd_snapshot_parser_restore_file( void *                self_,
 
   if( (sz==0UL) | (!fd_tar_meta_is_reg( meta )) ) return;
 
+  FD_LOG_WARNING(("Restoring file %s of size %lu", meta->name, sz ));
+
   /* Detect account vec files.  These are files that contain a vector
      of accounts in Solana Labs "AppendVec" format. */
   assert( sizeof("accounts/")<FD_TAR_NAME_SZ );
