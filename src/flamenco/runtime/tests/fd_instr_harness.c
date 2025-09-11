@@ -105,7 +105,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   ulong       funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   /* Set up mock txn descriptor */
-  fd_txn_t * txn_descriptor           = fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  fd_txn_p_t * txn                    = fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  fd_txn_t *   txn_descriptor         = TXN( txn );
   txn_descriptor->transaction_version = FD_TXN_V0;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
 
@@ -117,7 +118,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
                                       NULL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
-  txn_ctx->txn_descriptor                            = txn_descriptor;
+  txn_ctx->txn                                       = *txn;
   txn_ctx->compute_budget_details.compute_unit_limit = test_ctx->cu_avail;
   txn_ctx->compute_budget_details.compute_meter      = test_ctx->cu_avail;
   txn_ctx->spad                                      = runner->spad;

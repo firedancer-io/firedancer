@@ -207,16 +207,6 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
 }
 
 void
-fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * ctx,
-                       fd_txn_t      const * txn_descriptor,
-                       fd_rawtxn_b_t const * txn_raw ) {
-  fd_exec_txn_ctx_setup_basic( ctx );
-  ctx->txn_descriptor   = txn_descriptor;
-  ctx->_txn_raw->raw    = txn_raw->raw;
-  ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
-}
-
-void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * ctx ) {
   (void)ctx;
 }
@@ -264,7 +254,7 @@ fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, usho
   return fd_exec_txn_account_is_writable_idx_flat( txn_ctx->slot,
                                                    idx,
                                                    &txn_ctx->account_keys[idx],
-                                                   txn_ctx->txn_descriptor,
+                                                   TXN( &txn_ctx->txn ),
                                                    &txn_ctx->features,
                                                    bpf_upgradeable );
 }
@@ -322,7 +312,7 @@ fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
                                          fd_exec_txn_ctx_t const * ctx,
                                          ushort                    idx ) {
   (void) acc;
-  return fd_txn_is_writable( ctx->txn_descriptor, idx );
+  return fd_txn_is_writable( TXN( &ctx->txn ), idx );
 }
 
 int

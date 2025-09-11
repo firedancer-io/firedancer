@@ -887,8 +887,8 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   /* check_transaction_age */
   fd_hash_t   next_durable_nonce   = {0};
   fd_durable_nonce_from_blockhash( &next_durable_nonce, last_blockhash );
-  ushort      recent_blockhash_off = txn_ctx->txn_descriptor->recent_blockhash_off;
-  fd_hash_t * recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + recent_blockhash_off);
+  ushort      recent_blockhash_off = TXN( &txn_ctx->txn )->recent_blockhash_off;
+  fd_hash_t * recent_blockhash     = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + recent_blockhash_off);
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3538-L3542 */
   /* get_hash_info_if_valid. Check 151 hashes from the block hash queue and its
@@ -909,21 +909,21 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L87-L119 */
   /* get_durable_nonce */
-  if( FD_UNLIKELY( !txn_ctx->txn_descriptor->instr_cnt ) ) {
+  if( FD_UNLIKELY( !TXN( &txn_ctx->txn )->instr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
   /* Check the first instruction (nonce instruction) to see if the program id
      is the system program. Also make sure that it is an advance nonce account
      instruction. Finally make sure that the first insutrction account is
      writeable; if it is, then that account is a durable nonce account. */
-  fd_txn_instr_t const * txn_instr = &txn_ctx->txn_descriptor->instr[0];
-  fd_acct_addr_t const * tx_accs = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
-  fd_acct_addr_t const * prog_id = tx_accs + txn_instr->program_id;
+  fd_txn_instr_t const * txn_instr = &TXN( &txn_ctx->txn )->instr[0];
+  fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
+  fd_acct_addr_t const * prog_id   = tx_accs + txn_instr->program_id;
   if( FD_UNLIKELY( memcmp( prog_id->b, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
-  uchar const * instr_data  = fd_txn_get_instr_data( txn_instr, txn_ctx->_txn_raw->raw );
-  uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_ctx->_txn_raw->raw );
+  uchar const * instr_data  = fd_txn_get_instr_data( txn_instr, txn_ctx->txn.payload );
+  uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_ctx->txn.payload );
   uchar         nonce_idx   = instr_accts[0];
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm-transaction/src/svm_message.rs#L99-L105 */
@@ -941,7 +941,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, require_static_nonce_account ) &&
-                   nonce_idx>=txn_ctx->txn_descriptor->acct_addr_cnt ) ) {
+                   nonce_idx>=TXN( &txn_ctx->txn )->acct_addr_cnt ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
@@ -988,7 +988,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Finally check that the nonce is authorized by seeing if any accounts in
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
-    if( fd_txn_is_signer( txn_ctx->txn_descriptor, (int)instr_accts[i] ) ) {
+    if( fd_txn_is_signer( TXN( &txn_ctx->txn ), (int)instr_accts[i] ) ) {
       if( !memcmp( &txn_ctx->account_keys[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof( fd_pubkey_t ) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the

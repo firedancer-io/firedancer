@@ -23,9 +23,8 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                    fd_exec_txn_ctx_t *    txn_ctx,
                                    fd_txn_instr_t const * txn_instr ) {
 
-  fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
-  fd_rawtxn_b_t const * txn_raw        = txn_ctx->_txn_raw;
-  uchar *               instr_acc_idxs = (uchar *)txn_raw->raw + txn_instr->acct_off;
+  fd_txn_t const * txn_descriptor = TXN( &txn_ctx->txn );
+  uchar *          instr_acc_idxs = (uchar *)txn_ctx->txn.payload + txn_instr->acct_off;
 
   instr->program_id = txn_instr->program_id;
 
@@ -36,7 +35,7 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
      the array sizes in the instr info. */
   instr->acct_cnt = fd_ushort_min( txn_instr->acct_cnt, FD_INSTR_ACCT_MAX );
   instr->data_sz  = txn_instr->data_sz;
-  instr->data     = (uchar *)txn_raw->raw + txn_instr->data_off;
+  instr->data     = (uchar *)txn_ctx->txn.payload + txn_instr->data_off;
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ];
   memset(acc_idx_seen, 0, FD_INSTR_ACCT_MAX);
