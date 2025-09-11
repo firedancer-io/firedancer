@@ -326,6 +326,9 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       fd_funk_txn_end_read( ctx->funk );
     }
 
+    txn_ctx->spad      = ctx->exec_spad[ in_idx ];
+    txn_ctx->spad_wksp = ctx->exec_spad_wksp[ in_idx ];
+
     if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
         fd_runtime_finalize_txn(
           ctx->funk,

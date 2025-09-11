@@ -102,6 +102,9 @@ during_frag( fd_exec_tile_ctx_t * ctx,
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
       fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
 
+      ctx->txn_ctx->spad      = ctx->exec_spad;
+      ctx->txn_ctx->spad_wksp = ctx->exec_spad_wksp;
+
       ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
           ctx->banks,
           txn->bank_idx,
