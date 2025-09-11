@@ -557,9 +557,9 @@ repair_cmd_fn_metrics_mode( args_t *   args,
   fd_repair_tile_ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
 
   /* catchup cmd owned memory */
-  fd_wksp_t * catchup_wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1, fd_shmem_cpu_idx( fd_shmem_numa_idx( 0 ) ), "catchup", 0UL );
-  void * location_table_mem = fd_wksp_alloc_laddr( catchup_wksp, fd_location_table_align(), fd_location_table_footprint( fd_ulong_find_msb( FD_ACTIVE_KEY_MAX ) ), 1UL );
-  location_table = fd_location_table_join( fd_location_table_new( location_table_mem, fd_ulong_find_msb( FD_ACTIVE_KEY_MAX ) ) );
+  void * location_table_mem = fd_alloca( alignof(fd_location_table_private_t), fd_location_table_footprint( fd_ulong_find_msb( FD_ACTIVE_KEY_MAX ) ) );
+  FD_TEST( location_table_mem );
+  location_table            = fd_location_table_join( fd_location_table_new( location_table_mem, fd_ulong_find_msb( FD_ACTIVE_KEY_MAX ) ) );
 
   read_iptable( args->repair.iptable_path, location_table );
   print_peer_location_latency( repair_wksp->wksp, repair_ctx );

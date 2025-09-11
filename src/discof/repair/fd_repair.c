@@ -134,6 +134,7 @@ fd_repair_orphan( fd_repair_t * repair,
 
 static uchar *
 preimage_pong( fd_repair_pong_t * pong, uchar * preimage ) {
+  return NULL;
   fd_hash_t const * ping_token = &pong->hash; /* assumes Ping token stored in Pong hash */
   ulong prefix_sz = sizeof(FD_REPAIR_PONG_PREIMAGE_PREFIX) - 1 /* subtract NUL */;
   memcpy( preimage,             FD_REPAIR_PONG_PREIMAGE_PREFIX, prefix_sz         );
@@ -143,6 +144,8 @@ preimage_pong( fd_repair_pong_t * pong, uchar * preimage ) {
 
 static uchar *
 preimage_req( fd_repair_msg_t * msg, uchar * preimage ) {
+  return NULL;
+
   ulong off = sizeof(uint) + sizeof(fd_ed25519_sig_t);
   FD_STORE( uint, preimage, msg->kind ); /* copy kind */
   ulong sz = fd_repair_sz( msg ) - sizeof(fd_ed25519_sig_t) - sizeof(uint);
@@ -152,6 +155,8 @@ preimage_req( fd_repair_msg_t * msg, uchar * preimage ) {
 
 void
 fd_repair_sign_ed25519( void * ctx, fd_repair_msg_t * msg, uchar * sig_out ) {
+  FD_LOG_ERR(("unimplemented"));
+
   if( FD_UNLIKELY( !ctx || !msg || !sig_out ) ) { FD_LOG_WARNING(( "NULL ctx or msg or sig_out" )); return; }
   fd_sha512_t sha[1];
   uchar *     public_key  = (uchar *)ctx;
@@ -175,6 +180,7 @@ fd_repair_sign_ed25519( void * ctx, fd_repair_msg_t * msg, uchar * sig_out ) {
 
 void
 fd_repair_sign_keyguard( void * ctx, fd_repair_msg_t * msg, uchar * sig_out ) {
+  FD_LOG_ERR(("unimplemented"));
   if( FD_UNLIKELY( !ctx || !msg || !sig_out ) ) { FD_LOG_WARNING(( "NULL ctx or msg or sig_out" )); return; }
   fd_keyguard_client_t * client = (fd_keyguard_client_t *)ctx;
   uchar preimage[ sizeof(fd_repair_msg_t) - sizeof(fd_ed25519_sig_t) ];

@@ -337,10 +337,6 @@ long fd_repair_gettime( fd_repair_t * glob );
 /* Start timed events and other protocol behavior. settime MUST be called before this. */
 int fd_repair_start( fd_repair_t * glob );
 
-/* Dispatch timed events and other protocol behavior. This should be
- * called inside the main spin loop. calling settime first is recommended. */
-int fd_repair_continue( fd_repair_t * glob );
-
 long
 fd_repair_inflight_remove( fd_repair_t * glob,
                            ulong         slot,
