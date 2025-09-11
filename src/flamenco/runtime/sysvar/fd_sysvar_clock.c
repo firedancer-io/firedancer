@@ -159,7 +159,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
      if we are currently in epoch E. We do not count vote accounts that
      have not voted in an epoch's worth of slots (432k). */
   fd_vote_states_t const * vote_states           = fd_bank_vote_states_locking_query( bank );
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( bank );
 
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
@@ -214,7 +214,6 @@ get_timestamp_estimate( fd_bank_t *             bank,
     total_stake += vote_stake;
   }
   fd_bank_vote_states_end_locking_query( bank );
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L56-L58 */
   if( FD_UNLIKELY( total_stake==0UL ) ) {

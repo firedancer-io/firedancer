@@ -400,9 +400,8 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   ulong vote_account_t_1_cnt  = fd_vote_states_cnt( vote_states_prev );
   fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( slot_ctx->bank );
   ulong vote_account_t_2_cnt = fd_vote_states_cnt( vote_states_prev_prev );
-  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
 
   ulong total_num_accounts    = num_sysvar_entries +
                                 num_loaded_builtins +
@@ -495,13 +494,12 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
+  vote_states_prev_prev = fd_bank_vote_states_prev_prev_query( slot_ctx->bank );
   dump_vote_accounts( slot_ctx,
                       vote_states,
                       spad,
                       block_context->acct_states,
                       &block_context->acct_states_count );
-  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
 }
 
 static void
