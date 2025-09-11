@@ -83,7 +83,7 @@
        void       * lmem    = ... alloc fd_clock_t compat local memory;
        void       * shclock = ... map fd_clock into the caller's local address space with the proper alignment and footprint;
        fd_clock_t * clock   = fd_clock_join( lmem, shclock, clock_x, args_x );
-       if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
+       if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
 
        ... at this point, clock==lmem is a current local join
 
@@ -663,6 +663,34 @@ fd_clock_epoch_y( fd_clock_epoch_t const * epoch,
    infinite.  The returned pointer is always to a non-NULL cstr. */
 
 char const * fd_clock_strerror( int err );
+
+
+
+/* fd_clock_default_init initializes a fd_clock_t with default values.
+It uses _fd_tickcount for clock x and fd_log_wallclock_host for clock y.
+It accepts a function pointer init_w_fn to initialize dx/dy. */
+typedef double (*fd_clock_init_w_fn_t)(void);
+
+static inline fd_clock_t *
+fd_clock_default_init( fd_clock_t            clock_ljoin[1],
+                       void                * clock_mem,
+                       fd_clock_epoch_t      epoch[1],
+                       fd_clock_init_w_fn_t  init_w_fn ) {
+   long   recal_avg  = 10e6L; /* 10ms */
+   long   recal_jit  = 0L; /* default jitter */
+   double recal_hist = 0.; /* default clock rate estimation history */
+   double recal_frac = 0.; /* default max clock drift fraction correction per epoch */
+   long init_x1, init_y1;
+   int clock_err = fd_clock_joint_read( _fd_tickcount, NULL, fd_log_wallclock_host, NULL, &init_x1, &init_y1, NULL );
+   if( FD_UNLIKELY( clock_err ) ) FD_LOG_ERR(( "fd_clock_joint_read failed (%i-%s)", clock_err, fd_clock_strerror( clock_err ) ));
+   double init_w  = init_w_fn();
+   void * shclock = fd_clock_new( clock_mem, recal_avg, recal_jit, recal_hist, recal_frac, init_x1, init_y1, init_w );
+   if( FD_UNLIKELY( !shclock ) ) FD_LOG_ERR(( "fd_clock_new failed" ));
+   fd_clock_t * clock = fd_clock_join( clock_ljoin, shclock, _fd_tickcount, NULL );
+   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_clock_join failed" ));
+   fd_clock_epoch_init( epoch, shclock );
+   return clock;
+}
 
 FD_PROTOTYPES_END
 
