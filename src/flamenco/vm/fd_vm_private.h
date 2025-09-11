@@ -76,44 +76,6 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 
 FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch );
 
-/* SBPF version and features
-   https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
-
-   Note: SIMDs enable or disable features, e.g. BPF instructions.
-   If we have macros with names ENABLE vs DISABLE, we have the advantage that
-   the condition is always pretty clear: sbpf_version <= activation_version,
-   but the disadvantage of inconsistent names.
-   Viceversa, calling everything ENABLE has the risk to invert a <= with a >=
-   and create a huge mess.
-   We define both, so hopefully it's foolproof. */
-
-#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v != FD_SBPF_V0 )
-#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v != FD_SBPF_V0 )
-/* SIMD-0166 */
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
-/* SIMD-0173 */
-#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  FD_SBPF_V2 )
-#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  FD_SBPF_V2 )
-#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= FD_SBPF_V2 )
-/* SIMD-0174 */
-#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
-#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
-#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
-/* SIMD-0178 + SIMD-0179 */
-#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
-/* SIMD-0189 */
-#define FD_VM_SBPF_ENABLE_LOWER_BYTECODE_VADDR(v)  ( v >= FD_SBPF_V3 )
-/* enable_strict_elf_headers is defined in fd_sbpf_loader.h because it's needed
-   by the ELF loader, not really by the VM
-   #define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 ) */
-
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
-
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
 FD_PROTOTYPES_BEGIN
@@ -208,7 +170,11 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 
 /* fd_vm_mem_cfg configures the vm's tlb arrays.  Assumes vm is valid
    and vm already has configured the rodata, stack, heap and input
-   regions.  Returns vm. */
+   regions.  Returns vm.
+
+   TODO: There may be an offset into the rodata region where the program
+   bytes actually begins (this should be taken from the ELF information.
+   I don't think we do that anywhere, so it might be wrong...)*/
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {
@@ -246,7 +212,7 @@ fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
      stack access violation. */
   long rel_offset = fd_long_sat_sub( (long)vaddr, (long)FD_VM_MEM_MAP_STACK_REGION_START );
   long stack_frame = rel_offset / (long)FD_VM_STACK_FRAME_SZ;
-  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) &&
+  if( !fd_sbpf_dynamic_stack_frames( sbpf_version ) &&
       stack_frame>=-1L && stack_frame<=(long)FD_VM_MAX_CALL_DEPTH ) {
     return FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION;
   }
@@ -381,7 +347,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
     */
   if( FD_UNLIKELY( region==FD_VM_STACK_REGION &&
                    !vm->direct_mapping &&
-                   !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ) ) {
+                   !fd_sbpf_dynamic_stack_frames( vm->sbpf_version ) ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
       return sentinel;
