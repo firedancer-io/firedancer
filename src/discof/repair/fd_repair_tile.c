@@ -1163,7 +1163,7 @@ unprivileged_init( fd_topo_t *      topo,
       }
     } else if( 0==strcmp( link->name, "snap_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     }else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
