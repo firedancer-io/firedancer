@@ -79,11 +79,12 @@
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
-#define IN_KIND_REPAIR (0)
-#define IN_KIND_ROOT   (1)
-#define IN_KIND_SNAP   (2)
-#define IN_KIND_TOWER  (3)
-#define IN_KIND_WRITER (4)
+#define IN_KIND_REPAIR  (0)
+#define IN_KIND_ROOT    (1)
+#define IN_KIND_SNAP    (2)
+#define IN_KIND_TOWER   (3)
+#define IN_KIND_WRITER  (4)
+#define IN_KIND_CAPTURE (5)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
@@ -1528,7 +1529,7 @@ static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig,
+             ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
@@ -1546,17 +1547,13 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_WRITER ) ) {
     fd_replay_in_link_t * in = &ctx->in[ in_idx ];
-    if( sig == FD_WRITER_REPLAY_SIG_TXN_DONE ) {
-      fd_writer_replay_txn_finalized_msg_t const * msg =
-        (fd_writer_replay_txn_finalized_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
-      fd_replay_process_txn_finalized( ctx, msg );
-    } else if( sig == FD_WRITER_REPLAY_SIG_ACC_UPDATE ) {
-      fd_capture_ctx_account_update_msg_t const * msg = (fd_capture_ctx_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
-      uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_capture_ctx_account_update_msg_t);
-      fd_replay_process_solcap_account_update( ctx, msg, account_data );
-    } else {
-      FD_LOG_ERR(( "Unknown sig %lu", sig ));
-    }
+    fd_writer_replay_txn_finalized_msg_t const * msg = (fd_writer_replay_txn_finalized_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
+    fd_replay_process_txn_finalized( ctx, msg );
+  } else if ( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CAPTURE ) ) {
+    fd_replay_in_link_t * in = &ctx->in[ in_idx ];
+    fd_capture_ctx_account_update_msg_t const * msg = (fd_capture_ctx_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
+    uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_capture_ctx_account_update_msg_t);
+    fd_replay_process_solcap_account_update( ctx, msg, account_data );
   }
 }
 
@@ -1663,6 +1660,11 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
   }
 
   case IN_KIND_WRITER: {
+    /* no op */
+    break;
+  }
+
+  case IN_KIND_CAPTURE: {
     /* no op */
     break;
   }
@@ -1991,6 +1993,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_WRITER;
     } else if( !strcmp( link->name, "tower_replay" ) ) {
       ctx->in_kind[ i ] = IN_KIND_TOWER;
+    } else if( !strcmp( link->name, "capt_replay" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_CAPTURE;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));
     }

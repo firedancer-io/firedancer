@@ -198,9 +198,6 @@ FD_STATIC_ASSERT( sizeof(fd_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_wri
 
 /* Writer->Replay message APIs ****************************************/
 
-#define FD_WRITER_REPLAY_SIG_TXN_DONE   (1UL) /* txn finalized */
-#define FD_WRITER_REPLAY_SIG_ACC_UPDATE (2UL) /* solcap account update */
-
 /* fd_writer_replay_txn_finalized_msg_t is the message sent from
    writer tile to replay tile, notifying the replay tile that a txn has
    been finalized. */

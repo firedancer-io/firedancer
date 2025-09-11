@@ -40,6 +40,7 @@ backtest_topo( config_t * config ) {
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
   int disable_snap_loader = config->tiles.replay.genesis[0] != '\0';
+  int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
@@ -222,9 +223,18 @@ backtest_topo( config_t * config ) {
      has been finalized by the writer tile. */
   /**********************************************************************/
   fd_topob_wksp( topo, "writ_repl" );
-  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 16384UL, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 16384UL, sizeof(fd_writer_replay_txn_finalized_msg_t), 1UL );
   FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
   FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    /* Capture account updates, whose updates must be centralized in the replay tile as solcap is currently not thread-safe.
+      TODO: remove this when solcap v2 is here. */
+    fd_topob_wksp( topo, "capt_replay" );
+    FOR(writer_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",      i,                               "capt_replay", i );
+    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",      0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
