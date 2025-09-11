@@ -96,7 +96,6 @@ struct fd_snaprd_tile {
   int   malformed;
   long  deadline_nanos;
   ulong ack_cnt;
-  int   peer_selection;
 
   fd_ip4_port_t addr;
 
@@ -152,6 +151,7 @@ struct fd_snaprd_tile {
     uint max_incremental_snapshots_to_keep;
     int  entrypoints_enabled;
     int  gossip_peers_enabled;
+    int  peer_selection;
   } config;
 
   struct {
@@ -684,7 +684,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
     return;
   }
 
-  if( FD_LIKELY( ctx->peer_selection ) ) {
+  if( FD_LIKELY( ctx->config.peer_selection ) ) {
     fd_ssping_advance( ctx->ssping, now, ctx->selector );
     fd_http_resolver_advance( ctx->ssresolver, now, ctx->selector );
 
@@ -730,7 +730,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_UNLIKELY( !best.addr.l ) ) {
-        ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
+        ctx->state          = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
+        ctx->deadline_nanos = now+FD_SNAPRD_WAITING_FOR_PEERS_TIMEOUT_DEADLINE_NANOS;
         break;
       }
 
@@ -744,6 +745,11 @@ after_credit( fd_snaprd_tile_t *  ctx,
         ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
         ctx->state                    = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
+        if( FD_UNLIKELY( !ctx->config.do_download ) ) {
+          FD_LOG_ERR(( "Local snapshot `%s` is too old and downloading new snapshots is disabled. "
+                       "Please enable downloading via [snapshots.download] and restart.", ctx->local_in.full_snapshot_path ) );
+        }
+
         if( FD_UNLIKELY( !ctx->config.incremental_snapshot_fetch ) ) send_expected_slot( stem, best.ssinfo.full.slot );
 
         fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, best.ssinfo.full.slot );
@@ -765,7 +771,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->http.full.slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
-        ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS_INCREMENTAL;
+        ctx->state          = FD_SNAPRD_STATE_WAITING_FOR_PEERS_INCREMENTAL;
+        ctx->deadline_nanos = now+FD_SNAPRD_WAITING_FOR_PEERS_TIMEOUT_DEADLINE_NANOS;
         break;
       }
 
@@ -790,9 +797,14 @@ after_credit( fd_snaprd_tile_t *  ctx,
       ctx->ack_cnt = 0UL;
 
       if( FD_UNLIKELY( ctx->malformed ) ) {
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
-        ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET;
-        ctx->malformed = 0;
+        if( FD_LIKELY( ctx->config.peer_selection ) ) {
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->state     = FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET;
+          ctx->malformed = 0;
+        } else {
+          FD_LOG_ERR(( "Local incremental snapshot `%s` is malformed and no snapshot sources are configured. "
+                       "Please add snapshot sources and restart. ", ctx->local_in.incremental_snapshot_path ));
+        }
         break;
       }
 
@@ -821,6 +833,18 @@ after_credit( fd_snaprd_tile_t *  ctx,
     case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
       ctx->ack_cnt = 0UL;
+
+      if( FD_UNLIKELY( ctx->malformed ) ) {
+        if( FD_LIKELY( ctx->config.peer_selection ) ) {
+          fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
+          ctx->state     = FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET;
+          ctx->malformed = 0;
+        } else {
+          FD_LOG_ERR(( "Local full snapshot `%s` is malformed and no snapshot sources are configured. "
+                       "Please add snapshot sources and restart. ", ctx->local_in.full_snapshot_path ));
+        }
+        break;
+      }
 
       if( FD_LIKELY( !ctx->config.incremental_snapshot_fetch ) ) {
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
@@ -920,7 +944,7 @@ before_frag( fd_snaprd_tile_t * ctx FD_PARAM_UNUSED,
     return !( ( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
               sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
               sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES ) &&
-              ( ctx->config.entrypoints_enabled || ctx->config.gossip_peers_enabled ) && ctx->peer_selection );
+              ( ctx->config.entrypoints_enabled || ctx->config.gossip_peers_enabled ) && ctx->config.peer_selection );
   }
   return 0;
 }
@@ -1091,12 +1115,6 @@ privileged_init( fd_topo_t *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  /* By default, the snaprd tile selects peers and its initial state is
-     WAITING_FOR_PEERS. */
-  ctx->peer_selection = 1;
-  ctx->state          = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
-  ctx->deadline_nanos = fd_log_wallclock() + FD_SNAPRD_WAITING_FOR_PEERS_TIMEOUT_DEADLINE_NANOS;
-
   ctx->local_in.full_snapshot_fd         = -1;
   ctx->local_in.incremental_snapshot_fd  = -1;
   ctx->local_out.dir_fd                  = -1;
@@ -1152,41 +1170,52 @@ privileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( !S_ISREG( incremental_stat.st_mode ) ) ) FD_LOG_ERR(( "incremental snapshot path `%s` is not a regular file", incremental_path ));
       ctx->local_in.incremental_snapshot_size = (ulong)incremental_stat.st_size;
     }
-
-    ctx->local_out.dir_fd                  = -1;
-    ctx->local_out.full_snapshot_fd        = -1;
-    ctx->local_out.incremental_snapshot_fd = -1;
-
-    if( FD_UNLIKELY( tile->snaprd.maximum_local_snapshot_age==0U ) ) {
-      /* Disable peer selection if we are reading snapshots from disk
-         and there is no maximum local snapshot age set.  Set the
-         initial state to READING_FULL_FILE to avoid peer selection
-         logic.
-
-         TODO: Why? Document in TOML. */
-      ctx->peer_selection = 0;
-      ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
-      ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
-      FD_LOG_NOTICE(( "reading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
-    }
   }
 
-  /* Set up download descriptors because even if we have local
+  if( FD_UNLIKELY( !tile->snaprd.entrypoints_enabled &&
+                   !tile->snaprd.gossip_peers_enabled &&
+                   !tile->snaprd.http.peers_cnt ) ) {
+    if( FD_UNLIKELY( ctx->local_in.full_snapshot_slot==ULONG_MAX ) ) {
+      FD_LOG_ERR(("No local full snapshots found in `%s` and no snapshot sources configured. "
+                       "Please add snapshot sources and restart. ", tile->snaprd.snapshots_path ));
+    }
+
+    if( FD_UNLIKELY( tile->snaprd.incremental_snapshot_fetch && ctx->local_in.incremental_snapshot_slot==ULONG_MAX ) ) {
+      FD_LOG_ERR(( "No local incremental snapshots found in `%s` and no snapshot sources configured. "
+                   "Please add snapshot sources or set [snapshots.incremental_snapshots] to false and restart. ", tile->snaprd.snapshots_path ));
+    }
+
+    /* Disable peer selection when there are no configured snapshot
+       sources but local snapshots exist.  The snaprd state machine is
+       configured to start in the READING_FULL_FILE state and does not
+       attempt to select peers to download snapshots from. */
+    FD_TEST( ctx->local_in.full_snapshot_slot!=ULONG_MAX );
+    ctx->config.peer_selection    = 0;
+    ctx->state                    = FD_SNAPRD_STATE_READING_FULL_FILE;
+    ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
+    FD_LOG_NOTICE(( "reading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
+  } else {
+    /* Set up download descriptors because even if we have local
      snapshots, we may need to download new snapshots if the local
      snapshots are too old. */
-  ctx->local_out.dir_fd = open( tile->snaprd.snapshots_path, O_DIRECTORY|O_CLOEXEC );
-  if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", tile->snaprd.snapshots_path, errno, fd_io_strerror( errno ) ));
+    ctx->local_out.dir_fd = open( tile->snaprd.snapshots_path, O_DIRECTORY|O_CLOEXEC );
+    if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", tile->snaprd.snapshots_path, errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_cstr_printf_check( ctx->local_out.full_snapshot_path, PATH_MAX, NULL, "%s/snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
-  ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-  if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.full_snapshot_path, errno, fd_io_strerror( errno ) ));
+    FD_TEST( fd_cstr_printf_check( ctx->local_out.full_snapshot_path, PATH_MAX, NULL, "%s/snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
+    ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.full_snapshot_path, errno, fd_io_strerror( errno ) ));
 
-  if( FD_LIKELY( tile->snaprd.incremental_snapshot_fetch ) ) {
-    FD_TEST( fd_cstr_printf_check( ctx->local_out.incremental_snapshot_path, PATH_MAX, NULL, "%s/incremental-snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
-    ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-    if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
-  } else {
-    ctx->local_out.incremental_snapshot_fd = -1;
+    if( FD_LIKELY( tile->snaprd.incremental_snapshot_fetch ) ) {
+      FD_TEST( fd_cstr_printf_check( ctx->local_out.incremental_snapshot_path, PATH_MAX, NULL, "%s/incremental-snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
+      ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+      if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
+    }
+
+    /* By default, the snaprd tile selects peers and its initial state
+       is WAITING_FOR_PEERS. */
+    ctx->config.peer_selection = 1;
+    ctx->state                 = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
+    ctx->deadline_nanos        = fd_log_wallclock() + FD_SNAPRD_WAITING_FOR_PEERS_TIMEOUT_DEADLINE_NANOS;
   }
 }
 
