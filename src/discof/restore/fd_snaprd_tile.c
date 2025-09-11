@@ -666,6 +666,10 @@ after_credit( fd_snaprd_tile_t *  ctx,
         ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
         ctx->state                    = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
+        if( FD_UNLIKELY( !ctx->config.do_download ) ) {
+          FD_LOG_ERR(( "Local snapshot `%s` is too old and downloading new snapshots is disabled. "
+                            "Please enable downloading via [snapshots.download] and restart.", ctx->local_in.full_snapshot_path ) );
+        }
         FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), best.addr.port ));
         ctx->addr           = best.addr;
         ctx->state          = FD_SNAPRD_STATE_READING_FULL_HTTP;
@@ -1024,37 +1028,36 @@ privileged_init( fd_topo_t *      topo,
     ctx->local_out.dir_fd                  = -1;
     ctx->local_out.full_snapshot_fd        = -1;
     ctx->local_out.incremental_snapshot_fd = -1;
-
-    if( FD_UNLIKELY( tile->snaprd.maximum_local_snapshot_age==0U ) ) {
-      /* Disable peer selection if we are reading snapshots from disk
-         and there is no maximum local snapshot age set.  Set the
-         initial state to READING_FULL_FILE to avoid peer selection
-         logic.
-
-         TODO: Why? Document in TOML. */
-      ctx->peer_selection = 0;
-      ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
-      ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
-      FD_LOG_NOTICE(( "reading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
-    }
   }
 
-  /* Set up download descriptors because even if we have local
+  if( FD_UNLIKELY( tile->snaprd.development.disable_peer_selection ) ) {
+    /* If peer selection is disabled, the snaprd state machine starts
+       in the READING_FULL_FILE state and does not attempt to select
+       peers.  This is useful only in development and testing
+       scenarios and should not be enabled in production. */
+    FD_TEST( ctx->local_in.full_snapshot_slot!=ULONG_MAX );
+    ctx->peer_selection = 0;
+    ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
+    ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
+    FD_LOG_NOTICE(( "reading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
+  } else {
+    /* Set up download descriptors because even if we have local
      snapshots, we may need to download new snapshots if the local
      snapshots are too old. */
-  ctx->local_out.dir_fd = open( tile->snaprd.snapshots_path, O_DIRECTORY|O_CLOEXEC );
-  if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", tile->snaprd.snapshots_path, errno, fd_io_strerror( errno ) ));
+    ctx->local_out.dir_fd = open( tile->snaprd.snapshots_path, O_DIRECTORY|O_CLOEXEC );
+    if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", tile->snaprd.snapshots_path, errno, fd_io_strerror( errno ) ));
 
-  FD_TEST( fd_cstr_printf_check( ctx->local_out.full_snapshot_path, PATH_MAX, NULL, "%s/snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
-  ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-  if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.full_snapshot_path, errno, fd_io_strerror( errno ) ));
+    FD_TEST( fd_cstr_printf_check( ctx->local_out.full_snapshot_path, PATH_MAX, NULL, "%s/snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
+    ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.full_snapshot_path, errno, fd_io_strerror( errno ) ));
 
-  if( FD_LIKELY( tile->snaprd.incremental_snapshot_fetch ) ) {
-    FD_TEST( fd_cstr_printf_check( ctx->local_out.incremental_snapshot_path, PATH_MAX, NULL, "%s/incremental-snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
-    ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-    if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
-  } else {
-    ctx->local_out.incremental_snapshot_fd = -1;
+    if( FD_LIKELY( tile->snaprd.incremental_snapshot_fetch ) ) {
+      FD_TEST( fd_cstr_printf_check( ctx->local_out.incremental_snapshot_path, PATH_MAX, NULL, "%s/incremental-snapshot.tar.bz2-partial", tile->snaprd.snapshots_path ) );
+      ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+      if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", ctx->local_out.incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
+    } else {
+      ctx->local_out.incremental_snapshot_fd = -1;
+    }
   }
 }
 

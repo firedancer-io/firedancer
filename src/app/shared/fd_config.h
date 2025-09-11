@@ -355,6 +355,10 @@ struct fd_config {
     } udpecho;
 
     struct {
+      int disable_peer_selection;
+    } snapshots;
+
+    struct {
       char affinity[ AFFINITY_SZ ];
     } snapshot_load;
   } development;

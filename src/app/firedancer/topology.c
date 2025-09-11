@@ -198,16 +198,17 @@ static void
 setup_snapshots( config_t *       config,
                  fd_topo_tile_t * tile ) {
   fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
-  tile->snaprd.diagnostics                       = 1;
-  tile->snaprd.incremental_snapshot_fetch        = config->firedancer.snapshots.incremental_snapshots;
-  tile->snaprd.do_download                       = config->firedancer.snapshots.download;
-  tile->snaprd.maximum_local_snapshot_age        = config->firedancer.snapshots.maximum_local_snapshot_age;
-  tile->snaprd.minimum_download_speed_mib        = config->firedancer.snapshots.minimum_download_speed_mib;
-  tile->snaprd.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
-  tile->snaprd.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
-  tile->snaprd.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
-  tile->snaprd.entrypoints_enabled               = config->firedancer.snapshots.sources.entrypoints.enabled;
-  tile->snaprd.gossip_peers_enabled              = config->firedancer.snapshots.sources.gossip.enabled;
+  tile->snaprd.diagnostics                        = 1;
+  tile->snaprd.incremental_snapshot_fetch         = config->firedancer.snapshots.incremental_snapshots;
+  tile->snaprd.do_download                        = config->firedancer.snapshots.download;
+  tile->snaprd.maximum_local_snapshot_age         = config->firedancer.snapshots.maximum_local_snapshot_age;
+  tile->snaprd.minimum_download_speed_mib         = config->firedancer.snapshots.minimum_download_speed_mib;
+  tile->snaprd.maximum_download_retry_abort       = config->firedancer.snapshots.maximum_download_retry_abort;
+  tile->snaprd.max_full_snapshots_to_keep         = config->firedancer.snapshots.max_full_snapshots_to_keep;
+  tile->snaprd.max_incremental_snapshots_to_keep  = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+  tile->snaprd.entrypoints_enabled                = config->firedancer.snapshots.sources.entrypoints.enabled;
+  tile->snaprd.gossip_peers_enabled               = config->firedancer.snapshots.sources.gossip.enabled;
+  tile->snaprd.development.disable_peer_selection = config->development.snapshots.disable_peer_selection;
   resolve_snapshot_peers( config, tile );
 
   tile->snaprd.gossip_entrypoints_cnt = config->gossip.entrypoints_cnt;

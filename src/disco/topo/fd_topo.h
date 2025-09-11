@@ -522,6 +522,10 @@ struct fd_topo_tile {
         fd_ip4_port_t peers[ 16UL ];
       } http;
 
+      struct {
+        int disable_peer_selection;
+      } development;
+
       int diagnostics;
     } snaprd;
 
