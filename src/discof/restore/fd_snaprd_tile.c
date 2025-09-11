@@ -731,9 +731,14 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
-      ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
-      ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
+      if( FD_LIKELY( ctx->local_in.incremental_snapshot_slot==ULONG_MAX ) ) {
+        ctx->http.full.slot = ctx->local_in.full_snapshot_slot;
+        ctx->state          = FD_SNAPRD_STATE_COLLECTING_PEERS_INCREMENTAL;
+      } else {
+        FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
+        ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
+        ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
+      }
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
@@ -1011,8 +1016,6 @@ privileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( -1==fstat( ctx->local_in.full_snapshot_fd, &full_stat ) ) ) FD_LOG_ERR(( "stat() failed `%s` (%i-%s)", full_path, errno, fd_io_strerror( errno ) ));
     if( FD_UNLIKELY( !S_ISREG( full_stat.st_mode ) ) ) FD_LOG_ERR(( "full snapshot path `%s` is not a regular file", full_path ));
     ctx->local_in.full_snapshot_size = (ulong)full_stat.st_size;
-
-    if( FD_LIKELY( tile->snaprd.incremental_snapshot_fetch ) ) FD_TEST( incremental_slot!=ULONG_MAX );
 
     if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
       strncpy( ctx->local_in.incremental_snapshot_path, incremental_path, PATH_MAX );
