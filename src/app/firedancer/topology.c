@@ -273,6 +273,12 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "repair_sign"  );
 
+  /* FIXME: These are hacks to get the sandbox working.  They should be
+     replaced with properly setup links once the leader pipeline is
+     integrated. */
+  fd_topob_wksp( topo, "pack_poh"     );
+  fd_topob_wksp( topo, "pack_bank"    );
+
   fd_topob_wksp( topo, "repair_repla" );
   fd_topob_wksp( topo, "replay_poh"   );
   fd_topob_wksp( topo, "replay_tower" );
@@ -384,6 +390,9 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),                                      1UL );
   FOR(bank_tile_cnt)   fd_topob_link( topo, "replay_poh",   "replay_poh",   128UL,                                    (4096UL*sizeof(fd_txn_p_t))+sizeof(fd_microblock_trailer_t), 1UL  );
+  /**/                 fd_topob_link( topo, "pack_poh",     "pack_poh",     65536UL,                                  sizeof(fd_done_packing_t), 1UL );
+                       fd_topob_link( topo, "pack_bank",    "pack_bank",    65536UL,                                  USHORT_MAX,                1UL );
+
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL   );
   /**/                 fd_topob_link( topo, "poh_pack",     "replay_poh",   128UL,                                    sizeof(fd_became_leader_t) ,   1UL   );
 
@@ -715,6 +724,15 @@ fd_topo_initialize( config_t * config ) {
   FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "sign",   i+1,                        "sign_repair",  i                                              );
   FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_repair",  i,      FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     /**/               fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_ping",    0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+
+  /* FIXME: These are hacks to get the sandbox working.  They should be
+     replaced with properly setup links once the leader pipeline is
+     integrated.  There is no link to the bank tile since it doesn't
+     exist yet. */
+                       fd_topob_tile_out( topo, "pack",   0UL,                        "pack_poh",     0UL                                                );
+  /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_poh",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                       fd_topob_tile_out( topo, "pack",   0UL,                        "pack_bank",    0UL                                                );
+  /**/                 fd_topob_tile_in(  topo, "poh",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
