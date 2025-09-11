@@ -66,8 +66,8 @@ struct fd_quic_pkt_meta {
   fd_quic_pkt_meta_value_t val;
   uchar                    enc_level: 2;
   uchar                    pn_space;    /* packet number space (derived from enc_level) */
-  ulong                    tx_time;     /* transmit time */
-  ulong                    expiry;      /* time pkt_meta expires... this is the time the
+  long                     tx_time;     /* transmit time */
+  long                     expiry;      /* time pkt_meta expires... this is the time the
                                          ack is expected by */
 
   /* treap fields */

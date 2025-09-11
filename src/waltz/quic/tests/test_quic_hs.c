@@ -58,8 +58,8 @@ validate_quic_hs_tls_cache( fd_quic_t * quic ) {
   fd_quic_tls_hs_cache_t * hs_cache  =  &state->hs_cache;
   fd_quic_tls_hs_t       * pool      =  state->hs_pool;
 
-  ulong  cache_cnt  = 0UL;
-  ulong  prev_birth = 0UL;
+  ulong cache_cnt  = 0UL;
+  long  prev_birth = 0L;
   for( fd_quic_tls_hs_cache_iter_t iter = fd_quic_tls_hs_cache_iter_fwd_init( hs_cache, pool );
       !fd_quic_tls_hs_cache_iter_done( iter, hs_cache, pool );
       iter = fd_quic_tls_hs_cache_iter_fwd_next( iter, hs_cache, pool )
@@ -75,12 +75,7 @@ validate_quic_hs_tls_cache( fd_quic_t * quic ) {
 
 
 /* global "clock" */
-ulong now = 123;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+long now = 123;
 
 int
 main( int argc, char ** argv ) {
@@ -125,11 +120,9 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
   server_quic->cb.stream_rx        = my_stream_rx_cb;
 
-  client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
 
   server_quic->config.initial_rx_max_stream_data = 1<<16;
@@ -146,14 +139,14 @@ main( int argc, char ** argv ) {
   fd_quic_svc_validate( client_quic );
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
     validate_quic_hs_tls_cache( client_quic );
     validate_quic_hs_tls_cache( server_quic );
 
@@ -163,6 +156,7 @@ main( int argc, char ** argv ) {
     }
   }
 
+  fflush( fd_quic_test_pcap );
   FD_TEST( server_complete && client_complete );
 
   /* TODO detect missing QUIC transport params */
@@ -185,8 +179,8 @@ main( int argc, char ** argv ) {
   for( unsigned j = 0; j < 16; ++j ) {
     FD_LOG_INFO(( "running services" ));
 
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     buf[12] = ' ';
     //buf[15] = (char)( ( j / 10 ) + '0' );
@@ -212,8 +206,8 @@ main( int argc, char ** argv ) {
 
   for( uint j=0; j<10U; ++j ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
   }
 
   fd_quic_svc_validate( server_quic );
@@ -233,7 +227,7 @@ main( int argc, char ** argv ) {
 
   /* fill buffer, no eviction or failure */
   for( int i=0; i<10; ++i ) {
-    FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0 ) );
+    FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0, now ) );
     FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted );
   }
   FD_TEST( !fd_quic_tls_hs_pool_free( client_state->hs_pool ) );
@@ -242,14 +236,14 @@ main( int argc, char ** argv ) {
   now++;
   /* new connection should fail because within TTL of 5 */
   ulong prev_fail = client_quic->metrics.hs_err_alloc_fail_cnt;
-  FD_TEST( !fd_quic_connect( client_quic, 0U, 0, 0U, 0 ) );
+  FD_TEST( !fd_quic_connect( client_quic, 0U, 0, 0U, 0, now ) );
   FD_TEST( client_quic->metrics.hs_err_alloc_fail_cnt == prev_fail+1 );
   validate_quic_hs_tls_cache( client_quic );
 
   FD_LOG_NOTICE(( "Testing TLS cache - evicts if over ttl " ));
   now+=10;
   FD_TEST( !fd_quic_tls_hs_pool_free( client_state->hs_pool ) );
-  FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0 ) );
+  FD_TEST( fd_quic_connect( client_quic, 0U, 0, 0U, 0, now ) );
   validate_quic_hs_tls_cache( client_quic );
   FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted+1 );
 

@@ -103,14 +103,15 @@ run_quic_client( fd_quic_t *         quic,
   FD_TEST( fd_quic_init( quic ) );
 
   while( 1 ) {
-    fd_quic_service( quic );
+    long now = fd_log_wallclock();
+    fd_quic_service( quic, now );
     fd_quic_udpsock_service( udpsock );
 
     if( !gbl_conn ) {
       /* if no connection, try making one */
       FD_LOG_NOTICE(( "Creating connection" ));
 
-      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0 );
+      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0, now );
 
       continue;
     }
@@ -157,7 +158,7 @@ run_quic_client( fd_quic_t *         quic,
 
   /* wait for connection to close */
   while( gbl_conn ) {
-    fd_quic_service( quic );
+    fd_quic_service( quic, fd_log_wallclock() );
     fd_quic_udpsock_service( udpsock );
   }
 
