@@ -35,6 +35,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
   fd_funk_txn_end_write( funk );
 
   /* Allocate contexts */
@@ -66,23 +67,15 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Setup vote states accounts */
   fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  if( FD_UNLIKELY( !vote_states ) ) {
-    return 0;
-  }
+  if( FD_UNLIKELY( !vote_states ) ) FD_LOG_ERR(( "fd_vote_states_new failed" ));
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  if( FD_UNLIKELY( !vote_states_prev ) ) {
-    fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
-    return 0;
-  }
+  if( FD_UNLIKELY( !vote_states_prev ) ) FD_LOG_ERR(( "fd_vote_states_new for prev failed" ));
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  if( FD_UNLIKELY( !vote_states_prev_prev ) ) {
-    fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
-    return 0;
-  }
+  if( FD_UNLIKELY( !vote_states_prev_prev ) ) FD_LOG_ERR(( "fd_vote_staets_new for prev2 failed" ));
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
@@ -409,9 +402,7 @@ void
 fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_funk_txn_t * funk_txn = ctx->txn_ctx->funk_txn;
-
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_txn_cancel_all( runner->funk, 1 );
 }
 
 
