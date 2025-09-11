@@ -900,6 +900,7 @@
 | <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapct_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
 | <span class="metrics-name">snapct_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
+| <span class="metrics-name">snapct_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
 
 </div>
 
@@ -910,6 +911,7 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | <span class="metrics-name">snapld_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapld_&#8203;ssl_&#8203;alloc_&#8203;errors</span> | counter | Number of SSL allocation errors encountered.  |
 
 </div>
 
@@ -1200,6 +1202,5 @@
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;seen</span> | counter | Number of hard forks we've seen (block ids with multiple candidate bank hashes) |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;pruned</span> | counter | Number of hard forks (candidate bank hashes) we've pruned |
 | <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;active</span> | gauge | Currently active hard forks |
-| <span class="metrics-name">tower_&#8203;hard_&#8203;forks_&#8203;max_&#8203;width</span> | gauge | The max width of hard forks (block id with most candidate bank hashes) we've ever seen |
 
 </div>

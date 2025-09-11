@@ -1,10 +1,13 @@
+#define _GNU_SOURCE
 #include "utils/fd_ssarchive.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_sshttp.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../waltz/openssl/fd_openssl_tile.h"
 
+#include <sys/mman.h> /* memfd_create */
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -29,8 +32,14 @@ typedef struct fd_snapld_tile {
   int load_file;
   int sent_meta;
 
+  int   awaiting_ack;
+  ulong awaiting_ack_sig;
+
   int local_full_fd;
   int local_incr_fd;
+  int sockfd;
+
+  int is_https;
 
   fd_sshttp_t * sshttp;
 
@@ -58,7 +67,15 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND(  l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
   l = FD_LAYOUT_APPEND(  l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+  l = FD_LAYOUT_APPEND(  l, fd_alloc_align(),           fd_alloc_footprint()     );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+FD_FN_CONST static inline ulong
+loose_footprint( fd_topo_tile_t const * tile ) {
+  (void)tile;
+  /* Leftover space for OpenSSL allocations */
+  return 1UL<<26UL; /* 64 MiB */
 }
 
 static void
@@ -67,6 +84,16 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
+  void * _sshttp         = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
+
+#if FD_HAS_OPENSSL
+  void * _alloc = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), tile->kind_id );
+  fd_ossl_tile_init( alloc );
+#endif
+
+  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
+  FD_TEST( ctx->sshttp );
 
   /* FIXME: Allow incremental_snapshots=0 config */
   ulong full_slot = ULONG_MAX;
@@ -91,6 +118,12 @@ privileged_init( fd_topo_t *      topo,
       if( FD_UNLIKELY( -1==ctx->local_incr_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", incr_path, errno, fd_io_strerror( errno ) ));
     }
   }
+
+  /* Create a temporary file descriptor for our socket file descriptor.
+     It is closed later in unprivileged init so that the sandbox sees
+     an existent file descriptor. */
+  ctx->sockfd = memfd_create( "snapld.sockfd", 0 );
+  if( FD_UNLIKELY( -1==ctx->sockfd ) ) FD_LOG_ERR(( "memfd_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static ulong
@@ -111,6 +144,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
   if( FD_LIKELY( -1!=ctx->local_full_fd ) ) out_fds[ out_cnt++ ] = ctx->local_full_fd;
   if( FD_LIKELY( -1!=ctx->local_incr_fd ) ) out_fds[ out_cnt++ ] = ctx->local_incr_fd;
+  out_fds[ out_cnt++ ] = ctx->sockfd;
 
   return out_cnt;
 }
@@ -124,7 +158,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t), sizeof(fd_snapld_tile_t) );
 
-  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd );
+  populate_sock_filter_policy_fd_snapld_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_full_fd, (uint)ctx->local_incr_fd, (uint)ctx->sockfd );
   return sock_filter_policy_fd_snapld_tile_instr_cnt;
 }
 
@@ -134,14 +168,10 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapld_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapld_tile_t),  sizeof(fd_snapld_tile_t) );
-  void * _sshttp          = FD_SCRATCH_ALLOC_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()    );
 
   fd_memcpy( ctx->config.path, tile->snapld.snapshots_path, PATH_MAX );
 
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
-
-  ctx->sshttp = fd_sshttp_join( fd_sshttp_new( _sshttp ) );
-  FD_TEST( ctx->sshttp );
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
@@ -156,6 +186,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_dc.wmark  = fd_dcache_compact_wmark ( ctx->out_dc.mem, out_link->dcache, out_link->mtu );
   ctx->out_dc.chunk  = ctx->out_dc.chunk0;
   ctx->out_dc.mtu    = out_link->mtu;
+
+  ctx->awaiting_ack     = 0;
+  ctx->awaiting_ack_sig = 0;
+  ctx->is_https         = 0;
+
+  /* We can only close the temporary socket file descriptor after
+     entering the sandbox because the sandbox checks all file
+     descriptors are existent. */
+  if( -1==close( ctx->sockfd ) ) FD_LOG_ERR((" close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 static int
@@ -165,7 +204,10 @@ should_shutdown( fd_snapld_tile_t * ctx ) {
 
 static void
 metrics_write( fd_snapld_tile_t * ctx ) {
-  FD_MGAUGE_SET( SNAPLD, STATE, (ulong)(ctx->state) );
+#if FD_HAS_OPENSSL
+  FD_MCNT_SET(   SNAPLD, SSL_ALLOC_ERRORS, fd_ossl_alloc_errors );
+#endif
+  FD_MGAUGE_SET( SNAPLD, STATE,            (ulong)(ctx->state) );
 }
 
 static void
@@ -173,6 +215,13 @@ after_credit( fd_snapld_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
+  if( FD_UNLIKELY( ctx->awaiting_ack && ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
+    ctx->awaiting_ack = 0;
+    ctx->state        = FD_SNAPSHOT_STATE_IDLE;
+    fd_stem_publish( stem, 0UL, ctx->awaiting_ack_sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+    return;
+  }
+
   if( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) {
     fd_log_sleep( (long)1e6 );
     return;
@@ -258,12 +307,13 @@ returnable_frag( fd_snapld_tile_t *  ctx,
       ctx->load_file = msg_in->file;
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->sent_meta = 0;
+      ctx->is_https = msg_in->is_https;
       if( ctx->load_file ) {
         if( FD_UNLIKELY( 0!=lseek( ctx->load_full ? ctx->local_full_fd : ctx->local_incr_fd, 0, SEEK_SET ) ) )
           FD_LOG_ERR(( "lseek(0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       } else {
-        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, "/snapshot.tar.bz2", 17UL, fd_log_wallclock() );
-        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
+        if( ctx->load_full ) fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, "/snapshot.tar.bz2", 17UL, fd_log_wallclock() );
+        else                 fd_sshttp_init( ctx->sshttp, msg_in->addr, msg_in->hostname, msg_in->is_https, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       }
       fd_ssctrl_init_t * msg_out = fd_chunk_to_laddr( ctx->out_dc.mem, ctx->out_dc.chunk );
       fd_memcpy( msg_out, msg_in, sz );
@@ -286,9 +336,16 @@ returnable_frag( fd_snapld_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
-        ctx->state = FD_SNAPSHOT_STATE_ERROR;
-        fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
-        return 0;
+        /* snapld should be in the finishing state when reading from a
+           file or downloading from http.  It is only allowed to still
+           be in progress for shutting down an https connection. */
+        FD_TEST( ctx->is_https );
+        /* snapld might not be done with shutting down an https
+           connection.  Save the sig here and send the message when
+           snapld is in the finishing state. */
+        ctx->awaiting_ack     = 1;
+        ctx->awaiting_ack_sig = sig;
+        return 0; /* return directly to avoid fowarding the message */
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
       break;
@@ -329,6 +386,7 @@ fd_topo_run_tile_t fd_tile_snapld = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .loose_footprint          = loose_footprint,
   .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
