@@ -430,6 +430,13 @@ query( fd_forest_t * forest, ulong slot ) {
 static fd_forest_blk_t *
 acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
+  if( FD_UNLIKELY( !fd_forest_pool_free( pool ) ) ) {
+    FD_LOG_ERR(( "Firedancer ran out of memory when repairing new blocks. If this happened during catchup, your "
+                 "snapshot is likely too old and there are too many blocks to repair. You can fix this by using a more "
+                 "recent snapshot (if loading a pre-downloaded snapshot) or rebooting (if downloading the snapshot "
+                 "live). If this happened while running live (after catchup), Firedancer got disconnected from the "
+                 "cluster and stopped being able to receive shreds. Try rebooting." ));
+  }
   fd_forest_blk_t * blk  = fd_forest_pool_ele_acquire( pool );
   ulong             null = fd_forest_pool_idx_null( pool );
 
