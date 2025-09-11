@@ -934,7 +934,7 @@ user = ""
         #   to route interesting packets based on UDP dst port.  This mode
         #   is considered experimental and may not work with some network
         #   device setups. This should not yet be used in production.
-        rss_queue_mode = "simple"
+        rss_queue_mode = "dedicated"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
