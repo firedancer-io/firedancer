@@ -66,7 +66,7 @@
 #include "../reasm/fd_reasm.h"
 #include "../../flamenco/repair/fd_catchup.h"
 
-#define LOGGING       0
+#define LOGGING       1
 #define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
@@ -826,11 +826,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     };
 #   if LOGGING
     if( FD_UNLIKELY( shred->slot > ctx->turbine_slot ) ) {
-      FD_LOG_NOTICE(( "\n\n[Turbine]\n"
-                      "slot:             %lu\n"
-                      "root:             %lu\n",
-                      shred->slot,
-                      fd_forest_root_slot( ctx->forest ) ));
+      FD_LOG_INFO(( "\n\n[Turbine]\n"
+                    "slot:             %lu\n"
+                    "root:             %lu\n",
+                    shred->slot,
+                    fd_forest_root_slot( ctx->forest ) ));
     }
 #   endif
     ctx->turbine_slot  = fd_ulong_max( shred->slot, ctx->turbine_slot );
