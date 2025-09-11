@@ -23,16 +23,26 @@ typedef struct fd_bank_hash_cmp_entry fd_bank_hash_cmp_entry_t;
 #include "../../util/tmpl/fd_map.c"
 
 struct fd_bank_hash_cmp {
-  fd_bank_hash_cmp_entry_t * map;
-  ulong                      map_gaddr;
-  ulong                      cnt;
-  ulong                      watermark; /*  */
-  ulong                      total_stake;
-  volatile int               lock;
+  ulong        map_offset;
+  ulong        cnt;
+  ulong        watermark; /*  */
+  ulong        total_stake;
+  volatile int lock;
 };
 typedef struct fd_bank_hash_cmp fd_bank_hash_cmp_t;
 
 FD_PROTOTYPES_BEGIN
+
+static inline void
+fd_bank_hash_cmp_set_map_offset( fd_bank_hash_cmp_t * bank_hash_cmp,
+                                 uchar *              map_mem ) {
+  bank_hash_cmp->map_offset = (ulong)map_mem - (ulong)bank_hash_cmp;
+}
+
+static inline fd_bank_hash_cmp_entry_t *
+fd_bank_hash_cmp_get_map( fd_bank_hash_cmp_t * bank_hash_cmp ) {
+  return fd_bank_hash_cmp_map_join( (uchar *)bank_hash_cmp + bank_hash_cmp->map_offset );
+}
 
 static inline ulong
 fd_bank_hash_cmp_align( void ) {
