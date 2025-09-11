@@ -1,7 +1,5 @@
-#include "fd_prune_finder.h"
-
 #include "../../util/fd_util.h"
-
+#include "fd_prune_finder.h"
 #include "test_crds_utils.c"
 
 typedef struct test_peer {
