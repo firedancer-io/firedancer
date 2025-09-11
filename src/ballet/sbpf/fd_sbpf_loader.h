@@ -138,6 +138,12 @@ struct fd_sbpf_elf_info {
   /* Known program header indices (like shndx_*) */
   int phndx_dyn;
 
+  /* Dynamic table entries */
+  int dt_rel;
+  int dt_relent;
+  int dt_relsz;
+  int dt_symtab;
+
   uint entry_pc;  /* Program counter of entry point
                      NOTE: MIGHT BE OUT OF BOUNDS! */
 
@@ -181,10 +187,11 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 typedef struct fd_sbpf_program fd_sbpf_program_t;
 
 struct fd_sbpf_loader_config {
-  int elf_deploy_checks;
+  int  elf_deploy_checks;
   uint sbpf_min_version;
   uint sbpf_max_version;
-  int enable_symbol_and_section_labels;
+  int  enable_symbol_and_section_labels;
+  int  optimize_rodata;
 };
 typedef struct fd_sbpf_loader_config fd_sbpf_loader_config_t;
 
@@ -290,6 +297,7 @@ fd_sbpf_strerror( void );
 
 /* SIMD-0189 */
 static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
+static inline int fd_sbpf_enable_elf_vaddr           ( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
 
 FD_PROTOTYPES_END
 
