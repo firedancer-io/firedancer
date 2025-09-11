@@ -14,10 +14,15 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
-#define FD_SSHTTP_STATE_INIT  (0) /* start */
-#define FD_SSHTTP_STATE_REQ   (1) /* sending request */
-#define FD_SSHTTP_STATE_RESP  (2) /* receiving response headers */
-#define FD_SSHTTP_STATE_DL    (3) /* downloading response body */
+#if FD_HAS_OPENSSL
+#include <openssl/ssl.h>
+#endif
+
+#define FD_SSHTTP_STATE_INIT    (0) /* start */
+#define FD_SSHTTP_STATE_CONNECT (1) /* connecting */
+#define FD_SSHTTP_STATE_REQ     (2) /* sending request */
+#define FD_SSHTTP_STATE_RESP    (3) /* receiving response headers */
+#define FD_SSHTTP_STATE_DL      (4) /* downloading response body */
 
 struct fd_sshttp_private {
   int  state;
@@ -26,7 +31,7 @@ struct fd_sshttp_private {
 
   int   hops;
 
-  fd_ip4_port_t addr;
+  fd_sspeer_t   source;
   int           sockfd;
 
   char  request[ 4096UL ];
@@ -35,6 +40,11 @@ struct fd_sshttp_private {
 
   ulong response_len;
   char  response[ USHORT_MAX ];
+
+#if FD_HAS_OPENSSL
+  SSL_CTX* ssl_ctx;
+  SSL*     ssl;
+#endif
 
   char full_snapshot_name[ PATH_MAX ];
   char incremental_snapshot_name[ PATH_MAX ];
@@ -75,9 +85,17 @@ fd_sshttp_new( void * shmem ) {
 
   sshttp->state = FD_SSHTTP_STATE_INIT;
 
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( sshttp->magic ) = FD_SSHTTP_MAGIC;
-  FD_COMPILER_MFENCE();
+#if FD_HAS_OPENSSL
+  SSL_CTX * ssl_ctx = SSL_CTX_new( TLS_client_method() );
+  if( FD_UNLIKELY( !ssl_ctx ) ) {
+    FD_LOG_WARNING(( "SSL_CTX_new failed" ));
+    return NULL;
+  }
+  
+  SSL_CTX_up_ref( ssl_ctx );
+  sshttp->ssl_ctx = ssl_ctx;
+  SSL_CTX_free( ssl_ctx );
+#endif
 
   return (void *)sshttp;
 }
@@ -106,24 +124,63 @@ fd_sshttp_join( void * shhttp ) {
 
 void
 fd_sshttp_init( fd_sshttp_t * http,
-                fd_ip4_port_t addr,
+                fd_sspeer_t   source,
                 char const *  path,
                 ulong         path_len,
                 long          now ) {
   FD_TEST( http->state==FD_SSHTTP_STATE_INIT );
 
+  if( FD_LIKELY( source.is_https ) ) {
+#if FD_HAS_OPENSSL
+    FD_TEST( source.hostname && source.hostname_len );
+
+    if( FD_LIKELY( http->ssl ) ) {
+      SSL_free( http->ssl );
+      http->ssl = NULL;
+    }
+
+    http->ssl = SSL_new( http->ssl_ctx );
+    if( FD_UNLIKELY( !http->ssl ) ) {
+      FD_LOG_ERR(( "SSL_new failed" ));
+    }
+
+    int alpn_res = SSL_set_alpn_protos( http->ssl, (uchar const *)"http/1.1", 8 );
+    if( FD_UNLIKELY( alpn_res!=0 ) ) {
+      FD_LOG_ERR(( "SSL_set_alpn_protos failed (%d-%s)", alpn_res, fd_io_strerror( errno ) ));
+    }
+
+    /* set SNI */
+    if( FD_UNLIKELY( !SSL_set1_host( http->ssl, source.hostname ) ) ) {
+      FD_LOG_ERR(( "SSL_set1_host failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    }
+#else
+  FD_LOG_ERR(( "cannot use HTTPS without OpenSSL" ));
+#endif
+  }
+
   http->hops = 4UL;
 
   http->request_sent = 0UL;
-  FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
-    "GET %.*s HTTP/1.1\r\n"
-    "User-Agent: Firedancer\r\n"
-    "Accept: */*\r\n"
-    "Accept-Encoding: identity\r\n"
-    "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-    (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
 
-  http->addr = addr;
+  if( FD_LIKELY( source.is_https ) ) {
+    FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+      "GET %.*s HTTP/1.1\r\n"
+      "User-Agent: Firedancer\r\n"
+      "Accept: */*\r\n"
+      "Accept-Encoding: identity\r\n"
+      "Host: %s\r\n\r\n",
+      (int)path_len, path, source.hostname ) );
+  } else {
+    FD_TEST( fd_cstr_printf_check( http->request, sizeof(http->request), &http->request_len,
+      "GET %.*s HTTP/1.1\r\n"
+      "User-Agent: Firedancer\r\n"
+      "Accept: */*\r\n"
+      "Accept-Encoding: identity\r\n"
+      "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
+      (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( source.addr.addr ) ) );
+  }
+
+  http->source = source;
   http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -134,19 +191,58 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
-    .sin_port   = addr.port,
-    .sin_addr   = { .s_addr = addr.addr }
+    .sin_port   = source.addr.port,
+    .sin_addr   = { .s_addr = source.addr.addr }
   };
 
-  if( FD_UNLIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
-    if( FD_UNLIKELY( errno!=EINPROGRESS ) ) {
-      if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      return;
+  if( FD_LIKELY( source.is_https ) ) {
+    http->state    = FD_SSHTTP_STATE_CONNECT;
+    http->deadline = now + 500L*1000L*1000L;
+  } else {
+    if( FD_UNLIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
+      if( FD_UNLIKELY( errno!=EINPROGRESS ) ) {
+        if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+        return;
+      }
     }
+
+    http->state    = FD_SSHTTP_STATE_REQ;
+    http->deadline = now + 500L*1000L*1000L;
+  }
+}
+
+static int
+http_connect( fd_sshttp_t * http,
+              long          now ) {
+#if FD_HAS_OPENSSL
+  if( FD_UNLIKELY( now>http->deadline ) ) {
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
+  }
+
+  FD_TEST( http->ssl );
+  SSL_set_fd( http->ssl, http->sockfd );
+  int ssl_err = SSL_connect( http->ssl );
+  if( FD_UNLIKELY( ssl_err!=1 ) ) {
+    int ssl_err_code = SSL_get_error( http->ssl, ssl_err );
+    if( FD_UNLIKELY( ssl_err_code!=SSL_ERROR_WANT_READ && ssl_err_code!=SSL_ERROR_WANT_WRITE ) ) {
+      FD_LOG_WARNING(( "SSL_connect failed (%d-%s)", ssl_err, fd_io_strerror( errno ) ));
+      SSL_free( http->ssl );
+      http->ssl = NULL;
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+    /* in progress */
+    return FD_SSHTTP_ADVANCE_AGAIN;
   }
 
   http->state    = FD_SSHTTP_STATE_REQ;
   http->deadline = now + 500L*1000L*1000L;
+  return FD_SSHTTP_ADVANCE_DONE;
+#else
+  (void)http;
+  (void)now;
+  FD_LOG_ERR(( "cannot use HTTPS without OpenSSL" ));
+#endif
 }
 
 void
@@ -156,6 +252,90 @@ fd_sshttp_cancel( fd_sshttp_t * http ) {
     http->sockfd = -1;
   }
   http->state = FD_SSHTTP_STATE_INIT;
+
+#if FD_HAS_OPENSSL
+  if( http->ssl_ctx ) {
+    SSL_CTX_free( http->ssl_ctx );
+    http->ssl_ctx = NULL;
+  }
+#endif
+}
+
+#if FD_HAS_OPENSSL
+static long
+http_recv_ssl( fd_sshttp_t * http,
+               void *        buf,
+               ulong         bufsz ) {
+  int read_res = SSL_read( http->ssl, buf, (int)bufsz );
+  if( FD_UNLIKELY( read_res<=0 ) ) {
+    int ssl_err = SSL_get_error( http->ssl, read_res );
+
+    if( FD_UNLIKELY( ssl_err!=SSL_ERROR_WANT_READ && ssl_err!=SSL_ERROR_WANT_WRITE ) ) {
+      FD_LOG_WARNING(( "SSL_read failed (%d)", ssl_err ));
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+
+    return FD_SSHTTP_ADVANCE_AGAIN;
+  }
+
+  return (long)read_res;
+}
+
+static long
+http_send_ssl( fd_sshttp_t * http,
+               void *        buf,
+               ulong         bufsz ) {
+  int write_res = SSL_write( http->ssl, buf, (int)bufsz );
+  if( FD_UNLIKELY( write_res<=0 ) ) {
+    int ssl_err = SSL_get_error( http->ssl, write_res );
+
+    if( FD_UNLIKELY( ssl_err!=SSL_ERROR_WANT_READ && ssl_err!=SSL_ERROR_WANT_WRITE ) ) {
+      FD_LOG_WARNING(( "SSL_write failed (%d)", ssl_err ));
+      return FD_SSHTTP_ADVANCE_ERROR;
+    }
+
+    return FD_SSHTTP_ADVANCE_AGAIN;
+  }
+
+  return (long)write_res;
+}
+#endif
+
+static long
+http_send( fd_sshttp_t * http,
+           void *        buf,
+           ulong         bufsz ) {
+#if FD_HAS_OPENSSL
+  if( FD_LIKELY( http->source.is_https ) ) return http_send_ssl( http, buf, bufsz );
+#endif
+
+  long sent = send( http->sockfd, buf, bufsz, 0 );
+  if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
+  else if( FD_UNLIKELY( -1==sent ) ) {
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
+  }
+
+  return sent;
+}
+
+static long
+http_recv( fd_sshttp_t * http,
+           void *        buf,
+           ulong         bufsz ) {
+#if FD_HAS_OPENSSL
+  if( FD_LIKELY( http->source.is_https ) ) return http_recv_ssl( http, buf, bufsz );
+#endif
+
+  long read = recv( http->sockfd, buf, bufsz, 0 );
+  if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
+  else if( FD_UNLIKELY( -1==read ) ) {
+    FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    fd_sshttp_cancel( http );
+    return FD_SSHTTP_ADVANCE_ERROR;
+  }
+
+  return read;
 }
 
 static int
@@ -166,12 +346,8 @@ send_request( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long sent = send( http->sockfd, http->request+http->request_sent, http->request_len-http->request_sent, 0 );
-  if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
-  else if( FD_UNLIKELY( -1==sent ) ) {
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
+  long sent = http_send( http, http->request+http->request_sent, http->request_len-http->request_sent );
+  if( FD_UNLIKELY( sent<=0 ) ) return (int)sent;
 
   http->request_sent += (ulong)sent;
   if( FD_UNLIKELY( http->request_sent==http->request_len ) ) {
@@ -253,18 +429,18 @@ follow_redirect( fd_sshttp_t *        http,
     "Accept: */*\r\n"
     "Accept-Encoding: identity\r\n"
     "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
-    (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->addr.addr ) ) ) ) {
+    (int)location_len, location, FD_IP4_ADDR_FMT_ARGS( http->source.addr.addr ) ) ) ) {
     FD_LOG_WARNING(( "location header too long `%.*s`", (int)location_len, location ));
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
   FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                  FD_IP4_ADDR_FMT_ARGS( http->source.addr.addr ), fd_ushort_bswap( http->source.addr.port ),
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
   fd_sshttp_cancel( http );
-  fd_sshttp_init( http, http->addr, location, location_len, now );
+  fd_sshttp_init( http, http->source, location, location_len, now );
 
   return FD_SSHTTP_ADVANCE_AGAIN;
 }
@@ -280,13 +456,8 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long read = recv( http->sockfd, http->response+http->response_len, sizeof(http->response)-http->response_len, 0 );
-  if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return 0;
-  else if( FD_UNLIKELY( -1==read ) ) {
-    FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    fd_sshttp_cancel( http );
-    return FD_SSHTTP_ADVANCE_ERROR;
-  }
+  long read = http_recv( http, http->response+http->response_len, sizeof(http->response)-http->response_len );
+  if( FD_UNLIKELY( read<=0 ) ) return (int)read;
 
   http->response_len += (ulong)read;
 
@@ -365,7 +536,7 @@ read_body( fd_sshttp_t * http,
   }
 
   FD_TEST( http->content_read<http->content_len );
-  long read = recv( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0 );
+  long read = http_recv( http, data, fd_ulong_min( *data_len, http->content_len-http->content_read ) );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
     fd_sshttp_cancel( http );
@@ -402,6 +573,7 @@ fd_sshttp_advance( fd_sshttp_t * http,
 
   switch( http->state ) {
     case FD_SSHTTP_STATE_INIT: return FD_SSHTTP_ADVANCE_AGAIN;
+    case FD_SSHTTP_STATE_CONNECT: return http_connect( http, now );
     case FD_SSHTTP_STATE_REQ: return send_request( http, now );
     case FD_SSHTTP_STATE_RESP: return read_response( http, data_len, data, now );
     case FD_SSHTTP_STATE_DL: return read_body( http, data_len, data );

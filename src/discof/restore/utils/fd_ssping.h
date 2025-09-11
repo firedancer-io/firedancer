@@ -22,6 +22,14 @@
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
+struct fd_sspeer {
+  fd_ip4_port_t addr;
+  char const *  hostname;
+  ulong         hostname_len;
+  int           is_https;
+};
+typedef struct fd_sspeer fd_sspeer_t;
+
 struct fd_ssping_private;
 typedef struct fd_ssping_private fd_ssping_t;
 
@@ -54,7 +62,7 @@ fd_ssping_join( void * shping );
 
 void
 fd_ssping_add( fd_ssping_t * ssping,
-               fd_ip4_port_t addr );
+               fd_sspeer_t   source );
 
 /* Remove a peer from tracking by the snapshot pinger.  Peers are
    reference counted, so this will only remove the peer only if the
@@ -62,14 +70,14 @@ fd_ssping_add( fd_ssping_t * ssping,
 
 void
 fd_ssping_remove( fd_ssping_t * ssping,
-                  fd_ip4_port_t addr );
+                  fd_sspeer_t   source );
 
 /* Mark the peer as invalid for selection for a period of time, probably
    if they refused a connection or served us a bad snapshot. */
 
 void
 fd_ssping_invalidate( fd_ssping_t * ssping,
-                      fd_ip4_port_t addr,
+                      fd_sspeer_t   source,
                       long          now );
 
 /* Advance the ping tracker forward in time until "now".  This should be
@@ -83,7 +91,7 @@ fd_ssping_advance( fd_ssping_t * ssping,
 /* Retrieve the best "active" peer right now, by lowest ping.  If no
    peer is active or pingable, this returns 0.0.0.0:0. */
 
-fd_ip4_port_t
+fd_sspeer_t
 fd_ssping_best( fd_ssping_t const * ssping );
 
 FD_PROTOTYPES_END

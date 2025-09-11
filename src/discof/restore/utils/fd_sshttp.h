@@ -5,6 +5,7 @@ struct fd_sshttp_private;
 typedef struct fd_sshttp_private fd_sshttp_t;
 
 #include "../../../util/net/fd_net_headers.h"
+#include "fd_ssping.h"
 
 #define FD_SSHTTP_ALIGN (8UL)
 
@@ -34,7 +35,7 @@ fd_sshttp_content_len( fd_sshttp_t const * http );
 
 void
 fd_sshttp_init( fd_sshttp_t * http,
-                fd_ip4_port_t addr,
+                fd_sspeer_t   addr,
                 char const *  path,
                 ulong         path_len,
                 long          now );

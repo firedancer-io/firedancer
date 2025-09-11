@@ -22,7 +22,7 @@
 
 struct fd_ssping_peer {
   ulong         refcnt;
-  fd_ip4_port_t addr;
+  fd_sspeer_t   source;
 
   struct {
     ulong next;
@@ -63,7 +63,7 @@ typedef struct fd_ssping_peer fd_ssping_peer_t;
 #include "../../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME               peer_map
-#define MAP_KEY                addr
+#define MAP_KEY                source.addr
 #define MAP_ELE_T              fd_ssping_peer_t
 #define MAP_KEY_T              fd_ip4_port_t
 #define MAP_PREV               map.prev
@@ -213,15 +213,15 @@ fd_ssping_join( void * shping ) {
 
 void
 fd_ssping_add( fd_ssping_t * ssping,
-               fd_ip4_port_t addr ) {
-  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
+               fd_sspeer_t   addr ) {
+  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr.addr, NULL, ssping->pool );
   if( FD_LIKELY( !peer ) ) {
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
     peer = peer_pool_ele_acquire( ssping->pool );
     FD_TEST( peer );
     peer->refcnt = 0UL;
     peer->state  = PEER_STATE_UNPINGED;
-    peer->addr   = addr;
+    peer->source = addr;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
@@ -249,8 +249,8 @@ remove_ping_fd( fd_ssping_t * ssping,
 
 void
 fd_ssping_remove( fd_ssping_t * ssping,
-                  fd_ip4_port_t addr ) {
-  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
+                  fd_sspeer_t   addr ) {
+  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr.addr, NULL, ssping->pool );
   FD_TEST( peer );
   FD_TEST( peer->refcnt );
   peer->refcnt--;
@@ -301,9 +301,9 @@ unping_peer( fd_ssping_t *      ssping,
 
 void
 fd_ssping_invalidate( fd_ssping_t * ssping,
-                      fd_ip4_port_t addr,
+                      fd_sspeer_t   addr,
                       long          now ) {
-  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
+  fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr.addr, NULL, ssping->pool );
   if( FD_UNLIKELY( !peer ) ) return;
 
   if( FD_UNLIKELY( peer->state==PEER_STATE_PINGED || peer->state==PEER_STATE_REFRESHING ) ) {
@@ -375,7 +375,7 @@ poll_advance( fd_ssping_t * ssping,
         score_treap_ele_remove( ssping->score_treap, peer, ssping->pool );
       }
 
-      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), peer->latency_nanos ));
+      FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu ns", FD_IP4_ADDR_FMT_ARGS( peer->source.addr.addr ), fd_ushort_bswap( peer->source.addr.port ), peer->latency_nanos ));
       peer->state = PEER_STATE_VALID;
       peer->deadline_nanos = now + PEER_DEADLINE_NANOS_VALID;
 
@@ -395,8 +395,8 @@ peer_connect( fd_ssping_t *      ssping,
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
-    .sin_port   = peer->addr.port,
-    .sin_addr   = { .s_addr = peer->addr.addr }
+    .sin_port   = peer->source.addr.port,
+    .sin_addr   = { .s_addr = peer->source.addr.addr }
   };
 
   if( FD_UNLIKELY( -1==connect( sockfd, fd_type_pun( &addr ), sizeof(addr) ) && errno!=EINPROGRESS ) ) {
@@ -422,7 +422,7 @@ fd_ssping_advance( fd_ssping_t * ssping,
   while( !deadline_list_is_empty( ssping->unpinged, ssping->pool ) ) {
     fd_ssping_peer_t * peer = deadline_list_ele_pop_head( ssping->unpinged, ssping->pool );
 
-    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
+    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->source.addr.addr ), fd_ushort_bswap( peer->source.addr.port ) ));
     int result = peer_connect( ssping, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state = PEER_STATE_INVALID;
@@ -493,11 +493,11 @@ fd_ssping_advance( fd_ssping_t * ssping,
   poll_advance( ssping, now );
 }
 
-fd_ip4_port_t
+fd_sspeer_t
 fd_ssping_best( fd_ssping_t const * ssping ) {
   score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_ip4_port_t){ .l=0UL };
+  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_sspeer_t){ .addr= {.l=0UL}, .hostname=NULL, .hostname_len=0 };
 
   fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-  return best->addr;
+  return best->source;
 }

@@ -127,13 +127,17 @@ resolve_address( char const * address,
 
 static int
 resolve_peer( char const *    peer,
-              fd_ip4_port_t * ip4_port ) {
+              char            hostname[ static 256UL ],
+              fd_ip4_port_t * ip4_port,
+              int *           is_https ) {
 
   /* Split host:port */
   char const * host_port = peer;
   if( FD_LIKELY( strncmp( peer, "http://", 7UL )==0 ) ) {
+    if( FD_LIKELY( is_https ) ) *is_https  = 0;
     host_port += 7UL;
   } else if( FD_LIKELY( strncmp( peer, "https://", 8UL )==0 ) ) {
+    if( FD_LIKELY( is_https ) ) *is_https  = 1;
     host_port += 8UL;
   }
 
@@ -148,7 +152,9 @@ resolve_peer( char const *    peer,
     FD_LOG_ERR(( "invalid [gossip.entrypoints] entry \"%s\": hostname too long", host_port ));
   }
   fd_memcpy( fqdn, host_port, fqdn_len );
+  fd_memcpy( hostname, fqdn, fqdn_len );
   fqdn[ fqdn_len ] = '\0';
+  hostname[ fqdn_len ] = '\0';
 
   /* Parse port number */
 
@@ -169,7 +175,8 @@ static void
 resolve_gossip_entrypoints( config_t * config ) {
   ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
   for( ulong i=0UL; i<entrypoint_cnt; i++ ) {
-    if( FD_UNLIKELY( 0==resolve_peer( config->gossip.entrypoints[ i ], &config->gossip.resolved_entrypoints[ i ] ) ) ) {
+    char hostname[ 256UL ];
+    if( FD_UNLIKELY( 0==resolve_peer( config->gossip.entrypoints[ i ], hostname, &config->gossip.resolved_entrypoints[ i ], NULL ) ) ) {
       FD_LOG_ERR(( "failed to resolve address of [gossip.entrypoints] entry \"%s\"", config->gossip.entrypoints[ i ] ));
     }
   }
@@ -184,7 +191,10 @@ resolve_snapshot_peers( config_t *       config,
   for( ulong j=0UL; j<peers_cnt; j++ ) {
     if( FD_UNLIKELY( !config->firedancer.snapshots.sources.http.peers[ j ].enabled ) ) continue;
 
-    if( FD_UNLIKELY( 0==resolve_peer( config->firedancer.snapshots.sources.http.peers[ j ].url, &tile->snaprd.http.peers[ resolved_peers_cnt ] ) ) ) {
+    if( FD_UNLIKELY( 0==resolve_peer( config->firedancer.snapshots.sources.http.peers[ j ].url,
+                                      tile->snaprd.http.peers[ resolved_peers_cnt ].hostname,
+                                      &tile->snaprd.http.peers[ resolved_peers_cnt ].addr,
+                                      &tile->snaprd.http.peers[ resolved_peers_cnt ].is_https ) ) ) {
       FD_LOG_ERR(( "failed to resolve address of [snapshots.sources.http.peers] entry \"%s\"", config->firedancer.snapshots.sources.http.peers[ j ].url ));
     } else {
       resolved_peers_cnt++;

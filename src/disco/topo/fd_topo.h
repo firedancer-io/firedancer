@@ -513,7 +513,12 @@ struct fd_topo_tile {
 
       struct {
         ulong         peers_cnt;
-        fd_ip4_port_t peers[ 16UL ];
+
+        struct {
+          fd_ip4_port_t addr;
+          char          hostname[ 256UL ];
+          int           is_https;
+        } peers[ 16UL ];
       } http;
 
       int diagnostics;
