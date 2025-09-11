@@ -410,11 +410,9 @@ unprivileged_init( fd_topo_t *      topo,
   ulong exec_tile_cnt = fd_topo_tile_name_cnt( topo, "exec" );
   ctx->exec_tile_cnt  = exec_tile_cnt;
 
-  /* Find and setup all the exec_writer links and send_writer link. */
+  ulong send_tile_cnt = fd_topo_tile_name_cnt( topo, "send" );
 
-  if( FD_UNLIKELY( (exec_tile_cnt+1UL)!=tile->in_cnt ) ) {
-    FD_LOG_CRIT(( "Expecting one exec_writer link per exec tile and one send_writer link but found %lu links and %lu tiles", tile->in_cnt, exec_tile_cnt + 1UL ));
-  }
+  /* Find and setup all the exec_writer links. */
 
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     ulong exec_writer_idx = fd_topo_find_tile_in_link( topo, tile, "exec_writer", i );
@@ -434,21 +432,20 @@ unprivileged_init( fd_topo_t *      topo,
 
   }
 
-  ulong send_writer_idx = fd_topo_find_tile_in_link( topo, tile, "send_writer", 0UL );
-  if( FD_UNLIKELY( send_writer_idx==ULONG_MAX ) ) {
-    FD_LOG_CRIT(( "Could not find send_writer in-link" ));
-  }
-  fd_topo_link_t * send_writer_in_link = &topo->links[ tile->in_link_id[ send_writer_idx ] ];
-  ctx->send_writer_in[ 0 ].mem    = topo->workspaces[ topo->objs[ send_writer_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->send_writer_in[ 0 ].chunk0 = fd_dcache_compact_chunk0( ctx->send_writer_in[ 0 ].mem, send_writer_in_link->dcache );
-  ctx->send_writer_in[ 0 ].wmark  = fd_dcache_compact_wmark( ctx->send_writer_in[ 0 ].mem,
-                                                             send_writer_in_link->dcache,
-                                                             send_writer_in_link->mtu );
-
-
   /* Find and setup the send_writer link. */
 
-
+  if( send_tile_cnt>0UL ) {
+    ulong send_writer_idx = fd_topo_find_tile_in_link( topo, tile, "send_writer", 0UL );
+    if( FD_UNLIKELY( send_writer_idx==ULONG_MAX ) ) {
+      FD_LOG_CRIT(( "Could not find send_writer in-link" ));
+    }
+    fd_topo_link_t * send_writer_in_link = &topo->links[ tile->in_link_id[ send_writer_idx ] ];
+    ctx->send_writer_in[ 0 ].mem    = topo->workspaces[ topo->objs[ send_writer_in_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->send_writer_in[ 0 ].chunk0 = fd_dcache_compact_chunk0( ctx->send_writer_in[ 0 ].mem, send_writer_in_link->dcache );
+    ctx->send_writer_in[ 0 ].wmark  = fd_dcache_compact_wmark( ctx->send_writer_in[ 0 ].mem,
+                                                              send_writer_in_link->dcache,
+                                                              send_writer_in_link->mtu );
+  }
 
   /********************************************************************/
   /* Spad                                                             */
