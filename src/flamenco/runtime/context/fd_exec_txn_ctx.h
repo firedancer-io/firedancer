@@ -9,6 +9,7 @@
 #include "../fd_bank_hash_cmp.h"
 #include "../../../funk/fd_funk.h"
 #include "../fd_compute_budget_details.h"
+#include "../../../disco/pack/fd_microblock.h"
 
 /* Return data for syscalls */
 
@@ -57,6 +58,7 @@ struct fd_exec_txn_ctx {
   fd_funk_t                            funk[1];
   ulong                                slot;
   ulong                                bank_idx;
+  fd_txn_p_t                           txn;
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
@@ -67,8 +69,6 @@ struct fd_exec_txn_ctx {
 
   ulong                                paid_fees;
   ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
-  fd_txn_t const *                     txn_descriptor;                              /* Descriptor of the transaction. */
-  fd_rawtxn_b_t                        _txn_raw[1];                                 /* Raw bytes of the transaction. */
   uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
   uchar                                instr_stack_sz;                              /* Current depth of the instruction execution stack. */
   fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */
@@ -211,12 +211,6 @@ fd_exec_txn_ctx_delete( void * mem );
    for mocking transaction context objects for instructions. */
 void
 fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx );
-
-/* TODO: the constructors for the txn_ctx needs to be properly consolidated. */
-void
-fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * ctx,
-                       fd_txn_t const * txn_descriptor,
-                       fd_rawtxn_b_t const * txn_raw );
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );

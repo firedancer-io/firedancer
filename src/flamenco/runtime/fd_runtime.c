@@ -1173,7 +1173,7 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->priority_fee );
 
-  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), txn_ctx->txn_descriptor->signature_cnt );
+  FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), TXN( &txn_ctx->txn )->signature_cnt );
 
   if( FD_UNLIKELY( txn_ctx->exec_err ) ) {
 
@@ -1240,7 +1240,7 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
       }
   }
 
-  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+  int is_vote = fd_txn_is_simple_vote_transaction( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
   if( !is_vote ){
     ulong * nonvote_txn_count = fd_bank_nonvote_txn_count_modify( bank );
     FD_ATOMIC_FETCH_AND_ADD(nonvote_txn_count, 1);
@@ -1301,15 +1301,10 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->funk_txn              = funk_txn;
   txn_ctx->capture_ctx           = capture_ctx;
-
-  fd_txn_t const * txn_descriptor = TXN( txn );
-  fd_rawtxn_b_t    raw_txn        = {
-    .raw    = txn->payload,
-    .txn_sz = (ushort)txn->payload_sz
-  };
+  txn_ctx->txn                   = *txn;
 
   txn_ctx->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, &raw_txn );
+  fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   /* Set up the core account keys. These are the account keys directly
      passed in via the serialized transaction, represented as an array.
