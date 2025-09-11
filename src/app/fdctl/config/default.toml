@@ -110,10 +110,11 @@ dynamic_port_range = "8900-9000"
     # appended to, or created if it does not already exist. The
     # shortened ephemeral log will always be written to stderr.
     #
-    # Two substitutions will be performed on this string.  If "{user}"
+    # Three substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
-    # as above, and "{name}" will be replaced with the name of the
-    # Firedancer instance.
+    # as above, "{name}" will be replaced with the name of the
+    # Firedancer instance, and "{timestamp}" will be replaced with the
+    # current time as a RFC 3339 format string (millisecond resolution).
     #
     # If no path is provided, the default is to place the log file in
     # /tmp with a name that will be unique.  If specified as "-", the
