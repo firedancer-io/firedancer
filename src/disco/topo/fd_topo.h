@@ -514,8 +514,9 @@ struct fd_topo_tile {
       int slices_fd;
     } shredcap;
 
-#define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX (32UL)
-#define FD_TOPO_SNAPSHOTS_SERVERS_MAX     (16UL)
+#define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX      (32UL)
+#define FD_TOPO_SNAPSHOTS_SERVERS_MAX          (16UL)
+#define FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED (2UL*FD_TOPO_SNAPSHOTS_SERVERS_MAX)
 
     struct fd_topo_tile_snapct {
       char snapshots_path[ PATH_MAX ];
@@ -533,7 +534,11 @@ struct fd_topo_tile {
         } gossip;
 
         ulong         servers_cnt;
-        fd_ip4_port_t servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ];
+        struct {
+          fd_ip4_port_t addr;
+          char          hostname[ 256UL ];
+          int           is_https;
+        } servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX_RESOLVED ];
       } sources;
 
       int  incremental_snapshots;
