@@ -56,6 +56,7 @@ struct fd_writer_tile_ctx {
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
   fd_writer_tile_out_ctx_t    writer_replay_out[1];
+  fd_writer_tile_out_ctx_t    capture_replay_out[1];
 
   /* Local joins of exec spads.  Read-only. */
   fd_spad_t *                 exec_spad[ FD_PACK_MAX_BANK_TILES ];
@@ -129,8 +130,8 @@ publish_next_capture_ctx_account_update( fd_writer_tile_ctx_t * ctx, fd_stem_con
   }
 
   /* Copy the account update event to the buffer */
-  ulong chunk     = ctx->writer_replay_out->chunk;
-  uchar * out_ptr = fd_chunk_to_laddr( ctx->writer_replay_out->mem, chunk );
+  ulong chunk     = ctx->capture_replay_out->chunk;
+  uchar * out_ptr = fd_chunk_to_laddr( ctx->capture_replay_out->mem, chunk );
   fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
   memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
   ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
@@ -144,20 +145,12 @@ publish_next_capture_ctx_account_update( fd_writer_tile_ctx_t * ctx, fd_stem_con
 
   /* Stem publish the account update event */
   ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
-  fd_stem_publish(
-    stem,
-    ctx->writer_replay_out->idx,
-    FD_WRITER_REPLAY_SIG_ACC_UPDATE,
+  fd_stem_publish( stem, ctx->capture_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
+  ctx->capture_replay_out->chunk = fd_dcache_compact_next(
     chunk,
     msg_sz,
-    0UL,
-    0UL,
-    0UL );
-  ctx->writer_replay_out->chunk = fd_dcache_compact_next(
-    chunk,
-    msg_sz,
-    ctx->writer_replay_out->chunk0,
-    ctx->writer_replay_out->wmark );
+    ctx->capture_replay_out->chunk0,
+    ctx->capture_replay_out->wmark );
 
   /* Advance the number of account updates flushed */
   ctx->account_updates_flushed++;
@@ -186,7 +179,7 @@ publish_txn_finalized_msg( fd_writer_tile_ctx_t * ctx, fd_stem_context_t * stem 
   fd_stem_publish(
     stem,
     ctx->writer_replay_out->idx,
-    FD_WRITER_REPLAY_SIG_TXN_DONE,
+    0UL,
     ctx->writer_replay_out->chunk,
     sizeof(fd_writer_replay_txn_finalized_msg_t),
     0UL,
@@ -461,7 +454,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /********************************************************************************/
-  /* writer_replay output link for notifying replay's solcap of account updates */
+  /* writer_replay output link for notifying replay of txn finalization           */
   /********************************************************************************/
 
   ctx->writer_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "writ_repl", ctx->tile_idx );
@@ -475,6 +468,23 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->writer_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->writer_replay_out->mem, writer_replay_link->dcache );
     ctx->writer_replay_out->wmark  = fd_dcache_compact_wmark( ctx->writer_replay_out->mem, writer_replay_link->dcache, writer_replay_link->mtu );
     ctx->writer_replay_out->chunk  = ctx->writer_replay_out->chunk0;
+  }
+
+  /********************************************************************************/
+  /* capture_replay output link for notifying replay's solcap of account updates */
+  /********************************************************************************/
+
+  ctx->capture_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "capt_replay", ctx->tile_idx );
+  if( FD_UNLIKELY( ctx->capture_replay_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * capture_replay_link = &topo->links[ tile->out_link_id[ ctx->capture_replay_out->idx ] ];
+    ctx->capture_replay_out->mcache = capture_replay_link->mcache;
+    ctx->capture_replay_out->sync   = fd_mcache_seq_laddr( ctx->capture_replay_out->mcache );
+    ctx->capture_replay_out->depth  = fd_mcache_depth( ctx->capture_replay_out->mcache );
+    ctx->capture_replay_out->seq    = fd_mcache_seq_query( ctx->capture_replay_out->sync );
+    ctx->capture_replay_out->mem    = topo->workspaces[ topo->objs[ capture_replay_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->capture_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->capture_replay_out->mem, capture_replay_link->dcache );
+    ctx->capture_replay_out->wmark  = fd_dcache_compact_wmark( ctx->capture_replay_out->mem, capture_replay_link->dcache, capture_replay_link->mtu );
+    ctx->capture_replay_out->chunk  = ctx->capture_replay_out->chunk0;
   }
 }
 
