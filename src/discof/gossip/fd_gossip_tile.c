@@ -375,7 +375,7 @@ unprivileged_init( fd_topo_t *      topo,
       sign_in_tile_idx = i;
     } else if( FD_UNLIKELY( !strcmp( link->name, "send_txns" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SEND;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_stake" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_STAKE;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));

@@ -2031,7 +2031,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Set up stake weights tile output */
-  ctx->stake_out->idx        = fd_topo_find_tile_out_link( topo, tile, "stake_out", 0 );
+  ctx->stake_out->idx        = fd_topo_find_tile_out_link( topo, tile, "replay_stake", 0UL );
   FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ ctx->stake_out->idx] ];
   ctx->stake_out->mcache     = stake_weights_out->mcache;
