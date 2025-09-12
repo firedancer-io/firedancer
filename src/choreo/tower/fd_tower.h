@@ -713,25 +713,10 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 /* fd_tower_reset_slot returns the slot to reset PoH to when building
    the next leader block.  Assumes tower and ghost are both valid local
    joins and in-sync ie. every vote slot in tower corresponds to a node
-   in ghost.  There is always a reset slot (never returns ULONG_MAX).
-
-   In general our reset slot is the fork head of our last vote slot, but
-   there are 3 cases in which that doesn't apply:
-
-   1. If we haven't voted before, we reset to the ghost head.
-
-   2. If our last vote slot is older than the ghost root, we know we
-      don't have ancestry information about our last vote slot anymore,
-      so we also reset to the ghost head.
-
-   2. If our last vote slot is newer than the ghost root, but we are
-      locked out on a minority fork that does not chain back to the
-      ghost root, we know that we should definitely not reset to a slot
-      on this fork to build a block, given a supermajority of the
-      cluster has already rooted a different fork.  So build off the
-      best fork instead.
-
-   See the top-level documentation in fd_tower.h for more context. */
+   in ghost.  There is always a reset slot (never returns ULONG_MAX). In
+   general, we reset to the tip of the fork containing our last vote
+   slot (which is usually also the ghost head). See the implementation
+   for detailed documentation of each reset case. */
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
