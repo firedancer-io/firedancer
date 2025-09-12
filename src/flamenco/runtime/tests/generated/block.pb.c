@@ -6,6 +6,9 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+PB_BIND(FD_EXEC_TEST_COST_TRACKER, fd_exec_test_cost_tracker_t, AUTO)
+
+
 PB_BIND(FD_EXEC_TEST_BLOCK_CONTEXT, fd_exec_test_block_context_t, 2)
 
 
