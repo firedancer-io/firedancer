@@ -337,32 +337,34 @@ struct fd_gui {
 
     long  startup_time_nanos;
 
-    uchar startup_progress;
-    int   startup_got_full_snapshot;
+    struct { /* used in frankendancer */
+      uchar phase;
+      int   startup_got_full_snapshot;
 
-    ulong  startup_incremental_snapshot_slot;
-    uint   startup_incremental_snapshot_peer_ip_addr;
-    ushort startup_incremental_snapshot_peer_port;
-    double startup_incremental_snapshot_elapsed_secs;
-    double startup_incremental_snapshot_remaining_secs;
-    double startup_incremental_snapshot_throughput;
-    ulong  startup_incremental_snapshot_total_bytes;
-    ulong  startup_incremental_snapshot_current_bytes;
+      ulong  startup_incremental_snapshot_slot;
+      uint   startup_incremental_snapshot_peer_ip_addr;
+        ushort startup_incremental_snapshot_peer_port;
+        double startup_incremental_snapshot_elapsed_secs;
+        double startup_incremental_snapshot_remaining_secs;
+        double startup_incremental_snapshot_throughput;
+        ulong  startup_incremental_snapshot_total_bytes;
+        ulong  startup_incremental_snapshot_current_bytes;
 
-    ulong  startup_full_snapshot_slot;
-    uint   startup_full_snapshot_peer_ip_addr;
-    ushort startup_full_snapshot_peer_port;
-    double startup_full_snapshot_elapsed_secs;
-    double startup_full_snapshot_remaining_secs;
-    double startup_full_snapshot_throughput;
-    ulong  startup_full_snapshot_total_bytes;
-    ulong  startup_full_snapshot_current_bytes;
+        ulong  startup_full_snapshot_slot;
+        uint   startup_full_snapshot_peer_ip_addr;
+        ushort startup_full_snapshot_peer_port;
+        double startup_full_snapshot_elapsed_secs;
+        double startup_full_snapshot_remaining_secs;
+        double startup_full_snapshot_throughput;
+        ulong  startup_full_snapshot_total_bytes;
+        ulong  startup_full_snapshot_current_bytes;
 
-    ulong startup_ledger_slot;
-    ulong startup_ledger_max_slot;
+        ulong startup_ledger_slot;
+        ulong startup_ledger_max_slot;
 
-    ulong startup_waiting_for_supermajority_slot;
-    ulong startup_waiting_for_supermajority_stake_pct;
+        ulong startup_waiting_for_supermajority_slot;
+        ulong startup_waiting_for_supermajority_stake_pct;
+    } startup_progress;
 
     int schedule_strategy;
 
