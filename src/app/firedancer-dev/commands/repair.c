@@ -29,6 +29,21 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+struct fd_location_info {
+  ulong ip4_addr;         /* for map key convenience */
+  char location[ 128 ];
+};
+typedef struct fd_location_info fd_location_info_t;
+
+#define MAP_NAME    fd_location_table
+#define MAP_T       fd_location_info_t
+#define MAP_KEY     ip4_addr
+#define MAP_LG_SLOT_CNT 16
+#define MAP_MEMOIZE 0
+#include "../../../util/tmpl/fd_map.c"
+
+uchar __attribute__((aligned(alignof(fd_location_info_t)))) location_table_mem[ sizeof(fd_location_info_t) * (1 << 16 ) ];
+
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t const * tile );
 
@@ -459,23 +474,12 @@ sort_peers_by_latency( fd_active_elem_t * active_table, fd_peer_t * peer_arr, ul
   }
 }
 
-struct fd_location_info {
-  ulong ip4_addr;         /* for map key convenience */
-  char location[ 128 ];
-};
-typedef struct fd_location_info fd_location_info_t;
 
-#define MAP_NAME    fd_location_table
-#define MAP_T       fd_location_info_t
-#define MAP_KEY     ip4_addr
-#define MAP_MEMOIZE 0
-#include "../../../util/tmpl/fd_map_dynamic.c"
 
-fd_location_info_t * location_table;
 fd_peer_t peers_copy[ FD_ACTIVE_KEY_MAX ];
 
 static void
-print_peer_location_latency( fd_wksp_t * repair_tile_wksp, fd_repair_tile_ctx_t * repair_ctx ) {
+print_peer_location_latency( fd_wksp_t * repair_tile_wksp, fd_repair_tile_ctx_t * repair_ctx, fd_location_info_t * location_table ) {
   ulong              repair_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair_ctx->repair );
   fd_repair_t *      repair       = fd_wksp_laddr( repair_tile_wksp, repair_gaddr );
   ulong              active_gaddr = fd_wksp_gaddr_fast( repair_ctx->wksp, repair->actives );
@@ -555,12 +559,10 @@ repair_cmd_fn_metrics_mode( args_t *   args,
   fd_repair_tile_ctx_t * repair_ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
 
   /* catchup cmd owned memory */
-  fd_wksp_t * catchup_wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 1, fd_shmem_cpu_idx( fd_shmem_numa_idx( 0 ) ), "catchup", 0UL );
-  void * location_table_mem = fd_wksp_alloc_laddr( catchup_wksp, fd_location_table_align(), fd_location_table_footprint( fd_ulong_find_msb( FD_ACTIVE_KEY_MAX ) ), 1UL );
-  location_table = fd_location_table_join( fd_location_table_new( location_table_mem, fd_ulong_find_msb( FD_ACTIVE_KEY_MAX ) ) );
+  fd_location_info_t * location_table = fd_location_table_join( fd_location_table_new( location_table_mem ) );
 
   read_iptable( args->repair.iptable_path, location_table );
-  print_peer_location_latency( repair_wksp->wksp, repair_ctx );
+  print_peer_location_latency( repair_wksp->wksp, repair_ctx, location_table );
   print_catchup_slots( repair_wksp->wksp, repair_ctx );
   printf( "\nCatchup tool completed successfully.\n" );
 }
