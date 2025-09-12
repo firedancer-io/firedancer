@@ -1,4 +1,4 @@
-#include "../fd_ballet.h"
+#include "fd_sha256.h"
 #include "fd_sha256_test_vector.c"
 
 FD_STATIC_ASSERT( FD_SHA256_ALIGN    ==128UL, unit_test );

@@ -1,9 +1,6 @@
 #ifndef HEADER_fd_src_app_fddev_main_h
 #define HEADER_fd_src_app_fddev_main_h
 
-#include "../fdctl/topology.h"
-#include "../fdctl/config.h"
-#include "../shared_dev/boot/fd_dev_boot.h"
 #include "../shared/commands/configure/configure.h"
 
 char const * FD_APP_NAME    = "Frankendancer";
@@ -45,7 +42,6 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
-  &fd_cfg_stage_hyperthreads,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
   &fd_cfg_stage_ethtool_loopback,

@@ -1066,10 +1066,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mtu    = link->mtu;
 
     if(      !strcmp( link->name, "gossip_gossv" ) ) ctx->in[ i ].kind = IN_KIND_PINGS;
-    else if( !strcmp( link->name, "ipecho_out" ) )   ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
-    else if( !strcmp( link->name, "gossip_out" ) )   ctx->in[ i ].kind = IN_KIND_GOSSIP;
-    else if( !strcmp( link->name, "net_gossvf" ) )   ctx->in[ i ].kind = IN_KIND_NET;
-    else if( !strcmp( link->name, "stake_out" ) )    ctx->in[ i ].kind = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
+    else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in[ i ].kind = IN_KIND_GOSSIP;
+    else if( !strcmp( link->name, "net_gossvf"   ) ) ctx->in[ i ].kind = IN_KIND_NET;
+    else if( !strcmp( link->name, "replay_stake" ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 

@@ -58,6 +58,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/store/fd_store.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../ballet/sha256/fd_sha256.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/net/fd_net_headers.h"
 #include "../../tango/fd_tango_base.h"
@@ -1163,7 +1164,7 @@ unprivileged_init( fd_topo_t *      topo,
       }
     } else if( 0==strcmp( link->name, "snap_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
     }else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));

@@ -1,8 +1,12 @@
 #define _GNU_SOURCE
 #include "../main.h"
 
+#include "../../fdctl/config.h"
+#include "../../fdctl/topology.h"
 #include "../../platform/fd_sys_util.h"
+#include "../../shared/fd_config_file.h"
 #include "../../shared/commands/ready.h"
+#include "../../shared_dev/boot/fd_dev_boot.h"
 #include "../../shared_dev/commands/wksp.h"
 #include "../../shared_dev/commands/dev.h"
 
