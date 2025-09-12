@@ -56,7 +56,8 @@
 #define FD_CONTACT_INFO_SOCKET_TVU               (10)
 #define FD_CONTACT_INFO_SOCKET_TVU_QUIC          (11)
 #define FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC     (12)
-#define FD_CONTACT_INFO_SOCKET_LAST              (12)
+#define FD_CONTACT_INFO_SOCKET_ALPENGLOW         (13)
+#define FD_CONTACT_INFO_SOCKET_LAST              (13)
 
 /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/version/src/lib.rs#L95-L105 */
 

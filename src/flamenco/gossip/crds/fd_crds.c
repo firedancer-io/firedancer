@@ -1069,7 +1069,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
 
   if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-    fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
+    fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info, crds->metrics );
     /* Default to active, since we filter inactive entries prior to insertion */
     candidate->contact_info.is_active = 1;
 
