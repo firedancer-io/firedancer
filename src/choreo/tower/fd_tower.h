@@ -481,15 +481,15 @@ struct fd_tower_sync_serde /* CompactTowerSync */ {
 };
 typedef struct fd_tower_sync_serde fd_tower_sync_serde_t;
 
-/* fd_tower_serde describes a serialization / deserialization schema for
-   an Agave-compatible bincode encoding of a tower.  This corresponds
-   exactly with the binary layout of a tower file that Agave interfaces
-   with during boot, set-identity, and voting.
+/* fd_tower_file_serde describes a serialization / deserialization
+   schema for checkpointing / restoring tower from a file.  This
+   corresponds exactly with the binary layout of a tower file that Agave
+   uses during boot, set-identity, and voting.
 
    The serde is structured for zero-copy access ie. x-raying individual
    fields. */
 
-struct fd_tower_serde /* SavedTowerVersions::Current */ {
+struct fd_tower_file_serde /* SavedTowerVersions::Current */ {
   uint const *             kind;
   fd_ed25519_sig_t const * signature;
   ulong const *            data_sz; /* serialized sz of data field below */
@@ -508,7 +508,7 @@ struct fd_tower_serde /* SavedTowerVersions::Current */ {
     } last_timestamp;
   } /* data */;
 };
-typedef struct fd_tower_serde fd_tower_serde_t;
+typedef struct fd_tower_file_serde fd_tower_file_serde_t;
 
 /* fd_tower_sign_fn is the signing callback used for signing tower
    checkpoints after serialization. */
@@ -782,13 +782,13 @@ fd_tower_to_tower_sync( fd_tower_t const * tower, ulong root, fd_hash_t * bank_h
    to create a zero-copy view of an Agave-compatible serialized Tower
    ready for serialization. */
 
-fd_tower_serde_t *
+fd_tower_file_serde_t *
 fd_tower_serde( fd_tower_t const *      tower,
                 ulong                   root,
                 fd_tower_sync_serde_t * last_vote,
                 uchar const             pvtkey[static 32],
                 uchar const             pubkey[static 32],
-                fd_tower_serde_t *      ser );
+                fd_tower_file_serde_t * ser );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes
@@ -871,7 +871,7 @@ fd_tower_restore( fd_tower_t * tower,
    a tower.  See also the struct definition of fd_tower_serde_t. */
 
 int
-fd_tower_serialize( fd_tower_serde_t * ser,
+fd_tower_serialize( fd_tower_file_serde_t * ser,
                     uchar *            buf,
                     ulong              buf_max,
                     ulong *            buf_sz );
@@ -887,7 +887,7 @@ fd_tower_serialize( fd_tower_serde_t * ser,
 int
 fd_tower_deserialize( uchar *            buf,
                       ulong              buf_sz,
-                      fd_tower_serde_t * de );
+                      fd_tower_file_serde_t * de );
 
 /* fd_tower_verify checks tower is in a valid state. Valid iff:
    - cnt < FD_TOWER_VOTE_MAX

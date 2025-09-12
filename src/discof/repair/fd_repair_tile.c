@@ -115,7 +115,7 @@
 #include "fd_policy.h"
 
 #define LOGGING       1
-#define DEBUG_LOGGING 1
+#define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)

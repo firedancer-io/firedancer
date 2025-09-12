@@ -57,10 +57,10 @@
 struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong slot;        /* map key */
   ulong parent_slot; /* map key of the parent. invariant: if parent is populated, parent_slot is populated. the converse is not necessarily true. */
-  ulong next;     /* internal use by fd_pool, fd_map_chain */
-  ulong parent;   /* pool idx of the parent in the tree */
-  ulong child;    /* pool idx of the left-child */
-  ulong sibling;  /* pool idx of the right-sibling */
+  ulong next;        /* internal use by fd_pool, fd_map_chain */
+  ulong parent;      /* pool idx of the parent in the tree */
+  ulong child;       /* pool idx of the left-child */
+  ulong sibling;     /* pool idx of the right-sibling */
 
   uint consumed_idx; /* highest contiguous consumed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
