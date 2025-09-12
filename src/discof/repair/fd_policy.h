@@ -16,8 +16,8 @@
    from the root of the tree). */
 
 #include "../../flamenco/types/fd_types_custom.h"
-#include "fd_forest.h"
-#include "fd_repair.h"
+#include "../forest/fd_forest.h"
+//#include "fd_repair.h"
 
 /* FD_POLICY_PEER_MAX specifies a hard bound for how many peers Policy
    needs to track.  4096 is derived from the BLS signature max, which
@@ -46,7 +46,6 @@ struct fd_policy_dedup_ele {
   ulong key;      /* compact encoding of fd_repair_req_t detailed above */
   ulong prev;     /* reserved by lru */
   ulong next;     /* reserved by pool and map_chain */
-  ulong peer_idx; /* index of the peer to which the request was sent */
   long  req_ts;   /* timestamp when the request was sent */
 };
 typedef struct fd_policy_dedup_ele fd_policy_dedup_ele_t;
@@ -91,16 +90,16 @@ struct fd_policy_peer {
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 
-#define MAP_NAME              fd_policy_peer_map
-#define MAP_T                 fd_policy_peer_t
-#define MAP_KEY_T             fd_pubkey_t
-#define MAP_KEY_NULL          null_pubkey
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_MEMOIZE           0
-#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
-#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
-#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
-#include "../../util/tmpl/fd_map_dynamic.c"
+//#define MAP_NAME              fd_policy_peer_map
+//#define MAP_T                 fd_policy_peer_t
+//#define MAP_KEY_T             fd_pubkey_t
+//#define MAP_KEY_NULL          null_pubkey
+//#define MAP_KEY_EQUAL_IS_SLOW 1
+//#define MAP_MEMOIZE           0
+//#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
+//#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).key, (k1).key, 32UL ))
+//#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
+//#include "../../util/tmpl/fd_map_dynamic.c"
 
 /* fd_policy_peers implements the data structures and bookkeeping for
    selecting repair peers via round-robin. */
@@ -114,11 +113,13 @@ struct fd_policy_peers {
 typedef struct fd_policy_peers fd_policy_peers_t;
 
 struct fd_policy {
-  fd_policy_dedup_t * dedup; /* dedup cache of already sent requests */
-  fd_policy_peers_t * peers; /* round-robin strategy for selecting repair peers */
+  fd_policy_dedup_t   dedup; /* dedup cache of already sent requests */
+  //fd_policy_peers_t * peers; /* round-robin strategy for selecting repair peers */
   long                tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long                tsref; /* reference timestamp for resetting DFS */
   fd_forest_iter_t    iterf; /* forest iterator */
+
+  ulong               tsreset; /* ms timestamp of last reset of iterf */
 };
 typedef struct fd_policy fd_policy_t;
 
@@ -135,21 +136,16 @@ fd_policy_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
+  (void)peer_max;
   return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_policy_t),         sizeof(fd_policy_t)                         ),
-      alignof(fd_policy_dedup_t),   sizeof(fd_policy_dedup_t)                   ),
       fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint( dedup_max )  ),
       fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max ) ),
-      alignof(fd_policy_peers_t),   sizeof(fd_policy_peers_t)                   ),
-      alignof(fd_pubkey_t),         sizeof(fd_pubkey_t) * peer_max              ),
-    fd_repair_align() );
+    fd_policy_align() );
 }
 
 /* fd_policy_new formats an unused memory region for use as a policy.
@@ -186,7 +182,24 @@ fd_policy_delete( void * policy );
 /* fd_policy_next returns the next repair request that should be made.
    Currently implements the default round-robin DFS strategy. */
 
+struct __attribute__((packed)) fd_repair_msg {
+  uint  kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} */
+  ulong slot;
+  uint  shred_idx;
+  ulong nonce;
+  ulong ts;
+};
+typedef struct fd_repair_msg fd_repair_msg_t;
+
+#define FD_REPAIR_KIND_PONG          (7U)
+#define FD_REPAIR_KIND_SHRED         (8U)
+#define FD_REPAIR_KIND_HIGHEST_SHRED (9U)
+#define FD_REPAIR_KIND_ORPHAN        (10U)
+
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair );
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest /*, fd_repair_t * repair */, fd_repair_msg_t * out );
+
+void
+fd_policy_publish( fd_policy_t * policy, fd_forest_t * forest );
 
 #endif /* HEADER_fd_src_choreo_policy_fd_policy_h */
