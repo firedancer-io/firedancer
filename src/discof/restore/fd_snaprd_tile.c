@@ -115,6 +115,7 @@ struct fd_snaprd_tile {
 
   /* TODO: Don't do this ... should be in the monitor instead */
   struct {
+    ulong snaplt_tile_cnt;
     ulong prev_bytes_read;
     ulong prev_accounts_inserted;    volatile ulong * cur_accounts_inserted;
 
@@ -124,6 +125,8 @@ struct fd_snaprd_tile {
     ulong prev_snapdc_wait;          volatile ulong * cur_snapdc_caughtup_postfrag;
     ulong prev_snapin_backp_prefrag; volatile ulong * cur_snapin_backp_prefrag;
     ulong prev_snapin_wait;          volatile ulong * cur_snapin_caughtup_postfrag;
+    ulong prev_snaplt_backp_prefrag; volatile ulong * cur_snaplt_backp_prefrag[ FD_MAX_SNAPLT_TILES ];
+    ulong prev_snaplt_wait;          volatile ulong * cur_snaplt_caughtup_postfrag[ FD_MAX_SNAPLT_TILES ];
   } diagnostics;
 
   struct {
@@ -388,6 +391,13 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
   ulong snapin_backp = *ctx->diagnostics.cur_snapin_backp_prefrag;
   ulong snapin_wait = *ctx->diagnostics.cur_snapin_caughtup_postfrag + snapin_backp;
 
+  ulong snaplt_backp = 0UL;
+  ulong snaplt_wait  = 0UL;
+  for( ulong i=0UL; i<ctx->diagnostics.snaplt_tile_cnt; i++ ) {
+    snaplt_backp += *ctx->diagnostics.cur_snaplt_backp_prefrag[ i ];
+    snaplt_wait  += *ctx->diagnostics.cur_snaplt_caughtup_postfrag[ i ] + snaplt_backp;
+  }
+
   ulong accounts_inserted = *ctx->diagnostics.cur_accounts_inserted;
 
   double ns_per_tick = 1.0/fd_tempo_tick_per_ns( NULL );
@@ -402,15 +412,17 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
     case FD_SNAPRD_STATE_READING_FULL_FILE: {
       double progress = 0.0;
       if( FD_LIKELY( ctx->metrics.full.bytes_total ) ) progress = 100.0 * (double)ctx->metrics.full.bytes_read / (double)ctx->metrics.full.bytes_total;
-      FD_LOG_NOTICE(( "restoring full from file ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
+      FD_LOG_NOTICE(( "restoring full from file ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
         progress,
         bandwidth,
         ((double)(snaprd_backp-ctx->diagnostics.prev_snaprd_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapdc_backp-ctx->diagnostics.prev_snapdc_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapin_backp-ctx->diagnostics.prev_snapin_backp_prefrag)*ns_per_tick )/1e7,
+        ((double)( snaplt_backp-ctx->diagnostics.prev_snaplt_backp_prefrag )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt,
         100-(((double)(snaprd_wait-ctx->diagnostics.prev_snaprd_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapdc_wait-ctx->diagnostics.prev_snapdc_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapin_wait-ctx->diagnostics.prev_snapin_wait)*ns_per_tick )/1e7 ),
+        100-(((double)( snaplt_wait-ctx->diagnostics.prev_snaplt_wait )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt ),
         (double)( accounts_inserted-ctx->diagnostics.prev_accounts_inserted  )/1e6 ));
       break;
     }
@@ -424,15 +436,17 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
     case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE: {
       double progress = 0.0;
       if( FD_LIKELY( ctx->metrics.incremental.bytes_total ) ) progress = 100.0 * (double)ctx->metrics.incremental.bytes_read / (double)ctx->metrics.incremental.bytes_total;
-      FD_LOG_NOTICE(( "restoring incremental from file ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
+      FD_LOG_NOTICE(( "restoring incremental from file ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
         progress,
         bandwidth,
         ((double)(snaprd_backp-ctx->diagnostics.prev_snaprd_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapdc_backp-ctx->diagnostics.prev_snapdc_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapin_backp-ctx->diagnostics.prev_snapin_backp_prefrag)*ns_per_tick )/1e7,
+        ((double)( snaplt_backp-ctx->diagnostics.prev_snaplt_backp_prefrag )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt,
         100-(((double)(snaprd_wait-ctx->diagnostics.prev_snaprd_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapdc_wait-ctx->diagnostics.prev_snapdc_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapin_wait-ctx->diagnostics.prev_snapin_wait)*ns_per_tick )/1e7 ),
+        100-(((double)( snaplt_wait-ctx->diagnostics.prev_snaplt_wait )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt ),
         (double)( accounts_inserted-ctx->diagnostics.prev_accounts_inserted  )/1e6 ));
       break;
     }
@@ -443,15 +457,17 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
     case FD_SNAPRD_STATE_READING_FULL_HTTP: {
       double progress = 0.0;
       if( FD_LIKELY( ctx->metrics.full.bytes_total ) ) progress = 100.0 * (double)ctx->metrics.full.bytes_read / (double)ctx->metrics.full.bytes_total;
-      FD_LOG_NOTICE(( "restoring full from http ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
+      FD_LOG_NOTICE(( "restoring full from http ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
         progress,
         bandwidth,
         ((double)(snaprd_backp-ctx->diagnostics.prev_snaprd_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapdc_backp-ctx->diagnostics.prev_snapdc_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapin_backp-ctx->diagnostics.prev_snapin_backp_prefrag)*ns_per_tick )/1e7,
+        ((double)( snaplt_backp-ctx->diagnostics.prev_snaplt_backp_prefrag )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt,
         100-(((double)(snaprd_wait-ctx->diagnostics.prev_snaprd_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapdc_wait-ctx->diagnostics.prev_snapdc_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapin_wait-ctx->diagnostics.prev_snapin_wait)*ns_per_tick )/1e7 ),
+        100-(((double)( snaplt_wait-ctx->diagnostics.prev_snaplt_wait )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt ),
         (double)( accounts_inserted-ctx->diagnostics.prev_accounts_inserted  )/1e6 ));
       break;
     }
@@ -466,15 +482,17 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
     case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP: {
       double progress = 0.0;
       if( FD_LIKELY( ctx->metrics.incremental.bytes_total ) ) progress = 100.0 * (double)ctx->metrics.incremental.bytes_read / (double)ctx->metrics.incremental.bytes_total;
-      FD_LOG_NOTICE(( "restoring incremental from http ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
+      FD_LOG_NOTICE(( "restoring incremental from http ... (%.1f %%) bw=%3.f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s",
         progress,
         bandwidth,
         ((double)(snaprd_backp-ctx->diagnostics.prev_snaprd_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapdc_backp-ctx->diagnostics.prev_snapdc_backp_prefrag)*ns_per_tick )/1e7,
         ((double)(snapin_backp-ctx->diagnostics.prev_snapin_backp_prefrag)*ns_per_tick )/1e7,
+        ((double)( snaplt_backp-ctx->diagnostics.prev_snaplt_backp_prefrag )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt,
         100-(((double)(snaprd_wait-ctx->diagnostics.prev_snaprd_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapdc_wait-ctx->diagnostics.prev_snapdc_wait)*ns_per_tick )/1e7 ),
         100-(((double)(snapin_wait-ctx->diagnostics.prev_snapin_wait)*ns_per_tick )/1e7 ),
+        100-(((double)( snaplt_wait-ctx->diagnostics.prev_snaplt_wait )*ns_per_tick )/1e7/(double)ctx->diagnostics.snaplt_tile_cnt ),
         (double)( accounts_inserted-ctx->diagnostics.prev_accounts_inserted  )/1e6 ));
       break;
     }
@@ -497,6 +515,8 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
   ctx->diagnostics.prev_snapdc_wait          = snapdc_wait;
   ctx->diagnostics.prev_snapin_backp_prefrag = snapin_backp;
   ctx->diagnostics.prev_snapin_wait          = snapin_wait;
+  ctx->diagnostics.prev_snaplt_backp_prefrag = snaplt_backp;
+  ctx->diagnostics.prev_snaplt_wait          = snaplt_wait;
 
   ctx->diagnostics.prev_accounts_inserted    = accounts_inserted;
 }
@@ -923,12 +943,28 @@ unprivileged_init( fd_topo_t *      topo,
   ulong volatile * const snaprd_metrics = fd_metrics_tile( snaprd_tile->metrics );
   ulong volatile * const snapdc_metrics = fd_metrics_tile( snapdc_tile->metrics );
   ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
+
+  ulong volatile * snaplt_metrics[ FD_MAX_SNAPLT_TILES ];
+  ctx->diagnostics.snaplt_tile_cnt = fd_topo_tile_name_cnt( topo, "snaplt" );
+
+  for( ulong i=0UL; i<ctx->diagnostics.snaplt_tile_cnt; i++ ) {
+    ulong snaplt_tile_idx = fd_topo_find_tile( topo, "snaplt", i );
+    FD_TEST( snaplt_tile_idx!=ULONG_MAX );
+    fd_topo_tile_t * snaplt_tile = &topo->tiles[ snaplt_tile_idx ];
+    snaplt_metrics[ i ]          = fd_metrics_tile( snaplt_tile->metrics );
+  }
+
   ctx->diagnostics.cur_snaprd_backp_prefrag     = snaprd_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG );
   ctx->diagnostics.cur_snaprd_caughtup_postfrag = snaprd_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG );
   ctx->diagnostics.cur_snapdc_backp_prefrag     = snapdc_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG );
   ctx->diagnostics.cur_snapdc_caughtup_postfrag = snapdc_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG );
   ctx->diagnostics.cur_snapin_backp_prefrag     = snapin_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG );
   ctx->diagnostics.cur_snapin_caughtup_postfrag = snapin_metrics+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG );
+
+  for( ulong i=0UL; i<ctx->diagnostics.snaplt_tile_cnt; i++ ) {
+    ctx->diagnostics.cur_snaplt_backp_prefrag[ i ] = snaplt_metrics[ i ]+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG );
+    ctx->diagnostics.cur_snaplt_caughtup_postfrag[ i ] = snaplt_metrics[ i ]+MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG );
+  }
   ctx->diagnostics.cur_accounts_inserted = snapin_metrics+MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED );
 
   ctx->gossip.ci_table = _ci_table;
