@@ -48,7 +48,7 @@ setup_topo_txncache( fd_topo_t *  topo,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot );
 
-int
+void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );
 

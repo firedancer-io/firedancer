@@ -171,9 +171,6 @@ fd_txn_account_get_lamports( fd_txn_account_t const * acct );
 ulong
 fd_txn_account_get_rent_epoch( fd_txn_account_t const * acct );
 
-fd_solana_account_meta_t const *
-fd_txn_account_get_info( fd_txn_account_t const * acct );
-
 void
 fd_txn_account_set_meta( fd_txn_account_t * acct, fd_account_meta_t * meta );
 
@@ -193,9 +190,6 @@ int
 fd_txn_account_checked_sub_lamports( fd_txn_account_t * acct, ulong lamports );
 
 void
-fd_txn_account_set_rent_epoch( fd_txn_account_t * acct, ulong rent_epoch );
-
-void
 fd_txn_account_set_data( fd_txn_account_t * acct,
                          void const *       data,
                          ulong              data_sz );
@@ -209,10 +203,6 @@ fd_txn_account_set_slot( fd_txn_account_t * acct,
 
 void
 fd_txn_account_clear_owner( fd_txn_account_t * acct );
-
-void
-fd_txn_account_set_meta_info( fd_txn_account_t *               acct,
-                              fd_solana_account_meta_t const * info );
 
 void
 fd_txn_account_resize( fd_txn_account_t * acct, ulong dlen );
@@ -237,6 +227,9 @@ fd_txn_account_set_readonly( fd_txn_account_t * acct );
 
 void
 fd_txn_account_set_mutable( fd_txn_account_t * acct );
+
+fd_solana_account_meta_t
+fd_txn_account_get_solana_meta( fd_txn_account_t const * acct );
 
 FD_PROTOTYPES_END
 

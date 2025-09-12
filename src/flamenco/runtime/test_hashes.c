@@ -26,9 +26,9 @@ test_fd_hashes_account_lthash( void ) {
     memset( &pubkey, 0x42, sizeof(fd_pubkey_t) );
 
     fd_account_meta_t account;
-    account.info.lamports = 0UL;
-    account.info.executable = 1;
-    memcpy( account.info.owner, pubkey.key, FD_PUBKEY_FOOTPRINT );
+    account.lamports = 0UL;
+    account.executable = 1;
+    memcpy( account.owner, pubkey.key, FD_PUBKEY_FOOTPRINT );
     account.dlen = 100UL;
 
     uchar data[100];
@@ -53,9 +53,9 @@ test_fd_hashes_account_lthash( void ) {
     memset( &pubkey, 0x11, sizeof(fd_pubkey_t) );
 
     fd_account_meta_t account;
-    account.info.lamports = 1000UL;
-    account.info.executable = 0;
-    memset( account.info.owner, 0x22, FD_PUBKEY_FOOTPRINT );
+    account.lamports = 1000UL;
+    account.executable = 0;
+    memset( account.owner, 0x22, FD_PUBKEY_FOOTPRINT );
     account.dlen = 50UL;
 
     uchar data[50];
@@ -208,9 +208,9 @@ test_fd_hashes_account_lthash( void ) {
     memset( &pubkey, 0x44, sizeof(fd_pubkey_t) );
 
     fd_account_meta_t account;
-    account.info.lamports = 2000UL;
-    account.info.executable = 1;
-    memset( account.info.owner, 0x55, FD_PUBKEY_FOOTPRINT );
+    account.lamports = 2000UL;
+    account.executable = 1;
+    memset( account.owner, 0x55, FD_PUBKEY_FOOTPRINT );
     account.dlen = 75UL;
 
     uchar data[75];
@@ -365,9 +365,9 @@ test_fd_hashes_account_lthash( void ) {
     memset( &pubkey, 0x77, sizeof(fd_pubkey_t) );
 
     fd_account_meta_t account;
-    account.info.lamports = 3000UL;
-    account.info.executable = 255;  /* Should be masked to 1 */
-    memset( account.info.owner, 0x88, FD_PUBKEY_FOOTPRINT );
+    account.lamports = 3000UL;
+    account.executable = 255;  /* Should be masked to 1 */
+    memset( account.owner, 0x88, FD_PUBKEY_FOOTPRINT );
     account.dlen = 25UL;
 
     uchar data[25];
@@ -516,9 +516,9 @@ test_fd_hashes_account_lthash( void ) {
 
     /* Also verify that executable field is properly masked to 1 bit */
     fd_account_meta_t account_with_1;
-    account_with_1.info.lamports = 3000UL;
-    account_with_1.info.executable = 1;
-    memset( account_with_1.info.owner, 0x88, FD_PUBKEY_FOOTPRINT );
+    account_with_1.lamports = 3000UL;
+    account_with_1.executable = 1;
+    memset( account_with_1.owner, 0x88, FD_PUBKEY_FOOTPRINT );
     account_with_1.dlen = 25UL;
 
     fd_lthash_value_t lthash_with_executable_1;
@@ -581,9 +581,9 @@ test_fd_hashes_update_lthash( void ) {
   fd_pubkey_t pubkey;
   memset( &pubkey, 0x22, sizeof(fd_pubkey_t) );
 
-  test_meta.info.lamports = 5000UL;
-  test_meta.info.executable = 0;
-  memset( test_meta.info.owner, 0x33, FD_PUBKEY_FOOTPRINT );
+  test_meta.lamports = 5000UL;
+  test_meta.executable = 0;
+  memset( test_meta.owner, 0x33, FD_PUBKEY_FOOTPRINT );
   test_meta.dlen = 64UL;
 
   memset( test_data, 0x44, 64 );

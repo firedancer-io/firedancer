@@ -51,21 +51,13 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * xid,
                      int                       verbose ) {
 
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !xid  ) ) FD_LOG_CRIT(( "NULL xid"  ));
+  if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( xid ) ) ) FD_LOG_CRIT(( "xid is root" ));
+
 #ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !xid ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL xid" ));
-    return NULL;
-  }
   if( FD_UNLIKELY( parent && !fd_funk_txn_valid( funk, parent ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( xid ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the root" ));
     return NULL;
   }
   if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid, funk->shmem->last_publish ) ) ) {
@@ -273,11 +265,9 @@ fd_funk_txn_cancel( fd_funk_t *     funk,
                     fd_funk_txn_t * txn,
                     int             verbose ) {
 
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn"  ));
 #ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( !funk ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "NULL funk" ));
-    return 0UL;
-  }
   if( FD_UNLIKELY( !fd_funk_txn_valid( funk, txn ) ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
     return 0UL;

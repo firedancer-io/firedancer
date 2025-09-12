@@ -312,6 +312,14 @@
 #define MAP_NEXT next
 #endif
 
+/* If we're using the optimized random access removal, then we also need
+   a MAP_ELE_T prev field. */
+#if MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
+#  ifndef MAP_PREV
+#    define MAP_PREV prev
+#  endif
+#endif
+
 /* MAP_KEY_EQ returns 0/1 if *k0 is the same/different as *k1 */
 
 #ifndef MAP_KEY_EQ

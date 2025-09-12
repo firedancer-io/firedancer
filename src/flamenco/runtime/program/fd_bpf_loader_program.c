@@ -420,12 +420,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
   fd_vm_acc_region_meta_t acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                   = 0U;
   int                     direct_mapping                          = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, bpf_account_data_direct_mapping );
-  int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, mask_out_rent_epoch_in_vm_serialization );
 
   uchar * input = NULL;
   err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                  acc_region_metas, direct_mapping, mask_out_rent_epoch_in_vm_serialization,
+                                                  acc_region_metas, direct_mapping,
                                                   is_deprecated, &input );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -2467,9 +2466,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
     fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &program_account );
-    uchar is_deprecated = !memcmp( metadata->info.owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
+    uchar is_deprecated = !memcmp( metadata->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
-    if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
+    if( !memcmp( metadata->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
       fd_bpf_upgradeable_loader_state_t * program_account_state = fd_bpf_loader_program_get_state( program_account.acct, ctx->txn_ctx->spad, &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         fd_log_collector_msg_literal( ctx, "Program is not deployed" );

@@ -9,7 +9,7 @@
 
 /* FIXME: SIMD-0180 - set the correct epochs */
 #define FD_SIMD0180_ACTIVE_EPOCH_TESTNET (829)
-#define FD_SIMD0180_ACTIVE_EPOCH_MAINNET (5000)
+#define FD_SIMD0180_ACTIVE_EPOCH_MAINNET (841)
 
 /* Replay tile msg link formatting. The following take a pointer into
    a dcache region and formats it as a specific message type. */
@@ -197,9 +197,6 @@ typedef struct fd_exec_writer_txn_msg fd_exec_writer_txn_msg_t;
 FD_STATIC_ASSERT( sizeof(fd_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
 
 /* Writer->Replay message APIs ****************************************/
-
-#define FD_WRITER_REPLAY_SIG_TXN_DONE   (1UL) /* txn finalized */
-#define FD_WRITER_REPLAY_SIG_ACC_UPDATE (2UL) /* solcap account update */
 
 /* fd_writer_replay_txn_finalized_msg_t is the message sent from
    writer tile to replay tile, notifying the replay tile that a txn has

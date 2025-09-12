@@ -35,6 +35,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
   fd_funk_txn_end_write( funk );
 
   /* Allocate contexts */
@@ -66,23 +67,15 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Setup vote states accounts */
   fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  if( FD_UNLIKELY( !vote_states ) ) {
-    return 0;
-  }
+  if( FD_UNLIKELY( !vote_states ) ) FD_LOG_ERR(( "fd_vote_states_new failed" ));
   fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  if( FD_UNLIKELY( !vote_states_prev ) ) {
-    fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
-    return 0;
-  }
+  if( FD_UNLIKELY( !vote_states_prev ) ) FD_LOG_ERR(( "fd_vote_states_new for prev failed" ));
   fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
 
   fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  if( FD_UNLIKELY( !vote_states_prev_prev ) ) {
-    fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
-    return 0;
-  }
+  if( FD_UNLIKELY( !vote_states_prev_prev ) ) FD_LOG_ERR(( "fd_vote_staets_new for prev2 failed" ));
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
@@ -224,7 +217,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       continue;
     }
 
-    if( FD_UNLIKELY( !memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
+    if( FD_UNLIKELY( !memcmp(meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
       fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_loader_program_get_state( acc,
                                                                                                   txn_ctx->spad,
                                                                                                   NULL );
@@ -410,9 +403,7 @@ void
 fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_funk_txn_t * funk_txn = ctx->txn_ctx->funk_txn;
-
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_txn_cancel_all( runner->funk, 1 );
 }
 
 
@@ -508,7 +499,6 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
     }
 
     out_acct->executable = fd_txn_account_is_executable( acc );
-    out_acct->rent_epoch = fd_txn_account_get_rent_epoch( acc );
     memcpy( out_acct->owner, fd_txn_account_get_owner( acc ), sizeof(fd_pubkey_t) );
 
     effects->modified_accounts_count++;

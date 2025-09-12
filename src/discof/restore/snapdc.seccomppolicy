@@ -12,7 +12,7 @@ unsigned int logfile_fd
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
-exit
+exit_group
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #

@@ -932,7 +932,6 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
 static void
 fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
                                                ulong               total_fee ) {
-  fd_txn_account_t * fee_payer_rec = &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX];
   fd_pubkey_t *      fee_payer_key = &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX];
   fd_txn_account_t * rollback_fee_payer_acc;
 
@@ -942,10 +941,6 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
      commit phase anyways. */
   if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
     rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
-
-    /* We also need to update the rent epoch because technically, Agave copies these fields
-       from the fee payer account (since the rollback account does not reflect these changes yet) */
-    fd_txn_account_set_rent_epoch( rollback_fee_payer_acc, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
   } else {
     int err = FD_ACC_MGR_SUCCESS;
     fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
@@ -967,12 +962,6 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
 
-    /* There's another weird edge case where if the transaction contains a nonce account, you also have
-       to save the rent epoch field of the fee payer account.
-       https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L68-L75 */
-    if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-      fd_txn_account_set_rent_epoch( txn_ctx->rollback_fee_payer_account, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
-    }
     rollback_fee_payer_acc = txn_ctx->rollback_fee_payer_account;
   }
 

@@ -33,8 +33,8 @@ static void populate_sock_filter_policy_snapdc( ulong out_cnt, struct sock_filte
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow write based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 3, 0 ),
-    /* simply allow exit */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* RET_ALLOW */ 9, 0 ),
+    /* simply allow exit_group */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit_group, /* RET_ALLOW */ 9, 0 ),
     /* allow fsync based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 5, 0 ),
     /* none of the syscalls matched */

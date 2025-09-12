@@ -934,7 +934,7 @@ user = ""
         #   to route interesting packets based on UDP dst port.  This mode
         #   is considered experimental and may not work with some network
         #   device setups. This should not yet be used in production.
-        rss_queue_mode = "simple"
+        rss_queue_mode = "dedicated"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
@@ -1181,7 +1181,7 @@ user = ""
         # transactions fit in a block, this can be disabled to improve
         # performance.  It's not recommended (but allowed) to disable
         # this option in a production cluster.
-        use_consumed_cus = false
+        use_consumed_cus = true
 
         # The pack tile can schedule using different strategies with
         # different tradeoffs.  The primary tradeoff is that executing
@@ -1192,7 +1192,7 @@ user = ""
         # are raised, this trade-off will become less pronounced.
         #
         # The Firedancer team supports three different strategies which
-        # are described below.
+        # are described below:
         #
         #  "perf" (default)
         #   Try to fill the block as fast as possible using the highest-
@@ -1207,7 +1207,7 @@ user = ""
         #   fill it by the end.  This strategy optimizes for revenue
         #   from priority fees, but can result in blocks that are not
         #   always 100% full, and can be poor at capturing MEV if using
-        #   an external block builders.
+        #   an external block builder.
         #
         #   When using the balanced mode, there is no reason to increase
         #   bank tile count beyond the default of 4.
@@ -1335,6 +1335,9 @@ user = ""
         # TODO: These will be replaced in favor of more granular
         # per object allocations in the replay tile's context
         heap_size_gib = 50
+
+        # TODO: Huh? Fix ...
+        genesis = ""
 
 
     [tiles.send]
@@ -1673,3 +1676,22 @@ user = ""
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
+
+    # Development only options for the GUI tile.  These should not be
+    # change on a production validator.
+    [development.gui]
+        # Enables support for WebSocket compression.  Compression may
+        # improve startup speed when loading the GUI and decrease
+        # overall bandwidth use.  GUI WebSocket messages are by default
+        # always a single WebSocket text frame with plaintext JSON
+        # contents.  If this option is enabled, a client may indicate
+        # support for receiving compressed messages with the
+        # Sec-WebSocket-Protocol header.
+        #
+        # If compression is successfully negotiated, the server will
+        # optionally compress large frames with ZSTD, indicating this
+        # by marking the frame as binary instead of text.
+        #
+        # This option has not been tested or security audited and should
+        # not currently be used in production.
+        websocket_compression = false

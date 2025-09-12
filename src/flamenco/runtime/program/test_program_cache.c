@@ -84,7 +84,6 @@ create_test_account( fd_pubkey_t const * pubkey,
   acc->starting_dlen     = data_len;
   fd_txn_account_set_lamports( acc, 1UL );
   fd_txn_account_set_executable( acc, executable );
-  fd_txn_account_set_rent_epoch( acc, ULONG_MAX );
   fd_txn_account_set_owner( acc, owner );
 
   fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn, &prepare );

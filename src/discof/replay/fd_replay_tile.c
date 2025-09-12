@@ -4,9 +4,9 @@
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "fd_replay_notif.h"
+#include "../poh/fd_poh.h"
 #include "../restore/utils/fd_ssload.h"
 
-#include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/store/fd_store.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_exec.h"
@@ -79,11 +79,13 @@
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
-#define IN_KIND_REPAIR (0)
-#define IN_KIND_ROOT   (1)
-#define IN_KIND_SNAP   (2)
-#define IN_KIND_TOWER  (3)
-#define IN_KIND_WRITER (4)
+#define IN_KIND_REPAIR  (0)
+#define IN_KIND_ROOT    (1)
+#define IN_KIND_SNAP    (2)
+#define IN_KIND_TOWER   (3)
+#define IN_KIND_WRITER  (4)
+#define IN_KIND_CAPTURE (5)
+#define IN_KIND_POH     (6)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
@@ -421,13 +423,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
-  l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
-  l = FD_LAYOUT_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
-  l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_exec_slice_deque_align(), fd_exec_slice_deque_footprint( EXEC_SLICE_DEQUE_MAX ) );
+  l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN,          FD_CAPTURE_CTX_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, block_id_map_align(),          block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
+  l = FD_LAYOUT_APPEND( l, 128UL,                         FD_SLICE_MAX );
+  l = FD_LAYOUT_APPEND( l, fd_exec_slice_map_align(),     fd_exec_slice_map_footprint( 20 ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(),               fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t),   sizeof(fd_exec_slot_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_exec_slice_deque_align(),   fd_exec_slice_deque_footprint( EXEC_SLICE_DEQUE_MAX ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -630,11 +632,6 @@ fd_replay_out_vote_tower_from_funk(
 
     uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-    if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) ) {
-      FD_LOG_WARNING(( "account %s has wrong magic",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-      return -1;
-    }
 
     ulong data_sz = metadata->dlen;
     if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
@@ -645,7 +642,7 @@ fd_replay_out_vote_tower_from_funk(
       return -1;
     }
 
-    fd_memcpy( vote_tower_out->acc, raw + metadata->hlen, data_sz );
+    fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
     vote_tower_out->acc_sz = (ushort)data_sz;
 
     if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
@@ -1528,7 +1525,7 @@ static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig,
+             ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
@@ -1546,17 +1543,17 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_WRITER ) ) {
     fd_replay_in_link_t * in = &ctx->in[ in_idx ];
-    if( sig == FD_WRITER_REPLAY_SIG_TXN_DONE ) {
-      fd_writer_replay_txn_finalized_msg_t const * msg =
-        (fd_writer_replay_txn_finalized_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
-      fd_replay_process_txn_finalized( ctx, msg );
-    } else if( sig == FD_WRITER_REPLAY_SIG_ACC_UPDATE ) {
-      fd_capture_ctx_account_update_msg_t const * msg = (fd_capture_ctx_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
-      uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_capture_ctx_account_update_msg_t);
-      fd_replay_process_solcap_account_update( ctx, msg, account_data );
-    } else {
-      FD_LOG_ERR(( "Unknown sig %lu", sig ));
-    }
+    fd_writer_replay_txn_finalized_msg_t const * msg = (fd_writer_replay_txn_finalized_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
+    fd_replay_process_txn_finalized( ctx, msg );
+  } else if ( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CAPTURE ) ) {
+    fd_replay_in_link_t * in = &ctx->in[ in_idx ];
+    fd_capture_ctx_account_update_msg_t const * msg = (fd_capture_ctx_account_update_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
+    uchar const * account_data = (uchar const *)fd_type_pun_const( msg ) + sizeof(fd_capture_ctx_account_update_msg_t);
+    fd_replay_process_solcap_account_update( ctx, msg, account_data );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) {
+    fd_poh_leader_slot_ended_t const * slot_ended = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+    (void)slot_ended;
+    FD_LOG_ERR(( "Unimplemented ... decrease bank refcount" ));
   }
 }
 
@@ -1667,6 +1664,11 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     break;
   }
 
+  case IN_KIND_CAPTURE: {
+    /* no op */
+    break;
+  }
+
   default:
     FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[in_idx] ));
   }
@@ -1734,29 +1736,15 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  /**********************************************************************/
-  /* scratch (bump)-allocate memory owned by the replay tile            */
-  /**********************************************************************/
-
-  /* Do not modify order! This is join-order in unprivileged_init. */
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
-  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  void * block_id_map_mem    = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(), block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
-  void * slice_buf           = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
-  void * exec_slice_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_map_align(), fd_exec_slice_map_footprint( 20 ) );
-  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
-  void * slot_ctx_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
-  void * slice_deque_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_deque_align(), fd_exec_slice_deque_footprint( EXEC_SLICE_DEQUE_MAX ) );
-  ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
-
-  if( FD_UNLIKELY( scratch_alloc_mem!=((ulong)scratch + scratch_footprint( tile )) ) ) {
-    FD_LOG_ERR(( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
-        scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
-        scratch_alloc_mem,
-        (ulong)scratch + scratch_footprint( tile ) ));
-  }
+  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN,          FD_CAPTURE_CTX_FOOTPRINT );
+  void * block_id_map_mem    = FD_SCRATCH_ALLOC_APPEND( l, block_id_map_align(),          block_id_map_footprint( fd_ulong_find_msb( fd_ulong_pow2_up( FD_BLOCK_MAX ) ) ) );
+  void * slice_buf           = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                         FD_SLICE_MAX );
+  void * exec_slice_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_map_align(),     fd_exec_slice_map_footprint( 20 ) );
+  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),               fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
+  void * slot_ctx_mem        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t),   sizeof(fd_exec_slot_ctx_t) );
+  void * slice_deque_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_slice_deque_align(),   fd_exec_slice_deque_footprint( EXEC_SLICE_DEQUE_MAX ) );
 
   /**********************************************************************/
   /* wksp                                                               */
@@ -1967,10 +1955,7 @@ unprivileged_init( fd_topo_t *      topo,
     exec_out->chunk                 = exec_out->chunk0;
   }
 
-  /**********************************************************************/
-  /* links                                                              */
-  /**********************************************************************/
-
+  FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -1981,19 +1966,14 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     }
 
-    if( !strcmp( link->name, "repair_repla" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_REPAIR;
-    } else if( !strcmp( link->name, "snap_out"  ) ) {
-      ctx->in_kind[ i ] = IN_KIND_SNAP;
-    } else if( !strcmp( link->name, "root_out" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_ROOT;
-    } else if( !strcmp( link->name, "writ_repl" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_WRITER;
-    } else if( !strcmp( link->name, "tower_replay" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_TOWER;
-    } else {
-      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
-    }
+    if(      !strcmp( link->name, "repair_repla" ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
+    else if( !strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( !strcmp( link->name, "root_out"     ) ) ctx->in_kind[ i ] = IN_KIND_ROOT;
+    else if( !strcmp( link->name, "writ_repl"    ) ) ctx->in_kind[ i ] = IN_KIND_WRITER;
+    else if( !strcmp( link->name, "tower_replay" ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
+    else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
   ulong replay_notif_idx = fd_topo_find_tile_out_link( topo, tile, "replay_notif", 0 );
@@ -2031,7 +2011,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Set up stake weights tile output */
-  ctx->stake_out->idx        = fd_topo_find_tile_out_link( topo, tile, "stake_out", 0 );
+  ctx->stake_out->idx        = fd_topo_find_tile_out_link( topo, tile, "replay_stake", 0UL );
   FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ ctx->stake_out->idx] ];
   ctx->stake_out->mcache     = stake_weights_out->mcache;
@@ -2114,6 +2094,10 @@ unprivileged_init( fd_topo_t *      topo,
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
                                                                 FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 static ulong

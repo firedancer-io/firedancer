@@ -16,6 +16,12 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#if FD_HAS_ZSTD
+#define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#endif
+
 #define POOL_NAME       ws_conn_pool
 #define POOL_T          struct fd_http_server_ws_connection
 #define POOL_IDX_T      ushort
@@ -114,6 +120,9 @@ fd_http_server_footprint( fd_http_server_params_t params ) {
   l = FD_LAYOUT_APPEND( l, 1UL,                                       params.max_ws_recv_frame_len*params.max_ws_connection_cnt                                          );
   l = FD_LAYOUT_APPEND( l, alignof( struct fd_http_server_ws_frame ), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof( struct fd_http_server_ws_frame ) );
   l = FD_LAYOUT_APPEND( l, 1UL,                                       params.outgoing_buffer_sz                                                                          );
+#if FD_HAS_ZSTD
+  l = FD_LAYOUT_APPEND( l, 16UL,                                      ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL )                                            );
+#endif
   return FD_LAYOUT_FINI( l, fd_http_server_align() );
 }
 
@@ -148,11 +157,14 @@ fd_http_server_new( void *                     shmem,
   uchar * _ws_recv_bytes  = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.max_ws_recv_frame_len*params.max_ws_connection_cnt                            );
   struct fd_http_server_ws_frame * _ws_send_frames = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct fd_http_server_ws_frame), params.max_ws_send_frame_cnt*params.max_ws_connection_cnt*sizeof(struct fd_http_server_ws_frame) );
   http->oring             = FD_SCRATCH_ALLOC_APPEND( l,  1UL,                                          params.outgoing_buffer_sz                                                            );
-
-  http->oring_sz  = params.outgoing_buffer_sz;
-  http->stage_err = 0;
-  http->stage_off = 0UL;
-  http->stage_len = 0UL;
+#if FD_HAS_ZSTD
+  uchar * _zstd_ctx       = FD_SCRATCH_ALLOC_APPEND( l,  16UL,                                         ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL )                              );
+#endif
+  http->oring_sz       = params.outgoing_buffer_sz;
+  http->stage_err      = 0;
+  http->stage_off      = 0UL;
+  http->stage_len      = 0UL;
+  http->stage_comp_len = 0UL;
 
   http->callbacks             = callbacks;
   http->callback_ctx          = callback_ctx;
@@ -163,6 +175,15 @@ fd_http_server_new( void *                     shmem,
   http->max_request_len       = params.max_request_len;
   http->max_ws_recv_frame_len = params.max_ws_recv_frame_len;
   http->max_ws_send_frame_cnt = params.max_ws_send_frame_cnt;
+  http->compress_websocket    = params.compress_websocket;
+
+#if FD_HAS_ZSTD
+  http->zstd_ctx = ZSTD_initStaticCCtx( _zstd_ctx, ZSTD_estimateCCtxSize( FD_HTTP_ZSTD_COMPRESSION_LEVEL ) );
+  FD_TEST( http->zstd_ctx );
+  ulong err = ZSTD_CCtx_setParameter( http->zstd_ctx, 100, FD_HTTP_ZSTD_COMPRESSION_LEVEL );
+  if( FD_UNLIKELY( ZSTD_isError( err ) ) )
+      FD_LOG_ERR(( "ZSTD_CCtx_setParameter failed (%s)", ZSTD_getErrorName( err ) ) );
+#endif
 
   http->conns = conn_pool_join( conn_pool_new( conn_pool, params.max_connection_cnt ) );
   conn_treap_join( conn_treap_new( http->conn_treap, params.max_connection_cnt ) );
@@ -546,9 +567,18 @@ read_conn_http( fd_http_server_t * http,
   }
 
   conn->upgrade_websocket = 0;
+  int compress_websocket = 0;
   if( FD_UNLIKELY( upgrade_key && !strncmp( upgrade_key, "websocket", 9UL ) ) ) {
     conn->request_bytes_len = (ulong)result;
     conn->upgrade_websocket = 1;
+
+#if FD_HAS_ZSTD
+    for( ulong i=0UL; i<num_headers; i++ ) {
+      if( FD_LIKELY( headers[ i ].name_len==22UL && !strncasecmp( headers[ i ].name, "Sec-WebSocket-Protocol", 22UL ) && strstr( headers[ i ].value, "compress-zstd" ) ) ) {
+        compress_websocket = 1;
+      }
+    }
+#endif
 
     char const * sec_websocket_key = NULL;
     for( ulong i=0UL; i<num_headers; i++ ) {
@@ -597,9 +627,10 @@ read_conn_http( fd_http_server_t * http,
 
     .ctx                       = http->callback_ctx,
 
-    .headers.content_type      = content_type_nul_terminated,
-    .headers.accept_encoding   = accept_encoding_nul_terminated,
-    .headers.upgrade_websocket = conn->upgrade_websocket,
+    .headers.content_type       = content_type_nul_terminated,
+    .headers.accept_encoding    = accept_encoding_nul_terminated,
+    .headers.compress_websocket = compress_websocket,
+    .headers.upgrade_websocket  = conn->upgrade_websocket,
   };
 
   switch( method_enum ) {
@@ -840,6 +871,11 @@ write_conn_http( fd_http_server_t * http,
           break;
       }
 
+      if( FD_LIKELY( conn->response.compress_websocket ) ) {
+        ulong compress_websocket_len;
+        FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &compress_websocket_len, "Sec-WebSocket-Protocol: compress-zstd\r\n" ) );
+        response_len += compress_websocket_len;
+      }
       if( FD_LIKELY( conn->response.content_type ) ) {
         ulong content_type_len;
         FD_TEST( fd_cstr_printf_check( header_buf+response_len, sizeof( header_buf )-response_len, &content_type_len, "Content-Type: %s\r\n", conn->response.content_type ) );
@@ -940,6 +976,7 @@ write_conn_http( fd_http_server_t * http,
           http->ws_conns[ ws_conn_id ].recv_bytes_parsed        = 0UL;
           http->ws_conns[ ws_conn_id ].recv_bytes_read          = 0UL;
           http->ws_conns[ ws_conn_id ].send_frame_bytes_written = 0UL;
+          http->ws_conns[ ws_conn_id ].compress_websocket       = conn->response.compress_websocket;
 
           FD_TEST( conn->request_bytes_read>=conn->request_bytes_len );
           if( FD_UNLIKELY( conn->request_bytes_read-conn->request_bytes_len>0UL ) ) {
@@ -1020,7 +1057,7 @@ write_conn_ws( fd_http_server_t * http,
     case FD_HTTP_SERVER_SEND_FRAME_STATE_HEADER: {
       uchar header[ 10 ];
       ulong header_len;
-      header[ 0 ] = 0x80 | 0x01; /* FIN, 0x1 for text. */
+      header[ 0 ] = 0x80 | fd_uchar_if(frame->compressed, 0x02, 0x01); /* FIN, 0x1 for text, 0x2 for binary */
       if( FD_LIKELY( frame->len<126UL ) ) {
         header[ 1 ] = (uchar)frame->len;
         header_len = 2UL;
@@ -1058,8 +1095,11 @@ write_conn_ws( fd_http_server_t * http,
       break;
     }
     case FD_HTTP_SERVER_SEND_FRAME_STATE_DATA: {
-      uchar const * data = http->oring+(frame->off%http->oring_sz);
-      long sz = send( http->pollfds[ conn_idx ].fd, data+conn->send_frame_bytes_written, frame->len-conn->send_frame_bytes_written, MSG_NOSIGNAL );
+      /* frame->off can point to either the compressed or uncompressed region */
+      uchar const * data = http->oring+(frame->off%http->oring_sz)+conn->send_frame_bytes_written;
+      ulong data_sz = frame->len-conn->send_frame_bytes_written;
+
+      long sz = send( http->pollfds[ conn_idx ].fd, data, data_sz, MSG_NOSIGNAL );
       if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
       else if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
         close_conn( http, conn_idx, FD_HTTP_SERVER_CONNECTION_CLOSE_PEER_RESET );
@@ -1080,88 +1120,6 @@ write_conn_ws( fd_http_server_t * http,
       break;
     }
   }
-}
-
-int
-fd_http_server_ws_send( fd_http_server_t * http,
-                        ulong              ws_conn_id ) {
-  struct fd_http_server_ws_connection * conn = &http->ws_conns[ ws_conn_id ];
-
-  if( FD_UNLIKELY( http->stage_err ) ) {
-    http->stage_err = 0;
-    http->stage_len = 0;
-    return -1;
-  }
-
-  /* It is possible that ws_conn_id has already been closed by
-     fd_http_server_reserve during staging.  If the staging buffer is
-     full, the incoming frame is added to the beginning of the buffer,
-     and any connections that were previously using that allotted space
-     are closed.  There is a small chance that ws_conn_id is one of
-     those connections, and has therefore already been closed. */
-  if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
-    http->stage_len = 0;
-    return 0;
-  }
-
-  if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
-    close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
-    http->stage_len = 0;
-    return 0;
-  }
-
-  fd_http_server_ws_frame_t frame = {
-    .off      = http->stage_off,
-    .len      = http->stage_len,
-  };
-
-  conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
-  conn->send_frame_cnt++;
-
-  if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
-    ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
-  }
-
-  http->stage_off += http->stage_len;
-  http->stage_len = 0;
-
-  return 0;
-}
-
-int
-fd_http_server_ws_broadcast( fd_http_server_t * http ) {
-  if( FD_UNLIKELY( http->stage_err ) ) {
-    http->stage_err = 0;
-    http->stage_len = 0;
-    return -1;
-  }
-
-  fd_http_server_ws_frame_t frame = {
-    .off = http->stage_off,
-    .len = http->stage_len,
-  };
-
-  for( ulong i=0UL; i<http->max_ws_conns; i++ ) {
-    if( FD_LIKELY( http->pollfds[ http->max_conns+i ].fd==-1 ) ) continue;
-
-    struct fd_http_server_ws_connection * conn = &http->ws_conns[ i ];
-    if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
-      close_conn( http, i+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
-      continue;
-    }
-
-    conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
-    conn->send_frame_cnt++;
-
-    if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
-      ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
-    }
-  }
-
-  http->stage_off += http->stage_len;
-  http->stage_len = 0;
-
-  return 0;
 }
 
 static void
@@ -1226,6 +1184,10 @@ fd_http_server_evict_until( fd_http_server_t * http,
 static void
 fd_http_server_reserve( fd_http_server_t * http,
                         ulong              len ) {
+  /* fd_http_server_reserve should not be called after
+     fd_http_server_compress */
+  FD_TEST( http->stage_comp_len == 0 );
+
   ulong remaining = http->oring_sz-((http->stage_off%http->oring_sz)+http->stage_len);
   if( FD_UNLIKELY( len>remaining ) ) {
     /* Appending the format string into the hcache would go past the end
@@ -1260,9 +1222,133 @@ fd_http_server_reserve( fd_http_server_t * http,
   }
 }
 
+static int
+fd_http_ws_compress_maybe( fd_http_server_t * http ) {
+  /* we don't compress if the message is small, or if compression is
+     disabled in the config */
+  if( FD_LIKELY( !http->compress_websocket || http->stage_len <= 200 || http->stage_err ) ) return 0;
+
+#if FD_HAS_ZSTD
+  ulong worst_case_compressed_sz = ZSTD_compressBound( http->stage_len );
+  fd_http_server_reserve( http, worst_case_compressed_sz );
+
+  if( FD_UNLIKELY( http->stage_err ) ) return 0;
+
+  ulong compressed_sz = ZSTD_compress2( http->zstd_ctx, http->oring+(http->stage_off%http->oring_sz)+http->stage_len, worst_case_compressed_sz, http->oring+(http->stage_off%http->oring_sz), http->stage_len );
+  if( FD_UNLIKELY( ZSTD_isError( compressed_sz ) ) ) {
+    FD_LOG_WARNING(( "ZSTD_compress2 failed (%s)", ZSTD_getErrorName( compressed_sz ) ) );
+    http->stage_err = 1;
+    return 0;
+  }
+  FD_TEST( compressed_sz <= worst_case_compressed_sz );
+
+  http->stage_comp_len = compressed_sz;
+
+  return 1;
+#else
+  return 0;
+#endif
+}
+
+int
+fd_http_server_ws_send( fd_http_server_t * http,
+                        ulong              ws_conn_id ) {
+  struct fd_http_server_ws_connection * conn = &http->ws_conns[ ws_conn_id ];
+  int compressed = conn->compress_websocket;
+  if( FD_LIKELY( compressed ) ) compressed = fd_http_ws_compress_maybe( http );
+
+
+  if( FD_UNLIKELY( http->stage_err ) ) {
+    http->stage_err = 0;
+    http->stage_len = 0;
+    http->stage_comp_len = 0;
+    return -1;
+  }
+
+  /* It is possible that ws_conn_id has already been closed by
+     fd_http_server_reserve during staging.  If the staging buffer is
+     full, the incoming frame is added to the beginning of the buffer,
+     and any connections that were previously using that allotted space
+     are closed.  There is a small chance that ws_conn_id is one of
+     those connections, and has therefore already been closed. */
+  if( FD_LIKELY( http->pollfds[ http->max_conns+ws_conn_id ].fd==-1 ) ) {
+    http->stage_len = 0;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
+    close_conn( http, ws_conn_id+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+    http->stage_len = 0;
+    return 0;
+  }
+
+  /* A frame is compressed only if the connection is configured to do
+     so, and if the compression step wasn't skipped (i.e. stage_len>200) */
+  fd_http_server_ws_frame_t frame = {
+    .off = fd_ulong_if(compressed, http->stage_off+http->stage_len, http->stage_off),
+    .len = fd_ulong_if(compressed, http->stage_comp_len, http->stage_len),
+    .compressed = compressed,
+  };
+
+  conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
+  conn->send_frame_cnt++;
+
+  if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
+    ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
+  }
+
+  http->stage_off += http->stage_len+http->stage_comp_len;
+  http->stage_len = 0;
+  http->stage_comp_len = 0;
+
+  return 0;
+}
+
+int
+fd_http_server_ws_broadcast( fd_http_server_t * http ) {
+  int compressed = fd_http_ws_compress_maybe( http );
+
+  if( FD_UNLIKELY( http->stage_err ) ) {
+    http->stage_err = 0;
+    http->stage_len = 0;
+    http->stage_comp_len = 0;
+    return -1;
+  }
+
+  for( ulong i=0UL; i<http->max_ws_conns; i++ ) {
+    if( FD_LIKELY( http->pollfds[ http->max_conns+i ].fd==-1 ) ) continue;
+
+    struct fd_http_server_ws_connection * conn = &http->ws_conns[ i ];
+    if( FD_UNLIKELY( conn->send_frame_cnt==http->max_ws_send_frame_cnt ) ) {
+      close_conn( http, i+http->max_conns, FD_HTTP_SERVER_CONNECTION_CLOSE_WS_CLIENT_TOO_SLOW );
+      continue;
+    }
+
+    fd_http_server_ws_frame_t frame = {
+      .off = fd_ulong_if(conn->compress_websocket && compressed, http->stage_off+http->stage_len, http->stage_off),
+      .len = fd_ulong_if(conn->compress_websocket && compressed, http->stage_comp_len, http->stage_len),
+      .compressed = conn->compress_websocket && compressed,
+    };
+
+    conn->send_frames[ (conn->send_frame_idx+conn->send_frame_cnt) % http->max_ws_send_frame_cnt ] = frame;
+    conn->send_frame_cnt++;
+
+    if( FD_LIKELY( conn->send_frame_cnt==1UL ) ) {
+      ws_conn_treap_ele_insert( http->ws_conn_treap, conn, http->ws_conns );
+    }
+  }
+
+  http->stage_off += http->stage_len+http->stage_comp_len;
+  http->stage_len = 0;
+  http->stage_comp_len = 0;
+
+  return 0;
+}
+
 void
 fd_http_server_stage_trunc( fd_http_server_t * http,
                              ulong len ) {
+  http->stage_comp_len = 0;
   http->stage_len = len;
 }
 
@@ -1312,6 +1398,7 @@ void
 fd_http_server_unstage( fd_http_server_t * http ) {
   http->stage_err = 0;
   http->stage_len = 0UL;
+  http->stage_comp_len = 0UL;
 }
 
 int

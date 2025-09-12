@@ -76,9 +76,6 @@ dump_account_state( fd_txn_account_t const *    txn_account,
     // Executable
     output_account->executable = (bool)fd_txn_account_is_executable( txn_account );
 
-    // Rent epoch
-    output_account->rent_epoch = (uint64_t)fd_txn_account_get_rent_epoch( txn_account );
-
     // Owner
     fd_memcpy(output_account->owner, fd_txn_account_get_owner( txn_account ), sizeof(fd_pubkey_t));
 
