@@ -321,6 +321,8 @@
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 
+#include "generated/fd_poh_tile_seccomp.h"
+
 #include <string.h>
 
 /* The maximum number of microblocks that pack is allowed to pack into a
@@ -2173,6 +2175,34 @@ out1( fd_topo_t const *      topo,
 
   return (fd_poh_out_ctx_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
 }
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
+  populate_sock_filter_policy_fd_poh_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_poh_tile_instr_cnt;
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
+
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
+  out_fds[ out_cnt++ ] = 2; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  return out_cnt;
+}
 
 static void
 unprivileged_init( fd_topo_t *      topo,
@@ -2336,8 +2366,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 fd_topo_run_tile_t fd_tile_poh = {
   .name                     = "poh",
-  .populate_allowed_seccomp = NULL,
-  .populate_allowed_fds     = NULL,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

@@ -256,6 +256,7 @@ main_pid_namespace( void * _args ) {
 
   pid_t child_pids[ FD_TOPO_MAX_TILES+1 ];
   char  child_names[ FD_TOPO_MAX_TILES+1 ][ 32 ];
+  ulong child_idxs[ FD_TOPO_MAX_TILES+1 ];
   struct pollfd fds[ FD_TOPO_MAX_TILES+2 ];
 
   int config_memfd = fd_config_to_memfd( config );
@@ -310,6 +311,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     fds[ child_cnt ] = (struct pollfd){ .fd = pipefd[ 0 ], .events = 0 };
     child_pids[ child_cnt ] = execve_tile( tile, floating_cpu_set, save_priority, config_memfd, pipefd[ 1 ] );
+    child_idxs[ child_cnt ] = i;
     if( FD_UNLIKELY( close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     strncpy( child_names[ child_cnt ], tile->name, 32 );
     child_cnt++;
@@ -409,8 +411,7 @@ main_pid_namespace( void * _args ) {
         }
 
         char * tile_name = child_names[ i ];
-        ulong  tile_idx = 0UL;
-        if( FD_LIKELY( i>0UL ) ) tile_idx = (!config->is_firedancer && config->development.no_agave) ? i : i-1UL;
+        ulong  tile_idx = child_idxs[ i ];
         ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
         /* Child process died, reap it to figure out exit code. */
@@ -431,6 +432,7 @@ main_pid_namespace( void * _args ) {
           if( FD_LIKELY( !exit_code && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
             FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
           } else {
+            FD_LOG_WARNING(("allow shutdown %d %s", config->topo.tiles[ tile_idx ].allow_shutdown, config->topo.tiles[ tile_idx ].name));
             FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
             fd_sys_util_exit_group( exit_code ? exit_code : 1 );
           }

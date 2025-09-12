@@ -12,6 +12,31 @@ unsigned int logfile_fd
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
+             (eq (arg 2) 0))
+
+# FIXME: We can have up to 16 so [0, 17] execept 2 and 4 ??????
+connect
+
+close
+
+# polling TODO: restrict??
+ppoll
+
+sendto: (eq (arg 3) "MSG_NOSIGNAL")
+
+recvfrom
+
+# if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
+setsockopt: (and (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_REUSEADDR)
+                 (eq (arg 4) 4))
+
+bind
+
+listen
+
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.

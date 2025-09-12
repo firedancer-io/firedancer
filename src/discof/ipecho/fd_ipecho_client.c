@@ -157,10 +157,12 @@ write_conn( fd_ipecho_client_t * client,
     '\n',                   /* End of request */
   };
 
-  long written = send( client->pollfds[ conn_idx ].fd,
-                       request+peer->request_bytes_sent,
-                       sizeof(request)-peer->request_bytes_sent,
-                       MSG_NOSIGNAL );
+  long written = sendto( client->pollfds[ conn_idx ].fd,
+                         request+peer->request_bytes_sent,
+                         sizeof(request)-peer->request_bytes_sent,
+                         MSG_NOSIGNAL,
+                         NULL,
+                         0 );
   if( FD_UNLIKELY( -1==written && errno==EAGAIN ) ) return; /* No data was written, continue. */
   else if( FD_UNLIKELY( -1==written ) ) {
     close_one( client, conn_idx );
@@ -181,12 +183,12 @@ read_conn( fd_ipecho_client_t * client,
   fd_ipecho_client_peer_t * peer = &client->peers[ conn_idx ];
 
   if( FD_UNLIKELY( peer->writing ) ) return 1;
-
-  long read = recv( client->pollfds[ conn_idx ].fd,
-                    peer->response+peer->response_bytes_read,
-                    sizeof(peer->response)-peer->response_bytes_read,
-                    0 );
-
+  long read = recvfrom( client->pollfds[ conn_idx ].fd,
+                        peer->response+peer->response_bytes_read,
+                        sizeof(peer->response)-peer->response_bytes_read,
+                        0,
+                        NULL,
+                        NULL );
   if( FD_UNLIKELY( -1==read && (errno==EAGAIN || errno==EINTR) ) ) return 1;
   else if( FD_UNLIKELY( -1==read ) ) {
     close_one( client, conn_idx );
@@ -210,20 +212,20 @@ int
 fd_ipecho_client_poll( fd_ipecho_client_t * client,
                        ushort *             shred_version,
                        int *                charge_busy ) {
-  if( FD_UNLIKELY( !client->peer_cnt ) ) return -1;
+  if( FD_UNLIKELY( !client->peer_cnt ) ) { return -1; }
   if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>2L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;
   }
 
-  int nfds = fd_syscall_poll( client->pollfds, 16U, 0 );
+  int nfds = fd_syscall_poll( client->pollfds, (uint)client->peer_cnt, 0 );
   if( FD_UNLIKELY( 0==nfds ) ) return 1;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 1;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, strerror( errno ) ));
 
   *charge_busy = 1;
 
-  for( ulong i=0UL; i<16UL; i++ ) {
+  for( ulong i=0UL; i<16U; i++ ) {
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
 
     if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) write_conn( client, i );

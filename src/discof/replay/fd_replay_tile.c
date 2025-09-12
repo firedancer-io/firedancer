@@ -867,7 +867,7 @@ handle_bank_change( fd_replay_tile_ctx_t * ctx,
     FD_LOG_CRIT(( "invariant violation: parent bank is NULL for slot %lu parent merkle hash %s", slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
   }
 
-  if( fd_bank_done_executing_get( parent_bank ) ) {;
+  if( fd_bank_done_executing_get( parent_bank ) ) {
     /* Create a new bank. */
     handle_new_block( ctx, stem, slot, parent_slot, merkle_hash, parent_merkle_hash );
   } else if( ctx->slot_ctx->bank!=parent_bank  ) {

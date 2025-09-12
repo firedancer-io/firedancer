@@ -123,14 +123,19 @@ fd_sshttp_init( fd_sshttp_t * http,
     "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
     (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
 
+  FD_LOG_WARNING(("INIT"));
   http->addr = addr;
   http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+
+  FD_LOG_WARNING(("INIT2"));
 
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  FD_LOG_WARNING(("INIT3"));
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
@@ -138,12 +143,16 @@ fd_sshttp_init( fd_sshttp_t * http,
     .sin_addr   = { .s_addr = addr.addr }
   };
 
+  FD_LOG_WARNING(("INIT4"));
+
   if( FD_UNLIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
     if( FD_UNLIKELY( errno!=EINPROGRESS ) ) {
       if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
       return;
     }
   }
+
+  FD_LOG_WARNING(("INIT5"));
 
   http->state    = FD_SSHTTP_STATE_REQ;
   http->deadline = now + 500L*1000L*1000L;

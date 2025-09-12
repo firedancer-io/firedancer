@@ -2,6 +2,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "generated/snapdc_seccomp.h"
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
@@ -145,6 +146,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->state = FD_SNAPDC_STATE_DONE;
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
+      FD_LOG_WARNING(("SNAPDC HANDLE CONTROL FRAG DONE"));
       FD_TEST( ctx->state==FD_SNAPDC_STATE_DONE );
       ctx->state = FD_SNAPDC_STATE_SHUTDOWN;
       break;
@@ -258,6 +260,34 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
   return 0;
 }
 
+static ulong
+populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2UL; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+
+  return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
+  populate_sock_filter_policy_snapdc( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_snapdc_instr_cnt;
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -314,11 +344,13 @@ unprivileged_init( fd_topo_t *      topo,
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snapdc = {
-  .name              = NAME,
-  .scratch_align     = scratch_align,
-  .scratch_footprint = scratch_footprint,
-  .unprivileged_init = unprivileged_init,
-  .run               = stem_run,
+  .name                     = NAME,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };
 
 #undef NAME

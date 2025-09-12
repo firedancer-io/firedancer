@@ -310,7 +310,17 @@ void
 fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms ) {
-  int nfds = fd_syscall_poll( server->pollfds, (uint)( server->max_connection_cnt+1UL ), timeout_ms );
+
+  /* Will look for first fd==-1 */
+  ulong valid_fds = 0UL;
+  for( ulong i=0UL; i<server->max_connection_cnt+1UL; i++ ) {
+    if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) {
+      valid_fds = i;
+      break;
+    }
+  }
+
+  int nfds = fd_syscall_poll( server->pollfds, (uint)( valid_fds ), timeout_ms );
   if( FD_UNLIKELY( 0==nfds ) ) return;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, strerror( errno ) ));

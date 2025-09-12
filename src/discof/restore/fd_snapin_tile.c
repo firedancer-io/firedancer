@@ -8,6 +8,8 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../funk/fd_funk.h"
 
+#include "generated/snapin_seccomp.h"
+
 #define NAME "snapin"
 
 /* The snapin tile is a state machine that parses and loads a full
@@ -285,6 +287,35 @@ returnable_frag( fd_snapin_tile_t *  ctx,
   return 0;
 }
 
+static ulong
+populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2UL; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+
+  return out_cnt;
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
+  populate_sock_filter_policy_snapin( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_snapin_instr_cnt;
+}
+
+
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -353,12 +384,14 @@ unprivileged_init( fd_topo_t *      topo,
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snapin = {
-  .name              = NAME,
-  .scratch_align     = scratch_align,
-  .scratch_footprint = scratch_footprint,
-  .privileged_init   = privileged_init,
-  .unprivileged_init = unprivileged_init,
-  .run               = stem_run,
+  .name                     = NAME,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };
 
 #undef NAME

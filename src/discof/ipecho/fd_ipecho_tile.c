@@ -2,6 +2,18 @@
 #include "fd_ipecho_server.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+
+#include <dirent.h> /* opendir */
+#include <stdio.h> /* snprintf */
+#include <fcntl.h> /* F_SETFL */
+#include <unistd.h> /* close */
+#include <sys/mman.h> /* PROT_READ (seccomp) */
+#include <sys/uio.h> /* writev */
+#include <netinet/in.h> /* AF_INET */
+#include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
+#include <string.h>
+#include <sys/stat.h>
+
 #include "generated/fd_ipecho_tile_seccomp.h"
 
 struct fd_ipecho_tile_ctx {
@@ -131,6 +143,15 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
+rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                 fd_topo_tile_t const * tile ) {
+  (void)tile;
+  /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
+  ulong base = 10UL;
+  return base;
+}
+
+static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
@@ -172,6 +193,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_ipecho = {
   .name                     = "ipecho",
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
@@ -179,4 +201,6 @@ fd_topo_run_tile_t fd_tile_ipecho = {
   .privileged_init          = NULL,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .allow_connect            = 1,
+  .keep_host_networking     = 1
 };

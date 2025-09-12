@@ -460,13 +460,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->epoch_voters_buf = voter_mem;
 
-  memcpy( ctx->identity_key->uc, fd_keyload_load( tile->tower.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
-
-  if( FD_UNLIKELY( !fd_base58_decode_32( tile->tower.vote_acc_path, ctx->vote_acc->uc ) ) ) {
-    const uchar * vote_key = fd_keyload_load( tile->tower.vote_acc_path, 1 );
-    memcpy( ctx->vote_acc->uc, vote_key, sizeof(fd_pubkey_t) );
-  }
-
   /* Any errors encountered during restore are fatal and Firedancer will
      shutdown with as informative an error message as possible.*/
 
