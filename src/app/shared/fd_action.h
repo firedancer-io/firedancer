@@ -61,6 +61,7 @@ union fdctl_args {
   struct {
     char link_name[ 64UL ];
     char pcap_path[ 256UL ];
+    int  once;
   } dump;
 
   struct {
