@@ -1272,6 +1272,9 @@ fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
     .elf_deploy_checks = elf_deploy_checks
   };
 
+  // FIXME
+  // fd_sbpf_load_shdrs( &prog->info, elf, elf_sz, elf_deploy_checks );
+
   /* Find dynamic section */
   if( FD_UNLIKELY( (err=fd_sbpf_find_dynamic( &loader, elf, elf_sz, &prog->info ))!=0 ) )
     return err;
@@ -1450,6 +1453,54 @@ fd_sbpf_check_overlap( ulong a_start, ulong a_end, ulong b_start, ulong b_end ) 
   return !( ( a_end <= b_start || b_end <= a_start ) );
 }
 
+int
+fd_sbpf_lenient_get_string_in_section( char *                string,
+                                       fd_elf64_shdr const * section_header,
+                                       uint                  offset_in_section,
+                                       ulong                 maximum_length,
+                                       void const *          bin,
+                                       ulong                 bin_sz ) {
+  /* This could be checked only once outside the loop, but to keep the code the same...
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L474-L476 */
+  if( FD_UNLIKELY( section_header->sh_type != FD_ELF_SHT_STRTAB ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
+  }
+
+  /* default to -1 because length check is done checking for 0... */
+  memset( string, -1, maximum_length );
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L477-L482 */
+  ulong offset_in_file = section_header->sh_offset + (ulong)offset_in_section; /* can't overflow */
+  ulong offset_in_file_plus_maximum_length = offset_in_file + FD_SBPF_SECTION_NAME_SZ_MAX; /* can't overflow */
+  ulong sh_end = section_header->sh_offset + section_header->sh_size; /* already checked */
+  ulong string_range_start = offset_in_file;
+  ulong string_range_end = fd_ulong_min( offset_in_file_plus_maximum_length, sh_end );
+  if( FD_UNLIKELY( string_range_end > bin_sz ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+  /* In rust vec.get([n..n]) returns [], so this is accepted.
+      vec.get([n..m]) with m<n returns None, so it throws ElfParserError::OutOfBounds. */
+  if( FD_UNLIKELY( string_range_end < string_range_start ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L483-L485 */
+  memcpy( string, (uchar const *)bin + string_range_start, string_range_end - string_range_start );
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L486-L495 */
+  int found = 0;
+  for( ulong j=0; j<FD_SBPF_SECTION_NAME_SZ_MAX; j++ ) {
+    if( string[ j ] == 0x00 ) {
+      found = 1;
+      break;
+    }
+  }
+  if( FD_UNLIKELY( !found ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG;
+  }
+  return 0;
+}
+
 /* Elf64::parse()
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L148 */
 int
@@ -1459,10 +1510,26 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
                            fd_sbpf_loader_config_t const * config ) {
   (void)config;
 
+  /* This documents the values that will be set in this function */
+  info->rodata_sz        = (uint)bin_sz; // FIXME
+  info->rodata_footprint = (uint)bin_sz;
+  info->dynstr_off       = 0U;
+  info->dynstr_sz        = 0U;
+  info->phndx_dyn        = -1;
+  info->shndx_dyn        = -1;
+  info->shndx_symtab     = -1;
+  info->shndx_strtab     = -1;
+  info->shndx_dynstr     = -1;
+  info->dt_symtab        = -1;
+
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L149 */
   if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
   }
+  /* TODO: decide whether we want to enforce that bin is aligned,
+           in which case we can simply cast pointers to the various
+           table entries, or if we want to allow misaligned bin,
+           in which case we have to keep the FD_LOAD calls. */
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)bin, 8UL ) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
   }
@@ -1631,47 +1698,21 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
     /* Use section name string table to identify well-known sections */
     ulong section_names_shdr_idx = ehdr.e_shstrndx;
     fd_elf64_shdr section_names_shdr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + section_names_shdr_idx*sizeof(fd_elf64_shdr) );
+    /* Agave repeats the following validation all the times, we can do it once here
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L474-L476 */
+    if( FD_UNLIKELY( section_names_shdr.sh_type != FD_ELF_SHT_STRTAB ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
+    }
 
     /* Iterate sections and record indices for .text, .symtab, .strtab, .dyn, .dynstr */
     for( ulong i=0; i<ehdr.e_shnum; i++ ) {
       /* Again... */
       fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
 
-      /* This could be checked outside the loop, but to keep the code the same...
-         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L474-L476 */
-      if( FD_UNLIKELY( section_names_shdr.sh_type != FD_ELF_SHT_STRTAB ) ) {
-        return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
-      }
-
-      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L477-L482 */
-      ulong offset_in_file = shdr.sh_offset + (ulong)shdr.sh_name; /* can't overflow */
-      ulong offset_in_file_plus_maximum_length = offset_in_file + FD_SBPF_SECTION_NAME_SZ_MAX; /* can't overflow */
-      ulong sh_end = shdr.sh_offset + shdr.sh_size; /* already checked */
-      ulong string_range_start = offset_in_file;
-      ulong string_range_end = fd_ulong_min( offset_in_file_plus_maximum_length, sh_end );
-      if( FD_UNLIKELY( string_range_end > bin_sz ) ) {
-        return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-      }
-      /* In rust vec.get([n..n]) returns [], so this is accepted.
-         vec.get([n..m]) with m<n returns None, so it throws ElfParserError::OutOfBounds. */
-      if( FD_UNLIKELY( string_range_end < string_range_start ) ) {
-        return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-      }
-
-      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L483-L485 */
-      char name[ FD_SBPF_SECTION_NAME_SZ_MAX ] = { -1 }; /* default to -1 because length check is done checking for 0... */
-      memcpy( name, (uchar const *)bin + string_range_start, string_range_end - string_range_start );
-
-      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L486-L495 */
-      int found = 0;
-      for( ulong j=0; j<FD_SBPF_SECTION_NAME_SZ_MAX; j++ ) {
-        if( name[ j ] == 0x00 ) {
-          found = 1;
-          break;
-        }
-      }
-      if( FD_UNLIKELY( !found ) ) {
-        return FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG;
+      char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
+      int res = fd_sbpf_lenient_get_string_in_section( name, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, bin, bin_sz );
+      if( FD_UNLIKELY( res < 0 ) ) {
+        return res;
       }
 
       /* Store the first section by name:
@@ -1703,6 +1744,8 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         info->shndx_dynstr = (int)i;
+        info->dynstr_off   = (uint)shdr.sh_offset;
+        info->dynstr_sz    = (uint)shdr.sh_size;
       }
     }
   }
@@ -1816,11 +1859,10 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
       if( FD_UNLIKELY( offset==ULONG_MAX ) ) {
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
-
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L446-L448 */
-      ulong range_start = offset;
-      ulong range_end = offset + size;
-      if( FD_UNLIKELY( ( range_end < range_start ) | ( range_end > bin_sz ) ) ) {
+      if( FD_UNLIKELY( ( ( size % sizeof(fd_elf64_rel) ) != 0UL )
+                       | ( offset + size < offset )
+                       | ( offset + size > bin_sz ) ) ) {
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
     } while( 0 ); /* so we can break out */
@@ -1833,7 +1875,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
         break; /* from this do-while */
       }
 
-      fd_elf64_shdr shdr_sym;
+      fd_elf64_shdr shdr_sym = { 0 };
       for( ulong i=0; i<ehdr.e_shnum; i++ ) {
         /* Again... */
         shdr_sym = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
@@ -1863,6 +1905,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
       }
     } while( 0 ); /* so we can break out */
   }
+
   return 0;
 }
 
@@ -1870,134 +1913,98 @@ int
 fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t *            info,
                               void const *                    bin,
                               ulong                           bin_sz,
-                              fd_sbpf_loader_config_t const * config ) {
-  (void)info;
+                              fd_sbpf_loader_config_t const * config,
+                              fd_elf64_shdr *                 text_shdr ) {
+  (void)config;
 
-  /* Mirror Executable::validate for key checks */
-
-  /* Load file header */
-  if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-  }
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L721-L736 */
   fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
-
-  /* Basic header/target checks
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L719-L737 */
-  if( FD_UNLIKELY( ( ehdr.e_ident[ FD_ELF_EI_CLASS ] != FD_ELF_CLASS_64   )
-                | ( ehdr.e_ident[ FD_ELF_EI_DATA  ] != FD_ELF_DATA_LE     )
-                | ( ehdr.e_ident[ FD_ELF_EI_OSABI ] != FD_ELF_OSABI_NONE  )
-                | ( ( ehdr.e_machine != FD_ELF_EM_BPF ) & ( ehdr.e_machine != FD_ELF_EM_SBPF ) )
-                | ( ehdr.e_type                     != FD_ELF_ET_DYN      ) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
+  if( FD_UNLIKELY( ehdr.e_ident[ FD_ELF_EI_CLASS ] != FD_ELF_CLASS_64 ) ) {
+    return FD_SBPF_ELF_ERR_WRONG_CLASS;
+  }
+  if( FD_UNLIKELY( ehdr.e_ident[ FD_ELF_EI_DATA  ] != FD_ELF_DATA_LE ) ) {
+    return FD_SBPF_ELF_ERR_WRONG_ENDIANNESS;
+  }
+  if( FD_UNLIKELY( ehdr.e_ident[ FD_ELF_EI_OSABI ] != FD_ELF_OSABI_NONE ) ) {
+    return FD_SBPF_ELF_ERR_WRONG_ABI;
+  }
+  if( FD_UNLIKELY( ehdr.e_machine != FD_ELF_EM_BPF && ehdr.e_machine != FD_ELF_EM_SBPF ) ) {
+    return FD_SBPF_ELF_ERR_WRONG_MACHINE;
+  }
+  if( FD_UNLIKELY( ehdr.e_type != FD_ELF_ET_DYN ) ) {
+    return FD_SBPF_ELF_ERR_WRONG_TYPE;
   }
 
-  /* Version range check (maps to enabled_sbpf_versions)
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L738-L746 */
-  ulong sbpf_version = ( ehdr.e_flags == FD_ELF_EF_SBPF_V2 ) ? FD_SBPF_RESERVED : FD_SBPF_V0;
-  if( FD_UNLIKELY( ( config->sbpf_min_version && sbpf_version < config->sbpf_min_version )
-                |  ( config->sbpf_max_version && sbpf_version > config->sbpf_max_version ) ) ) {
-    return FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION;
-  }
+  /* This code doesn't do anything:
+     1. version is already checked at the very beginning of elf_peek
+     2. the if condition is never true because sbpf_version is always v0
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L738-L763 */
 
-  /* If virtual addresses are enabled, require optimize_rodata and limit PHDR count
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L747-L763 */
-  if( fd_sbpf_enable_elf_vaddr( sbpf_version ) ) {
-    if( FD_UNLIKELY( !config->optimize_rodata ) ) {
-      return FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION;
-    }
-    /* Count program headers; reject if too many (>=10) */
-    ulong phdr_cnt = ehdr.e_phnum;
-    if( FD_UNLIKELY( phdr_cnt >= 10UL ) ) {
-      return FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER;
-    }
-  }
-
-  /* Section name string table
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L218-L224 */
-  if( FD_UNLIKELY( ehdr.e_shstrndx >= ehdr.e_shnum ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-  }
   ulong shdr_start = ehdr.e_shoff;
-  fd_elf64_shdr shdr_shstr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + (ulong)ehdr.e_shstrndx*sizeof(fd_elf64_shdr) );
+  ulong section_names_shdr_idx = ehdr.e_shstrndx;
+  fd_elf64_shdr section_names_shdr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + section_names_shdr_idx*sizeof(fd_elf64_shdr) );
 
-  /* Verify sections: count .text, reject unsupported writable/data and .bss; ensure in-bounds
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L765-L789
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L793-L802 */
-  uint num_text_sections = 0U;
+  /* We do a single iteration over the section header table, collect all info
+     we need and return the errors later to match Agave. */
+
+  int shndx_text = -1;
+  int writeable_err = 0;
   for( ulong i=0; i<ehdr.e_shnum; i++ ) {
-    fd_elf64_shdr sh = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
+    /* Again... */
+    fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + ehdr.e_shoff + i*sizeof(fd_elf64_shdr) );
 
-    /* Only non-NOBITS have file footprint to check */
-    if( sh.sh_type!=FD_ELF_SHT_NOBITS ) {
-      ulong sh_offend = sh.sh_offset + sh.sh_size;
-      if( FD_UNLIKELY( ( sh_offend < sh.sh_offset ) | ( sh_offend > bin_sz ) ) ) {
-        return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+    char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
+    int res = fd_sbpf_lenient_get_string_in_section( name, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, bin, bin_sz );
+    if( FD_UNLIKELY( res < 0 ) ) {
+      /* this can never fail because it was checked above, but safer to keep it */
+      return res;
+    }
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L765-L775 */
+    if( FD_UNLIKELY( fd_memeq( name, ".text", sizeof(".text") ) ) ) {
+      if( FD_UNLIKELY( shndx_text==-1 ) ) {
+        *text_shdr = shdr;  /* Store the text section header */
+        shndx_text = (int)i;
+      } else {
+        return FD_SBPF_ELF_ERR_NOT_ONE_TEXT_SECTION;
       }
     }
 
-    /* Name must be within shstrtab */
-    ulong sh_name = (ulong)sh.sh_name;
-    if( FD_UNLIKELY( sh_name >= shdr_shstr.sh_size ) ) {
-      return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-    }
-    char const * name_ptr = check_cstr( (uchar const *)bin + shdr_shstr.sh_offset,
-                                        shdr_shstr.sh_size,
-                                        sh_name,
-                                        FD_SBPF_SECTION_NAME_SZ_MAX-1UL,
-                                        NULL );
-    if( FD_UNLIKELY( !name_ptr ) ) {
-      return FD_SBPF_ELF_PARSER_ERR_INVALID_STRING;
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L780-L791 */
+    if( FD_UNLIKELY(
+      fd_memeq( name, ".bss", sizeof(".bss")-1UL ) /* starts with */
+      || (
+        ( ( shdr.sh_flags & (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) ) == (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) )
+        &&  fd_memeq( name, ".data", sizeof(".data")-1UL ) /* starts with */
+        && !fd_memeq( name, ".data.rel", sizeof(".data.rel")-1UL ) /* starts with */
+      )
+    ) ) {
+      /* to match Agave return error we can't fail here */
+      writeable_err = 1;
     }
 
-    /* Count and validate sections */
-    if( 0==memcmp( name_ptr, ".text", 6UL ) ) {
-      num_text_sections++;
-    }
-    if( 0==memcmp( name_ptr, ".bss", 4UL ) ) {
-      return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
-    }
-    int is_writable = ( ( sh.sh_flags & (FD_ELF_SHF_ALLOC|FD_ELF_SHF_WRITE) ) == (FD_ELF_SHF_ALLOC|FD_ELF_SHF_WRITE) );
-    if( is_writable ) {
-      int is_data      = ( 0==memcmp( name_ptr, ".data",      5UL ) );
-      int is_data_rel  = ( 0==memcmp( name_ptr, ".data.rel",  9UL ) );
-      if( is_data & !is_data_rel ) {
-        return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
-      }
-    }
-  }
-  if( FD_UNLIKELY( num_text_sections!=1U ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L793-L802
+       Out of bound checkes were already done during elf_parse, so nothing to do here. */
   }
 
-  /* Entry must be within .text VM range
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L803-L806 */
-  int shndx_text = info->shndx_text;
-  if( FD_UNLIKELY( shndx_text<0 ) ) {
-    /* Fallback: find .text section by name */
-    for( ulong i=0; i<ehdr.e_shnum; i++ ) {
-      fd_elf64_shdr sh = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
-      ulong sh_name = (ulong)sh.sh_name;
-      char const * name_ptr = check_cstr( (uchar const *)bin + shdr_shstr.sh_offset,
-                                          shdr_shstr.sh_size,
-                                          sh_name,
-                                          FD_SBPF_SECTION_NAME_SZ_MAX-1UL,
-                                          NULL );
-      if( FD_LIKELY( name_ptr ) && 0==memcmp( name_ptr, ".text", 6UL ) ) { shndx_text = (int)i; break; }
-    }
-  }
-  if( FD_UNLIKELY( shndx_text<0 ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
-  }
-  fd_elf64_shdr sh_text = FD_LOAD( fd_elf64_shdr, bin + shdr_start + (ulong)shndx_text*sizeof(fd_elf64_shdr) );
-  ulong vm_start = sh_text.sh_addr;
-  ulong vm_end   = sh_text.sh_addr + sh_text.sh_size;
-  if( FD_UNLIKELY( ( vm_end < vm_start ) | ( ehdr.e_entry < vm_start ) | ( ehdr.e_entry >= vm_end ) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L786-L788 */
+  if( FD_UNLIKELY( writeable_err ) ) {
+    return FD_SBPF_ELF_ERR_WRITABLE_SECTION_NOT_SUPPORTED;
   }
 
-  /* Additional rodata/stack overlap and offset checks are enforced later during load.
-     See parse_ro_sections in Rust for reference:
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L886-L923 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L804-L806 */
+  if( FD_UNLIKELY( !(
+    text_shdr->sh_addr <= ehdr.e_entry && ehdr.e_entry < fd_ulong_sat_add( text_shdr->sh_addr, text_shdr->sh_size )
+  ) ) ) {
+    return FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS;
+  }
+
+  ulong entry_off = fd_ulong_sat_sub( ehdr.e_entry, text_shdr->sh_addr );
+  info->entry_pc         = (uint)( entry_off / 8UL );
+  info->text_off         = (uint)text_shdr->sh_offset;
+  info->text_sz          = (uint)text_shdr->sh_size;
+  info->text_cnt         = (uint)( text_shdr->sh_size / 8UL );
+  info->shndx_text       = shndx_text;
 
   return 0;
 }
@@ -2021,48 +2028,43 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L617 */
-  if( FD_UNLIKELY( res=fd_sbpf_lenient_elf_validate( info, bin, bin_sz, config )<0 ) ) {
+  fd_elf64_shdr text_shdr = { 0 };
+  if( FD_UNLIKELY( res=fd_sbpf_lenient_elf_validate( info, bin, bin_sz, config, &text_shdr )<0 ) ) {
     return res;
   }
 
-  /* Calculate the text section info (up to Rust L639)
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L620-L637 */
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L620-L638 */
   {
-    fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
-    if( FD_UNLIKELY( info->shndx_text<0 || (ulong)info->shndx_text >= ehdr.e_shnum ) ) {
-      return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
-    }
-    ulong shdr_start = ehdr.e_shoff;
-    fd_elf64_shdr text = FD_LOAD( fd_elf64_shdr, bin + shdr_start + (ulong)info->shndx_text*sizeof(fd_elf64_shdr) );
-
-    /* Compute text_section_vaddr and vaddr_end as in Rust */
+    ulong sbpf_version = info->sbpf_version;
     ulong text_section_vaddr;
-    if( fd_sbpf_enable_elf_vaddr( info->sbpf_version ) && text.sh_addr >= FD_SBPF_MM_RODATA_ADDR ) {
-      text_section_vaddr = text.sh_addr;
+    if( fd_sbpf_enable_elf_vaddr( sbpf_version ) && text_shdr.sh_addr >= FD_SBPF_MM_RODATA_ADDR ) {
+      text_section_vaddr = text_shdr.sh_addr;
     } else {
-      text_section_vaddr = text.sh_addr + FD_SBPF_MM_RODATA_ADDR;
+      text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_RODATA_ADDR );
     }
-    ulong vaddr_end = fd_sbpf_enable_elf_vaddr( info->sbpf_version )
-                    ? text_section_vaddr + text.sh_size /* reject_rodata_stack_overlap() is true for V3+ */
-                    : text_section_vaddr;
 
-    /* If deploying and vaddr disabled, require sh_addr == sh_offset.
-       Also, vaddr_end must not exceed MM_STACK_START. */
-    if( ( config->elf_deploy_checks && !fd_sbpf_enable_elf_vaddr( info->sbpf_version ) && text.sh_addr != text.sh_offset )
-        || ( vaddr_end > FD_SBPF_MM_STACK_ADDR ) ) {
+    ulong vaddr_end;
+    if( fd_sbpf_reject_rodata_stack_overlap( sbpf_version ) ) {
+      vaddr_end = fd_ulong_sat_add( text_section_vaddr, text_shdr.sh_size );
+    } else {
+      vaddr_end = text_section_vaddr;
+    }
+
+    /* Validate bounds - reject broken ELFs */
+    if( FD_UNLIKELY(
+        (
+          config->reject_broken_elfs
+          && !fd_sbpf_enable_elf_vaddr( sbpf_version )
+          && text_shdr.sh_addr != text_shdr.sh_offset
+        )
+        || ( vaddr_end > FD_SBPF_MM_STACK_ADDR )
+    ) ) {
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
     }
   }
 
   /* Peek (vs load) stops here
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L639 */
-
-  // info->rodata_sz        = (uint)phdr[ 1 ].p_memsz;
-  info->rodata_footprint = (uint)bin_sz;
-  // info->entry_pc         = (uint)entry_pc;
-  // info->text_off         = (uint)phdr[ 0 ].p_offset;
-  // info->text_sz          = (uint)phdr[ 0 ].p_memsz;
-  // info->text_cnt         = (uint)( phdr[ 0 ].p_memsz / 8UL );
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L638 */
 
   return 0;
 #endif
