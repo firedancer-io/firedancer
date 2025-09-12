@@ -333,7 +333,7 @@ fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) 
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  //FD_LOG_DEBUG(( "[%s] need highest %lu", __func__, slot ));
+  // FD_LOG_NOTICE(( "[%s] need highest %lu", __func__, slot ));
   return fd_repair_create_dedup_request( glob, fd_needed_highest_window_index, slot, shred_index, glob->now );
 }
 
