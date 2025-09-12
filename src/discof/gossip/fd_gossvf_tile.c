@@ -254,30 +254,6 @@ before_frag( fd_gossvf_tile_ctx_t * ctx,
   }
 }
 
-static void
-strip_network_hdrs( uchar const *   data,
-                    ulong           data_sz,
-                    uchar ** const  payload,
-                    ulong *         payload_sz,
-                    fd_ip4_port_t * peer_address ) {
-  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)data;
-  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
-  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-
-  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) ) FD_LOG_ERR(( "Malformed UDP header" ));
-  ulong udp_sz = fd_ushort_bswap( udp->net_len );
-  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) FD_LOG_ERR(( "Malformed UDP header" ));
-  ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
-
-  *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
-  *payload_sz  = payload_sz_;
-
-  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) ) FD_LOG_ERR(( "Malformed UDP payload" ));
-
-  peer_address->addr = ip4->saddr;
-  peer_address->port = udp->net_sport;
-}
-
 static inline void
 during_frag( fd_gossvf_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -814,7 +790,11 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
             fd_stem_context_t *    stem ) {
   uchar * payload;
   ulong payload_sz;
-  strip_network_hdrs( ctx->payload, sz, &payload, &payload_sz, &ctx->peer );
+  fd_ip4_hdr_t * ip4_hdr;
+  fd_udp_hdr_t * udp_hdr;
+  FD_TEST( fd_ip4_udp_hdr_strip( ctx->payload, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
+  ctx->peer.addr = ip4_hdr->saddr;
+  ctx->peer.port = udp_hdr->net_sport;
 
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
 
