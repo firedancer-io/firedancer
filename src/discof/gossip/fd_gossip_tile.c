@@ -178,6 +178,10 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_SET( GOSSIP, PING_TRACKER_STAKE_CHANGED_COUNT,   ping_tracker_metrics->stake_changed_cnt );
   FD_MCNT_SET( GOSSIP, PING_TRACKER_ADDRESS_CHANGED_COUNT, ping_tracker_metrics->address_changed_cnt );
 
+  fd_prune_finder_metrics_t const * prune_finder_metrics = fd_gossip_prune_finder_metrics( ctx->gossip );
+
+  FD_MCNT_SET( GOSSIP, PRUNE_FINDER_ORIGIN_RELAYER_EVICTED_COUNT, prune_finder_metrics->origin_relayer_evicted_cnt );
+
   fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
 
   FD_MGAUGE_ENUM_COPY( GOSSIP, CRDS_COUNT,          crds_metrics->count );

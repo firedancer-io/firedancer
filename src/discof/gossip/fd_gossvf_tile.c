@@ -322,7 +322,7 @@ verify_prune( fd_gossip_view_prune_t const * view,
               uchar const *                  payload,
               fd_sha512_t *                  sha ) {
   uchar sign_data[ FD_NET_MTU ];
-  fd_memcpy(       sign_data,                             "\xffSOLANA_PRUNE_DATA",       18UL );
+  fd_memcpy(       sign_data,                             fd_gossip_prune_prefix,        18UL );
   fd_memcpy(       sign_data+18UL,                        payload+view->pubkey_off,      32UL );
   FD_STORE( ulong, sign_data+50UL,                        view->origins_len );
   fd_memcpy(       sign_data+58UL,                        payload+view->origins_off,     view->origins_len*32UL );
