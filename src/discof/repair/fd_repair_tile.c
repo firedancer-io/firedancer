@@ -1101,7 +1101,6 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
-    fd_catchup_print( ctx->catchup );
     ctx->tsprint = fd_log_wallclock();
   }
 # endif
