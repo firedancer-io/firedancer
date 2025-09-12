@@ -215,7 +215,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if( 0==strcmp( link->name, "replay_notif" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_NOTIF;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
     } else if( 0==strcmp( link->name, "repair_repla" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPAIR_REPLAY;

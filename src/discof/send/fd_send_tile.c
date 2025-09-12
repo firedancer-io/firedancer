@@ -703,9 +703,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_port    = tile->send.send_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
-  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out" );
-  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out"   );
-  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send"  );
+  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out"   );
+  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "replay_stake" );
+  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send"   );
 
   fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
   fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );

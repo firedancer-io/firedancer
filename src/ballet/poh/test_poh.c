@@ -1,4 +1,5 @@
-#include "../fd_ballet.h"
+#include "fd_poh.h"
+#include "../sha256/fd_sha256.h"
 
 /* Ensure that calling fd_poh_append with zero iterations is nop. */
 static void

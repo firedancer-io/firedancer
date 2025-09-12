@@ -302,7 +302,7 @@ validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name,  topo->workspaces[ j ].name ) ) )
+      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name, topo->workspaces[ j ].name ) ) )
         FD_LOG_ERR(( "duplicate workspace name %s", topo->workspaces[ i ].name ));
     }
   }

@@ -22,10 +22,9 @@
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
-#include "../../../flamenco/runtime/fd_runtime.h"
-#include "../../../flamenco/runtime/fd_txncache.h"
 
 #include <unistd.h> /* pause */
+
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
@@ -71,13 +70,13 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "shred_storei" );
   fd_topob_wksp( topo, "repair_store" );
   fd_topob_wksp( topo, "storei_notif" );
-  fd_topob_wksp( topo, "stake_out"    );
+  fd_topob_wksp( topo, "replay_stake" );
   fd_topob_wksp( topo, "store_replay" );
   /*             topo,  link_name,      wksp_name,     depth,         mtu,                    burst */
   fd_topob_link( topo, "shred_storei", "shred_storei", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
   fd_topob_link( topo, "repair_store", "repair_store", 1024UL*1024UL, FD_SHRED_MAX_SZ,        128UL                                          );
   fd_topob_link( topo, "storei_notif", "storei_notif", 65536UL,       4UL*FD_SHRED_STORE_MTU, 4UL+config->tiles.shred.max_pending_shred_sets );
-  fd_topob_link( topo, "stake_out",    "stake_out",    128UL,         40UL + 40200UL * 40UL,  1UL                                            );
+  fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,         40UL + 40200UL * 40UL,  1UL                                            );
   fd_topob_link( topo, "store_replay", "store_replay", 32768UL,       sizeof(ulong),          64UL                                           );
 
   /*                 topo, tile_name, tile_kind_id, link_name,      link_kind_id */
@@ -86,7 +85,7 @@ sim_topo( config_t * config ) {
   fd_topob_tile_in(  topo, "arch_p",  0UL,          "metric_in", "storei_notif",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /*                 topo, tile_name, tile_kind_id, fseq_wksp,   link_name,            link_kind_id, reliable,            polled */
-  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "stake_out",          0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "replay_stake",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "repair_store",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_in(  topo, "storei",  0UL,          "metric_in", "shred_storei",       0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
@@ -98,7 +97,7 @@ sim_topo( config_t * config ) {
   fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "store_replay",       0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
   /*                 topo, tile_name, tile_kind_id, link_name,          link_kind_id */
-  fd_topob_tile_out( topo, "replay",  0UL,          "stake_out",        0UL );
+  fd_topob_tile_out( topo, "replay",  0UL,          "replay_stake",     0UL );
 
   /**********************************************************************/
   /* Setup replay<->exec links in topo                                  */
@@ -165,8 +164,8 @@ sim_topo( config_t * config ) {
       } else {
         FD_LOG_NOTICE(( "Found archive file from config: %s", tile->archiver.rocksdb_path ));
       }
-    } else if( !fd_topo_configure_tile( tile, config ) ) {
-      FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
+    } else {
+      fd_topo_configure_tile( tile, config );
     }
 
     /* Override */
