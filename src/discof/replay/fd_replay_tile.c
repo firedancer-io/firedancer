@@ -1566,7 +1566,6 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
             ulong                    tsorig FD_PARAM_UNUSED,
             ulong                    tspub FD_PARAM_UNUSED,
             fd_stem_context_t *      stem FD_PARAM_UNUSED ) {
-
   switch( ctx->in_kind[in_idx] ) {
   case IN_KIND_REPAIR: {
 
@@ -1972,6 +1971,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "writ_repl"    ) ) ctx->in_kind[ i ] = IN_KIND_WRITER;
     else if( !strcmp( link->name, "tower_replay" ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
+    else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
