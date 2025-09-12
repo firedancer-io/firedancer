@@ -548,6 +548,118 @@ __extension__ typedef unsigned __int128 uint128;
 #define FD_IMPORT_CSTR(  name, path) FD_IMPORT( name, path,  char, 1, ".byte 0" )
 #endif
 
+/* Preprocessor tricks ************************************************/
+
+/* FD_INVOKE and FD_UNPAREN are two helper macros.  FD_INVOKE treats its
+   first argument as a function-like macro and expands it, passing the
+   rest of the arguments to it.
+   FD_UNPAREN expands to its arguments.  It's useful for removing
+   surrounding parentheses from an argument.  For example, if Y is
+   (1,2,3), then FD_UNPAREN Y eventually expands to 1,2,3. */
+#define FD_INVOKE( macro, ... ) macro( __VA_ARGS__ )
+#define FD_UNPAREN(...) __VA_ARGS__
+
+/* The FD_MAP_PRIVATE_R_x_y are helper macros used to implement FD_MAP.
+   They operate on the binary representation of the number of arguments
+   in the list to map over, with each macro essentially popping the most
+   significant bit of the number of arguments.  In particular,
+   FD_MAP_PRIVATE_R_x_y handles the case where bit x (counting from
+   lsb=0) has value y.  If y is 1, it does that by applying M(z,_) to
+   the first 2^x arguments, and then recursing on the x-1th bit.  If y
+   is 0, it just recurses on the x-1th bit. */
+#define FD_MAP_PRIVATE_R_0_1(M,z,              a, ...)   M(z,a)
+#define FD_MAP_PRIVATE_R_0_0(M,z,                 ...)   /* Nothing */
+#define FD_MAP_PRIVATE_R_1_1(M,z, b0,          a,b, ...                            )                                               \
+  M(z,a) M(z,b)                                        FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_0_, b0)(M,z,            __VA_ARGS__)
+#define FD_MAP_PRIVATE_R_1_0(M,z, b0,               ...                            )                                               \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_0_, b0)(M,z,            __VA_ARGS__)
+#define FD_MAP_PRIVATE_R_2_1(M,z, b1,b0,       a,b,c,d, ...                        )                                               \
+  M(z,a) M(z,b) M(z,c) M(z,d)                          FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_1_, b1)(M,z,         b0,__VA_ARGS__)
+#define FD_MAP_PRIVATE_R_2_0(M,z, b1,b0,                ...                        )                                               \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_1_, b1)(M,z,         b0,__VA_ARGS__)
+#define FD_MAP_PRIVATE_R_3_1(M,z, b2,b1,b0,    a,b,c,d,e,f,g,h, ...                )                                               \
+  M(z,a) M(z,b) M(z,c) M(z,d) M(z,e) M(z,f) M(z,g) M(z,h)                                                                          \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_2_, b2)(M,z,      b1,b0,__VA_ARGS__)
+#define FD_MAP_PRIVATE_R_3_0(M,z, b2,b1,b0,                     ...                )                                               \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_2_, b2)(M,z,      b1,b0,__VA_ARGS__)
+#define FD_MAP_PRIVATE_R_4_1(M,z, b3,b2,b1,b0, a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p, ...)                                               \
+  M(z,a) M(z,b) M(z,c) M(z,d) M(z,e) M(z,f) M(z,g) M(z,h) M(z,i) M(z,j) M(z,k) M(z,l) M(z,m) M(z,n) M(z,o) M(z,p)                  \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_3_, b3)(M,z,   b2,b1,b0,__VA_ARGS__)
+#define FD_MAP_PRIVATE_R_4_0(M,z, b3,b2,b1,b0,                                  ...)                                               \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_3_, b3)(M,z,   b2,b1,b0,__VA_ARGS__)
+
+#define FD_MAP_PRIVATE_BINARY_INNER(b4,b3,b2,b1,b0,M,z, ...)                                                                       \
+                                                       FD_EXPAND_THEN_CONCAT2(FD_MAP_PRIVATE_R_4_, b4)(M,z,b3,b2,b1,b0,__VA_ARGS__)
+#define FD_MAP_PRIVATE_BINARY(bits,M,z, ...) FD_INVOKE(FD_MAP_PRIVATE_BINARY_INNER, FD_UNPAREN bits, M, z, __VA_ARGS__ )
+
+/* FD_MAP maps a macro over 1-31 compile-time arguments.
+       FD_MAP( M, base_args, x_0, x_1, ... x_n )
+                     expands to
+   M(base_args, x_0) M(base_args, x_1) ... M(base_args, x_n)
+   Note: properly including separator can be tricky.  If multiple
+   arguments are required in base_args, pass them in parentheses, and
+   then the macro M can handle it.
+
+   Implementation note: FD_MAP works by using FD_VA_ARGS_SELECT to count
+   the number of arguments and return the count as a 5-digit binary
+   number.  Then it invokes the private helpers with these bits, which
+   handle the list of arguments. */
+#define FD_MAP(macro,base_args, ...) \
+  FD_MAP_PRIVATE_BINARY( FD_VA_ARGS_SELECT(__VA_ARGS__,(0,0,0,0,0),\
+        (1,1,1,1,1),(1,1,1,1,0),(1,1,1,0,1),(1,1,1,0,0),(1,1,0,1,1),(1,1,0,1,0),(1,1,0,0,1),(1,1,0,0,0),\
+        (1,0,1,1,1),(1,0,1,1,0),(1,0,1,0,1),(1,0,1,0,0),(1,0,0,1,1),(1,0,0,1,0),(1,0,0,0,1),(1,0,0,0,0),\
+        (0,1,1,1,1),(0,1,1,1,0),(0,1,1,0,1),(0,1,1,0,0),(0,1,0,1,1),(0,1,0,1,0),(0,1,0,0,1),(0,1,0,0,0),\
+        (0,0,1,1,1),(0,0,1,1,0),(0,0,1,0,1),(0,0,1,0,0),(0,0,0,1,1),(0,0,0,1,0),(0,0,0,0,1)), macro, base_args, __VA_ARGS__, DUMMY )
+
+
+#define FD_DECLARE_FOR_TYPES_COLON_CONCAT(fname, x) x: fname,
+
+#define FD_DECLARE_FOR_TYPES_A(fname, base, types, obj, ...) \
+  _Generic( *obj, FD_MAP( FD_DECLARE_FOR_TYPES_COLON_CONCAT, fname, FD_UNPAREN types) base: fname )( (base*)fd_type_pun( obj ), __VA_ARGS__ )
+#define FD_DECLARE_FOR_TYPES_N(fname, base, types, obj     ) \
+  _Generic( *obj, FD_MAP( FD_DECLARE_FOR_TYPES_COLON_CONCAT, fname, FD_UNPAREN types) base: fname )( (base*)fd_type_pun( obj ) )
+
+/* FD_DECLARE_FOR_TYPES expands to code that checks if the first
+   argument is a pointer to an object of one of the specified types, and
+   if so, casts it to a pointer to the base type, and invokes fname with
+   the cast pointer and the remaining arguments.  The type compatibility
+   check is done at compile-time, so errors will be reported at compile
+   time.  This has 0 runtime overhead, other than that which the
+   fd_type_pun causes, and does not bloat the binary.  There are no
+   restrictions on the list of types, and it's up to the caller to make
+   sure the pointer cast is safe.  Example use:
+
+
+   typedef struct { int a; } A;
+   typedef struct { int a; int b; } B;
+   typedef struct { int a; int b; int c; } C;
+   typedef struct { int a; int b; int c; int d; } D;
+
+   // And we wish to express D is-a C, C is-a B, B is-a A
+
+   // b_method looks like a normal function, but is actually a macro
+   // that expands to _b_method( (B*) arg0 ) if the type of arg0 is a
+   // B*, C*, or D*.
+   #define b_method( ... ) FD_DECLARE_FOR_TYPES( _b_method, B, (C,D), __VA_ARGS__ )
+   int _b_method( B * ptr_to_b ) { return ptr_to_b->b; }
+
+   #define c_method( ... ) FD_DECLARE_FOR_TYPES( c_method_interal, C, (D), __VA_ARGS__ )
+   int c_method_internal( C* c, int x1, int x2 ) { return c->c + x1 - x2 + c->a; }
+
+   int main( int argc, char** argv ) {
+     A a[1];
+     B b[1];
+     C c[1];
+     D d[1];
+
+     // b_method( a ); -> doesn't compile because A isn't in the list
+     // for b_method
+
+     return b_method( b ) + b_method( c ) + b_method( d ) + c_method( d, 1, 2 );
+   } */
+#define FD_DECLARE_FOR_TYPES(fname, base, types, ... ) FD_EXPAND_THEN_CONCAT2(FD_DECLARE_FOR_TYPES_,\
+    FD_VA_ARGS_SELECT(__VA_ARGS__,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,A,N))(fname, base, types, __VA_ARGS__)
+
 /* Optimizer tricks ***************************************************/
 
 /* FD_RESTRICT is a pointer modifier for to designate a pointer as
