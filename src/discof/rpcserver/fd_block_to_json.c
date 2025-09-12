@@ -894,12 +894,13 @@ fd_account_to_json( fd_webserver_t * ws,
   fd_base58_encode_32((uchar*)metadata->owner, 0, owner);
   char addr[50];
   fd_base58_encode_32(acct.uc, 0, addr);
-  fd_web_reply_sprintf(ws, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"address\":\"%s\",\"space\":%lu}",
+  fd_web_reply_sprintf(ws, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"address\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
                        encstr,
                        (metadata->executable ? "true" : "false"),
                        metadata->lamports,
                        owner,
                        addr,
+                       ULONG_MAX,
                        val_sz);
 
   return NULL;
