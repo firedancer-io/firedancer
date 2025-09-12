@@ -311,10 +311,6 @@ fd_tower_reset_slot( fd_tower_t const * tower,
      b. last vote slot < ghost root slot
      c. ghost root is not an ancestor of last vote
 
-     Normally we reset to our last vote slot's fork, but in all three of
-     these cases we do not have that, so we reset to the ghost head
-     (heaviest slot)'s fork.
-
      The remaining cases 1-4 assume we have voted and determine how to
      reset relative to the ghost head.
 
