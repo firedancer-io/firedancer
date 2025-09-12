@@ -153,19 +153,6 @@ fd_repair_start( fd_repair_t * glob ) {
   return 0;
 }
 
-/* Dispatch timed events and other protocol behavior. This should be
- * called inside the main spin loop. */
-int
-fd_repair_continue( fd_repair_t * glob ) {
-  if ( glob->now - glob->last_print > (long)30e9 ) { /* 30 seconds */
-    glob->last_print = glob->now;
-    glob->last_decay = glob->now;
-  } else if ( glob->now - glob->last_decay > (long)15e9 ) { /* 15 seconds */
-    glob->last_decay = glob->now;
-  }
-  return 0;
-}
-
 int
 fd_repair_construct_request_protocol( fd_repair_t          * glob,
                                       fd_repair_protocol_t * protocol,
