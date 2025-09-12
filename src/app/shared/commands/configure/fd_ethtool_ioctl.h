@@ -24,13 +24,21 @@
 
    - ntuple: n-tuple is a kernel name for hardware flow steering. These
      APIs allow us to create rules that match packets and perform actions
-     on them, such as steering them towards specific queues. */
+     on them, such as steering them towards specific queues.
+
+   There is special handling in many of these functions for EOPNOTSUPP.
+   This is to facilitate correct behavior on network devices that do not
+   support these ioctl commands.  For example, if the ioctl to get the
+   number of channels is not supported, then we can assume the channel
+   count is one and return success.  Similarly, if the ioctl to manage
+   ntuple rules is not supported, we can assume that the clear function
+   is successful. */
 
 #include <linux/if.h>
 
 #include "../../../../util/fd_util_base.h"
 
-#define FD_ETHTOOL_MAX_RXFH_TABLE_SIZE (32768)
+#define FD_ETHTOOL_MAX_RXFH_TABLE_CNT (32768)
 
 #define FD_ETHTOOL_FEATURE_NTUPLE "rx-ntuple-filter"
 
@@ -99,14 +107,15 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
                                   uint                 start_idx );
 
 /* fd_ethtool_ioctl_rxfh_get_table writes the current state of the
-   RXFH table into the user-supplied table array, which must be of
-   size FD_ETHTOOL_MAX_RXFH_TABLE_SIZE.  The actual size of the
-   table is stored in table_size.  Returns nonzero on failure. */
+   RXFH table into the user-supplied table array, which must have space
+   for FD_ETHTOOL_MAX_RXFH_TABLE_CNT elements.  The actual element
+   count of the table is stored in table_ele_cnt.  Returns nonzero on
+   failure. */
 
 int
 fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
                                  uint *               table,
-                                 uint *               table_size );
+                                 uint *               table_ele_cnt );
 
 /* fd_ethtool_ioctl_feature_set enables or disables the network device
    feature with the given name.  Returns nonzero on failure. */
