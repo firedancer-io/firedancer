@@ -19,10 +19,11 @@ static int
 run_ioctl( fd_ethtool_ioctl_t * ioc,
            char const *         cmd,
            void *               data,
-           int                  log ) {
+           int                  log,
+           int                  log_notsupp ) {
   ioc->ifr.ifr_data = data;
   if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) ) {
-    if( log )
+    if( (!!log) & ((errno!=EOPNOTSUPP) | (!!log_notsupp)) )
       FD_LOG_WARNING(( "error configuring network device, ioctl(SIOCETHTOOL,%s) failed (%i-%s)",
                        cmd, errno, fd_io_strerror( errno ) ));
     return errno;
@@ -30,8 +31,8 @@ run_ioctl( fd_ethtool_ioctl_t * ioc,
   return 0;
 }
 
-#define TRY_RUN_IOCTL(ioc, cmd, data) \
-  do { int __ret__ = run_ioctl( (ioc), (cmd), (data), 1 ); \
+#define TRY_RUN_IOCTL( ioc, cmd, data ) \
+  do { int __ret__ = run_ioctl( (ioc), (cmd), (data), 1, 1 ); \
        if( FD_UNLIKELY( __ret__ != 0 ) ) { return __ret__; } } while(0)
 
 fd_ethtool_ioctl_t *
@@ -73,7 +74,11 @@ int
 fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
                                    uint                 num ) {
   struct ethtool_channels ech = { .cmd = ETHTOOL_GCHANNELS };
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_GCHANNELS", &ech );
+  int ret = run_ioctl( ioc, "ETHTOOL_GCHANNELS", &ech, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( (ret==EOPNOTSUPP) & ((num==0) | (num==1))) return 0;
+    return ret;
+  }
 
   ech.cmd = ETHTOOL_SCHANNELS;
   if( num == 0 ) {
@@ -91,16 +96,17 @@ fd_ethtool_ioctl_channels_set_num( fd_ethtool_ioctl_t * ioc,
     ech.tx_count       = num;
     FD_LOG_NOTICE(( "RUN: `ethtool --set-channels %s rx %u tx %u`", ioc->ifr.ifr_name, num, num ));
   }
-  return run_ioctl( ioc, "ETHTOOL_SCHANNELS", &ech, 1 );
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_SCHANNELS", &ech );
+  return 0;
 }
 
 int
 fd_ethtool_ioctl_channels_get_num( fd_ethtool_ioctl_t * ioc,
                                    fd_ethtool_ioctl_channels_t * channels ) {
   struct ethtool_channels ech = { .cmd = ETHTOOL_GCHANNELS };
-  int ret = run_ioctl( ioc, "ETHTOOL_GCHANNELS", &ech, 1 );
-  if( FD_UNLIKELY( ret != 0 ) ) {
-    if( FD_LIKELY( ret == EOPNOTSUPP ) ) {
+  int ret = run_ioctl( ioc, "ETHTOOL_GCHANNELS", &ech, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
       /* network device doesn't support getting number of channels, so
          it must always be 1 */
       channels->supported = 0;
@@ -135,7 +141,9 @@ fd_ethtool_ioctl_rxfh_set_default( fd_ethtool_ioctl_t * ioc ) {
     .cmd = ETHTOOL_SRXFHINDIR,
     .size = 0, /* default indirection table */
   };
-  return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh, 1 );
+  int ret = run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh, 1, 0 );
+  if( FD_UNLIKELY( ret==EOPNOTSUPP ) ) return 0;
+  return ret;
 }
 
 int
@@ -172,7 +180,9 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
     if( i >= num_channels )
       i = start_idx;
   }
-  return run_ioctl( ioc, "ETHTOOL_SRXFHINDIR", &rxfh, 1 );
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXFHINDIR", &rxfh );
+
+  return 0;
 }
 
 int
@@ -191,7 +201,14 @@ fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
 
   /* First get the size of the indirection table and hash key */
   rxfh.m.cmd = ETHTOOL_GRSSH;
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRSSH", &rxfh );
+  int ret = run_ioctl( ioc, "ETHTOOL_GRSSH", &rxfh, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
+      *table_size = 0;
+      return 0;
+    }
+    return ret;
+  }
   if( FD_UNLIKELY( (rxfh.m.indir_size == 0) | (rxfh.m.indir_size > FD_ETHTOOL_MAX_RXFH_TABLE_SIZE) |
                    (rxfh.m.key_size   == 0) | (rxfh.m.key_size   > MAX_RXFH_KEY_SIZE) ) )
     return EINVAL;
@@ -259,7 +276,8 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   esf.m.size = feature_block + 1;
   esf.m.features[ feature_block ].valid = fd_uint_mask_bit( (int)feature_offset );
   esf.m.features[ feature_block ].requested = enabled ? fd_uint_mask_bit( (int)feature_offset ) : 0;
-  return run_ioctl( ioc, "ETHTOOL_SFEATURES", &esf, 1 );
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_SFEATURES", &esf );
+  return 0;
 }
 
 int
@@ -293,7 +311,11 @@ fd_ethtool_ioctl_ntuple_clear( fd_ethtool_ioctl_t * ioc ) {
 
   /* Get count of currently defined rules, return if none exist */
   efc.m.cmd = ETHTOOL_GRXCLSRLCNT;
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLCNT", &efc );
+  int ret = run_ioctl( ioc, "ETHTOOL_GRXCLSRLCNT", &efc, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( ret==EOPNOTSUPP ) return 0;
+    return ret;
+  }
   uint const rule_cnt = efc.m.rule_cnt;
   if( FD_UNLIKELY( rule_cnt > MAX_NTUPLE_RULES ) )
     return EINVAL;
@@ -338,10 +360,11 @@ fd_ethtool_ioctl_ntuple_set_udp_dport( fd_ethtool_ioctl_t * ioc,
       .location = rule_idx
     }
   };
-  if( FD_LIKELY( 0==run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc, 0 ) ) )
+  if( FD_LIKELY( 0==run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc, 0, 0 ) ) )
     return 0;
   efc.fs.location = RX_CLS_LOC_ANY;
-  return run_ioctl( ioc, "ETHTOOL_SRXCLSRLINS", &efc, 1 );
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXCLSRLINS", &efc );
+  return 0;
 }
 
 int
@@ -357,7 +380,14 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
 
   /* Get count of currently defined rules */
   efc.m.cmd = ETHTOOL_GRXCLSRLCNT;
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRLCNT", &efc );
+  int ret = run_ioctl( ioc, "ETHTOOL_GRXCLSRLCNT", &efc, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
+      *valid = (num_dports == 0);
+      return 0;
+    }
+    return ret;
+  }
   uint const rule_cnt = efc.m.rule_cnt;
   if( FD_UNLIKELY( rule_cnt > MAX_NTUPLE_RULES ) )
     return EINVAL;
