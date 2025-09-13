@@ -12,9 +12,7 @@ unsigned int logfile_fd
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
-# client: establish connections when initializing client
-#
-# server: estalbish connections when initializing server
+# client/server: establish connections when initializing client
 #
 # arg 0 is the domain of the socket
 #
@@ -25,11 +23,9 @@ socket: (and (eq (arg 0) "AF_INET")
              (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
              (eq (arg 2) 0))
 
-# client: can connect to up to a variable amount of sockets, but should
-# not attempt to connect to the logfile for STDERR (descriptor 2).  The
-# size of the connection should always be 16.
-#
-#
+# client/server: can connect to up to a variable amount of sockets, but
+# should not attempt to connect to the logfile for STDERR
+# (descriptor 2).  The size of the connection should always be 16.
 #
 # arg 0 is the file descriptor to attempt to connect to
 #
@@ -51,9 +47,7 @@ close: (not (or (eq (arg 0) logfile_fd)
 # server: requires polling existing connections
 ppoll
 
-# client: need to send requests
-#
-# server: need to send messages
+# client/server: need to send messages
 #
 # arg 0 is the file descriptor that we want to send messages to.  We
 # will allow sending to any of the descriptors opened in the client.
