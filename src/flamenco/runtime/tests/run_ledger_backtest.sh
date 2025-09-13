@@ -199,7 +199,7 @@ echo "
 [development]
     sandbox = false
     no_agave = true
-    no_clone = true
+    no_clone = false
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"

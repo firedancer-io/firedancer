@@ -2,6 +2,10 @@
 #include "fd_ipecho_server.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+
+#include <sys/mman.h>
+#include <netinet/in.h>
+
 #include "generated/fd_ipecho_tile_seccomp.h"
 
 struct fd_ipecho_tile_ctx {
@@ -131,6 +135,14 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
+rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                 fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  /* stderr, logfile, and one for each socket() call for up to 16
+     gossip entrypoints (GOSSIP_TILE_ENTRYPOINTS_MAX).  */
+  return 18UL;
+}
+
+static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
@@ -172,6 +184,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_ipecho = {
   .name                     = "ipecho",
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
@@ -179,4 +192,6 @@ fd_topo_run_tile_t fd_tile_ipecho = {
   .privileged_init          = NULL,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
+  .allow_connect            = 1,
+  .keep_host_networking     = 1
 };
