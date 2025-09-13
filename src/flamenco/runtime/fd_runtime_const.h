@@ -23,7 +23,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION (64UL)
 
 /* The initial block id hash is a dummy value for the initial block id
-   as one is not provided in snapshots. This does not have an
+   as one is not provided in snapshots.  This does not have an
    equivalent in Agave.
 
    TODO: This should be removed in favor of repairing the last shred of

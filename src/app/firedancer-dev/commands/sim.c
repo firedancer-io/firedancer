@@ -167,11 +167,6 @@ sim_topo( config_t * config ) {
     } else {
       fd_topo_configure_tile( tile, config );
     }
-
-    /* Override */
-    if( !strcmp( tile->name, "replay" ) ) {
-      strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
-    }
   }
 
   /**********************************************************************/

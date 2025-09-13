@@ -256,7 +256,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
   CFG_POP      ( cstr,   tiles.replay.genesis                             );
-  CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );

@@ -950,7 +950,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
 
     tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    tile->replay.plugins_enabled = fd_topo_find_tile( &config->topo, "plugin", 0UL ) != ULONG_MAX;
 
     if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 ) &&
                       !strncmp( config->paths.snapshots, "", 1 ) ) ) {
@@ -958,7 +957,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
     strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
 
-    strncpy( tile->replay.slots_replayed, config->tiles.replay.slots_replayed, sizeof(tile->replay.slots_replayed) );
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
     strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
 

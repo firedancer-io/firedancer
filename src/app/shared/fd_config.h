@@ -450,7 +450,6 @@ struct fd_config {
     struct {
       char  funk_checkpt[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
-      char  slots_replayed[PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];

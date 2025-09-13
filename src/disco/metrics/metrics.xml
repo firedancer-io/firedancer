@@ -731,8 +731,6 @@ metric introduced.
 </tile>
 
 <tile name="replay">
-  <gauge name="Slot" label="The slot that is currently being executing" />
-  <gauge name="LastVotedSlot" label="The last slot that was voted on" />
   <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
     <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
   </histogram>
