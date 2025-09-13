@@ -105,6 +105,9 @@ fd_gui_new( void *             shmem,
   gui->summary.slot_optimistically_confirmed = 0UL;
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
+  gui->summary.slot_caught_up                = 0UL;
+
+  for( ulong i=0UL; i < (FD_GUI_SHRED_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_known[ i ].slot = ULONG_MAX;
 
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
@@ -168,6 +171,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_startup_time_nanos,
     fd_gui_printf_vote_state,
     fd_gui_printf_vote_distance,
+    fd_gui_printf_slot_max_known,
+    fd_gui_printf_slot_caught_up,
     fd_gui_printf_skipped_history,
     fd_gui_printf_skipped_history_cluster,
     fd_gui_printf_tps_history,
@@ -545,6 +550,9 @@ fd_gui_poll( fd_gui_t * gui ) {
   if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
     fd_gui_estimated_tps_snap( gui );
     fd_gui_printf_estimated_tps( gui );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_printf_slot_max_known( gui );
     fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_400millis += 400L*1000L*1000L;
@@ -1206,8 +1214,9 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
-  memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings[ 0 ])    );
-  memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings[ 0 ]) );
+  memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
+  memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );
+
   gui->epoch.epochs[ idx ].rankings_slot = start_slot;
 
   fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
@@ -1304,6 +1313,33 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
 
   fd_gui_tile_stats_snap( gui, slot->waterfall_end, slot->tile_stats_end );
+}
+
+static inline void
+fd_gui_try_insert_slot_max_known( fd_gui_t * gui, ulong slot, long now_nanos ) {
+  for( ulong i=0UL; i<FD_GUI_SHRED_SLOT_HISTORY_SZ; i++ ) {
+    /* evict any slots older than 4.8 seconds */
+    if( FD_UNLIKELY( gui->summary.slots_max_known[ i ].slot!=ULONG_MAX && now_nanos-gui->summary.slots_max_known[ i ].timestamp_arrival_nanos>4800000000L ) ) {
+      gui->summary.slots_max_known[ i ].slot = ULONG_MAX;
+      continue;
+    }
+
+    /* if we've already seen this slot, just update the timestamp */
+    if( FD_UNLIKELY( gui->summary.slots_max_known[ i ].slot==slot ) ) {
+      gui->summary.slots_max_known[ i ].timestamp_arrival_nanos = now_nanos;
+      return;
+    }
+  }
+
+  /* Insert the new slot number, evicting a smaller slot if necessary */
+  gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ ].timestamp_arrival_nanos = now_nanos;
+  gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ ].slot = slot;
+  fd_gui_shred_slot_sort_insert( gui->summary.slots_max_known, FD_GUI_SHRED_SLOT_HISTORY_SZ+1UL );
+}
+
+void
+fd_gui_handle_shred_slot( fd_gui_t * gui, ulong slot, long now_nanos ) {
+  fd_gui_try_insert_slot_max_known( gui, slot, now_nanos );
 }
 
 static void
@@ -1417,7 +1453,10 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong duration_sum = 0UL;
   ulong slot_cnt = 0UL;
 
-  for( ulong i=0UL; i<fd_ulong_min( _slot+1, 750UL ); i++ ) {
+  /* If we've just caught up we should truncate our slot history to avoid including catch-up slots */
+  int just_caught_up = gui->summary.slot_caught_up && _slot>gui->summary.slot_caught_up && _slot<gui->summary.slot_caught_up+750UL;
+  ulong slot_duration_history_sz = fd_ulong_if( just_caught_up, _slot-gui->summary.slot_caught_up, 750UL );
+  for( ulong i=0UL; i<fd_ulong_min( _slot+1, slot_duration_history_sz ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx  = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1444,6 +1483,12 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    /* Also update slot_max_known which could be larger than the max
+       turbine slot if we are leader */
+    if( FD_UNLIKELY( gui->summary.slots_max_known[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed > gui->summary.slots_max_known[ 0 ].slot ) ) {
+      fd_gui_try_insert_slot_max_known( gui, gui->summary.slot_completed, fd_log_wallclock() );
+    }
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -1599,6 +1644,14 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     }
   }
 
+  int slot_max_known_hist_full = gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ-1UL ].slot!=ULONG_MAX;
+  if( FD_UNLIKELY( !gui->summary.slot_caught_up && slot_max_known_hist_full && gui->summary.slots_max_known[ 0 ].slot < (_slot + 3UL) ) ) {
+    gui->summary.slot_caught_up = _slot + 4UL;
+
+    fd_gui_printf_slot_caught_up( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
   gui->summary.slot_optimistically_confirmed = _slot;
   fd_gui_printf_optimistically_confirmed_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
@@ -1620,7 +1673,7 @@ fd_gui_handle_balance_update( fd_gui_t *    gui,
       break;
     default:
       FD_LOG_ERR(( "balance: unknown account type: %lu", msg[ 0 ] ));
-}
+  }
 }
 
 static void
