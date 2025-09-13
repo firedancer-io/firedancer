@@ -38,6 +38,11 @@ struct fd_crds_metrics {
   ulong purged_cnt;
   ulong purged_expired_cnt;
   ulong purged_evicted_cnt;
+
+  struct {
+    ulong unrecognized_socket_tag;
+    ulong ipv6_address;
+  } ci_insert_events;
 };
 
 typedef struct fd_crds_metrics fd_crds_metrics_t;

@@ -18,7 +18,8 @@ typedef struct fd_crds_contact_info_entry fd_crds_contact_info_entry_t;
 void
 fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
                            uchar const *                       payload,
-                           fd_contact_info_t *                 ci ) {
+                           fd_contact_info_t *                 ci,
+                           fd_crds_metrics_t *                 metrics ) {
   FD_TEST( view->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
   fd_gossip_view_contact_info_t const * ci_view = view->contact_info;
 
@@ -35,13 +36,13 @@ fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
 
   ushort cur_port = 0U;
   for( ulong i = 0UL; i < ci_view->sockets_len; i++ ) {
-   fd_gossip_view_socket_t const * socket_view = &ci_view->sockets[ i ];
+    fd_gossip_view_socket_t const * socket_view = &ci_view->sockets[ i ];
+    cur_port = (ushort)(cur_port + socket_view->offset);
+
     ushort socket_tag = socket_view->key;
     if( FD_UNLIKELY( socket_tag>FD_CONTACT_INFO_SOCKET_LAST ) ) {
-        /* FIXME: We should treat this a corrupted packet, but we
-           see a bunch of contact infos in testnet that enter this
-           branch. Should investigate before making this a return
-           instead of continue. */
+      /* https://github.com/anza-xyz/agave/blob/bff4df9cf6f41520a26c9838ee3d4d8c024a96a1/gossip/src/contact_info.rs#L572-L574 */
+      metrics->ci_insert_events.unrecognized_socket_tag++;
       continue;
     }
     /* Should be caught by parser. */
@@ -49,10 +50,9 @@ fd_crds_contact_info_init( fd_gossip_view_crds_value_t const * view,
 
     fd_gossip_view_ipaddr_t const * addr_view = &ci_view->addrs[ socket_view->index ];
     if( FD_UNLIKELY( addr_view->is_ip6 ) ) {
-      /* IPv6 not supported */
+      metrics->ci_insert_events.ipv6_address++;
       continue;
     }
-    cur_port = (ushort)(cur_port + socket_view->offset);
 
     /* We only want to save the last instance in the event of duplicate
      socket tag entries. This tracks Agave's behavior when populating
