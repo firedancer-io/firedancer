@@ -713,10 +713,11 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
 /* fd_tower_reset_slot returns the slot to reset PoH to when building
    the next leader block.  Assumes tower and ghost are both valid local
    joins and in-sync ie. every vote slot in tower corresponds to a node
-   in ghost.  There is always a reset slot (never returns ULONG_MAX). In
-   general, we reset to the tip of the fork containing our last vote
-   slot (which is usually also the ghost head). See the implementation
-   for detailed documentation of each reset case. */
+   in ghost.  There is always a reset slot (ie. this function will never
+   return ULONG_MAX).  In general, we reset to the leaf of our last vote
+   fork (which is usually also the ghost head).
+   See the implementation for detailed documentation of each reset case.
+   */
 
 ulong
 fd_tower_reset_slot( fd_tower_t const * tower,
