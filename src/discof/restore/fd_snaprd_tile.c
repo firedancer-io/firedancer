@@ -510,11 +510,11 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
 
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t const * tile ) {
-  (void)tile;
-  /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
-  ulong base = 10UL;
-  return base;
+                 fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  /* stderr, logfile, dirfd, local out full fd, local out incremental
+     fd, local in full fd, local in incremental fd, and one spare for a
+     socket(). */
+  return 8UL;
 }
 
 static ulong
@@ -533,7 +533,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t      const * topo,
+populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
@@ -851,6 +851,7 @@ privileged_init( fd_topo_t *      topo,
   ctx->peer_selection = 1;
   ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
 
+  /* Initialize all file descriptors to -1. */
   ctx->local_out.dir_fd                  = -1;
   ctx->local_out.full_snapshot_fd        = -1;
   ctx->local_out.incremental_snapshot_fd = -1;
