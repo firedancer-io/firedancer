@@ -14,7 +14,7 @@
 #include <sys/mman.h> /* PROT_READ (seccomp) */
 #include <sys/uio.h> /* writev */
 #include <netinet/in.h> /* AF_INET */
-#include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
+#include <netinet/tcp.h>
 #include "../../waltz/resolv/fd_netdb.h"
 
 #include "generated/fd_bundle_tile_seccomp.h"

@@ -1,3 +1,5 @@
+#define _GNU_SOURCE /* SOL_TCP (seccomp) */
+
 #include "utils/fd_ssping.h"
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
@@ -12,6 +14,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <netinet/tcp.h>
 #include <netinet/in.h>
 
 #include "generated/snaprd_seccomp.h"

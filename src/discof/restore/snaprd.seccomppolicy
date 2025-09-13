@@ -8,15 +8,29 @@ uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint in_full_fd
 # are always written to the log file.
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
-# that descriptor 2 is always STDERR.
+# that descriptor 2 is always STDERR.  The other files that can be
+# written to are the out descriptors for the full and incremental
+# snapshots.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
            (eq (arg 0) out_full_fd)
            (eq (arg 0) out_inc_fd))
 
+# snapshot: need to be able to read from an open file for snapshot
+# loading
+#
+# arg 0 is the file descriptor that we want to read from
 read: (or (eq (arg 0) in_full_fd)
           (eq (arg 0) in_inc_fd))
 
+# snapshot: establish connections when initializing client for snapshot
+# download
+#
+# arg 0 is the domain of the socket
+#
+# arg 1 is the type of the socket
+#
+# arg 2 is the protocol of the socket
 socket: (or (and (eq (arg 0) "PF_INET")
                  (eq (arg 1) "SOCK_DGRAM|SOCK_NONBLOCK")
                  (eq (arg 2) "IPPROTO_ICMP"))
@@ -24,35 +38,91 @@ socket: (or (and (eq (arg 0) "PF_INET")
                  (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
                  (eq (arg 2) 0)))
 
-# 3/5 is the socket fd TODO: FIXME: MAKE THIS BETTER!!!!!!!!!!!!!
-connect
+# snapshot: need to be able to connect to a peer to download a snapshot
+# from.
+#
+# arg 0 is the file descriptor of the socket to connect to.  We will
+# restrict this being called on any of the snapshot file descriptors,
+# STDERR or the logfile.
+connect: (not (or (eq (arg 0) 2)
+                  (eq (arg 0) logfile_fd)
+                  (eq (arg 0) dir_fd)
+                  (eq (arg 0) out_full_fd)
+                  (eq (arg 0) out_inc_fd)
+                  (eq (arg 0) in_full_fd)
+                  (eq (arg 0) in_inc_fd)))
 
-close
+# snapshot: need to close sockets that were opened when calls to connect
+# fail.
+#
+# arg 0 is the file descriptor that we would like to close.  We will
+# restrict this being called on any of the snapshot file descriptors,
+# STDERR or the logfile.
+close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) logfile_fd)
+                (eq (arg 0) dir_fd)
+                (eq (arg 0) out_full_fd)
+                (eq (arg 0) out_inc_fd)
+                (eq (arg 0) in_full_fd)
+                (eq (arg 0) in_inc_fd)))
 
+# snapshot: we need to be able to poll existing connections that we want
+# to download snapshots from
 ppoll
 
-sendto
+# snapshot: we need to be send http requests to endpoints for snapshot
+# downloading
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on any of the snapshot file
+# descriptors, STDERR or the logfile.
+sendto: (not (or (eq (arg 0) 2)
+                 (eq (arg 0) logfile_fd)
+                 (eq (arg 0) dir_fd)
+                 (eq (arg 0) out_full_fd)
+                 (eq (arg 0) out_inc_fd)
+                 (eq (arg 0) in_full_fd)
+                 (eq (arg 0) in_inc_fd)))
 
-recvfrom
+# snapshot: we need to be able to receive responses for any requests
+# that were sent out
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on any of the snapshot file
+# descriptors, STDERR or the logfile.
+recvfrom: (not (or (eq (arg 0) 2)
+                   (eq (arg 0) logfile_fd)
+                   (eq (arg 0) dir_fd)
+                   (eq (arg 0) out_full_fd)
+                   (eq (arg 0) out_inc_fd)
+                   (eq (arg 0) in_full_fd)
+                   (eq (arg 0) in_inc_fd)))
 
+# snapshot
+setsockopt: (and (not (or (eq (arg 0) 2)
+                          (eq (arg 0) logfile_fd)
+                          (eq (arg 0) dir_fd)
+                          (eq (arg 0) out_full_fd)
+                          (eq (arg 0) out_inc_fd)
+                          (eq (arg 0) in_full_fd)
+                          (eq (arg 0) in_inc_fd)))
+                 (eq (arg 1) SOL_TCP)
+                 (eq (arg 2) TCP_NODELAY))
+
+# snapshot: after a snapshot file has been read in, the file is renamed
+# to its full name
+#
+# arg 0 is the file descriptor for the file that is renamed.
 renameat: (or (eq (arg 0) out_full_fd)
               (eq (arg 0) out_inc_fd)
-              (eq (arg 0) dir_fd  ))
+              (eq (arg 0) dir_fd))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# QUIC uses getrandom for cryptographically secure randomness.
-getrandom
-
-setsockopt
-
-exit_group
-
-kill
-
-clone
-
-exit
+# shutdown: exit is called on shutdown
+#
+# arg 0 is the exit code for close
+exit: (eq (arg 0) 0)

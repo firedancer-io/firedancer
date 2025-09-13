@@ -5,6 +5,7 @@
 
 #include <sys/mman.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
 
 #include "generated/fd_ipecho_tile_seccomp.h"
 
