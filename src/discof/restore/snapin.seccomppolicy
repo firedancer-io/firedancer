@@ -17,10 +17,7 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-exit_group
-
-kill
-
-clone
-
-exit
+# shutdown: exit is called on shutdown
+#
+# arg 0 is the exit code for close
+exit: (eq (arg 0) 0)
