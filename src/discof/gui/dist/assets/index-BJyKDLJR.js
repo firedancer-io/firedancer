@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-BHJG6mYY.js","assets/index-_St8gGTN.css"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-BGhZXPzc.js","assets/index-_St8gGTN.css"])))=>i.map(i=>d[i]);
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
@@ -30283,7 +30283,7 @@ function print() { __p += __j.call(arguments, '') }
     })
   ]);
   Dk = mt(() => {
-    const e = XJ.safeParse(void 0);
+    const e = XJ.safeParse("Firedancer".trim());
     return e.error ? MQ.Frankendancer : e.data;
   });
   Tk = mt();
@@ -53713,7 +53713,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
     });
   }, hYe = HE("/gossip")({
     component: EYe
-  }), pYe = k.lazy(() => gYe(() => import("./index-BHJG6mYY.js"), __vite__mapDeps([0,1])));
+  }), pYe = k.lazy(() => gYe(() => import("./index-BGhZXPzc.js"), __vite__mapDeps([0,1])));
   function EYe() {
     return _.jsx(k.Suspense, {
       children: _.jsx(pYe, {})
