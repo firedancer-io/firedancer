@@ -197,7 +197,7 @@ echo "
     max_total_banks = 4
     max_fork_width = 4
 [development]
-    sandbox = false
+    sandbox = true
     no_agave = true
     no_clone = false
 [log]
