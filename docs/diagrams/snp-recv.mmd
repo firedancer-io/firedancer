@@ -1,0 +1,18 @@
+flowchart TD
+  A[process_packet] --> P[Parse UDP dst_port -> app]
+  P --> D{SNP magic?}
+  D -- No --> R[rx to app]
+  D -- Yes --> T{Type==PAYLOAD?}
+  T -- Yes --> M{Multicast?}
+  M -- Yes --> R
+  M -- No --> C{Conn HS_DONE?}
+  C -- Yes --> V[Validate MAC] --> R
+  C -- No --> K{HS finalizing?}
+  K -- Yes --> Cache
+  K -- No --> Drop
+  T -- No --> H[Handshake step]
+  H -->|needs sig| Sign[Invoke sign cb]
+  H -->|emit| Tx[Finalize UDP + tx]
+  H -->|HS_DONE| Flush[Flush cached pkts]
+
+

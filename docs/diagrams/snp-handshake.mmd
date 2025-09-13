@@ -1,0 +1,11 @@
+sequenceDiagram
+  participant C as Client
+  participant S as Server
+  C->>S: HS_CLIENT_INIT (e)
+  S-->>C: HS_SERVER_INIT (r)
+  C->>S: HS_CLIENT_CONT (r)
+  S-->>C: HS_SERVER_FINI (e, enc_s1, enc_sig1)
+  C->>S: sign callback; HS_CLIENT_FINI (enc_s1, enc_sig1)
+  S-->>C: ACPT; both HS_DONE
+
+

@@ -1,0 +1,20 @@
+flowchart LR
+  subgraph Payload Packet
+    UDP[UDP/IP]
+    SNP[SNP Header]
+    FT[Frame Type]
+    LEN[Length]
+    DATA[Data]
+    MAC[MAC(16)]
+  end
+  UDP --> SNP --> FT --> LEN --> DATA --> MAC
+
+  subgraph Handshake Packets
+    HS0[CLIENT_INIT: e]
+    HS1[SERVER_INIT: r]
+    HS2[CLIENT_CONT: r]
+    HS3[SERVER_FINI: e, enc_s1, enc_sig1]
+    HS4[CLIENT_FINI: enc_s1, enc_sig1]
+  end
+
+

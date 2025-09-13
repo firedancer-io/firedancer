@@ -1,0 +1,10 @@
+flowchart TD
+  A[fd_snp_send] --> B{proto==UDP?}
+  B -- Yes --> U[Finalize UDP + tx]
+  B -- No --> Q[Query conn by peer]
+  Q -->|found & HS_DONE| S[Finalize SNP v1 + tx]
+  Q -->|missing| N[Create conn; cache app pkt]
+  N --> H[Compose HS_CLIENT_INIT]
+  H --> T[Finalize UDP + tx]
+
+
