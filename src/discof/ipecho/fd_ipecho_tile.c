@@ -3,16 +3,8 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include <dirent.h> /* opendir */
-#include <stdio.h> /* snprintf */
-#include <fcntl.h> /* F_SETFL */
-#include <unistd.h> /* close */
-#include <sys/mman.h> /* PROT_READ (seccomp) */
-#include <sys/uio.h> /* writev */
-#include <netinet/in.h> /* AF_INET */
-#include <netinet/tcp.h> /* TCP_FASTOPEN_CONNECT (seccomp) */
-#include <string.h>
-#include <sys/stat.h>
+#include <sys/mman.h>
+#include <netinet/in.h>
 
 #include "generated/fd_ipecho_tile_seccomp.h"
 
@@ -144,11 +136,10 @@ unprivileged_init( fd_topo_t *      topo,
 
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t const * tile ) {
-  (void)tile;
-  /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
-  ulong base = 10UL;
-  return base;
+                 fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  /* stderr, logfile, and one for each socket() call for up to 16
+     gossip entrypoints (GOSSIP_TILE_ENTRYPOINTS_MAX).  */
+  return 18UL;
 }
 
 static ulong

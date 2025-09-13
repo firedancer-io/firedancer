@@ -291,7 +291,7 @@ write_conn( fd_ipecho_server_t * server,
 
   if( FD_LIKELY( conn->state==STATE_READING ) ) return;
 
-  long sz = send( server->pollfds[ conn_idx ].fd, conn->response_bytes+conn->response_bytes_written, sizeof(conn->response_bytes)-conn->response_bytes_written, MSG_NOSIGNAL );
+  long sz = sendto( server->pollfds[ conn_idx ].fd, conn->response_bytes+conn->response_bytes_written, sizeof(conn->response_bytes)-conn->response_bytes_written, MSG_NOSIGNAL, NULL, 0 );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
   if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
     close_conn( server, conn_idx, CLOSE_PEER_RESET );
@@ -311,7 +311,9 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms ) {
 
-  /* Will look for first fd==-1 */
+  /* Will look for first fd==-1.  fd_syscall_poll fails if any of the
+     fds passed in are ==-1.
+     TODO: There is probably a better way to do this. */
   ulong valid_fds = 0UL;
   for( ulong i=0UL; i<server->max_connection_cnt+1UL; i++ ) {
     if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) {

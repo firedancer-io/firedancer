@@ -12,30 +12,103 @@ unsigned int logfile_fd
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
+# client: establish connections when initializing client
+#
+# server: estalbish connections when initializing server
+#
+# arg 0 is the domain of the socket
+#
+# arg 1 is the type of the socket
+#
+# arg 2 is the protocol of the socket
 socket: (and (eq (arg 0) "AF_INET")
              (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
              (eq (arg 2) 0))
 
-# FIXME: We can have up to 16 so [0, 17] execept 2 and 4 ??????
-connect
+# client: can connect to up to a variable amount of sockets, but should
+# not attempt to connect to the logfile for STDERR (descriptor 2).  The
+# size of the connection should always be 16.
+#
+#
+#
+# arg 0 is the file descriptor to attempt to connect to
+#
+# arg 2 is the size of the connection
+connect: (and (not (or (eq (arg 0) logfile_fd)
+                   (eq (arg 0) 2)))
+              (eq (arg 2) 16))
 
-close
+# client: if a connectiion via connect() fails, close the file
+# descriptor.  Only close the file descriptors opened via socket, so
+# not STDERR nor the logfile.
+#
+# server: if a sendto a connection fails, close the file descriptor
+#
+# arg 0 is the file descriptor to close.
+close: (not (or (eq (arg 0) logfile_fd)
+                (eq (arg 0) 2)))
 
-# polling TODO: restrict??
+# server: requires polling existing connections
 ppoll
 
-sendto: (eq (arg 3) "MSG_NOSIGNAL")
+# client: need to send requests
+#
+# server: need to send messages
+#
+# arg 0 is the file descriptor that we want to send messages to.  We
+# will allow sending to any of the descriptors opened in the client.
+# Only restrict from sending to the logfile and STDERR
+#
+# arg 3 is the flag for the send request
+sendto: (and (not (or (eq (arg 0) logfile_fd)
+                      (eq (arg 0) 2)))
+             (eq (arg 3) "MSG_NOSIGNAL")
+             (eq (arg 4) 0)
+             (eq (arg 5) 0))
 
-recvfrom
+# client: need to read from connections established by the client
+#
+# arg 0 is the file descriptor that we recieve messages from.  We will
+# allow receiving to any of the descriptors opened in the client.  Only
+# restrict from receiving to the logfile and STDERR
+#
+# arg 3 is the flags for the recvfrom call
+#
+# arg 4 is the src addr which is not set
+#
+# arg 5 is the addrlen field which is not used
+recvfrom: (and (not (or (eq (arg 0) logfile_fd)
+                        (eq (arg 0) 2)))
+               (eq (arg 3) 0)
+               (eq (arg 4) 0)
+               (eq (arg 5) 0))
 
-# if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
-setsockopt: (and (eq (arg 1) SOL_SOCKET)
+# server: used to control socket options
+#
+# arg 0 is the file descriptor for the socket we want to configure. We
+# will allow configuring of the descriptors opened in the server.  Only
+# restrict from the logfile and STDERR.
+#
+setsockopt: (and (not (or (eq (arg 0) logfile_fd)
+                          (eq (arg 0) 2)))
+                 (eq (arg 1) SOL_SOCKET)
                  (eq (arg 2) SO_REUSEADDR)
                  (eq (arg 4) 4))
 
-bind
+# server: assigns address specified to the file descriptor specified by
+# a call to socket
+#
+# arg 0 is the file descirptor for the file descriptor to assign.
+# Restrict the logfile and STDERR for the same reasons as above
+bind: (not (or (eq (arg 0) logfile_fd)
+               (eq (arg 0) 2)))
 
-listen
+# server: marks socket as a passive socket to accept incoming connects
+#
+# arg 0 is the file descirptor for the socke that gets marked.  Restrict
+# the logfile and STDERR for the same reasons as above
+listen: (not (or (eq (arg 0) logfile_fd)
+                 (eq (arg 0) 2)))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
