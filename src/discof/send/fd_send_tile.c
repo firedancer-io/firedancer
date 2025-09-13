@@ -660,7 +660,6 @@ setup_output_link( fd_send_link_out_t * desc,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "send has no output link" ));
@@ -694,7 +693,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
   fd_quic_set_clock_tickcount( quic );
-
   FD_TEST_CUSTOM( fd_quic_init( quic ), "fd_quic_init failed" );
 
   ctx->quic = quic;

@@ -361,8 +361,7 @@ poll_advance( fd_ssping_t * ssping,
 
     if( FD_LIKELY( pfd->revents & POLLIN ) ) {
       struct icmphdr icmp_hdr;
-      long result = recvfrom( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0, NULL, 0 );
-
+      long result = recvfrom( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0, NULL, NULL );
       if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
       else if( FD_UNLIKELY( -1==result || (ulong)result<sizeof(icmp_hdr) || icmp_hdr.type!=ICMP_ECHOREPLY ) ) {
         unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
@@ -392,13 +391,8 @@ poll_advance( fd_ssping_t * ssping,
 static int
 peer_connect( fd_ssping_t *      ssping,
               fd_ssping_peer_t * peer ) {
-  FD_LOG_WARNING(("PEER CONNECT"));
-
   int sockfd = socket( PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_ICMP );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
-
-  FD_LOG_WARNING(("PEER CONNECT %d", sockfd));
-
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
@@ -426,7 +420,6 @@ peer_connect( fd_ssping_t *      ssping,
 void
 fd_ssping_advance( fd_ssping_t * ssping,
                    long          now ) {
-
   while( !deadline_list_is_empty( ssping->unpinged, ssping->pool ) ) {
     fd_ssping_peer_t * peer = deadline_list_ele_pop_head( ssping->unpinged, ssping->pool );
 
