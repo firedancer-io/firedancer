@@ -24,7 +24,15 @@
 
    - ntuple: n-tuple is a kernel name for hardware flow steering. These
      APIs allow us to create rules that match packets and perform actions
-     on them, such as steering them towards specific queues. */
+     on them, such as steering them towards specific queues.
+
+   There is special handling in many of these functions for EOPNOTSUPP.
+   This is to facilitate correct behavior on network devices that do not
+   support these ioctl commands.  For example, if the ioctl to get the
+   number of channels is not supported, then we can assume the channel
+   count is one and return success.  Similarly, if the ioctl to manage
+   ntuple rules is not supported, we can assume that the clear function
+   is successful. */
 
 #include <linux/if.h>
 
