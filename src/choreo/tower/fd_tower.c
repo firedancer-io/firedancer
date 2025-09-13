@@ -122,9 +122,10 @@ fd_tower_lockout_check( fd_tower_t const * tower,
   fd_tower_vote_t const * vote = fd_tower_votes_peek_index_const( tower, cnt - 1 );
   fd_ghost_ele_t const *  root = fd_ghost_root_const( ghost );
 
-  int lockout_check = (slot > vote->slot) &&
-                      (vote->slot < root->slot || fd_ghost_is_ancestor( ghost, fd_ghost_hash( ghost, vote->slot ), block_id ));
-  FD_LOG_NOTICE(( "[fd_tower_lockout_check] ok? %d. top: (slot: %lu, conf: %lu). switch: %lu.", lockout_check, vote->slot, vote->conf, slot ));
+  int lockout_check = (slot > vote->slot) && (vote->slot < root->slot || fd_ghost_is_ancestor( ghost, fd_ghost_hash( ghost, vote->slot ), block_id ));
+# if LOGGING
+  FD_LOG_NOTICE(( "[%s] %d. top: (slot: %lu, conf: %lu). switch: %lu.", __func__, lockout_check, vote->slot, vote->conf, slot ));
+# endif
   return lockout_check;
 }
 
@@ -285,7 +286,9 @@ fd_tower_threshold_check( fd_tower_t const *   tower,
   }
 
   double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
+# if LOGGING
   FD_LOG_NOTICE(( "[%s] ok? %d. top: %lu. threshold: %lu. stake: %.0lf%%.", __func__, threshold_pct > THRESHOLD_RATIO, fd_tower_votes_peek_tail_const( tower )->slot, threshold_slot, threshold_pct * 100.0 ));
+# endif
   return threshold_pct > THRESHOLD_RATIO;
 }
 
@@ -305,49 +308,46 @@ fd_tower_reset_slot( fd_tower_t const * tower,
   if( FD_UNLIKELY( !head ) ) FD_LOG_CRIT(( "[%s] missing head",     __func__              ));
 # endif
 
-  /* Case 0: reset to the ghost head if any of the following is true:
+  /* Case 0: reset to the ghost head (ie. heaviest leaf slot of any
+     fork) if any of the following is true:
 
      a. haven't voted
      b. last vote slot < ghost root slot
      c. ghost root is not an ancestor of last vote
-
-     The remaining cases 1-4 assume we have voted and determine how to
-     reset relative to the ghost head.
 
      TODO can c. happen in non-exceptional conditions? error out? */
 
   if( FD_UNLIKELY( !vote || vote->slot < root->slot || !fd_ghost_is_ancestor( ghost, &root->key, &vote->key ) ) )
     return head->slot;
 
-  /* Case 1: last vote on same fork as ghost head (ie. last vote slot is
-     an ancestor of ghost head slot ). This is the common case. */
+  /* Case 1: last vote on same fork as heaviest leaf (ie. last vote slot
+     is an ancestor of heaviest leaf ). This is the common case. */
 
   else if( FD_LIKELY( fd_ghost_is_ancestor( ghost, &vote->key, &head->key ) ) )
     return head->slot;
 
-  /* Case 2: last vote is on different fork from ghost head (ie. last
-     vote slot is _not_ an ancestor of ghost head slot), but we have a
-     valid switch proof for the ghost head. So reset to ghost head. */
+  /* Case 2: last vote is on different fork from heaviest leaf (ie. last
+     vote slot is _not_ an ancestor of heaviest leaf), but we have a
+     valid switch proof for the heaviest leaf. */
 
   else if( FD_LIKELY( fd_tower_switch_check( tower, epoch, ghost, head->slot, &head->key ) ) )
     return head->slot;
 
   /* Case 3: same as case 2 except we don't have a valid switch proof,
-     but we detect last vote is now on an "invalid" fork (ie. ancestor
-     of our last vote slot equivocates AND has not reached 52% of
-     stake). If we do find such an ancestor, we reset to the ghost head
-     anyways, despite not having a valid switch proof. This is done to
-     prevent propagating the invalid fork (our last vote) and instead
-     propagate what ghost head selected (recall ghost head only selects
-     valid forks). */
+     but we detect last vote is now on an "invalid" fork (ie. any
+     ancestor of our last vote slot equivocates AND has not reached 52%
+     of stake). If we do find such an ancestor, we reset to the heaviest
+     leaf anyways, despite it being on a different fork and not having a
+     valid switch proof. */
 
   else if( FD_LIKELY( fd_ghost_invalid( ghost, vote ) ) )
     return head->slot;
 
   /* Case 4: same as case 3 except last vote's fork is not invalid. In
-     this case we reset to the head of our last vote fork instead of the
-     overall ghost head. This is done to ensure votes propagate (see
-     top-level documentation in fd_tower.h for details) */
+     this case we reset to the heaviest leaf starting from the subtree
+     rooted at our last vote slot, instead of the overall heaviest leaf.
+     This is done to ensure votes propagate (see top-level documentation
+     in fd_tower.h for details) */
 
   else
     return fd_ghost_head( ghost, vote )->slot;

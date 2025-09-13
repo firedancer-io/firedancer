@@ -117,7 +117,7 @@
 #include "../../tango/fseq/fd_fseq.h"
 
 /* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
-   to turn on additional runtime checks and logging. */
+   to turn on additional runtime checks. */
 
 #ifndef FD_GHOST_USE_HANDHOLDING
 #define FD_GHOST_USE_HANDHOLDING 1
@@ -203,22 +203,14 @@ struct __attribute__((aligned(128UL))) fd_ghost {
 
   /* Metadata */
 
-  ulong magic;       /* ==FD_GHOST_MAGIC */
-  ulong ghost_gaddr; /* wksp gaddr of this in the backing wksp, non-zero gaddr */
-  ulong seed;        /* seed for various hashing function used under the hood, arbitrary */
-  ulong root;        /* pool idx of the root */
-  ulong pool_gaddr;  /* wksp gaddr of the pool backing this ghost, non-zero gaddr */
-  ulong hash_map_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by hash) backing this ghost, non-zero gaddr */
-  ulong slot_map_gaddr;   /* wksp gaddr of the map (for fast O(1) querying by slot) backing this ghost, non-zero gaddr */
-
-  ulong dup_map_gaddr;    /* wksp gaddr of the map (for fast O(1) querying, non-zero gaddr */
-  /* version fseq. query pre & post read. if value is ULONG_MAX, ghost
-     is uninitialized or invalid.
-
-     odd:  if either pre or post is odd, discard read.
-     even: if pre == post, read is consistent. */
-
-  ulong ver_gaddr;
+  ulong magic;          /* ==FD_GHOST_MAGIC */
+  ulong ghost_gaddr;    /* wksp gaddr of this in the backing wksp, non-zero gaddr */
+  ulong seed;           /* seed for various hashing function used under the hood, arbitrary */
+  ulong root;           /* pool idx of the root */
+  ulong pool_gaddr;     /* wksp gaddr of the pool backing this ghost, non-zero gaddr */
+  ulong hash_map_gaddr; /* wksp gaddr of the map (for fast O(1) querying by hash) backing this ghost, non-zero gaddr */
+  ulong slot_map_gaddr; /* wksp gaddr of the map (for fast O(1) querying by slot) backing this ghost, non-zero gaddr */
+  ulong dup_map_gaddr;  /* wksp gaddr of the map (for fast O(1) querying, non-zero gaddr */
 };
 typedef struct fd_ghost fd_ghost_t;
 
@@ -244,10 +236,8 @@ fd_ghost_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_ghost_t),       sizeof(fd_ghost_t)                        ),
-      fd_fseq_align(),           fd_fseq_footprint()                       ),
       fd_ghost_pool_align(),     fd_ghost_pool_footprint    ( ele_max )    ),
       fd_ghost_hash_map_align(), fd_ghost_hash_map_footprint( ele_max )    ),
       fd_ghost_slot_map_align(), fd_ghost_slot_map_footprint( ele_max )    ),
@@ -311,12 +301,10 @@ fd_ghost_wksp( fd_ghost_t const * ghost ) {
   return (fd_wksp_t *)( ( (ulong)ghost ) - ghost->ghost_gaddr );
 }
 
-/* fd_ghost_{ver,pool,map,root} returns a pointer in the caller's
-   address space to the corresponding ghost field.  const versions for
-   each are also provided. */
+/* fd_ghost_{pool,map,root} returns a pointer in the caller's address
+   space to the corresponding ghost field.  const versions for each are
+   also provided. */
 
-FD_FN_PURE static inline ulong                     * fd_ghost_ver           ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->ver_gaddr      ); }
-FD_FN_PURE static inline ulong const               * fd_ghost_ver_const     ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->ver_gaddr      ); }
 FD_FN_PURE static inline fd_ghost_ele_t            * fd_ghost_pool          ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->pool_gaddr     ); }
 FD_FN_PURE static inline fd_ghost_ele_t const      * fd_ghost_pool_const    ( fd_ghost_t const * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->pool_gaddr     ); }
 FD_FN_PURE static inline fd_ghost_hash_map_t       * fd_ghost_hash_map      ( fd_ghost_t       * ghost ) { return fd_wksp_laddr_fast( fd_ghost_wksp( ghost ), ghost->hash_map_gaddr ); }
@@ -371,11 +359,12 @@ fd_ghost_hash( fd_ghost_t const * ghost, ulong slot ) {
   return ele ? &ele->key : NULL;
 }
 
-/* fd_ghost_head greedily traverses the ghost beginning from `root` (not
-   necessarily the root of the ghost tree) and returns the heaviest leaf
-   of the traversal (see top-level documentation for traversal details).
-   Assumes ghost is a current local join and has been initialized with
-   fd_ghost_init and is therefore non-empty. */
+/* fd_ghost_head greedily traverses down the ghost beginning from root,
+   recursively picking the child with most `weight` on each level of the
+   tree, terminating once it reaches a leaf (see top-level documentation
+   for more traversal details).  Assumes ghost is a current local join
+   and has been initialized with fd_ghost_init and is therefore
+   non-empty. */
 
 fd_ghost_ele_t const *
 fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_ele_t const * root );
