@@ -1,0 +1,13 @@
+flowchart TD
+  S[SCHEDULE] --> V{Votes allowed?}
+  V -- Yes --> SV[Schedule votes]
+  V -- No --> CB{Bundle allowed and ready?}
+  SV --> CB
+  CB -- Yes, no votes scheduled --> SB[Try schedule bundle]
+  SB -- Success --> OUT
+  SB -- Conflict/No --> NT
+  CB -- No --> NT[Schedule normal txns]
+  NT --> OUT[Publish microblock + trailer]
+
+
+

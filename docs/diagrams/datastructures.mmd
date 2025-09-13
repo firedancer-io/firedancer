@@ -1,0 +1,31 @@
+flowchart LR
+  subgraph Pool & Indexes
+    POOL[Pool(fd_pack_ord_txn_t)]
+    SIG[Signature Map]
+    NONC[Nonce Map]
+    EXPQ[Expiration Queue]
+  end
+  subgraph Priority
+    PEND[Pending Treap]
+    VOTE[Votes Treap]
+    BUND[Bundles Treap]
+    PENM[Penalty Map -> Treaps]
+  end
+  subgraph Conflicts
+    ACCT[acct_in_use]
+    BS[Compressed Bitsets]
+    UBB[use_by_bank[]]
+  end
+  POOL --> PEND
+  POOL --> VOTE
+  POOL --> BUND
+  POOL --> SIG
+  POOL --> NONC
+  POOL --> EXPQ
+  PEND -->|select| ACCT
+  VOTE -->|select| ACCT
+  BUND -->|select| ACCT
+  ACCT --> UBB
+
+
+

@@ -1,0 +1,9 @@
+flowchart TB
+  subgraph HS_CLIENT_INIT
+    UDP[UDP/IP]
+    SNP[SNP Header: V=1, Type=HS_CLIENT_INIT, SessionID]
+    HS[Handshake Base: SrcSessionID]
+    E[Client Ephemeral e[32]]
+  end
+  UDP --> SNP --> HS --> E
+

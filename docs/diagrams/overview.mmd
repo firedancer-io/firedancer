@@ -1,0 +1,10 @@
+flowchart LR
+  R[Resolver/Dedup] -->|Resolved txns| P[Pack Tile]
+  PoH[PoH/Replay] -->|Leadership| P
+  B[Bank Tiles] -->|Rebates & Busy/Idle| P
+  Exec[Executed Sig Feed] -->|Signatures| P
+  P -->|Microblocks| B
+  P -->|Done Packing| PoH
+
+
+

@@ -1,0 +1,11 @@
+flowchart TB
+  subgraph HS_SERVER_FINI
+    UDP[UDP/IP]
+    SNP[SNP Header: V=1, Type=HS_SERVER_FINI, SessionID]
+    HS[Handshake Base: SrcSessionID]
+    E[Server Ephemeral e[32]]
+    ENC_S1[enc_s1 (32+16)]
+    ENC_SIG1[enc_sig1 (64+16)]
+  end
+  UDP --> SNP --> HS --> E --> ENC_S1 --> ENC_SIG1
+

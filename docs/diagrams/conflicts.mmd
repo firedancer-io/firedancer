@@ -1,0 +1,8 @@
+flowchart LR
+  TX[Selected Txns] -->|touch accounts| MARK[Mark acct_in_use (R/W)]
+  MARK --> BANK[Bank i executes]
+  BANK --> DONE[Complete]
+  DONE --> CLEAR[Clear bits via use_by_bank[i]]
+
+
+

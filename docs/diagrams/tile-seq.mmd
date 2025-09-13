@@ -1,0 +1,23 @@
+sequenceDiagram
+  participant PoH as PoH/Replay
+  participant PT as Pack Tile
+  participant PK as fd_pack
+  participant BK as Bank Tiles
+
+  PoH->>PT: BecameLeader(slot, limits, end_ns)
+  PT->>PK: set_block_limits(limits), pacing_init
+  loop while leader
+    PT->>PK: schedule_next_microblock(bank_i, flags)
+    alt scheduled
+      PT->>BK: publish microblock(bank_i)
+      BK-->>PT: busy; later complete
+      PT->>PK: microblock_complete(bank_i)
+    else none
+      PT-->>PT: wait/pace
+    end
+  end
+  PT->>PK: end_block()
+  PT->>PoH: done_packing(microblock_cnt)
+
+
+

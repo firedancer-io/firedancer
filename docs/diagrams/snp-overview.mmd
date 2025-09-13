@@ -1,0 +1,10 @@
+flowchart LR
+  App[Application] -->|send| SNP[SNP Stack]
+  SNP -->|tx callback| UDPIP[UDP/IP]
+  UDPIP --> NW[Network]
+  NW --> UDPIP2[UDP/IP]
+  UDPIP2 -->|rx callback| SNP2[SNP Stack]
+  SNP2 -->|dispatch| App2[Application]
+
+
+

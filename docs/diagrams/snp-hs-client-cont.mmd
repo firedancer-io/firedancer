@@ -1,0 +1,9 @@
+flowchart TB
+  subgraph HS_CLIENT_CONT
+    UDP[UDP/IP]
+    SNP[SNP Header: V=1, Type=HS_CLIENT_CONT, SessionID]
+    HS[Handshake Base: SrcSessionID]
+    R[Reflect Random r[16]]
+  end
+  UDP --> SNP --> HS --> R
+
