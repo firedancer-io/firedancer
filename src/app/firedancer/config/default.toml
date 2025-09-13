@@ -405,7 +405,7 @@ user = ""
 
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
-# accounts will be offloaded to the "groove" database.
+# accounts will be offloaded to the "vinyl" database.
 [funk]
     # The size of the funk heap in gigabytes.  This value must be large
     # enough to store all Solana accounts uncompressed.
@@ -465,8 +465,8 @@ user = ""
     # max_fork_width, the client will crash.
     max_fork_width = 32
 
-# This section configures the "groove" persistent account database.
-# [groove]
+# This section configures the "vinyl" persistent account database.
+# [vinyl]
 # ...
 
 [store]
