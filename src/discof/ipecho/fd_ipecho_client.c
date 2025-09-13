@@ -240,3 +240,8 @@ fd_ipecho_client_poll( fd_ipecho_client_t * client,
 
   return 1;
 }
+
+struct pollfd const *
+fd_ipecho_client_get_pollfds( fd_ipecho_client_t * client ) {
+  return client->pollfds;
+}
