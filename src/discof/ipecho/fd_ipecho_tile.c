@@ -180,7 +180,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
-
   /* All of the fds managed by the client. */
   for( ulong i=0UL; i<tile->ipecho.entrypoints_cnt; i++ ) {
     out_fds[ out_cnt++ ] = fd_ipecho_client_get_pollfds( ctx->client )[ i ].fd;
