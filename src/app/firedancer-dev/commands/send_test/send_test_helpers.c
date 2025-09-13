@@ -5,6 +5,7 @@
 #include "../../../../choreo/tower/fd_tower.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h"
 #include "../../../../disco/pack/fd_microblock.h"
+#include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../flamenco/gossip/fd_gossip_types.h"
 #include "../../../../util/net/fd_ip4.h"
 
@@ -181,14 +182,12 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
 
 static inline void
 send_test_trigger( send_test_ctx_t * ctx, send_test_out_t * out ) {
-  uchar * buf = fd_chunk_to_laddr( out->mem, out->chunk );
-  fd_memcpy( buf, ctx->txn_buf, sizeof(fd_txn_p_t) );
+  fd_tower_slot_done_t * slot_done = fd_chunk_to_laddr( out->mem, out->chunk );
+  fd_memcpy( slot_done->vote_txn, ctx->txn_buf->payload, ctx->txn_buf->payload_sz );
 
-  ulong const sz = sizeof(fd_txn_p_t);
-  ulong const sig = ctx->slot++;
-  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, out->chunk, sz, 0UL, 0UL, 0UL );
+  fd_mcache_publish( out->mcache, out->depth, out->seq, 0UL, out->chunk, ctx->txn_buf->payload_sz, 0UL, 0UL, 0UL );
   out->seq   = fd_seq_inc( out->seq, 1UL );
-  out->chunk = fd_dcache_compact_next( out->chunk, sz, out->chunk0, out->wmark );
+  out->chunk = fd_dcache_compact_next( out->chunk, ctx->txn_buf->payload_sz, out->chunk0, out->wmark );
 }
 
 static inline send_test_out_t

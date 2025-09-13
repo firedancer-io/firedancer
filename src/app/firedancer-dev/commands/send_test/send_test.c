@@ -3,7 +3,7 @@ send_test is a firedancer-dev command that tests the send tile.
 It uses the net, send, metrics, and sign tiles, just like in prod.
 The main test function writes contact info to the gossip_out link,
 stake info to the stake_out link, and triggers mock votes on the
-tower_send link.
+tower_out link.
 
 It takes two required arguments:
 --gossip-file: the path to the gossip file
@@ -24,8 +24,8 @@ up the entire gossip subtopo.
 #include "../../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus_t */
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../disco/net/fd_net_tile.h" /* fd_topos_net_tiles */
+#include "../../../../discof/tower/fd_tower_tile.h"
 #include "../../../../flamenco/leaders/fd_leaders_base.h" /* FD_STAKE_OUT_MTU */
-#include "../../../../disco/pack/fd_microblock.h" /* fd_txn_p_t */
 #include "../../../../app/firedancer/topology.h" /* fd_topo_configure_tile */
 #include "../../../../disco/keyguard/fd_keyload.h"
 
@@ -100,18 +100,18 @@ send_test_topo( config_t * config ) {
   /* braces shut up clang's 'misleading identation' warning */
   if( !use_live_gossip ) {fd_topob_wksp( topo, "gossip_out" ); }
   /**/                    fd_topob_wksp( topo, "replay_stake"  );
-  /**/                    fd_topob_wksp( topo, "tower_send" );
+  /**/                    fd_topob_wksp( topo, "tower_out" );
   /**/                    fd_topob_wksp( topo, "send_txns"  );
 
   if( !use_live_gossip ) {fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL, sizeof(fd_gossip_update_message_t), 1UL ); }
   /**/                    fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,       FD_STAKE_OUT_MTU,                   1UL );
-  /**/                    fd_topob_link( topo, "tower_send",   "tower_send",   65536UL,     sizeof(fd_txn_p_t),                 1UL );
+  /**/                    fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,      sizeof(fd_tower_slot_done_t),       1UL );
   /**/                    fd_topob_link( topo, "send_txns",    "send_txns",    128UL,       40200UL * 38UL,                     1UL );
 
   if( !use_live_gossip ) {fd_link_permit_no_producers( topo, "gossip_out" ); }
   if( !use_live_gossip ) {fd_link_permit_no_consumers( topo, "send_txns"  ); }
   /**/                    fd_link_permit_no_producers( topo, "replay_stake"  );
-  /**/                    fd_link_permit_no_producers( topo, "tower_send" );
+  /**/                    fd_link_permit_no_producers( topo, "tower_out" );
 
   if( use_live_gossip ) {
     /* finish off gossip in_links */
@@ -125,7 +125,7 @@ send_test_topo( config_t * config ) {
 
   fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "gossip_out",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_send",   0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in(     topo, "send", 0UL, "metric_in", "tower_out",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /* attach out links */
   fd_topob_tile_out( topo, "send", 0UL, "send_net", 0UL );
@@ -203,7 +203,7 @@ init( send_test_ctx_t * ctx, config_t * config ) {
 
   ctx->out_links[    MOCK_CI_IDX   ] = setup_test_out_link( topo, "gossip_out" );
   ctx->out_links[  MOCK_STAKE_IDX  ] = setup_test_out_link( topo, "replay_stake" );
-  ctx->out_links[ MOCK_TRIGGER_IDX ] = setup_test_out_link( topo, "tower_send" );
+  ctx->out_links[ MOCK_TRIGGER_IDX ] = setup_test_out_link( topo, "tower_out" );
 
   ctx->out_fns  [    MOCK_CI_IDX   ] = send_test_ci;
   ctx->out_fns  [  MOCK_STAKE_IDX  ] = send_test_stake;
