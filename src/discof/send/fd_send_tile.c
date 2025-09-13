@@ -448,13 +448,11 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 static void
 handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  ulong                vote_slot,
-                 uchar const *        vote_txn,
+                 uchar *              signed_vote_txn,
                  ulong                vote_txn_sz ) {
-  uchar signed_vote_txn[ FD_TPU_MTU ];
-  fd_memcpy( signed_vote_txn, vote_txn, vote_txn_sz );
 
   fd_txn_t txn;
-  FD_TEST( fd_txn_parse( vote_txn, vote_txn_sz, &txn, NULL ) );
+  FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, &txn, NULL ) );
 
   /* sign the txn */
   uchar * signature = signed_vote_txn + txn.signature_off;
@@ -562,7 +560,11 @@ during_frag( fd_send_tile_ctx_t * ctx,
     FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
 
     fd_tower_slot_done_t const * slot_done = (fd_tower_slot_done_t const *)dcache_entry;
-    handle_vote_msg( ctx, slot_done->vote_slot, slot_done->vote_txn, slot_done->vote_txn_sz );
+
+    uchar signed_vote_txn[ FD_TPU_MTU ];
+    fd_memcpy( signed_vote_txn, slot_done->vote_txn, slot_done->vote_txn_sz );
+
+    handle_vote_msg( ctx, slot_done->vote_slot, signed_vote_txn, slot_done->vote_txn_sz );
   }
 }
 
