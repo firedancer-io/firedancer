@@ -267,11 +267,13 @@ returnable_frag( fd_snapin_tile_t *  ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
+                 ulong               ctl,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
+  (void)ctl;
   (void)tsorig;
   (void)tspub;
 

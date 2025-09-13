@@ -3,6 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/tower/fd_tower_tile.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../util/pod/fd_pod_format.h"
 
@@ -77,7 +78,11 @@ typedef struct {
   ulong                 replay_out_idx;
   fd_replay_slot_info_t replay_slot_info;
 
-  ulong root_out_idx;
+  ulong       tower_out_idx;
+  fd_wksp_t * tower_out_mem;
+  ulong       tower_out_chunk0;
+  ulong       tower_out_wmark;
+  ulong       tower_out_chunk;
 
 } ctx_t;
 
@@ -373,7 +378,13 @@ after_frag( ctx_t *             ctx,
 
       /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
 
-      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->root_out_idx, ctx->staged_root, 0, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
+      msg->new_root = 1;
+      msg->root_slot = ctx->staged_root;
+      fd_memset( &msg->root_block_id, 0, sizeof(fd_hash_t) ); /* TODO ... should we set this? */
+
+      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
       ctx->staged_root = slot;
       ctx->credit = 1;
     }
@@ -468,9 +479,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
   ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-  ctx->root_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
-  FD_TEST( ctx->root_out_idx!=ULONG_MAX );
-  /* no root_out dcache */
+  ctx->tower_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_out", 0 );
+  FD_TEST( ctx->tower_out_idx!=ULONG_MAX );
+  link  = &topo->links[ tile->out_link_id[ ctx->tower_out_idx ] ];
+  ctx->tower_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->tower_out_chunk0 = fd_dcache_compact_chunk0( ctx->tower_out_mem, link->dcache );
+  ctx->tower_out_wmark  = fd_dcache_compact_wmark( ctx->tower_out_mem, link->dcache, link->mtu );
+  ctx->tower_out_chunk  = ctx->tower_out_chunk0;
 }
 
 #define STEM_BURST                  (2UL) /* 1 after_credit + 1 after_frag*/

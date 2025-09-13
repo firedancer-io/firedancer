@@ -5,6 +5,7 @@
 
 #include "fd_replay_notif.h"
 #include "../poh/fd_poh.h"
+#include "../tower/fd_tower_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
 #include "../../disco/store/fd_store.h"
@@ -80,12 +81,11 @@
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
 #define IN_KIND_REPAIR  (0)
-#define IN_KIND_ROOT    (1)
-#define IN_KIND_SNAP    (2)
-#define IN_KIND_TOWER   (3)
-#define IN_KIND_WRITER  (4)
-#define IN_KIND_CAPTURE (5)
-#define IN_KIND_POH     (6)
+#define IN_KIND_SNAP    (1)
+#define IN_KIND_TOWER   (2)
+#define IN_KIND_WRITER  (3)
+#define IN_KIND_CAPTURE (4)
+#define IN_KIND_POH     (5)
 
 #define BANK_HASH_CMP_LG_MAX (16UL)
 
@@ -1538,9 +1538,28 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     FD_TEST( sz==sizeof(fd_reasm_fec_t) );
     memcpy( &ctx->fec_out, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_reasm_fec_t) );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_TOWER ) ) {
+    fd_tower_slot_done_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
-    /* TODO: fill in reset bank logic  */
+    if( FD_LIKELY( msg->new_root ) ) {
+      /* We have recieved a root message.  We don't want to update the
+         rooted slot and block id if we are processing the genesis
+         block. */
+      if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )==0UL ) ) return;
 
+      ctx->consensus_root_slot = msg->root_slot;
+
+      /* TODO: Read this from msg->root_block_id, requires updating
+         backtest to pass a correct root_block_id. */
+      block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, msg->root_slot, NULL );
+      if( FD_UNLIKELY( !block_id ) ) {
+        FD_LOG_CRIT(( "invariant violation: no block id found for root slot %lu", msg->root_slot ));
+      }
+      ctx->consensus_root = block_id->block_id;
+
+      publish( ctx );
+    }
+
+    /* TODO fill in reset bank logic */
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_WRITER ) ) {
     fd_replay_in_link_t * in = &ctx->in[ in_idx ];
     fd_writer_replay_txn_finalized_msg_t const * msg = (fd_writer_replay_txn_finalized_msg_t const *)fd_chunk_to_laddr( in->mem, chunk );
@@ -1630,32 +1649,12 @@ after_frag( fd_replay_tile_ctx_t *   ctx,
     break;
   }
 
-  case IN_KIND_ROOT: {
-    /* We have recieved a root message.  We don't want to update the
-       rooted slot and block id if we are processing the genesis
-       block. */
-    if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )==0UL )) return;
-    ctx->consensus_root_slot = sig;
-
-    block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, sig, NULL );
-    if( FD_UNLIKELY( !block_id ) ) {
-      FD_LOG_CRIT(( "invariant violation: no block id found for root slot %lu", sig ));
-    }
-    ctx->consensus_root = block_id->block_id;
-
-    publish( ctx );
-    break;
-  }
-
   case IN_KIND_SNAP: {
     on_snapshot_message( ctx, stem, in_idx, ctx->_snap_out_chunk, sig );
     break;
   }
 
   case IN_KIND_TOWER: {
-
-    /* TODO fill in reset bank logic */
-
     break;
   }
 
@@ -1968,9 +1967,8 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "repair_repla" ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "root_out"     ) ) ctx->in_kind[ i ] = IN_KIND_ROOT;
     else if( !strcmp( link->name, "writ_repl"    ) ) ctx->in_kind[ i ] = IN_KIND_WRITER;
-    else if( !strcmp( link->name, "tower_replay" ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
+    else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
