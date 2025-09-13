@@ -23,6 +23,7 @@
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
+#include "../../../discof/tower/fd_tower_tile.h"
 #include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
 
@@ -164,10 +165,10 @@ backtest_topo( config_t * config ) {
      This allows the replay tile to advance its watermark, and publish
      various data structures.  This is an oversimplified barebones mock
      of the tower tile. */
-  fd_topob_wksp( topo, "root_out" );
-  fd_topob_link( topo, "root_out", "root_out", 128UL, 0UL, 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "root_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "back", 0UL, "root_out", 0UL );
+  fd_topob_wksp( topo, "tower_out" );
+  fd_topob_link( topo, "tower_out", "tower_out", 2UL, sizeof(fd_tower_slot_done_t), 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "tower_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "back", 0UL, "tower_out", 0UL );
 
   /**********************************************************************/
   /* Setup replay->stake/send/poh links in topo w/o consumers         */

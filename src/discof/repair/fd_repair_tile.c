@@ -48,6 +48,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_repair_tile_seccomp.h"
 
+#include "../tower/fd_tower_tile.h"
 #include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/leaders/fd_leaders_base.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
@@ -72,7 +73,7 @@
 
 #define IN_KIND_CONTACT (0)
 #define IN_KIND_NET     (1)
-#define IN_KIND_ROOT    (2)
+#define IN_KIND_TOWER   (2)
 #define IN_KIND_SHRED   (3)
 #define IN_KIND_SIGN    (4)
 #define IN_KIND_SNAP    (5)
@@ -149,8 +150,6 @@ struct fd_repair_tile_ctx {
 
   uchar              in_kind[ MAX_IN_LINKS ];
   fd_repair_in_ctx_t in_links[ MAX_IN_LINKS ];
-
-  fd_hash_t root_block_id; /* block id of root published on tower_out */
 
   int skip_frag;
 
@@ -622,8 +621,14 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
 
-  } else if( FD_UNLIKELY( in_kind==IN_KIND_ROOT ) ) {
-    memcpy( ctx->root_block_id.uc, fd_chunk_to_laddr_const( in_ctx->mem, chunk ), sizeof(fd_hash_t) );
+  } else if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
+    fd_tower_slot_done_t const * msg = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
+    if( FD_LIKELY( msg->new_root ) ) {
+      fd_forest_publish( ctx->forest, msg->root_slot );
+      ctx->repair_iter = fd_forest_iter_init( ctx->forest );
+      fd_reasm_publish( ctx->reasm, &msg->root_block_id );
+      return;
+    }
     return;
 
   } else if( FD_UNLIKELY( in_kind==IN_KIND_STAKE ) ) {
@@ -791,13 +796,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_kind==IN_KIND_ROOT ) ) {
-    fd_forest_publish( ctx->forest, sig /* root slot */ );
-    ctx->repair_iter = fd_forest_iter_init( ctx->forest );
-    fd_reasm_publish( ctx->reasm, &ctx->root_block_id );
-    return;
-  }
-
   if( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
     fd_repair_handle_sign_response( ctx, in_idx, sig, stem );
     return;
@@ -929,6 +927,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SNAP ) ) {
     after_frag_snap( ctx, sig, fd_chunk_to_laddr( ctx->in_links[ in_idx ].mem, ctx->snap_out_chunk ) );
+    return;
+  }
+
+  if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
     return;
   }
 
@@ -1142,8 +1144,8 @@ unprivileged_init( fd_topo_t *      topo,
       continue;
     } else if( 0==strcmp( link->name, "gossip_out" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
-    } else if( 0==strcmp( link->name, "root_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_ROOT;
+    } else if( 0==strcmp( link->name, "tower_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
     } else if( 0==strcmp( link->name, "shred_repair" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     } else if( 0==strcmp( link->name, "sign_repair" ) || 0==strcmp( link->name, "sign_ping" ) ) {

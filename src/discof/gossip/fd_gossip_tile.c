@@ -275,10 +275,12 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  sig,
                  ulong                  chunk,
                  ulong                  sz,
+                 ulong                  ctl,
                  ulong                  tsorig,
                  ulong                  tspub,
                  fd_stem_context_t *    stem ) {
   (void)seq;
+  (void)ctl;
   (void)tsorig;
   (void)tspub;
 
