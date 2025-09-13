@@ -57,6 +57,7 @@ tile_main( void * _args ) {
 
   fd_topo_run_tile_t run_tile = fdctl_tile_run( args->tile );
   fd_topo_run_tile( &args->config->topo, args->tile, args->config->development.sandbox, 0, args->config->development.core_dump, args->config->uid, args->config->gid, args->pipefd, wait, debug, &run_tile );
+
   /* If we get here, the tile run loop has requested to exit the tile,
      so it is cleanly shutting down. */
   FD_TEST( args->tile->allow_shutdown );

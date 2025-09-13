@@ -660,7 +660,6 @@ setup_output_link( fd_send_link_out_t * desc,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
 
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
@@ -679,9 +678,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_quic_t * quic = fd_quic_join( fd_quic_new( FD_SCRATCH_ALLOC_APPEND( l, fd_quic_align(), fd_quic_footprint( &quic_limits ) ), &quic_limits ) );
   if( FD_UNLIKELY( !quic ) ) FD_LOG_ERR(( "fd_quic_new failed" ));
 
-    FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
-
-
   quic->config.role          =  FD_QUIC_ROLE_CLIENT;
   quic->config.idle_timeout  =  FD_SEND_QUIC_IDLE_TIMEOUT_NS;
   quic->config.ack_delay     =  FD_SEND_QUIC_ACK_DELAY_NS;
@@ -696,18 +692,10 @@ unprivileged_init( fd_topo_t *      topo,
   quic->cb.now_ctx           = ctx;
   quic->cb.quic_ctx          = ctx;
 
-    FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
-
   fd_quic_set_aio_net_tx( quic, quic_tx_aio );
-      FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
-
   fd_quic_set_clock_tickcount( quic );
-      FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
 
   FD_TEST_CUSTOM( fd_quic_init( quic ), "fd_quic_init failed" );
-
-    FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
-
 
   ctx->quic = quic;
 
@@ -726,9 +714,6 @@ unprivileged_init( fd_topo_t *      topo,
   setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "replay_stake" );
   setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_out"    );
 
-  FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
-
-
   fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
   fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );
 
@@ -740,9 +725,6 @@ unprivileged_init( fd_topo_t *      topo,
   ulong             sign_out_idx =  fd_topo_find_tile_out_link( topo, tile, "send_sign", 0 );
   fd_topo_link_t  * sign_in      =  &topo->links[ tile->in_link_id[  sign_in_idx  ] ];
   fd_topo_link_t  * sign_out     =  &topo->links[ tile->out_link_id[ sign_out_idx ] ];
-
-    FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
-
 
   if ( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                             sign_out->mcache,
@@ -771,7 +753,6 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top != (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
-  FD_LOG_WARNING(("UNPRIVILEGED INIT DONE"));
 }
 
 static ulong

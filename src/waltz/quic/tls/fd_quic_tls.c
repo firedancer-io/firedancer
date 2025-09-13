@@ -115,16 +115,10 @@ fd_quic_tls_init( fd_tls_t *    tls,
     .quic_tp_peer_fn = fd_quic_tls_tp_peer,
   };
 
-  FD_LOG_WARNING(("QUIC TLS INIT"));
   /* Generate X25519 key */
   if( FD_UNLIKELY( !fd_rng_secure( tls->kex_private_key, 32UL ) ) )
     FD_LOG_ERR(( "fd_rng_secure failed: %s", fd_io_strerror( errno ) ));
-
-  FD_LOG_WARNING(("QUIC TLS INIT"));
-
   fd_x25519_public( tls->kex_public_key, tls->kex_private_key );
-
-  FD_LOG_WARNING(("QUIC TLS INIT"));
 
   /* Set up Ed25519 key */
   fd_memcpy( tls->cert_public_key, cert_public_key, 32UL );

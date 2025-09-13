@@ -146,7 +146,6 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->state = FD_SNAPDC_STATE_DONE;
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-      FD_LOG_WARNING(("SNAPDC HANDLE CONTROL FRAG DONE"));
       FD_TEST( ctx->state==FD_SNAPDC_STATE_DONE );
       ctx->state = FD_SNAPDC_STATE_SHUTDOWN;
       break;
