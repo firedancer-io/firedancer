@@ -196,10 +196,6 @@ echo "
 [runtime]
     max_total_banks = 4
     max_fork_width = 4
-[development]
-    sandbox = true
-    no_agave = true
-    no_clone = false
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"
