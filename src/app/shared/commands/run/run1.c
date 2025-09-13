@@ -57,7 +57,7 @@ tile_main( void * _args ) {
 
   fd_topo_run_tile_t run_tile = fdctl_tile_run( args->tile );
   fd_topo_run_tile( &args->config->topo, args->tile, args->config->development.sandbox, 0, args->config->development.core_dump, args->config->uid, args->config->gid, args->pipefd, wait, debug, &run_tile );
-
+  FD_LOG_WARNING(( "tile %s:%lu run loop returned5555", args->tile->name, args->tile->kind_id ));
   /* If we get here, the tile run loop has requested to exit the tile,
      so it is cleanly shutting down. */
   FD_TEST( args->tile->allow_shutdown );
@@ -103,5 +103,6 @@ run1_cmd_fn( args_t *   args,
      other or the parent. */
   int flags = config->development.sandbox ? CLONE_NEWPID : 0;
   pid_t clone_pid = clone( tile_main, (uchar *)stack + FD_TILE_PRIVATE_STACK_SZ, flags, &clone_args );
+  FD_LOG_WARNING(( "tile %s:%lu run loop returned6666", tile->name, tile->kind_id ));
   if( FD_UNLIKELY( clone_pid<0 ) ) FD_LOG_ERR(( "clone() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }

@@ -21,20 +21,28 @@
 #else
 # error "Target architecture is unsupported by seccomp."
 #endif
-static const unsigned int sock_filter_policy_snapdc_instr_cnt = 15;
+static const unsigned int sock_filter_policy_snapdc_instr_cnt = 19;
 
 static void populate_sock_filter_policy_snapdc( ulong out_cnt, struct sock_filter * out, unsigned int logfile_fd ) {
-  FD_TEST( out_cnt >= 15 );
-  struct sock_filter filter[15] = {
+  FD_TEST( out_cnt >= 19 );
+  struct sock_filter filter[19] = {
     /* Check: Jump to RET_KILL_PROCESS if the script's arch != the runtime arch */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, arch ) ) ),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 11 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, ARCH_NR, 0, /* RET_KILL_PROCESS */ 15 ),
     /* loading syscall number in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, ( offsetof( struct seccomp_data, nr ) ) ),
     /* allow write based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 3, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_write, /* check_write */ 7, 0 ),
     /* simply allow exit_group */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit_group, /* RET_ALLOW */ 9, 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit_group, /* RET_ALLOW */ 13, 0 ),
+    /* simply allow kill */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_kill, /* RET_ALLOW */ 12, 0 ),
+    /* simply allow exit */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_exit, /* RET_ALLOW */ 11, 0 ),
+    /* simply allow close */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_close, /* RET_ALLOW */ 10, 0 ),
+    /* simply allow clone */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_clone, /* RET_ALLOW */ 9, 0 ),
     /* allow fsync based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fsync, /* check_fsync */ 5, 0 ),
     /* none of the syscalls matched */

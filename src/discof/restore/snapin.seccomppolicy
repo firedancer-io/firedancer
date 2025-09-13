@@ -18,3 +18,9 @@ write: (or (eq (arg 0) 2)
 fsync: (eq (arg 0) logfile_fd)
 
 exit_group
+
+kill
+
+clone
+
+exit

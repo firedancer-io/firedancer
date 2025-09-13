@@ -14,6 +14,14 @@ write: (or (eq (arg 0) 2)
 
 exit_group
 
+kill
+
+exit
+
+close
+
+clone
+
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.

@@ -50,3 +50,9 @@ getrandom
 setsockopt
 
 exit_group
+
+kill
+
+clone
+
+exit
