@@ -81,11 +81,6 @@
 
 #define MAX_IN_LINKS    (16)
 
-#define NET_OUT_IDX      (0)
-#define SIGN_OUT_IDX     (1)
-#define REPLAY_OUT_IDX   (2)
-#define ARCHIVE_OUT_IDX  (3)
-
 #define MAX_REPAIR_PEERS   40200UL
 #define MAX_BUFFER_SIZE    ( MAX_REPAIR_PEERS * sizeof( fd_shred_dest_wire_t ) )
 #define MAX_SHRED_TILE_CNT ( 16UL )
@@ -165,6 +160,7 @@ struct fd_repair_tile_ctx {
   ulong       net_out_wmark;
   ulong       net_out_chunk;
 
+  ulong       replay_out_idx;
   fd_wksp_t * replay_out_mem;
   ulong       replay_out_chunk0;
   ulong       replay_out_wmark;
@@ -987,7 +983,7 @@ after_credit( fd_repair_tile_ctx_t * ctx,
 
     ulong sig   = rfec->slot << 32 | rfec->fec_set_idx;
     memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), rfec, sizeof(fd_reasm_fec_t) );
-    fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, ctx->replay_out_idx, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
     /* We might have more reassembled FEC sets to deliver to the
@@ -1101,7 +1097,6 @@ during_housekeeping( fd_repair_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
-    fd_catchup_print( ctx->catchup );
     ctx->tsprint = fd_log_wallclock();
   }
 # endif
@@ -1203,6 +1198,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->net_out_chunk  = ctx->net_out_chunk0;
     } else if( 0==strcmp( link->name, "repair_repla" ) ) {
 
+      ctx->replay_out_idx    = out_idx;
       ctx->replay_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
       ctx->replay_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_out_mem, link->dcache );
       ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );

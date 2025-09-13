@@ -14,6 +14,11 @@
 #endif
 
 /* Struct definitions */
+typedef struct fd_exec_test_cost_tracker {
+    uint64_t block_cost;
+    uint64_t vote_cost;
+} fd_exec_test_cost_tracker_t;
+
 typedef struct fd_exec_test_block_context {
     /* All transactions in this microblock (can be 0) */
     pb_size_t txns_count;
@@ -39,6 +44,9 @@ typedef struct fd_exec_test_block_effects {
     uint64_t slot_capitalization;
     /* Bank hash */
     pb_byte_t bank_hash[32];
+    /* The cost tracker */
+    bool has_cost_tracker;
+    fd_exec_test_cost_tracker_t cost_tracker;
 } fd_exec_test_block_effects_t;
 
 typedef struct fd_exec_test_block_fixture {
@@ -58,14 +66,18 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
+#define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0, 0}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
+#define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0, 0}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
+#define FD_EXEC_TEST_COST_TRACKER_BLOCK_COST_TAG 1
+#define FD_EXEC_TEST_COST_TRACKER_VOTE_COST_TAG  2
 #define FD_EXEC_TEST_BLOCK_CONTEXT_TXNS_TAG      1
 #define FD_EXEC_TEST_BLOCK_CONTEXT_ACCT_STATES_TAG 2
 #define FD_EXEC_TEST_BLOCK_CONTEXT_BLOCKHASH_QUEUE_TAG 3
@@ -74,11 +86,18 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_EFFECTS_HAS_ERROR_TAG 1
 #define FD_EXEC_TEST_BLOCK_EFFECTS_SLOT_CAPITALIZATION_TAG 2
 #define FD_EXEC_TEST_BLOCK_EFFECTS_BANK_HASH_TAG 3
+#define FD_EXEC_TEST_BLOCK_EFFECTS_COST_TRACKER_TAG 4
 #define FD_EXEC_TEST_BLOCK_FIXTURE_METADATA_TAG  1
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INPUT_TAG     2
 #define FD_EXEC_TEST_BLOCK_FIXTURE_OUTPUT_TAG    3
 
 /* Struct field encoding specification for nanopb */
+#define FD_EXEC_TEST_COST_TRACKER_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   block_cost,        1) \
+X(a, STATIC,   SINGULAR, UINT64,   vote_cost,         2)
+#define FD_EXEC_TEST_COST_TRACKER_CALLBACK NULL
+#define FD_EXEC_TEST_COST_TRACKER_DEFAULT NULL
+
 #define FD_EXEC_TEST_BLOCK_CONTEXT_FIELDLIST(X, a) \
 X(a, POINTER,  REPEATED, MESSAGE,  txns,              1) \
 X(a, POINTER,  REPEATED, MESSAGE,  acct_states,       2) \
@@ -95,9 +114,11 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         5)
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     has_error,         1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot_capitalization,   2) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         3)
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  cost_tracker,      4)
 #define FD_EXEC_TEST_BLOCK_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_BLOCK_EFFECTS_DEFAULT NULL
+#define fd_exec_test_block_effects_t_cost_tracker_MSGTYPE fd_exec_test_cost_tracker_t
 
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
@@ -109,11 +130,13 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 #define fd_exec_test_block_fixture_t_input_MSGTYPE fd_exec_test_block_context_t
 #define fd_exec_test_block_fixture_t_output_MSGTYPE fd_exec_test_block_effects_t
 
+extern const pb_msgdesc_t fd_exec_test_cost_tracker_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_context_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_effects_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
+#define FD_EXEC_TEST_COST_TRACKER_FIELDS &fd_exec_test_cost_tracker_t_msg
 #define FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS &fd_exec_test_block_context_t_msg
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDS &fd_exec_test_block_effects_t_msg
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDS &fd_exec_test_block_fixture_t_msg
@@ -121,16 +144,20 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          47
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          71
+#define FD_EXEC_TEST_COST_TRACKER_SIZE           22
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
+#define org_solana_sealevel_v1_CostTracker fd_exec_test_CostTracker
 #define org_solana_sealevel_v1_BlockContext fd_exec_test_BlockContext
 #define org_solana_sealevel_v1_BlockEffects fd_exec_test_BlockEffects
 #define org_solana_sealevel_v1_BlockFixture fd_exec_test_BlockFixture
+#define ORG_SOLANA_SEALEVEL_V1_COST_TRACKER_INIT_DEFAULT FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_COST_TRACKER_INIT_ZERO FD_EXEC_TEST_COST_TRACKER_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_ZERO FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_EFFECTS_INIT_ZERO FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_FIXTURE_INIT_ZERO FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO

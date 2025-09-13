@@ -865,7 +865,7 @@ next_pull_request( fd_gossip_t const * gossip,
      reduces 1024 to a lower amount as the table size shrinks...
      replicate this in the frequency domain. */
   /* TODO: Jitter */
-  return now+1600L*1000L;
+  return now+(long)1e9;
 }
 
 static inline void

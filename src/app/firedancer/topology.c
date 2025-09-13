@@ -371,9 +371,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    FD_TXN_MTU,                    1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
+  /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),        1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair", "shred_repair", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Also pending_fec_shreds_depth? Seems wrong */
-  /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),        1UL );
   /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", fd_ulong_pow2_up( config->firedancer.runtime.max_total_banks*FD_REPLAY_TOWER_VOTE_ACC_MAX ), sizeof(fd_replay_tower_t), 1UL ); /* TODO: Don't think this depth makes much sense? This is weirdly outsized for a vote link */
   /**/                 fd_topob_link( topo, "root_out",     "root_out",     128UL,                                    sizeof(fd_block_id_t),         1UL ); /* TODO: Completely silly link. Consolidate with other tower outs. Depth also shouldn't be 128 */
   /**/                 fd_topob_link( topo, "tower_replay", "tower_replay", 4UL,                                      sizeof(fd_hash_t),             1UL );
@@ -599,13 +599,13 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "ping_sign",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out(   topo, "repair",  0UL,                       "ping_sign",    0UL                                                  );
-  /**/                 fd_topob_tile_in (   topo, "repair",  0UL,          "metric_in", "sign_ping",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out(   topo, "sign",    0UL,                       "sign_ping",    0UL                                                  );
 
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "sign",    i+1UL,        "metric_in", "repair_sign",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "repair",  0UL,                       "repair_sign",  i                                                    );
-  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "repair",  0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
+  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "sign",    i+1UL,        "metric_in", "repair_sign",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(sign_tile_cnt-1UL) fd_topob_tile_out( topo, "sign",    i+1UL,                     "sign_repair",  i                                                    );
+  FOR(sign_tile_cnt-1UL) fd_topob_tile_in ( topo, "repair",  0UL,          "metric_in", "sign_repair",  i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* This link is polled because the signing requests are asynchronous */
+  /**/                 fd_topob_tile_in (   topo, "repair",  0UL,          "metric_in", "sign_ping",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   /**/                 fd_topob_tile_in (   topo, "sign",    0UL,          "metric_in", "send_sign",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out(   topo, "send",    0UL,                       "send_sign",    0UL                                                  );
