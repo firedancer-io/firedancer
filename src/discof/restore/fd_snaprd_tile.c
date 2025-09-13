@@ -344,9 +344,7 @@ drain_buffer( fd_snaprd_tile_t * ctx ) {
 
   ulong written_sz = 0UL;
   while( ctx->local_out.write_buffer_pos+written_sz<ctx->local_out.write_buffer_len ) {
-    FD_LOG_WARNING(("WRITE DATA 3"));
     long result = write( fd, ctx->local_out.write_buffer+ctx->local_out.write_buffer_pos+written_sz, ctx->local_out.write_buffer_len-written_sz );
-    FD_LOG_WARNING(("WRITE DATA 4"));
     if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) break;
     else if( FD_UNLIKELY( -1==result && errno==ENOSPC ) ) {
       char const * snapshot_path = full ? ctx->local_out.full_snapshot_path : ctx->local_out.incremental_snapshot_path;
@@ -371,13 +369,10 @@ drain_buffer( fd_snaprd_tile_t * ctx ) {
 
 static void
 rename_snapshots( fd_snaprd_tile_t * ctx ) {
-  FD_LOG_WARNING(("ASDF3"));
   if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) return;
   char const * full_snapshot_name;
   char const * incremental_snapshot_name;
-  FD_LOG_WARNING(("ASDF"));
   fd_sshttp_snapshot_names( ctx->sshttp, &full_snapshot_name, &incremental_snapshot_name );
-  FD_LOG_WARNING(("ASDF2"));
 
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) ) {
     if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", ctx->local_out.dir_fd, full_snapshot_name ) ) )
@@ -387,7 +382,6 @@ rename_snapshots( fd_snaprd_tile_t * ctx ) {
     if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", ctx->local_out.dir_fd, incremental_snapshot_name ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  FD_LOG_WARNING(("ASDF3"));
 }
 
 static void
@@ -646,7 +640,6 @@ after_credit( fd_snaprd_tile_t *  ctx,
       if( FD_UNLIKELY( ctx->local_out.write_buffer_len ) ) break;
 
       rename_snapshots( ctx );
-      FD_LOG_WARNING(("DONE RENAMING SHUTDOWN"));
       ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
@@ -679,7 +672,6 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       if( FD_LIKELY( !ctx->config.incremental_snapshot_fetch ) ) {
         rename_snapshots( ctx );
-        FD_LOG_WARNING(("DONE RENAMING SHUTDOWN"));
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
@@ -1033,7 +1025,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
 
-  FD_LOG_NOTICE(("ASDF"));
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */
