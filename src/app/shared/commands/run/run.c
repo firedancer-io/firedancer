@@ -432,7 +432,6 @@ main_pid_namespace( void * _args ) {
           if( FD_LIKELY( !exit_code && config->topo.tiles[ tile_idx ].allow_shutdown ) ) {
             FD_LOG_INFO(( "tile %s:%lu exited gracefully with code %d", tile_name, tile_id, exit_code ));
           } else {
-            FD_LOG_WARNING(("allow shutdown %d %s", config->topo.tiles[ tile_idx ].allow_shutdown, config->topo.tiles[ tile_idx ].name));
             FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, exit_code ));
             fd_sys_util_exit_group( exit_code ? exit_code : 1 );
           }

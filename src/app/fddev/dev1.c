@@ -111,7 +111,6 @@ dev1_cmd_fn( args_t *   args,
     FD_TEST( runner );
 
     fd_topo_run_tile( &config->topo, tile, config->development.sandbox, 1, config->development.core_dump, config->uid, config->gid, -1, NULL, NULL, runner );
-    FD_LOG_WARNING(( "tile %s:%lu run loop returned4444", tile->name, tile->kind_id ));
   }
 
   fd_sys_util_exit_group( result );

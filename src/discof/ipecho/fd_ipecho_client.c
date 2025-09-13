@@ -212,7 +212,7 @@ int
 fd_ipecho_client_poll( fd_ipecho_client_t * client,
                        ushort *             shred_version,
                        int *                charge_busy ) {
-  if( FD_UNLIKELY( !client->peer_cnt ) ) { return -1; }
+  if( FD_UNLIKELY( !client->peer_cnt ) ) return -1;
   if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>2L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;
@@ -225,7 +225,7 @@ fd_ipecho_client_poll( fd_ipecho_client_t * client,
 
   *charge_busy = 1;
 
-  for( ulong i=0UL; i<16U; i++ ) {
+  for( ulong i=0UL; i<16UL; i++ ) {
     if( FD_UNLIKELY( -1==client->pollfds[ i ].fd ) ) continue;
 
     if( FD_LIKELY( client->pollfds[ i ].revents & POLLOUT ) ) write_conn( client, i );

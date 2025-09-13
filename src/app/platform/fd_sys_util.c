@@ -12,7 +12,6 @@
 
 void __attribute__((noreturn))
 fd_sys_util_exit_group( int code ) {
-  FD_LOG_WARNING(( "fd_sys_util_exit_group(%i)", code ));
   syscall( SYS_exit_group, code );
   for(;;);
 }
