@@ -1520,6 +1520,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
 
+  ctx->vote_tower_out_idx = 0UL;
+  ctx->vote_tower_out_len = 0UL;
+
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
