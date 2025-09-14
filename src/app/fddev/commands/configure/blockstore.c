@@ -1,7 +1,6 @@
 #define _GNU_SOURCE
 #include "../../../shared/commands/configure/configure.h"
 
-#include "../../../shared/genesis_hash.h"
 #include "../../../platform/fd_sys_util.h"
 #include "../../../platform/fd_file_util.h"
 
@@ -9,6 +8,7 @@
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/tiles.h"
+#include "../../../../discof/ipecho/genesis_hash.h"
 
 #include <unistd.h>
 #include <dirent.h>
@@ -41,7 +41,10 @@ init( config_t const * config ) {
   char genesis_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   uchar genesis_hash[ 32 ] = { 0 };
-  ushort shred_version = compute_shred_version( genesis_path, genesis_hash );
+  ushort shred_version = 0;
+  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
 
   /* This is not a fundamental limit.  It could be set as high as 663
      with no modifications to the rest of the code.  It's set to 128

@@ -39,7 +39,7 @@ backtest_topo( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
-  int disable_snap_loader = config->tiles.replay.genesis[0] != '\0';
+  int disable_snap_loader = !config->gossip.entrypoints_cnt;
   int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
@@ -379,7 +379,7 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   fd_topo_t * topo = &config->topo;
-  int disable_snap_loader = config->tiles.replay.genesis[0] != '\0';
+  int disable_snap_loader = !config->gossip.entrypoints_cnt;
   if( FD_LIKELY( !disable_snap_loader ) ) {
     fd_topo_tile_t * snaprd_tile = &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ];
     fd_topo_tile_t * snapdc_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapdc", 0UL ) ];

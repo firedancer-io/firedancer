@@ -112,13 +112,6 @@ fd_file_util_mkdir_all( const char * _path,
     p++;
   }
 
-  int error = mkdir( path, 0777 );
-  if( FD_UNLIKELY( error && errno!=EEXIST ) ) return -1;
-  if( FD_LIKELY( !error ) ) {
-    if( FD_UNLIKELY( chown( path, uid, gid ) ) ) return -1;
-    if( FD_UNLIKELY( chmod( path, S_IRUSR | S_IWUSR | S_IXUSR ) ) ) return -1;
-  }
-
   return 0;
 }
 
