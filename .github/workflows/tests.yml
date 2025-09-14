@@ -58,6 +58,11 @@ jobs:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
+      - name: cleanup
+        if: always()
+        run: |
+          sudo killall firedancer-dev || true
+
       - uses: actions/checkout@v5
         with:
           submodules: recursive
