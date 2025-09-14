@@ -145,6 +145,13 @@ struct fd_replay_tile {
      wrapper around funk, banks, and the capture ctx.  */
   fd_exec_slot_ctx_t * slot_ctx;
 
+  /* This flag is 1 If we have seen a vote signature that our node has
+     sent out get rooted at least one time.  The value is 0 otherwise.
+     We can't become leader and pack blocks until this flag has been
+     set.  This parallels the Agave 'has_new_vote_been_rooted'.
+     TODO: Add documentation for this flag more in depth. */
+  int has_identity_vote_rooted;
+
   /* Replay state machine. */
   fd_sched_t *          sched;
   uint                  block_draining:1;
@@ -750,6 +757,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( ctx->capture_ctx ) {
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
   }
+
+  fd_bank_has_identity_vote_set( bank, 0 );
 
   fd_bank_slot_set( bank, slot );
 
@@ -1451,6 +1460,17 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( eslot.id==ULONG_MAX ) ) FD_LOG_CRIT(( "invariant violation: eslot not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
   fd_sched_root_notify( ctx->sched, &eslot );
 
+  /* If the identity vote has been seen on a bank that should be rooted,
+     then we are now ready to produce blocks. */
+  if( !ctx->has_identity_vote_rooted ) {
+    fd_bank_t * root_bank = fd_banks_get_bank( ctx->banks, &ctx->consensus_root );
+    if( FD_LIKELY( !!root_bank ) ) {
+      if( FD_UNLIKELY( !ctx->has_identity_vote_rooted && fd_bank_has_identity_vote_get( root_bank ) ) ) {
+        ctx->has_identity_vote_rooted = 1;
+      }
+    }
+  }
+
   fd_hash_t publishable_root;
   if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, &ctx->consensus_root, &publishable_root ) ) ) return;
 
@@ -1784,6 +1804,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_ctx->status_cache = NULL; /* TODO: Integrate status cache */
   ctx->slot_ctx->capture_ctx  = ctx->capture_ctx;
 
+  ctx->has_identity_vote_rooted = 0;
 
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
