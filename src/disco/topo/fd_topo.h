@@ -351,7 +351,10 @@ struct fd_topo_tile {
 
       int   tx_metadata_storage;
       ulong funk_obj_id;
-      char  genesis[ PATH_MAX ];
+
+      int   bootstrap;
+      char  genesis_path[ PATH_MAX ];
+
       char  shred_cap[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
@@ -525,6 +528,8 @@ struct fd_topo_tile {
     } snapin;
 
     struct {
+      char   genesis_path[ PATH_MAX ];
+
       uint   bind_address;
       ushort bind_port;
 

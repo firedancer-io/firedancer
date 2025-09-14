@@ -127,6 +127,37 @@ user = ""
     # base firedancer path option ( [paths.base] ).
     snapshots = ""
 
+    # Absolute path where to store the `genesis.bin` file for the chain.
+    # If no path is provided, it defaults to the `genesis.bin` path
+    # within the base directory above.  The `genesis.bin` file contains
+    # the exact parameters used to create the genesis block of the
+    # chain.
+    #
+    # The genesis file must be known so that the validator can verify
+    # the genesis hash matches the expected genesis hash specified in
+    # the [consensus] section below, and also verify that the genesis
+    # hash matches the genesis hash contained in any full or incremental
+    # snapshot being loaded.
+    #
+    # The validator will attempt to load this file on boot, or if the
+    # file does not exist, it will attempt to download it from a gossip
+    # entrypoint if allowed by the [snapshots.genesis_download] option.
+    #
+    # If this node is a bootstrapping node for a new cluster, meaning
+    # there are no gossip entrypoints specified because this node will
+    # be the origin entrypoint, then there must be a genesis file
+    # present, and it will be used to create the genesis block of the
+    # new cluster.  In this case, there is no point verifying the
+    # genesis hash.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # TODO: Most of this is not yet implemented.
+    genesis = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -266,20 +297,41 @@ user = ""
     # will exit with an error.
     maximum_local_snapshot_age = 2500
 
-    # Whether to download a new snapshot from a peer when booting.
+    # Whether to allow downloading a new genesis file from a peer when
+    # booting.  If set to false, the validator will only reuse a locally
+    # stored genesis file, and if one does not exist, the validator will
+    # exit with an error.
+    #
+    # If download is allowed, and there is no local genesis file
+    # already, the validator will contact each of the gossip
+    # entrypoints, in order, and attempt to download the genesis file
+    # from their RPC endpoint.  If none of the entrypoints is responsive
+    # or able to provide the genesis file, the validator will exit with
+    # an error.
+    #
+    # The genesis hash is verified against both the
+    # expected_genesis_hash specified in this file, and the genesis hash
+    # contained in full and incremental snapshots being loaded.  If
+    # there is a genesis hash mismatch, the validator will exit with an
+    # error.
+    #
+    # TODO: Not yet implemented.
+    genesis_download = true
+
+    # Whether to allow downloading a new snapshot from a peer when
+    # booting.
     #
     # If set to true, the validator will contact peers from the gossip
     # network to locate both a full and incremental snapshot and
-    # download it.  If false, the validator will attempt to load the
-    # most recently downloaded snapshot that exists locally on the disk.
-    # If there is no local snapshot, the validator will abort with an
-    # error.
+    # download it, assuming there is no loadable local snapshot.  If
+    # false, the validator will attempt to load the most recently
+    # downloaded snapshot that exists locally on the disk.  If there is
+    # no local snapshot, the validator will abort with an error.
     #
     # When downloading a snapshot, it will optionally be stored on disk
-    # if `[paths.snapshots]` is specified.  At most one downloaded
-    # full snapshot, and one incremental snapshot will be stored, and
-    # newly downloaded snapshots will replace ones that are already
-    # present.
+    # if `[paths.snapshots]` is specified.  The number of downloaded
+    # snapshots that will be stored on disk is controlled below by the
+    # max_*_snapshots to keep options.
     #
     # TODO: implement the "at most one downloaded" logic. "
     download = true
@@ -402,6 +454,22 @@ user = ""
     # if the shred version is not equal to this value, the validator
     # will abort with an error.
     expected_shred_version = 0
+
+    # The genesis hash is just a SHA256 has of the genesis.bin file,
+    # representing the parameters used to create the genesis block of
+    # the chain.
+    #
+    # If the expected_genesis_hash is set to a base58 encoded string of
+    # such a hash, the validator will verify that the genesis of the
+    # chain it loads matches this hash, and if not, the validator will
+    # abort with an error.
+    #
+    # Both the actual hash of the downloaded (or already stored locally)
+    # genesis.bin file, and the genesis hash contained in any full or
+    # incremental snapshot being loaded must match this expected hash.
+    #
+    # TODO: Not yet implemented.
+    expected_genesis_hash = ""
 
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
@@ -1335,10 +1403,6 @@ user = ""
         # TODO: These will be replaced in favor of more granular
         # per object allocations in the replay tile's context
         heap_size_gib = 50
-
-        # TODO: Huh? Fix ...
-        genesis = ""
-
 
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other

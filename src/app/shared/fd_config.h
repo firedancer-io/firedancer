@@ -149,6 +149,7 @@ struct fd_configf {
 
     int   incremental_snapshots;
     uint  maximum_local_snapshot_age;
+    int   genesis_download;
     int   download;
     ulong known_validators_cnt;
     char  known_validators[ 16 ][ 256 ];
@@ -222,6 +223,7 @@ struct fd_config {
     char identity_key[ PATH_MAX ];
     char vote_account[ PATH_MAX ];
     char snapshots[ PATH_MAX ];
+    char genesis[ PATH_MAX ];
   } paths;
 
   struct {
@@ -247,6 +249,7 @@ struct fd_config {
 
   struct {
     ushort expected_shred_version;
+    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
   } consensus;
 
   struct {
@@ -449,7 +452,6 @@ struct fd_config {
 
     struct {
       char  funk_checkpt[ PATH_MAX ];
-      char  genesis[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];

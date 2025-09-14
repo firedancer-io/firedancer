@@ -7,7 +7,7 @@
 
 static void
 init( config_t const * config ) {
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.snapshots, config->uid, config->gid ) ) )
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.snapshots, config->uid, config->gid, 1 ) ) )
     FD_LOG_ERR(( "could not create snapshots directory `%s` (%i-%s)", config->paths.snapshots, errno, fd_io_strerror( errno ) ));
 }
 

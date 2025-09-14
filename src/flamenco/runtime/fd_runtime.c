@@ -1976,7 +1976,7 @@ fd_runtime_init_accounts_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
+                         char const *         genesis_path,
                          fd_spad_t *          runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -1984,7 +1984,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
      genesis booting code.
      TODO: Add a more robust description of the genesis file format. */
 
-  if( FD_UNLIKELY( !strlen( genesis_filepath ) ) ) {
+  if( FD_UNLIKELY( !strlen( genesis_path ) ) ) {
     FD_LOG_DEBUG(( "genesis_filepath is empty" ));
     return;
   }
@@ -1995,12 +1995,12 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   /* TODO: The file handling must be handled inside privileged_init. */
 
   struct stat sbuf;
-  if( FD_UNLIKELY( stat( genesis_filepath, &sbuf)<0 ) ) {
-    FD_LOG_ERR(( "cannot open %s : %i-%s", genesis_filepath, errno, strerror( errno ) ));
+  if( FD_UNLIKELY( stat( genesis_path, &sbuf)<0 ) ) {
+    FD_LOG_ERR(( "cannot open %s : %i-%s", genesis_path, errno, strerror( errno ) ));
   }
-  int fd = open( genesis_filepath, O_RDONLY );
+  int fd = open( genesis_path, O_RDONLY );
   if( FD_UNLIKELY( fd<0 ) ) {
-    FD_LOG_ERR(("cannot open %s : %s", genesis_filepath, strerror( errno ) ));
+    FD_LOG_ERR(("cannot open %s : %s", genesis_path, strerror( errno ) ));
   }
 
   uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );

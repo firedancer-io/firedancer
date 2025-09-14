@@ -212,13 +212,10 @@ fd_topo_initialize( config_t * config ) {
   ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
 
-  int solcap_enabled = strlen( config->capture.solcap_capture )>0;
+  int snapshots_enabled = !!config->gossip.entrypoints_cnt;
+  int solcap_enabled = strcmp( "", config->capture.solcap_capture );
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
-
-  /* TODO: This config option doesn't seem to exist, and it probably
-     should be under paths if it does, with an enabled flag? */
-  int snapshots_enabled = !strcmp( config->tiles.replay.genesis, "" );
 
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
@@ -854,6 +851,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "ipecho") ) ) {
 
+    strncpy( tile->ipecho.genesis_path, config->paths.genesis, sizeof(tile->ipecho.genesis_path) );
     tile->ipecho.expected_shred_version = config->consensus.expected_shred_version;
     tile->ipecho.bind_address           = config->net.ip_addr;
     tile->ipecho.bind_port              = config->gossip.port;
@@ -951,11 +949,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
 
-    if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 ) &&
-                      !strncmp( config->paths.snapshots, "", 1 ) ) ) {
-      fd_cstr_printf_check( config->tiles.replay.genesis, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
-    }
-    strncpy( tile->replay.genesis, config->tiles.replay.genesis, sizeof(tile->replay.genesis) );
+    tile->replay.bootstrap = !config->gossip.entrypoints_cnt;
+    strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
 
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
     strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );

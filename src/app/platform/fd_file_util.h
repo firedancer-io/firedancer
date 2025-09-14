@@ -49,7 +49,8 @@ fd_file_util_write_uint( char const * path,
 int
 fd_file_util_mkdir_all( const char * path,
                         uint         uid,
-                        uint         gid );
+                        uint         gid,
+                        int          is_dir );
 
 /* fd_file_util_rmtree() recursively removes all the contents of a
    directory, and then (if remove_root is non-zero) also removes the
