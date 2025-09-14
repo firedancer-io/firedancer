@@ -557,7 +557,7 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 
 void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
+                         char const *         genesis_path,
                          fd_spad_t *          spad );
 
 

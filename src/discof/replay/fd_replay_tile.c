@@ -6,11 +6,14 @@
 #include "../tower/fd_tower_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
+#include "../../disco/tiles.h"
 #include "../../disco/store/fd_store.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_exec.h"
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/rewards/fd_rewards.h"
+#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo_base.h"
 
@@ -338,6 +341,18 @@ struct fd_replay_tile {
   ulong             vote_tower_out_len; /* number of vote towers in the buffer */
   fd_replay_tower_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 
+  fd_multi_epoch_leaders_t * mleaders;
+
+  fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
+
+  int    is_leader;
+  ulong  next_leader_slot;
+  ulong  highwater_leader_slot;
+  ulong  reset_slot;
+  long   reset_timestamp_nanos;
+  double slot_duration_nanos;
+  ulong  max_active_descendant;
+
   int in_kind[ 64 ];
   fd_replay_in_link_t in[ 64 ];
 
@@ -346,6 +361,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t shredcap_out[1];
   fd_replay_out_link_t tower_out[1];
   fd_replay_out_link_t replay_out[1];
+  fd_replay_out_link_t pack_out[1];
 
   struct {
     fd_histf_t store_read_wait[ 1 ];
@@ -353,6 +369,8 @@ struct fd_replay_tile {
     fd_histf_t store_publish_wait[ 1 ];
     fd_histf_t store_publish_work[ 1 ];
   } metrics;
+
+  uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;
@@ -388,29 +406,28 @@ metrics_write( fd_replay_tile_t * ctx ) {
 static void
 publish_stake_weights( fd_replay_tile_t *   ctx,
                        fd_stem_context_t *  stem,
-                       fd_exec_slot_ctx_t * slot_ctx ) {
+                       fd_exec_slot_ctx_t * slot_ctx,
+                       int                  current_epoch ) {
   fd_epoch_schedule_t const * schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong epoch = fd_slot_to_epoch( schedule, fd_bank_slot_get( slot_ctx->bank ), NULL );
 
-  /* current epoch (stakes from epoch E-2) */
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( slot_ctx->bank );
-  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  ulong stake_weights_sz = generate_stake_weight_msg( epoch, schedule, vote_states_prev_prev, stake_weights_msg );
-  ulong stake_weights_sig = 4UL;
-  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-  FD_LOG_NOTICE(( "sending current epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3] ));
-  fd_bank_vote_states_prev_prev_end_locking_query( slot_ctx->bank );
+  fd_vote_states_t const * vote_states_prev;
+  if( FD_LIKELY( current_epoch ) ) vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
+  else                             vote_states_prev = fd_bank_vote_states_prev_prev_locking_query( ctx->slot_ctx->bank );
 
-  /* next current epoch (stakes from epoch E-1) */
-  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( slot_ctx->bank );
-  stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
-  stake_weights_sz = generate_stake_weight_msg( epoch + 1, schedule, vote_states_prev, stake_weights_msg );
-  stake_weights_sig = 4UL;
-  fd_stem_publish( stem, 0UL, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ulong * stake_weights_msg = fd_chunk_to_laddr( ctx->stake_out->mem, ctx->stake_out->chunk );
+  ulong stake_weights_sz = generate_stake_weight_msg( epoch+fd_ulong_if( current_epoch, 1UL, 0UL), schedule, vote_states_prev, stake_weights_msg );
+  ulong stake_weights_sig = 4UL;
+  fd_stem_publish( stem, ctx->stake_out->idx, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
-  FD_LOG_NOTICE(( "sending next epoch stake weights - epoch: %lu, stake_weight_cnt: %lu, start_slot: %lu, slot_cnt: %lu", stake_weights_msg[0], stake_weights_msg[1], stake_weights_msg[2], stake_weights_msg[3] ));
-  fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
+
+  FD_LOG_NOTICE(( "sending stake weights for epoch %lu (slot %lu - %lu) with %lu stakes", stake_weights_msg[ 0 ], stake_weights_msg[ 2 ], stake_weights_msg[ 3 ], stake_weights_msg[ 1 ] ));
+
+  if( FD_LIKELY( current_epoch ) ) fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
+  else                             fd_bank_vote_states_prev_prev_end_locking_query( ctx->slot_ctx->bank );
+
+  fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
+  fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
 }
 
 static void
@@ -680,9 +697,7 @@ handle_new_block( fd_replay_tile_t *  ctx,
       ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
-  if( FD_UNLIKELY( is_epoch_boundary ) ) {
-    publish_stake_weights( ctx, stem, ctx->slot_ctx );
-  }
+  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
 
   int res = fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -1106,7 +1121,15 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
     fd_store_exrel( ctx->store );
 
-    publish_stake_weights( ctx, stem, ctx->slot_ctx );
+    /* Typically, when we cross an epoch boundary during normal
+       operation, we publish the stake weights for the new epoch.  But
+       since we are starting from a snapshot, we need to publish two
+       epochs worth of stake weights: the previous epoch (which is
+       needed for voting on the current epoch), and the current epoch
+       (which is needed for voting on the next epoch). */
+    publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
+    publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
+
     block_id_map_t * entry = block_id_map_insert( ctx->block_id_map, snapshot_slot );
     entry->block_id = manifest_block_id;
 
@@ -1149,10 +1172,103 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
   return;
 }
 
+static int
+maybe_become_leader( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem ) {
+  FD_TEST( ctx->is_booted );
+  if( FD_UNLIKELY( ctx->pack_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_UNLIKELY( ctx->is_leader || ctx->next_leader_slot==ULONG_MAX ) ) return 0;
+
+  FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
+  long now = fd_log_wallclock();
+  long next_leader_timestamp = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_nanos) + ctx->reset_timestamp_nanos;
+  if( FD_UNLIKELY( now<next_leader_timestamp ) ) return 0;
+
+  /* TODO:
+  if( FD_UNLIKELY( ctx->halted_switching_key ) ) return 0; */
+
+  /* If a prior leader is still in the process of publishing their slot,
+     delay ours to let them finish ... unless they are so delayed that
+     we risk getting skipped by the leader following us.  1.2 seconds
+     is a reasonable default here, although any value between 0 and 1.6
+     seconds could be considered reasonable.  This is arbitrary and
+     chosen due to intuition. */
+  if( FD_UNLIKELY( now<next_leader_timestamp+(long)(3.0*ctx->slot_duration_nanos) ) ) {
+    /* If the max_active_descendant is >= next_leader_slot, we waited
+       too long and a leader after us started publishing to try and skip
+       us.  Just start our leader slot immediately, we might win ... */
+    if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot && ctx->max_active_descendant<ctx->next_leader_slot ) ) {
+      /* If one of the leaders between the reset slot and our leader
+         slot is in the process of publishing (they have a descendant
+         bank that is in progress of being replayed), then keep waiting.
+         We probably wouldn't get a leader slot out before they
+         finished.
+
+         Unless... we are past the deadline to start our slot by more
+         than 1.2 seconds, in which case we should probably start it to
+         avoid getting skipped by the leader behind us. */
+      return 0;
+    }
+  }
+
+  ctx->is_leader = 1;
+  ctx->highwater_leader_slot = fd_ulong_max( ctx->next_leader_slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
+
+  FD_LOG_NOTICE(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
+
+  fd_bank_t * bank = NULL; /* TODO: Create leader bank, slot is ctx->next_leader_slot, parent is ctx->reset_slot */
+  bank->refcnt++;
+
+  fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+  msg->slot_start_ns = now;
+  msg->slot_end_ns   = now+(long)ctx->slot_duration_nanos;
+  msg->bank = NULL;
+  msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  ulong hashes_per_tick = fd_bank_hashes_per_tick_get( bank );
+  msg->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, msg->ticks_per_slot*(hashes_per_tick-1UL) );
+  msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
+  msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( ctx->slot_ctx->bank ), ctx->next_leader_slot, NULL );
+  fd_memset( msg->bundle, 0, sizeof(msg->bundle) );
+
+  fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
+
+  msg->limits.slot_max_cost = cost_tracker->block_cost_limit;
+  msg->limits.slot_max_vote_cost = cost_tracker->vote_cost_limit;
+  msg->limits.slot_max_write_cost_per_acct = cost_tracker->account_cost_limit;
+
+  fd_bank_cost_tracker_end_locking_query( bank );
+
+  if( FD_UNLIKELY( msg->ticks_per_slot+msg->total_skipped_ticks>USHORT_MAX ) ) {
+    /* There can be at most USHORT_MAX skipped ticks, because the
+       parent_offset field in the shred data is only 2 bytes wide. */
+    FD_LOG_ERR(( "too many skipped ticks %lu for slot %lu, chain must halt", msg->ticks_per_slot+msg->total_skipped_ticks, ctx->next_leader_slot ));
+  }
+
+  ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
+  fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
+  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, ctx->identity_pubkey );
+  return 1;
+}
+
+static void
+unbecome_leader( fd_replay_tile_t * ctx ) {
+  FD_TEST( ctx->is_booted );
+  FD_TEST( ctx->is_leader );
+
+  FD_TEST( ctx->highwater_leader_slot==ctx->next_leader_slot );
+  ctx->is_leader = 0;
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, ctx->identity_pubkey );
+}
+
 static void
 init_from_genesis( fd_replay_tile_t *  ctx,
                    fd_stem_context_t * stem ) {
   fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis_path, ctx->runtime_spad );
+
+  publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
+  publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
 
   /* We call this after fd_runtime_read_genesis, which sets up the
   slot_bank needed in blockstore_init. */
@@ -1212,6 +1328,10 @@ init_from_genesis( fd_replay_tile_t *  ctx,
     fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
+
+  ctx->reset_slot = 0UL;
+  ctx->reset_timestamp_nanos = fd_log_wallclock();
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
 }
 
 static void
@@ -1224,6 +1344,8 @@ after_credit( fd_replay_tile_t *  ctx,
       *charge_busy = 1;
       init_from_genesis( ctx, stem );
       ctx->is_booted = 1;
+      maybe_become_leader( ctx, stem );
+      *opt_poll_in = 0;
     }
     return;
   }
@@ -1231,6 +1353,7 @@ after_credit( fd_replay_tile_t *  ctx,
   /* Send any outstanding vote states to tower.  TODO: Not sure why this
      is here?  Should happen when the slot completes instead? */
   if( FD_UNLIKELY( ctx->vote_tower_out_idx<ctx->vote_tower_out_len ) ) {
+    *charge_busy = 1;
     publish_next_vote_tower( ctx, stem );
     /* Don't continue polling for fragments but instead skip to the next
        iteration of the stem loop.
@@ -1238,6 +1361,12 @@ after_credit( fd_replay_tile_t *  ctx,
        This is necessary so that all the votes states for the end of a
        particular slot are sent in one atomic block, and are not
        interleaved with votes states at the end of other slots. */
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
+    *charge_busy = 1;
     *opt_poll_in = 0;
     return;
   }
@@ -1457,6 +1586,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_POH: {
       fd_poh_leader_slot_ended_t const * slot_ended = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      unbecome_leader( ctx );
       (void)slot_ended;
       FD_LOG_ERR(( "Unimplemented ... decrease bank refcount" ));
       break;
@@ -1498,6 +1628,19 @@ out1( fd_topo_t const *      topo,
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
 
   return (fd_replay_out_link_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+}
+
+static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
+
+  if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
+
+  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
 }
 
 static void
@@ -1612,6 +1755,17 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( FD_PACK_MAX_BANK_TILES<=UCHAR_MAX ); /* Exec tile id needs to fit in a uchar for the writer tile txn done message. */
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
 
+  ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
+  FD_TEST( ctx->mleaders );
+
+  ctx->is_leader = 0;
+  ctx->reset_slot = 0UL;
+  ctx->reset_timestamp_nanos = 0UL;
+  ctx->next_leader_slot = ULONG_MAX;
+  ctx->highwater_leader_slot = ULONG_MAX;
+  ctx->slot_duration_nanos = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
+  ctx->max_active_descendant = 0UL; /* TODO: Update this properly ... */
+
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1640,6 +1794,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->votes_plugin_out = out1( topo, tile, "votes_plugin" ); /* TODO: Delete this */
   *ctx->stake_out        = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   *ctx->replay_out       = out1( topo, tile, "replay_out" );
+  *ctx->pack_out         = out1( topo, tile, "replay_pack" );
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
@@ -1723,6 +1878,7 @@ fd_topo_run_tile_t fd_tile_replay = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

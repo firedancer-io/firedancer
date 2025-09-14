@@ -164,9 +164,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     fd_bank_epoch_leaders_end_locking_modify( bank );
   }
   } FD_SPAD_FRAME_END;
-
-  fd_bank_epoch_leaders_locking_query( bank );
-  fd_bank_epoch_leaders_end_locking_query( bank );
 }
 
 /******************************************************************************/
