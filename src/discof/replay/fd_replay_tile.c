@@ -615,6 +615,88 @@ handle_existing_block( fd_replay_tile_t * ctx,
   }
 }
 
+static fd_bank_t *
+prepare_leader_bank( fd_replay_tile_t *  ctx,
+                     ulong               slot,
+                     ulong               parent_slot,
+                     fd_stem_context_t * stem ) {
+
+  block_id_map_t * block_id = block_id_map_query( ctx->block_id_map, parent_slot, NULL );
+  fd_hash_t parent_key = {0};
+  if( !block_id ) { /* parent was a leader */
+    parent_key.ul[0] = parent_slot;
+  } else {
+    parent_key = block_id->block_id;
+  }
+
+  fd_hash_t leader_hash = { .ul[0] = slot };
+
+  fd_bank_t * bank = fd_banks_clone_from_parent( ctx->banks, &leader_hash, &parent_key );
+
+  /* prepare the funk transaction for the leader bank */
+  fd_funk_txn_start_write( ctx->funk );
+
+  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
+  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
+
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  if( FD_UNLIKELY( !txn_map ) ) {
+    FD_LOG_CRIT(( "invariant violation: funk_txn_map is NULL for slot %lu", slot ));
+  }
+
+  fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
+
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
+  if( FD_UNLIKELY( !funk_txn ) ) {
+    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
+  }
+
+  fd_bank_done_executing_set( bank, 0 );
+
+  fd_bank_slot_set( bank, slot );
+
+  /* Set the parent slot. */
+  fd_bank_parent_slot_set( bank, parent_slot );
+
+  /* Set the tick height. */
+  fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( bank ) );
+
+  /* Update block height. */
+  fd_bank_block_height_set( bank, fd_bank_block_height_get( bank ) + 1UL );
+
+  ulong * max_tick_height = fd_bank_max_tick_height_modify( bank );
+  ulong   ticks_per_slot  = fd_bank_ticks_per_slot_get( bank );
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ticks_per_slot, slot, max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
+  }
+
+  bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
+
+  fd_exec_slot_ctx_t slot_ctx = {
+    .bank     = bank,
+    .funk     = ctx->funk,
+    .banks    = ctx->banks,
+    .funk_txn = funk_txn,
+  };
+
+  int is_epoch_boundary = 0;
+  fd_runtime_block_pre_execute_process_new_epoch(
+      &slot_ctx,
+      ctx->capture_ctx,
+      ctx->runtime_spad,
+      &is_epoch_boundary );
+  if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, &slot_ctx, 1 );
+
+  int res = fd_runtime_block_execute_prepare( &slot_ctx, ctx->runtime_spad );
+  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    FD_LOG_CRIT(( "block prep execute failed" ));
+  }
+
+  bank->refcnt++;
+
+  return bank;
+}
+
 static void
 handle_new_block( fd_replay_tile_t *  ctx,
                   fd_stem_context_t * stem,
@@ -736,10 +818,16 @@ handle_bank_change( fd_replay_tile_t *  ctx,
     initial amount of FEC sets.
   */
 
+  fd_hash_t parent_leader_hash = { .ul[0] = parent_slot };
+
   fd_bank_t * parent_bank = fd_banks_get_bank( ctx->banks, parent_merkle_hash );
   if( FD_UNLIKELY( !parent_bank ) ) {
-    fd_banks_print( ctx->banks );
-    FD_LOG_CRIT(( "invariant violation: parent bank is NULL for slot %lu parent merkle hash %s", slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
+    parent_bank = fd_banks_get_bank( ctx->banks, &parent_leader_hash );
+    parent_merkle_hash = &parent_leader_hash;
+    if( FD_UNLIKELY( !parent_bank ) ) {
+      fd_banks_print( ctx->banks );
+      FD_LOG_CRIT(( "invariant violation: parent bank is NULL for slot %lu parent leader hash %lu", slot, parent_slot ));
+    }
   }
 
   if( fd_bank_done_executing_get( parent_bank ) ) {;
@@ -774,6 +862,13 @@ handle_new_slice( fd_replay_tile_t *  ctx,
   uint   data_cnt      = slice.data_cnt;
   int    slot_complete = slice.slot_complete;
   ulong  parent_slot   = slot - parent_off;
+
+  /* We want to abandon FECs for slots that we were leader on. */
+  fd_hash_t leader_hash = { .ul[0] = slot };
+  if( FD_UNLIKELY( fd_banks_get_bank( ctx->banks, &leader_hash ) ) ) {
+    FD_LOG_WARNING(( "abandoning slice for slot %lu because we were leader on it", slot ));
+    return;
+  }
 
   /* Read the slice from the store.  This should happen before we try to
      find a bank to execute against.  This allows us to filter out frags
@@ -827,6 +922,87 @@ handle_new_slice( fd_replay_tile_t *  ctx,
      to be done with each fec set.  Right now it is sufficient to do
      this per slice. */
   fd_banks_rekey_bank( ctx->banks, fd_bank_block_id_query( ctx->slot_ctx->bank ), &slice.merkles[slice.merkles_cnt-1UL] );
+}
+
+static void
+fini_leader_bank( fd_replay_tile_t *  ctx,
+                  fd_bank_t *         bank,
+                  fd_stem_context_t * stem ) {
+  bank->flags |= FD_BANK_FLAGS_FROZEN;
+
+  ulong curr_slot = fd_bank_slot_get( bank );
+
+  /* TODO: get the poh hash */
+
+  fd_bank_done_executing_set( bank, 1 );
+
+  /* Do hashing and other end-of-block processing */
+  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
+  if( FD_UNLIKELY( !txn_map->map ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
+  }
+  fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
+  fd_funk_txn_start_read( ctx->funk );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_txn_end_read( ctx->funk );
+  if( FD_UNLIKELY( !funk_txn ) ) {
+    FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", curr_slot ));
+  }
+
+  fd_exec_slot_ctx_t slot_ctx = {
+    .funk     = ctx->funk,
+    .banks    = ctx->banks,
+    .bank     = bank,
+    .funk_txn = funk_txn,
+  };
+
+  fd_runtime_block_execute_finalize( &slot_ctx );
+
+  ulong block_entry_height = fd_bank_block_height_get( bank );
+  publish_slot_notifications( ctx, stem, block_entry_height, curr_slot );
+
+  /* Construct the end of slot notification message */
+  FD_TEST( block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL ) );
+  fd_hash_t const * parent_block_id = &block_id_map_query( ctx->block_id_map, fd_bank_parent_slot_get( bank ), NULL )->block_id;
+  fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( parent_block_id );
+  FD_TEST( bank_hash       );
+  FD_TEST( block_hash      );
+
+  fd_replay_slot_info_t slot_info[1];
+  slot_info->slot            = curr_slot;
+  // slot_info->block_id        = block_id;
+  slot_info->parent_block_id = *parent_block_id;
+  slot_info->bank_hash       = *bank_hash;
+  slot_info->block_hash      = *block_hash;
+
+  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
+    fd_replay_slot_info_t * replay_slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+    *replay_slot_info = *slot_info;
+    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  }
+
+  /* Send Tower the state needed for processing the end of a slot. We
+     send a message with the summary information, and then buffer the
+     state of each vote account to be sent in after_credit so that we
+     don't have to burst all the vote state messages in one go.
+
+     TODO: potentially send only the vote states of the vote accounts
+           that voted in this slot. Not clear whether this is worth the
+           complexity. */
+
+  if( FD_LIKELY( ctx->tower_out->idx!=ULONG_MAX ) ) {
+    fd_replay_slot_info_t * tower_slot_info = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+    *tower_slot_info = *slot_info;
+    fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+
+    /* Copy the vote tower of all the vote accounts into the buffer,
+       which will be published in after_credit. */
+    buffer_vote_towers( ctx );
+  }
 }
 
 static void
@@ -1218,8 +1394,8 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   FD_LOG_NOTICE(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
-  fd_bank_t * bank = NULL; /* TODO: Create leader bank, slot is ctx->next_leader_slot, parent is ctx->reset_slot */
-  bank->refcnt++;
+  /* Acquires bank, sets up initial state, and refcnts it. */
+  fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, ctx->reset_slot, stem );
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
   msg->slot_start_ns = now;
@@ -1255,12 +1431,23 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 }
 
 static void
-unbecome_leader( fd_replay_tile_t * ctx ) {
+unbecome_leader( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
 
   FD_TEST( ctx->highwater_leader_slot==ctx->next_leader_slot );
   ctx->is_leader = 0;
+
+  /* Remove the refcnt for the leader bank and finalize it. */
+
+  fd_hash_t key = { .ul[0] = ctx->next_leader_slot };
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &key );
+  FD_TEST( !!bank );
+
+  fini_leader_bank( ctx, bank, stem );
+  bank->refcnt--;
+
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, ctx->identity_pubkey );
 }
 
@@ -1588,9 +1775,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_POH: {
       fd_poh_leader_slot_ended_t const * slot_ended = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      unbecome_leader( ctx );
+      unbecome_leader( ctx, stem );
       (void)slot_ended;
-      FD_LOG_ERR(( "Unimplemented ... decrease bank refcount" ));
       break;
     }
     case IN_KIND_TOWER: {
