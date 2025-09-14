@@ -159,26 +159,22 @@ int main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_rpcserver_args_t args;
 
-  replay_sham_link_t * rep_notify = NULL;
+  replay_sham_link_t * replay_out = NULL;
   stake_sham_link_t * stake_notify = NULL;
   repair_sham_link_t * repair_notify = NULL;
-  tower_sham_link_t * tower_notify = NULL;
 
   ulong offline = fd_env_strip_cmdline_ulong( &argc, &argv, "--offline", NULL, 0 );
   if( !offline ) {
     init_args( &argc, &argv, &args );
 
-    const char * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-notify", NULL, "fd1_replay_notif.wksp" );
-    rep_notify = replay_sham_link_new( aligned_alloc( replay_sham_link_align(), replay_sham_link_footprint() ), wksp_name );
+    const char * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-out", NULL, "fd1_replay_out.wksp" );
+    replay_out = replay_sham_link_new( aligned_alloc( replay_sham_link_align(), replay_sham_link_footprint() ), wksp_name );
 
     wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-stake-out", NULL, "fd1_stake_out.wksp" );
     stake_notify = stake_sham_link_new( aligned_alloc( stake_sham_link_align(), stake_sham_link_footprint() ), wksp_name );
 
     wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-repair-repla", NULL, "fd1_repair_repla.wksp" );
     repair_notify = repair_sham_link_new( aligned_alloc( repair_sham_link_align(), repair_sham_link_footprint() ), wksp_name );
-
-    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-tower", NULL, "fd1_replay_tower.wksp" );
-    tower_notify = tower_sham_link_new( aligned_alloc( tower_sham_link_align(), tower_sham_link_footprint() ), wksp_name );
 
   } else {
     init_args_offline( &argc, &argv, &args );
@@ -211,16 +207,14 @@ int main( int argc, char ** argv ) {
     return 0;
   }
 
-  replay_sham_link_start( rep_notify );
+  replay_sham_link_start( replay_out );
   stake_sham_link_start( stake_notify );
   repair_sham_link_start( repair_notify );
-  tower_sham_link_start( tower_notify );
 
   while( !stopflag ) {
-    replay_sham_link_poll( rep_notify, ctx );
+    replay_sham_link_poll( replay_out, ctx );
     stake_sham_link_poll( stake_notify, ctx );
     repair_sham_link_poll( repair_notify, ctx );
-    tower_sham_link_poll( tower_notify, ctx );
 
     fd_rpc_ws_poll( ctx );
   }

@@ -3,6 +3,7 @@
 
 #include "fd_replay_notif.h"
 #include "../poh/fd_poh.h"
+#include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
@@ -1079,6 +1080,30 @@ f
     buffer_vote_towers( ctx );
   }
 
+  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
+    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+    
+    reset->completed_slot = curr_slot;
+    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+    fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
+
+    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+      /* Low power producer, maximum of one microblock per tick in the slot */
+      reset->max_microblocks_in_slot = ticks_per_slot;
+    } else {
+      /* See the long comment in after_credit for this limit */
+      reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
+    }
+    reset->next_leader_slot = ctx->next_leader_slot;
+
+    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
+    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+  }
+
   /**********************************************************************/
   /* Prepare bank for the next execution and write to debugging files   */
   /**********************************************************************/
@@ -1398,12 +1423,22 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, ctx->reset_slot, stem );
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+  msg->slot = ctx->next_leader_slot;
   msg->slot_start_ns = now;
   msg->slot_end_ns   = now+(long)ctx->slot_duration_nanos;
   msg->bank = NULL;
   msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
-  ulong hashes_per_tick = fd_bank_hashes_per_tick_get( bank );
-  msg->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, msg->ticks_per_slot*(hashes_per_tick-1UL) );
+  msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+  msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
+
+  if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    msg->max_microblocks_in_slot = msg->ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    msg->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, msg->ticks_per_slot*(msg->hashcnt_per_tick-1UL) );
+  }
+
   msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
   msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( ctx->slot_ctx->bank ), ctx->next_leader_slot, NULL );
   fd_memset( msg->bundle, 0, sizeof(msg->bundle) );
@@ -1432,23 +1467,23 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
 static void
 unbecome_leader( fd_replay_tile_t *  ctx,
-                 fd_stem_context_t * stem ) {
+                 fd_stem_context_t * stem,
+                 ulong               slot ) {
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
 
-  FD_TEST( ctx->highwater_leader_slot==ctx->next_leader_slot );
+  FD_TEST( ctx->highwater_leader_slot>=slot );
+  FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
   ctx->is_leader = 0;
 
   /* Remove the refcnt for the leader bank and finalize it. */
 
-  fd_hash_t key = { .ul[0] = ctx->next_leader_slot };
+  fd_hash_t key = { .ul[0] = slot };
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &key );
   FD_TEST( !!bank );
 
   fini_leader_bank( ctx, bank, stem );
   bank->refcnt--;
-
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, ctx->next_leader_slot+1UL, ctx->identity_pubkey );
 }
 
 static void
@@ -1521,6 +1556,35 @@ init_from_genesis( fd_replay_tile_t *  ctx,
   ctx->reset_slot = 0UL;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+
+  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
+    fd_bank_t * bank = ctx->slot_ctx->bank;
+
+    fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+    FD_TEST( block_hash );
+
+    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+    
+    reset->completed_slot = curr_slot;
+    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+    fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
+
+    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+      /* Low power producer, maximum of one microblock per tick in the slot */
+      reset->max_microblocks_in_slot = ticks_per_slot;
+    } else {
+      /* See the long comment in after_credit for this limit */
+      reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
+    }
+    reset->next_leader_slot = ctx->next_leader_slot;
+
+    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
+    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+  }
 }
 
 static void
@@ -1775,8 +1839,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_POH: {
       fd_poh_leader_slot_ended_t const * slot_ended = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      unbecome_leader( ctx, stem );
-      (void)slot_ended;
+      unbecome_leader( ctx, stem, slot_ended->slot );
       break;
     }
     case IN_KIND_TOWER: {

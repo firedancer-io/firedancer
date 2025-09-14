@@ -6,7 +6,7 @@
       "name": "testnet",
       "program": "${workspaceRoot}/build/native/gcc/bin/firedancer-dev",
       "args": [
-        "--testnet"
+        // "--testnet"
       ],
       "env": [],
       "cwd": "${workspaceRoot}",
