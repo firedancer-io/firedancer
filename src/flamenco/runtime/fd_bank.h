@@ -837,6 +837,33 @@ fd_banks_is_bank_dead( fd_bank_t * bank ) {
   return bank->flags & FD_BANK_FLAGS_DEAD;
 }
 
+/* fd_banks_print pretty-prints a formatted banks tree.  Printing begins
+   from the rooted bank.  The printer prints out the fork structure
+   and the slot, block id, and flags of each bank.
+
+   Calling this function acquires a read lock on the banks struct.  The
+   caller is responsible for making sure that there are no concurrent
+   writes to the slot/block-id/flag fields for each bank.
+
+   The usage is as follows:
+   `fd_banks_print( banks )`. */
+
+void
+fd_banks_print( fd_banks_t * banks );
+
+/* fd_banks_validate does validation on the banks struct to make sure
+   that there are no corruptions/invariant violations.  It returns 0
+   if no issues have been detected and 1 otherwise.
+
+   List of checks that the function currently performs:
+   1. CoW fields have not acquired more elements than the max amount of
+      allocated banks.
+   (Add more checks as needed here)
+*/
+
+int
+fd_banks_validate( fd_banks_t * banks );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_bank_h */

@@ -286,7 +286,7 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
 
   fd_txncache_query_t curr_query;
   curr_query.blockhash = blockhash->uc;
@@ -296,7 +296,7 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
      https://github.com/anza-xyz/agave/blob/v2.1.7/sdk/program/src/message/versions/mod.rs#L159-L167 */
   fd_blake3_init( b3 );
   fd_blake3_append( b3, "solana-tx-message-v1", 20UL );
-  fd_blake3_append( b3, ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->message_off),(ulong)( txn_ctx->_txn_raw->txn_sz - txn_ctx->txn_descriptor->message_off ) );
+  fd_blake3_append( b3, ((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->message_off),(ulong)( txn_ctx->txn.payload_sz - TXN( &txn_ctx->txn )->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
   curr_query.txnhash = txn_ctx->blake_txn_msg_hash.uc;
 
@@ -381,11 +381,11 @@ fd_executor_verify_transaction( fd_exec_txn_ctx_t * txn_ctx ) {
 
 static void
 fd_executor_setup_instr_infos_from_txn_instrs( fd_exec_txn_ctx_t * txn_ctx ) {
-  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
+  ushort instr_cnt = TXN( &txn_ctx->txn )->instr_cnt;
 
   /* Set up the instr infos for the transaction */
   for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
+    fd_txn_instr_t const * instr = &TXN( &txn_ctx->txn )->instr[i];
     fd_instr_info_init_from_txn_instr( &txn_ctx->instr_infos[i], txn_ctx, instr );
   }
 
@@ -440,7 +440,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
        constructed by the SVM and modified within each transaction's
        instruction execution only, so it incurs a loaded size cost
        of 0. */
-    fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr_infos, txn_ctx->txn_descriptor->instr_cnt );
+    fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr_infos, TXN( &txn_ctx->txn )->instr_cnt );
     return 0UL;
   }
 
@@ -533,14 +533,14 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* TODO: Consider using a hash set (if its more performant) */
-  ushort      instr_cnt             = txn_ctx->txn_descriptor->instr_cnt;
+  ushort      instr_cnt             = TXN( &txn_ctx->txn )->instr_cnt;
   fd_pubkey_t validated_loaders[instr_cnt];
   ushort      validated_loaders_cnt = 0;
 
   /* The logic below handles special casing with loading instruction accounts.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L445-L525 */
   for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
+    fd_txn_instr_t const * instr = &TXN( &txn_ctx->txn )->instr[i];
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L449-L451 */
     if( FD_UNLIKELY( !memcmp( txn_ctx->account_keys[ instr->program_id ].key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
@@ -750,7 +750,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Charge a base fee for each address lookup table.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L570-L576 */
-  ulong aluts_size = fd_ulong_sat_mul( txn_ctx->txn_descriptor->addr_table_lookup_cnt,
+  ulong aluts_size = fd_ulong_sat_mul( TXN( &txn_ctx->txn )->addr_table_lookup_cnt,
                                        FD_ADDRESS_LOOKUP_TABLE_BASE_SIZE );
   int err = fd_increase_calculated_data_size( txn_ctx, aluts_size );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -803,9 +803,9 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L662-L686 */
-  ushort instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
+  ushort instr_cnt = TXN( &txn_ctx->txn )->instr_cnt;
   for( ushort i=0; i<instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
+    fd_txn_instr_t const * instr = &TXN( &txn_ctx->txn )->instr[i];
 
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L663-L666 */
@@ -886,7 +886,7 @@ fd_executor_lamports_per_signature( fd_fee_rate_governor_t const * fee_rate_gove
 static void
 fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
                           fd_txn_t const *      txn_descriptor,
-                          fd_rawtxn_b_t const * txn_raw,
+                          uchar const *         payload,
                           ulong *               ret_execution_fee,
                           ulong *               ret_priority_fee) {
   /* The execution fee is just the signature fee. The priority fee
@@ -904,8 +904,8 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
       if( !txn_instr->data_sz ) {
         continue;
       }
-      uchar * data   = (uchar *)txn_raw->raw + txn_instr->data_off;
-      num_signatures = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
+      uchar const * data = payload + txn_instr->data_off;
+      num_signatures     = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
     }
   }
 
@@ -932,7 +932,6 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
 static void
 fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
                                                ulong               total_fee ) {
-  fd_txn_account_t * fee_payer_rec = &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX];
   fd_pubkey_t *      fee_payer_key = &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX];
   fd_txn_account_t * rollback_fee_payer_acc;
 
@@ -942,10 +941,6 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
      commit phase anyways. */
   if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
     rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
-
-    /* We also need to update the rent epoch because technically, Agave copies these fields
-       from the fee payer account (since the rollback account does not reflect these changes yet) */
-    fd_txn_account_set_rent_epoch( rollback_fee_payer_acc, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
   } else {
     int err = FD_ACC_MGR_SUCCESS;
     fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
@@ -967,12 +962,6 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
 
-    /* There's another weird edge case where if the transaction contains a nonce account, you also have
-       to save the rent epoch field of the fee payer account.
-       https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/rollback_accounts.rs#L68-L75 */
-    if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-      fd_txn_account_set_rent_epoch( txn_ctx->rollback_fee_payer_account, fd_txn_account_get_rent_epoch( fee_payer_rec ) );
-    }
     rollback_fee_payer_acc = txn_ctx->rollback_fee_payer_account;
   }
 
@@ -1011,7 +1000,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong execution_fee = 0UL;
   ulong priority_fee  = 0UL;
 
-  fd_executor_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
+  fd_executor_calculate_fee( txn_ctx, TXN( &txn_ctx->txn ), txn_ctx->txn.payload, &execution_fee, &priority_fee );
   ulong total_fee = fd_ulong_sat_add( execution_fee, priority_fee );
 
   if( !FD_FEATURE_ACTIVE_BANK( txn_ctx->bank, remove_rounding_in_fee_calculation ) ) {
@@ -1040,11 +1029,11 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 /* Simply unpacks the account keys from the serialized transaction and sets them in the txn_ctx. */
 void
 fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
-  txn_ctx->accounts_cnt = (uchar)txn_ctx->txn_descriptor->acct_addr_cnt;
-  fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
+  txn_ctx->accounts_cnt = (uchar)TXN( &txn_ctx->txn )->acct_addr_cnt;
+  fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->acct_addr_off);
 
   // Set up accounts in the transaction body and perform checks
-  for( ulong i = 0UL; i < txn_ctx->txn_descriptor->acct_addr_cnt; i++ ) {
+  for( ulong i = 0UL; i < TXN( &txn_ctx->txn )->acct_addr_cnt; i++ ) {
     txn_ctx->account_keys[i] = tx_accs[i];
   }
 }
@@ -1054,7 +1043,7 @@ fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
    is a legacy transaction, and 1 on failure. */
 int
 fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
-  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
+  if( TXN( &txn_ctx->txn )->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
     fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
@@ -1063,15 +1052,15 @@ fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
-    int err = fd_runtime_load_txn_address_lookup_tables( txn_ctx->txn_descriptor,
-                                                         txn_ctx->_txn_raw->raw,
+    int err = fd_runtime_load_txn_address_lookup_tables( TXN( &txn_ctx->txn ),
+                                                         txn_ctx->txn.payload,
                                                          txn_ctx->funk,
                                                          txn_ctx->funk_txn,
                                                          txn_ctx->slot,
                                                          slot_hashes,
                                                          accts_alt );
     fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
-    txn_ctx->accounts_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
+    txn_ctx->accounts_cnt += TXN( &txn_ctx->txn )->addr_table_adtl_cnt;
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) return err;
 
   }
@@ -1555,15 +1544,17 @@ fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
     shas[i] = sha;
   }
 
-  uchar  signature_cnt = txn_ctx->txn_descriptor->signature_cnt;
-  ushort signature_off = txn_ctx->txn_descriptor->signature_off;
-  ushort acct_addr_off = txn_ctx->txn_descriptor->acct_addr_off;
-  ushort message_off   = txn_ctx->txn_descriptor->message_off;
+  fd_txn_t const * txn = TXN( &txn_ctx->txn );
 
-  uchar const * signatures = (uchar *)txn_ctx->_txn_raw->raw + signature_off;
-  uchar const * pubkeys = (uchar *)txn_ctx->_txn_raw->raw + acct_addr_off;
-  uchar const * msg = (uchar *)txn_ctx->_txn_raw->raw + message_off;
-  ulong msg_sz = (ulong)txn_ctx->_txn_raw->txn_sz - message_off;
+  uchar  signature_cnt = txn->signature_cnt;
+  ushort signature_off = txn->signature_off;
+  ushort acct_addr_off = txn->acct_addr_off;
+  ushort message_off   = txn->message_off;
+
+  uchar const * signatures = (uchar *)txn_ctx->txn.payload + signature_off;
+  uchar const * pubkeys = (uchar *)txn_ctx->txn.payload + acct_addr_off;
+  uchar const * msg = (uchar *)txn_ctx->txn.payload + message_off;
+  ulong msg_sz = (ulong)txn_ctx->txn.payload_sz - message_off;
 
   /* Verify signatures */
   int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, signature_cnt );
@@ -1582,7 +1573,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Initialize log collection */
   fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->enable_exec_recording );
 
-  for( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
+  for( ushort i=0; i<TXN( &txn_ctx->txn )->instr_cnt; i++ ) {
     txn_ctx->current_instr_idx = i;
     if( FD_UNLIKELY( dump_insn ) ) {
       // Capture the input and convert it into a Protobuf message

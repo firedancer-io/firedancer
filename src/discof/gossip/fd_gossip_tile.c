@@ -9,6 +9,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../disco/fd_txn_m_t.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
@@ -228,11 +229,10 @@ handle_shred_version( fd_gossip_tile_ctx_t * ctx,
 
 static void
 handle_local_vote( fd_gossip_tile_ctx_t * ctx,
-                   uchar const *          payload,
-                   ulong                  payload_sz,
+                   fd_txn_m_t const *     txn_m,
                    fd_stem_context_t *    stem ) {
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
-  fd_gossip_push_vote( ctx->gossip, payload, payload_sz, stem, now );
+  fd_gossip_push_vote( ctx->gossip, fd_txn_m_payload_const( txn_m ), txn_m->payload_sz, stem, now );
 }
 
 static void
@@ -275,10 +275,12 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
                  ulong                  sig,
                  ulong                  chunk,
                  ulong                  sz,
+                 ulong                  ctl,
                  ulong                  tsorig,
                  ulong                  tspub,
                  fd_stem_context_t *    stem ) {
   (void)seq;
+  (void)ctl;
   (void)tsorig;
   (void)tspub;
 
@@ -289,7 +291,7 @@ returnable_frag( fd_gossip_tile_ctx_t * ctx,
 
   switch( ctx->in[ in_idx ].kind ) {
     case IN_KIND_SHRED_VERSION: handle_shred_version( ctx, sig ); break;
-    case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
+    case IN_KIND_SEND:          handle_local_vote( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), stem ); break;
     case IN_KIND_STAKE:         handle_stakes( ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) ); break;
     case IN_KIND_GOSSVF:        handle_packet( ctx, sig, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz, stem ); break;
   }
@@ -375,7 +377,7 @@ unprivileged_init( fd_topo_t *      topo,
       sign_in_tile_idx = i;
     } else if( FD_UNLIKELY( !strcmp( link->name, "send_txns" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SEND;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "stake_out" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_stake" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_STAKE;
     } else {
       FD_LOG_ERR(( "unexpected input link name %s", link->name ));

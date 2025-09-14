@@ -16,6 +16,7 @@ void fd_gui_printf_startup_time_nanos( fd_gui_t * gui );
 void fd_gui_printf_vote_state( fd_gui_t * gui );
 void fd_gui_printf_vote_distance( fd_gui_t * gui );
 void fd_gui_printf_skipped_history( fd_gui_t * gui );
+void fd_gui_printf_skipped_history_cluster( fd_gui_t * gui );
 void fd_gui_printf_tps_history( fd_gui_t * gui );
 void fd_gui_printf_startup_progress( fd_gui_t * gui );
 void fd_gui_printf_block_engine( fd_gui_t * gui );
@@ -86,6 +87,12 @@ void
 fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      slot,
                             ulong      id );
+
+void
+fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
+                                     ulong      id,
+                                     int        mine );
+
 
 void
 fd_gui_printf_slot_request_detailed( fd_gui_t * gui,

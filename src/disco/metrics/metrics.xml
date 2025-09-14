@@ -418,6 +418,13 @@ metric introduced.
     <int value="3" name="Removed" label="A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories." />
 </enum>
 
+<tile name="resolf">
+    <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
+    <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
+    <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+</tile>
+
 <tile name="resolv">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
@@ -614,11 +621,39 @@ metric introduced.
     <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
 </enum>
 
+<enum name="TransactionResult">
+    <int value="0" name="Success" label="Transaction executed successfully" />
+    <int value="1" name="InstructonError" label="An error occurred while processing an instruction" />
+    <int value="2" name="AccountNotFound" label="The transaction fee payer address was not found" />
+    <int value="3" name="ProgramAccountNotFound" label="A program account referenced by the transaction was not found" />
+    <int value="4" name="InsufficientFundsForFee" label="The transaction fee payer did not have balance to pay the fee" />
+    <int value="5" name="InvalidAccountForFee" label="The transaction fee payer account is not owned by the system program, or has data that is not a nonce" />
+    <int value="6" name="AlreadyProcessed" label="The transaction has already been processed in a recent block" />
+    <int value="7" name="BlockhashNotFound" label="The transaction references a blockhash that is not recent, or advances a nonce with the wrong value" />
+    <int value="8" name="InvalidProgramForExecution" label="A program account referenced by the transaction was no executable. TODO: No longer needed with SIMD-0162" />
+    <int value="9" name="AddressLookupTableNotFound" label="The transaction references an ALUT account that does not exist or is inactive" />
+    <int value="10" name="InvalidAddressLookupTableOwner" label="The transaction references an ALUT account that is not owned by the ALUT program account" />
+    <int value="11" name="InvalidAddressLookupTableData" label="The transaction references an ALUT account that contains data which is not a valid ALUT" />
+    <int value="12" name="InvalidAddressLookupTableIndex" label="The transaction references an account offset from the ALUT which does not exist" />
+    <int value="13" name="MaxLoadedAccountsDataSizeExceeded" label="The total account data size of the loaded accounts exceeds the consensus limit" />
+    <int value="14" name="DuplicateInstruction" label="A compute budget program instruction was invoked more than once" />
+    <int value="15" name="InvalidLoadedAccountsDataSizeLimit" label="The compute budget program was invoked and set the loaded accounts data size to zero" />
+    <int value="16" name="AccountInUse" label="The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" />
+    <int value="17" name="AccountLoadedTwice" label="The transaction references the same account twice" />
+    <int value="18" name="SignatureFailure" label="The transaction had an invalid signature" />
+    <int value="19" name="TooManyAccountLocks" label="The transaction references too many accounts. TODO: No longer possible with smart dispatcher" />
+    <int value="20" name="InsufficientFundsForRent" label="The transaction would leave an account with a lower balance than the rent-exempt minimum" />
+    <int value="21" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
+    <int value="22" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
+</enum>
+
+<tile name="bankf">
+    <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction." />
+</tile>
+
 <tile name="bank">
     <counter name="TransactionSanitizeFailure" summary="Number of transactions that failed to sanitize." />
     <counter name="TransactionNotExecutedFailure" summary="Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain." />
-
-    <counter name="SlotAcquire" enum="BankSlotAcquire" summary="Result of acquiring a slot." />
 
     <counter name="TransactionLoadAddressTables" enum="BankLoadAddressLookupTable" summary="Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported." />
     <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction." />
@@ -681,6 +716,8 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
+    <counter name="ShredRepairRcv"       summary="The number of times we received a repair shred" />
+    <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
     <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
         <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
     </histogram>
@@ -694,8 +731,6 @@ metric introduced.
 </tile>
 
 <tile name="replay">
-  <gauge name="Slot" label="The slot that is currently being executing" />
-  <gauge name="LastVotedSlot" label="The last slot that was voted on" />
   <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
     <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
   </histogram>
@@ -719,6 +754,7 @@ metric introduced.
     <int value="0" name="NeededWindow"          label="Need Window" />
     <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
     <int value="2" name="NeededOrphan"          label="Need Orphans" />
+    <int value="4" name="Pong"                  label="Pong" />
 </enum>
 
 <enum name="RepairServPktTypes">
@@ -738,13 +774,21 @@ metric introduced.
     <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
     <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
     <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
-    <counter name="SendPktCnt"                clickhouse_exclude="true"                                 summary="How many packets have sent" />
+    <counter name="ShredRepairReq"            clickhouse_exclude="true"                                 summary="How many repair requests have we sent" />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
+    <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
+    <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
       <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
     </histogram>
     <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
       <summary>Time in seconds spent on linking a new FEC set</summary>
+    </histogram>
+    <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
+      <summary>Time in seconds it took to complete a slot</summary>
+    </histogram>
+    <histogram name="ResponseLatency"  min="10000000" max="1000000000">
+      <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
 </tile>

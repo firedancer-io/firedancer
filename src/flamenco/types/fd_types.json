@@ -4,8 +4,7 @@
   "extra_header": [
       "#include \"fd_bincode.h\"",
       "#include \"../../ballet/utf8/fd_utf8.h\"",
-      "#include \"fd_types_custom.h\"",
-      "#define FD_ACCOUNT_META_MAGIC 9823"
+      "#include \"fd_types_custom.h\""
   ],
   "entries": [
     {
@@ -199,18 +198,6 @@
         { "name": "info", "type": "solana_account_meta" },
         { "name": "padding", "type": "array", "element": "uchar", "length": 4 },
         { "name": "hash", "type": "hash" }
-      ]
-    },
-    {
-      "name": "account_meta",
-      "type": "struct",
-      "packed": true,
-      "fields": [
-        { "name": "magic", "type": "ushort" },
-        { "name": "hlen",  "type": "ushort" },
-        { "name": "dlen",  "type": "ulong" },
-        { "name": "slot",  "type": "ulong" },
-        { "name": "info",  "type": "solana_account_meta" }
       ]
     },
     {

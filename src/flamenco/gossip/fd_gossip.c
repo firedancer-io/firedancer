@@ -6,6 +6,7 @@
 #include "fd_ping_tracker.h"
 #include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 FD_STATIC_ASSERT( FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT==FD_GOSSIP_MESSAGE_LAST+1UL,
                   "FD_METRICS_ENUM_GOSSIP_MESSAGE_CNT must match FD_GOSSIP_MESSAGE_LAST+1" );
@@ -179,8 +180,8 @@ fd_gossip_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( (entrypoints_cnt<1) | (entrypoints_cnt>16UL) ) ) {
-    FD_LOG_WARNING(( "entrypoints_cnt must in (0, 16]" ));
+  if( FD_UNLIKELY( entrypoints_cnt>16UL ) ) {
+    FD_LOG_WARNING(( "entrypoints_cnt must be in [0, 16]" ));
     return NULL;
   }
 
@@ -613,14 +614,18 @@ static void
 rx_prune( fd_gossip_t *                  gossip,
           uchar const *                  payload,
           fd_gossip_view_prune_t const * prune ) {
-  fd_active_set_prunes( gossip->active_set,
-                        gossip->identity_pubkey,
-                        gossip->identity_stake,
-                        payload+prune->prunes_off,
-                        prune->prunes_len,
-                        payload+prune->origin_off,
-                        get_stake( gossip, payload+prune->origin_off ),
-                        NULL /* TODO: use out_node_idx to update push states */ );
+  uchar const * push_dest_pubkey = payload+prune->pubkey_off;
+  uchar const * origins          = payload+prune->origins_off;
+  for( ulong i=0UL; i<prune->origins_len; i++ ) {
+    uchar const * origin_pubkey = &origins[ i*32UL ];
+    ulong         origin_stake  = get_stake( gossip, origin_pubkey );
+    fd_active_set_prune( gossip->active_set,
+                         push_dest_pubkey,
+                         origin_pubkey,
+                         origin_stake,
+                         gossip->identity_pubkey,
+                         gossip->identity_stake );
+  }
 }
 
 
@@ -840,7 +845,11 @@ tx_pull_request( fd_gossip_t *       gossip,
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( !peer ) ) {
-    /* Choose random entrypoint */
+    if( FD_UNLIKELY( !gossip->entrypoints_cnt ) ) {
+      /* We are the bootstrapping node, and nobody else is present in
+         the cluster.  Nowhere to send the pull request. */
+      return;
+    }
     peer_addr = random_entrypoint( gossip );
   } else {
     peer_addr = fd_contact_info_gossip_socket( peer );
@@ -860,7 +869,7 @@ next_pull_request( fd_gossip_t const * gossip,
      reduces 1024 to a lower amount as the table size shrinks...
      replicate this in the frequency domain. */
   /* TODO: Jitter */
-  return now+1600L*1000L;
+  return now+(long)1e9;
 }
 
 static inline void

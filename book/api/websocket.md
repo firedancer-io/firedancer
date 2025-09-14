@@ -38,6 +38,36 @@ file.
 The API is split into various topics which will be streamed to any and
 all connected clients.
 
+## Compression
+If configured properly, the server can optionally compress messages
+larger than 200 bytes. In order to enable this feature, the client must
+specify the `compress-zstd` subprotocol in the opening websocket
+handshake.
+
+::: code-group
+
+```js [client.js]
+client = new WebSocket("ws://localhost:80/websocket", protocols=['compress-zstd']);
+client.binaryType = "arraybuffer";
+```
+
+```
+ws.onmessage = function onmessage(ev: MessageEvent<unknown>) {
+  if (typeof ev.data === 'string') {
+    ... parse string
+  } else if (ev.data instanceof ArrayBuffer) {
+    ... decompress then parse
+  }
+};
+```
+
+:::
+
+In order to distinguish between compressed and non-compressed messages,
+the server will send compressed messages as a binary websocket frame
+(i.e. opcode=0x2) and regular messages as a text websocket frame (i.e.
+opcode=0x1).
+
 ## Keeping Up
 The server does not drop information, slow down, or stop publishing the
 stream of information if the client cannot keep up. A client that is
@@ -1038,6 +1068,16 @@ If the validator identity is changed with a `set-identity` operation,
 the skipped history is republished with a list of skipped slots for the
 new validator identity.
 
+#### `slot.skipped_history_cluster`
+| frequency | type       | example |
+|-----------|------------|---------|
+ *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+
+A list of all of the leader slots which were skipped in the current and
+immediately prior epoch.  Recent non-rooted slots may be included, and
+included skipped slots will not become unskipped as a later slot has
+rooted.
+
 #### `slot.update`
 | frequency   | type          | example |
 |-------------|---------------|---------|
@@ -1053,6 +1093,84 @@ new validator identity.
 | publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
+
+#### `slot.query_rankings`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotRankings` | below   |
+
+| param | type   | description |
+|-------|--------|-------------|
+| mine  | `bool` | If `mine` is true, only include slots produced by this validator in the result.  Otherwise, any slot from the current epoch may be included |
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query_rankings",
+    "id": 32,
+    "params": {
+        "mine": false
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_rankings",
+    "id": 32,
+    "value": {
+      "slots_largest_tips": [1, 2, 3],
+      "vals_largest_tips": [12345678, 1234567, 123456],
+      "slots_largest_fees": [1, 2, 3],
+      "vals_largest_fees": [12345678, 1234567, 123456],
+      "slots_largest_rewards": [1, 2, 3],
+      "vals_largest_rewards": [12345678, 1234567, 123456],
+      "slots_largest_duration": [1, 2, 3],
+      "vals_largest_duration": [450000000, 440000000, 430000000],
+      "slots_largest_compute_units": [1, 2, 3],
+      "vals_largest_compute_units": [47000000, 46000000, 45000000],
+      "slots_largest_skipped": [7, 8, 9],
+      "vals_largest_skipped": [7, 8, 9],
+      "slots_smallest_tips": [1, 2, 3],
+      "vals_smallest_tips": [0, 0, 0],
+      "slots_smallest_fees": [1, 2, 3],
+      "vals_smallest_fees": [0, 0, 0],
+      "slots_smallest_rewards": [1, 2, 3],
+      "vals_smallest_rewards": [0, 0, 0],
+      "slots_smallest_duration": [1, 2, 3],
+      "vals_smallest_duration": [100000000, 120000000, 160000000],
+      "slots_smallest_compute_units": [1, 2, 3],
+      "vals_smallest_compute_units": [15000000, 16000000, 17000000],
+      "slots_smallest_skipped": [4, 5, 6],
+      "vals_smallest_skipped": [4, 5, 6]
+    }
+}
+```
+
+:::
+
+**`SlotRankings`**
+| Field                                         | Type       | Description |
+|-----------------------------------------------|------------|-------------|
+| {slots|vals}_{smallest|largest}_tips          | `number[]` | Rankings for the {smallest|largest} tips this epoch |
+| {slots|vals}_{smallest|largest}_fees          | `number[]` | Rankings for the {smallest|largest} fees this epoch |
+| {slots|vals}_{smallest|largest}_rewards       | `number[]` | Rankings for the {smallest|largest} rewards this epoch |
+| {slots|vals}_{smallest|largest}_duration      | `number[]` | Rankings for the {smallest|largest} slot durations this epoch |
+| {slots|vals}_{smallest|largest}_compute_units | `number[]` | Rankings for the {smallest|largest} compute units this epoch |
+| {slots|vals}_{smallest|largest}_skipped       | `number[]` | Rankings for the {earliest|latest} skipped slots this epoch |
+
+Each metric in this message will have four associated arrays.
+
+- vals_smallest_metric: Metric value for the lowest ranked slots (sorted ascending)
+- slots_smallest_metric: Slot numbers for vals_smallest_metric source slots
+- slots_largest_metric: Metric value for the highest ranked slots (sorted descending)
+- vals_largest_metric: Slot numbers for vals_largest_metric source slots
+
+Slots before boot time are not included in these rankings. Unless
+explicitly mentioned, skipped slots are not included.
 
 #### `slot.query`
 | frequency   | type           | example |
@@ -1393,8 +1511,8 @@ new validator identity.
 | txn_bank_idx                      | `number[]`  | `txn_bank_idx[i]` is the index of the bank tile that executed the `i`-th transaction in the slot |
 | txn_microblock_id                 | `string[]`  | `txn_microblock_id[i]` is the index of the microblock for the `i`-th transaction in the slot.  Microblocks are collections of 1+ transactions.  All of the transactions from a bundle share the same microblock. Microblock ids are monotonically increasing in the order they appear in the block and start at 0 for each slot |
 | txn_signature                     | `string[]`  | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
-| txn_source_ipv4                   | `number[]`  | `txn_signature[i]` is the source ipv4 address for the `i`-th transaction in the slot |
-| txn_source_tpu                    | `string[]`  | `txn_signature[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
+| txn_source_ipv4                   | `string[]`  | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
+| txn_source_tpu                    | `string[]`  | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
 
 The source tpu for a transaction can be one of the following
 

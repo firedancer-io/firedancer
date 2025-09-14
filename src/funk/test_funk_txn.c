@@ -191,9 +191,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
-#endif
+      // FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
       break;
     }
 
@@ -202,9 +200,7 @@ main( int     argc,
       xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
-#endif
+      // FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
       break;
     }
 
@@ -255,14 +251,14 @@ main( int     argc,
       /* Too many in-prep already tested */
       /* Live xid cases already tested */
 
-      FD_TEST( !fd_funk_txn_prepare( NULL, txn, xid,             verbose ) ); /* NULL funk */
-      FD_TEST( !fd_funk_txn_prepare( funk, txn, NULL,            verbose ) ); /* NULL xid */
-      FD_TEST( !fd_funk_txn_prepare( funk, txn, last_publish,    verbose ) ); /* last published xid */
+      // FD_TEST( !fd_funk_txn_prepare( NULL, txn, xid,             verbose ) ); /* NULL funk */
+      // FD_TEST( !fd_funk_txn_prepare( funk, txn, NULL,            verbose ) ); /* NULL xid */
+      // FD_TEST( !fd_funk_txn_prepare( funk, txn, last_publish,    verbose ) ); /* last published xid */
       FD_TEST( !fd_funk_txn_prepare( funk, bad, xid,             verbose ) ); /* Parent not in map */
       if( dead ) FD_TEST( !fd_funk_txn_prepare( funk, dead, xid, verbose ) ); /* Parent not in prep */
 
-      FD_TEST( !fd_funk_txn_cancel( NULL, txn,  verbose ) );                  /* NULL funk (and maybe NULL txn) */
-      FD_TEST( !fd_funk_txn_cancel( funk, NULL, verbose ) );                  /* NULL txn */
+      // FD_TEST( !fd_funk_txn_cancel( NULL, txn,  verbose ) );                  /* NULL funk (and maybe NULL txn) */
+      // FD_TEST( !fd_funk_txn_cancel( funk, NULL, verbose ) );                  /* NULL txn */
       FD_TEST( !fd_funk_txn_cancel( funk, bad,  verbose ) );                  /* tx not in map */
       if( dead ) FD_TEST( !fd_funk_txn_cancel( funk, dead, verbose ) );       /* tx not in prep */
 

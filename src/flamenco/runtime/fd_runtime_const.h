@@ -23,7 +23,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION (64UL)
 
 /* The initial block id hash is a dummy value for the initial block id
-   as one is not provided in snapshots. This does not have an
+   as one is not provided in snapshots.  This does not have an
    equivalent in Agave.
 
    TODO: This should be removed in favor of repairing the last shred of
@@ -39,6 +39,11 @@ FD_PROTOTYPES_BEGIN
    instructions.  The hard bound still needs to be determined. */
 
 #define FD_RUNTIME_MIN_STAKE_INSN_CUS (6000UL)
+
+/* FD_RUNTIME_ACC_SZ_MAX is the protocol level hardcoded size limit of a
+   Solana account. */
+
+#define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
 FD_PROTOTYPES_END
 

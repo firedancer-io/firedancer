@@ -186,16 +186,31 @@ struct fd_program_cache_entry {
 
    ulong rodata_sz;
 
-  /* We keep the pointer to the calldests raw memory around, so that we can easily copy the entire
-     data structures (including the private header) later. */
-   void *                calldests_shmem;
-   fd_sbpf_calldests_t * calldests;
-   uchar *               rodata;
+  /* We use offsets to store the calldests and rodata in order to keep
+     the cache entry gaddr-aware so it can be passed around different
+     tiles. */
+   ulong calldests_shmem_off;
+   ulong rodata_off;
 
    /* SBPF version, SIMD-0161 */
    ulong sbpf_version;
 };
 typedef struct fd_program_cache_entry fd_program_cache_entry_t;
+
+static inline uchar *
+fd_program_cache_get_rodata( fd_program_cache_entry_t const * cache_entry ) {
+  return (uchar *)cache_entry + cache_entry->rodata_off;
+}
+
+static inline fd_sbpf_calldests_t *
+fd_program_cache_get_calldests_shmem( fd_program_cache_entry_t const * cache_entry ) {
+  return (fd_sbpf_calldests_t *)((uchar *)cache_entry + cache_entry->calldests_shmem_off);
+}
+
+static inline fd_sbpf_calldests_t *
+fd_program_cache_get_calldests( fd_program_cache_entry_t const * cache_entry ) {
+  return fd_sbpf_calldests_join( fd_program_cache_get_calldests_shmem( cache_entry ) );
+}
 
 /* arbitrary unique value, in this case
    echo -n "fd_program_cache_entry" | sha512sum | head -c 16 */

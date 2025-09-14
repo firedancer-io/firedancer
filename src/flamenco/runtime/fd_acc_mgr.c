@@ -32,11 +32,6 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
     void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
 
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-    if( FD_UNLIKELY( metadata->magic != FD_ACCOUNT_META_MAGIC ) ) {
-      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
-      return NULL;
-    }
-
     if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
       return metadata;
     }
@@ -110,12 +105,8 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
   }
 
   fd_account_meta_t * meta = val;
-  if( do_create && meta->magic==0UL ) {
+  if( do_create && meta->lamports==0UL ) {
     fd_account_meta_init( meta );
-  }
-  if( meta->magic != FD_ACCOUNT_META_MAGIC ) {
-    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
-    return NULL;
   }
 
   return meta;
@@ -132,8 +123,6 @@ fd_acc_mgr_strerror( int err ) {
     return "write failed";
   case FD_ACC_MGR_ERR_READ_FAILED:
     return "read failed";
-  case FD_ACC_MGR_ERR_WRONG_MAGIC:
-    return "wrong magic";
   default:
     return "unknown";
   }

@@ -170,6 +170,9 @@ recursive_walk( char const * path,
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( path1 ), path, path_len ) );
   DIR * root_dir = opendir( path1 );
   if( FD_UNLIKELY( !root_dir ) ) {
+    if( errno==ENOTDIR ) {
+      return visit( visit_ctx, path1, path_len );
+    }
     FD_LOG_WARNING(( "opendir(%s) failed: (%i-%s)", path, errno, fd_io_strerror( errno ) ));
     return 0;
   }
@@ -416,7 +419,7 @@ main( int     argc,
     FD_LOG_INFO(( "Attaching to --wksp %s", wksp_name ));
     wksp = fd_wksp_attach( wksp_name );
   } else if( !page_cnt ) {
-    ulong data_max = worker_cnt*(6UL<<30);
+    ulong data_max = worker_cnt*(7UL<<30);
     ulong part_max = fd_wksp_part_max_est( data_max, 64UL<<10 );
     FD_LOG_INFO(( "--wksp not specified, using anonymous demand-paged memory --part-max %lu --data-max %lu", part_max, data_max ));
     wksp = fd_wksp_demand_paged_new( "solfuzz", wksp_seed, part_max, data_max );

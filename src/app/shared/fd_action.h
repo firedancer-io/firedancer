@@ -69,6 +69,8 @@ union fdctl_args {
 
   struct {
     char manifest_path[ 256UL ];
+    char iptable_path[ 256UL ];
+    int  metrics_only;
   } repair;
 
   struct {

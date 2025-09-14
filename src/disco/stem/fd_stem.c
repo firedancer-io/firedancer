@@ -686,7 +686,7 @@ STEM_(run1)( ulong                        in_cnt,
     }
 
 #ifdef STEM_CALLBACK_RETURNABLE_FRAG
-    int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, tsorig, tspub, &stem );
+    int return_frag = STEM_CALLBACK_RETURNABLE_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl, tsorig, tspub, &stem );
     if( FD_UNLIKELY( return_frag ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
       long next = fd_tickcount();

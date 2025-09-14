@@ -6,7 +6,7 @@
 
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
+#include "../../discof/replay/fd_exec.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -56,6 +56,7 @@ struct fd_writer_tile_ctx {
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
   fd_writer_tile_out_ctx_t    writer_replay_out[1];
+  fd_writer_tile_out_ctx_t    capture_replay_out[1];
 
   /* Local joins of exec spads.  Read-only. */
   fd_spad_t *                 exec_spad[ FD_PACK_MAX_BANK_TILES ];
@@ -69,14 +70,14 @@ struct fd_writer_tile_ctx {
   fd_bank_t *                  bank;
 
   /* Buffers to hold fragments received during during_frag */
-  fd_runtime_public_exec_writer_boot_msg_t boot_msg;
-  fd_runtime_public_exec_writer_txn_msg_t txn_msg;
+  fd_exec_writer_boot_msg_t boot_msg;
+  fd_exec_writer_txn_msg_t  txn_msg;
 
   /* Buffer to hold the writer->replay notification that a txn has been finalized.
      We need to store it here before publishing it, because we need to ensure that
      all solcap updates have been published before this message. */
-  fd_runtime_public_writer_replay_txn_finalized_t txn_finalized_buffer;
-  int                                             pending_txn_finalized_msg;
+  fd_writer_replay_txn_finalized_msg_t txn_finalized_buffer;
+  int                                  pending_txn_finalized_msg;
 };
 typedef struct fd_writer_tile_ctx fd_writer_tile_ctx_t;
 
@@ -129,12 +130,12 @@ publish_next_capture_ctx_account_update( fd_writer_tile_ctx_t * ctx, fd_stem_con
   }
 
   /* Copy the account update event to the buffer */
-  ulong chunk     = ctx->writer_replay_out->chunk;
-  uchar * out_ptr = fd_chunk_to_laddr( ctx->writer_replay_out->mem, chunk );
-  fd_runtime_public_account_update_msg_t * msg = (fd_runtime_public_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
-  memcpy( out_ptr, msg, sizeof(fd_runtime_public_account_update_msg_t) );
-  ctx->solcap_publish_buffer_ptr += sizeof(fd_runtime_public_account_update_msg_t);
-  out_ptr                        += sizeof(fd_runtime_public_account_update_msg_t);
+  ulong chunk     = ctx->capture_replay_out->chunk;
+  uchar * out_ptr = fd_chunk_to_laddr( ctx->capture_replay_out->mem, chunk );
+  fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
+  memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
+  ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
+  out_ptr                        += sizeof(fd_capture_ctx_account_update_msg_t);
 
   /* Copy the data to the buffer */
   ulong data_sz = msg->data_sz;
@@ -143,21 +144,13 @@ publish_next_capture_ctx_account_update( fd_writer_tile_ctx_t * ctx, fd_stem_con
   out_ptr                        += data_sz;
 
   /* Stem publish the account update event */
-  ulong msg_sz = sizeof(fd_runtime_public_account_update_msg_t) + msg->data_sz;
-  fd_stem_publish(
-    stem,
-    ctx->writer_replay_out->idx,
-    FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_ACC_UPDATE,
+  ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
+  fd_stem_publish( stem, ctx->capture_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
+  ctx->capture_replay_out->chunk = fd_dcache_compact_next(
     chunk,
     msg_sz,
-    0UL,
-    0UL,
-    0UL );
-  ctx->writer_replay_out->chunk = fd_dcache_compact_next(
-    chunk,
-    msg_sz,
-    ctx->writer_replay_out->chunk0,
-    ctx->writer_replay_out->wmark );
+    ctx->capture_replay_out->chunk0,
+    ctx->capture_replay_out->wmark );
 
   /* Advance the number of account updates flushed */
   ctx->account_updates_flushed++;
@@ -180,21 +173,21 @@ publish_txn_finalized_msg( fd_writer_tile_ctx_t * ctx, fd_stem_context_t * stem 
 
   /* Copy the txn finalized message to the buffer */
   uchar * out_ptr = fd_chunk_to_laddr( ctx->writer_replay_out->mem, ctx->writer_replay_out->chunk );
-  memcpy( out_ptr, &ctx->txn_finalized_buffer, sizeof(fd_runtime_public_writer_replay_txn_finalized_t) );
+  memcpy( out_ptr, &ctx->txn_finalized_buffer, sizeof(fd_writer_replay_txn_finalized_msg_t) );
 
   /* Publish the txn finalized message */
   fd_stem_publish(
     stem,
     ctx->writer_replay_out->idx,
-    FD_RUNTIME_PUBLIC_WRITER_REPLAY_SIG_TXN_DONE,
+    0UL,
     ctx->writer_replay_out->chunk,
-    sizeof(fd_runtime_public_writer_replay_txn_finalized_t),
+    sizeof(fd_writer_replay_txn_finalized_msg_t),
     0UL,
     0UL,
     0UL );
   ctx->writer_replay_out->chunk = fd_dcache_compact_next(
     ctx->writer_replay_out->chunk,
-    sizeof(fd_runtime_public_writer_replay_txn_finalized_t),
+    sizeof(fd_writer_replay_txn_finalized_msg_t),
     ctx->writer_replay_out->chunk0,
     ctx->writer_replay_out->wmark );
   ctx->pending_txn_finalized_msg = 0;
@@ -265,12 +258,12 @@ during_frag( fd_writer_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( sig == FD_WRITER_BOOT_SIG ) ) {
-    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
+    fd_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     ctx->boot_msg = *msg;
   }
 
   if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
+    fd_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     ctx->txn_msg = *msg;
   }
 }
@@ -283,15 +276,12 @@ after_frag( fd_writer_tile_ctx_t * ctx,
             ulong                  sz FD_PARAM_UNUSED,
             ulong                  tsorig FD_PARAM_UNUSED,
             ulong                  tspub FD_PARAM_UNUSED,
-            fd_stem_context_t *    stem ) {
-
-  (void)seq;
-  (void)stem;
+            fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
 
   /* Process messages from exec tiles. */
 
   if( FD_UNLIKELY( sig == FD_WRITER_BOOT_SIG ) ) {
-    fd_runtime_public_exec_writer_boot_msg_t * msg = &ctx->boot_msg;
+    fd_exec_writer_boot_msg_t * msg = &ctx->boot_msg;
     join_txn_ctx( ctx, in_idx, msg->txn_ctx_offset );
     ulong txn_ctx_cnt = 0UL;
     for( ulong i=0UL; i<ctx->exec_tile_cnt; i++ ) {
@@ -304,7 +294,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
   }
 
   if( FD_LIKELY( sig == FD_WRITER_TXN_SIG ) ) {
-    fd_runtime_public_exec_writer_txn_msg_t * msg = &ctx->txn_msg;
+    fd_exec_writer_txn_msg_t * msg = &ctx->txn_msg;
     if( FD_UNLIKELY( msg->exec_tile_id!=in_idx ) ) {
       FD_LOG_CRIT(( "exec_tile_id %u should be == in_idx %lu", msg->exec_tile_id, in_idx ));
     }
@@ -328,6 +318,9 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       }
       fd_funk_txn_end_read( ctx->funk );
     }
+
+    txn_ctx->spad      = ctx->exec_spad[ in_idx ];
+    txn_ctx->spad_wksp = ctx->exec_spad_wksp[ in_idx ];
 
     if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
         fd_runtime_finalize_txn(
@@ -461,7 +454,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /********************************************************************************/
-  /* writer_replay output link for notifying replay's solcap of account updates */
+  /* writer_replay output link for notifying replay of txn finalization           */
   /********************************************************************************/
 
   ctx->writer_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "writ_repl", ctx->tile_idx );
@@ -475,6 +468,23 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->writer_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->writer_replay_out->mem, writer_replay_link->dcache );
     ctx->writer_replay_out->wmark  = fd_dcache_compact_wmark( ctx->writer_replay_out->mem, writer_replay_link->dcache, writer_replay_link->mtu );
     ctx->writer_replay_out->chunk  = ctx->writer_replay_out->chunk0;
+  }
+
+  /********************************************************************************/
+  /* capture_replay output link for notifying replay's solcap of account updates */
+  /********************************************************************************/
+
+  ctx->capture_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "capt_replay", ctx->tile_idx );
+  if( FD_UNLIKELY( ctx->capture_replay_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * capture_replay_link = &topo->links[ tile->out_link_id[ ctx->capture_replay_out->idx ] ];
+    ctx->capture_replay_out->mcache = capture_replay_link->mcache;
+    ctx->capture_replay_out->sync   = fd_mcache_seq_laddr( ctx->capture_replay_out->mcache );
+    ctx->capture_replay_out->depth  = fd_mcache_depth( ctx->capture_replay_out->mcache );
+    ctx->capture_replay_out->seq    = fd_mcache_seq_query( ctx->capture_replay_out->sync );
+    ctx->capture_replay_out->mem    = topo->workspaces[ topo->objs[ capture_replay_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->capture_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->capture_replay_out->mem, capture_replay_link->dcache );
+    ctx->capture_replay_out->wmark  = fd_dcache_compact_wmark( ctx->capture_replay_out->mem, capture_replay_link->dcache, capture_replay_link->mtu );
+    ctx->capture_replay_out->chunk  = ctx->capture_replay_out->chunk0;
   }
 }
 
@@ -508,6 +518,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+
+/* STEM_LAZY is calculated as cr_max/(frag production rate * 1.5).  We
+   have cr_max ~ 16K and frag production rate ~ 1M/s.  In reality, we
+   probably need more than one writer tile to get to 1M TPS, so we
+   forget about the 1.5 factor. That gives O(10^7 ns). */
+#define STEM_LAZY  ((long)1e7)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_writer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_writer_tile_ctx_t)

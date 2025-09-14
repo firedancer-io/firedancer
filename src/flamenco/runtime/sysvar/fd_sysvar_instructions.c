@@ -74,7 +74,6 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   fd_txn_account_set_owner( rec, &fd_sysvar_owner_id );
   fd_txn_account_set_lamports( rec, 0UL );
   fd_txn_account_set_executable( rec, 0 );
-  fd_txn_account_set_rent_epoch( rec, 0UL );
   fd_txn_account_set_data_len( rec, serialized_sz );
   rec->starting_lamports = 0UL;
 

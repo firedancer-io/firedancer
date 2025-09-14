@@ -32,7 +32,8 @@ class Tile(Enum):
     SNAPIN = 26
     IPECHO = 27
     GOSSVF = 28
-
+    BANKF = 29
+    RESOLF = 30
 
 class MetricType(Enum):
     COUNTER = 0

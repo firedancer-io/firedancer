@@ -561,6 +561,14 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_hash_t bank_hash = fd_bank_bank_hash_get( slot_ctx->bank );
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
+    /* Capture cost tracker */
+    fd_cost_tracker_t cost_tracker = fd_bank_cost_tracker_get( slot_ctx->bank );
+    effects->has_cost_tracker = 1;
+    effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
+      .block_cost = cost_tracker.block_cost,
+      .vote_cost  = cost_tracker.vote_cost,
+    };
+
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_runtime_fuzz_block_ctx_destroy( runner );
 

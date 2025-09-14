@@ -11,7 +11,7 @@
         rocksdb_path = "{ledger}/rocksdb"
     [tiles.replay]
         cluster_version = "{cluster_version}"
-        max_exec_slices = 256
+        heap_size_gib = {heap_size}
     [tiles.gui]
         enabled = false
 [funk]
@@ -19,10 +19,8 @@
     max_account_records = {index_max}
     max_database_transactions = 64
 [runtime]
-    heap_size_gib = {heap_size}
-    [runtime.limits]
-        max_total_banks = 4
-        max_fork_width = 4
+    max_total_banks = 4
+    max_fork_width = 4
 [blockstore]
     shred_max = 16777216
     block_max = 8192

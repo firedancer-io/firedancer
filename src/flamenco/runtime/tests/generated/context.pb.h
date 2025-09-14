@@ -38,9 +38,6 @@ typedef struct fd_exec_test_acct_state {
     /* Account data is limited to 10 MiB on Solana mainnet as of 2024-Feb. */
     pb_bytes_array_t *data;
     bool executable;
-    /* The rent epoch is deprecated on Solana mainnet as of 2024-Feb.
- If ommitted, implies a value of UINT64_MAX. */
-    uint64_t rent_epoch;
     /* Address of the program that owns this account.  (32 bytes) */
     pb_byte_t owner[32];
     /* The account address, but derived as a seed address.  Overrides
@@ -133,7 +130,7 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT    {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT   {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT     {{0}, 0, NULL, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_DEFAULT}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
@@ -141,7 +138,7 @@ extern "C" {
 #define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
+#define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
@@ -157,7 +154,6 @@ extern "C" {
 #define FD_EXEC_TEST_ACCT_STATE_LAMPORTS_TAG     2
 #define FD_EXEC_TEST_ACCT_STATE_DATA_TAG         3
 #define FD_EXEC_TEST_ACCT_STATE_EXECUTABLE_TAG   4
-#define FD_EXEC_TEST_ACCT_STATE_RENT_EPOCH_TAG   5
 #define FD_EXEC_TEST_ACCT_STATE_OWNER_TAG        6
 #define FD_EXEC_TEST_ACCT_STATE_SEED_ADDR_TAG    7
 #define FD_EXEC_TEST_VOTE_ACCOUNT_VOTE_ACCOUNT_TAG 1
@@ -208,7 +204,6 @@ X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, address,           1) \
 X(a, STATIC,   SINGULAR, UINT64,   lamports,          2) \
 X(a, POINTER,  SINGULAR, BYTES,    data,              3) \
 X(a, STATIC,   SINGULAR, BOOL,     executable,        4) \
-X(a, STATIC,   SINGULAR, UINT64,   rent_epoch,        5) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, owner,             6) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  seed_addr,         7)
 #define FD_EXEC_TEST_ACCT_STATE_CALLBACK NULL

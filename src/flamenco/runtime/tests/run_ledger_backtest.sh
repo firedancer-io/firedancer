@@ -160,6 +160,7 @@ fi
 echo "
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
+    download = false
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
@@ -178,11 +179,8 @@ echo "
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
-        enable_features = [ $FORMATTED_ONE_OFFS ] " > $DUMP_DIR/${LEDGER}_backtest.toml
-if [[ -n "$GENESIS" ]]; then
-  echo -n "        genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
-fi
-echo "
+        heap_size_gib = 50
+        enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
 [store]
@@ -192,10 +190,8 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 64
 [runtime]
-    heap_size_gib = 50
-    [runtime.limits]
-        max_total_banks = 4
-        max_fork_width = 4
+    max_total_banks = 4
+    max_fork_width = 4
 [development]
     sandbox = false
     no_agave = true
@@ -207,11 +203,17 @@ echo "
     snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
-" >> $DUMP_DIR/${LEDGER}_backtest.toml
+    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+
+if [[ -z "$GENESIS" ]]; then
+  echo "[gossip]
+    entrypoints = [ \"0.0.0.0:1\" ]" >> $DUMP_DIR/${LEDGER}_backtest.toml
+else
+  echo "[paths]
+    genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
 
 echo "Running backtest for $LEDGER"
-sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 

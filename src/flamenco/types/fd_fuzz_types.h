@@ -245,18 +245,6 @@ void *fd_solana_account_hdr_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   return mem;
 }
 
-void *fd_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_account_meta_t *self = (fd_account_meta_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_account_meta_t);
-  fd_account_meta_new(mem);
-  self->magic = fd_rng_ushort( rng );
-  self->hlen = fd_rng_ushort( rng );
-  self->dlen = fd_rng_ulong( rng );
-  self->slot = fd_rng_ulong( rng );
-  fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_delegation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_delegation_t *self = (fd_delegation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_delegation_t);

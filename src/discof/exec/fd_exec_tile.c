@@ -2,10 +2,10 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -54,8 +54,6 @@ struct fd_exec_tile_ctx {
      the slot/epoch boundary. */
   fd_exec_txn_ctx_t *   txn_ctx;
 
-  ulong *               exec_fseq;
-
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
 
@@ -102,7 +100,10 @@ during_frag( fd_exec_tile_ctx_t * ctx,
     }
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
-      fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+      fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+
+      ctx->txn_ctx->spad      = ctx->exec_spad;
+      ctx->txn_ctx->spad_wksp = ctx->exec_spad_wksp;
 
       ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
           ctx->banks,
@@ -138,7 +139,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
 
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    fd_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
     msg->exec_tile_id = (uchar)ctx->tile_idx;
 
     fd_stem_publish(
@@ -284,17 +285,6 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->txn_ctx->funk         = *ctx->funk;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
-  /********************************************************************/
-  /* setup exec fseq                                                  */
-  /********************************************************************/
-
-  ulong exec_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_fseq.%lu", ctx->tile_idx );
-  ctx->exec_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, exec_fseq_id ) );
-  if( FD_UNLIKELY( !ctx->exec_fseq ) ) {
-    FD_LOG_ERR(( "exec tile %lu has no fseq", ctx->tile_idx ));
-  }
-  fd_fseq_update( ctx->exec_fseq, FD_EXEC_STATE_NOT_BOOTED );
-
   FD_LOG_INFO(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 
   if( strlen( tile->exec.dump_proto_dir )>0 ) {
@@ -342,7 +332,7 @@ after_credit( fd_exec_tile_ctx_t * ctx,
 
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
-    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    fd_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
 
     msg->txn_ctx_offset = txn_ctx_offset;
 
@@ -357,9 +347,6 @@ after_credit( fd_exec_tile_ctx_t * ctx,
                      tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
 
-    /* Notify replay tile. */
-
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_booted( txn_ctx_offset ) );
   }
 }
 

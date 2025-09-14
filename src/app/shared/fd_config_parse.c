@@ -42,7 +42,6 @@ fd_config_extract_podh( uchar *        pod,
   CFG_POP      ( bool,   consensus.snapshot_fetch                         );
   CFG_POP      ( bool,   consensus.genesis_fetch                          );
   CFG_POP      ( bool,   consensus.poh_speed_test                         );
-  CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
   CFG_POP      ( uint,   consensus.wait_for_supermajority_at_slot         );
   CFG_POP      ( cstr,   consensus.expected_bank_hash                     );
   CFG_POP      ( bool,   consensus.wait_for_vote_to_start_leader          );
@@ -77,6 +76,8 @@ fd_config_extract_podh( uchar *        pod,
 fd_configf_t *
 fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
+  CFG_POP      ( cstr,   gossip.host                                         );
+
   CFG_POP      ( uint,   layout.exec_tile_count                              );
   CFG_POP      ( uint,   layout.writer_tile_count                            );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
@@ -88,33 +89,35 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  blockstore.alloc_max                                );
   CFG_POP      ( cstr,   blockstore.file                                     );
   CFG_POP      ( cstr,   blockstore.checkpt                                  );
-  CFG_POP      ( cstr,   blockstore.restore                                  );
+  CFG_POP      ( cstr,   blockstore.restore                                  ); /* TODO delete blockstore fields */
 
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
   CFG_POP      ( bool,   funk.lock_pages                                     );
 
-  CFG_POP      ( ulong,  runtime.heap_size_gib                               );
-  CFG_POP      ( ulong,  runtime.limits.max_rooted_slots                     );
-  CFG_POP      ( ulong,  runtime.limits.max_live_slots                       );
-  CFG_POP      ( ulong,  runtime.limits.max_transactions_per_slot            );
-  CFG_POP      ( ulong,  runtime.limits.snapshot_grace_period_seconds        );
-  CFG_POP      ( ulong,  runtime.limits.max_vote_accounts                    );
-  CFG_POP      ( ulong,  runtime.limits.max_total_banks                      );
-  CFG_POP      ( ulong,  runtime.limits.max_fork_width                       );
+  CFG_POP      ( ulong,  runtime.max_rooted_slots                            );
+  CFG_POP      ( ulong,  runtime.max_live_slots                              );
+  CFG_POP      ( ulong,  runtime.max_transactions_per_slot                   );
+  CFG_POP      ( ulong,  runtime.snapshot_grace_period_seconds               );
+  CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
+  CFG_POP      ( ulong,  runtime.max_total_banks                             );
+  CFG_POP      ( ulong,  runtime.max_fork_width                              );
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
 
   CFG_POP      ( bool,   snapshots.incremental_snapshots                     );
   CFG_POP      ( uint,   snapshots.maximum_local_snapshot_age                );
+  CFG_POP      ( bool,   snapshots.genesis_download                         );
   CFG_POP      ( bool,   snapshots.download                                  );
   CFG_POP_ARRAY( cstr,   snapshots.known_validators                          );
   CFG_POP      ( uint,   snapshots.minimum_download_speed_mib                );
   CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
-  CFG_POP      ( cstr,   snapshots.cluster                                   );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
+  CFG_POP_TABLE( bool,   snapshots.sources.http, snapshots.sources.http.peers, enabled, 0 );
+  CFG_POP_TABLE( cstr,   snapshots.sources.http, snapshots.sources.http.peers, url,     1 );
+  CFG_POP_TABLE_FINI( snapshots.sources.http );
 
   return config;
 }
@@ -132,31 +135,32 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   log.level_flush                                  );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
-    CFG_POP      ( cstr,   paths.base                                       );
-    CFG_POP      ( cstr,   paths.ledger                                     );
-    CFG_POP      ( cstr,   paths.identity_key                               );
-    CFG_POP      ( cstr,   paths.vote_account                               );
-    CFG_POP      ( cstr,   paths.snapshots                                  );
+    CFG_POP    ( cstr,   paths.base                                       );
+    CFG_POP    ( cstr,   paths.ledger                                     );
+    CFG_POP    ( cstr,   paths.identity_key                               );
+    CFG_POP    ( cstr,   paths.vote_account                               );
+    CFG_POP    ( cstr,   paths.snapshots                                  );
+    CFG_POP    ( cstr,   paths.genesis                                    );
   } else {
-    CFG_POP1     ( cstr,   scratch_directory,           paths.base          );
-    CFG_POP1     ( cstr,   ledger.path,                 paths.ledger        );
-    CFG_POP1     ( cstr,   consensus.identity_path,     paths.identity_key  );
-    CFG_POP1     ( cstr,   consensus.vote_account_path, paths.vote_account  );
+    CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
+    CFG_POP1   ( cstr,   ledger.path,                 paths.ledger        );
+    CFG_POP1   ( cstr,   consensus.identity_path,     paths.identity_key  );
+    CFG_POP1   ( cstr,   consensus.vote_account_path, paths.vote_account  );
   }
 
   CFG_POP_ARRAY( cstr,   gossip.entrypoints                               );
   CFG_POP      ( ushort, gossip.port                                      );
-  CFG_POP      ( cstr,   gossip.host                                      );
 
   CFG_POP      ( ushort, consensus.expected_shred_version                 );
+  CFG_POP      ( cstr,   consensus.expected_genesis_hash                  );
 
   CFG_POP      ( ushort, rpc.port                                         );
   CFG_POP      ( bool,   rpc.extended_tx_metadata_storage                 );
   if( FD_UNLIKELY( config->is_firedancer ) ) {
-    CFG_POP      ( uint,   rpc.block_index_max                            );
-    CFG_POP      ( uint,   rpc.txn_index_max                              );
-    CFG_POP      ( uint,   rpc.acct_index_max                             );
-    CFG_POP      ( cstr,   rpc.history_file                               );
+    CFG_POP    ( uint,   rpc.block_index_max                              );
+    CFG_POP    ( uint,   rpc.txn_index_max                                );
+    CFG_POP    ( uint,   rpc.acct_index_max                               );
+    CFG_POP    ( cstr,   rpc.history_file                                 );
   }
 
   CFG_POP      ( cstr,   layout.affinity                                  );
@@ -181,6 +185,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( uint,   net.xdp.xdp_rx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.xdp_tx_queue_size                        );
   CFG_POP      ( uint,   net.xdp.flush_timeout_micros                     );
+  CFG_POP      ( cstr,   net.xdp.rss_queue_mode                           );
   CFG_POP      ( uint,   net.socket.receive_buffer_size                   );
   CFG_POP      ( uint,   net.socket.send_buffer_size                      );
 
@@ -240,7 +245,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
-  CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
   CFG_POP      ( ulong,  tiles.repair.slot_max                            );
 
   CFG_POP      ( ulong,  capture.capture_start_slot                       );
@@ -253,13 +257,11 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
-  CFG_POP      ( cstr,   tiles.replay.genesis                             );
-  CFG_POP      ( cstr,   tiles.replay.slots_replayed                      );
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
-  CFG_POP      ( ulong,  tiles.replay.max_exec_slices                     );
+  CFG_POP      ( ulong,  tiles.replay.heap_size_gib                       );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
@@ -321,6 +323,8 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
+
+  CFG_POP      ( bool,   development.gui.websocket_compression            );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;
