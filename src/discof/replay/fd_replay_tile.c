@@ -1078,6 +1078,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
+
+  ctx->consensus_root_slot = snapshot_slot;
 }
 
 static void
@@ -1522,6 +1524,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->vote_tower_out_idx = 0UL;
   ctx->vote_tower_out_len = 0UL;
+
+  ctx->consensus_root_slot = ULONG_MAX;
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
