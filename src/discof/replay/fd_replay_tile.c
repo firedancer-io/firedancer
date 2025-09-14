@@ -144,6 +144,7 @@ struct fd_replay_tile {
   /* tx_metadata_storage enables the log collector if enabled */
   int tx_metadata_storage;
 
+  int bootstrap;
   char genesis_path[ PATH_MAX ];
 
   /* Funk */
@@ -1208,7 +1209,7 @@ init_from_genesis( fd_replay_tile_t *  ctx,
 
     uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
     memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 }
@@ -1219,7 +1220,7 @@ after_credit( fd_replay_tile_t *  ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->is_booted ) ) {
-    if( FD_UNLIKELY( strcmp( "", ctx->genesis_path ) ) ) {
+    if( FD_UNLIKELY( ctx->bootstrap ) ) {
       *charge_busy = 1;
       init_from_genesis( ctx, stem );
       ctx->is_booted = 1;
@@ -1546,7 +1547,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
 
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
-  strncpy( ctx->genesis_path, tile->replay.genesis, sizeof(ctx->genesis_path) );
+
+  ctx->bootstrap = tile->replay.bootstrap;
+  if( FD_UNLIKELY( ctx->bootstrap ) ) strncpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {

@@ -164,7 +164,7 @@ init( config_t const * config ) {
 
   for( ulong i=0UL; i<2UL; i++ ) {
     FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", mount_path[ i ] ));
-    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( mount_path[ i ], config->uid, config->gid ) ) ) {
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( mount_path[ i ], config->uid, config->gid, 1 ) ) ) {
       FD_LOG_ERR(( "could not create hugetlbfs mount directory `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
     }
 
