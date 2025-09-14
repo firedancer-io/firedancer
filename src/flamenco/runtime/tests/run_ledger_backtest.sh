@@ -217,6 +217,8 @@ echo "Running backtest for $LEDGER"
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
+sudo killall firedancer-dev || true
+
 set -x
 sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 { status=$?; set +x; } &> /dev/null
