@@ -448,13 +448,11 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 static void
 handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  ulong                vote_slot,
-                 uchar const *        vote_txn,
+                 uchar *              signed_vote_txn,
                  ulong                vote_txn_sz ) {
-  uchar signed_vote_txn[ FD_TPU_MTU ];
-  fd_memcpy( signed_vote_txn, vote_txn, vote_txn_sz );
 
   fd_txn_t txn;
-  FD_TEST( fd_txn_parse( vote_txn, vote_txn_sz, &txn, NULL ) );
+  FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, &txn, NULL ) );
 
   /* sign the txn */
   uchar * signature = signed_vote_txn + txn.signature_off;
@@ -492,10 +490,11 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   txnm->source_ipv4 = ctx->src_ip_addr;
   txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_SEND;
   fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), signed_vote_txn, vote_txn_sz );
-  fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
+  ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
+  fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, msg_sz, 0UL, 0, 0 );
   gossip_verify_out->chunk = fd_dcache_compact_next(
     gossip_verify_out->chunk,
-    vote_txn_sz /* TODO: This is broken and will cause corruption ... should match the sz published in stem_publish */,
+    msg_sz,
     gossip_verify_out->chunk0,
     gossip_verify_out->wmark );
 }
@@ -562,7 +561,11 @@ during_frag( fd_send_tile_ctx_t * ctx,
     FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
 
     fd_tower_slot_done_t const * slot_done = (fd_tower_slot_done_t const *)dcache_entry;
-    handle_vote_msg( ctx, slot_done->vote_slot, slot_done->vote_txn, slot_done->vote_txn_sz );
+
+    uchar signed_vote_txn[ FD_TPU_MTU ];
+    fd_memcpy( signed_vote_txn, slot_done->vote_txn, slot_done->vote_txn_sz );
+
+    handle_vote_msg( ctx, slot_done->vote_slot, signed_vote_txn, slot_done->vote_txn_sz );
   }
 }
 
