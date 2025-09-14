@@ -11,6 +11,8 @@
 #define IN_KIND_SNAP   (1)
 #define MAX_IN_LINKS   (16)
 
+#define FD_BACKTEST_BLOCK_ID_FLAG (999UL)
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -240,13 +242,14 @@ after_credit( ctx_t *             ctx,
      chained merkle root overwritten with their slot numbers and fec
      set index. This is done in order to preserve behavior for older
      ledgers which may not have merkle roots or chained merkle roots. */
-  fd_hash_t mr  = { .ul[0] = curr->slot, .ul[1] = curr->fec_set_idx };
+  fd_hash_t mr  = { .ul[0] = curr->slot, .ul[1] = curr->fec_set_idx, .ul[2] = FD_BACKTEST_BLOCK_ID_FLAG };
   fd_hash_t cmr = {0};
   if( FD_UNLIKELY( !ctx->prev ) ) {
     cmr.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID;
   } else {
     cmr.ul[0] = ctx->prev->slot;
     cmr.ul[1] = ctx->prev->fec_set_idx;
+    cmr.ul[2] = FD_BACKTEST_BLOCK_ID_FLAG;
   }
 
   fd_store_shacq ( ctx->store );
