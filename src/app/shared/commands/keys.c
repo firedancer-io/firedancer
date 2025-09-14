@@ -82,7 +82,7 @@ generate_keypair( char const *     keyfile,
   char * last_slash = strrchr( keyfile_copy, '/' );
   if( FD_LIKELY( last_slash ) ) {
     *last_slash = '\0';
-    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( keyfile_copy, target_uid, target_gid ) ) ) {
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( keyfile_copy, target_uid, target_gid, 1 ) ) ) {
       FD_LOG_ERR(( "could not create keypair, `mkdir -p %s` failed (%i-%s)", keyfile_copy, errno, fd_io_strerror( errno ) ));
     }
   }

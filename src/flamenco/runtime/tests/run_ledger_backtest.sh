@@ -180,11 +180,7 @@ echo "
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
         heap_size_gib = 50
-        enable_features = [ $FORMATTED_ONE_OFFS ] " > $DUMP_DIR/${LEDGER}_backtest.toml
-if [[ -n "$GENESIS" ]]; then
-  echo -n "        genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
-fi
-echo "
+        enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
 [store]
@@ -203,8 +199,15 @@ echo "
     snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
-" >> $DUMP_DIR/${LEDGER}_backtest.toml
+    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+
+if [[ -z "$GENESIS" ]]; then
+  echo "[gossip]
+    entrypoints = [ \"0.0.0.0:1\" ]" >> $DUMP_DIR/${LEDGER}_backtest.toml
+else
+  echo "[paths]
+    genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
 
 echo "Running backtest for $LEDGER"
 

@@ -4,7 +4,6 @@
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
-#include "genesis_hash.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 
@@ -355,6 +354,13 @@ fd_config_fill( fd_config_t * config,
     replace( config->paths.snapshots, "{name}", config->name );
   } else {
     FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
+  }
+
+  if( FD_UNLIKELY( strcmp( config->paths.genesis, "" ) ) ) {
+    replace( config->paths.genesis, "{user}", config->user );
+    replace( config->paths.genesis, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis.bin", config->paths.base ) );
   }
 
   long ts = -fd_log_wallclock();

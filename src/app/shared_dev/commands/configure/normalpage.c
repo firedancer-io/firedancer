@@ -23,7 +23,7 @@ init( config_t const * config ) {
   char const * path = config->hugetlbfs.normal_page_mount_path;
 
   FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", path ));
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( path, config->uid, config->gid ) ) ) {
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( path, config->uid, config->gid, 1 ) ) ) {
     FD_LOG_ERR(( "could not create normal page directory `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
   if( FD_UNLIKELY( chown( path, config->uid, config->gid ) ) )

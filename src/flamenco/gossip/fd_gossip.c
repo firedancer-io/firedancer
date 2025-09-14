@@ -180,8 +180,8 @@ fd_gossip_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( (entrypoints_cnt<1) | (entrypoints_cnt>16UL) ) ) {
-    FD_LOG_WARNING(( "entrypoints_cnt must in (0, 16]" ));
+  if( FD_UNLIKELY( entrypoints_cnt>16UL ) ) {
+    FD_LOG_WARNING(( "entrypoints_cnt must be in [0, 16]" ));
     return NULL;
   }
 
@@ -845,7 +845,11 @@ tx_pull_request( fd_gossip_t *       gossip,
   fd_contact_info_t const * peer = fd_crds_peer_sample( gossip->crds, gossip->rng );
   fd_ip4_port_t peer_addr;
   if( FD_UNLIKELY( !peer ) ) {
-    /* Choose random entrypoint */
+    if( FD_UNLIKELY( !gossip->entrypoints_cnt ) ) {
+      /* We are the bootstrapping node, and nobody else is present in
+         the cluster.  Nowhere to send the pull request. */
+      return;
+    }
     peer_addr = random_entrypoint( gossip );
   } else {
     peer_addr = fd_contact_info_gossip_socket( peer );

@@ -1,5 +1,6 @@
 #include "fd_ipecho_client.h"
 #include "fd_ipecho_server.h"
+#include "genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 
@@ -19,6 +20,7 @@ struct fd_ipecho_tile_ctx {
   uint   bind_address;
   ushort bind_port;
 
+  ushort bootstrap_shred_version;
   ushort expected_shred_version;
   ushort shred_version;
 };
@@ -98,7 +100,6 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -119,13 +120,21 @@ privileged_init( fd_topo_t *      topo,
     FD_TEST( ctx->client );
     fd_ipecho_client_init( ctx->client, tile->ipecho.entrypoints, tile->ipecho.entrypoints_cnt );
   } else {
-    if( FD_UNLIKELY( !tile->ipecho.expected_shred_version ) ) {
-      FD_LOG_ERR(( "No entrypoints provided and expected shred version is zero. "
-                   "If you are not providing entrypoints, this node will be bootstrapping "
-                   "the cluster and must have a shred version provided." ));
+    /* We are the bootstrap node, genesis.bin must already exist so
+       compute shred version. */
+    int result = compute_shred_version( tile->ipecho.genesis_path, &ctx->bootstrap_shred_version, NULL );
+    if( FD_UNLIKELY( -1==result ) ) {
+      if( FD_LIKELY( errno==ENOENT ) ) {
+        FD_LOG_ERR(( "This node is bootstrapping the cluster as it has no gossip entrypoints provided, but "
+                     "the genesis.bin file at `%s` does not exist.  Please provide a valid genesis.bin "
+                     "file by running genesis, or join an existing cluster.",
+                     tile->ipecho.genesis_path ));
+      } else {
+        FD_LOG_ERR(( "Could not compute shred version from genesis.bin file at `%s` (%i-%s)",
+                     tile->ipecho.genesis_path, errno, fd_io_strerror( errno ) ));
+      }
     }
-    ctx->shred_version = tile->ipecho.expected_shred_version;
-    ctx->client = NULL;
+    FD_TEST( ctx->bootstrap_shred_version );
   }
 
   /* Initialize the server. */
