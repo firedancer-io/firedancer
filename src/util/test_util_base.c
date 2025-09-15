@@ -116,6 +116,12 @@ FD_STATIC_ASSERT( !(((long )-1)/((long )-2)), devenv );
 FD_IMPORT_BINARY( quine_binary, __FILE__ );
 FD_IMPORT_CSTR  ( quine_cstr,   __FILE__ );
 
+/* For testing FD_DECLARE_FOR_TYPES: b_method can be called with an int*
+   argument, or a B*, C*, or D*, but not an A*.  This is more gross than
+   normal because the types aren't declared at this point. */
+#define b_method( k, add ) FD_DECLARE_FOR_TYPES( _b_method, int, (B, C, D), k, add )
+static int _b_method( int * k, int add ) { return k[1] + add; }
+
 int
 main( int     argc,
       char ** argv ) {
@@ -438,6 +444,32 @@ main( int     argc,
   FD_TEST( fd_ulong_is_aligned( (ulong)quine_binary, 128UL )     );
   FD_TEST( !memcmp ( quine_binary, quine_cstr, quine_binary_sz ) );
   FD_TEST( fd_memeq( quine_binary, quine_cstr, quine_binary_sz ) );
+
+  /* Test macro tricks */
+
+  /* With FD_MAP, we're able to initialize this at compile time as
+     static const.  GCC is smart enough to optimize out the FD_TEST
+     because it knows they cannot fail. */
+  static const uchar log_table[ 17 ] = {
+#define ADD_LOG(ignore, x) [1<<(x)]=(uchar)(x),
+    FD_MAP( ADD_LOG, (), 0, 1, 2, 3, 4 )
+#undef ADD_LOG
+  };
+  for( ulong j=0UL; j<=4UL; j++ ) FD_TEST( log_table[ 1<<j ]==(uchar)j );
+
+  typedef struct { int a; } A;
+  typedef struct { A p[1]; int b; } B;
+  typedef struct { B p[1]; int c; } C;
+  typedef struct { C p[1]; int d; } D;
+  A a[1] = {{ .a = 101 }};
+  B b[1] = {{ .p = {{ .a = 201 }}, .b = 202 }};
+  C c[1] = {{ .p = {{ .p = {{ .a = 301 }}, .b = 302 }}, .c = 303 }};
+  D d[1] = {{ .p = {{ .p = {{ .p = {{ .a = 401 }}, .b = 402 }}, .c = 403 }}, .d = 404 }};
+  FD_TEST( b_method( b, 1 )+b_method( c, 2 )+b_method( d, 3 )==202+302+402+1+2+3 );
+
+  /* b_method( a, -1 ); fails to compile, as desired */
+  (void)a;
+
 
   /* FIXME: ADD HASH QUALITY CHECKER HERE */
 
