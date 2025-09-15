@@ -171,7 +171,7 @@ int main( int argc, char ** argv ) {
     const char * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-notify", NULL, "fd1_replay_notif.wksp" );
     rep_notify = replay_sham_link_new( aligned_alloc( replay_sham_link_align(), replay_sham_link_footprint() ), wksp_name );
 
-    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-stake-out", NULL, "fd1_stake_out.wksp" );
+    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-stake", NULL, "fd1_replay_stake.wksp" );
     stake_notify = stake_sham_link_new( aligned_alloc( stake_sham_link_align(), stake_sham_link_footprint() ), wksp_name );
 
     wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-repair-repla", NULL, "fd1_repair_repla.wksp" );
