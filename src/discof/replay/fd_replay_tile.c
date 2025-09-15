@@ -5,6 +5,7 @@
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
+#include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
 #include "../../disco/tiles.h"
@@ -68,6 +69,7 @@
 #define IN_KIND_WRITER  (3)
 #define IN_KIND_CAPTURE (4)
 #define IN_KIND_POH     (5)
+#define IN_KIND_RESOLV  (6)
 
 struct fd_replay_in_link {
   fd_wksp_t * mem;
@@ -352,6 +354,8 @@ struct fd_replay_tile {
   double slot_duration_nanos;
   ulong  max_active_descendant;
 
+  ulong  resolv_tile_cnt;
+
   int in_kind[ 64 ];
   fd_replay_in_link_t in[ 64 ];
 
@@ -361,6 +365,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t tower_out[1];
   fd_replay_out_link_t replay_out[1];
   fd_replay_out_link_t pack_out[1];
+  fd_replay_out_link_t resolv_out[1];
 
   struct {
     fd_histf_t store_read_wait[ 1 ];
@@ -1146,6 +1151,22 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 }
 
 static void
+notify_resolv_of_new_consensus_root( fd_replay_tile_t *  ctx,
+                                     fd_stem_context_t * stem ) {
+  if( FD_UNLIKELY( ctx->resolv_out->idx==ULONG_MAX ) ) return;
+
+  fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, &ctx->consensus_root );
+  FD_TEST( consensus_root_bank );
+  consensus_root_bank->refcnt += ctx->resolv_tile_cnt;
+
+  fd_resolv_rooted_slot_t * rooted_slot_msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
+  rooted_slot_msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
+
+  fd_stem_publish( stem, ctx->resolv_out->idx, 0UL, ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
+}
+
+static void
 init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* Now that the snapshot has been loaded in, we have to refresh the
      stake delegations since the manifest does not contain the full set
@@ -1259,6 +1280,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx );
+    notify_resolv_of_new_consensus_root( ctx, stem );
 
     ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
     publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
@@ -1429,6 +1451,7 @@ init_from_genesis( fd_replay_tile_t *  ctx,
   eslot_mgr_insert( ctx, 0UL, &genesis_block_id, (fd_eslot_t){ .id=ULONG_MAX } );
   ctx->consensus_root_slot = 0UL;
   ctx->published_root_slot = 0UL;
+  notify_resolv_of_new_consensus_root( ctx, stem );
   fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = 0UL, .prime = 0UL }, NULL );
 
   /* Publish slot notifs */
@@ -1744,7 +1767,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
 static void
 process_tower_update( fd_replay_tile_t *           ctx,
-                      fd_tower_slot_done_t const * msg ) {
+                      fd_tower_slot_done_t const * msg,
+                      fd_stem_context_t *          stem ) {
   if( FD_UNLIKELY( !msg->new_root ) ) return;
 
   /* We have recieved a root message.  We don't want to update the
@@ -1753,6 +1777,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
 
   ctx->consensus_root_slot = msg->root_slot;
   ctx->consensus_root      = msg->root_block_id;
+  notify_resolv_of_new_consensus_root( ctx, stem );
 
   advance_published_root( ctx );
 
@@ -1844,6 +1869,14 @@ process_fec_set( fd_replay_tile_t * ctx,
   fd_sched_fec_ingest( ctx->sched, sched_fec );
 }
 
+static void
+process_resolv_slot_completed( fd_replay_tile_t * ctx, ulong bank_idx ) {
+  fd_bank_t * bank = fd_banks_get_bank_idx( ctx->banks, bank_idx );
+  FD_TEST( bank );
+
+  bank->refcnt--;
+}
+
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -1880,8 +1913,13 @@ returnable_frag( fd_replay_tile_t *  ctx,
       unbecome_leader( ctx, stem, slot_ended->slot );
       break;
     }
+    case IN_KIND_RESOLV: {
+      fd_resolv_slot_exchanged_t * exchanged_slot = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      process_resolv_slot_completed( ctx, exchanged_slot->bank_idx );
+      break;
+    }
     case IN_KIND_TOWER: {
-      process_tower_update( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      process_tower_update( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), stem );
       break;
     }
     case IN_KIND_REPAIR: {
@@ -1956,8 +1994,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vote_tower_out_idx = 0UL;
   ctx->vote_tower_out_len = 0UL;
 
-  ctx->consensus_root_slot = ULONG_MAX;
-
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
@@ -1966,6 +2002,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_hash_t   init_hash = {.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   fd_bank_t * bank      = fd_banks_init_bank( ctx->banks, &init_hash );
   FD_TEST( bank );
+
+  ctx->consensus_root_slot = ULONG_MAX;
+  ctx->consensus_root      = init_hash;
 
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */
@@ -2068,6 +2107,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_duration_nanos = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
   ctx->max_active_descendant = 0UL; /* TODO: Update this properly ... */
 
+  ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
+
   FD_TEST( tile->in_cnt<=sizeof(ctx->in)/sizeof(ctx->in[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -2086,6 +2127,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -2097,6 +2139,7 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->stake_out        = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   *ctx->replay_out       = out1( topo, tile, "replay_out" );
   *ctx->pack_out         = out1( topo, tile, "replay_pack" );
+  *ctx->resolv_out       = out1( topo, tile, "replay_resol" );
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
@@ -2157,7 +2200,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 /* TODO: This needs to get sized out correctly. */
-#define STEM_BURST (64UL)
+#define STEM_BURST (128UL)
+
+/* TODO: calculate this properly/fix stem to work with larger numbers of links */
+/* 1000 chosen empirically as anything larger slowed down replay times. Need to calculate
+   this properly. */
+#define STEM_LAZY ((long)10e3)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)

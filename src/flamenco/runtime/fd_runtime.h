@@ -486,6 +486,11 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t * slot_ctx );
 
+/* Look up the funk transaction for the given slot */
+fd_funk_txn_t *
+fd_runtime_funk_txn_get( fd_funk_t * funk,
+                         ulong       slot );
+
 /* Transaction Level Execution Management *************************************/
 
 int

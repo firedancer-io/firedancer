@@ -11,6 +11,7 @@
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_bank.h"
 
 typedef struct {
   ulong kind_id;
@@ -40,6 +41,12 @@ typedef struct {
   ulong       rebates_for_slot;
   fd_pack_rebate_sum_t rebater[ 1 ];
 
+  fd_banks_t * banks;
+  ulong        bank_idx;
+  fd_spad_t *  exec_spad;
+
+  fd_exec_txn_ctx_t txn_ctx[1];
+
   struct {
     ulong txn_result[ 1-FD_BANK_TXN_ERR_LAST ];
   } metrics;
@@ -55,8 +62,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,          FD_BLAKE3_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,   FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,            FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -147,11 +155,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+    fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... where?
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, 0 ); /* TODO ... */
+    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
       continue;
@@ -219,7 +227,18 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        the transactions MUST be mixed into the PoH otherwise we will
        fork and diverge, so the link from here til PoH mixin must be
        completely reliable with nothing dropped. */
-    fd_runtime_finalize_txn( NULL, NULL, txn_ctx, NULL, NULL ); // TODO: ARGS
+    fd_bank_t * bank = fd_banks_get_bank_idx( ctx->banks, ctx->bank_idx );
+    FD_TEST( bank );
+
+    /* fd_runtime_finalize_txn checks if the transaction fits into the
+       block with the cost tracker.  If it doesn't fit, flags is set to
+       zero.  A key invariant of the leader pipeline is that pack
+       ensures all transactions must fit already, so it is a fatal error
+       if that happens.  We cannot reject the transaction here as there
+       would be no way to undo the partially applied changes to the bank
+       in finalize anyway. */
+    fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->funk_txn, txn_ctx, bank, NULL );
+    FD_TEST( txn->flags );
   }
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -465,20 +484,32 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  void * blake3 = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN, FD_BLAKE3_FOOTPRINT );
-  void * bmtree = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,           FD_BMTREE_COMMIT_FOOTPRINT(0)      );
+  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
+  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0)      );
+  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
       if( FD_UNLIKELY( !__x ) ) FD_LOG_ERR(( #x " was unexpectedly NULL" )); \
       __x; }))
 
-  ctx->kind_id = tile->kind_id;
-  ctx->blake3 = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
-  ctx->bmtree = NONNULL( bmtree );
+  ctx->kind_id   = tile->kind_id;
+  ctx->blake3    = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
+  ctx->bmtree    = NONNULL( bmtree );
+  ctx->exec_spad = NONNULL( fd_spad_join( fd_spad_new( exec_spad, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) ) );
 
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
+
+  NONNULL( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ), ctx->exec_spad, fd_wksp_containing( exec_spad ) ) );
+  ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
+  ctx->txn_ctx->spad          = ctx->exec_spad;
+  ctx->txn_ctx->spad_wksp     = fd_wksp_containing( exec_spad );
+  NONNULL( fd_funk_join( ctx->txn_ctx->funk, fd_topo_obj_laddr( topo, tile->bank.funk_obj_id ) ) );
+
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+  ctx->banks = NONNULL( fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ) );
 
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
