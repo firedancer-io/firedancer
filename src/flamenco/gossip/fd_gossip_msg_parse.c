@@ -500,6 +500,8 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
     CHECK( pr->bloom_len<=((ULONG_MAX-7U)/8U) );
     CHECK_LEFT(    pr->bloom_len*8U ); pr->bloom_bits_offset = CUR_OFFSET               ; INC( pr->bloom_len*8U );
     CHECK_LEFT(                  8U ); pr->bloom_bits_cnt    = FD_LOAD( ulong, CURSOR ) ; INC( 8U );
+    CHECK( pr->bloom_len!=0UL );
+    CHECK( pr->bloom_bits_cnt<=pr->bloom_len*64UL );
   } else {
     pr->bloom_len = 0U;
   }
