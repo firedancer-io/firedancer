@@ -7,7 +7,10 @@ struct fd_poh_reset {
   ulong completed_slot;
   uchar completed_blockhash[ 32UL ];
   ulong hashcnt_per_tick;
+  ulong ticks_per_slot;
+  ulong tick_duration_ns;
   ulong next_leader_slot;
+  ulong max_microblocks_in_slot;
 };
 
 typedef struct fd_poh_reset fd_poh_reset_t;

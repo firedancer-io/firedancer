@@ -1,21 +1,22 @@
 #include "fd_poh.h"
+#include "generated/fd_poh_tile_seccomp.h"
 #include "fd_poh_tile.h"
 #include "../../disco/tiles.h"
-#include "generated/fd_poh_tile_seccomp.h"
 
-#define IN_KIND_SNAPRD (0)
-#define IN_KIND_REPLAY (1)
-#define IN_KIND_PACK   (2)
-#define IN_KIND_BANK   (3)
+#define IN_KIND_REPLAY (0)
+#define IN_KIND_PACK   (1)
+#define IN_KIND_BANK   (2)
 
-typedef struct {
+struct fd_poh_in {
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
   ulong       mtu;
-} fd_poh_in_ctx_t;
+};
 
-typedef struct {
+typedef struct fd_poh_in fd_poh_in_t;
+
+struct fd_poh_tile {
   fd_poh_t poh[1];
 
   /* There's a race condition ... let's say two banks A and B, bank A
@@ -34,20 +35,14 @@ typedef struct {
      implement for now. */
   uint expect_pack_idx;
 
-  /* These are temporarily set in during_frag so they can be used in
-     after_frag once the frag has been validated as not overrun. */
-  uchar _txns[ USHORT_MAX ];
-  fd_microblock_trailer_t _microblock_trailer[ 1 ];
-  fd_poh_reset_t _reset[ 1 ];
-  fd_poh_begin_leader_t _begin_leader[ 1 ];
-  fd_done_packing_t _done_packing[ 1 ];
-
   int in_kind[ 64 ];
-  fd_poh_in_ctx_t in[ 64 ];
+  fd_poh_in_t in[ 64 ];
 
-  fd_poh_out_ctx_t shred_out[ 1 ];
-  fd_poh_out_ctx_t replay_out[ 1 ];
-} fd_poh_ctx_t;
+  fd_poh_out_t shred_out[ 1 ];
+  fd_poh_out_t replay_out[ 1 ];
+};
+
+typedef struct fd_poh_tile fd_poh_tile_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -58,12 +53,12 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_poh_tile_t), sizeof(fd_poh_tile_t) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static inline void
-after_credit( fd_poh_ctx_t *      ctx,
+after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
@@ -79,105 +74,55 @@ after_credit( fd_poh_ctx_t *      ctx,
     5. poh must process pack frags in order
     6. when poh sees done_packing, return poh -> replay saying bank unused now */
 
-static int
-before_frag( fd_poh_ctx_t * ctx,
-             ulong          in_idx,
-             ulong          seq,
-             ulong          sig ) {
+static inline int
+returnable_frag( fd_poh_tile_t *     ctx,
+                 ulong               in_idx,
+                 ulong               seq,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl,
+                 ulong               tsorig,
+                 ulong               tspub,
+                 fd_stem_context_t * stem ) {
   (void)seq;
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return -1;
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]!=IN_KIND_BANK && ctx->in_kind[ in_idx ]!=IN_KIND_PACK ) ) return 0;
-
-  uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
-  FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
-  if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return -1;
-  ctx->expect_pack_idx++;
-  return 0;
-}
-
-static inline void
-during_frag( fd_poh_ctx_t * ctx,
-             ulong          in_idx,
-             ulong          seq FD_PARAM_UNUSED,
-             ulong          sig,
-             ulong          chunk,
-             ulong          sz,
-             ulong          ctl FD_PARAM_UNUSED ) {
-  (void)sig;
+  (void)ctl;
+  (void)tsorig;
+  (void)tspub;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-
-  switch( ctx->in_kind[ in_idx ] ) {
-    case IN_KIND_SNAPRD: break;
-    case IN_KIND_REPLAY: {
-      if( FD_LIKELY( !sig ) ) fd_memcpy( ctx->_reset, src, sizeof(fd_poh_reset_t) );
-      else                    fd_memcpy( ctx->_begin_leader, src, sizeof(fd_poh_begin_leader_t) );
-      break;
-    }
-    case IN_KIND_PACK: {
-      fd_memcpy( ctx->_done_packing, src, sizeof(fd_done_packing_t) );
-      break;
-    }
-    case IN_KIND_BANK: {
-      fd_memcpy( ctx->_txns, src, sz-sizeof(fd_microblock_trailer_t) );
-      fd_memcpy( ctx->_microblock_trailer, src+sz-sizeof(fd_microblock_trailer_t), sizeof(fd_microblock_trailer_t) );
-      break;
-    }
-    default: {
-      FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));
-      break;
-    }
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
+    FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
+    if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
+    ctx->expect_pack_idx++;
   }
-}
-
-static inline void
-after_frag( fd_poh_ctx_t *      ctx,
-            ulong               in_idx,
-            ulong               seq,
-            ulong               sig,
-            ulong               sz,
-            ulong               tsorig,
-            ulong               tspub,
-            fd_stem_context_t * stem ) {
-  (void)seq;
-  (void)tsorig;
-  (void)tspub;
 
   switch( ctx->in_kind[ in_idx ] ) {
-    case IN_KIND_SNAPRD: {
-      FD_LOG_ERR(( "unimplemented: receive snapshot manifest" ));
-      fd_poh_init( ctx->poh, 0UL, 0UL );
-      break;
-    }
     case IN_KIND_PACK: {
-      fd_poh_done_packing( ctx->poh, ctx->_done_packing->microblocks_in_slot );
+      fd_done_packing_t const * done_packing = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      fd_poh_done_packing( ctx->poh, done_packing->microblocks_in_slot );
       break;
     }
     case IN_KIND_REPLAY: {
-      if( FD_LIKELY( !sig ) ) {
-        fd_poh_reset( ctx->poh,
-                      stem,
-                      ctx->_reset->hashcnt_per_tick,
-                      ctx->_reset->completed_slot,
-                      ctx->_reset->completed_blockhash,
-                      ctx->_reset->next_leader_slot );
+      if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER ) {
+        fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot );
       } else {
-        fd_poh_begin_leader( ctx->poh,
-                             ctx->_begin_leader->slot,
-                             ctx->_begin_leader->hashcnt_per_tick );
+        fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+        fd_poh_reset( ctx->poh, stem, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot );
       }
-
       break;
     }
     case IN_KIND_BANK: {
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
-      fd_txn_p_t * txns = (fd_txn_p_t *)(ctx->_txns);
+      fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+      fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
       ulong target_slot = fd_disco_bank_sig_slot( sig );
-      fd_poh1_mixin( ctx->poh, stem, target_slot, ctx->_microblock_trailer->hash, txn_cnt, txns );
+      fd_poh1_mixin( ctx->poh, stem, target_slot, trailer->hash, txn_cnt, txns );
       break;
     }
     default: {
@@ -185,9 +130,11 @@ after_frag( fd_poh_ctx_t *      ctx,
       break;
     }
   }
+
+  return 0;
 }
 
-static inline fd_poh_out_ctx_t
+static inline fd_poh_out_t
 out1( fd_topo_t const *      topo,
       fd_topo_tile_t const * tile,
       char const *           name ) {
@@ -207,7 +154,7 @@ out1( fd_topo_t const *      topo,
   ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
   ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, topo->links[ tile->out_link_id[ idx ] ].mtu );
 
-  return (fd_poh_out_ctx_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
+  return (fd_poh_out_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0 };
 }
 
 static void
@@ -216,7 +163,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_poh_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_ctx_t ), sizeof( fd_poh_ctx_t ) );
+  fd_poh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_tile_t ), sizeof( fd_poh_tile_t ) );
 
   ctx->expect_pack_idx = 0UL;
 
@@ -229,27 +176,21 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if(        !strcmp( link->name, "snaprd_out" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_SNAPRD;
-    } else if( !strcmp( link->name, "replay_pack" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    } else if( !strcmp( link->name, "pack_poh" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_PACK;
-    } else if( !strcmp( link->name, "bank_poh"  ) ) {
-      ctx->in_kind[ i ] = IN_KIND_BANK;
-    } else {
-      FD_LOG_ERR(( "unexpected input link name %s", link->name ));
-    }
+    if(      !strcmp( link->name, "replay_pack"  ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "pack_poh"     ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
+    else if( !strcmp( link->name, "bank_poh"     ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
   *ctx->shred_out = out1( topo, tile, "poh_shred" );
   *ctx->replay_out = out1( topo, tile, "poh_replay" );
 
+  FD_TEST( fd_poh_join( fd_poh_new( ctx->poh ), ctx->shred_out, ctx->replay_out ) );
+
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
-
 
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
@@ -286,13 +227,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_tile_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_BEFORE_FRAG  before_frag
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 
