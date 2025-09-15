@@ -353,7 +353,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pack",    "bank_pack",    16384UL,                                  USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "poh_replay",   "poh_replay",   128UL,                                    sizeof(fd_poh_leader_slot_ended_t), 1UL ); /* TODO: Depth probably doesn't need to be 128 */
-  /**/                 fd_topob_link( topo, "replay_resol", "replay_resol", 128UL,                                    sizeof(fd_resolv_rooted_slot_t), 1UL );
+  /**/                 fd_topob_link( topo, "replay_resol", "replay_resol", 128UL,                                    sizeof(fd_resov_completed_slot_t), 1UL );
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_repla", "resolv_repla", 128UL,                                    sizeof(fd_resolv_slot_exchanged_t), 1UL );
   /**/                 fd_topob_link( topo, "executed_txn", "executed_txn", 16384UL,                                  64UL,                          1UL ); /* TODO: Rename this ... */
 
