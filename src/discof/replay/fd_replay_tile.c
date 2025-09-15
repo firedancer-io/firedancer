@@ -909,6 +909,23 @@ f
     buffer_vote_towers( ctx );
   }
 
+  /* Send resolve tile the slot and the blockhash */
+  if( FD_LIKELY( ctx->resolv_out->idx!=ULONG_MAX ) ) {
+    fd_resov_completed_slot_t * msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
+    msg->slot = curr_slot;
+    memcpy( msg->blockhash, block_hash, sizeof(fd_hash_t) );
+    fd_stem_publish(
+      stem,
+      ctx->resolv_out->idx,
+      FD_RESOLV_COMPLETED_SLOT_SIG,
+      ctx->resolv_out->chunk,
+      sizeof(fd_resov_completed_slot_t),
+      0UL,
+      fd_frag_meta_ts_comp( fd_tickcount() ),
+      fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resov_completed_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
+  }
+
   if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
 
@@ -1162,7 +1179,7 @@ notify_resolv_of_new_consensus_root( fd_replay_tile_t *  ctx,
   fd_resolv_rooted_slot_t * rooted_slot_msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
   rooted_slot_msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
 
-  fd_stem_publish( stem, ctx->resolv_out->idx, 0UL, ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_stem_publish( stem, ctx->resolv_out->idx, FD_RESOLV_ROOTED_SLOT_SIG, ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
 }
 
