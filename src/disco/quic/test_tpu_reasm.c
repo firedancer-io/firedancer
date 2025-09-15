@@ -265,7 +265,7 @@ main( int     argc,
     case FD_TPU_REASM_STATE_PUB:
       continue;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
   }
 

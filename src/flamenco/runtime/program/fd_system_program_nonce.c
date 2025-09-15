@@ -167,7 +167,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   switch( state->discriminant ) {
@@ -334,7 +334,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   fd_pubkey_t signer[1] = {0};
@@ -534,7 +534,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   switch( state->discriminant ) {
@@ -706,7 +706,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     state = &versions->inner.current;
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L81-L84 */
@@ -756,7 +756,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     new_versioned->inner.current = *new_state;
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L218 */

@@ -2,6 +2,7 @@
 #define HEADER_fd_src_util_net_fd_ip4_h
 
 #include "../bits/fd_bits.h"
+#include "../log/fd_log.h"
 
 /* FIXME: IP4 CRASH COURSE HERE */
 
@@ -135,7 +136,7 @@ fd_ip4_hdr_check( void const * vp_hdr ) {
   uint n = ( (*cp) & 0x0fu );
 
   /* optimizes the first 5 by unrolling */
-  if( n < 5 ) __builtin_unreachable();
+  if( n < 5 ) FD_UNREACHABLE();
 
   ulong        c = 0UL;
   for( uint i=0U; i<n; i++ ) {
