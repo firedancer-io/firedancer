@@ -1,5 +1,6 @@
 #include "fd_funk.h"
 #include "fd_funk_txn.h"
+#include "../ballet/base58/fd_base58.h"
 
 /* Provide the actual record map implementation */
 
@@ -250,13 +251,11 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( rec->pair.xid );
     rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-    prepare->txn_lock     = &funk->shmem->lock;
   } else {
     fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
     rec->txn_cidx = fd_funk_txn_cidx( (ulong)( txn - funk->txn_pool->ele ) );
     prepare->rec_head_idx = &txn->rec_head_idx;
     prepare->rec_tail_idx = &txn->rec_tail_idx;
-    prepare->txn_lock     = &txn->lock;
   }
   fd_funk_rec_key_copy( rec->pair.key, key );
   rec->tag = 0;
@@ -272,9 +271,6 @@ fd_funk_rec_publish( fd_funk_t *             funk,
   fd_funk_rec_t * rec = prepare->rec;
   uint * rec_head_idx = prepare->rec_head_idx;
   uint * rec_tail_idx = prepare->rec_tail_idx;
-
-  /* Lock the txn */
-  while( FD_ATOMIC_CAS( prepare->txn_lock, 0, 1 ) ) FD_SPIN_PAUSE();
 
   if( rec_head_idx ) {
     uint rec_idx      = (uint)( rec - funk->rec_pool->ele );
@@ -292,8 +288,6 @@ fd_funk_rec_publish( fd_funk_t *             funk,
   if( fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
     FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
   }
-
-  FD_VOLATILE( *prepare->txn_lock ) = 0;
 }
 
 void
@@ -708,4 +702,14 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 # undef TEST
 
   return FD_FUNK_SUCCESS;
+}
+
+__attribute__((cold)) void
+fd_funk_rec_log_data_race( fd_funk_t *           funk,
+                           fd_funk_rec_t const * rec,
+                           ulong                 gen_cur ) {
+  FD_BASE58_ENCODE_32_BYTES( rec->pair.xid->uc, key_cstr );
+  ulong gaddr = fd_wksp_gaddr_fast( fd_funk_wksp( funk ), rec );
+  FD_LOG_WARNING(( "Detected data race on funk record, CAS failed: laddr=%p gaddr=0x%lx gen_cur=%lu addr=%s",
+                   (void *)rec, gaddr, gen_cur, key_cstr ));
 }

@@ -58,6 +58,9 @@ $(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h fd_runtime_const
 $(call add-objs,fd_runtime fd_runtime_init ,fd_flamenco)
 endif
 
+$(call add-hdrs,fd_svm_account.h)
+$(call make-unit-test,test_svm_account,test_svm_account,fd_flamenco fd_funk fd_ballet fd_util)
+
 endif
 
 $(call add-hdrs,fd_system_ids.h)

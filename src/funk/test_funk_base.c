@@ -15,13 +15,13 @@ FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==40UL,                         
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_ALIGN         ==alignof(fd_funk_rec_key_t),      unit_test );
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==sizeof (fd_funk_rec_key_t),      unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN         ==8UL,                             unit_test );
+FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN         ==16UL,                            unit_test );
 FD_STATIC_ASSERT( FD_FUNK_TXN_XID_FOOTPRINT     ==16UL,                            unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN         ==alignof(fd_funk_txn_xid_t),      unit_test );
 FD_STATIC_ASSERT( FD_FUNK_TXN_XID_FOOTPRINT     ==sizeof (fd_funk_txn_xid_t),      unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_ALIGN    ==8UL,                             unit_test );
+FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_ALIGN    ==16UL,                            unit_test );
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_FOOTPRINT==56UL,                            unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_ALIGN    ==alignof(fd_funk_xid_key_pair_t), unit_test );

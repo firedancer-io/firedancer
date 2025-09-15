@@ -4,7 +4,6 @@
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
 #include "../fd_txn_account.h"
-#include "../fd_cost_tracker.h"
 #include "../context/fd_exec_slot_ctx.h"
 #include "../program/fd_builtin_programs.h"
 #include "../sysvar/fd_sysvar_clock.h"

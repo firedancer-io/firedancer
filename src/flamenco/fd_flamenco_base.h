@@ -99,6 +99,9 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 struct fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
 
+struct fd_accdb_client;
+typedef struct fd_accdb_client fd_accdb_client_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;

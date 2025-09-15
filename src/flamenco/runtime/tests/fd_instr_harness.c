@@ -13,7 +13,6 @@
 #include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../fd_system_ids.h"
-#include "../fd_cost_tracker.h"
 #include <assert.h>
 
 int

@@ -44,6 +44,9 @@
 
 #include "../util/fd_util.h"
 #include "../util/valloc/fd_valloc.h"
+#if FD_HAS_SSE
+#include <xmmintrin.h>
+#endif
 
 /* FD_FUNK_SUCCESS is used by various APIs to indicate the operation
    successfully completed.  This will be 0.  FD_FUNK_ERR_* gives a
@@ -89,7 +92,7 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
    of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_TXN_XID_ALIGN     (8UL)
+#define FD_FUNK_TXN_XID_ALIGN     (16UL)
 #define FD_FUNK_TXN_XID_FOOTPRINT (16UL)
 
 /* A fd_funk_txn_xid_t identifies a funk transaction currently in
@@ -104,6 +107,9 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
 union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
   uchar uc[ FD_FUNK_TXN_XID_FOOTPRINT ];
   ulong ul[ FD_FUNK_TXN_XID_FOOTPRINT / sizeof(ulong) ];
+#if FD_HAS_SSE
+  __m128i xmm;
+#endif
 };
 
 typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
@@ -113,7 +119,7 @@ typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
    power of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_XID_KEY_PAIR_ALIGN     (8UL)
+#define FD_FUNK_XID_KEY_PAIR_ALIGN     (16UL)
 #define FD_FUNK_XID_KEY_PAIR_FOOTPRINT (56UL)
 
 /* A fd_funk_xid_key_pair_t identifies a funk record.  It is just

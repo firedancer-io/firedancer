@@ -5,7 +5,7 @@
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
-#include "fd_pubkey_utils.h"
+#include "fd_svm_account.h"
 
 #include "fd_executor.h"
 #include "sysvar/fd_sysvar_cache.h"
@@ -23,7 +23,6 @@
 #include "program/fd_builtin_programs.h"
 #include "program/fd_vote_program.h"
 #include "program/fd_program_cache.h"
-#include "program/fd_bpf_loader_program.h"
 #include "program/fd_address_lookup_table_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
@@ -37,7 +36,6 @@
 
 #include "fd_system_ids.h"
 #include "../../disco/pack/fd_pack.h"
-#include "../../discof/replay/fd_exec.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -238,38 +236,13 @@ fd_runtime_validate_fee_collector( fd_bank_t *              bank,
   return 0UL;
 }
 
-static int
-fd_runtime_run_incinerator( fd_bank_t *        bank,
-                            fd_funk_t *        funk,
-                            fd_funk_txn_t *    funk_txn,
-                            fd_capture_ctx_t * capture_ctx ) {
-  FD_TXN_ACCOUNT_DECL( rec );
-  fd_funk_rec_prepare_t prepare = {0};
-
-  int err = fd_txn_account_init_from_funk_mutable(
-      rec,
-      &fd_sysvar_incinerator_id,
-      funk,
-      funk_txn,
-      0,
-      0UL,
-      &prepare );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    // TODO: not really an error! This is fine!
-    return -1;
+static void
+fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
+  FD_RUNTIME_ACCOUNT_UPDATE_BEGIN( slot_ctx, &fd_sysvar_incinerator_id, rec, 0UL ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.1/runtime/src/bank.rs#L3746 */
+    fd_accdb_ref_clear( rec );
   }
-
-  fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
-
-  ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_txn_account_get_lamports( rec ) );
-  fd_bank_capitalization_set( bank, new_capitalization );
-
-  fd_txn_account_set_lamports( rec, 0UL );
-  fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( rec, funk, funk_txn, &prepare );
-
-  return 0;
+  FD_RUNTIME_ACCOUNT_UPDATE_END;
 }
 
 static void
@@ -360,7 +333,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
   }
 
-  fd_runtime_run_incinerator( slot_ctx->bank, slot_ctx->funk, slot_ctx->funk_txn, slot_ctx->capture_ctx );
+  fd_runtime_run_incinerator( slot_ctx );
 
 }
 

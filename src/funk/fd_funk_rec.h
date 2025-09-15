@@ -70,6 +70,8 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
                       has tag wksp_tag) and the owner of the region will be the record. The allocator is
                       fd_funk_alloc(). IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
+  ulong gen;  /* Generation, increments on every write */
+
   /* Padding to FD_FUNK_REC_ALIGN here */
 };
 
@@ -118,7 +120,6 @@ struct _fd_funk_rec_prepare {
   fd_funk_rec_t * rec;
   uint *          rec_head_idx;
   uint *          rec_tail_idx;
-  uchar *         txn_lock;
 };
 
 typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;
@@ -423,6 +424,47 @@ fd_funk_rec_verify( fd_funk_t * funk );
 
 int
 fd_funk_rec_purify( fd_funk_t * funk );
+
+static inline ulong
+fd_funk_rec_gen_query( fd_funk_rec_t const * rec ) {
+  FD_COMPILER_MFENCE();
+  ulong gen = FD_VOLATILE_CONST( rec->gen );
+  FD_COMPILER_MFENCE();
+  return gen;
+}
+
+void
+fd_funk_rec_log_data_race( fd_funk_t *           funk,
+                           fd_funk_rec_t const * rec,
+                           ulong                 gen_cur );
+
+#if FD_HAS_ATOMIC
+
+#define fd_funk_rec_gen_inc( funk, rec, gen_cur )                      \
+  do {                                                                 \
+    ulong gen_cur_ = (gen_cur);                                        \
+    ulong gen_     = (gen_cur)+1UL;                                    \
+    if( FD_UNLIKELY( !__sync_bool_compare_and_swap( &rec->gen, gen_cur_, gen_ ) ) ) { \
+      fd_funk_rec_log_data_race( funk, rec, gen_cur );                 \
+      FD_LOG_CRIT(( "Aborting after data race" ));                     \
+    }                                                                  \
+  } while(0)
+
+#else
+
+#define fd_funk_rec_gen_inc( rec, gen_cur )                            \
+  do {                                                                 \
+    fd_funk_rec_t const * rec_ = (rec);                                \
+    ulong gen_cur_ = (gen_cur);                                        \
+    ulong gen_     = (gen_cur)+1UL;                                    \
+    if( FD_UNLIKELY( fd_funk_rec_gen_query( &rec_ )!=gen_cur_ ) ) {    \
+      fd_funk_rec_log_data_race( (funk), rec_, gen_cur_ );             \
+      FD_LOG_CRIT(( "Aborting after data race" ));                     \
+    }                                                                  \
+    rec->gen = gen_;                                                   \
+  } while(0)
+
+#endif
 
 FD_PROTOTYPES_END
 
