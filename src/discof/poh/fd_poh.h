@@ -358,7 +358,7 @@ struct fd_poh_leader_slot_ended {
 
 typedef struct fd_poh_leader_slot_ended fd_poh_leader_slot_ended_t;
 
-struct fd_poh_out_ctx_private {
+struct fd_poh_out_private {
   ulong       idx;
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -366,7 +366,7 @@ struct fd_poh_out_ctx_private {
   ulong       chunk;
 };
 
-typedef struct fd_poh_out_ctx_private fd_poh_out_ctx_t;
+typedef struct fd_poh_out_private fd_poh_out_t;
 
 struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   int state;
@@ -382,8 +382,8 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
   double hashcnt_duration_ns;
   ulong  hashcnt_per_slot;
 
-  /* Constant, fixed at initialization.  The maximum number of
-     microblocks that the pack tile can publish in each slot. */
+  /* The maximum number of microblocks that the pack tile can publish in
+     each slot. */
   ulong max_microblocks_per_slot;
 
   /* The slot we were reset on (what we are building on top of). */
@@ -437,8 +437,8 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
 
   fd_sha256_t * sha256;
 
-  fd_poh_out_ctx_t shred_out[ 1 ];
-  fd_poh_out_ctx_t replay_out[ 1 ];
+  fd_poh_out_t shred_out[ 1 ];
+  fd_poh_out_t replay_out[ 1 ];
 
   ulong magic;
 };
@@ -457,22 +457,20 @@ void *
 fd_poh_new( void * shmem );
 
 fd_poh_t *
-fd_poh_join( void *             shpoh,
-             fd_poh_out_ctx_t * shred_out,
-             fd_poh_out_ctx_t * replay_out );
-
-fd_poh_t *
-fd_poh_init( fd_poh_t * poh,
-             ulong      tick_duration_ns,
-             ulong      ticks_per_slot );
+fd_poh_join( void *         shpoh,
+             fd_poh_out_t * shred_out,
+             fd_poh_out_t * replay_out );
 
 void
 fd_poh_reset( fd_poh_t *          poh,
               fd_stem_context_t * stem,
               ulong               hashcnt_per_tick,
+              ulong               ticks_per_slot,
+              ulong               tick_duration_ns,
               ulong               completed_slot,
               uchar const *       completed_blockhash,
-              ulong               next_leader_slot );
+              ulong               next_leader_slot,
+              ulong               max_microblocks_in_slot );
 
 int
 fd_poh_have_leader_bank( fd_poh_t const * poh );
@@ -480,7 +478,10 @@ fd_poh_have_leader_bank( fd_poh_t const * poh );
 void
 fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      slot,
-                     ulong      hashcnt_per_tick );
+                     ulong      hashcnt_per_tick,
+                     ulong      ticks_per_slot,
+                     ulong      tick_duration_ns,
+                     ulong      max_microblocks_in_slot );
 
 void
 fd_poh_done_packing( fd_poh_t * poh,

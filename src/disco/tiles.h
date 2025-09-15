@@ -37,6 +37,8 @@ struct __attribute__((aligned(FD_CHUNK_ALIGN))) fd_shred34 {
 typedef struct fd_shred34 fd_shred34_t;
 
 struct fd_became_leader {
+   ulong slot;
+
   /* Start and end time of the slot in nanoseconds (from
      fd_log_wallclock()). */
   long   slot_start_ns;
@@ -60,10 +62,17 @@ struct fd_became_leader {
      limits. */
   ulong ticks_per_slot;
 
+  ulong tick_duration_ns;
+
   /* The number of ticks that the PoH tile has skipped, but needs to
      publish to show peers they were skipped correctly.  This is used
      to adjust some pack limits. */
   ulong total_skipped_ticks;
+
+  /* The number of hashes per tick.  This is used to update the
+     parameter for the proof of history component in case it has
+     changed. */
+  ulong hashcnt_per_tick;
 
   /* The epoch of the slot for which we are becoming leader. */
   ulong epoch;
