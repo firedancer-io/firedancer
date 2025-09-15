@@ -602,7 +602,7 @@ publish_microblock( fd_poh_t *          poh,
   ulong payload_sz = 0UL;
   ulong included_txn_cnt = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = (fd_txn_p_t *)(txns + i*sizeof(fd_txn_p_t));
+    fd_txn_p_t const * txn = txns + i;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
     fd_memcpy( dst, txn->payload, txn->payload_sz );
