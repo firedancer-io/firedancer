@@ -166,11 +166,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   } FD_SPAD_FRAME_END;
 }
 
-/******************************************************************************/
-/* Various Private Runtime Helpers                                            */
-/******************************************************************************/
-
-static fd_funk_txn_t *
+fd_funk_txn_t *
 fd_runtime_funk_txn_get( fd_funk_t * funk,
                          ulong       slot ) {
   /* Query the funk transaction for the given slot. */
@@ -187,6 +183,10 @@ fd_runtime_funk_txn_get( fd_funk_t * funk,
   fd_funk_txn_end_read( funk );
   return funk_txn;
 }
+
+/******************************************************************************/
+/* Various Private Runtime Helpers                                            */
+/******************************************************************************/
 
 /* fee to be deposited should be > 0
    Returns 0 if validation succeeds

@@ -538,6 +538,13 @@ struct fd_topo_tile {
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
     } ipecho;
 
+    struct {
+      ulong funk_obj_id;
+    } bank;
+
+    struct {
+      ulong funk_obj_id;
+    } resolv;
   };
 };
 
