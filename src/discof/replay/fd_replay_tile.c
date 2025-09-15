@@ -758,6 +758,10 @@ replay_block_start( fd_replay_tile_t *  ctx,
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
   }
 
+  fd_bank_shred_cnt_set( bank, 0UL );
+  fd_bank_execution_fees_set( bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
+
   fd_bank_has_identity_vote_set( bank, 0 );
 
   fd_bank_slot_set( bank, slot );
@@ -1006,6 +1010,11 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   }
 
   fd_funk_txn_end_write( ctx->funk );
+
+  fd_bank_execution_fees_set( bank, 0UL );
+  fd_bank_priority_fees_set( bank, 0UL );
+  fd_bank_shred_cnt_set( bank, 0UL );
+
 
   fd_bank_parent_block_id_set( bank, *parent_block_id );
 
