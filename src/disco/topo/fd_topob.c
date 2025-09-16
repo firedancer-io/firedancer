@@ -346,6 +346,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "metric",
     "cswtch",
     "bencho",
+    "genesi", /* FIREDANCER ONLY */
     "ipecho", /* FIREDANCER ONLY */
   };
 

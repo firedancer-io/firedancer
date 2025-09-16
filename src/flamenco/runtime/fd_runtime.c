@@ -1683,17 +1683,17 @@ fd_runtime_genesis_init_program( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static void
-fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
-                                   fd_genesis_solana_t const * genesis_block,
-                                   fd_hash_t const *           genesis_hash,
-                                   fd_spad_t *                 runtime_spad ) {
+fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *               slot_ctx,
+                                   fd_genesis_solana_global_t const * genesis_block,
+                                   fd_hash_t const *                  genesis_hash,
+                                   fd_spad_t *                        runtime_spad ) {
 
   fd_bank_poh_set( slot_ctx->bank, *genesis_hash );
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   memset( bank_hash->hash, 0, FD_SHA256_HASH_SZ );
 
-  fd_poh_config_t const * poh  = &genesis_block->poh_config;
+  fd_poh_config_global_t const * poh = &genesis_block->poh_config;
   uint128 target_tick_duration = ((uint128)poh->target_tick_duration.seconds * 1000000000UL + (uint128)poh->target_tick_duration.nanoseconds);
 
   fd_bank_epoch_schedule_set( slot_ctx->bank, genesis_block->epoch_schedule );
@@ -1748,16 +1748,20 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
 
   ulong capitalization = 0UL;
 
+  fd_pubkey_account_pair_global_t const * accounts = fd_genesis_solana_accounts_join( genesis_block );
+
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
+    fd_pubkey_account_pair_global_t const * acc = &accounts[ i ];
     capitalization = fd_ulong_sat_add( capitalization, acc->account.lamports );
+
+    uchar const * acc_data = fd_solana_account_data_join( &acc->account );
 
     if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
       /* This means that there is a vote account which should be
          inserted into the vote states. Even after the vote account is
          inserted, we still don't know the total amount of stake that is
          delegated to the vote account. This must be calculated later. */
-      fd_vote_states_update_from_account( vote_states, &acc->key, acc->account.data, acc->account.data_len );
+      fd_vote_states_update_from_account( vote_states, &acc->key, acc_data, acc->account.data_len );
     } else if( !memcmp( acc->account.owner.key, fd_solana_stake_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* If an account is a stake account, then it must be added to the
          stake delegations cache. We should only add stake accounts that
@@ -1765,7 +1769,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
       fd_stake_state_v2_t stake_state = {0};
       if( FD_UNLIKELY( !fd_bincode_decode_static(
           stake_state_v2, &stake_state,
-          acc->account.data, acc->account.data_len,
+          acc_data, acc->account.data_len,
           NULL ) ) ) {
         FD_BASE58_ENCODE_32_BYTES( acc->key.key, stake_b58 );
         FD_LOG_ERR(( "Failed to deserialize genesis stake account %s", stake_b58 ));
@@ -1803,7 +1807,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
           int err;
           fd_feature_t * feature = fd_bincode_decode_spad(
               feature, runtime_spad,
-              acc->account.data,
+              acc_data,
               acc->account.data_len,
               &err );
           FD_TEST( err==FD_BINCODE_SUCCESS );
@@ -1853,12 +1857,14 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
   fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
 
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_t const * acc = &genesis_block->accounts[i];
+    fd_pubkey_account_pair_global_t const * acc = &accounts[ i ];
+
+    uchar const * acc_data = fd_solana_account_data_join( &acc->account );
 
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states_curr, &acc->key );
-      fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc->account.data, acc->account.data_len );
-      fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc->account.data, acc->account.data_len );
+      fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc_data, acc->account.data_len );
+      fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc_data, acc->account.data_len );
       fd_vote_states_update_stake( vote_states_prev, &acc->key, vote_state->stake );
       fd_vote_states_update_stake( vote_states_prev_prev, &acc->key, vote_state->stake );
     }
@@ -1922,133 +1928,36 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-static void
-fd_runtime_init_accounts_from_genesis( fd_exec_slot_ctx_t *        slot_ctx,
-                                       fd_genesis_solana_t const * genesis_block ) {
-
-  fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_txn_xid_t xid = { .ul = { 0UL, 0UL } };
-  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, NULL, &xid, 1 );
-  if( FD_UNLIKELY( !slot_ctx->funk_txn ) ) {
-    FD_LOG_CRIT(( "Failed to prepare funk transaction" ));
-  }
-  fd_funk_txn_end_write( slot_ctx->funk );
-
-  FD_LOG_DEBUG(( "start genesis accounts - count: %lu", genesis_block->accounts_len ));
-
-  fd_lthash_value_t prev_hash[1];
-  fd_lthash_zero( prev_hash );
-
-  for( ulong i=0; i<genesis_block->accounts_len; i++ ) {
-    fd_pubkey_account_pair_t * a = &genesis_block->accounts[i];
-
-    fd_funk_rec_prepare_t prepare = {0};
-
-    FD_TXN_ACCOUNT_DECL( rec );
-    int err = fd_txn_account_init_from_funk_mutable( rec,
-                                                    &a->key,
-                                                    slot_ctx->funk,
-                                                    slot_ctx->funk_txn,
-                                                    1, /* do_create */
-                                                    a->account.data_len,
-                                                    &prepare );
-
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
-    }
-
-    fd_txn_account_set_data( rec, a->account.data, a->account.data_len );
-    fd_txn_account_set_lamports( rec, a->account.lamports );
-    fd_txn_account_set_executable( rec, a->account.executable );
-    fd_txn_account_set_owner( rec, &a->account.owner );
-    fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-    fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
-  }
-
-
-}
-
-
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_path,
-                         fd_spad_t *          runtime_spad ) {
+fd_runtime_read_genesis( fd_exec_slot_ctx_t *               slot_ctx,
+                         fd_hash_t const *                  genesis_hash,
+                         fd_lthash_value_t const *          genesis_lthash,
+                         fd_genesis_solana_global_t const * genesis_block,
+                         fd_spad_t *                        runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  /* TODO: fd_runtime_read_genesis should include references to Agave's
-     genesis booting code.
-     TODO: Add a more robust description of the genesis file format. */
-
-  if( FD_UNLIKELY( !strlen( genesis_path ) ) ) {
-    FD_LOG_DEBUG(( "genesis_filepath is empty" ));
-    return;
-  }
-
-  /* If we have a genesis file, we will need to open the file and read
-     the data into a buffer. */
-
-  /* TODO: The file handling must be handled inside privileged_init. */
-
-  struct stat sbuf;
-  if( FD_UNLIKELY( stat( genesis_path, &sbuf)<0 ) ) {
-    FD_LOG_ERR(( "cannot open %s : %i-%s", genesis_path, errno, strerror( errno ) ));
-  }
-  int fd = open( genesis_path, O_RDONLY );
-  if( FD_UNLIKELY( fd<0 ) ) {
-    FD_LOG_ERR(("cannot open %s : %s", genesis_path, strerror( errno ) ));
-  }
-
-  uchar * buf = fd_spad_alloc( runtime_spad, alignof(ulong), (ulong)sbuf.st_size );
-  ulong sz    = 0UL;
-  int res     = fd_io_read( fd, buf, (ulong)sbuf.st_size, (ulong)sbuf.st_size, &sz );
-  if( FD_UNLIKELY( res!=0 ) ) {
-    FD_LOG_ERR(( "fd_io_read failed (%d)", res ));
-  }
-  if( FD_UNLIKELY( sz!=(ulong)sbuf.st_size ) ) {
-    FD_LOG_ERR(( "fd_io_read failed (%lu != %lu)", sz, (ulong)sbuf.st_size ));
-  }
-  close( fd );
-
-  /* At this point, the genesis file is closed and the data has been
-     copied out to an indepedent buffer. Decode the genesis block from
-     the config data. */
-
-  int err;
-  fd_genesis_solana_t * genesis_block = fd_bincode_decode_spad(
-      genesis_solana, runtime_spad, buf, sz, &err );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "failed to decode genesis manifest (%d)", err ));
-  }
-
-  /* The genesis hash is generated from the raw data that is located
-     inside of the genesis file. */
-
-  fd_hash_t * genesis_hash = fd_bank_genesis_hash_modify( slot_ctx->bank );
-  fd_sha256_hash( buf, sz, genesis_hash->hash );
-
-  /* Create a new Funk transaction for slot 0 and write each of the
-     accounts and their data from the genesis config into the accounts
-     database. */
-
-  fd_runtime_init_accounts_from_genesis( slot_ctx, genesis_block );
+  fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( slot_ctx->bank );
+  fd_memcpy( lthash, genesis_lthash, sizeof(fd_lthash_value_t) );
+  fd_bank_lthash_end_locking_modify( slot_ctx->bank );
 
   /* Once the accounts have been loaded from the genesis config into
      the accounts db, we can initialize the bank state. This involves
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_runtime_init_bank_from_genesis(
-      slot_ctx,
-      genesis_block,
-      genesis_hash,
-      runtime_spad );
+  fd_runtime_init_bank_from_genesis( slot_ctx, genesis_block, genesis_hash, runtime_spad );
 
   /* Write the native programs to the accounts db. */
 
-  for( ulong i=0UL; i < genesis_block->native_instruction_processors_len; i++ ) {
-    fd_string_pubkey_pair_t * a = &genesis_block->native_instruction_processors[i];
-    fd_write_builtin_account( slot_ctx, a->pubkey, (const char *)a->string, a->string_len );
+  fd_string_pubkey_pair_global_t * nips = fd_genesis_solana_native_instruction_processors_join( genesis_block );
+
+  for( ulong i=0UL; i<genesis_block->native_instruction_processors_len; i++ ) {
+    fd_string_pubkey_pair_global_t const * a = &nips[ i ];
+
+    uchar const * string = fd_string_pubkey_pair_string_join( a );
+    fd_write_builtin_account( slot_ctx, a->pubkey, (const char *)string, a->string_len );
   }
+
   fd_features_restore( slot_ctx, runtime_spad );
 
   /* At this point, state related to the bank and the accounts db
@@ -2056,10 +1965,8 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
      block. In practice, this updates some bank fields (notably the
      poh and bank hash). */
 
-  err = fd_runtime_process_genesis_block( slot_ctx, runtime_spad );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_CRIT(( "Genesis slot 0 execute failed with error %d", err ));
-  }
+  int err = fd_runtime_process_genesis_block( slot_ctx, runtime_spad );
+  if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
 
   } FD_SPAD_FRAME_END;
 }

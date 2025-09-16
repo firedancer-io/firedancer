@@ -528,7 +528,6 @@ struct fd_topo_tile {
     } snapin;
 
     struct {
-      char   genesis_path[ PATH_MAX ];
 
       uint   bind_address;
       ushort bind_port;
@@ -545,6 +544,18 @@ struct fd_topo_tile {
     struct {
       ulong funk_obj_id;
     } resolv;
+
+    struct {
+      ulong funk_obj_id;
+
+      int allow_download;
+
+      ushort expected_shred_version;
+      ulong entrypoints_cnt;
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+
+      char genesis_path[ PATH_MAX ];
+    } genesi;
   };
 };
 
