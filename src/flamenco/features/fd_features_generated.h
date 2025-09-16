@@ -248,7 +248,7 @@ union fd_features {
     /* 0x494f963ae12b5106 */ ulong vote_only_retransmitter_signed_fec_sets;
     /* 0x210aba8db8103506 */ ulong mask_out_rent_epoch_in_vm_serialization;
     /* 0xec3a4c069e71cb0e */ ulong disable_zk_elgamal_proof_program;
-    /* 0xbbec21266d76cb0e */ ulong reenable_zk_elgamal_proof_program;
+    /* 0x8df69df67b77cb0e */ ulong reenable_zk_elgamal_proof_program;
     /* 0xe72f76507222e3bb */ ulong formalize_loaded_transaction_data_size;
     /* 0x7170cf84367fbb1a */ ulong enable_extend_program_checked;
     /* 0xa9e3bfbaf8d67260 */ ulong require_static_nonce_account;
