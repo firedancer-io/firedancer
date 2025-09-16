@@ -1613,7 +1613,8 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_txn_p_t const *   txn_p,
-                                 fd_spad_t *          runtime_spad ) {
+                                 fd_spad_t *          runtime_spad,
+                                 fd_acct_addr_t       alut_accounts[256] ) {
   fd_txn_t const * txn_descriptor = TXN( txn_p );
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -1628,7 +1629,6 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
   if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
 
     /* Iterate over account keys referenced in ALUTs */
-    fd_acct_addr_t alut_accounts[256];
     fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return;

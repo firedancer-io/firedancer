@@ -544,7 +544,8 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
                                  fd_txn_p_t const *   txn_p,
-                                 fd_spad_t *          runtime_spad );
+                                 fd_spad_t *          runtime_spad,
+                                 fd_acct_addr_t       alut_accounts[256] );
 
 /* Debugging Tools ************************************************************/
 

@@ -163,6 +163,22 @@ struct fd_replay_tile {
   ulong                 exec_txn_id[ FD_PACK_MAX_BANK_TILES ]; /* In-flight txn id */
   fd_replay_out_link_t  exec_out[ FD_PACK_MAX_BANK_TILES ];    /* Sending work down to exec tiles */
 
+  struct {
+    uchar sigs[8192][64];
+    long  ready[8192];
+    long  done[8192];
+    fd_acct_addr_t readonly_addrs[8192][64];
+    fd_acct_addr_t writable_addrs[8192][64];
+    fd_acct_addr_t readonly_alts[8192][64];
+    fd_acct_addr_t writable_alts[8192][64];
+    ulong readonly_cnt[8192];
+    ulong writable_cnt[8192];
+    ulong readonly_alts_cnt[8192];
+    ulong writable_alts_cnt[8192];
+    fd_acct_addr_t alut_accounts[256];
+    ulong cnt;
+  };
+
   /* Tracks equivocation and translates between block id and equivocated
      slot numbers.  These structures handle continuous re-keying from
      the incoming stream of FEC set merkle roots, and translate the full
@@ -1517,6 +1533,29 @@ replay( fd_replay_tile_t *  ctx,
     fd_eslot_t eslot = eslot_mgr_query( ctx, block_id );
     if( fd_sched_block_is_done( ctx->sched, &eslot ) ) {
       ctx->block_draining = 0;
+      for( ulong i=0UL; i<ctx->cnt; i++ ) {
+        if( FD_UNLIKELY( ctx->ready[ i ]==LONG_MAX || ctx->done[ i ]==LONG_MAX ) ) {
+          FD_LOG_CRIT(( "Invariant violation: ctx->ready[ %lu ] %ld ctx->done[ %lu ] %ld", i, ctx->ready[ i ], i, ctx->done[ i ] ));
+        }
+        FD_BASE58_ENCODE_64_BYTES( ctx->sigs[ i ], sig_str );
+        FD_LOG_INFO(( "txn %lu sig %s ready %ld done %ld", i, sig_str, ctx->ready[ i ], ctx->done[ i ] ));
+        for( ulong j=0UL; j<ctx->writable_cnt[ i ]; j++ ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->writable_addrs[ i ][ j ].b, addr_str );
+          FD_LOG_INFO(( "  writable_addr %s", addr_str ));
+        }
+        for( ulong j=0UL; j<ctx->readonly_cnt[ i ]; j++ ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->readonly_addrs[ i ][ j ].b, addr_str );
+          FD_LOG_INFO(( "  readonly_addr %s", addr_str ));
+        }
+        for( ulong j=0UL; j<ctx->writable_alts_cnt[ i ]; j++ ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->writable_alts[ i ][ j ].b, addr_str );
+          FD_LOG_INFO(( "  writable_alt %s", addr_str ));
+        }
+        for( ulong j=0UL; j<ctx->readonly_alts_cnt[ i ]; j++ ) {
+          FD_BASE58_ENCODE_32_BYTES( ctx->readonly_alts[ i ][ j ].b, addr_str );
+          FD_LOG_INFO(( "  readonly_alt %s", addr_str ));
+        }
+      }
       replay_block_finalize( ctx, stem );
       return 1;
     }
@@ -1537,6 +1576,15 @@ replay( fd_replay_tile_t *  ctx,
         replay_block_start( ctx, stem, ready_txn->block_id.slot, ready_txn->parent_block_id.slot, ready_block_id, ready_parent_block_id );
         fd_sched_txn_done( ctx->sched, ready_txn->txn_id );
         replay_ctx_switch( ctx, ready_txn->block_id, ready_block_id );
+        ctx->cnt = 0UL;
+        for( ulong i=0; i<8192UL; i++ ) {
+          ctx->ready[ i ] = LONG_MAX;
+          ctx->done[ i ]  = LONG_MAX;
+          ctx->readonly_cnt[ i ] = 0UL;
+          ctx->writable_cnt[ i ] = 0UL;
+          ctx->readonly_alts_cnt[ i ] = 0UL;
+          ctx->writable_alts_cnt[ i ] = 0UL;
+        }
         continue;
       }
 
@@ -1562,7 +1610,30 @@ replay( fd_replay_tile_t *  ctx,
       /* FIXME: this should be done during txn parsing so that we don't
          have to loop over all accounts a second time. */
       /* Insert or reverify invoked programs for this epoch, if needed. */
-      fd_runtime_update_program_cache( ctx->slot_ctx, txn_p, ctx->runtime_spad );
+      fd_runtime_update_program_cache( ctx->slot_ctx, txn_p, ctx->runtime_spad, ctx->alut_accounts );
+
+      FD_TEST( ctx->cnt<8192UL );
+      memcpy( ctx->sigs[ ctx->cnt ], txn_p->payload+TXN(txn_p)->signature_off, 64 );
+      ctx->ready[ ctx->cnt ] = fd_tickcount();
+      for( ulong j=0UL; j<fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_WRITABLE_SIGNER ); j++ ) {
+        ctx->writable_addrs[ ctx->cnt ][ ctx->writable_cnt[ ctx->cnt ]++ ] = fd_txn_get_acct_addrs( TXN(txn_p), txn_p->payload )[ j ];
+      }
+      for( ulong j=0UL; j<fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM ); j++ ) {
+        ctx->writable_addrs[ ctx->cnt ][ ctx->writable_cnt[ ctx->cnt ]++ ] = (fd_txn_get_acct_addrs( TXN(txn_p), txn_p->payload )+fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_SIGNER ))[ j ];
+      }
+      for( ulong j=0UL; j<fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_WRITABLE_ALT ); j++ ) {
+        ctx->writable_alts[ ctx->cnt ][ ctx->writable_alts_cnt[ ctx->cnt ]++ ] = ctx->alut_accounts[ j ];
+      }
+      for( ulong j=0UL; j<fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_READONLY_SIGNER ); j++ ) {
+        ctx->readonly_addrs[ ctx->cnt ][ ctx->readonly_cnt[ ctx->cnt ]++ ] = (fd_txn_get_acct_addrs( TXN(txn_p), txn_p->payload )+fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_WRITABLE_SIGNER ))[ j ];
+      }
+      for( ulong j=0UL; j<fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_READONLY_NONSIGNER_IMM ); j++ ) {
+        ctx->readonly_addrs[ ctx->cnt ][ ctx->readonly_cnt[ ctx->cnt ]++ ] = (fd_txn_get_acct_addrs( TXN(txn_p), txn_p->payload )+fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_SIGNER | FD_TXN_ACCT_CAT_WRITABLE_NONSIGNER_IMM ))[ j ];
+      }
+      for( ulong j=0UL; j<fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_READONLY_ALT ); j++ ) {
+        ctx->readonly_alts[ ctx->cnt ][ ctx->readonly_alts_cnt[ ctx->cnt ]++ ] = (ctx->alut_accounts+fd_txn_account_cnt( TXN(txn_p), FD_TXN_ACCT_CAT_WRITABLE_ALT ))[ j ];
+      }
+      ctx->cnt++;
 
       /* At this point, we are going to send the txn down the execution
          pipeline.  Increment the refcnt so we don't prematurely prune a
@@ -1649,6 +1720,13 @@ process_txn_finalized( fd_replay_tile_t *                           ctx,
   FD_TEST( !fd_ulong_extract_bit( ctx->exec_ready_bitset, msg->exec_tile_id ) );
   ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, msg->exec_tile_id );
   ctx->slot_ctx->bank->refcnt--;
+  fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, ctx->exec_txn_id[ msg->exec_tile_id ] );
+  for( ulong i=ctx->cnt; i>0UL; i-- ) {
+    if( fd_memeq( ctx->sigs[ i-1UL ], txn_p->payload+TXN(txn_p)->signature_off, 64 ) ) {
+      ctx->done[ i-1UL ] = fd_tickcount();
+      break;
+    }
+  }
   fd_sched_txn_done( ctx->sched, ctx->exec_txn_id[ msg->exec_tile_id ] );
   /* Reference counter just decreased, and an exec tile just got freed
      up.  If there's a need to be more aggressively pruning, we could
