@@ -118,7 +118,7 @@ static void
 transition_to_follower( fd_poh_t *          poh,
                         fd_stem_context_t * stem,
                         int                 completed_leader_slot ) {
-  FD_TEST( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_BANK || poh->state==STATE_WAITING_FOR_SLOT );
+  FD_TEST( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_BANK || poh->state==STATE_WAITING_FOR_SLOT || poh->state==STATE_WAITING_FOR_RESET );
 
   if( FD_LIKELY( completed_leader_slot ) ) FD_TEST( poh->state==STATE_LEADER );
 

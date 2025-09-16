@@ -8,7 +8,7 @@
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/tiles.h"
-#include "../../../../discof/ipecho/genesis_hash.h"
+#include "../../../../discof/genesis/genesis_hash.h"
 
 #include <unistd.h>
 #include <dirent.h>

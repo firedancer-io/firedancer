@@ -1,6 +1,5 @@
 #include "fd_ipecho_client.h"
 #include "fd_ipecho_server.h"
-#include "genesis_hash.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "generated/fd_ipecho_tile_seccomp.h"
@@ -52,14 +51,7 @@ static inline void
 poll_client( fd_ipecho_tile_ctx_t * ctx,
              fd_stem_context_t *    stem,
              int *                  charge_busy ) {
-  if( FD_UNLIKELY( !ctx->client ) ) {
-    FD_LOG_NOTICE(( "using expected shred version %hu", ctx->shred_version ));
-    FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
-    fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, 0UL, 0UL );
-    ctx->retrieving = 0;
-    fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->shred_version );
-    return;
-  }
+  if( FD_UNLIKELY( !ctx->client ) ) return;
 
   int result = fd_ipecho_client_poll( ctx->client, &ctx->shred_version, charge_busy );
   if( FD_UNLIKELY( !result ) ) {
@@ -93,31 +85,34 @@ after_credit( fd_ipecho_tile_ctx_t * ctx,
   else                                 fd_ipecho_server_poll( ctx->server, charge_busy, timeout );
 }
 
-static void
-privileged_init( fd_topo_t *      topo,
-                 fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+static inline int
+returnable_frag( fd_ipecho_tile_ctx_t * ctx,
+                 ulong                  in_idx,
+                 ulong                  seq,
+                 ulong                  sig,
+                 ulong                  chunk,
+                 ulong                  sz,
+                 ulong                  ctl,
+                 ulong                  tsorig,
+                 ulong                  tspub,
+                 fd_stem_context_t *    stem ) {
+  (void)in_idx;
+  (void)seq;
+  (void)chunk;
+  (void)sz;
+  (void)ctl;
+  (void)tsorig;
+  (void)tspub;
 
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_ipecho_tile_ctx_t ), sizeof( fd_ipecho_tile_ctx_t ) );
+  FD_TEST( sig && sig<=USHORT_MAX );
+  ctx->shred_version = (ushort)sig;
+  FD_TEST( !ctx->expected_shred_version || ctx->shred_version==ctx->expected_shred_version );
+  FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
+  fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->retrieving = 0;
+  fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->shred_version );
 
-  if( FD_UNLIKELY( !tile->ipecho.entrypoints_cnt ) ) {
-    /* We are the bootstrap node, genesis.bin must already exist so
-       compute shred version. */
-    int result = compute_shred_version( tile->ipecho.genesis_path, &ctx->bootstrap_shred_version, NULL );
-    if( FD_UNLIKELY( -1==result ) ) {
-      if( FD_LIKELY( errno==ENOENT ) ) {
-        FD_LOG_ERR(( "This node is bootstrapping the cluster as it has no gossip entrypoints provided, but "
-                     "the genesis.bin file at `%s` does not exist.  Please provide a valid genesis.bin "
-                     "file by running genesis, or join an existing cluster.",
-                     tile->ipecho.genesis_path ));
-      } else {
-        FD_LOG_ERR(( "Could not compute shred version from genesis.bin file at `%s` (%i-%s)",
-                     tile->ipecho.genesis_path, errno, fd_io_strerror( errno ) ));
-      }
-    }
-    FD_TEST( ctx->bootstrap_shred_version );
-  }
+  return 0;
 }
 
 static void
@@ -142,13 +137,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( ctx->client );
     fd_ipecho_client_init( ctx->client, tile->ipecho.entrypoints, tile->ipecho.entrypoints_cnt );
   } else {
-    if( FD_UNLIKELY( tile->ipecho.expected_shred_version && (tile->ipecho.expected_shred_version!=ctx->bootstrap_shred_version ) ) ) {
-      FD_LOG_ERR(( "This node is bootstrapping the cluster as it has no gossip entrypoints provided, but "
-                   "a [consensus.expected_shred_version] of %hu is provided which does not match the shred "
-                   "version of %hu computed from the genesis.bin file at `%s`",
-                   tile->ipecho.expected_shred_version, ctx->bootstrap_shred_version, tile->ipecho.genesis_path ));
-    }
-    ctx->shred_version = ctx->bootstrap_shred_version;
     ctx->client = NULL;
   }
 
@@ -195,8 +183,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_ipecho_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_ipecho_tile_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 
@@ -206,7 +195,6 @@ fd_topo_run_tile_t fd_tile_ipecho = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

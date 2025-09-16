@@ -100,6 +100,9 @@ backtest_topo( config_t * config ) {
     snaprd_tile->allow_shutdown = 1;
     snapdc_tile->allow_shutdown = 1;
     snapin_tile->allow_shutdown = 1;
+  } else {
+    fd_topob_wksp( topo, "genesi" );
+    fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  cpu_idx++, 0, 0 )->allow_shutdown = 1;
   }
 
   /**********************************************************************/
@@ -147,6 +150,11 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
     fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+  } else {
+    fd_topob_wksp( topo, "genesi_out" );
+    fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
+    fd_topob_tile_out( topo, "genesi", 0UL, "genesi_out", 0UL );
+    fd_topob_tile_in ( topo, "replay", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/

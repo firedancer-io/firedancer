@@ -59,17 +59,14 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
-/* An estimate of the max number of transactions in a block.  If there are more
-   transactions, they must be split into multiple sets. */
-#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_BLK_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
-
-#define IN_KIND_REPAIR  (0)
+#define IN_KIND_GENESIS (0)
 #define IN_KIND_SNAP    (1)
-#define IN_KIND_TOWER   (2)
-#define IN_KIND_WRITER  (3)
-#define IN_KIND_CAPTURE (4)
-#define IN_KIND_POH     (5)
-#define IN_KIND_RESOLV  (6)
+#define IN_KIND_REPAIR  (2)
+#define IN_KIND_TOWER   (3)
+#define IN_KIND_WRITER  (4)
+#define IN_KIND_CAPTURE (5)
+#define IN_KIND_POH     (6)
+#define IN_KIND_RESOLV  (7)
 
 struct fd_replay_in_link {
   fd_wksp_t * mem;
@@ -426,7 +423,7 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
   fd_stem_publish( stem, ctx->stake_out->idx, stake_weights_sig, ctx->stake_out->chunk, stake_weights_sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->stake_out->chunk = fd_dcache_compact_next( ctx->stake_out->chunk, stake_weights_sz, ctx->stake_out->chunk0, ctx->stake_out->wmark );
 
-  FD_LOG_NOTICE(( "sending stake weights for epoch %lu (slot %lu - %lu) with %lu stakes", stake_weights_msg[ 0 ], stake_weights_msg[ 2 ], stake_weights_msg[ 3 ], stake_weights_msg[ 1 ] ));
+  FD_LOG_NOTICE(( "sending stake weights for epoch %lu (slot %lu - %lu) with %lu stakes", stake_weights_msg[ 0 ], stake_weights_msg[ 2 ], stake_weights_msg[ 2 ]+stake_weights_msg[ 3 ], stake_weights_msg[ 1 ] ));
 
   if( FD_LIKELY( current_epoch ) ) fd_bank_vote_states_prev_end_locking_query( slot_ctx->bank );
   else                             fd_bank_vote_states_prev_prev_end_locking_query( ctx->slot_ctx->bank );
@@ -1250,85 +1247,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   ctx->consensus_root_slot = snapshot_slot;
 }
 
-static void
-on_snapshot_message( fd_replay_tile_t *  ctx,
-                     fd_stem_context_t * stem,
-                     ulong               in_idx,
-                     ulong               chunk,
-                     ulong               sig ) {
-  ulong msg = fd_ssmsg_sig_message( sig );
-  if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
-    /* An end of message notification indicates the snapshot is loaded.
-       Replay is able to start executing from this point onwards. */
-    /* TODO: replay should finish booting. Could make replay a
-       state machine and set the state here accordingly. */
-    ctx->is_booted = 1;
-
-    ulong snapshot_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-    /* FIXME: This is a hack because the block id of the snapshot slot
-       is not provided in the snapshot.  A possible solution is to get
-       the block id of the snapshot slot from repair. */
-    fd_hash_t manifest_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
-
-    fd_store_exacq( ctx->store );
-    FD_TEST( !fd_store_root( ctx->store ) );
-    fd_store_insert( ctx->store, 0, &manifest_block_id );
-    ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
-    fd_store_exrel( ctx->store );
-
-    /* Typically, when we cross an epoch boundary during normal
-       operation, we publish the stake weights for the new epoch.  But
-       since we are starting from a snapshot, we need to publish two
-       epochs worth of stake weights: the previous epoch (which is
-       needed for voting on the current epoch), and the current epoch
-       (which is needed for voting on the next epoch). */
-    publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
-    publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
-
-    eslot_mgr_insert( ctx, snapshot_slot, &manifest_block_id, (fd_eslot_t){ .id=ULONG_MAX } );
-    ctx->consensus_root_slot = snapshot_slot;
-    ctx->published_root_slot = snapshot_slot;
-    fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = snapshot_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL }, NULL );
-
-    fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
-
-    fd_runtime_update_leaders( ctx->slot_ctx->bank, fd_bank_slot_get( ctx->slot_ctx->bank ), ctx->runtime_spad );
-
-    /* We call this after fd_runtime_read_genesis, which sets up the
-       slot_bank needed in blockstore_init. */
-    init_after_snapshot( ctx );
-    notify_resolv_of_new_consensus_root( ctx, stem );
-
-    ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
-    publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
-
-    ctx->slot_ctx->bank->flags |= FD_BANK_FLAGS_FROZEN;
-
-    return;
-  }
-
-  switch( msg ) {
-    case FD_SSMSG_MANIFEST_FULL:
-    case FD_SSMSG_MANIFEST_INCREMENTAL: {
-      /* We may either receive a full snapshot manifest or an
-         incremental snapshot manifest.  Note that this external message
-         id is only used temporarily because replay cannot yet receive
-         the firedancer-internal snapshot manifest message. */
-      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
-        FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), ctx->slot_ctx );
-      break;
-    }
-    default: {
-      FD_LOG_ERR(( "Received unknown snapshot message with msg %lu", msg ));
-      return;
-    }
-  }
-
-  return;
-}
-
 static int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
@@ -1442,16 +1360,27 @@ unbecome_leader( fd_replay_tile_t *  ctx,
 }
 
 static void
-init_from_genesis( fd_replay_tile_t *  ctx,
-                   fd_stem_context_t * stem ) {
-  fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis_path, ctx->runtime_spad );
+boot_genesis( fd_replay_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              ulong               in_idx,
+              ulong               chunk ) {
+  FD_TEST( ctx->bootstrap );
+
+  uchar const * lthash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+  uchar const * genesis_hash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t);
+
+  // TODO: Do not pass the fd_types type between tiles, it have offsets
+  // that are unsafe and can't be validated as being in-bounds.  Need to
+  // pass an actual owned genesis type.
+  fd_genesis_solana_global_t const * genesis = fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t) );
+
+  fd_runtime_read_genesis( ctx->slot_ctx, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
   publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
 
   /* We call this after fd_runtime_read_genesis, which sets up the
-  slot_bank needed in blockstore_init. */
-  /* FIXME: We should really only call this once. */
+     slot_bank needed in blockstore_init. */
   init_after_snapshot( ctx );
 
   /* Initialize store for genesis case, similar to snapshot case */
@@ -1543,6 +1472,88 @@ init_from_genesis( fd_replay_tile_t *  ctx,
     fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
   }
+
+  ctx->is_booted = 1;
+  maybe_become_leader( ctx, stem );
+}
+
+static void
+on_snapshot_message( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     ulong               in_idx,
+                     ulong               chunk,
+                     ulong               sig ) {
+  ulong msg = fd_ssmsg_sig_message( sig );
+  if( FD_LIKELY( msg==FD_SSMSG_DONE ) ) {
+    /* An end of message notification indicates the snapshot is loaded.
+       Replay is able to start executing from this point onwards. */
+    /* TODO: replay should finish booting. Could make replay a
+       state machine and set the state here accordingly. */
+    ctx->is_booted = 1;
+
+    ulong snapshot_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+    /* FIXME: This is a hack because the block id of the snapshot slot
+       is not provided in the snapshot.  A possible solution is to get
+       the block id of the snapshot slot from repair. */
+    fd_hash_t manifest_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
+
+    fd_store_exacq( ctx->store );
+    FD_TEST( !fd_store_root( ctx->store ) );
+    fd_store_insert( ctx->store, 0, &manifest_block_id );
+    ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
+    fd_store_exrel( ctx->store );
+
+    /* Typically, when we cross an epoch boundary during normal
+       operation, we publish the stake weights for the new epoch.  But
+       since we are starting from a snapshot, we need to publish two
+       epochs worth of stake weights: the previous epoch (which is
+       needed for voting on the current epoch), and the current epoch
+       (which is needed for voting on the next epoch). */
+    publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
+    publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
+
+    eslot_mgr_insert( ctx, snapshot_slot, &manifest_block_id, (fd_eslot_t){ .id=ULONG_MAX } );
+    ctx->consensus_root_slot = snapshot_slot;
+    ctx->published_root_slot = snapshot_slot;
+    fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = snapshot_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL }, NULL );
+
+    fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+
+    fd_runtime_update_leaders( ctx->slot_ctx->bank, fd_bank_slot_get( ctx->slot_ctx->bank ), ctx->runtime_spad );
+
+    /* We call this after fd_runtime_read_genesis, which sets up the
+       slot_bank needed in blockstore_init. */
+    init_after_snapshot( ctx );
+    notify_resolv_of_new_consensus_root( ctx, stem );
+
+    ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
+    publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
+
+    ctx->slot_ctx->bank->flags |= FD_BANK_FLAGS_FROZEN;
+
+    return;
+  }
+
+  switch( msg ) {
+    case FD_SSMSG_MANIFEST_FULL:
+    case FD_SSMSG_MANIFEST_INCREMENTAL: {
+      /* We may either receive a full snapshot manifest or an
+         incremental snapshot manifest.  Note that this external message
+         id is only used temporarily because replay cannot yet receive
+         the firedancer-internal snapshot manifest message. */
+      if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
+        FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), ctx->slot_ctx );
+      break;
+    }
+    default: {
+      FD_LOG_ERR(( "Received unknown snapshot message with msg %lu", msg ));
+      return;
+    }
+  }
+
+  return;
 }
 
 /* Returns 1 if charge_busy. */
@@ -1630,16 +1641,7 @@ after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted ) ) {
-    if( FD_UNLIKELY( ctx->bootstrap ) ) {
-      *charge_busy = 1;
-      init_from_genesis( ctx, stem );
-      ctx->is_booted = 1;
-      maybe_become_leader( ctx, stem );
-      *opt_poll_in = 0;
-    }
-    return;
-  }
+  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
 
   /* Send any outstanding vote states to tower.  TODO: Not sure why this
      is here?  Should happen when the slot completes instead? */
@@ -1784,21 +1786,59 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
 static void
 process_tower_update( fd_replay_tile_t *           ctx,
-                      fd_tower_slot_done_t const * msg,
-                      fd_stem_context_t *          stem ) {
-  if( FD_UNLIKELY( !msg->new_root ) ) return;
+                      fd_stem_context_t *          stem,
+                      fd_tower_slot_done_t const * msg ) {
+  ctx->reset_slot = msg->reset_slot;
+  ctx->reset_timestamp_nanos = fd_log_wallclock();
+  ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
+  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
 
-  /* We have recieved a root message.  We don't want to update the
-     rooted slot and block id if we are processing the genesis block. */
-  if( FD_UNLIKELY( !fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) return;
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &msg->block_id );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with id %s", FD_BASE58_ENC_32_ALLOCA( &msg->block_id ) ));
+  FD_TEST( bank );
 
-  ctx->consensus_root_slot = msg->root_slot;
-  ctx->consensus_root      = msg->root_block_id;
-  notify_resolv_of_new_consensus_root( ctx, stem );
+  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
+    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
 
-  advance_published_root( ctx );
+    reset->completed_slot = ctx->reset_slot;
+    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
 
-  /* TODO fill in reset bank logic */
+    fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
+    fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
+    FD_TEST( last_hash );
+    fd_memcpy( reset->completed_blockhash, last_hash->uc, sizeof(fd_hash_t) );
+
+    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+      /* Low power producer, maximum of one microblock per tick in the slot */
+      reset->max_microblocks_in_slot = ticks_per_slot;
+    } else {
+      /* See the long comment in after_credit for this limit */
+      reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
+    }
+    reset->next_leader_slot = ctx->next_leader_slot;
+
+    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
+    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+  }
+
+  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, new_root=%d, root_slot=%lu, root_block_id=%s", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->new_root, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
+  maybe_become_leader( ctx, stem );
+
+  if( FD_LIKELY( msg->new_root ) ) {
+    /* We have recieved a root message.  We don't want to update the
+      rooted slot and block id if we are processing the genesis block. */
+    if( FD_UNLIKELY( !fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) return;
+
+    ctx->consensus_root_slot = msg->root_slot;
+    ctx->consensus_root      = msg->root_block_id;
+    notify_resolv_of_new_consensus_root( ctx, stem );
+
+    advance_published_root( ctx );
+  }
 }
 
 static void
@@ -1914,6 +1954,9 @@ returnable_frag( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   switch( ctx->in_kind[in_idx] ) {
+    case IN_KIND_GENESIS:
+      boot_genesis( ctx, stem, in_idx, chunk );
+      break;
     case IN_KIND_SNAP:
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       break;
@@ -1936,7 +1979,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      process_tower_update( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), stem );
+      process_tower_update( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_REPAIR: {
@@ -2138,7 +2181,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in[ i ].mtu    = link->mtu;
     }
 
-    if(      !strcmp( link->name, "repair_repla" ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
+    if(      !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
+    else if( !strcmp( link->name, "repair_repla" ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "writ_repl"    ) ) ctx->in_kind[ i ] = IN_KIND_WRITER;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;

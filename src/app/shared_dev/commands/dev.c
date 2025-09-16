@@ -4,7 +4,7 @@
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/monitor/monitor.h"
-#include "../../../discof/ipecho/genesis_hash.h"
+#include "../../../discof/genesis/genesis_hash.h"
 
 #include <stdio.h>
 #include <stdlib.h> /* setenv */
