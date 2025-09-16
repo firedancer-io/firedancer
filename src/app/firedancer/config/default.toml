@@ -762,8 +762,18 @@ user = ""
     # around 10-20.
     bank_tile_count = 1
 
-    # TODO: add docs on exec_tile_cnt / exec tile
-    exec_tile_count = 2
+    # How many exec tiles to run.  These tiles execute transactions for
+    # the replay tile.  Transactions can be executed in parallel so
+    # long as we maintain the serial fiction.  That is, reordering can
+    # happen, but only under the constraint that transactions appear to
+    # execute in the order in which they occur in the block.  The replay
+    # dispatcher figures out which transactions can be executed
+    # out-of-order or in parallel, and sends them to the exec tiles.
+    # More exec tiles would allow the validator to replay through blocks
+    # faster, subject to Amdahl's law.  Empirically, we've found 8 exec
+    # tiles to achieve near optimal replay speed on recent mainnet
+    # blocks.
+    exec_tile_count = 8
 
     # How many writer tiles to run.  Writer tiles are responsible for
     # writing account changes made by the exec tiles back to the
@@ -771,14 +781,16 @@ user = ""
     #
     # Since the accounts DB is designed to be highly concurrent, most of
     # the time account writeback can be done in parallel without
-    # blocking.  Multiple writer tiles exploit this parallelism supported
-    # by the accounts DB.
+    # blocking.  Multiple writer tiles exploit this parallelism
+    # supported by the accounts DB.
     #
-    # If sufficient cores are available, it is recommended to set this to
-    # the same as the number of exec tiles.  However, there's no reason
-    # for this to exceed the number of exec tiles, because the number
-    # of in-flight transactions between exec tiles and writer tiles is
-    # bounded by the number of exec tiles.
+    # Defaults to 1 because empirically that's sufficient to service the
+    # default number of exec tiles.  If sufficient cores are available,
+    # one could increase the number of writer tiles for slightly better
+    # replay speed.  However, there's no reason for this to exceed the
+    # number of exec tiles, because the number of in-flight transactions
+    # between exec tiles and writer tiles is bounded by the number of
+    # exec tiles.
     writer_tile_count = 1
 
     # How many shred tiles to run.  Should be set to 1.  This is
