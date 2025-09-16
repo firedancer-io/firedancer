@@ -90,6 +90,11 @@ returnable_frag( fd_poh_tile_t *     ctx,
   (void)tsorig;
   (void)tspub;
 
+  /* TODO: Pack has a workaround for Frankendancer that sequences bank
+     release to manage lifetimes, but it's not needed in Firedancer so
+     we just drop it.  We shouldn't send it at all in future. */
+  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) return 0;
+
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
