@@ -532,7 +532,8 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
   if( FD_LIKELY( current_epoch ) ) fd_bank_vote_states_prev_end_locking_query( bank );
   else                             fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
-  fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
+  fd_stake_weight_msg_t const * msg = fd_type_pun_const( stake_weights_msg );
+  fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, msg, msg->staked_cnt );
   fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
 }
 

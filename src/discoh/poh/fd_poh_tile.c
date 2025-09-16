@@ -1838,7 +1838,8 @@ during_frag( fd_poh_ctx_t * ctx,
             ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-    fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
+    fd_stake_weight_msg_t const * msg = fd_type_pun_const( dcache_entry );
+    fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, msg, msg->staked_cnt );
     return;
   }
 

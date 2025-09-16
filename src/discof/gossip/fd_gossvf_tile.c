@@ -278,10 +278,7 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
     }
     case IN_KIND_REPLAY: {
       fd_stake_weight_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( msg->staked_cnt>MAX_STAKED_LEADERS ) )
-        FD_LOG_ERR(( "Malformed stake update with %lu stakes in it, but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
-      ulong msg_sz = FD_STAKE_CI_STAKE_MSG_RECORD_SZ*msg->staked_cnt+FD_STAKE_CI_STAKE_MSG_HEADER_SZ;
-      fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
+      fd_memcpy( ctx->stake.msg_buf, msg, sz );
       break;
     }
     case IN_KIND_PINGS: {
@@ -301,6 +298,8 @@ static inline void
 handle_stakes( fd_gossvf_tile_ctx_t *        ctx,
                fd_stake_weight_msg_t const * msg ) {
   fd_stake_weight_t stake_weights[ MAX_STAKED_LEADERS ];
+  if( FD_UNLIKELY( msg->staked_cnt > MAX_STAKED_LEADERS ) )
+    FD_LOG_ERR(( "stake weight message with %lu>%lu stakes", msg->staked_cnt, MAX_STAKED_LEADERS ));
   ulong new_stakes_cnt = compute_id_weights_from_vote_weights( stake_weights, msg->weights, msg->staked_cnt );
 
   for( ulong i=0UL; i<ctx->stake.count; i++ ) {
