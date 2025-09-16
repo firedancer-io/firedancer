@@ -1342,11 +1342,6 @@ fd_update_vote_states_prev( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bank_vote_states_end_locking_query( slot_ctx->bank );
 }
 
-void
-fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
-                                fd_core_bpf_migration_config_t const * config,
-                                fd_spad_t *                            runtime_spad );
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t *   slot_ctx,
