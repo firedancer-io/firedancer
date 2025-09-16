@@ -283,6 +283,11 @@ fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
    FEC set).  If not NULL, chained_merkle_root is updated with the new
    root.  This determines the variant of shreds created.
 
+   out_merkle_root is an optional parameter: if non-NULL the merkle root
+   of the extracted FEC set will be copied into out_merkle_root on
+   success.  Assumes out_merkle_root pointers to a buffer of at least 32
+   bytes (FD_SHRED_MERKLE_ROOT_SZ).
+
    Returns result on success and NULL if all of the entry batch's data
    has been consumed already by previous calls to this function.  On
    success, advances the position of the shredder within the batch
@@ -290,7 +295,8 @@ fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
 fd_fec_set_t *
 fd_shredder_next_fec_set( fd_shredder_t * shredder,
                           fd_fec_set_t *  result,
-                          uchar *         chained_merkle_root );
+                          uchar *         chained_merkle_root,
+                          uchar *         out_merkle_root );
 
 /* fd_shredder_fini_batch finishes the in process batch.  shredder must
    be a valid local join that is currently in a batch.  Upon return,
