@@ -1085,6 +1085,7 @@ static void
 fini_leader_bank( fd_replay_tile_t *  ctx,
                   fd_bank_t *         bank,
                   fd_stem_context_t * stem ) {
+  FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
   bank->flags |= FD_BANK_FLAGS_FROZEN;
 
   fd_eslot_t leader_eslot = { .slot = fd_bank_slot_get( bank )&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL };
@@ -1339,22 +1340,23 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 }
 
 static void
-unbecome_leader( fd_replay_tile_t *  ctx,
-                 fd_stem_context_t * stem,
-                 ulong               slot ) {
+unbecome_leader( fd_replay_tile_t *                 ctx,
+                 fd_stem_context_t *                stem,
+                 fd_poh_leader_slot_ended_t const * slot_ended ) {
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
 
-  FD_TEST( ctx->highwater_leader_slot>=slot );
+  FD_TEST( ctx->highwater_leader_slot>=slot_ended->slot );
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
   ctx->is_leader = 0;
 
   /* Remove the refcnt for the leader bank and finalize it. */
 
-  fd_hash_t key = { .ul[0] = slot };
+  fd_hash_t key = { .ul[0] = slot_ended->slot };
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &key );
   FD_TEST( !!bank );
 
+  memcpy( fd_bank_poh_modify( bank ), slot_ended->blockhash, sizeof(fd_hash_t) );
   fini_leader_bank( ctx, bank, stem );
   bank->refcnt--;
 }
@@ -1969,8 +1971,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_POH: {
-      fd_poh_leader_slot_ended_t const * slot_ended = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      unbecome_leader( ctx, stem, slot_ended->slot );
+      unbecome_leader( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_RESOLV: {
