@@ -168,12 +168,15 @@ fd_multi_epoch_leaders_get_next_slot( fd_multi_epoch_leaders_t const * mleaders,
    must contain at least one staked pubkey, and the pubkeys must be
    sorted in the usual way (by stake descending, ties broken by pubkey
    ascending). multi_epoch_leaders will only use the staked node.
+   staked_cnt should be msg->staked_cnt.  Which is passed separately
+   to allow for TOC/TOU safety when msg is untrusted shared memory.
 
    init does not maintain a read interest in msg after returning. */
 
 void
 fd_multi_epoch_leaders_stake_msg_init( fd_multi_epoch_leaders_t    * mleaders,
-                                       fd_stake_weight_msg_t const * msg );
+                                       fd_stake_weight_msg_t const * msg,
+                                       ulong                         staked_cnt );
 
 void
 fd_multi_epoch_leaders_stake_msg_fini( fd_multi_epoch_leaders_t * mleaders );
