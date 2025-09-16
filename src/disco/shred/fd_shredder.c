@@ -135,7 +135,8 @@ fd_shredder_init_batch( fd_shredder_t *               shredder,
 fd_fec_set_t *
 fd_shredder_next_fec_set( fd_shredder_t * shredder,
                           fd_fec_set_t *  result,
-                          uchar *         chained_merkle_root ) {
+                          uchar *         chained_merkle_root,
+                          uchar *         out_merkle_root ) {
   uchar const * entry_batch = shredder->entry_batch;
   ulong         offset      = shredder->offset;
   ulong         entry_sz    = shredder->sz;
@@ -272,6 +273,7 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   fd_bmtree_commit_t * bmtree = fd_bmtree_commit_init( shredder->_bmtree_footprint, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, tree_depth+1UL );
   fd_bmtree_commit_append( bmtree, leaves, data_shred_cnt+parity_shred_cnt );
   uchar * root = fd_bmtree_commit_fini( bmtree );
+  if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, root, FD_SHRED_MERKLE_ROOT_SZ );
 
   /* Sign Merkle Root */
   shredder->signer( shredder->signer_ctx, root_signature, root );
