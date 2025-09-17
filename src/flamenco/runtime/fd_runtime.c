@@ -1937,7 +1937,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *               slot_ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( slot_ctx->bank );
-  fd_memcpy( lthash, genesis_lthash, sizeof(fd_lthash_value_t) );
+  *lthash = *genesis_lthash;
   fd_bank_lthash_end_locking_modify( slot_ctx->bank );
 
   /* Once the accounts have been loaded from the genesis config into
