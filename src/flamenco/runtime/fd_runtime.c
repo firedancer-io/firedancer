@@ -1306,13 +1306,6 @@ fd_update_vote_states_prev( fd_bank_t * bank ) {
   fd_bank_vote_states_end_locking_query( bank );
 }
 
-void
-fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
-                                fd_funk_t *                            funk,
-                                fd_funk_txn_xid_t const *              xid,
-                                fd_core_bpf_migration_config_t const * config,
-                                fd_spad_t *                            runtime_spad );
-
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
@@ -1334,7 +1327,7 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6732-L6751 */
     if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_get( bank ), builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       FD_LOG_DEBUG(( "Migrating builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
-      fd_migrate_builtin_to_core_bpf( bank, funk, xid, builtins[i].core_bpf_migration_config, runtime_spad );
+      fd_migrate_builtin_to_core_bpf( bank, funk, xid, builtins[i].core_bpf_migration_config, runtime_spad, capture_ctx );
     }
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6753-L6774 */
     if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( bank, builtins[i].enable_feature_offset ) ) {
@@ -1348,7 +1341,7 @@ fd_apply_builtin_program_feature_transitions( fd_bank_t *               bank,
   for( ulong i=0UL; i<fd_num_stateless_builtins(); i++ ) {
     if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( fd_bank_slot_get( bank ), fd_bank_features_get( bank ), stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
       FD_LOG_DEBUG(( "Migrating stateless builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( stateless_builtins[i].pubkey->key ) ));
-      fd_migrate_builtin_to_core_bpf( bank, funk, xid, stateless_builtins[i].core_bpf_migration_config, runtime_spad );
+      fd_migrate_builtin_to_core_bpf( bank, funk, xid, stateless_builtins[i].core_bpf_migration_config, runtime_spad, capture_ctx );
     }
   }
 
