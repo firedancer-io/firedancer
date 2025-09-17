@@ -52,6 +52,10 @@ struct fd_became_leader {
      use the bank. */
   void const * bank;
 
+  /* In Firedancer, we just pass around the bank_idx which has already
+     been refcounted by the replay tile, rather than a bank pointer. */
+  ulong bank_idx;
+
   /* The maximum number of microblocks that pack is allowed to put
      into the block. This allows PoH to accurately track and make sure
      microblocks do not need to be dropped. */
@@ -156,6 +160,12 @@ struct fd_microblock_bank_trailer {
      which guarantees it is valid while pack or bank tiles might be
      using it. */
   void const * bank;
+
+  /* In full Firedancer we just pass an index of the bank in a pool of
+     banks.  The lifetime is fully managed by the replay tile, which has
+     given us a refcount while we are leader for this bank.  bank value
+     above will be NULL. */
+  ulong bank_idx;
 
   /* The sequentially increasing index of the microblock, across all
      banks.  This is used by PoH to ensure microblocks get committed

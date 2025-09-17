@@ -19,6 +19,7 @@ typedef struct {
   fd_blake3_t * blake3;
   void * bmtree;
 
+  ulong _bank_idx;
   ulong _pack_idx;
   ulong _txn_idx;
   int _is_bundle;
@@ -42,7 +43,6 @@ typedef struct {
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   fd_banks_t * banks;
-  ulong        bank_idx;
   fd_spad_t *  exec_spad;
 
   fd_exec_txn_ctx_t txn_ctx[1];
@@ -84,8 +84,8 @@ before_frag( fd_bank_ctx_t * ctx,
   /* Pack also outputs "leader slot done" which we can ignore. */
   if( FD_UNLIKELY( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK ) ) return 1;
 
-  ulong target_bank_idx = fd_disco_poh_sig_bank_tile( sig );
-  if( FD_UNLIKELY( target_bank_idx!=ctx->kind_id ) ) return 1;
+  ulong target_bank_kind_id = fd_disco_poh_sig_bank_tile( sig );
+  if( FD_UNLIKELY( target_bank_kind_id!=ctx->kind_id ) ) return 1;
 
   return 0;
 }
@@ -107,6 +107,7 @@ during_frag( fd_bank_ctx_t * ctx,
 
   fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
+  ctx->_bank_idx = trailer->bank_idx;
   ctx->_pack_idx = trailer->pack_idx;
   ctx->_txn_idx = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
@@ -136,7 +137,7 @@ hash_transactions( void *       mem,
 static inline int
 err_to_frankendancer_err( int err ) {
   (void)err;
-  FD_LOG_ERR(( "unimplemented" ));
+  FD_LOG_ERR(( "unimplemented %d-%s", err, fd_executor_instr_strerror( err ) ));
 }
 
 static inline void
@@ -151,6 +152,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
+  fd_bank_t * bank = fd_banks_get_bank_idx( ctx->banks, ctx->_bank_idx );
+  FD_TEST( bank );
+  ulong bank_slot = fd_bank_slot_get( bank );
+  FD_TEST( bank_slot==slot );
+
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -159,7 +165,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
+    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
       continue;
@@ -226,11 +232,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
        fork and diverge, so the link from here til PoH mixin must be
-       completely reliable with nothing dropped. */
-    fd_bank_t * bank = fd_banks_get_bank_idx( ctx->banks, ctx->bank_idx );
-    FD_TEST( bank );
+       completely reliable with nothing dropped.
 
-    /* fd_runtime_finalize_txn checks if the transaction fits into the
+       fd_runtime_finalize_txn checks if the transaction fits into the
        block with the cost tracker.  If it doesn't fit, flags is set to
        zero.  A key invariant of the leader pipeline is that pack
        ensures all transactions must fit already, so it is a fatal error
