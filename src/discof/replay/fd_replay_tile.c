@@ -2285,7 +2285,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 /* TODO: calculate this properly/fix stem to work with larger numbers of links */
 /* 1000 chosen empirically as anything larger slowed down replay times. Need to calculate
    this properly. */
-#define STEM_LAZY ((long)10e3 )
+#define STEM_LAZY ((long)10e2 )
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_replay_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_replay_tile_t)
