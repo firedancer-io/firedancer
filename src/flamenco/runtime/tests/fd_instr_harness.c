@@ -517,6 +517,20 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
   }
 
+  /* Capture logs */
+  fd_log_collector_t * log = &ctx->txn_ctx->log_collector;
+  if( FD_LIKELY( log->buf_sz ) ) {
+    effects->log = FD_SCRATCH_ALLOC_APPEND(
+      l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+      return 0UL;
+    }
+    effects->log->size = (uint)fd_log_collector_debug_sprintf( log, (char *)effects->log->bytes, 0 );
+  } else {
+    effects->log = NULL;
+  }
+
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
 

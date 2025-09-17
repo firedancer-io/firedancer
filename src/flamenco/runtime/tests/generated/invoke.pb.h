@@ -60,6 +60,8 @@ typedef struct fd_exec_test_instr_effects {
     uint64_t cu_avail;
     /* Instruction return data. */
     pb_bytes_array_t *return_data;
+    /* Any logs that were emitted during execution. */
+    pb_bytes_array_t *log;
 } fd_exec_test_instr_effects_t;
 
 /* An instruction processing test fixture. */
@@ -80,11 +82,11 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_DEFAULT     {0, 0, 0}
 #define FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT  {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
-#define FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT  {0, 0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT  {0, 0, 0, NULL, 0, NULL, NULL}
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_INSTR_ACCT_INIT_ZERO        {0, 0, 0}
 #define FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO     {{0}, 0, NULL, 0, NULL, NULL, 0, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
-#define FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO     {0, 0, 0, NULL, 0, NULL}
+#define FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO     {0, 0, 0, NULL, 0, NULL, NULL}
 #define FD_EXEC_TEST_INSTR_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -103,6 +105,7 @@ extern "C" {
 #define FD_EXEC_TEST_INSTR_EFFECTS_MODIFIED_ACCOUNTS_TAG 3
 #define FD_EXEC_TEST_INSTR_EFFECTS_CU_AVAIL_TAG  4
 #define FD_EXEC_TEST_INSTR_EFFECTS_RETURN_DATA_TAG 5
+#define FD_EXEC_TEST_INSTR_EFFECTS_LOG_TAG       6
 #define FD_EXEC_TEST_INSTR_FIXTURE_METADATA_TAG  1
 #define FD_EXEC_TEST_INSTR_FIXTURE_INPUT_TAG     2
 #define FD_EXEC_TEST_INSTR_FIXTURE_OUTPUT_TAG    3
@@ -135,7 +138,8 @@ X(a, STATIC,   SINGULAR, INT32,    result,            1) \
 X(a, STATIC,   SINGULAR, UINT32,   custom_err,        2) \
 X(a, POINTER,  REPEATED, MESSAGE,  modified_accounts,   3) \
 X(a, STATIC,   SINGULAR, UINT64,   cu_avail,          4) \
-X(a, POINTER,  SINGULAR, BYTES,    return_data,       5)
+X(a, POINTER,  SINGULAR, BYTES,    return_data,       5) \
+X(a, POINTER,  SINGULAR, BYTES,    log,               6)
 #define FD_EXEC_TEST_INSTR_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_INSTR_EFFECTS_DEFAULT NULL
 #define fd_exec_test_instr_effects_t_modified_accounts_MSGTYPE fd_exec_test_acct_state_t
