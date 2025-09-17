@@ -78,6 +78,7 @@ fd_poh_new( void * shmem ) {
     return NULL;
   }
 
+  poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
 
   FD_COMPILER_MFENCE();
