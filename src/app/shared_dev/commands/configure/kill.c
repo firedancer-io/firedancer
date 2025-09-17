@@ -156,8 +156,9 @@ init( config_t const * config ) {
 
     int killed = maybe_kill( config, pid );
     if( FD_UNLIKELY( killed ) ) {
-      if( FD_UNLIKELY( wait_killed_cnt==sizeof(wait_killed) ) ) FD_LOG_ERR(( "too many processes to kill" ));
-      wait_killed[ wait_killed_cnt ] = pid;
+      if( FD_UNLIKELY( wait_killed_cnt==(sizeof(wait_killed)/sizeof(wait_killed[0])) ) )
+        FD_LOG_ERR(( "too many processes to kill" ));
+      wait_killed[ wait_killed_cnt++ ] = pid;
     }
   }
 
