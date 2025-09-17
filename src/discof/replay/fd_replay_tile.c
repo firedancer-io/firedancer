@@ -575,20 +575,7 @@ publish_next_vote_tower( fd_replay_tile_t *  ctx,
 
   fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
   *vote_state = ctx->vote_tower_out[ ctx->vote_tower_out_idx ];
-  fd_stem_publish(
-    stem,
-    ctx->tower_out->idx,
-    FD_REPLAY_SIG_VOTE_STATE,
-    ctx->tower_out->chunk,
-    sizeof(fd_replay_tower_t),
-    fd_frag_meta_ctl( 0UL, som, eom, 0 ),
-    fd_frag_meta_ts_comp( fd_tickcount() ),
-    fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->tower_out->chunk = fd_dcache_compact_next(
-      ctx->tower_out->chunk,
-      sizeof(fd_replay_tower_t),
-      ctx->tower_out->chunk0,
-      ctx->tower_out->wmark );
+  fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_VOTE_STATE, ctx->tower_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) ); ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_tower_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
 
   ctx->vote_tower_out_idx++;
 }
@@ -1869,6 +1856,7 @@ process_fec_set( fd_replay_tile_t * ctx,
      forks is arbitrary */
   fd_sched_fec_t sched_fec[ 1 ];
 
+  FD_LOG_DEBUG(( "fec %lu %u", reasm_fec->slot, reasm_fec->fec_set_idx ));
   /* If the incoming reasm_fec's slot is a slot that we were leader for,
      then we should skip it.
      TODO: Replace block id lookup with slot prime counting. */
