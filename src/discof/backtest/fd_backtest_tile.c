@@ -377,11 +377,10 @@ after_frag( ctx_t *             ctx,
       /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
 
       fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-      msg->new_root      = 1;
-      msg->root_slot     = ctx->staged_root;
-      msg->root_block_id = ctx->staged_root_block_id;
-
-      msg->block_id = ctx->replay_slot_info.block_id;
+      msg->root_slot             = ctx->staged_root;
+      msg->root_block_id         = ctx->staged_root_block_id;
+      msg->new_root              = 1;
+      msg->reset_block_id        = ctx->replay_slot_info.block_id;
 
       if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
