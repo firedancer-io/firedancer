@@ -250,6 +250,7 @@ send_test_cmd_fn( args_t *   args ,
   configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_offloads, CONFIGURE_CMD_INIT, config );
   configure_stage( &fd_cfg_stage_ethtool_loopback, CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_irq_affinity,     CONFIGURE_CMD_INIT, config );
 
   fd_topo_print_log( 0, &config->topo );
 
@@ -284,6 +285,7 @@ send_test_cmd_perm( args_t *         args FD_PARAM_UNUSED,
   configure_stage_perm( &fd_cfg_stage_ethtool_channels, chk, config );
   configure_stage_perm( &fd_cfg_stage_ethtool_offloads, chk, config );
   configure_stage_perm( &fd_cfg_stage_ethtool_loopback, chk, config );
+  configure_stage_perm( &fd_cfg_stage_irq_affinity,     chk, config );
 }
 
 action_t fd_action_send_test = {
