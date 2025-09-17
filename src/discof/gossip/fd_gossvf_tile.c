@@ -355,7 +355,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
                    fd_sha512_t *          sha ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_REQUEST: {
-      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->contact_info, payload, sha ) ) ) {
+      if( FD_UNLIKELY( FD_ED25519_SUCCESS!=verify_crds_value( view->pull_request->pr_ci, payload, sha ) ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_SIGNATURE_IDX;
       } else {
         return 0;
@@ -530,8 +530,8 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
-      FD_TEST( view->pull_request->contact_info->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
-      if( FD_UNLIKELY( view->pull_request->contact_info->contact_info->shred_version!=ctx->shred_version ) ) {
+      FD_TEST( view->pull_request->pr_ci->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
+      if( FD_UNLIKELY( view->pull_request->pr_ci->ci_view->contact_info->shred_version!=ctx->shred_version ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_SHRED_VERSION_IDX;
       } else {
         return 0;
@@ -566,7 +566,7 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
     fd_gossip_view_crds_value_t const * value = &container->crds_values[ i ];
     if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
-    fd_gossip_view_contact_info_t const * contact_info = value->contact_info;
+    fd_contact_info_t const * contact_info = value->ci_view->contact_info;
 
     if( FD_LIKELY( ctx->instance_creation_wallclock_nanos>=contact_info->instance_creation_wallclock_nanos ) ) continue;
     if( FD_LIKELY( memcmp( ctx->identity_pubkey->uc, payload+value->pubkey_off, 32UL ) ) ) continue;
@@ -576,78 +576,52 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
 }
 
 static inline int
-is_ping_active( fd_gossvf_tile_ctx_t *              ctx,
-                fd_gossip_view_crds_value_t const * value,
-                uchar const *                       payload ) {
-  fd_ip4_port_t rpc_addr = {0};
-  fd_gossip_view_contact_info_t const * contact_info = value->contact_info;
-
-  ushort port = 0;
-  for( ulong i=0UL; i<contact_info->sockets_len; i++ ) {
-    fd_gossip_view_socket_t const * socket = &contact_info->sockets[ i ];
-
-    port = (ushort)(port+socket->offset);
-    if( FD_UNLIKELY( socket->key!=FD_CONTACT_INFO_SOCKET_GOSSIP ) ) continue;
-
-    if( FD_LIKELY( !contact_info->addrs[ socket->index ].is_ip6 ) ) {
-      rpc_addr.addr = contact_info->addrs[ socket->index ].ip4;
-      rpc_addr.port = fd_ushort_bswap( port );
-      break;
-    }
-  }
+is_ping_active( fd_gossvf_tile_ctx_t *    ctx,
+                fd_contact_info_t const * contact_info ) {
+  fd_ip4_port_t const * gossip_addr = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
 
   /* 1. If the node is an entrypoint, it is active */
-  if( FD_UNLIKELY( is_entrypoint( ctx, rpc_addr ) ) ) return 1;
+  if( FD_UNLIKELY( is_entrypoint( ctx, *gossip_addr ) ) ) return 1;
 
   /* 2. If the node has more than 1 sol staked, it is active */
-  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, (fd_pubkey_t*)(payload+value->pubkey_off), NULL, ctx->stake.pool );
+  stake_t const * stake = stake_map_ele_query_const( ctx->stake.map, &contact_info->pubkey, NULL, ctx->stake.pool );
   if( FD_LIKELY( stake && stake->stake>=1000000000UL ) ) return 1;
 
   /* 3. If the node has actively ponged a ping, it is active */
-  ping_t * ping = ping_map_ele_query( ctx->ping_map, (fd_pubkey_t*)(payload+value->pubkey_off), NULL, ctx->pings );
+  ping_t * ping = ping_map_ele_query( ctx->ping_map, &contact_info->pubkey, NULL, ctx->pings );
   return ping!=NULL;
 }
 
 static int
-ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *              ctx,
-                               fd_gossip_view_crds_value_t const * value,
-                               uchar const *                       payload,
-                               fd_stem_context_t *                 stem ) {
-  ushort port = 0;
-  for( ulong j=0UL; j<value->contact_info->sockets_len; j++ ) {
-    fd_gossip_view_socket_t const * socket = &value->contact_info->sockets[ j ];
+ping_if_unponged_contact_info( fd_gossvf_tile_ctx_t *    ctx,
+                               fd_contact_info_t const * contact_info,
+                               fd_stem_context_t *       stem ) {
+  fd_ip4_port_t const *     gossip_addr  = &contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
 
-    port = (ushort)(port+socket->offset);
-    if( FD_UNLIKELY( socket->key!=FD_CONTACT_INFO_SOCKET_GOSSIP ) ) continue;
+  if( FD_UNLIKELY( gossip_addr->l==0U ) ) return 1; /* implies ipv6 address */
+  int is_ip4_nonpublic = !ctx->allow_private_address && !fd_ip4_addr_is_public( gossip_addr->addr );
+  if( FD_UNLIKELY( is_ip4_nonpublic ) ) return 1;
 
-    /* TODO: Support IPv6 ... */
-    int is_ip6 = value->contact_info->addrs[ socket->index ].is_ip6;
-    int is_ip4_nonpublic = !ctx->allow_private_address && !is_ip6 && !fd_ip4_addr_is_public( value->contact_info->addrs[ socket->index ].ip4 );
-    if( FD_UNLIKELY( is_ip6 || is_ip4_nonpublic ) ) return 1;
-
-    if( FD_UNLIKELY( !is_ping_active( ctx, value, payload ) ) ) {
-      fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
-      fd_memcpy( pingreq->pubkey.uc, payload+value->pubkey_off, 32UL );
-      fd_stem_publish( stem, 0UL, fd_gossvf_sig( value->contact_info->addrs[ socket->index ].ip4, fd_ushort_bswap( port ), 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
-      ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
+  if( FD_UNLIKELY( !is_ping_active( ctx, contact_info ) ) ) {
+    fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t*)fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
+    fd_memcpy( pingreq->pubkey.uc, contact_info->pubkey.uc, 32UL );
+    fd_stem_publish( stem, 0UL, fd_gossvf_sig( gossip_addr->addr, gossip_addr->port, 1 ), ctx->out->chunk, sizeof(fd_gossip_pingreq_t), 0UL, 0UL, 0UL );
+    ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_pingreq_t), ctx->out->chunk0, ctx->out->wmark );
 
 #if DEBUG_PEERS
-      char base58[ FD_BASE58_ENCODED_32_SZ ];
-      fd_base58_encode_32( payload+value->pubkey_off, NULL, base58 );
-      FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( contact_info->addrs[ socket->index ].ip4 ), port, ctx->ping_cnt ));
+    char base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( contact_info->pubkey.uc, NULL, base58 );
+    FD_LOG_NOTICE(( "pinging %s (" FD_IP4_ADDR_FMT ":%hu) (%lu)", base58, FD_IP4_ADDR_FMT_ARGS( gossip_addr->addr ), gossip_addr->port, ctx->ping_cnt ));
+    ctx->ping_cnt++;
 #endif
-
-      return 1;
-    }
+    return 1;
   }
-
   return 0;
 }
 
 static int
 verify_addresses( fd_gossvf_tile_ctx_t * ctx,
                   fd_gossip_view_t *     view,
-                  uchar const *          payload,
                   fd_stem_context_t *    stem ) {
   fd_gossip_view_crds_container_t * container;
   switch( view->tag ) {
@@ -674,7 +648,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       continue;
     }
 
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value, payload, stem ) ) ) {
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value->ci_view->contact_info, stem ) ) ) {
       if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
         ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ]++;
         ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ] += value->length;
@@ -806,15 +780,15 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) FD_TEST( view->pull_response->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
-    if( FD_UNLIKELY( view->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
-    if( FD_UNLIKELY( !memcmp( payload+view->pull_request->contact_info->pubkey_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->contact_info, payload, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+    if( FD_UNLIKELY( view->pull_request->pr_ci->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
+    if( FD_UNLIKELY( !memcmp( payload+view->pull_request->pr_ci->pubkey_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->pr_ci->ci_view->contact_info, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
 
     /* TODO: Jitter? */
     long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
     long clamp_wallclock_upper_nanos = now+15L*1000L*1000L*1000L;
-    if( FD_UNLIKELY( view->pull_request->contact_info->wallclock_nanos<clamp_wallclock_lower_nanos ||
-                     view->pull_request->contact_info->wallclock_nanos>clamp_wallclock_upper_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_WALLCLOCK_IDX;
+    if( FD_UNLIKELY( view->pull_request->pr_ci->wallclock_nanos<clamp_wallclock_lower_nanos ||
+                     view->pull_request->pr_ci->wallclock_nanos>clamp_wallclock_upper_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_WALLCLOCK_IDX;
   }
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
@@ -843,7 +817,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   int result = filter_shred_version( ctx, view, payload );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, view, payload, stem );
+  result = verify_addresses( ctx, view, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
   result = verify_signatures( ctx, view, payload, ctx->sha );

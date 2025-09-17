@@ -104,7 +104,7 @@ struct fd_contact_info {
   fd_ip4_port_t sockets[ FD_CONTACT_INFO_SOCKET_LAST+1UL ];
 
   struct {
-    uchar  client; /* Any uchar in [0, 255], although typically one of FD_CONTACT_INFO_VERSION_CLIENT_* indicating the self-reported client version */
+    ushort client; /* Any ushort in [0, USHORT_MAX], although typically one of FD_CONTACT_INFO_VERSION_CLIENT_* indicating the self-reported client version */
 
     ushort major;  /* The self-reported major version of the client */
     ushort minor;  /* The self-reported minor version of the client */

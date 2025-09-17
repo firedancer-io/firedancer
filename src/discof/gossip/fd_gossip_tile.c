@@ -193,9 +193,6 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EVICTED_COUNT, crds_metrics->purged_evicted_cnt );
   FD_MCNT_SET(   GOSSIP, CRDS_PURGED_EXPIRED_COUNT, crds_metrics->purged_expired_cnt );
 
-  FD_MCNT_SET( GOSSIP, CRDS_CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS, crds_metrics->ci_insert_events.unrecognized_socket_tag );
-  FD_MCNT_SET( GOSSIP, CRDS_CONTACT_INFO_IPV6,                     crds_metrics->ci_insert_events.ipv6_address );
-
   fd_gossip_metrics_t const * metrics = fd_gossip_metrics( ctx->gossip );
 
   FD_MCNT_ENUM_COPY( GOSSIP, MESSAGE_TX_COUNT,            metrics->message_tx );
@@ -207,6 +204,9 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_TX_PULL_RESPONSE_BYTES, metrics->crds_tx_pull_response_bytes );
 
   FD_MCNT_ENUM_COPY( GOSSIP, CRDS_RX_COUNT,               metrics->crds_rx_count );
+
+  FD_MCNT_SET( GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS, metrics->ci_rx_unrecognized_socket_tag_cnt );
+  FD_MCNT_SET( GOSSIP, CONTACT_INFO_IPV6,                     metrics->ci_rx_ipv6_address_cnt );
 }
 
 void
