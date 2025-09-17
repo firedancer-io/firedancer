@@ -70,7 +70,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_RESULT, ctx->metrics.txn_result );
+  FD_MCNT_ENUM_COPY( BANKF, TRANSACTION_RESULT, ctx->metrics.txn_result );
 }
 
 static int
@@ -134,12 +134,6 @@ hash_transactions( void *       mem,
   fd_memcpy( mixin, root, 32UL );
 }
 
-static inline int
-err_to_frankendancer_err( int err ) {
-  (void)err;
-  FD_LOG_ERR(( "unimplemented %d-%s", err, fd_executor_instr_strerror( err ) ));
-}
-
 static inline void
 handle_microblock( fd_bank_ctx_t *     ctx,
                    ulong               seq,
@@ -188,7 +182,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     /* Stash the result in the flags value so that pack can inspect it. */
     /* TODO: Need to translate the err to a hacky Frankendancer style err
              that pack and GUI expect ... */
-    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)err_to_frankendancer_err( err )<<24);
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-err)<<24);
 
     ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
 
@@ -313,7 +307,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   int execution_success = 1;
   int transaction_err[ MAX_TXN_PER_MICROBLOCK ];
-  for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = FD_BANK_TXN_ERR_BUNDLE_PEER;
+  for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = 40; /* Pack interprets this as BUNDLE_PEER due to Frankendancer*/
 
   uint actual_execution_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
   uint actual_acct_data_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
@@ -327,7 +321,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
     int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, 0 ); /* TODO ... */
 
-    transaction_err[ i ] = fd_bank_err_from_runtime_err( err );
+    transaction_err[ i ] = err;
     if( FD_UNLIKELY( err ) ) {
       execution_success = 0;
       break;
@@ -343,7 +337,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     (void)out_timestamps; // TODO: GUI, report timestamps
   }
 
-  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ -transaction_err[ i ] ]++;
+  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;
 
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -357,7 +351,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
       if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
       txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)err_to_frankendancer_err( transaction_err[ i ] )<<24);
+      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-transaction_err[ i ])<<24);
     }
   }
 
