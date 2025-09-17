@@ -14,6 +14,8 @@
 #include <errno.h>
 #include <fcntl.h>
 
+#define LOGGING 0
+
 #define IN_KIND_GENESIS (0)
 #define IN_KIND_SNAP    (1)
 #define IN_KIND_REPLAY  (2)
@@ -42,7 +44,6 @@ struct fd_tower_tile {
   fd_tower_t * tower;
   uchar *      voters;
 
-  ulong root; /* tower root */
   long  ts;   /* tower timestamp */
 
   fd_snapshot_manifest_t manifest;
@@ -187,64 +188,54 @@ replay_slot_done( fd_tower_tile_t *       ctx,
   FD_TEST( ghost_ele );
   update_ghost( ctx );
 
-  ulong vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
-  if( FD_UNLIKELY( vote_slot==FD_SLOT_NULL ) ) return; /* nothing to vote on */
-
-  fd_hash_t const * root_block_id = NULL;
-
-  ulong root = fd_tower_vote( ctx->tower, vote_slot );
-  if( FD_LIKELY( root!=FD_SLOT_NULL ) ) {
-    ctx->root = root;
-
-    root_block_id = fd_ghost_hash( ctx->ghost, root );
-    if( FD_UNLIKELY( !root_block_id ) ) {
-      FD_LOG_WARNING(( "lowest vote slot %lu is not in ghost, skipping publish", root ));
-    } else {
-      fd_ghost_publish( ctx->ghost, root_block_id );
-    }
-  }
-
-  /* Checkpt our tower */
-
-  /* TODO update vote_txn to use new fd_tower_sync_serde_t */
-
-  fd_tower_sync_serde_t ser;
-  fd_tower_to_tower_sync( ctx->tower, ctx->root, &slot_info->bank_hash, &slot_info->block_id, ctx->ts, &ser ); /* TODO: ctx->ts is uninitialized */
-
-  // TODO: seccomppolicy is wrong, it's allowing `rename(2)`.  Only
-  // `renameat(2)` should be allowed/used with the loaded file
-  // descriptors to prevent TOCTOU issues with the two checkpoint files.
-  //
-  // fd_tower_checkpt( ctx->tower, ctx->root, &ser, ctx->identity_key->uc /* FIXME keyguard client signing*/ , ctx->identity_key->uc, ctx->checkpt_fd, ctx->buf, sizeof(ctx->buf) );
+  /* Populate the out frag. */
 
   fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
-  msg->vote_slot = vote_slot;
+  /* 1. Determine next slot to vote for, if one exists. */
+
+  msg->vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
+
+  /* 2. Determine new root, if there is one.  A new vote slot can result
+        in a new root but not always. */
+
+  msg->root_slot = ULONG_MAX;
+  if( FD_LIKELY( msg->vote_slot!=FD_SLOT_NULL ) ) {
+    msg->root_slot = fd_tower_vote( ctx->tower, msg->vote_slot );
+  }
+  msg->new_root = msg->root_slot!=FD_SLOT_NULL;
+  if( FD_LIKELY( msg->new_root ) ) {
+    msg->root_block_id = *fd_ghost_hash( ctx->ghost, msg->root_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
+    fd_ghost_publish( ctx->ghost, &msg->root_block_id );
+  } else {
+    memset( &msg->root_block_id, 0, sizeof(fd_hash_t) );
+  }
+
+  /* 3. Populate vote_txn with the current tower (regardless of whether
+        there was a new vote slot or not). */
+
   fd_lockout_offset_t lockouts[ FD_TOWER_VOTE_MAX ];
   fd_txn_p_t txn[1];
-  fd_tower_to_vote_txn( ctx->tower, ctx->root, lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, txn );
+  fd_tower_to_vote_txn( ctx->tower, msg->root_slot, lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, txn );
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
   msg->vote_txn_sz = txn->payload_sz;
-  msg->reset_slot = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
-  fd_hash_t const * block_id = fd_ghost_hash( ctx->ghost, msg->reset_slot );
-  FD_TEST( block_id );
-  memcpy( msg->block_id.uc, block_id, sizeof(fd_hash_t) );
 
-  msg->new_root = !!root_block_id;
-  if( FD_LIKELY( root_block_id ) ) {
-    msg->root_slot = root;
-    memcpy( msg->root_block_id.uc, root_block_id, sizeof(fd_hash_t) );
-  }
+  /* 4. Determine next slot to reset leader pipeline to. */
+
+  msg->reset_slot     = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
+  msg->reset_block_id = *fd_ghost_hash( ctx->ghost, msg->reset_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
+
+  /* Publish the frag */
 
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
 
-#if LOGGING
+# if LOGGING
   fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
-  fd_tower_print( ctx->tower, ctx->root );
-#endif
+  fd_tower_print( ctx->tower, msg->root_slot );
+# endif
 }
 
 static void

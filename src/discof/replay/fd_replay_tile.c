@@ -1795,8 +1795,8 @@ process_tower_update( fd_replay_tile_t *           ctx,
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
 
-  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &msg->block_id );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with id %s", FD_BASE58_ENC_32_ALLOCA( &msg->block_id ) ));
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &msg->reset_block_id );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with id %s", FD_BASE58_ENC_32_ALLOCA( &msg->reset_block_id ) ));
   FD_TEST( bank );
 
   if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
