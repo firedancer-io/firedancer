@@ -101,6 +101,18 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                      ulong                elf_sz,
                                      fd_spad_t *          runtime_spad );
 
+#ifdef FD_HAS_FUZZ
+
+#define MAX_MEMORY_LOG_LENGTH   64UL
+
+void
+sol_compat_get_memory_log( uchar * dst, ulong * dst_len );
+
+void
+sol_compat_reset_memory_log( void );
+
+#endif /* FD_HAS_FUZZ */
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_bpf_loader_program_h */
