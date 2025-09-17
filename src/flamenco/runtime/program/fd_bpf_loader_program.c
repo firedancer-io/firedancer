@@ -1169,8 +1169,8 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Create ProgramData account */
 
       fd_pubkey_t derived_address[ 1UL ];
-      uchar * seeds[ 1UL ];
-      seeds[ 0UL ]    = (uchar *)new_program_id;
+      uchar const * seeds[ 1UL ];
+      seeds[ 0UL ]    = (uchar const *)new_program_id;
       ulong seed_sz   = sizeof(fd_pubkey_t);
       uchar bump_seed = 0;
       err = fd_pubkey_find_program_address( program_id, 1UL, seeds, &seed_sz, derived_address,

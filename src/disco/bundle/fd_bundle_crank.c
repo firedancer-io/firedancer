@@ -201,7 +201,7 @@ fd_bundle_crank_gen_init( void                 * mem,
   uint  cerr[1];
   do {
     char seed[13] = "TIP_ACCOUNT_0"; /* Not NUL terminated */
-    uchar * seed_ptr[1] = { (uchar *)seed };
+    uchar const * seed_ptr[1] = { (uchar const *)seed };
     ulong seed_len = 13;
     for( ulong i=0UL; i<8UL; i++ ) {
       seed[12] = (char)((ulong)'0' + i);
@@ -216,7 +216,7 @@ fd_bundle_crank_gen_init( void                 * mem,
     char seed[14] = "CONFIG_ACCOUNT"; /* Not NUL terminated */
     ulong seed_len = 14;
     uchar out_bump[1];
-    uchar * seed_ptr[1] = { (uchar *)seed };
+    uchar const * seed_ptr[1] = { (uchar const *)seed };
     FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)tip_payment_program_addr,
                                                                 1UL, seed_ptr, &seed_len,
                                                                 (fd_pubkey_t *)g->crank3->tip_payment_program_config, out_bump, cerr ) );
@@ -273,7 +273,7 @@ fd_bundle_crank_update_epoch( fd_bundle_crank_gen_t * g,
   ulong seed_len = sizeof(seeds);
   uint custom_err[1];
 
-  uchar * _seeds[1] = { (uchar *)seeds };
+  uchar const * _seeds[1] = { (uchar const *)seeds };
 
   FD_TEST( FD_PUBKEY_SUCCESS==fd_pubkey_find_program_address( (fd_pubkey_t const *)g->crank3->tip_distribution_program,
                                                               1UL, _seeds, &seed_len,
