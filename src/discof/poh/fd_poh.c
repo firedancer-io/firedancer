@@ -253,7 +253,8 @@ fd_poh_done_packing( fd_poh_t * poh,
   FD_TEST( poh->microblocks_lower_bound==microblocks_in_slot );
   FD_TEST( poh->microblocks_lower_bound<=poh->max_microblocks_per_slot );
   poh->slot_done = 1;
-  poh->microblocks_lower_bound = poh->max_microblocks_per_slot - microblocks_in_slot;
+  poh->microblocks_lower_bound += poh->max_microblocks_per_slot - microblocks_in_slot;
+  FD_TEST( poh->microblocks_lower_bound==poh->max_microblocks_per_slot );
 }
 
 static void
