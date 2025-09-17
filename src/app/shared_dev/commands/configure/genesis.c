@@ -290,7 +290,7 @@ fini( config_t const * config,
 
   if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
-  return 1;
+  return 0;
 }
 
 static configure_result_t
