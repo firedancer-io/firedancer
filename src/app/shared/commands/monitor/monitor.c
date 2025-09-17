@@ -9,6 +9,9 @@
 
 #include "helper.h"
 
+#include <time.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
 #include <stdio.h>
@@ -35,6 +38,12 @@ monitor_cmd_args( int *    pargc,
   args->monitor.with_bench     = fd_env_strip_cmdline_contains( pargc, pargv, "--bench" );
   args->monitor.with_sankey    = fd_env_strip_cmdline_contains( pargc, pargv, "--sankey" );
 
+  args->monitor.cap_src         = fd_env_strip_cmdline_cstr( pargc, pargv, "--cap-src",  NULL, 0 );
+  args->monitor.cap_dst         = fd_env_strip_cmdline_cstr( pargc, pargv, "--cap-dst",  NULL, 0 );
+  args->monitor.cap_pcp         = fd_env_strip_cmdline_cstr( pargc, pargv, "--cap-pcp",  NULL, 0 );
+  args->monitor.cap_sz          = fd_env_strip_cmdline_ulong( pargc, pargv, "--cap-sz",  NULL, 1024*1024UL );
+  args->monitor.cap_map         = NULL;
+
   if( FD_UNLIKELY( args->monitor.dt_min<0L                   ) ) FD_LOG_ERR(( "--dt-min should be positive"          ));
   if( FD_UNLIKELY( args->monitor.dt_max<args->monitor.dt_min ) ) FD_LOG_ERR(( "--dt-max should be at least --dt-min" ));
   if( FD_UNLIKELY( args->monitor.duration<0L                 ) ) FD_LOG_ERR(( "--duration should be non-negative"    ));
@@ -54,6 +63,25 @@ monitor_cmd_perm( args_t *         args FD_PARAM_UNUSED,
     fd_cap_chk_cap( chk, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sanbox user" );
   if( FD_LIKELY( getgid() != config->gid ) )
     fd_cap_chk_cap( chk, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
+
+  args->monitor.cap_fd = -1;
+  if (args->monitor.cap_pcp) {
+    size_t cap_fs = args->monitor.cap_sz;
+    int fd = open (args->monitor.cap_pcp, O_RDWR | O_CREAT, (mode_t)0666);
+    if (fd < 0)
+      FD_LOG_ERR(( "could not create capture pcap file %s: %d %s", args->monitor.cap_pcp, errno, fd_io_strerror( errno ) ));
+    if (write(fd, "\x4d\x3c\xb2\xa1\x02\x00\x04\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x00\x00\x01\x00\x00\x00", 6*4) != 6*4)
+      FD_LOG_ERR(( "could not write to capture pcap file %s: %d %s", args->monitor.cap_pcp, errno, fd_io_strerror( errno ) ));
+    if (lseek(fd, (__off_t)(cap_fs-1), SEEK_SET) == -1)
+      FD_LOG_ERR(( "could not lseek capture pcap file %s: %d %s", args->monitor.cap_pcp, errno, fd_io_strerror( errno ) ));
+    if (write(fd, " ", 1) != 1)
+      FD_LOG_ERR(( "could not write to capture pcap file %s: %d %s", args->monitor.cap_pcp, errno, fd_io_strerror( errno ) ));
+    void* cap_map = mmap(0, cap_fs, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (cap_map == MAP_FAILED)
+      FD_LOG_ERR(( "could not mmap capture pcap file %s: %d %s", args->monitor.cap_pcp, errno, fd_io_strerror( errno ) ));
+    args->monitor.cap_fd = fd;
+    args->monitor.cap_map = cap_map;
+  }
 }
 
 typedef struct {
@@ -276,7 +304,12 @@ run_monitor( config_t const * config,
              long             dt_max,
              long             duration,
              uint             seed,
-             double           ns_per_tic ) {
+             double           ns_per_tic,
+             const char*      cap_src,
+             const char*      cap_dst,
+             const char*      cap_pcp,
+             void*            cap_map,
+             ulong            cap_sz) {
   fd_topo_t const * topo = &config->topo;
 
   /* Setup local objects used by this app */
@@ -309,6 +342,7 @@ run_monitor( config_t const * config,
     int n = snprintf( buf, buf_sz, __VA_ARGS__ );                               \
     if( FD_UNLIKELY( n<0 ) ) FD_LOG_ERR(( "snprintf failed" ));                 \
     if( FD_UNLIKELY( (ulong)n>=buf_sz ) ) FD_LOG_ERR(( "snprintf truncated" )); \
+    for (int i = 0; i < n; i ++, print_line_cnt += (buf[i] == '\n' ? 1 : 0));   \
     buf += n; buf_sz -= (ulong)n;                                               \
   } while(0)
   int monitor_pane = 0;
@@ -326,6 +360,70 @@ run_monitor( config_t const * config,
     FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
+  int cap_link_cnt = 0;
+  const fd_topo_tile_t* cap_tile = NULL;
+  const fd_topo_link_t* cap_links[64] = {NULL};
+  ulong cap_seq_expect[64] = {0};
+  ulong cap_total_cnt[64] = {0};
+  ulong cap_total_sz[64] = {0};
+  ulong cap_cur_cnt[64] = {0};
+  ulong cap_cur_sz[64] = {0};
+  ulong cap_total_cnts = 0;
+  ulong cap_total_szs = 0;
+  ulong cap_cur_cnts = 0;
+  ulong cap_cur_szs = 0;
+  char* cap_map_8 = ((char*)cap_map) + (6*4);
+
+  if (cap_src && cap_dst && cap_pcp) {
+    /* Find all the links between src and dst */
+    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+      if (strcmp(cap_dst, topo->tiles[ tile_idx ].name)) continue;
+      cap_tile = &topo->tiles[ tile_idx ];
+
+      for( ulong in_idx=0UL; in_idx<cap_tile->in_cnt; in_idx++ ) {
+        fd_topo_link_t link = topo->links[ cap_tile->in_link_id[ in_idx ] ];
+        ulong producer_tile_id = fd_topo_find_link_producer( topo, &link );
+        FD_TEST( producer_tile_id != ULONG_MAX );
+        char const * producer = topo->tiles[ producer_tile_id ].name;
+        if (!strcmp(cap_src, producer))
+        {
+          for( ulong lnk_idx=0UL; lnk_idx<topo->link_cnt; lnk_idx++ ) {
+            if (topo->links[lnk_idx].id == cap_tile->in_link_id[in_idx]) {
+              if (cap_link_cnt >= 64) {
+                FD_LOG_WARNING(( "skipping link %s->%s.%lu due to capacity", cap_src, cap_dst, in_idx));
+              } else {
+                cap_links[cap_link_cnt] = &topo->links[lnk_idx];
+                cap_link_cnt ++;
+              }
+            }
+          }
+        }
+      }
+    }
+    /* Find latest mseq for all links */
+    for (int li = 0; li < cap_link_cnt; li ++ ) {
+      const fd_topo_link_t* cap_link = cap_links[li];
+      ulong seq_query0 = 0;
+      ulong seq_query1 = 1;
+      while (1)
+      {
+        fd_frag_meta_t const * mline0 = cap_link->mcache + fd_mcache_line_idx( seq_query0, cap_link->depth );
+        fd_frag_meta_t const * mline1 = cap_link->mcache + fd_mcache_line_idx( seq_query1, cap_link->depth );
+        seq_query0 = fd_frag_meta_seq_query( mline0 );
+        seq_query1 = fd_frag_meta_seq_query( mline1 );
+        long diff = fd_seq_diff( seq_query0, seq_query1 );
+        if ( FD_UNLIKELY( diff>0L ) ) {
+          cap_seq_expect[li] = fd_seq_inc( seq_query0, 1UL );;
+          break;
+        }
+        seq_query0 = fd_seq_inc( seq_query0, 1UL );
+        seq_query1 = fd_seq_inc( seq_query1, 1UL );
+      }
+    }
+  }
+
+  int print_line_cnt = 0;
+
   for(;;) {
     /* Wait a somewhat randomized amount and then make a diagnostic
        snapshot */
@@ -341,7 +439,12 @@ run_monitor( config_t const * config,
     char * buf = buffer;
     ulong buf_sz = FD_MONITOR_TEXT_BUF_SZ;
 
-    PRINT( "\033[2J\033[H" );
+    if (!!print_line_cnt)
+    {
+      PRINT ( "\033[0J" );
+      PRINT ( "\033[%dA", print_line_cnt );
+      print_line_cnt = 0;
+    }
 
     /* drain any firedancer log messages into the terminal */
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) drain_to_buffer( &buf, &buf_sz, drain_output_fd );
@@ -356,8 +459,92 @@ run_monitor( config_t const * config,
     int c = fd_getchar();
     if( FD_UNLIKELY( c=='\t'   ) ) monitor_pane = !monitor_pane;
     if( FD_UNLIKELY( c=='\x04' ) ) break; /* Ctrl-D */
+    if( FD_UNLIKELY( c=='\x1B' ) ) break; /* Escape */
 
     long dt = now-then;
+
+    if (cap_link_cnt) {
+      cap_cur_cnts = 0;
+      cap_cur_szs = 0;
+
+      for (int li = 0; li < cap_link_cnt; li ++ ) {
+        const fd_topo_link_t* cap_link = cap_links[li];
+        cap_cur_cnt[li] = 0;
+        cap_cur_sz[li] = 0;
+        do {
+          fd_frag_meta_t const * mline = cap_link->mcache + fd_mcache_line_idx( cap_seq_expect[li], cap_link->depth );
+          ulong seq_found = fd_frag_meta_seq_query( mline );
+          long  diff      = fd_seq_diff( cap_seq_expect[li], seq_found );
+          if( FD_UNLIKELY( diff ) ) { /* caught up or overrun, optimize for expected sequence number ready */
+            if( FD_UNLIKELY( diff<0L ) ) { /* Overrun (impossible if in is honoring our flow control) */
+              PRINT ( "cap overrun: seq=%lu seq_found=%lu diff=%ld" TEXT_NEWLINE, cap_seq_expect[li], seq_found, diff );
+              print_line_cnt = 0; /* make the print pop */
+              cap_seq_expect[li] = seq_found;
+            } else {
+              break;
+            }
+          } else {
+            uint frag_sz = mline->sz;
+            uchar * frag_dat = (uchar *)fd_chunk_to_laddr( cap_link->dcache, mline->chunk );
+
+            if (cap_map_8 && (cap_sz > cap_total_szs)) {
+              uint* hdr = (uint*)cap_map_8;
+              struct timespec ts;
+              clock_gettime(CLOCK_REALTIME, &ts);
+              hdr[0] = (uint)ts.tv_sec;
+              hdr[1] = (uint)ts.tv_nsec;
+              hdr[2] = frag_sz;
+              hdr[3] = frag_sz;
+              cap_map_8 += 16;
+              memcpy(cap_map_8, frag_dat, frag_sz);
+              cap_map_8 += frag_sz;
+            }
+
+            cap_total_cnt[li] ++;
+            cap_total_sz[li] += frag_sz;
+
+            cap_cur_cnt[li] ++;
+            cap_cur_sz[li] += frag_sz;
+
+            cap_total_cnts ++;
+            cap_total_szs += frag_sz;
+            cap_cur_cnts ++;
+            cap_cur_szs += frag_sz;
+
+            cap_seq_expect[li] = fd_seq_inc( cap_seq_expect[li], 1UL );
+          }
+        } while (1);
+      }
+
+      PRINT ( "    from |      to | link id |      captured frags      |       captured bytes     " TEXT_NEWLINE );
+      PRINT ( "---------+---------+---------+--------------------------+--------------------------" TEXT_NEWLINE );
+
+      for (int li = 0; li < cap_link_cnt; li ++ ) {
+
+        PRINT ( " %7s", cap_src );
+        PRINT ( " | %7s", cap_dst );
+        PRINT( " | %7lu", cap_links[li]->id );
+        PRINT( " | %12lu(%+10ld)", cap_total_cnt[li], (long)cap_cur_cnt[li] );
+        PRINT( " | " );
+        PRINT( "%12lu", cap_total_sz[li] );
+        PRINT( "(%+10ld)", (long)cap_cur_sz[li] );
+
+        PRINT( TEXT_NEWLINE );
+      }
+      PRINT ( "---------+---------+---------+--------------------------+--------------------------" TEXT_NEWLINE );
+
+      PRINT ( " %7s", "Total" );
+      PRINT ( " | %7s", "-" );
+      PRINT( " | %7s", "-" );
+      PRINT( " | %12lu(%+10ld)", cap_total_cnts, (long)cap_cur_cnts );
+      PRINT( " | " );
+      PRINT( "%12lu", cap_total_szs );
+      PRINT( "(%+10ld)", (long)cap_cur_szs );
+
+      PRINT( TEXT_NEWLINE );
+
+      PRINT ( "---------+---------+---------+--------------------------+--------------------------" TEXT_NEWLINE );
+    }
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
     if( !monitor_pane ) {
@@ -580,6 +767,8 @@ monitor_cmd_fn( args_t *   args,
     allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
+  if (args->monitor.cap_fd != -1)
+    allow_fds[allow_fds_cnt++] = args->monitor.cap_fd;
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
@@ -616,7 +805,12 @@ monitor_cmd_fn( args_t *   args,
                args->monitor.dt_max,
                args->monitor.duration,
                args->monitor.seed,
-               args->monitor.ns_per_tic );
+               args->monitor.ns_per_tic,
+               args->monitor.cap_src,
+               args->monitor.cap_dst,
+               args->monitor.cap_pcp,
+               args->monitor.cap_map,
+               args->monitor.cap_sz);
 
   exit( 0 ); /* gracefully exit */
 }
