@@ -100,6 +100,14 @@ fd_precompiles( void );
 ulong
 fd_num_precompiles( void );
 
+void
+fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
+                                fd_funk_t *                            funk,
+                                fd_funk_txn_xid_t const *              xid,
+                                fd_core_bpf_migration_config_t const * config,
+                                fd_spad_t *                            runtime_spad,
+                                fd_capture_ctx_t *                     capture_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h */
