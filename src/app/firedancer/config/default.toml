@@ -904,7 +904,6 @@ user = ""
     #   best-effort basis.  The socket option is provided as a fallback
     #   for hosts which do not support XDP, and to support experimental
     #   features that are not yet implemented in the XDP stack.
-    #   Currently, DoubleZero is only supported by the socket provider.
     #
     # Using the XDP networking stack is strongly preferred where
     # possible, as it is faster and better tested by the development
