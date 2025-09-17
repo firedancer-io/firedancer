@@ -11,6 +11,7 @@
 #define FD_SCHED_MAX_DEPTH                 (FD_RDISP_MAX_DEPTH>>2)
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
+#define FD_SCHED_DEBUG_MAX_TXN_PER_BLOCK   (8192UL)
 
 /* We size the buffer to be able to hold residual data from the previous
    FEC set that only becomes parseable after the next FEC set is
@@ -42,6 +43,14 @@ struct fd_sched_block {
   uint                txn_in_flight_cnt;
   uint                txn_done_cnt;
   uint                shred_cnt;
+
+  struct {
+    ulong txn_id;
+    long  parsed_tick;
+    long  ready_tick;
+    long  done_tick;
+    char  sig[ FD_BASE58_ENCODED_64_SZ ];
+  } debug_txn_event[ FD_SCHED_DEBUG_MAX_TXN_PER_BLOCK ];
 
   /* Parser state. */
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
@@ -140,6 +149,7 @@ struct fd_sched {
   ulong               txn_pool_free_cnt;
   fd_txn_p_t          txn_pool[ FD_SCHED_MAX_DEPTH ];
   ulong               txn_to_block_idx[ FD_SCHED_MAX_DEPTH ]; /* index of the block that the txn belongs to */
+  uint                txn_to_parsed_idx[ FD_SCHED_MAX_DEPTH ]; /* index of the parsed transaction in the block, array keyed by txn_id */
   fd_sched_block_t *  block_pool; /* fd_pool of max_block_depth elements */
   block_map_t *       block_map;  /* map_chain */
 };
@@ -596,6 +606,10 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
     sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_in_flight_cnt;
     sched->txn_in_flight_last_tick = now;
 
+    FD_TEST( sched->txn_to_parsed_idx[ out_txn->txn_id ]<FD_SCHED_DEBUG_MAX_TXN_PER_BLOCK );
+    FD_TEST( block->debug_txn_event[ sched->txn_to_parsed_idx[ out_txn->txn_id ] ].ready_tick==0L );
+    block->debug_txn_event[ sched->txn_to_parsed_idx[ out_txn->txn_id ] ].ready_tick = now;
+
     block->txn_in_flight_cnt++;
     txn_queued_cnt--;
     sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_in_flight_cnt );
@@ -657,6 +671,10 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_id ) {
     sched->metrics->txn_weighted_in_flight_tickcount += delta;
     sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_in_flight_cnt;
     sched->txn_in_flight_last_tick = now;
+
+    FD_TEST( sched->txn_to_parsed_idx[ txn_id ]<FD_SCHED_DEBUG_MAX_TXN_PER_BLOCK );
+    FD_TEST( block->debug_txn_event[ sched->txn_to_parsed_idx[ txn_id ] ].done_tick==0L );
+    block->debug_txn_event[ sched->txn_to_parsed_idx[ txn_id ] ].done_tick = now;
 
     block->txn_done_cnt++;
     block->txn_in_flight_cnt--;
@@ -1141,6 +1159,15 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
   sched->txn_to_block_idx[ txn_idx ] = block_pool_idx( sched->block_pool, block );
+
+  FD_TEST( block->txn_parsed_cnt<FD_SCHED_DEBUG_MAX_TXN_PER_BLOCK );
+  block->debug_txn_event[ block->txn_parsed_cnt ].txn_id = txn_idx;
+  sched->txn_to_parsed_idx[ txn_idx ] = block->txn_parsed_cnt;
+  block->debug_txn_event[ block->txn_parsed_cnt ].parsed_tick = fd_tickcount();
+  block->debug_txn_event[ block->txn_parsed_cnt ].ready_tick = 0L;
+  block->debug_txn_event[ block->txn_parsed_cnt ].done_tick = 0L;
+  ulong out_len;
+  fd_base58_encode_64( txn_p->payload+TXN(txn_p)->signature_off, &out_len, block->debug_txn_event[ block->txn_parsed_cnt ].sig );
 
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
