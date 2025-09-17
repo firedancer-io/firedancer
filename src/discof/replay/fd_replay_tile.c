@@ -1163,6 +1163,23 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
        which will be published in after_credit. */
     buffer_vote_towers( ctx );
   }
+
+  /* Send resolve tile the slot and the blockhash */
+  if( FD_LIKELY( ctx->resolv_out->idx!=ULONG_MAX ) ) {
+    fd_resov_completed_slot_t * msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
+    msg->slot = curr_slot;
+    memcpy( msg->blockhash, block_hash, sizeof(fd_hash_t) );
+    fd_stem_publish(
+      stem,
+      ctx->resolv_out->idx,
+      FD_RESOLV_COMPLETED_SLOT_SIG,
+      ctx->resolv_out->chunk,
+      sizeof(fd_resov_completed_slot_t),
+      0UL,
+      fd_frag_meta_ts_comp( fd_tickcount() ),
+      fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resov_completed_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
+  }
 }
 
 static void
@@ -1300,6 +1317,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->slot_start_ns = now;
   msg->slot_end_ns   = now+(long)ctx->slot_duration_nanos;
   msg->bank = NULL;
+  msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, bank );
   msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
