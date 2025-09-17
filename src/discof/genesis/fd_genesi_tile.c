@@ -23,6 +23,7 @@ struct fd_genesi_tile {
 
   fd_lthash_value_t lthash[1];
 
+  int bootstrap;
   int shutdown;
 
   ulong genesis_sz;
@@ -167,7 +168,7 @@ process_local_genesis( fd_genesi_tile_t * ctx,
   ctx->shred_version = xor;
   FD_TEST( ctx->shred_version );
 
-  if( FD_UNLIKELY( expected_shred_version && expected_shred_version!=ctx->shred_version ) ) {
+  if( FD_UNLIKELY( ctx->bootstrap && expected_shred_version && expected_shred_version!=ctx->shred_version ) ) {
     FD_LOG_ERR(( "This node is bootstrapping the cluster as it has no gossip entrypoints provided, but "
                  "a [consensus.expected_shred_version] of %hu is provided which does not match the shred "
                  "version of %hu computed from the genesis.bin file at `%s`",
@@ -221,8 +222,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_lthash_zero( ctx->lthash );
 
-  ctx->shutdown = 0;
-
+  ctx->shutdown = !!tile->genesi.entrypoints_cnt;
+  ctx->bootstrap = !!tile->genesi.entrypoints_cnt;
   if( FD_LIKELY( -1!=ctx->fd ) ) process_local_genesis( ctx, tile->genesi.genesis_path, tile->genesi.expected_shred_version );
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
