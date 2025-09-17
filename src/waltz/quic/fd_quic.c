@@ -1998,7 +1998,8 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
     return FD_QUIC_ACK_TX_CANCEL;
   }
 
-  fd_quic_state_t * state = fd_quic_get_state( quic );
+  fd_quic_state_t   * state   = fd_quic_get_state( quic );
+  fd_quic_ack_gen_t * ack_gen = conn->ack_gen;
   int res = fd_quic_ack_pkt( conn->ack_gen, pkt->pkt_number, pkt->enc_level, state->now );
   conn->ack_gen->is_elicited |= fd_uchar_if( pkt->ack_flag & ACK_FLAG_RQD, 1, 0 );
 
@@ -2011,7 +2012,7 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
   if( ack_sz_threshold_hit | force_instant_ack ) {
     conn->unacked_sz = 0UL;
     fd_quic_svc_prep_schedule( conn, state->now );
-  } else {
+  } else if( ack_gen->is_elicited ) {
     fd_quic_svc_prep_schedule( conn, state->now + quic->config.ack_delay );
   }
 
@@ -3561,7 +3562,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   uint key_phase    = conn->key_phase;
   int key_phase_tx  = (int)key_phase ^ key_phase_upd;
 
-  /* get time, and set reschedule time for at most the idle timeout */
+  /* get time */
   long now = state->now;
 
   /* initialize expiry and tx_time */
