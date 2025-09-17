@@ -167,18 +167,12 @@ typedef struct fd_gossip_view_version fd_gossip_view_version_t;
 #define FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS   (256UL)
 
 struct fd_gossip_view_contact_info {
-  long                     instance_creation_wallclock_nanos;
-  ushort                   shred_version;
-  fd_gossip_view_version_t version[ 1 ];
+  fd_contact_info_t contact_info[1];
+  ulong             ip6_cnt;
+  ulong             unrecognized_socket_tag_cnt;
 
-  ushort                   addrs_len;
-  fd_gossip_view_ipaddr_t  addrs[ FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES ];
-
-  ushort                   sockets_len;
-  fd_gossip_view_socket_t  sockets[ FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS ];
-
-  ushort                   ext_len;
-  ushort                   ext_off;
+  ushort            ext_len;
+  ushort            ext_off;
 };
 
 typedef struct fd_gossip_view_contact_info fd_gossip_view_contact_info_t;
@@ -236,7 +230,7 @@ struct fd_gossip_view_crds_value {
 
   uchar tag;
   union{
-    fd_gossip_view_contact_info_t    contact_info[ 1 ];
+    fd_gossip_view_contact_info_t    ci_view[ 1 ];
     fd_gossip_view_node_instance_t   node_instance[ 1 ];
     fd_gossip_view_vote_t            vote[ 1 ];
     fd_gossip_view_epoch_slots_t     epoch_slots[ 1 ];
@@ -270,7 +264,7 @@ struct fd_gossip_view_pull_request {
   ulong mask;
   uint  mask_bits;
 
-  fd_gossip_view_crds_value_t contact_info[ 1 ];
+  fd_gossip_view_crds_value_t pr_ci[ 1 ];
 };
 
 typedef struct fd_gossip_view_pull_request fd_gossip_view_pull_request_t;
