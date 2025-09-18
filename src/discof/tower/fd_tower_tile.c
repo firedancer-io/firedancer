@@ -185,7 +185,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Update ghost with the vote account states received from replay. */
 
-  fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
+  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
   update_ghost( ctx );
 
@@ -200,16 +200,17 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* 2. Determine new root, if there is one.  A new vote slot can result
         in a new root but not always. */
 
-  msg->root_slot = ULONG_MAX;
   if( FD_LIKELY( msg->vote_slot!=FD_SLOT_NULL ) ) {
-    msg->root_slot = fd_tower_vote( ctx->tower, msg->vote_slot );
-  }
-  msg->new_root = msg->root_slot!=FD_SLOT_NULL;
-  if( FD_LIKELY( msg->new_root ) ) {
-    msg->root_block_id = *fd_ghost_hash( ctx->ghost, msg->root_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
-    fd_ghost_publish( ctx->ghost, &msg->root_block_id );
-  } else {
-    memset( &msg->root_block_id, 0, sizeof(fd_hash_t) );
+    msg->root_slot                  = fd_tower_vote( ctx->tower, msg->vote_slot );
+    fd_hash_t const * root_block_id = fd_ghost_hash( ctx->ghost, msg->root_slot );
+    if( FD_LIKELY( root_block_id ) ) {
+      msg->root_block_id = *root_block_id;
+      msg->new_root      = 1;
+      fd_ghost_publish( ctx->ghost, &msg->root_block_id );
+    } else {
+      msg->root_block_id = (fd_hash_t){ 0 };
+      msg->new_root      = 0;
+    }
   }
 
   /* 3. Populate vote_txn with the current tower (regardless of whether
