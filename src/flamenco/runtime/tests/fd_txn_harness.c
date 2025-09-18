@@ -57,9 +57,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, &xid, 1 );
-  fd_funk_txn_end_write( funk );
 
   /* Set up slot context */
   slot_ctx->funk_txn = funk_txn;
