@@ -339,7 +339,9 @@ fd_topob_auto_layout( fd_topo_t * topo,
                       int         reserve_agave_cores ) {
   /* Incredibly simple automatic layout system for now ... just assign
      tiles to CPU cores in NUMA sequential order, except for a few tiles
-     which should be floating. */
+     which should be floating.  Within a given NUMA, all the "top half"
+     logical CPUs of hyperthreaded pairs are assigned before all the
+     bottom halves, if applicable. */
 
   char const * FLOATING[] = {
     "netlnk",
@@ -402,24 +404,18 @@ fd_topob_auto_layout( fd_topo_t * topo,
   fd_topo_cpus_init( cpus );
 
   ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
-  int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
 
-  ulong next_cpu_idx   = 0UL;
+  ulong next_cpu_idx = 0UL;
   for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
-    for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
-      fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
+    for( int ht_top=1; ht_top>=0; ht_top-- ) {
+      for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
+        fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
 
-      if( FD_UNLIKELY( pairs_assigned[ j ] || cpu->numa_node!=i ) ) continue;
+        if( FD_UNLIKELY( (cpu->numa_node!=i) |
+                         ((cpu->sibling!=ULONG_MAX) & (ht_top!=(j<cpu->sibling))) ) ) continue;
 
-      FD_TEST( next_cpu_idx<FD_TILE_MAX );
-      cpu_ordering[ next_cpu_idx++ ] = j;
-
-      if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
-        /* If the CPU has a HT pair, place it immediately after so they
-           are sequentially assigned. */
         FD_TEST( next_cpu_idx<FD_TILE_MAX );
-        cpu_ordering[ next_cpu_idx++ ] = cpu->sibling;
-        pairs_assigned[ cpu->sibling ] = 1;
+        cpu_ordering[ next_cpu_idx++ ] = j;
       }
     }
   }
