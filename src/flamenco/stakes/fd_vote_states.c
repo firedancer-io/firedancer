@@ -365,7 +365,7 @@ fd_vote_states_update_from_account( fd_vote_states_t *  vote_states,
     }
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   fd_vote_states_update(
