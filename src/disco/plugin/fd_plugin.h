@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_disco_plugin_fd_plugin_h
 #define HEADER_fd_src_disco_plugin_fd_plugin_h
 
+#include "../../util/fd_util_base.h"
+
 #define FD_PLUGIN_MSG_SLOT_ROOTED                   ( 0UL)
 #define FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED ( 1UL)
 #define FD_PLUGIN_MSG_SLOT_COMPLETED                ( 2UL)
@@ -24,6 +26,16 @@ typedef struct {
 } fd_plugin_msg_slot_end_t;
 
 #define FD_PLUGIN_MSG_SLOT_RESET                    (10UL)
+
+#define FD_PLUGIN_MSG_SLOT_RESET_MAX_PARENT_CNT (4096UL)
+struct __attribute__((packed, aligned(8))) fd_plugin_msg_slot_reset {
+  ulong last_voted_slot;
+  ulong parent_cnt;
+  ulong slot;
+  ulong parents[ FD_PLUGIN_MSG_SLOT_RESET_MAX_PARENT_CNT ];
+};
+typedef struct fd_plugin_msg_slot_reset fd_plugin_msg_slot_reset_t;
+
 #define FD_PLUGIN_MSG_BALANCE                       (11UL)
 #define FD_PLUGIN_MSG_START_PROGRESS                (12UL)
 #define FD_PLUGIN_MSG_GENESIS_HASH_KNOWN            (13UL)
@@ -106,5 +118,15 @@ typedef struct {
   char ip_cstr[ 40 ]; /* IPv4 or IPv6 cstr */
   int status;
 } fd_plugin_msg_block_engine_update_t;
+
+#define FD_PLUGIN_MSG_SNAPSHOT_UPDATE (15UL)
+
+#define FD_PLUGIN_MSG_SNAPSHOT_TYPE_FULL        (0)
+#define FD_PLUGIN_MSG_SNAPSHOT_TYPE_INCREMENTAL (1)
+typedef struct __attribute__((packed)) {
+  int type;
+  int is_download;
+  char read_path[ PATH_MAX ];
+} fd_restore_snapshot_update_t;
 
 #endif /* HEADER_fd_src_disco_plugin_fd_plugin_h */

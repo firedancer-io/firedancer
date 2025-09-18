@@ -10,6 +10,9 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/shred/fd_stake_ci.h"
+#include "../../disco/plugin/fd_plugin.h"
+
+#include <stdio.h>
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -22,16 +25,17 @@ fd_gui_footprint( void ) {
 }
 
 void *
-fd_gui_new( void *             shmem,
-            fd_http_server_t * http,
-            char const *       version,
-            char const *       cluster,
-            uchar const *      identity_key,
-            int                has_vote_key,
-            uchar const *      vote_key,
-            int                is_voting,
-            int                schedule_strategy,
-            fd_topo_t *        topo ) {
+fd_gui_new( void *                shmem,
+            fd_http_server_t *    http,
+            char const *          version,
+            char const *          cluster,
+            uchar const *         identity_key,
+            int                   has_vote_key,
+            uchar const *         vote_key,
+            int                   is_full_client,
+            int                   is_voting,
+            int                   schedule_strategy,
+            fd_topo_t *           topo ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -75,16 +79,31 @@ fd_gui_new( void *             shmem,
     memset( gui->summary.vote_key_base58, 0, sizeof(gui->summary.vote_key_base58) );
   }
 
+  gui->summary.is_full_client                = is_full_client;
   gui->summary.version                       = version;
   gui->summary.cluster                       = cluster;
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
 
-  gui->summary.startup_progress.phase                                  = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
-  gui->summary.startup_progress.startup_got_full_snapshot              = 0;
-  gui->summary.startup_progress.startup_full_snapshot_slot             = 0;
-  gui->summary.startup_progress.startup_incremental_snapshot_slot      = 0;
-  gui->summary.startup_progress.startup_waiting_for_supermajority_slot = ULONG_MAX;
-  gui->summary.startup_progress.startup_ledger_max_slot                = ULONG_MAX;
+  if( FD_UNLIKELY( is_full_client ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP;
+    gui->summary.boot_progress.joining_gossip_time_nanos = gui->next_sample_400millis;
+    for( ulong i=0UL; i<2UL; i++ ) {
+      gui->summary.boot_progress.loading_snapshot[ i ].reset_cnt = ULONG_MAX; /* ensures other fields are reset initially */
+      gui->summary.boot_progress.loading_snapshot[ i ].read_path[ 0 ] = '\0';
+      gui->summary.boot_progress.loading_snapshot[ i ].insert_path[ 0 ] = '\0';
+    }
+    gui->summary.boot_progress.catching_up_first_turbine_slot  = 0UL;
+    gui->summary.boot_progress.catching_up_latest_repair_slot  = 0UL;
+    gui->summary.boot_progress.catching_up_latest_replay_slot  = 0UL;
+    gui->summary.boot_progress.catching_up_latest_turbine_slot = 0UL;
+  } else {
+    gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+    gui->summary.startup_progress.startup_got_full_snapshot              = 0;
+    gui->summary.startup_progress.startup_full_snapshot_slot             = 0;
+    gui->summary.startup_progress.startup_incremental_snapshot_slot      = 0;
+    gui->summary.startup_progress.startup_waiting_for_supermajority_slot = ULONG_MAX;
+    gui->summary.startup_progress.startup_ledger_max_slot                = ULONG_MAX;
+  }
 
   gui->summary.identity_account_balance      = 0UL;
   gui->summary.vote_account_balance          = 0UL;
@@ -100,11 +119,15 @@ fd_gui_new( void *             shmem,
   gui->summary.resolv_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "resolv" );
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
+  gui->summary.bundle_tile_cnt = fd_topo_tile_name_cnt( gui->topo, "bundle"  );
 
   gui->summary.slot_rooted                   = 0UL;
   gui->summary.slot_optimistically_confirmed = 0UL;
   gui->summary.slot_completed                = 0UL;
   gui->summary.slot_estimated                = 0UL;
+  gui->summary.slot_caught_up                = 0UL;
+
+  for( ulong i=0UL; i < (FD_GUI_SHRED_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_known[ i ].slot = ULONG_MAX;
 
   gui->summary.estimated_tps_history_idx = 0UL;
   memset( gui->summary.estimated_tps_history, 0, sizeof(gui->summary.estimated_tps_history) );
@@ -159,7 +182,7 @@ void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id ) {
   void (* printers[] )( fd_gui_t * gui ) = {
-    fd_gui_printf_startup_progress,
+    gui->summary.is_full_client ? fd_gui_printf_boot_progress : fd_gui_printf_startup_progress,
     fd_gui_printf_version,
     fd_gui_printf_cluster,
     fd_gui_printf_commit_hash,
@@ -168,6 +191,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_startup_time_nanos,
     fd_gui_printf_vote_state,
     fd_gui_printf_vote_distance,
+    fd_gui_printf_slot_max_known,
+    fd_gui_printf_slot_caught_up,
     fd_gui_printf_skipped_history,
     fd_gui_printf_skipped_history_cluster,
     fd_gui_printf_tps_history,
@@ -536,6 +561,114 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 }
 
+static void
+fd_gui_run_boot_progress( fd_gui_t * gui, long now_nanos ) {
+  fd_topo_tile_t const * snaprd = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snaprd", 0UL ) ];
+  volatile ulong * snaprd_metrics = fd_metrics_tile( snaprd->metrics );
+
+  fd_topo_tile_t const * snapdc = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapdc", 0UL ) ];
+  volatile ulong * snapdc_metrics = fd_metrics_tile( snapdc->metrics );
+
+  fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
+  volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
+
+  ulong snapshot_phase = snaprd_metrics[ MIDX( GAUGE, SNAPRD, STATE ) ];
+
+  switch ( gui->summary.boot_progress.phase ) {
+    case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP: {
+      gui->summary.boot_progress.joining_gossip_time_nanos = now_nanos;
+      if( FD_UNLIKELY( snapshot_phase >= 2UL ) ) {
+        gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
+        gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].sample_time_nanos = now_nanos;
+      }
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
+    case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: {
+      ulong snapshot_idx = fd_ulong_if( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
+      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_DOWNLOAD_RETRIES ) ], snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
+
+      /* reset boot state if necessary */
+      if( FD_UNLIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt!=_retry_cnt ) ) {
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_time_nanos = now_nanos;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt = _retry_cnt;
+
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema = 0.;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema = 0.;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema = 0.;
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_throughput_ema = 0.;
+      }
+
+#define EMA_FILTER(filt, sample) filt = (FD_GUI_EMA_FILTER_ALPHA * (sample)) + (( 1. - FD_GUI_EMA_FILTER_ALPHA ) * (filt))
+
+      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ],             snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_TOTAL ) ]             );
+      ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ],              snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ]              );
+      ulong _decompress_decompressed_bytes = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_READ ) ], snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ ) ] );
+      ulong _decompress_compressed_bytes   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ],   snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ]   );
+      ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],              snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]              );
+      ulong _insert_accounts               = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) ];
+
+      /* metadata */
+      ulong _nanos_elapsed_since_last_sample                                        = (ulong)fd_long_max(now_nanos - gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos, 1L);
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes       = _total_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].sample_time_nanos = now_nanos;
+
+      /* read stage */
+      ulong _read_throughput_ema_sample = (ulong)fd_long_max( (long)_read_bytes - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_bytes, 0L );
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema, (double)_read_throughput_ema_sample / (double)_nanos_elapsed_since_last_sample );
+
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_bytes           = _read_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_remaining_nanos = (long)((double)(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes - _read_bytes) / gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_throughput_ema);
+
+      /* decompress stage */
+      ulong _decompress_bytes_since_last_sample = (ulong)fd_long_max( (long)_decompress_compressed_bytes - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes, 0L );
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema, (double)_decompress_bytes_since_last_sample / (double)_nanos_elapsed_since_last_sample );
+
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes   = _decompress_compressed_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_decompressed_bytes = _decompress_decompressed_bytes;
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_remaining_nanos    = (long)((double)(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes - _decompress_compressed_bytes) / gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_throughput_ema);
+
+      /* insert stage */
+      ulong _insert_bytes_since_last_sample = (ulong)fd_long_max( (long)_insert_bytes - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes, 0L);
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema, (double)_insert_bytes_since_last_sample / (double)_nanos_elapsed_since_last_sample );
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_bytes = _insert_bytes;
+
+      /* Use the latest compression ratio to estimate decompressed size */
+      double _compression_ratio_estimate = (double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_decompressed_bytes/(double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].decompress_compressed_bytes;
+      ulong _total_size_estimate = (ulong)((double)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].total_bytes * _compression_ratio_estimate);
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_remaining_nanos = (long)((double)(_total_size_estimate - _insert_bytes) / gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_throughput_ema);
+      ulong _insert_accounts_since_last_sample = (ulong)fd_long_max( (long)_insert_accounts - (long)gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current, 0L);
+      EMA_FILTER( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_throughput_ema, (double)_insert_accounts_since_last_sample / (double)_nanos_elapsed_since_last_sample );
+      gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current = _insert_accounts;
+
+#undef EMA_FILTER
+
+      if( FD_UNLIKELY( snapshot_phase >= 8UL ) ) {
+        gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
+        gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos = now_nanos;
+      }
+      int slot_max_known_hist_full = gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ-1 ].slot!=ULONG_MAX;
+      if( FD_UNLIKELY( slot_max_known_hist_full && gui->summary.slot_completed ) ) {
+        gui->summary.boot_progress.phase                           = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
+        gui->summary.boot_progress.catching_up_time_nanos          = now_nanos;
+        gui->summary.boot_progress.catching_up_first_turbine_slot  = gui->summary.slots_max_known[ 0 ].slot;
+      }
+
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {
+      gui->summary.boot_progress.catching_up_time_nanos          = now_nanos;
+      gui->summary.boot_progress.catching_up_latest_turbine_slot = gui->summary.slots_max_known[ 0 ].slot;
+      gui->summary.boot_progress.catching_up_latest_repair_slot  = 0; /* todo */
+      gui->summary.boot_progress.catching_up_latest_replay_slot  = gui->summary.slot_completed;
+
+      if( FD_UNLIKELY( gui->summary.slots_max_known[ 0 ].slot < gui->summary.slot_completed + 5L) ) gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+      break;
+    }
+    case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING: break;
+    default: FD_LOG_ERR(( "unknown boot progress phase: %d", gui->summary.boot_progress.phase ));
+  }
+}
 int
 fd_gui_poll( fd_gui_t * gui ) {
   long now = fd_log_wallclock();
@@ -545,6 +678,9 @@ fd_gui_poll( fd_gui_t * gui ) {
   if( FD_LIKELY( now>gui->next_sample_400millis ) ) {
     fd_gui_estimated_tps_snap( gui );
     fd_gui_printf_estimated_tps( gui );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_printf_slot_max_known( gui );
     fd_http_server_ws_broadcast( gui->http );
 
     gui->next_sample_400millis += 400L*1000L*1000L;
@@ -560,6 +696,12 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_tile_stats_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_stats_current );
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
     fd_http_server_ws_broadcast( gui->http );
+
+    if( FD_UNLIKELY( gui->summary.is_full_client && gui->summary.boot_progress.phase!=FD_GUI_BOOT_PROGRESS_TYPE_RUNNING ) ) {
+      fd_gui_run_boot_progress( gui, now );
+      fd_gui_printf_boot_progress( gui );
+      fd_http_server_ws_broadcast( gui->http );
+    }
 
     gui->next_sample_100millis += 100L*1000L*1000L;
     did_work = 1;
@@ -578,6 +720,7 @@ fd_gui_poll( fd_gui_t * gui ) {
   return did_work;
 }
 
+/* frankendancer only */
 static void
 fd_gui_handle_gossip_update( fd_gui_t *    gui,
                              uchar const * msg ) {
@@ -706,6 +849,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* frankendancer only */
 static void
 fd_gui_handle_vote_account_update( fd_gui_t *    gui,
                                    uchar const * msg ) {
@@ -802,6 +946,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+/* frankendancer only */
 static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
@@ -1206,8 +1351,9 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
-  memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings[ 0 ])    );
-  memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings[ 0 ]) );
+  memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
+  memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );
+
   gui->epoch.epochs[ idx ].rankings_slot = start_slot;
 
   fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
@@ -1304,6 +1450,33 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
 
   fd_gui_tile_stats_snap( gui, slot->waterfall_end, slot->tile_stats_end );
+}
+
+static inline void
+fd_gui_try_insert_slot_max_known( fd_gui_t * gui, ulong slot, long now_nanos ) {
+  for( ulong i=0UL; i<FD_GUI_SHRED_SLOT_HISTORY_SZ; i++ ) {
+    /* evict any slots older than 4.8 seconds */
+    if( FD_UNLIKELY( gui->summary.slots_max_known[ i ].slot!=ULONG_MAX && now_nanos-gui->summary.slots_max_known[ i ].timestamp_arrival_nanos>4800000000L ) ) {
+      gui->summary.slots_max_known[ i ].slot = ULONG_MAX;
+      continue;
+    }
+
+    /* if we've already seen this slot, just update the timestamp */
+    if( FD_UNLIKELY( gui->summary.slots_max_known[ i ].slot==slot ) ) {
+      gui->summary.slots_max_known[ i ].timestamp_arrival_nanos = now_nanos;
+      return;
+    }
+  }
+
+  /* Insert the new slot number, evicting a smaller slot if necessary */
+  gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ ].timestamp_arrival_nanos = now_nanos;
+  gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ ].slot = slot;
+  fd_gui_shred_slot_sort_insert( gui->summary.slots_max_known, FD_GUI_SHRED_SLOT_HISTORY_SZ+1UL );
+}
+
+void
+fd_gui_handle_shred_slot( fd_gui_t * gui, ulong slot, long now_nanos ) {
+  fd_gui_try_insert_slot_max_known( gui, slot, now_nanos );
 }
 
 static void
@@ -1417,7 +1590,10 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong duration_sum = 0UL;
   ulong slot_cnt = 0UL;
 
-  for( ulong i=0UL; i<fd_ulong_min( _slot+1, 750UL ); i++ ) {
+  /* If we've just caught up we should truncate our slot history to avoid including catch-up slots */
+  int just_caught_up = gui->summary.slot_caught_up && _slot>gui->summary.slot_caught_up && _slot<gui->summary.slot_caught_up+750UL;
+  ulong slot_duration_history_sz = fd_ulong_if( just_caught_up, _slot-gui->summary.slot_caught_up, 750UL );
+  for( ulong i=0UL; i<fd_ulong_min( _slot+1, slot_duration_history_sz ); i++ ) {
     ulong parent_slot = _slot - i;
     ulong parent_idx  = parent_slot % FD_GUI_SLOTS_CNT;
 
@@ -1444,6 +1620,12 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    /* Also update slot_max_known which could be larger than the max
+       turbine slot if we are leader */
+    if( FD_UNLIKELY( gui->summary.slots_max_known[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed > gui->summary.slots_max_known[ 0 ].slot ) ) {
+      fd_gui_try_insert_slot_max_known( gui, gui->summary.slot_completed, fd_log_wallclock() );
+    }
   }
 
   for( ulong i=0UL; i<2UL; i++ ) {
@@ -1599,6 +1781,14 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     }
   }
 
+  int slot_max_known_hist_full = gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ-1UL ].slot!=ULONG_MAX;
+  if( FD_UNLIKELY( !gui->summary.slot_caught_up && slot_max_known_hist_full && gui->summary.slots_max_known[ 0 ].slot < (_slot + 3UL) ) ) {
+    gui->summary.slot_caught_up = _slot + 4UL;
+
+    fd_gui_printf_slot_caught_up( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
   gui->summary.slot_optimistically_confirmed = _slot;
   fd_gui_printf_optimistically_confirmed_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
@@ -1620,7 +1810,7 @@ fd_gui_handle_balance_update( fd_gui_t *    gui,
       break;
     default:
       FD_LOG_ERR(( "balance: unknown account type: %lu", msg[ 0 ] ));
-}
+  }
 }
 
 static void
@@ -1690,7 +1880,6 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
       break;
     case 7: {
       gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
-      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
       gui->summary.startup_progress.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
       gui->summary.startup_progress.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
       FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_progress.startup_ledger_slot, gui->summary.startup_progress.startup_ledger_max_slot ));
@@ -1750,6 +1939,40 @@ fd_gui_handle_block_engine_update( fd_gui_t *    gui,
 
   fd_gui_printf_block_engine( gui );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+
+int
+fd_gui_extract_snapshot_slot( fd_restore_snapshot_update_t const * update,
+                              ulong *                              snapshot_slot ) {
+    if ( FD_UNLIKELY( !update || !fd_cstr_nlen( update->read_path, 1 ) ) ) return -1;
+
+    char const * filename = strrchr(update->read_path, '/');
+
+    /* both local filepaths and remote urls should have a '/' */
+    if( FD_UNLIKELY( !filename ) ) return -1;
+
+    filename++; // Skip the '/'
+
+    if (update->type == FD_PLUGIN_MSG_SNAPSHOT_TYPE_INCREMENTAL) {
+        ulong slot1, slot2;
+        if ( FD_LIKELY( sscanf( filename, "incremental-snapshot-%lu-%lu-", &slot1, &slot2 ) ) ) *snapshot_slot = slot2;
+    } else if (update->type == FD_PLUGIN_MSG_SNAPSHOT_TYPE_FULL) {
+        ulong slot;
+        if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot ) ) ) *snapshot_slot = slot;
+    }
+
+    return -1;
+}
+
+static void
+fd_gui_handle_snapshot_update( fd_gui_t *    gui,
+                               fd_restore_snapshot_update_t * msg ) {
+  ulong snapshot_idx = fd_ulong_if( msg->type==FD_PLUGIN_MSG_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
+  ulong slot;
+  FD_TEST( !fd_gui_extract_snapshot_slot( msg, &slot ) );
+  gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot;
+  fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
 }
 
 void
@@ -1814,6 +2037,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE: {
       fd_gui_handle_block_engine_update( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_SNAPSHOT_UPDATE: {
+      fd_gui_handle_snapshot_update( gui, (fd_restore_snapshot_update_t *)msg );
       break;
     }
     default:

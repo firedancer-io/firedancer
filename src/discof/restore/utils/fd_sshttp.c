@@ -74,6 +74,8 @@ fd_sshttp_new( void * shmem ) {
   fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
 
   sshttp->state = FD_SSHTTP_STATE_INIT;
+  sshttp->full_snapshot_name[ 0 ] = '\0';
+  sshttp->incremental_snapshot_name[ 0 ] = '\0';
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( sshttp->magic ) = FD_SSHTTP_MAGIC;

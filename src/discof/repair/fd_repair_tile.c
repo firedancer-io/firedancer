@@ -68,7 +68,7 @@
 #include "../reasm/fd_reasm.h"
 #include "../../flamenco/repair/fd_catchup.h"
 
-#define LOGGING       1
+#define LOGGING       0
 #define DEBUG_LOGGING 0
 
 #define IN_KIND_CONTACT (0)
