@@ -531,7 +531,7 @@ ip4_to_str( char buf[IP4_TO_STR_BUF_SZ], uint ip4_addr ) {
 
 ulong
 fd_quic_pretty_print_quic_pkt( fd_quic_pretty_print_t * pkt_ctx,
-                               ulong                    now,
+                               long                     now,
                                uchar const *            buf,
                                ulong                    buf_sz ) {
   (void)now;

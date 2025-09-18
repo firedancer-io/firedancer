@@ -33,7 +33,7 @@ struct fd_quic_sandbox {
   ulong  pkt_seq_r;   /* seq no of next packet not yet read */
   ulong  pkt_seq_w;   /* seq no of next packet to publish */
   ulong  pkt_chunk;   /* publisher chunk index */
-  ulong  wallclock;   /* time as seen by fd_quic (ns) */
+  long   wallclock;   /* time as seen by fd_quic (ns) */
 };
 
 typedef struct fd_quic_sandbox fd_quic_sandbox_t;

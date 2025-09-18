@@ -131,7 +131,7 @@ struct fd_quic_tls_hs {
 
   ulong           next;      /* alloc pool/cache dlist */
   ulong           prev;      /* cache dlist */
-  ulong           birthtime; /* allocation time, used for cache eviction sanity check */
+  long            birthtime; /* allocation time, used for cache eviction sanity check */
 
   /* handshake data
      this is data that must be sent to the peer
@@ -195,7 +195,7 @@ fd_quic_tls_hs_new( fd_quic_tls_hs_t * self,
                     void *             context,
                     int                is_server,
                     fd_quic_transport_params_t const * self_transport_params,
-                    ulong              now );
+                    long               now );
 
 void
 fd_quic_tls_hs_delete( fd_quic_tls_hs_t * hs );
