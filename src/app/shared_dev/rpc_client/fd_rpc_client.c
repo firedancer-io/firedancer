@@ -156,7 +156,7 @@ fd_rpc_client_request_latest_block_hash( fd_rpc_client_t * rpc ) {
   long request_id = fd_long_if( rpc->request_id==LONG_MAX, 0L, rpc->request_id+1L );
 
   int contents_len = snprintf( contents, sizeof(contents),
-                               "{\"jsonrpc\":\"2.0\",\"id\":\"%ld\",\"method\":\"getLatestBlockhash\",\"params\":[]}",
+                               "{\"jsonrpc\":\"2.0\",\"id\":%ld,\"method\":\"getLatestBlockhash\",\"params\":[ { \"commitment\": \"processed\" }]}",
                                request_id );
 
   return fd_rpc_client_request( rpc, FD_RPC_CLIENT_METHOD_LATEST_BLOCK_HASH, request_id, contents, contents_len );
@@ -168,7 +168,7 @@ fd_rpc_client_request_transaction_count( fd_rpc_client_t * rpc ) {
   long request_id = fd_long_if( rpc->request_id==LONG_MAX, 0L, rpc->request_id+1L );
 
   int contents_len = snprintf( contents, sizeof(contents),
-                               "{\"jsonrpc\":\"2.0\",\"id\":\"%ld\",\"method\":\"getTransactionCount\",\"params\":[ { \"commitment\": \"processed\" } ]}",
+                               "{\"jsonrpc\":\"2.0\",\"id\":%ld,\"method\":\"getTransactionCount\",\"params\":[ { \"commitment\": \"processed\" } ]}",
                                request_id );
 
   return fd_rpc_client_request( rpc, FD_RPC_CLIENT_METHOD_TRANSACTION_COUNT, request_id, contents, contents_len );
@@ -212,17 +212,17 @@ parse_response( char *                     response,
   struct phr_header headers[ 32 ];
   ulong num_headers = 32UL;
   int http_len = phr_parse_response( response, response_len,
-                                    &minor_version, &status, &message, &message_len,
-                                    headers, &num_headers, last_response_len );
+                                     &minor_version, &status, &message, &message_len,
+                                     headers, &num_headers, last_response_len );
   if( FD_UNLIKELY( -2==http_len ) ) return FD_RPC_CLIENT_PENDING;
   else if( FD_UNLIKELY( -1==http_len ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
+
+  if( FD_UNLIKELY( status!=200 ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
 
   ulong content_length = fd_rpc_phr_content_length( headers, num_headers );
   if( FD_UNLIKELY( content_length==ULONG_MAX ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
   if( FD_UNLIKELY( content_length+(ulong)http_len > MAX_REQUEST_LEN ) ) return FD_RPC_CLIENT_ERR_TOO_LARGE;
   if( FD_LIKELY( content_length+(ulong)http_len>response_len ) ) return FD_RPC_CLIENT_PENDING;
-
-  if( FD_UNLIKELY( status!=200 ) ) return FD_RPC_CLIENT_ERR_MALFORMED;
 
   const char * parse_end;
   cJSON * json = cJSON_ParseWithLengthOpts( response + http_len, content_length, &parse_end, 0 );

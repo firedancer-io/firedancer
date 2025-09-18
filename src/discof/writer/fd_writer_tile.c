@@ -276,7 +276,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     }
   } else if( in_idx==ctx->exec_tile_cnt ) {
     /* This is a message from the send tile. */
-    fd_writer_tile_in_ctx_t * in_ctx = &ctx->send_writer_in[ 0 ];
+    /*fd_writer_tile_in_ctx_t * in_ctx = &ctx->send_writer_in[ 0 ];
 
     fd_txn_m_t * txnm    = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     uchar *      payload = ((uchar *)txnm) + sizeof(fd_txn_m_t);
@@ -286,7 +286,7 @@ during_frag( fd_writer_tile_ctx_t * ctx,
     }
     uchar * signature = payload + txn.signature_off;
     memcpy( ctx->vote_msg, signature, 64UL );
-    return;
+    return;*/
   }
 }
 
@@ -375,7 +375,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
   } else if( in_idx==ctx->exec_tile_cnt ) {
     /* This means that the send tile has signed and sent a vote.  Add
        this vote to the vote tracker. */
-    fd_vote_tracker_insert( ctx->vote_tracker, (fd_signature_t *)ctx->vote_msg );
+    // fd_vote_tracker_insert( ctx->vote_tracker, (fd_signature_t *)ctx->vote_msg );
   } else {
     FD_LOG_CRIT(( "Unknown in_idx %lu", in_idx ));
   }

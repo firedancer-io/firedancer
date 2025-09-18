@@ -113,7 +113,9 @@ fd_topob_tile_uses( fd_topo_t *      topo,
                     int              mode ) {
   (void)topo;
 
-  if( FD_UNLIKELY( tile->uses_obj_cnt>=FD_TOPO_MAX_TILE_OBJS ) ) FD_LOG_ERR(( "tile `%s` uses too many objects", tile->name ));
+  if( FD_UNLIKELY( tile->uses_obj_cnt>=FD_TOPO_MAX_TILE_OBJS ) ) {
+    FD_LOG_ERR(( "tile `%s` uses too many objects (%lu)", tile->name, tile->uses_obj_cnt ));
+  }
 
   tile->uses_obj_id[ tile->uses_obj_cnt ] = obj->id;
   tile->uses_obj_mode[ tile->uses_obj_cnt ] = mode;
@@ -370,6 +372,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "sign",
     "plugin",
     "gui",
+    "rpc",
     "gossvf", /* FIREDANCER only */
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */

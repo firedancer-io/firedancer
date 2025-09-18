@@ -341,6 +341,15 @@ struct fd_topo_tile {
     } gui;
 
     struct {
+      uint   listen_addr;
+      ushort listen_port;
+
+      ulong max_http_connections;
+      ulong send_buffer_size_mb;
+      ulong max_http_request_length;
+    } rpc;
+
+    struct {
       uint   prometheus_listen_addr;
       ushort prometheus_listen_port;
     } metric;
