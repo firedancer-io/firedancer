@@ -203,11 +203,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* All bank mgr stuff here. */
 
-  fd_bank_slot_set( slot_ctx->bank, slot );
+  slot_ctx->bank->eslot_ = fd_eslot( slot, 0UL );
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
-  fd_bank_parent_slot_set( slot_ctx->bank, test_ctx->slot_ctx.prev_slot );
+  fd_bank_parent_eslot_set( slot_ctx->bank, fd_eslot( test_ctx->slot_ctx.prev_slot, 0UL ) );
 
   fd_bank_capitalization_set( slot_ctx->bank, test_ctx->slot_ctx.prev_epoch_capitalization );
 

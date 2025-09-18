@@ -392,7 +392,7 @@ fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_
    they no longer retain interest in the returned pointer. */
 
 FD_FN_PURE static inline fd_store_fec_t *
-fd_store_query( fd_store_t * store, fd_hash_t * merkle_root ) {
+fd_store_query( fd_store_t * store, fd_hash_t const * merkle_root ) {
    fd_store_key_t  key  = { .mr = *merkle_root, .part = UINT_MAX };
    fd_store_pool_t pool = fd_store_pool( store );
    for( uint i = 0; i < store->part_cnt; i++ ) {
@@ -475,8 +475,8 @@ fd_store_link( fd_store_t * store,
    they no longer retain interest in the returned pointer. */
 
 fd_store_fec_t *
-fd_store_publish( fd_store_t * store,
-                  fd_hash_t  * merkle_root );
+fd_store_publish( fd_store_t *      store,
+                  fd_hash_t const * merkle_root );
 
 /* fd_store_clear clears the store.  All elements are removed from the
    map and released back into the pool.  Does not zero-out fields.

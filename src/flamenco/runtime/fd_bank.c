@@ -424,8 +424,8 @@ fd_banks_delete( void * shmem ) {
 }
 
 fd_bank_t *
-fd_banks_init_bank( fd_banks_t *      banks,
-                    fd_hash_t const * block_id ) {
+fd_banks_init_bank( fd_banks_t * banks,
+                    fd_eslot_t   eslot ) {
 
   if( FD_UNLIKELY( !banks ) ) {
     FD_LOG_WARNING(( "NULL banks" ));
@@ -446,12 +446,14 @@ fd_banks_init_bank( fd_banks_t *      banks,
 
   memset( bank, 0, fd_bank_footprint() );
 
-  ulong null_idx    = fd_banks_pool_idx_null( bank_pool );
-  bank->block_id_   = *block_id;
-  bank->next        = null_idx;
-  bank->parent_idx  = null_idx;
-  bank->child_idx   = null_idx;
-  bank->sibling_idx = null_idx;
+  ulong      null_idx   = fd_banks_pool_idx_null( bank_pool );
+  fd_eslot_t null_eslot = { .id = ULONG_MAX };
+  bank->eslot_          = eslot;
+  bank->parent_eslot_   = null_eslot;
+  bank->next            = null_idx;
+  bank->parent_idx      = null_idx;
+  bank->child_idx       = null_idx;
+  bank->sibling_idx     = null_idx;
 
   /* Set all CoW fields to null. */
   #define HAS_COW_1(name)                                                             \
@@ -491,22 +493,22 @@ fd_banks_init_bank( fd_banks_t *      banks,
 }
 
 fd_bank_t *
-fd_banks_get_bank( fd_banks_t *       banks,
-                   fd_hash_t const * block_id ) {
+fd_banks_get_bank( fd_banks_t * banks,
+                   fd_eslot_t   eslot ) {
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
 
   fd_rwlock_read( &banks->rwlock );
-  ulong idx = fd_banks_map_idx_query_const( bank_map, block_id, ULONG_MAX, bank_pool );
+  ulong idx = fd_banks_map_idx_query_const( bank_map, &eslot, ULONG_MAX, bank_pool );
   if( FD_UNLIKELY( idx==ULONG_MAX ) ) {
-    FD_LOG_DEBUG(( "Failed to get bank idx for block id %s", FD_BASE58_ENC_32_ALLOCA( block_id ) ));
+    FD_LOG_DEBUG(( "Failed to get bank idx for (slot %lu, prime %lu)", (ulong)eslot.slot, (ulong)eslot.prime ));
     fd_rwlock_unread( &banks->rwlock );
     return NULL;
   }
 
   fd_bank_t * bank = fd_banks_pool_ele( bank_pool, idx );
   if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_WARNING(( "Failed to get bank for block id %s", FD_BASE58_ENC_32_ALLOCA( block_id ) ));
+    FD_LOG_WARNING(( "Failed to get bank for (slot %lu, prime %lu)", (ulong)eslot.slot, (ulong)eslot.prime ));
     fd_rwlock_unread( &banks->rwlock );
     return NULL;
   }
@@ -516,9 +518,9 @@ fd_banks_get_bank( fd_banks_t *       banks,
 
 
 fd_bank_t *
-fd_banks_clone_from_parent( fd_banks_t *      banks,
-                            fd_hash_t const * merkle_hash,
-                            fd_hash_t const * parent_block_id ) {
+fd_banks_clone_from_parent( fd_banks_t * banks,
+                            fd_eslot_t   eslot,
+                            fd_eslot_t   parent_eslot ) {
 
   fd_rwlock_write( &banks->rwlock );
 
@@ -534,23 +536,23 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   /* See if we already recovered the bank */
 
-  fd_bank_t * old_bank = fd_banks_map_ele_query( bank_map, merkle_hash, NULL, bank_pool );
+  fd_bank_t * old_bank = fd_banks_map_ele_query( bank_map, &eslot, NULL, bank_pool );
   if( FD_UNLIKELY( !!old_bank ) ) {
-    FD_LOG_CRIT(( "Invariant violation: bank for merkle hash %s already exists", FD_BASE58_ENC_32_ALLOCA( merkle_hash ) ));
+    FD_LOG_CRIT(( "Invariant violation: bank for (slot %lu, prime %lu) already exists", (ulong)eslot.slot, (ulong)eslot.prime ));
   }
 
   /* First query for the parent bank */
 
-  fd_bank_t * parent_bank = fd_banks_map_ele_query( bank_map, parent_block_id, NULL, bank_pool );
+  fd_bank_t * parent_bank = fd_banks_map_ele_query( bank_map, &parent_eslot, NULL, bank_pool );
 
   if( FD_UNLIKELY( !parent_bank ) ) {
-    FD_LOG_WARNING(( "Failed to get bank for parent block id %s", FD_BASE58_ENC_32_ALLOCA( parent_block_id ) ));
+    FD_LOG_WARNING(( "Failed to get bank for parent (slot %lu, prime %lu)", (ulong)parent_eslot.slot, (ulong)parent_eslot.prime ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
 
-  if( FD_UNLIKELY( memcmp( fd_bank_block_id_query( parent_bank ), parent_block_id, sizeof(fd_hash_t) ) ) ) {
-    FD_LOG_WARNING(( "Parent block_id mismatch" ));
+  if( FD_UNLIKELY( fd_bank_eslot_get( parent_bank ).id != parent_eslot.id ) ) {
+    FD_LOG_WARNING(( "Parent eslot mismatch (slot %lu, prime %lu) != (slot %lu, prime %lu)", (ulong)fd_bank_eslot_get( parent_bank ).slot, (ulong)fd_bank_eslot_get( parent_bank ).prime, (ulong)parent_eslot.slot, (ulong)parent_eslot.prime ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
@@ -559,7 +561,7 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   /* Now acquire a new bank */
 
-  FD_LOG_INFO(( "new bank, fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
+  FD_LOG_INFO(( "new bank (slot %lu, prime %lu), (parent slot %lu, prime %lu), fd_banks_pool_max: %lu, fd_banks_pool_free: %lu", (ulong)eslot.slot, (ulong)eslot.prime, (ulong)parent_eslot.slot, (ulong)parent_eslot.prime, fd_banks_pool_max( bank_pool ), fd_banks_pool_free( bank_pool ) ));
 
   if( FD_UNLIKELY( !fd_banks_pool_free( bank_pool ) ) ) {
     FD_LOG_WARNING(( "No free banks" ));
@@ -576,11 +578,12 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   ulong null_idx = fd_banks_pool_idx_null( bank_pool );
 
-  new_bank->block_id_   = *merkle_hash;
-  new_bank->next        = null_idx;
-  new_bank->parent_idx  = null_idx;
-  new_bank->child_idx   = null_idx;
-  new_bank->sibling_idx = null_idx;
+  new_bank->eslot_        = eslot;
+  new_bank->parent_eslot_ = parent_eslot;
+  new_bank->next          = null_idx;
+  new_bank->parent_idx    = null_idx;
+  new_bank->child_idx     = null_idx;
+  new_bank->sibling_idx   = null_idx;
 
   fd_banks_map_ele_insert( bank_map, new_bank, bank_pool );
 
@@ -592,7 +595,7 @@ fd_banks_clone_from_parent( fd_banks_t *      banks,
 
   /* Link parent->node and sibling->node */
 
-  if( FD_LIKELY( parent_bank->child_idx == null_idx ) ) {
+  if( FD_LIKELY( parent_bank->child_idx==null_idx ) ) {
 
     /* This is the first child so set as left-most child */
 
@@ -765,8 +768,8 @@ fd_banks_stake_delegations_root_query( fd_banks_t * banks ) {
 }
 
 fd_bank_t const *
-fd_banks_publish( fd_banks_t *      banks,
-                  fd_hash_t const * block_id ) {
+fd_banks_publish( fd_banks_t * banks,
+                  fd_eslot_t   eslot ) {
 
   fd_rwlock_write( &banks->rwlock );
 
@@ -786,10 +789,10 @@ fd_banks_publish( fd_banks_t *      banks,
   }
 
   if( FD_UNLIKELY( old_root->refcnt!=0UL ) ) {
-    FD_LOG_CRIT(( "refcnt for old root bank %s is %lu", FD_BASE58_ENC_32_ALLOCA( &old_root->block_id_ ), old_root->refcnt ));
+    FD_LOG_CRIT(( "refcnt for old root bank (slot %lu, prime %lu) is %lu", (ulong)old_root->eslot_.slot, (ulong)old_root->eslot_.prime, old_root->refcnt ));
   }
 
-  fd_bank_t * new_root = fd_banks_map_ele_query( bank_map, block_id, NULL, bank_pool );
+  fd_bank_t * new_root = fd_banks_map_ele_query( bank_map, &eslot, NULL, bank_pool );
   if( FD_UNLIKELY( !new_root ) ) {
     FD_LOG_WARNING(( "Failed to get new root bank" ));
     fd_rwlock_unwrite( &banks->rwlock );
@@ -803,7 +806,7 @@ fd_banks_publish( fd_banks_t *      banks,
   /* Now that the deltas have been applied, we can remove all nodes
      that are not direct descendants of the new root. */
 
-  fd_bank_t * head = fd_banks_map_ele_remove( bank_map, &old_root->block_id_, NULL, bank_pool );
+  fd_bank_t * head = fd_banks_map_ele_remove( bank_map, &old_root->eslot_, NULL, bank_pool );
   head->next       = fd_banks_pool_idx_null( bank_pool );
   fd_bank_t * tail = head;
 
@@ -814,14 +817,14 @@ fd_banks_publish( fd_banks_t *      banks,
 
       if( FD_LIKELY( child!=new_root ) ) {
         if( FD_UNLIKELY( child->refcnt!=0UL ) ) {
-          FD_LOG_CRIT(( "refcnt for child bank %s is %lu", FD_BASE58_ENC_32_ALLOCA( &child->block_id_ ), child->refcnt ));
+          FD_LOG_CRIT(( "refcnt for child bank (slot %lu, prime %lu) is %lu", (ulong)child->eslot_.slot, (ulong)child->eslot_.prime, child->refcnt ));
         }
 
         /* Remove the child from the map first and push onto the
            frontier list that needs to be iterated through */
         tail->next = fd_banks_map_idx_remove(
             bank_map,
-            &child->block_id_,
+            &child->eslot_,
             fd_banks_pool_idx_null( bank_pool ),
             bank_pool );
 
@@ -875,7 +878,7 @@ fd_banks_publish( fd_banks_t *      banks,
   #undef HAS_COW_1
 
   new_root->parent_idx = null_idx;
-  banks->root_idx      = fd_banks_map_idx_query_const( bank_map, block_id, null_idx, bank_pool );
+  banks->root_idx      = fd_banks_map_idx_query_const( bank_map, &eslot, null_idx, bank_pool );
 
   fd_rwlock_unwrite( &banks->rwlock );
 
@@ -948,7 +951,7 @@ fd_banks_subtree_mark_dead( fd_bank_t * bank_pool, fd_bank_t * bank ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
   }
   if( FD_UNLIKELY( bank->flags & FD_BANK_FLAGS_ROOTED ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank for slot %lu and block id %s is rooted", fd_bank_slot_get( bank ), FD_BASE58_ENC_32_ALLOCA( &bank->block_id_ ) ));
+    FD_LOG_CRIT(( "invariant violation: bank for slot %lu is rooted", bank->eslot_.id ));
   }
 
   bank->flags |= FD_BANK_FLAGS_DEAD;
@@ -964,8 +967,8 @@ fd_banks_subtree_mark_dead( fd_bank_t * bank_pool, fd_bank_t * bank ) {
 
 int
 fd_banks_publish_prepare( fd_banks_t * banks,
-                          fd_hash_t *  target_block_id,
-                          fd_hash_t *  publishable_block_id ) {
+                          fd_eslot_t   target_eslot,
+                          fd_eslot_t * publishable_eslot_out ) {
   /* TODO: An optimization here is to do a single traversal of the tree
      that would mark minority forks as dead while accumulating
      refcnts to determine which bank is the highest publishable. */
@@ -983,16 +986,16 @@ fd_banks_publish_prepare( fd_banks_t * banks,
   }
 
   /* Early exit if target is the same as the old root. */
-  fd_hash_t const * root_block_id = fd_bank_block_id_query( root );
-  if( FD_UNLIKELY( !memcmp( root_block_id, target_block_id, sizeof(fd_hash_t) ) ) ) {
-    FD_LOG_WARNING(( "target block's block_id %s is the same as the old root's block_id %s", FD_BASE58_ENC_32_ALLOCA( target_block_id ), FD_BASE58_ENC_32_ALLOCA( root_block_id ) ));
+  fd_eslot_t root_eslot = fd_bank_eslot_get( root );
+  if( FD_UNLIKELY( root_eslot.id==target_eslot.id ) ) {
+    FD_LOG_WARNING(( "target block (slot %lu, prime %lu) is the same as the old root (slot %lu, prime %lu)", (ulong)target_eslot.slot, (ulong)target_eslot.prime, (ulong)root_eslot.slot, (ulong)root_eslot.prime ));
     fd_rwlock_unread( &banks->rwlock );
     return 0;
   }
 
-  ulong target_bank_idx = fd_banks_map_idx_query_const( bank_map, target_block_id, ULONG_MAX, bank_pool );
+  ulong target_bank_idx = fd_banks_map_idx_query_const( bank_map, &target_eslot, ULONG_MAX, bank_pool );
   if( FD_UNLIKELY( target_bank_idx==ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "failed to get bank idx for target block_id %s", FD_BASE58_ENC_32_ALLOCA( target_block_id ) ));
+    FD_LOG_WARNING(( "failed to get bank idx for target (slot %lu, prime %lu)", (ulong)target_eslot.slot, (ulong)target_eslot.prime ));
     fd_rwlock_unread( &banks->rwlock );
     return 0;
   }
@@ -1014,7 +1017,7 @@ fd_banks_publish_prepare( fd_banks_t * banks,
 
   /* If we didn't reach the old root, target is not a descendant. */
   if( FD_UNLIKELY( prev!=root ) ) {
-    FD_LOG_CRIT(( "target block_id %s is not a descendant of root block_id %s", FD_BASE58_ENC_32_ALLOCA( target_block_id ), FD_BASE58_ENC_32_ALLOCA( root_block_id ) ));
+    FD_LOG_CRIT(( "target (slot %lu, prime %lu) is not a descendant of root (slot %lu, prime %lu)", (ulong)target_eslot.slot, (ulong)target_eslot.prime, (ulong)root_eslot.slot, (ulong)root_eslot.prime ));
   }
 
   /* We know that the majority fork that is not getting pruned off is
@@ -1024,10 +1027,10 @@ fd_banks_publish_prepare( fd_banks_t * banks,
 
   /* Now traverse from root towards target and find the highest
      block that can be pruned. */
-  fd_hash_t const * highest_publishable_block_id = NULL;
-  fd_bank_t *       publishable_bank             = NULL;
-  fd_bank_t *       prune_candidate              = root;
-  int               found_publishable_block      = 0;
+  fd_eslot_t   highest_publishable_eslot = {0};
+  fd_bank_t *  publishable_bank          = NULL;
+  fd_bank_t *  prune_candidate           = root;
+  int          found_publishable_block   = 0;
   while( prune_candidate && prune_candidate->flags & FD_BANK_FLAGS_ROOTED ) {
     fd_bank_t * rooted_child_bank = NULL;
 
@@ -1061,10 +1064,10 @@ fd_banks_publish_prepare( fd_banks_t * banks,
       break;
     }
 
-    highest_publishable_block_id = fd_bank_block_id_query( prune_candidate );
-    publishable_bank             = prune_candidate;
-    prune_candidate              = rooted_child_bank;
-    found_publishable_block      = 1;
+    highest_publishable_eslot = fd_bank_eslot_get( prune_candidate );
+    publishable_bank          = prune_candidate;
+    prune_candidate           = rooted_child_bank;
+    found_publishable_block   = 1;
   }
 
   int advanced_publishable_block = 0;
@@ -1082,14 +1085,16 @@ fd_banks_publish_prepare( fd_banks_t * banks,
       child_idx = sibling->sibling_idx;
     }
     if( FD_LIKELY( rooted_child_bank ) ) {
-      highest_publishable_block_id = fd_bank_block_id_query( rooted_child_bank );
+      highest_publishable_eslot = fd_bank_eslot_get( rooted_child_bank );
     }
 
     /* Write output. */
-    *publishable_block_id = *highest_publishable_block_id;
-    if( FD_LIKELY( memcmp( publishable_block_id, fd_bank_block_id_query( root ), sizeof(fd_hash_t) ) )) {
-      advanced_publishable_block = 1;
-    }
+    *publishable_eslot_out = highest_publishable_eslot;
+
+   if( FD_LIKELY( highest_publishable_eslot.id!=fd_bank_eslot_get( root ).id ) ) {
+    advanced_publishable_block = 1;
+   }
+
   }
 
   /* At this point the highest publishable bank has been identified. */
@@ -1123,20 +1128,20 @@ fd_banks_publish_prepare( fd_banks_t * banks,
 }
 
 fd_bank_t *
-fd_banks_rekey_bank( fd_banks_t *      banks,
-                     fd_hash_t const * old_block_id,
-                     fd_hash_t const * new_block_id ) {
+fd_banks_rekey_bank( fd_banks_t * banks,
+                     fd_eslot_t   old_eslot,
+                     fd_eslot_t   new_eslot ) {
   fd_rwlock_write( &banks->rwlock );
 
   fd_banks_map_t * bank_map  = fd_banks_get_bank_map( banks );
   fd_bank_t *      bank_pool = fd_banks_get_bank_pool( banks );
 
-  fd_bank_t * bank = fd_banks_map_ele_remove( bank_map, old_block_id, NULL, bank_pool );
+  fd_bank_t * bank = fd_banks_map_ele_remove( bank_map, &old_eslot, NULL, bank_pool );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: failed to remove bank from map" ));
   }
 
-  bank->block_id_ = *new_block_id;
+  bank->eslot_ = new_eslot;
 
   fd_banks_map_ele_insert( bank_map, bank, bank_pool );
 
@@ -1189,7 +1194,7 @@ fd_banks_print_helper( fd_bank_t const *  bank,
   for( int i=0; i<space; i++ ) {
     printf( " " );
   }
-  printf( "(Slot: %lu, Block ID: %s Flags: %s)", fd_bank_slot_get( bank ), FD_BASE58_ENC_32_ALLOCA( fd_bank_block_id_query( bank ) ), fd_banks_flags_to_str( bank ) );
+  printf( "(Slot: %lu, Prime %u, Flags: %s)", fd_bank_slot_get( bank ), fd_bank_prime_get( bank ), fd_banks_flags_to_str( bank ) );
 
   fd_bank_t const * curr = fd_banks_pool_ele_const( bank_pool, bank->child_idx );
   while( curr ) {
