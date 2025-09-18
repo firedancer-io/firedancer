@@ -332,7 +332,6 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Finish and print out the topo information                          */
   /**********************************************************************/
-  FD_LOG_WARNING(( "AAAA" ));
   fd_topob_finish( topo, CALLBACKS );
 }
 
