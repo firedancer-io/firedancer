@@ -1539,13 +1539,13 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_eslot_ele_t * publishable_root_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, publishable_root );
 
-  long exacq_start, exacq_end, exrel_end;
-  FD_STORE_EXCLUSIVE_LOCK( ctx->store, exacq_start, exacq_end, exrel_end ) {
-    fd_store_publish( ctx->store, &publishable_root_ele->merkle_root );
-  } FD_STORE_EXCLUSIVE_LOCK_END;
+  FD_HISTF_BENCH_BEGIN( ctx->metrics.store_publish_wait ) {
+    fd_store_exacq( ctx->store );
+  } FD_HISTF_BENCH_END;
 
-  fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
-  fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
+  FD_HISTF_BENCH_BEGIN( ctx->metrics.store_publish_work ) {
+    fd_store_publish( ctx->store, &publishable_root_ele->merkle_root );
+  } FD_HISTF_BENCH_END;
 
   ulong publishable_root_slot = fd_bank_slot_get( bank );
 
@@ -1675,24 +1675,28 @@ process_fec_set( fd_replay_tile_t *  ctx,
      during publishing.  A query against store will rightfully tell us
      that the underlying data is not found, implying that this is for a
      minority fork that we can safely ignore. */
-  long shacq_start, shacq_end, shrel_end;
-  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
-    fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
-    if( FD_UNLIKELY( !store_fec ) ) {
-      /* The only case in which a FEC is not found in the store after
-         repair has notified is if the FEC was on a minority fork that
-         has already been published away.  In this case we abandon the
-         entire slice because it is no longer relevant.  */
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ) ));
-      return;
-    }
-    FD_TEST( store_fec );
-    sched_fec->fec       = store_fec;
-    sched_fec->shred_cnt = reasm_fec->data_cnt;
-  } FD_STORE_SHARED_LOCK_END;
 
-  fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
-  fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
+  FD_HISTF_BENCH_BEGIN( ctx->metrics.store_read_wait ) {
+    fd_store_shacq( ctx->store );
+  } FD_HISTF_BENCH_END;
+
+  fd_store_fec_t * store_fec = NULL;
+  FD_HISTF_BENCH_BEGIN( ctx->metrics.store_read_wait ) {
+    store_fec = fd_store_query( ctx->store, &reasm_fec->key );
+  } FD_HISTF_BENCH_END;
+
+  fd_store_shrel( ctx->store );
+
+  if( FD_UNLIKELY( !store_fec ) ) {
+    /* The only case in which a FEC is not found in the store after
+        repair has notified is if the FEC was on a minority fork that
+        has already been published away.  In this case we abandon the
+        entire slice because it is no longer relevant.  */
+    FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ) ));
+    return;
+  }
+  sched_fec->fec       = store_fec;
+  sched_fec->shred_cnt = reasm_fec->data_cnt;
 
   /* Update the eslot_mgr with the incoming FEC.  This will detect any
      equivocation that may have occurred and return the corresponding

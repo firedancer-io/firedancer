@@ -239,6 +239,39 @@ fd_histf_subtract( fd_histf_t const * hist, fd_histf_t const * prefix_hist, fd_h
    for( ulong b=0UL; b<FD_HISTF_BUCKET_CNT; b++ ) out->left_edge[ b ] = hist->left_edge[ b ];
 }
 
+/* FD_HISTF_BENCH_BEGIN/END:  Benchmark a code block and record the
+   elapsed time in the given histogram metric.  The construct:
+
+     FD_HISTF_BENCH_BEGIN( spad )
+       ... code block ...
+     FD_HISTF_BENCH_END
+
+   is exactly equivalent linguistically to:
+
+     do
+       ... code block ...
+     while(0)
+
+   but code block is timed with tickcount and fd_histf_sample is called
+   when the code block exits. */
+
+struct fd_histf_bench {
+  fd_histf_t * histf;
+  long         ts;
+};
+typedef struct fd_histf_bench fd_histf_bench_t;
+
+static inline void
+fd_histf_bench( fd_histf_bench_t * ctx ) {
+  fd_histf_sample( ctx->histf, (ulong)fd_long_max( fd_tickcount() - ctx->ts, 0UL ) );
+}
+
+#define FD_HISTF_BENCH_BEGIN(metric) do {                                                                                \
+   fd_histf_bench_t _ctx __attribute__((cleanup(fd_histf_bench))) = { .histf = (metric), .ts = fd_tickcount() }; \
+   do
+
+#define FD_HISTF_BENCH_END while(0); } while(0)
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_hist_fd_histf_h */

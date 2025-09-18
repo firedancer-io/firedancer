@@ -491,17 +491,6 @@
 
 </div>
 
-## Storei Tile
-
-<div class="metrics">
-
-| Metric | Type | Description |
-|--------|------|-------------|
-| <span class="metrics-name">storei_&#8203;first_&#8203;turbine_&#8203;slot</span> | gauge |  |
-| <span class="metrics-name">storei_&#8203;current_&#8203;turbine_&#8203;slot</span> | gauge |  |
-
-</div>
-
 ## Gossip Tile
 
 <div class="metrics">
@@ -1051,5 +1040,16 @@
 | <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
 | <span class="metrics-name">resolf_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
 | <span class="metrics-name">resolf_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+
+</div>
+
+## Tower Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">tower_&#8203;vote_&#8203;slot</span> | histogram | Time in seconds spent computing vote slot |
+| <span class="metrics-name">tower_&#8203;reset_&#8203;slot</span> | histogram | Time in seconds spent computing reset slot |
 
 </div>

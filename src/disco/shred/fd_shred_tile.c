@@ -1031,11 +1031,17 @@ after_frag( fd_shred_ctx_t *    ctx,
          understand why it is safe to use a Store read vs. write lock in
          Shred tile. */
 
-      long shacq_start, shacq_end, shrel_end;
+      FD_HISTF_BENCH_BEGIN( ctx->metrics->store_insert_wait ) {
+        fd_store_shacq( ctx->store );
+      } FD_HISTF_BENCH_END;
+
       fd_store_fec_t * fec = NULL;
-      FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+      FD_HISTF_BENCH_BEGIN( ctx->metrics->store_insert_work ) {
         fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_root ) );
-      } FD_STORE_SHARED_LOCK_END;
+      } FD_HISTF_BENCH_END;
+
+      fd_store_shrel( ctx->store );
+      if( FD_UNLIKELY( !fec ) ) FD_LOG_CRIT(( "Shred tile failed to insert a FEC set into the store.  The store is either ran out of memory or was corrupted and Firedancer needs to be restarted." ));
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
@@ -1050,23 +1056,22 @@ after_frag( fd_shred_ctx_t *    ctx,
 
           FD_LOG_CRIT(( "Shred tile %lu: completed FEC set %lu %u data_sz: %lu exceeds FD_STORE_DATA_MAX: %lu. Ignoring FEC set.", ctx->round_robin_id, data_shred->slot, data_shred->fec_set_idx, fec->data_sz + payload_sz, FD_STORE_DATA_MAX ));
         }
+
+        /* It's safe to memcpy the FEC payload outside of the
+           shared-lock, because the fec object ptr is guaranteed to be
+           valid.  It is not possible for a store_publish to
+           free/invalidate the fec object during the data memcpy,
+           because the free can only happen after the fec is linked to
+           its parent, which happens in the repair tile, and crucially,
+           only after we call stem publish in this tile.  Copying
+           outside the shared lock scope also means that we can lower
+           the duration for which the shared lock is held, and enables
+           replay to acquire the exclusive lock and avoid getting
+           starved. */
+
         fd_memcpy( fec->data + fec->data_sz, fd_shred_data_payload( data_shred ), payload_sz );
         fec->data_sz += payload_sz;
       }
-
-      /* It's safe to memcpy the FEC payload outside of the shared-lock,
-         because the fec object ptr is guaranteed to be valid.  It is
-         not possible for a store_publish to free/invalidate the fec
-         object during the data memcpy, because the free can only happen
-         after the fec is linked to its parent, which happens in the
-         repair tile, and crucially, only after we call stem publish in
-         this tile.  Copying outside the shared lock scope also means
-         that we can lower the duration for which the shared lock is
-         held, and enables replay to acquire the exclusive lock and
-         avoid getting starved. */
-
-      fd_histf_sample( ctx->metrics->store_insert_wait, (ulong)fd_long_max(shacq_end - shacq_start, 0) );
-      fd_histf_sample( ctx->metrics->store_insert_work, (ulong)fd_long_max(shrel_end - shacq_end,   0) );
     }
 
     if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer-only */

@@ -34,6 +34,7 @@ class Tile(Enum):
     GOSSVF = 28
     BANKF = 29
     RESOLF = 30
+    TOWER = 31
 
 class MetricType(Enum):
     COUNTER = 0
