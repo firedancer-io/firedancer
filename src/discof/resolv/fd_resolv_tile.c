@@ -1,6 +1,8 @@
 #include "fd_resolv_tile.h"
+#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../bank/fd_bank_err.h"
-#include "../../disco/tiles.h"
+#include "../replay/fd_replay_tile.h"
 #include "generated/fd_resolv_tile_seccomp.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
@@ -155,8 +157,8 @@ typedef struct {
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
-  fd_resolv_rooted_slot_t   _rooted_slot_msg;
-  fd_resov_completed_slot_t _completed_slot_msg;
+  fd_replay_root_advanced_t  _rooted_slot_msg;
+  fd_replay_slot_completed_t _completed_slot_msg;
 
   struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
@@ -227,10 +229,10 @@ during_frag( fd_resolv_ctx_t * ctx,
       break;
     }
     case FD_RESOLV_IN_KIND_REPLAY: {
-      if( FD_UNLIKELY( sig==FD_RESOLV_ROOTED_SLOT_SIG ) ) {
-        ctx->_rooted_slot_msg = *(fd_resolv_rooted_slot_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-      } else if( FD_UNLIKELY( sig==FD_RESOLV_COMPLETED_SLOT_SIG ) ) {
-        ctx->_completed_slot_msg = *(fd_resov_completed_slot_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+      if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
+        ctx->_rooted_slot_msg = *(fd_replay_root_advanced_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+        ctx->_completed_slot_msg = *(fd_replay_slot_completed_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
       } else {
         FD_LOG_ERR(( "invariant violation: unknown sig %lu", sig ));
       }
@@ -341,8 +343,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_REPLAY ) ) {
     switch( sig ) {
-      case FD_RESOLV_COMPLETED_SLOT_SIG: {
-        fd_resov_completed_slot_t const * msg = &ctx->_completed_slot_msg;
+      case REPLAY_SIG_SLOT_COMPLETED: {
+        fd_replay_slot_completed_t const * msg = &ctx->_completed_slot_msg;
 
         /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
         if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
@@ -350,21 +352,21 @@ after_frag( fd_resolv_ctx_t *   ctx,
           if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
         }
 
-        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->blockhash, 32UL );
+        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
         ctx->blockhash_ring_idx++;
 
-        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->blockhash );
+        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
         blockhash->slot = msg->slot;
 
-        blockhash_t * hash = (blockhash_t *)msg->blockhash;
+        blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
         ctx->flushing_slot   = msg->slot;
 
         ctx->completed_slot = msg->slot;
         break;
       }
-      case FD_RESOLV_ROOTED_SLOT_SIG: {
-        fd_resolv_rooted_slot_t const * msg = &ctx->_rooted_slot_msg;
+      case REPLAY_SIG_ROOT_ADVANCED: {
+        fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
         /* Replace current bank with new bank */
         ulong prev_bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->bank );
@@ -384,6 +386,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         break;
       }
+      case REPLAY_SIG_VOTE_STATE: break;
       default:
         FD_LOG_ERR(( "unknown sig %lu", sig ));
     }

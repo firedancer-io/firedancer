@@ -1,10 +1,8 @@
 #ifndef HEADER_fd_src_discof_rpcserver_fd_block_to_json_h
 #define HEADER_fd_src_discof_rpcserver_fd_block_to_json_h
 
-#include "../../util/fd_util.h"
-
+#include "../replay/fd_replay_tile.h"
 #include "../../ballet/txn/fd_txn.h"
-#include "../../discof/replay/fd_replay_notif.h"
 
 typedef struct fd_webserver fd_webserver_t;
 
@@ -40,8 +38,8 @@ const char* fd_block_to_json( fd_webserver_t * ws,
                               const char * call_id,
                               const uchar * blk_data,
                               ulong blk_sz,
-                              fd_replay_notif_msg_t * info,
-                              fd_replay_notif_msg_t * parent_info,
+                              fd_replay_slot_completed_t * info,
+                              fd_replay_slot_completed_t * parent_info,
                               fd_rpc_encoding_t encoding,
                               long maxvers,
                               enum fd_block_detail detail,

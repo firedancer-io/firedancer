@@ -5,9 +5,7 @@
       "request": "launch",
       "name": "testnet",
       "program": "${workspaceRoot}/build/native/gcc/bin/firedancer-dev",
-      "args": [
-        "--testnet"
-      ],
+      "args": [],
       "env": [],
       "cwd": "${workspaceRoot}",
       "preLaunchTask": "build-firedancer-dev",

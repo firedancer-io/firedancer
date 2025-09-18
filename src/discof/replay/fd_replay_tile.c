@@ -1,7 +1,8 @@
 #include "fd_sched.h"
+#include "fd_exec.h"
+#include "fd_replay_tile.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
-#include "fd_replay_notif.h"
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
@@ -356,13 +357,11 @@ struct fd_replay_tile {
   int in_kind[ 64 ];
   fd_replay_in_link_t in[ 64 ];
 
-  fd_replay_out_link_t notif_out[1];
+  fd_replay_out_link_t replay_out[1];
+
   fd_replay_out_link_t stake_out[1];
   fd_replay_out_link_t shredcap_out[1];
-  fd_replay_out_link_t tower_out[1];
-  fd_replay_out_link_t replay_out[1];
   fd_replay_out_link_t pack_out[1];
-  fd_replay_out_link_t resolv_out[1];
 
   struct {
     fd_histf_t store_read_wait[ 1 ];
@@ -430,41 +429,6 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
 
   fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
   fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
-}
-
-static void
-publish_slot_notifications( fd_replay_tile_t *  ctx,
-                            fd_stem_context_t * stem,
-                            ulong               block_entry_block_height,
-                            fd_bank_t const *   bank ) {
-  if( FD_LIKELY( ctx->notif_out->idx==ULONG_MAX ) ) return;
-
-  ulong curr_slot = fd_bank_slot_get( bank );
-
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong slot_idx;
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, curr_slot, &slot_idx );
-
-  fd_replay_notif_msg_t * msg = fd_chunk_to_laddr( ctx->notif_out->mem, ctx->notif_out->chunk );
-  msg->slot_exec.ts                = fd_log_wallclock();
-  msg->type                        = FD_REPLAY_SLOT_TYPE;
-  msg->slot_exec.slot              = curr_slot;
-  msg->slot_exec.epoch             = epoch;
-  msg->slot_exec.slot_in_epoch     = slot_idx;
-  msg->slot_exec.parent            = fd_bank_parent_slot_get( bank );
-  msg->slot_exec.root              = ctx->consensus_root_slot;
-  msg->slot_exec.height            = block_entry_block_height;
-  msg->slot_exec.transaction_count = fd_bank_txn_count_get( bank );
-  msg->slot_exec.shred_cnt         = fd_bank_shred_cnt_get( bank );
-  msg->slot_exec.bank_hash         = fd_bank_bank_hash_get( bank );
-
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
-  fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
-  FD_TEST( last_hash );
-  msg->slot_exec.block_hash = *last_hash;
-
-  fd_stem_publish( stem, ctx->notif_out->idx, 0UL, ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->notif_out->chunk = fd_dcache_compact_next( ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), ctx->notif_out->chunk0, ctx->notif_out->wmark );
 }
 
 /**********************************************************************/
@@ -573,9 +537,10 @@ publish_next_vote_tower( fd_replay_tile_t *  ctx,
   int som = ctx->vote_tower_out_idx==0;
   int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
 
-  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   *vote_state = ctx->vote_tower_out[ ctx->vote_tower_out_idx ];
-  fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_VOTE_STATE, ctx->tower_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) ); ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_tower_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_VOTE_STATE, ctx->replay_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_tower_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->vote_tower_out_idx++;
 }
@@ -826,6 +791,48 @@ replay_ctx_switch( fd_replay_tile_t * ctx,
 }
 
 static void
+publish_slot_completed( fd_replay_tile_t *  ctx,
+                        fd_stem_context_t * stem,
+                        fd_bank_t *         bank ) {
+  ulong slot = fd_bank_slot_get( bank );
+
+  fd_bank_t const * parent_block = fd_banks_get_parent( ctx->banks, bank );
+
+  fd_hash_t const * block_id        = fd_bank_block_id_query( bank );
+  fd_hash_t const * parent_block_id = parent_block ? fd_bank_block_id_query( parent_block ) : block_id;
+  fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( parent_block_id );
+  FD_TEST( bank_hash       );
+  FD_TEST( block_hash      );
+
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong slot_idx;
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
+
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  slot_info->slot          = slot;
+  slot_info->root_slot     = ctx->consensus_root_slot;
+  slot_info->epoch         = epoch;
+  slot_info->slot_in_epoch = slot_idx;
+  slot_info->block_height  = fd_bank_block_height_get( bank );
+  slot_info->parent_slot   = fd_bank_parent_slot_get( bank );
+
+  slot_info->completion_time_nanos = fd_log_wallclock();
+
+  slot_info->block_id        = *block_id;
+  slot_info->parent_block_id = *parent_block_id;
+  slot_info->bank_hash       = *bank_hash;
+  slot_info->block_hash      = *block_hash;
+
+  slot_info->transaction_count = fd_bank_txn_count_get( ctx->slot_ctx->bank );
+  slot_info->shred_count       = fd_bank_shred_cnt_get( ctx->slot_ctx->bank );
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
+static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem ) {
   if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
@@ -855,61 +862,14 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_runtime_block_execute_finalize( ctx->slot_ctx );
   bank->flags |= FD_BANK_FLAGS_FROZEN;
 
-  ulong block_entry_height = fd_bank_block_height_get( bank );
-  publish_slot_notifications( ctx, stem, block_entry_height, bank );
+  publish_slot_completed( ctx, stem, bank );
 
-  /* Construct the end of slot notification message */
-  fd_replay_slot_info_t slot_info[1];
-  slot_info->slot            = curr_slot;
-  slot_info->block_id        = *block_id;
-  slot_info->parent_block_id = *parent_block_id;
-  slot_info->bank_hash       = *bank_hash;
-  slot_info->block_hash      = *block_hash;
+  /* Copy the vote tower of all the vote accounts into the buffer,
+     which will be published in after_credit. */
+  buffer_vote_towers( ctx );
 
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * replay_slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    *replay_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  }
-
-  /* Send Tower the state needed for processing the end of a slot. We
-     send a message with the summary information, and then buffer the
-     state of each vote account to be sent in after_credit so that we
-     don't have to burst all the vote state messages in one go.
-f
-     TODO: potentially send only the vote states of the vote accounts
-           that voted in this slot. Not clear whether this is worth the
-           complexity. */
-
-  if( FD_LIKELY( ctx->tower_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * tower_slot_info = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-    *tower_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
-
-    /* Copy the vote tower of all the vote accounts into the buffer,
-       which will be published in after_credit. */
-    buffer_vote_towers( ctx );
-  }
-
-  /* Send resolve tile the slot and the blockhash */
-  if( FD_LIKELY( ctx->resolv_out->idx!=ULONG_MAX ) ) {
-    fd_resov_completed_slot_t * msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
-    msg->slot = curr_slot;
-    memcpy( msg->blockhash, block_hash, sizeof(fd_hash_t) );
-    fd_stem_publish(
-      stem,
-      ctx->resolv_out->idx,
-      FD_RESOLV_COMPLETED_SLOT_SIG,
-      ctx->resolv_out->chunk,
-      sizeof(fd_resov_completed_slot_t),
-      0UL,
-      fd_frag_meta_ts_comp( fd_tickcount() ),
-      fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resov_completed_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
-  }
-
+  /* TODO: Don't think we want to reset pack/poh here? Should probably
+     be deleted. */
   if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
 
@@ -942,7 +902,7 @@ f
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
 
-  if( ctx->shredcap_out->idx!=ULONG_MAX ) {
+  if( FD_UNLIKELY( ctx->shredcap_out->idx!=ULONG_MAX ) ) {
     /* TODO: We need some way to define common headers. */
     uchar *           chunk_laddr = fd_chunk_to_laddr( ctx->shredcap_out->mem, ctx->shredcap_out->chunk );
     fd_hash_t const * bank_hash   = fd_bank_bank_hash_query( bank );
@@ -1105,84 +1065,25 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_runtime_block_execute_finalize( &slot_ctx );
 
-  ulong block_entry_height = fd_bank_block_height_get( bank );
-  publish_slot_notifications( ctx, stem, block_entry_height, bank );
+  publish_slot_completed( ctx, stem, bank );
 
-  /* Construct the end of slot notification message */
-
-  fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
-  fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-  FD_TEST( bank_hash       );
-  FD_TEST( block_hash      );
-
-  fd_hash_t const * block_id        = fd_bank_block_id_query( bank );
-  fd_hash_t const * parent_block_id = fd_bank_parent_block_id_query( bank );
-
-  fd_replay_slot_info_t slot_info[1];
-  slot_info->slot            = curr_slot;
-  slot_info->block_id        = *block_id;
-  slot_info->parent_block_id = *parent_block_id;
-  slot_info->bank_hash       = *bank_hash;
-  slot_info->block_hash      = *block_hash;
-
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * replay_slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    *replay_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  }
-
-  /* Send Tower the state needed for processing the end of a slot. We
-     send a message with the summary information, and then buffer the
-     state of each vote account to be sent in after_credit so that we
-     don't have to burst all the vote state messages in one go.
-     TODO: potentially send only the vote states of the vote accounts
-           that voted in this slot. Not clear whether this is worth the
-           complexity. */
-
-  if( FD_LIKELY( ctx->tower_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * tower_slot_info = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-    *tower_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
-
-    /* Copy the vote tower of all the vote accounts into the buffer,
-       which will be published in after_credit. */
-    buffer_vote_towers( ctx );
-  }
-
-  /* Send resolve tile the slot and the blockhash */
-  if( FD_LIKELY( ctx->resolv_out->idx!=ULONG_MAX ) ) {
-    fd_resov_completed_slot_t * msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
-    msg->slot = curr_slot;
-    memcpy( msg->blockhash, block_hash, sizeof(fd_hash_t) );
-    fd_stem_publish(
-      stem,
-      ctx->resolv_out->idx,
-      FD_RESOLV_COMPLETED_SLOT_SIG,
-      ctx->resolv_out->chunk,
-      sizeof(fd_resov_completed_slot_t),
-      0UL,
-      fd_frag_meta_ts_comp( fd_tickcount() ),
-      fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resov_completed_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
-  }
+  /* Copy the vote tower of all the vote accounts into the buffer,
+      which will be published in after_credit. */
+  buffer_vote_towers( ctx );
 }
 
 static void
-notify_resolv_of_new_consensus_root( fd_replay_tile_t *  ctx,
+publish_root_advanced( fd_replay_tile_t *  ctx,
                                      fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( ctx->resolv_out->idx==ULONG_MAX ) ) return;
-
   fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, &ctx->consensus_root );
   FD_TEST( consensus_root_bank );
   consensus_root_bank->refcnt += ctx->resolv_tile_cnt;
 
-  fd_resolv_rooted_slot_t * rooted_slot_msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
-  rooted_slot_msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
+  fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
 
-  fd_stem_publish( stem, ctx->resolv_out->idx, FD_RESOLV_ROOTED_SLOT_SIG, ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_ROOT_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
 static void
@@ -1367,6 +1268,38 @@ unbecome_leader( fd_replay_tile_t *                 ctx,
 }
 
 static void
+publish_reset( fd_replay_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               fd_bank_t const *   bank ) {
+  if( FD_LIKELY( ctx->pack_out->idx==ULONG_MAX ) ) return;
+
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( block_hash );
+
+  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+
+  reset->completed_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+  reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+  reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+  fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
+
+  ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    reset->max_microblocks_in_slot = ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
+  }
+  reset->next_leader_slot = ctx->next_leader_slot;
+
+  ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
+  fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+}
+
+static void
 boot_genesis( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               ulong               in_idx,
@@ -1404,81 +1337,15 @@ boot_genesis( fd_replay_tile_t *  ctx,
   eslot_mgr_insert( ctx, 0UL, &genesis_block_id, (fd_eslot_t){ .id=ULONG_MAX } );
   ctx->consensus_root_slot = 0UL;
   ctx->published_root_slot = 0UL;
-  notify_resolv_of_new_consensus_root( ctx, stem );
   fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = 0UL, .prime = 0UL }, NULL );
-
-  /* Publish slot notifs */
-  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-  ulong block_entry_height = 0;
-
-  /* Block after genesis has a height of 1.
-     TODO: We should be able to query slot 1 block_map entry to get this
-     (using the above for loop), but blockstore/fork setup on genesis is
-     broken for now. */
-  block_entry_height = 1UL;
-
-  publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
-
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_hash_t   parent_block_id = {0};
-    fd_bank_t * bank            = ctx->slot_ctx->bank;
-
-    fd_hash_t const * block_id = fd_bank_block_id_query( bank );
-
-    fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
-    if( FD_UNLIKELY( !bank_hash ) ) {
-      FD_LOG_CRIT(( "invariant violation: bank_hash is NULL for slot %lu", curr_slot ));
-    }
-    fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-    if( FD_UNLIKELY( !block_hash ) ) {
-      FD_LOG_CRIT(( "invariant violation: block_hash is NULL for slot %lu", curr_slot ));
-    }
-    fd_replay_slot_info_t out = {
-      .slot            = 0UL,
-      .block_id        = *block_id,
-      .parent_block_id = parent_block_id,
-      .bank_hash       = *bank_hash,
-      .block_hash      = *block_hash,
-    };
-
-    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  }
 
   ctx->reset_slot = 0UL;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
 
-  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
-    fd_bank_t * bank = ctx->slot_ctx->bank;
-
-    fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-    FD_TEST( block_hash );
-
-    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
-
-    reset->completed_slot = curr_slot;
-    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
-    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
-    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
-    fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
-
-    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
-    if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      reset->max_microblocks_in_slot = ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
-    }
-    reset->next_leader_slot = ctx->next_leader_slot;
-
-    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
-    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
-  }
+  publish_slot_completed( ctx, stem, ctx->slot_ctx->bank );
+  publish_root_advanced( ctx, stem );
+  publish_reset( ctx, stem, ctx->slot_ctx->bank );
 
   ctx->is_booted = 1;
   maybe_become_leader( ctx, stem );
@@ -1531,12 +1398,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx );
-    notify_resolv_of_new_consensus_root( ctx, stem );
-
-    ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
-    publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
 
     ctx->slot_ctx->bank->flags |= FD_BANK_FLAGS_FROZEN;
+
+    publish_slot_completed( ctx, stem, ctx->slot_ctx->bank );
+    publish_root_advanced( ctx, stem );
 
     return;
   }
@@ -1837,13 +1703,14 @@ process_tower_update( fd_replay_tile_t *           ctx,
 
   if( FD_LIKELY( msg->new_root ) ) {
     /* We have recieved a root message.  We don't want to update the
-      rooted slot and block id if we are processing the genesis block. */
+       rooted slot and block id if we are processing the genesis block. */
     if( FD_UNLIKELY( !fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) return;
 
+    FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     ctx->consensus_root_slot = msg->root_slot;
     ctx->consensus_root      = msg->root_block_id;
-    notify_resolv_of_new_consensus_root( ctx, stem );
 
+    publish_root_advanced( ctx, stem );
     advance_published_root( ctx );
   }
 }
@@ -2199,15 +2066,12 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
-  *ctx->notif_out        = out1( topo, tile, "replay_notif" );
   *ctx->shredcap_out     = out1( topo, tile, "replay_scap" );
-  *ctx->tower_out        = out1( topo, tile, "replay_tower" );
   *ctx->plugin_out       = out1( topo, tile, "replay_plugi" );
   *ctx->votes_plugin_out = out1( topo, tile, "votes_plugin" ); /* TODO: Delete this */
   *ctx->stake_out        = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   *ctx->replay_out       = out1( topo, tile, "replay_out" );
   *ctx->pack_out         = out1( topo, tile, "replay_pack" );
-  *ctx->resolv_out       = out1( topo, tile, "replay_resol" );
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );

@@ -6,7 +6,7 @@
    backtest-------------->replay------------->exec------------->writer
      ^                    |^ | |                                   ^
      |____________________|| | |___________________________________|
-          replay_notif     | |
+          replay_out       | |
                            | |------------------------------>no consumer
     no producer-------------  stake_out, send_out, poh_out
                 store_replay
@@ -22,6 +22,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
 #include "../../../discof/reasm/fd_reasm.h"
@@ -194,11 +195,11 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
 
   fd_topob_wksp( topo, "replay_out"   );
-  fd_topob_link( topo, "replay_out", "replay_out", 128UL, sizeof( fd_replay_slot_info_t ), 1UL );
+  fd_topob_link( topo, "replay_out", "replay_out", 8192UL, sizeof( fd_replay_message_t ), 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_out", 0UL );
   fd_topob_tile_in ( topo, "back", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_tile_in ( topo, "back", 0UL, "metric_in", "snap_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in ( topo, "back", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/
@@ -331,6 +332,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   /* Finish and print out the topo information                          */
   /**********************************************************************/
+  FD_LOG_WARNING(( "AAAA" ));
   fd_topob_finish( topo, CALLBACKS );
 }
 
