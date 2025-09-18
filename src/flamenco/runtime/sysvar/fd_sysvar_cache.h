@@ -57,6 +57,7 @@ struct fd_sysvar_cache {
   uchar bin_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_BINCODE_SZ ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_last_restart_slot [ FD_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT  ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ     ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
+  uchar obj_recent_hashes     [ FD_SYSVAR_RECENT_HASHES_FOOTPRINT      ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_rent              [ FD_SYSVAR_RENT_BINCODE_SZ              ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar obj_rent              [ FD_SYSVAR_RENT_FOOTPRINT               ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
   uchar bin_slot_hashes       [ FD_SYSVAR_SLOT_HASHES_BINCODE_SZ       ] __attribute__((aligned(FD_SYSVAR_ALIGN_MAX)));
@@ -257,6 +258,17 @@ static inline int
 fd_sysvar_cache_recent_hashes_is_valid( fd_sysvar_cache_t const * sysvar_cache ) {
   return FD_SYSVAR_IS_VALID( sysvar_cache, recent_hashes );
 }
+
+fd_block_block_hash_entry_t const * /* deque */
+fd_sysvar_cache_recent_hashes_join_const(
+    fd_sysvar_cache_t const * sysvar_cache
+);
+
+void
+fd_sysvar_cache_recent_hashes_leave_const(
+    fd_sysvar_cache_t const *           sysvar_cache,
+    fd_block_block_hash_entry_t const * hashes_deque
+);
 
 /* fd_sysvar_cache_slot_hashes_{join,leave}_const {attach,detach} the
    caller {from,to} the slot hashes deque contained in the slot hashes
