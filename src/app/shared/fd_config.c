@@ -311,9 +311,9 @@ fd_config_fill( fd_config_t * config,
     int truecolor = cstr && !strcmp( cstr, "truecolor" );
 
     cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    int xterm256color = cstr && !strcmp( cstr, "xterm-256color" );
+    int color256 = cstr && strstr( cstr, "256color" );
 
-    config->log.colorize1 = truecolor || xterm256color;
+    config->log.colorize1 = truecolor || color256;
   }
 
   config->log.level_logfile1 = parse_log_level( config->log.level_logfile );

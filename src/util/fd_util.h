@@ -208,7 +208,7 @@ FD_PROTOTYPES_BEGIN
 
        A non-zero colorize indicates stderr log messages should be
        colorized.  default is disabled unless either
-       COLORTERM==truecolor or TERM==xterm-256color in the environment.
+       COLORTERM==truecolor or TERM==*256color* in the environment.
        (This can also be enabled / disabled on the fly by the program
        itself.) Note that the permanent log is _never_ colorized to aid
        in robust log file message archiving.

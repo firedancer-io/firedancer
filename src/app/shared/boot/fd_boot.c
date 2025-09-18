@@ -67,7 +67,7 @@ should_colorize( void ) {
   if( cstr && !strcmp( cstr, "truecolor" ) ) return 1;
 
   cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-  if( cstr && !strcmp( cstr, "xterm-256color" ) ) return 1;
+  if( cstr && strstr( cstr, "256color" ) ) return 1;
   return 0;
 }
 
