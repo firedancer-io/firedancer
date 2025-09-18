@@ -115,14 +115,15 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
   FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
   fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->retrieving = 0;
-  fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->shred_version );
+  FD_LOG_WARNING(( "returnable_frag" ));
+  FD_LOG_WARNING(( "returnable_frag2" ));
 
   return 0;
 }
 
 static void
-unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -226,7 +227,7 @@ fd_topo_run_tile_t fd_tile_ipecho = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
-  .unprivileged_init        = unprivileged_init,
+  .privileged_init          = privileged_init,
   .run                      = stem_run,
   .allow_connect            = 1,
   .keep_host_networking     = 1

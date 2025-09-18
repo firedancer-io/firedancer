@@ -1,6 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../funk/fd_funk.h"
-#include "generated/fd_genesi_tile_seccomp.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -12,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "generated/fd_genesi_tile_seccomp.h"
 struct fd_genesi_tile {
   int fd;
 
