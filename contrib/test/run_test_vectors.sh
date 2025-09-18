@@ -23,23 +23,23 @@ fi
 
 mkdir -p dump
 
-# GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
+GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
 
-# echo $GIT_REF
+echo $GIT_REF
 
-# if [ ! -d dump/test-vectors ]; then
-#   cd dump
-#   git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
-#   cd test-vectors
-# else
-#   cd dump/test-vectors
-# fi
+if [ ! -d dump/test-vectors ]; then
+  cd dump
+  git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
+  cd test-vectors
+else
+  cd dump/test-vectors
+fi
 
-# if ! git checkout -q $GIT_REF; then
-#   git remote update
-#   git checkout -q FETCH_HEAD
-# fi
-# cd ../..
+if ! git checkout -q $GIT_REF; then
+  git remote update
+  git checkout -q FETCH_HEAD
+fi
+cd ../..
 
 WKSP=run-test-vectors
 # If workspace already exists, reset it (and hope that it has the correct size)
