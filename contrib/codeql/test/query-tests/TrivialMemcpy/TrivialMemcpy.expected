@@ -1,0 +1,15 @@
+| TrivialMemcpy.c:57:5:57:10 | call to memcpy | Call to memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:58:5:58:13 | call to fd_memcpy | Call to fd_memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:59:5:59:20 | call to __builtin_memcpy | Call to __builtin_memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:61:5:61:10 | call to memcpy | Call to memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:62:5:62:13 | call to fd_memcpy | Call to fd_memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:63:5:63:20 | call to __builtin_memcpy | Call to __builtin_memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:67:5:67:10 | call to memcpy | Call to memcpy could be rewritten as an assignment.with_array * |
+| TrivialMemcpy.c:68:5:68:13 | call to fd_memcpy | Call to fd_memcpy could be rewritten as an assignment.with_array * |
+| TrivialMemcpy.c:69:5:69:20 | call to __builtin_memcpy | Call to __builtin_memcpy could be rewritten as an assignment.with_array * |
+| TrivialMemcpy.c:71:5:71:10 | call to memcpy | Call to memcpy could be rewritten as an assignment.with_array * |
+| TrivialMemcpy.c:72:5:72:13 | call to fd_memcpy | Call to fd_memcpy could be rewritten as an assignment.with_array * |
+| TrivialMemcpy.c:73:5:73:20 | call to __builtin_memcpy | Call to __builtin_memcpy could be rewritten as an assignment.with_array * |
+| TrivialMemcpy.c:89:5:89:10 | call to memcpy | Call to memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:92:5:92:13 | call to fd_memcpy | Call to fd_memcpy could be rewritten as an assignment.foo * |
+| TrivialMemcpy.c:93:5:93:20 | call to __builtin_memcpy | Call to __builtin_memcpy could be rewritten as an assignment.foo * |
