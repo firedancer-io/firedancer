@@ -48,10 +48,17 @@ struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
 
   uint  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
   uint  rec_tail_idx;      /* "                       last          " */
-  uchar lock;              /* Internal use by funk for sychronizing modifications to txn object */
+
+  uchar state;
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;
+
+#define FD_FUNK_TXN_STATE_DEAD     0
+#define FD_FUNK_TXN_STATE_PREPARE  1
+#define FD_FUNK_TXN_STATE_WRITABLE 2
+#define FD_FUNK_TXN_STATE_FROZEN   3
+#define FD_FUNK_TXN_STATE_RETIRING 4
 
 /* fd_funk_txn_map allows for indexing transactions by their xid */
 
@@ -89,41 +96,6 @@ static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN
 
 /* Generate a globally unique pseudo-random xid */
 fd_funk_txn_xid_t fd_funk_generate_xid(void);
-
-/* Concurrency control */
-
-/* APIs for marking the start and end of operations that read or write to
-   the Funk transactions.
-
-   IMPORTANT SAFETY TIP
-
-   The following APIs need the write lock:
-   - fd_funk_txn_prepare
-   - fd_funk_txn_publish
-   - fd_funk_txn_publish_into_parent
-   - fd_funk_txn_cancel
-   - fd_funk_txn_cancel_siblings
-   - fd_funk_txn_cancel_children
-
-   The following APIs need the read lock:
-   - fd_funk_txn_ancestor
-   - fd_funk_txn_descendant
-   - fd_funk_txn_all_iter
-
-   TODO: in future we may be able to make these lock-free, but they are called
-   infrequently so not sure how much of a gain this would be.
-   */
-void
-fd_funk_txn_start_read( fd_funk_t * funk );
-
-void
-fd_funk_txn_end_read( fd_funk_t * funk );
-
-void
-fd_funk_txn_start_write( fd_funk_t * funk );
-
-void
-fd_funk_txn_end_write( fd_funk_t * funk );
 
 /* Accessors */
 
@@ -356,9 +328,9 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
    least).  That is, we can scalably track forks until we run out of
    resources allocated to the funk. */
 
-fd_funk_txn_t *
+fd_funk_txn_xid_t const *
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * parent,
                      fd_funk_txn_xid_t const * xid,
                      int                       verbose );
 
@@ -393,9 +365,9 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
    the funk. */
 
 ulong
-fd_funk_txn_cancel( fd_funk_t *     funk,
-                    fd_funk_txn_t * txn,
-                    int             verbose );
+fd_funk_txn_cancel( fd_funk_t *               funk,
+                    fd_funk_txn_xid_t const * txn_xid,
+                    int                       verbose );
 
 ulong
 fd_funk_txn_cancel_siblings( fd_funk_t *     funk,

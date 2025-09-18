@@ -8,7 +8,12 @@
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
+<<<<<<< Updated upstream
 #include "../../disco/tiles.h"
+=======
+#include "../../flamenco/accdb/fd_accdb_manager.h"
+#include "../../flamenco/runtime/fd_svm_account.h"
+>>>>>>> Stashed changes
 #include "../../disco/store/fd_store.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_exec.h"
@@ -134,6 +139,7 @@ struct fd_replay_tile {
 
   /* Funk */
   fd_funk_t funk[1];
+  fd_accdb_manager_t accdb[1];
 
   /* Store */
   fd_store_t * store;
@@ -482,56 +488,38 @@ publish_slot_notifications( fd_replay_tile_t *  ctx,
    - stake:          The stake amount associated with this vote account
    - vote_tower_out: Output structure to populate with vote state information
 
-   Failure modes:
-   - Vote account data is too large (returns -1)
-   - Vote account is not found in Funk (returns -1)
-   - Account metadata has wrong magic (returns -1) */
-static int
+   Terminates the application on failure (database error, account not
+   found, account size incorrect) */
+static void
 fd_replay_out_vote_tower_from_funk(
-  fd_funk_t const *     funk,
-  fd_funk_txn_t const * funk_txn,
-  fd_pubkey_t const *   pubkey,
-  ulong                 stake,
-  fd_replay_tower_t *   vote_tower_out ) {
+    fd_accdb_client_t *       accdb,
+    fd_funk_txn_xid_t const * txn_xid,
+    fd_pubkey_t const *       pubkey,
+    ulong                     stake,
+    fd_replay_tower_t *       vote_tower_out
+) {
 
   fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
   vote_tower_out->key   = *pubkey;
   vote_tower_out->stake = stake;
 
-  /* Speculatively copy out the raw vote account state from Funk */
-  for(;;) {
-    fd_memset( vote_tower_out->acc, 0, sizeof(vote_tower_out->acc) );
-
-    fd_funk_rec_query_t query;
-    fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, funk_txn, &funk_key, NULL, &query );
-    if( FD_UNLIKELY( !rec ) ) {
-      FD_LOG_WARNING(( "vote account not found. address: %s",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-      return -1;
+  int read_ok = FD_RUNTIME_ACCOUNT_READ_BEGIN( accdb, txn_xid, pubkey, rec ) {
+    ulong data_sz = fd_accdb_ref_data_sz( rec );
+    if( FD_UNLIKELY( data_sz>FD_REPLAY_TOWER_ACC_DATA_MAX ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+      FD_LOG_ERR(( "invariant violation: vote account %s on xid %lu:%lu has oversize data (sz=%lu, max=%lu)",
+                    pubkey_b58, txn_xid->ul[0], txn_xid->ul[1],
+                    data_sz, FD_REPLAY_TOWER_ACC_DATA_MAX ));
     }
-
-    uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-
-    ulong data_sz = metadata->dlen;
-    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
-      FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
-        data_sz,
-        sizeof(vote_tower_out->acc) ));
-      return -1;
-    }
-
-    fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
+    fd_memcpy( vote_tower_out->acc, fd_accdb_ref_data_const( rec ), data_sz );
     vote_tower_out->acc_sz = (ushort)data_sz;
-
-    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
-      break;
-    }
   }
-
-  return 0;
+  FD_RUNTIME_ACCOUNT_READ_END;
+  if( FD_UNLIKELY( !read_ok ) ) {
+    FD_BASE58_ENCODE_32_BYTES( pubkey->uc, pubkey_b58 );
+    FD_LOG_ERR(( "invariant violation: vote account %s not found on xid %lu:%lu",
+                  pubkey_b58, txn_xid->ul[0], txn_xid->ul[1] ));
+  }
 }
 
 /* This function buffers all the vote account towers that Tower needs at the end of this slot
@@ -552,10 +540,12 @@ buffer_vote_towers( fd_replay_tile_t * ctx ) {
     if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
     fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
     if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
-    if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk(
-      ctx->funk, ctx->slot_ctx->funk_txn, vote_account_pubkey, vote_state->stake, &ctx->vote_tower_out[ctx->vote_tower_out_len++] ) ) ) {
-        FD_LOG_ERR(( "failed to get vote state for vote account %s", FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
-      }
+    fd_replay_out_vote_tower_from_funk(
+        &ctx->accdb->client,
+        &ctx->slot_ctx->funk_txn_xid,
+        vote_account_pubkey,
+        vote_state->stake,
+        &ctx->vote_tower_out[ctx->vote_tower_out_len++] );
   }
   fd_bank_vote_states_prev_end_locking_query( ctx->slot_ctx->bank );
 }
@@ -695,6 +685,7 @@ eslot_mgr_purge( fd_replay_tile_t * ctx,
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
 
+<<<<<<< Updated upstream
 static fd_bank_t *
 replay_block_start( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
@@ -702,6 +693,30 @@ replay_block_start( fd_replay_tile_t *  ctx,
                     ulong               parent_slot,
                     fd_hash_t const *   merkle_hash,
                     fd_hash_t const *   parent_merkle_hash ) {
+=======
+static void
+handle_existing_block( fd_replay_tile_t * ctx,
+                       fd_hash_t *        merkle_hash ) {
+
+  ctx->slot_ctx->bank = fd_banks_get_bank( ctx->banks, merkle_hash );
+  if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank is NULL" ));
+  }
+
+  ulong slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+
+  fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
+  ctx->slot_ctx->funk_txn_xid = xid;
+}
+
+static void
+handle_new_block( fd_replay_tile_t *  ctx,
+                  fd_stem_context_t * stem,
+                  ulong               slot,
+                  ulong               parent_slot,
+                  fd_hash_t *         merkle_hash,
+                  fd_hash_t *         parent_merkle_hash ) {
+>>>>>>> Stashed changes
   /* Switch to a new block that we don't have a bank for. */
   FD_LOG_INFO(( "Creating new bank (slot: %lu, merkle hash: %s; parent slot: %lu, parent_merkle %s) ", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ), parent_slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
 
@@ -721,24 +736,14 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   /* Create a new funk txn for the block. */
 
-  fd_funk_txn_start_write( ctx->funk );
-
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
 
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn_map is NULL for slot %lu", slot ));
-  }
-
-  fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
-
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 ) ) ) {
     FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
   }
 
-  fd_funk_txn_end_write( ctx->funk );
+  ctx->slot_ctx->funk_txn_xid = xid;
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -1194,7 +1199,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->slot_ctx->banks );
 
-  fd_stake_delegations_refresh( root_delegations, ctx->funk, ctx->slot_ctx->funk_txn );
+  fd_stake_delegations_refresh( root_delegations, &ctx->accdb->client, &ctx->slot_ctx->funk_txn_xid );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -1728,8 +1733,6 @@ process_solcap_account_update( fd_replay_tile_t *                         ctx,
 static void
 funk_publish( fd_replay_tile_t * ctx,
               ulong              slot ) {
-  fd_funk_txn_start_write( ctx->funk );
-
   fd_funk_txn_xid_t   xid         = { .ul[0] = slot, .ul[1] = slot };
   fd_funk_txn_map_t * txn_map     = fd_funk_txn_map( ctx->funk );
   fd_funk_txn_t *     to_root_txn = fd_funk_txn_query( &xid, txn_map );
@@ -1742,8 +1745,6 @@ funk_publish( fd_replay_tile_t * ctx,
      including the watermark.  This will publish any in-prep ancestors
      of root_txn as well. */
   if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) FD_LOG_CRIT(( "failed to funk publish slot %lu", slot ));
-
-  fd_funk_txn_end_write( ctx->funk );
 }
 
 static void

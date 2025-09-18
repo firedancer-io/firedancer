@@ -3257,7 +3257,7 @@ write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * sta
 
   fd_txn_account_set_data( rec, stake_config, data_sz );
 
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+  fd_txn_account_mutable_fini( rec, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &prepare );
 }
 
 void

@@ -45,11 +45,11 @@ fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
 
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_funk_t *             funk,
-                      fd_funk_txn_t *         funk_txn,
-                      fd_sol_sysvar_clock_t * clock ) {
+fd_sysvar_clock_read( fd_accdb_client_t *       accdb,
+                      fd_funk_txn_xid_t const * txn_xid,
+                      fd_sol_sysvar_clock_t *   clock ) {
   FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, funk_txn );
+  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, accdb, txn_xid );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -285,7 +285,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
                         fd_spad_t *          spad,
                         ulong const *        parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( slot_ctx->funk, slot_ctx->funk_txn, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_bank_t *                 bank           = slot_ctx->bank;

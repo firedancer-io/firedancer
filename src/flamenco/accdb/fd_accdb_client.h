@@ -73,8 +73,8 @@ fd_accdb_client_new( void * client_lmem,
    table.  Must be called before sending any queries. */
 
 fd_accdb_client_t *
-fd_accdb_client_join( fd_accdb_client_t *       client,
-                      fd_accdb_sestab_t const * sestab );
+fd_accdb_client_join( fd_accdb_client_t * client,
+                      fd_accdb_sestab_t * sestab );
 
 /* fd_accdb_client_leave removes an account database client from a
    session table.  Aborts the app with FD_LOG_ERR if the client is not
@@ -89,6 +89,13 @@ fd_accdb_client_leave( fd_accdb_client_t * client );
 
 void *
 fd_accdb_client_delete( fd_accdb_client_t * client );
+
+/* fd_accdb_client_session_idx returns the index of this client's
+   session in the session table (accdb_sestab).  Returns UINT_MAX if the
+   client is not currently joined to a session table. */
+
+uint
+fd_accdb_client_session_idx( fd_accdb_client_t const * client );
 
 FD_PROTOTYPES_END
 

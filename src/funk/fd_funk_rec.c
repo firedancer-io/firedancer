@@ -43,32 +43,29 @@ static int fd_funk_rec_pool_is_in_pool( fd_funk_rec_t const * ele ) {
 
 static void
 fd_funk_rec_key_set_pair( fd_funk_xid_key_pair_t *  key_pair,
-                          fd_funk_txn_t const *     txn,
+                          fd_funk_txn_xid_t const * txn_xid,
                           fd_funk_rec_key_t const * key ) {
-  if( !txn ) {
+  if( !txn_xid ) {
     fd_funk_txn_xid_set_root( key_pair->xid );
   } else {
-    fd_funk_txn_xid_copy( key_pair->xid, &txn->xid );
+    fd_funk_txn_xid_copy( key_pair->xid, txn_xid );
   }
   fd_funk_rec_key_copy( key_pair->key, key );
 }
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                       fd_funk_txn_t const *     txn,
+                       fd_funk_txn_xid_t const * txn_xid,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
   }
-  if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
-    return NULL;
-  }
 #endif
 
   fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, txn, key );
+  fd_funk_rec_key_set_pair( pair, txn_xid, key );
 
   for(;;) {
     int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
@@ -83,12 +80,12 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *               funk,
-                    fd_funk_txn_t const *     txn,
+                    fd_funk_txn_xid_t const * txn_xid,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_query_t *     query ) {
   fd_funk_rec_map_t *    rec_map = fd_funk_rec_map( funk );
   fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, txn, key );
+  fd_funk_rec_key_set_pair( pair, txn_xid, key );
 
   int err = fd_funk_rec_map_modify_try( rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
   if( err==FD_MAP_ERR_KEY ) return NULL;
@@ -123,8 +120,10 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
      the same record key appear on the same hash chain in order of
      newest to oldest. */
 
+  fd_funk_txn_xid_t const * txn_xid = txn ? &txn->xid : NULL;
+
   fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, txn, key );
+  fd_funk_rec_key_set_pair( pair, txn_xid, key );
 
   fd_funk_rec_map_shmem_t * rec_map = funk->rec_map->map;
   ulong hash = fd_funk_rec_map_key_hash( pair, rec_map->seed );
@@ -168,13 +167,13 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_copy( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
+                        fd_funk_txn_xid_t const * txn_xid,
                         fd_funk_rec_key_t const * key,
                         fd_valloc_t               valloc,
                         ulong *                   sz_out ) {
   *sz_out = ULONG_MAX;
   fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, txn, key );
+  fd_funk_rec_key_set_pair( pair, txn_xid, key );
 
   void * last_copy = NULL;
   ulong last_copy_sz = 0;
@@ -342,7 +341,7 @@ fd_funk_rec_insert_para( fd_funk_t *               funk,
     fd_funk_rec_query_t query_glob[1];
     txn_glob = NULL;
     rec_glob = fd_funk_rec_query_try_global(
-        funk, txn,key, &txn_glob, query_glob );
+        funk, txn, key, &txn_glob, query_glob );
 
     /* If the record exists and already exists in the specified funk
        txn, we can return successfully.
@@ -463,7 +462,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
 int
 fd_funk_rec_remove( fd_funk_t *               funk,
-                    fd_funk_txn_t *           txn,
+                    fd_funk_txn_xid_t *       txn_xid,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_t **          rec_out ) {
 #ifdef FD_FUNK_HANDHOLDING
@@ -475,7 +474,7 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   }
 #endif
 
-  if( !txn ) { /* Modifying last published */
+  if( !txn_xid ) { /* Modifying last published */
     if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
       return FD_FUNK_ERR_FROZEN;
     }

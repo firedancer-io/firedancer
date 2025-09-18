@@ -19,10 +19,8 @@ sysvar_data_fill( fd_sysvar_cache_t *  cache,
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
   /* Read account from database */
-  fd_funk_t *     funk     = slot_ctx->funk;
-  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->accdb, &slot_ctx->funk_txn_xid );
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     if( log_fails ) FD_LOG_DEBUG(( "Sysvar %s not found", pos->name ));
     return 0;

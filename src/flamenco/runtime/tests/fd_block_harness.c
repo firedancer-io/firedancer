@@ -50,7 +50,7 @@ fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t * slot_ctx,
                                              fd_pubkey_t *        pubkey,
                                              fd_spad_t *          spad ) {
   FD_TXN_ACCOUNT_DECL( acc );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->accdb, &slot_ctx->funk_txn_xid ) ) ) {
     return;
   }
 
@@ -90,7 +90,7 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *     slot_c
                                                  fd_stake_delegations_t * stake_delegations,
                                                  fd_pubkey_t *            pubkey ) {
  FD_TXN_ACCOUNT_DECL( acc );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->accdb, &slot_ctx->funk_txn_xid ) ) ) {
     return;
   }
 

@@ -12,6 +12,7 @@
 
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../funk/fd_funk.h"
+#include "../../accdb/fd_accdb_manager.h"
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
    for different inputs, even of different types.  Single-thread per
@@ -26,6 +27,8 @@ struct fd_solfuzz_runner {
   fd_spad_t *  spad;
   fd_banks_t * banks;
   fd_bank_t *  bank;
+
+  fd_accdb_manager_t * mgr;
 
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */

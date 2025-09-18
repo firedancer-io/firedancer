@@ -187,11 +187,8 @@ fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
                    fd_pubkey_t const  * pubkey ) {
 
 
-  fd_funk_t *     funk = slot_ctx->funk;
-  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
-
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, slot_ctx->accdb, &slot_ctx->funk_txn_xid );
   if( !!err ) {
     return 0;
   }
@@ -236,7 +233,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
 
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
+  fd_txn_account_mutable_fini( rec, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &prepare );
 
   fd_bank_capitalization_set( slot_ctx->bank, fd_bank_capitalization_get( slot_ctx->bank ) + 1UL );
 
@@ -275,7 +272,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
   fd_txn_account_set_data( rec, data, sizeof(data) );
 
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
+  fd_txn_account_mutable_fini( rec, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &prepare );
 
   FD_TEST( !err );
 }

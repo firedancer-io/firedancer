@@ -122,8 +122,6 @@ fd_funk_new( void * shmem,
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, fd_alloc_join( fd_alloc_new( alloc, wksp_tag ), 0UL ) );
 
-  funk->lock = 0;
-
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
   FD_COMPILER_MFENCE();

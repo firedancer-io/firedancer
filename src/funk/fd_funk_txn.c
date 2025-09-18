@@ -21,55 +21,35 @@
 #define MAP_IMPL_STYLE        2
 #include "../util/tmpl/fd_map_chain_para.c"
 
-/* TODO: remove this lock */
-#include "../flamenco/fd_rwlock.h"
-static fd_rwlock_t funk_txn_lock[ 1 ] = {0};
+/* FIXME remove 'verbose' flag */
 
-void
-fd_funk_txn_start_read( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_read( funk_txn_lock );
-}
-
-void
-fd_funk_txn_end_read( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_unread( funk_txn_lock );
-}
-
-void
-fd_funk_txn_start_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_write( funk_txn_lock );
-}
-
-void
-fd_funk_txn_end_write( fd_funk_t * funk FD_PARAM_UNUSED ) {
-  fd_rwlock_unwrite( funk_txn_lock );
-}
-
-fd_funk_txn_t *
+fd_funk_txn_xid_t const *
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * parent_xid,
                      fd_funk_txn_xid_t const * xid,
                      int                       verbose ) {
 
-  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
-  if( FD_UNLIKELY( !xid  ) ) FD_LOG_CRIT(( "NULL xid"  ));
+  if( FD_UNLIKELY( !funk       ) ) FD_LOG_CRIT(( "NULL funk"       ));
+  if( FD_UNLIKELY( !parent_xid ) ) FD_LOG_CRIT(( "NULL parent_xid" ));
+  if( FD_UNLIKELY( !xid        ) ) FD_LOG_CRIT(( "NULL xid"        ));
   if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( xid ) ) ) FD_LOG_CRIT(( "xid is root" ));
 
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( parent && !fd_funk_txn_valid( funk, parent ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "bad txn" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid, funk->shmem->last_publish ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the last published" ));
-    return NULL;
-  }
-#endif
-
   fd_funk_txn_map_query_t query[1];
-  if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 ) != FD_MAP_ERR_KEY ) ) {
+  if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 )!=FD_MAP_ERR_KEY ) ) {
     if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid in use" ));
     return NULL;
+  }
+
+  fd_funk_txn_map_query_t parent_query[1] = {{0}};
+  fd_funk_txn_t *         parent = NULL;
+  if( parent_xid ) {
+    int parent_query_err = fd_funk_txn_map_query_try( funk->txn_map, parent_xid, NULL, parent_query, 0 );
+    if( FD_UNLIKELY( parent_query_err!=FD_MAP_SUCCESS ) ) {
+      FD_LOG_ERR(( "failed to query for parent_xid %lu:%lu (err %d)",
+                  parent_xid->ul[0], parent_xid->ul[1], parent_query_err ));
+    }
+
+    parent = fd_funk_txn_map_query_ele( parent_query );
   }
 
   ulong  parent_idx;
@@ -116,19 +96,25 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   txn->stack_cidx        = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   txn->tag               = 0UL;
 
-  txn->lock = 0;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 
   /* TODO: consider branchless impl */
   if( FD_LIKELY( first_born ) ) *_child_head_cidx                = fd_funk_txn_cidx( txn_idx ); /* opt for non-compete */
   else funk->txn_pool->ele[ sibling_prev_idx ].sibling_next_cidx = fd_funk_txn_cidx( txn_idx );
+  /* FIXME use compare-and-swap to serialize linked list operations from multiple threads */
 
   *_child_tail_cidx = fd_funk_txn_cidx( txn_idx );
 
   fd_funk_txn_map_insert( funk->txn_map, txn, FD_MAP_FLAG_BLOCKING );
 
-  return txn;
+  if( parent ) {
+    if( FD_UNLIKELY( !fd_funk_txn_map_query_test( parent_query ) ) ) {
+      FD_LOG_CRIT(( "funk transaction map corruption detected: parent changed while creating transactions" ));
+    }
+  }
+
+  return xid;
 }
 
 /* fd_funk_txn_cancel_childless cancels a transaction that is known
@@ -261,9 +247,9 @@ fd_funk_txn_cancel_family( fd_funk_t *  funk,
 }
 
 ulong
-fd_funk_txn_cancel( fd_funk_t *     funk,
-                    fd_funk_txn_t * txn,
-                    int             verbose ) {
+fd_funk_txn_cancel( fd_funk_t *               funk,
+                    fd_funk_txn_xid_t const * txn,
+                    int                       verbose ) {
 
   if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
   if( FD_UNLIKELY( !txn  ) ) FD_LOG_CRIT(( "NULL txn"  ));

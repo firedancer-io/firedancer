@@ -31,31 +31,31 @@ FD_PROTOTYPES_BEGIN
      FD_RUNTIME_ACCOUNT_READ_END; */
 
 struct fd_runtime_account_read_guard {
-  fd_exec_slot_ctx_t * slot_ctx_;
-  fd_accdb_ro_t *      handle_;
+  fd_accdb_client_t * accdb;
+  fd_accdb_ro_t *     handle_;
 };
 typedef struct fd_runtime_account_read_guard fd_runtime_account_read_guard_t;
 
 FD_FN_UNUSED static void
 fd_runtime_account_read_cleanup( fd_runtime_account_read_guard_t * guard ) {
-  fd_accdb_read_close( guard->slot_ctx_->accdb, guard->handle_ );
+  fd_accdb_read_close( guard->accdb, guard->handle_ );
 }
 
-#define FD_RUNTIME_ACCOUNT_READ_BEGIN( slot_ctx, txn_xid, address, handle ) \
+#define FD_RUNTIME_ACCOUNT_READ_BEGIN( accdb__, txn_xid, address, handle )   \
   __extension__({                                                           \
-    fd_accdb_ro_t        handle[1];                                         \
-    void const *         address_  = (address);                             \
-    fd_exec_slot_ctx_t * slot_ctx_ = (slot_ctx);                            \
-    fd_accdb_ro_t *      res_;                                              \
-    if( (res_=fd_accdb_read_open( slot_ctx_->accdb, handle, (txn_xid), address_ )) ) {                                       \
+    fd_accdb_ro_t       handle[1];                                          \
+    void const *        address_ = (address);                               \
+    fd_accdb_client_t * accdb_   = (accdb__);                                \
+    fd_accdb_ro_t *     res_;                                               \
+    if( (res_=fd_accdb_read_open( accdb_, handle, (txn_xid), address_ )) ) {\
       fd_runtime_account_read_guard_t __attribute__((cleanup(fd_runtime_account_read_cleanup))) guard_ = \
-        { .slot_ctx_=slot_ctx, .handle_=handle };                           \
+        { .accdb=accdb_, .handle_=handle };                                 \
       if( 1 ) {                                                             \
         /* User code goes here */
 #define FD_RUNTIME_ACCOUNT_READ_END                                         \
       }                                                                     \
     }                                                                       \
-    res_;                                                                   \
+    !!res_;                                                                 \
   })
 
 /* FD_RUNTIME_ACCOUNT_UPDATE_{BEGIN,END} is a convenience method for
@@ -111,11 +111,7 @@ fd_runtime_account_update_cleanup( fd_runtime_account_update_guard_t * guard ) {
     void const *              address_  = (address);                      \
     fd_exec_slot_ctx_t *      slot_ctx_ = (slot_ctx);                     \
     ulong const               min_sz_   = (min_sz);                       \
-    int db_err_ = fd_accdb_write_prepare( slot_ctx_->accdb, slot_ctx_->txn_xid, address_, min_sz_ ); \
-    if( FD_UNLIKELY( db_err_!=FD_ACCDB_SUCCESS ) ) {                      \
-      FD_BASE58_ENCODE_32_BYTES( address_, address_b58 );                 \
-      FD_LOG_ERR(( "Failed to update runtime account %s: database error (%i-%s)", address_b58, db_err_, fd_accdb_strerror( db_err_ ) )); \
-    }                                                                     \
+    fd_accdb_write_prepare( slot_ctx_->accdb, handle, &slot_ctx_->funk_txn_xid, address_, min_sz_ ); \
     fd_runtime_account_update_guard_t __attribute__((cleanup(fd_runtime_account_update_cleanup))) guard_ = \
       { .slot_ctx = slot_ctx, .handle_ = handle };                        \
     if( 1 ) {                                                             \

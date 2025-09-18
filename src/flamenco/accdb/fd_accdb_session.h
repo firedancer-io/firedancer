@@ -8,7 +8,7 @@
 #include "../../funk/fd_funk_base.h"
 
 /* An fd_accdb_session_t object tracks funk transaction references and
-   metrics of a database client. */
+   metrics of a database client.   */
 
 struct __attribute__((aligned(64))) fd_accdb_session {
   fd_funk_txn_xid_t txn_active;
@@ -24,14 +24,32 @@ typedef struct fd_accdb_session fd_accdb_session_t;
 #include "../../util/tmpl/fd_slist.c"
 
 /* fd_accdb_sestab is a table of accdb_session objects.  Lives in shared
-   memory, supports concurrent access, and is position-independent. */
+   memory, supports concurrent access, and is position-independent.
+   Each client thread/tile occupies a slot in this table.  Optionally,
+   one instance promotes to "manager", which is allowed to do funk
+   transaction-level operations (e.g. root a slot).  The lifetime of a
+   sestab is bound by the lifetime of a validator. */
 
-struct fd_accdb_sestab {
+struct __attribute__((aligned(64))) fd_accdb_sestab {
+
+  /* This point is 64-byte aligned */
+
+  ulong                magic;
   fd_accdb_session_t * sessions;
   ulong                session_max;
 
   ses_list_t free_list;
   ses_list_t used_list;
+
+  uchar pad_0x10[ 8 ];
+
+  /* This point is 64-byte aligned */
+
+  uint  mgr_session_idx;  /* UINT_MAX -> no manager */
+  uchar pad_0x14[ 60 ];
+
+  /* This point is 64-byte aligned */
+
 };
 
 typedef struct fd_accdb_sestab fd_accdb_sestab_t;

@@ -589,8 +589,8 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
     FD_TXN_ACCOUNT_DECL( owner_account );
     err = fd_txn_account_init_from_funk_readonly( owner_account,
                                                   fd_txn_account_get_owner( program_account ),
-                                                  txn_ctx->funk,
-                                                  txn_ctx->funk_txn );
+                                                  txn_ctx->accdb,
+                                                  &txn_ctx->funk_txn_xid );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
@@ -698,8 +698,8 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
   FD_TXN_ACCOUNT_DECL( programdata_account );
   err = fd_txn_account_init_from_funk_readonly( programdata_account,
                                                 &loader_state->inner.program.programdata_address,
-                                                txn_ctx->funk,
-                                                txn_ctx->funk_txn );
+                                                txn_ctx->accdb,
+                                                &txn_ctx->funk_txn_xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -944,12 +944,10 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
   } else {
     int err = FD_ACC_MGR_SUCCESS;
     fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-        txn_ctx->funk,
-        txn_ctx->funk_txn,
+        txn_ctx->accdb,
+        &txn_ctx->funk_txn_xid,
         fee_payer_key,
-        NULL,
-        &err,
-        NULL );
+        &err );
 
     ulong  data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
     void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
@@ -1054,8 +1052,8 @@ fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
     fd_acct_addr_t * accts_alt = (fd_acct_addr_t *) fd_type_pun( &txn_ctx->account_keys[txn_ctx->accounts_cnt] );
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( &txn_ctx->txn ),
                                                          txn_ctx->txn.payload,
-                                                         txn_ctx->funk,
-                                                         txn_ctx->funk_txn,
+                                                         txn_ctx->accdb,
+                                                         &txn_ctx->funk_txn_xid,
                                                          txn_ctx->slot,
                                                          slot_hashes,
                                                          accts_alt );
@@ -1412,9 +1410,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
       txn_ctx->funk,
       txn_ctx->funk_txn,
       acc,
-      NULL,
-      &err,
-      NULL );
+      &err );
 
   fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
 

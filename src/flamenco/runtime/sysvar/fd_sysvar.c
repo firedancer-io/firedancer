@@ -49,7 +49,7 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+  fd_txn_account_mutable_fini( rec, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &prepare );
 
   FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu slot=%lu lamports=%lu lamports_minted=%lu",
                  FD_BASE58_ENC_32_ALLOCA( address ), sz, slot, lamports_after, lamports_minted ));

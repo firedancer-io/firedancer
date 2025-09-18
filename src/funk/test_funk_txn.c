@@ -143,9 +143,7 @@ main( int     argc,
     case 6: { /* prepare from live xid with a live xid (always fail) */
       if( FD_UNLIKELY( !live_pmap ) ) break;
       uint idx; uint idx1; RANDOM_SET_BIT_IDX( live_pmap ); idx1 = idx; RANDOM_SET_BIT_IDX( live_pmap );
-      fd_funk_txn_t * parent = fd_funk_txn_query( &recent_xid[idx], map );
-      FD_TEST( parent && fd_funk_txn_xid_eq( fd_funk_txn_xid( parent ), &recent_xid[idx] ) );
-      FD_TEST( !fd_funk_txn_prepare( funk, parent, &recent_xid[idx1], verbose ) );
+      FD_TEST( !fd_funk_txn_prepare( funk, &recent_xid[idx], &recent_xid[idx1], verbose ) );
       break;
     }
 
@@ -153,10 +151,8 @@ main( int     argc,
       if( FD_UNLIKELY( !live_pmap || !~live_pmap ) ) break;
       uint idx; uint idx1; RANDOM_SET_BIT_IDX( ~live_pmap ); idx1 = idx; RANDOM_SET_BIT_IDX( live_pmap );
       if( FD_UNLIKELY( fd_funk_txn_xid_eq( &recent_xid[idx1], last_publish ) ) ) break;
-      fd_funk_txn_t * parent = fd_funk_txn_query( &recent_xid[idx], map );
-      FD_TEST( parent && fd_funk_txn_xid_eq( fd_funk_txn_xid( parent ), &recent_xid[idx] ) );
       int is_full = fd_funk_txn_is_full( funk );
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent, &recent_xid[idx1], verbose );
+      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, &recent_xid[idx], &recent_xid[idx1], verbose );
       if( is_full ) FD_TEST( !txn );
       else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx1] ) );
       break;

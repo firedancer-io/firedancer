@@ -151,10 +151,10 @@ fd_get_executable_program_content_for_v4_loader( fd_txn_account_t const * progra
    - The program account data cannot be decoded or is not in the `program` state.
    - The programdata account is not large enough to hold at least `PROGRAMDATA_METADATA_SIZE` bytes. */
 static uchar const *
-fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *        funk,
-                                                          fd_funk_txn_t const *    funk_txn,
-                                                          fd_txn_account_t const * program_acc,
-                                                          ulong *                  program_data_len ) {
+fd_get_executable_program_content_for_upgradeable_loader( fd_accdb_client_t *       accdb,
+                                                          fd_funk_txn_xid_t const * txn_xid,
+                                                          fd_txn_account_t const *  program_acc,
+                                                          ulong *                   program_data_len ) {
   fd_bpf_upgradeable_loader_state_t program_account_state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       bpf_upgradeable_loader_state,
@@ -170,7 +170,7 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
 
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
   FD_TXN_ACCOUNT_DECL( programdata_acc );
-  if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, funk, funk_txn )!=FD_ACC_MGR_SUCCESS ) {
+  if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, accdb, txn_xid )!=FD_ACC_MGR_SUCCESS ) {
     return NULL;
   }
 
@@ -503,8 +503,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* No need to touch the cache if the account no longer exists. */
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec,
                                                            program_key,
-                                                           slot_ctx->funk,
-                                                           slot_ctx->funk_txn ) ) ) {
+                                                           slot_ctx->accdb,
+                                                           &slot_ctx->funk_txn_xid ) ) ) {
     return;
   }
 

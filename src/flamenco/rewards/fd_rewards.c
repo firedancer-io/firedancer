@@ -10,7 +10,6 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/context/fd_capture_ctx.h"
-#include "../runtime/fd_runtime.h"
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/sdk/src/inflation.rs#L85 */
 static double
@@ -662,8 +661,8 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              fd_calculate_validator_rewards_result_t * result,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
-    if( FD_UNLIKELY( !stake_history ) ) {
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runtime_spad );
+  if( FD_UNLIKELY( !stake_history ) ) {
     FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
   }
 
@@ -873,7 +872,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           sl
     }
 
     fd_hashes_update_lthash( vote_rec, prev_hash,slot_ctx->bank, capture_ctx );
-    fd_txn_account_mutable_fini( vote_rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+    fd_txn_account_mutable_fini( vote_rec, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &prepare );
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, vote_reward_node->elem.vote_rewards );
 
@@ -983,7 +982,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_hashes_update_lthash( stake_acc_rec, prev_hash, slot_ctx->bank, capture_ctx );
-  fd_txn_account_mutable_fini( stake_acc_rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+  fd_txn_account_mutable_fini( stake_acc_rec, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &prepare );
 
   return 0;
 }
@@ -1158,7 +1157,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_rewards ) ) ) {
     FD_LOG_DEBUG(( "Failed to read or decode epoch rewards sysvar - may not have been created yet" ));
     set_epoch_reward_status_inactive( slot_ctx->bank );
     return;
@@ -1191,7 +1190,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runtime_spad );
     if( FD_UNLIKELY( !stake_history ) ) {
       FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
     }

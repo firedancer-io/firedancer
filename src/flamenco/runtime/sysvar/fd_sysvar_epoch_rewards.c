@@ -22,11 +22,11 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
 }
 
 fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
-                              fd_funk_txn_t *             funk_txn,
+fd_sysvar_epoch_rewards_read( fd_accdb_client_t *         accdb,
+                              fd_funk_txn_xid_t const *   txn_xid,
                               fd_sysvar_epoch_rewards_t * out ) {
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_rewards_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_rewards_id, accdb, txn_xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -53,7 +53,7 @@ void
 fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
                                     ulong                distributed ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 
@@ -73,7 +73,7 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->funk, slot_ctx->funk_txn, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 

@@ -65,8 +65,8 @@ fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
    has zero lamports, this function returns NULL. */
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
+fd_sysvar_epoch_schedule_read( fd_accdb_client_t *   accdb,
+                               fd_funk_txn_xid_t *   txn_xid,
                                fd_epoch_schedule_t * out );
 
 /* fd_sysvar_epoch_schedule_write writes the current value of the epoch

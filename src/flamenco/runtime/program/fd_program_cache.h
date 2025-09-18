@@ -296,10 +296,10 @@ fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
    If the record exists in the program cache, this function will
    acquire a write-lock on the program cache entry. */
 void
-fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
-                                                   fd_funk_txn_t *     funk_txn,
-                                                   fd_pubkey_t const * program_key,
-                                                   ulong               current_slot );
+fd_program_cache_queue_program_for_reverification( fd_accdb_client_t *       accdb,
+                                                   fd_funk_txn_xid_t const * txn_xid,
+                                                   fd_pubkey_t const *       program_key,
+                                                   ulong                     current_slot );
 
 FD_PROTOTYPES_END
 

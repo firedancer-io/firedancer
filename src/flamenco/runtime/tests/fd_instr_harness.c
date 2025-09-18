@@ -32,10 +32,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
-  fd_funk_txn_end_write( funk );
+  fd_accdb_manager_txn_create( runner->mgr, NULL, xid );
 
   /* Allocate contexts */
   uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad,FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
@@ -232,8 +229,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
       if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[txn_ctx->executable_cnt],
                                                                programdata_acc,
-                                                               txn_ctx->funk,
-                                                               txn_ctx->funk_txn ) ) ) {
+                                                               txn_ctx->accdb,
+                                                               &txn_ctx->funk_txn_xid ) ) ) {
         continue;
       }
       txn_ctx->executable_cnt++;

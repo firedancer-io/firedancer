@@ -70,9 +70,11 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad ) {
+fd_sysvar_recent_hashes_read( fd_accdb_client_t *       accdb,
+                              fd_funk_txn_xid_t const * txn_xid,
+                              fd_spad_t *               spad ) {
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, accdb, txn_xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return NULL;
 

@@ -94,7 +94,7 @@ fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runtime_spad );
     fd_slot_hash_t *          hashes             = NULL;
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
@@ -135,11 +135,11 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
 }
 
 fd_slot_hashes_global_t *
-fd_sysvar_slot_hashes_read( fd_funk_t *     funk,
-                            fd_funk_txn_t * funk_txn,
-                            fd_spad_t *     spad ) {
+fd_sysvar_slot_hashes_read( fd_accdb_client_t *       accdb,
+                            fd_funk_txn_xid_t const * txn_xid,
+                            fd_spad_t *               spad ) {
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, accdb, txn_xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }

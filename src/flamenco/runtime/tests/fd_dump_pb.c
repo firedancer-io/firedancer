@@ -98,15 +98,15 @@ account_already_dumped( fd_exec_test_acct_state_t const * dumped_accounts,
 /* Dumps a borrowed account if it exists and has not been dumped yet. Sets up the output borrowed
    account if it exists. Returns 0 if the account exists, 1 otherwise. */
 static uchar
-dump_account_if_not_already_dumped( fd_funk_t const *           funk,
-                                    fd_funk_txn_t const *       funk_txn,
+dump_account_if_not_already_dumped( fd_accdb_client_t *         accdb,
+                                    fd_funk_txn_xid_t const *   txn_xid,
                                     fd_pubkey_t const *         account_key,
                                     fd_spad_t *                 spad,
                                     fd_exec_test_acct_state_t * out_acct_states,
                                     pb_size_t *                 out_acct_states_cnt,
                                     fd_txn_account_t *          opt_out_borrowed_account ) {
   FD_TXN_ACCOUNT_DECL( account );
-  if( fd_txn_account_init_from_funk_readonly( account, account_key, funk, funk_txn ) ) {
+  if( fd_txn_account_init_from_funk_readonly( account, account_key, accdb, txn_xid ) ) {
     return 1;
   }
 
@@ -131,7 +131,7 @@ dump_lut_account_and_contained_accounts(  fd_exec_slot_ctx_t const *     slot_ct
                                           pb_size_t *                    out_account_states_count ) {
   FD_TXN_ACCOUNT_DECL( alut_account );
   fd_pubkey_t const * alut_pubkey = (fd_pubkey_t const *)((uchar *)txn_payload + lookup_table->addr_off);
-  uchar account_exists = dump_account_if_not_already_dumped( slot_ctx->funk, slot_ctx->funk_txn, alut_pubkey, spad, out_account_states, out_account_states_count, alut_account );
+  uchar account_exists = dump_account_if_not_already_dumped( slot_ctx->accdb, &slot_ctx->funk_txn_xid, alut_pubkey, spad, out_account_states, out_account_states_count, alut_account );
   if( !account_exists || fd_txn_account_get_data_len( alut_account )<FD_LOOKUP_TABLE_META_SIZE ) {
     return;
   }

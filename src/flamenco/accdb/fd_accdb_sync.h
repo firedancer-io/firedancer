@@ -125,18 +125,14 @@ FD_PROTOTYPES_BEGIN
 
    Side effects:
    - Lazily evicts old cache entries
-   - Blocks the calling thread on locks, cache pressure, or I/O
+   - Blocks the calling thread on locks, cache pressure, or I/O */
 
-   Possible return values:
-   - FD_ACCDB_SUCCESS:        account written
-   - FD_ACCDB_ERR_DISK_FULL:  database persistent storage full (FIXME is this return value possible?)
-   - FD_ACCDB_ERR_CACHE_FULL: cache full, tried to evict to no avail */
-
-int
-fd_accdb_write( fd_accdb_client_t *     client,
-                fd_accdb_meta_t const * meta,
-                void const *            data,
-                ulong                   data_sz );
+void
+fd_accdb_write( fd_accdb_client_t *       client,
+                fd_funk_txn_xid_t const * txn_xid,
+                fd_accdb_meta_t const *   meta,
+                void const *              data,
+                ulong                     data_sz );
 
 FD_PROTOTYPES_END
 
@@ -169,14 +165,6 @@ fd_accdb_modify_prepare( fd_accdb_client_t *       client,
                          fd_funk_txn_xid_t const * txn_id,
                          void const *              address,
                          ulong                     data_min );
-
-/* fd_accdb_write_cancel undoes all allocations done by an earlier
-   prepare.  Attempts to detect a double cancel of the same buffer and
-   crashes with FD_LOG_CRIT (core dumps) in that case. */
-
-void
-fd_accdb_write_cancel( fd_accdb_client_t * client,
-                       fd_accdb_rw_t *     rw );
 
 /* fd_accdb_write_publish publishes a previously prepared account write. */
 

@@ -204,7 +204,13 @@ cancelled.
 
 **Retiring**
 
+A transaction is *retiring* while it is being merged into the database
+root.  "Rooting" moves account records from funk to vinyl.  This is
+problematic for database clients with in-progress reads from funk.
 
+When a database client attempts to read from a retiring transaction, it
+silently recovers from overruns, including a record being removed, or
+the database transaction transitioning to *dead*.
 
 **Dead**
 
@@ -289,13 +295,14 @@ performance.
 
 See [funk record index race](#funk-record-index-race) for how funk
 recovers from data races when doing hash map accesses.  Note that the
-groove index is not susceptible to data races because accesses are
+vinyl index is not susceptible to data races because accesses are
 sequenced and delegated to a single thread (accdb tile).
 
 ### Funk Record Read
 
 This algorithms runs when the "account lookup" algorithm selected a funk
-record, and the user requested a read.
+record, the funk transaction is *writable* or *frozen*, and the user
+requested a read.
 
 Each slot in the funk record pool has a sequence number.  This sequence
 number increments any time a write is started or completed.  The number
@@ -313,7 +320,8 @@ a transaction is retiring, the [funk record read (retiring)](#funk-record-read-r
 
 A read operation occurs in 4 phases:
 
-1. Sequence number read: Peek sequence number, crash if a write is inflight
+1. Sequence number read: Peek record sequence number, crash if a write
+   is inflight or record is not valid
 2. Read: Speculatively process, expecting there to not be a concurrent
    reader.
 3. Overrun check: If the sequence number changed or the record got
@@ -323,7 +331,22 @@ A read operation occurs in 4 phases:
 
 ### Funk Record Read (Retiring)
 
+This algorithm is a fault-tolerant variant of the above.  It is used
+when reading an account record owned by a transaction in *retiring*
+state.
 
+This algorithm may either produce a complete local copy of a funk record
+or instruct the user to fetch the account from vinyl instead.
+
+The fault-tolerant account read procedure is as follows:
+
+1. Sequence number read: Peek record sequence number, crash if a write
+   is inflight or record is not valid
+2. Read/copy: Copy to local buffer
+3. Overrun check:
+   - If the record was removed due to evict, bail and instruct caller
+     to query from vinyl
+   - If the record was updated in any other way, crash the application
 
 ### Funk Record Read-Write
 

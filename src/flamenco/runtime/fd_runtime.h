@@ -471,13 +471,13 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               tx
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
-                                           uchar const *    payload,
-                                           fd_funk_t *      funk,
-                                           fd_funk_txn_t *  funk_txn,
-                                           ulong            slot,
-                                           fd_slot_hash_t const * hashes,
-                                           fd_acct_addr_t * out_accts_alt );
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *          txn,
+                                           uchar const *             payload,
+                                           fd_accdb_client_t *       accdb,
+                                           fd_funk_txn_xid_t const * txn_xid,
+                                           ulong                     slot,
+                                           fd_slot_hash_t const *    hashes,
+                                           fd_acct_addr_t *          out_accts_alt );
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
@@ -510,11 +510,11 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     uchar               do_sigverify );
 
 void
-fd_runtime_finalize_txn( fd_funk_t *         funk,
-                         fd_funk_txn_t *     funk_txn,
-                         fd_exec_txn_ctx_t * txn_ctx,
-                         fd_bank_t *         bank,
-                         fd_capture_ctx_t *  capture_ctx );
+fd_runtime_finalize_txn( fd_accdb_client_t *       accdb,
+                         fd_funk_txn_xid_t const * txn_xid,
+                         fd_exec_txn_ctx_t *       txn_ctx,
+                         fd_bank_t *               bank,
+                         fd_capture_ctx_t *        capture_ctx );
 
 /* Epoch Boundary *************************************************************/
 

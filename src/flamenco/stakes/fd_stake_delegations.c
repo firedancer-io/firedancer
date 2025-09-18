@@ -331,9 +331,9 @@ fd_stake_delegations_remove( fd_stake_delegations_t * stake_delegations,
 }
 
 void
-fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
-                              fd_funk_t *              funk,
-                              fd_funk_txn_t *          funk_txn ) {
+fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
+                              fd_accdb_client_t *       accdb,
+                              fd_funk_txn_xid_t const * txn_xid ) {
 
   fd_stake_delegation_map_t * stake_delegation_map = fd_stake_delegations_get_map( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_map ) ) {
@@ -363,8 +363,8 @@ fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
     int err = fd_txn_account_init_from_funk_readonly(
         acct_rec,
         &stake_delegation->stake_account,
-        funk,
-        funk_txn );
+        accdb,
+        txn_xid );
 
     if( FD_UNLIKELY( err || fd_txn_account_get_lamports( acct_rec )==0UL ) ) {
       fd_stake_delegation_map_idx_remove( stake_delegation_map, &stake_delegation->stake_account, ULONG_MAX, stake_delegation_pool );

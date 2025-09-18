@@ -288,9 +288,9 @@ fd_stake_delegations_query( fd_stake_delegations_t const * stake_delegations,
    No new entries are added to the struct at this point. */
 
 void
-fd_stake_delegations_refresh( fd_stake_delegations_t * stake_delegations,
-                              fd_funk_t *              funk,
-                              fd_funk_txn_t *          funk_txn );
+fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
+                              fd_accdb_client_t *       accdb,
+                              fd_funk_txn_xid_t const * txn_xid );
 
 /* fd_stake_delegations_cnt returns the number of stake delegations
    in the stake delegations struct. fd_stake_delegations_t must be a

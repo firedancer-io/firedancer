@@ -338,8 +338,7 @@ main( int     argc,
   fd_funk_txn_xid_t xid = {.ul={ slot+1, slot+1 }};
   fd_funk_txn_xid_t const * last_publish_xid = fd_funk_last_publish( funk );
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( funk );
-  fd_funk_txn_t * last_publish = fd_funk_txn_query( last_publish_xid, txn_map );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, last_publish, &xid, 1 );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, last_publish_xid, &xid, 1 );
   FD_TEST( funk_txn );
 
   FD_LOG_NOTICE(( "Allocating %lu MB for the account map", fd_conflict_detect_map_footprint( lg_max_naccts )/1024/1024 ));

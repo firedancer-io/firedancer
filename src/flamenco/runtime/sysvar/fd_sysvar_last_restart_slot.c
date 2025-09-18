@@ -52,13 +52,13 @@ fd_sysvar_last_restart_slot_derive(
 
 fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read(
-    fd_funk_t *     funk,
-    fd_funk_txn_t * funk_txn,
+    fd_accdb_client_t *       accdb,
+    fd_funk_txn_xid_t const * txn_xid,
     fd_sol_sysvar_last_restart_slot_t * out
 ) {
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, accdb, txn_xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
   /* This check is needed as a quirk of the fuzzer. If a sysvar account
@@ -89,7 +89,7 @@ fd_sysvar_last_restart_slot_update(
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
   ulong last_restart_slot_have = ULONG_MAX;
   fd_sol_sysvar_last_restart_slot_t sysvar;
-  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( slot_ctx->funk, slot_ctx->funk_txn, &sysvar ) ) ) {
+  if( FD_LIKELY( fd_sysvar_last_restart_slot_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, &sysvar ) ) ) {
     last_restart_slot_have = sysvar.slot;
   }
 

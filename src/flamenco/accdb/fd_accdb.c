@@ -1,5 +1,4 @@
 #include "fd_accdb_sync.h"
-#include "../runtime/fd_acc_mgr.h" /* FIXME remove dependency */
 #include "../../funk/fd_funk_rec.h"
 
 #define ACCT_BUF_ALIGN (16UL)
@@ -143,31 +142,130 @@ fd_accdb_read_close( fd_accdb_client_t * client,
      future version. */
 }
 
+/* Account Database Write logic ****************************************
+
+   The typical write path sends all changes to funk. */
+static void
+fd_accdb_write_prepare1( fd_accdb_client_t *       client,
+                         fd_accdb_rw_t *           rw,
+                         fd_funk_txn_xid_t const * txn_id,
+                         void const *              address,
+                         ulong                     data_max,
+                         int                       zero_init ) {
+  ulong val_max = sizeof(fd_account_meta_t)+data_max;
+
+  fd_funk_rec_key_t rec_key = {0};
+  memcpy( rec_key.uc, address, 32UL );
+  rec_key.uc[ FD_FUNK_REC_KEY_FOOTPRINT-1 ] = FD_FUNK_KEY_TYPE_ACC;
+
+  /* Get funk transaction handle */
+  fd_funk_txn_t * funk_txn = fd_accdb_funk_txn( client, txn_id );
+
+  /* Peek linked list tail of transaction */
+  uint tail_idx = FD_VOLATILE_CONST( funk_txn->rec_tail_idx );
+
+  fd_alloc_t * alloc = fd_funk_alloc( client->funk );
+  fd_wksp_t *  wksp  = fd_funk_wksp ( client->funk );
+
+  /* Query hash map for existing record */
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_t const * rec_ro = fd_funk_rec_query_try_global( client->funk, funk_txn, &rec_key, NULL, query );
+  fd_funk_rec_t * rec = fd_type_pun( (void *)(ulong)rec_ro );
+
+  void * data_buf;
+  if( FD_UNLIKELY( !rec ) ) {  /* record does not exist */
+
+    /* Acquire new record */
+    int map_err;
+    rec = fd_funk_rec_pool_acquire( client->funk->rec_pool, NULL, 1, &map_err );
+    if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "fd_funk_rec_pool_acquire failed (%d), out of memory?", map_err ));
+
+    /* FIXME mark record as used */
+
+    /* Allocate data buffer */
+    fd_funk_val_init( rec );
+    int truncate_err;
+    if( FD_UNLIKELY( !fd_funk_val_truncate( rec, alloc, fd_funk_wksp( client->funk ), 8UL, val_max, &truncate_err ) ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate failed (%i-%s)", truncate_err, fd_funk_strerror( truncate_err ) ));
+    }
+
+    /* FIXME update linked list pointers */
+
+    /* Publish newly acquired record (in gen%2==1 state, i.e. locked)
+       Concurrent reads/writes for this record will fail. */
+    int insert_err = fd_funk_rec_map_insert( client->funk->rec_map, rec, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( insert_err!=FD_MAP_SUCCESS ) ) FD_LOG_ERR(( "fd_funk_rec_map_insert failed (%d)", insert_err ));
+
+    data_buf = fd_wksp_laddr_fast( wksp, rec->val_gaddr );
+
+  } else { /* record already exists, update */
+
+    if( FD_UNLIKELY( (!!rec->val_sz) & (!rec->val_gaddr) ) ) {
+      FD_LOG_CRIT(( "funk record %p invalid: val_sz=%u val_gaddr=0", (void *)rec, rec->val_sz ));
+    }
+
+    data_buf = fd_wksp_laddr_fast( wksp, rec->val_gaddr );
+    if( FD_UNLIKELY( rec->val_sz < val_max ) ) {
+      int truncate_err;
+      data_buf = fd_funk_val_truncate( rec, alloc, wksp, 8UL, val_max, &truncate_err );
+      if( FD_UNLIKELY( !data_buf ) ) {
+        FD_LOG_ERR(( "fd_funk_val_truncate failed (%i-%s)", truncate_err, fd_funk_strerror( truncate_err ) ));
+      }
+    }
+  }
+
+  if( zero_init ) {
+    fd_memset( data_buf, 0, val_max );
+  }
+
+
+  // /* Resize data buffer if required */
+
+  // fd_funk_rec_key_t rec_key = {0};
+  // memcpy( rec_key.uc, address, 32UL );
+  // rec_key.uc[ FD_FUNK_REC_KEY_FOOTPRINT-1 ] = FD_FUNK_KEY_TYPE_ACC;
+
+}
+
 void
 fd_accdb_write_prepare( fd_accdb_client_t *       client,
                         fd_accdb_rw_t *           rw,
                         fd_funk_txn_xid_t const * txn_id,
                         void const *              address,
                         ulong                     data_sz ) {
-  fd_funk_txn_t * funk_txn = fd_accdb_funk_txn( client, txn_id );
+  fd_accdb_write_prepare1( client, rw, txn_id, address, data_sz, 0 );
+}
 
-  fd_funk_rec_key_t rec_key = {0};
-  memcpy( rec_key.uc, address, 32UL );
-  rec_key.uc[ FD_FUNK_REC_KEY_FOOTPRINT-1 ] = FD_FUNK_KEY_TYPE_ACC;
-
-  fd_funk_rec_query_t query[1];
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( client->funk, funk_txn, &rec_key, NULL, query );
-  if( FD_UNLIKELY( !rec ) ) return NULL;
-  if( FD_UNLIKELY( (!!rec->val_sz) & (!rec->val_gaddr) ) ) {
-    FD_LOG_CRIT(( "funk record %p invalid: val_sz=%u val_gaddr=0", (void *)rec, rec->val_sz ));
-  }
+void
+fd_accdb_modify_prepare( fd_accdb_client_t *       client,
+                         fd_accdb_rw_t *           rw,
+                         fd_funk_txn_xid_t const * txn_id,
+                         void const *              address,
+                         ulong                     data_min ) {
+  fd_accdb_write_prepare1( client, rw, txn_id, address, data_min, 1 );
 }
 
 void
 fd_accdb_write_publish( fd_accdb_client_t * client,
                         fd_accdb_rw_t *     write ) {
+  /* FIXME consider defering hashmap update until here.  Worse cache
+           locality though, since hashmap bits might have dropped out of
+           cache after a large data copy */
 
+  /* This write might be a no-op */
 }
+
+void
+fd_accdb_write( fd_accdb_client_t *       client,
+                fd_funk_txn_xid_t const * txn_xid,
+                void const *              address,
+                fd_accdb_meta_t const *   meta,
+                void const *              data,
+                ulong                     data_sz ) {
+  fd_accdb_rw_t rw[1];
+  fd_accdb_write_prepare1( client, rw, txn_xid, address, data_sz, 0 );
+}
+
 
 int
 fd_accdb_sestab_is_used( fd_accdb_sestab_t const * sestab,

@@ -51,7 +51,7 @@ struct fd_writer_tile_ctx {
 
   /* Local join of Funk.  R/W. */
   fd_funk_t                   funk[1];
-  fd_funk_txn_t *             funk_txn;
+  fd_accdb_client_t *         accdb;
 
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];

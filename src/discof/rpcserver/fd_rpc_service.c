@@ -126,9 +126,7 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
 
 static const void *
 read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->global->funk );
-  fd_funk_txn_t *     txn     = fd_funk_txn_query( xid, txn_map );
-  return fd_funk_rec_query_copy( ctx->global->funk, txn, recid, fd_spad_virtual(ctx->global->spad), result_len );
+  return fd_funk_rec_query_copy( ctx->global->funk, xid, recid, fd_spad_virtual(ctx->global->spad), result_len );
 }
 
 static const void *

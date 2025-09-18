@@ -1,14 +1,13 @@
 #include "fd_acc_mgr.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../funk/fd_funk.h"
+#include "../accdb/fd_accdb_client.h"
 
 fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
-                               fd_funk_txn_t const *  txn,
-                               fd_pubkey_t const *    pubkey,
-                               fd_funk_rec_t const ** orec,
-                               int *                  opt_err,
-                               fd_funk_txn_t const ** txn_out  ) {
+fd_funk_get_acc_meta_readonly( fd_accdb_client_t *       accdb,
+                               fd_funk_txn_xid_t const * txn_xid,
+                               fd_pubkey_t const *       pubkey,
+                               int *                     opt_err ) {
   fd_funk_rec_key_t id = fd_funk_acc_key( pubkey );
 
   /* When we access this pointer later on in the execution pipeline, we assume that
@@ -18,9 +17,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
   for( ; ; ) {
 
     fd_funk_rec_query_t   query[1];
-    fd_funk_txn_t const * dummy_txn_out[1];
-    if( !txn_out ) txn_out    = dummy_txn_out;
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, &id, txn_out, query );
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( accdb->funk, txn_xid, &id, NULL, query );
 
     if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
       fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );

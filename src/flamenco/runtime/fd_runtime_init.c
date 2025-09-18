@@ -23,8 +23,8 @@ fd_feature_restore( fd_features_t *         features,
   FD_TXN_ACCOUNT_DECL( acct_rec );
   int err = fd_txn_account_init_from_funk_readonly( acct_rec,
                                                     (fd_pubkey_t *)acct,
-                                                    slot_ctx->funk,
-                                                    slot_ctx->funk_txn );
+                                                    slot_ctx->accdb,
+                                                    &slot_ctx->funk_txn_xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
   }

@@ -27,9 +27,9 @@ struct fd_snapin_tile {
   ulong seed;
   long boot_timestamp;
 
-  fd_funk_t       funk[1];
-  fd_funk_txn_t * funk_txn;
-  uchar *         acc_data;
+  fd_funk_t         funk[1];
+  fd_funk_txn_xid_t funk_txn_xid;
+  uchar *           acc_data;
 
   fd_stem_context_t * stem;
   fd_snapshot_parser_t * ssparse;
@@ -106,13 +106,13 @@ account_cb( void *                          _ctx,
 
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t*)hdr->meta.pubkey );
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->funk_txn, &id, query );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, &ctx->funk_txn_xid, &id, query );
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
     should_publish = 1;
-    rec = fd_funk_rec_prepare( ctx->funk, ctx->funk_txn, &id, prepare, NULL );
+    rec = fd_funk_rec_prepare( ctx->funk, &ctx->funk_txn_xid, &id, prepare, NULL );
     FD_TEST( rec );
   }
 

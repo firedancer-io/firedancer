@@ -87,7 +87,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->funk, slot_ctx->funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->accdb, &slot_ctx->funk_txn_xid );
   if (err)
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
@@ -115,16 +115,16 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_slot_history_global_t *
-fd_sysvar_slot_history_read( fd_funk_t *     funk,
-                             fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad ) {
+fd_sysvar_slot_history_read( fd_accdb_client_t *       accdb,
+                             fd_funk_txn_xid_t const * txn_xid,
+                             fd_spad_t *               spad ) {
 
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, accdb, txn_xid );
   if( err ) {
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
   }

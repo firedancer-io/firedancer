@@ -11,8 +11,8 @@ FD_PROTOTYPES_BEGIN
    has zero lamports, this function returns NULL. */
 
 fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
-                              fd_funk_txn_t *             funk_txn,
+fd_sysvar_epoch_rewards_read( fd_accdb_client_t *         accdb,
+                              fd_funk_txn_xid_t const *   txn_xid,
                               fd_sysvar_epoch_rewards_t * out );
 
 /* Update EpochRewards sysvar with distributed rewards

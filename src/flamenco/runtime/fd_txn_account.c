@@ -148,19 +148,17 @@ fd_txn_account_delete( void * mem ) {
 /* Factory constructors from funk */
 
 int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
-                                        fd_pubkey_t const *   pubkey,
-                                        fd_funk_t const *     funk,
-                                        fd_funk_txn_t const * funk_txn ) {
+fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
+                                        fd_pubkey_t const *       pubkey,
+                                        fd_accdb_client_t *       accdb,
+                                        fd_funk_txn_xid_t const * txn_xid ) {
 
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk,
-      funk_txn,
+      accdb,
+      txn_xid,
       pubkey,
-      NULL,
-      &err,
-      NULL );
+      &err );
 
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return err;
@@ -218,11 +216,10 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
 }
 
 void
-fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
-                             fd_funk_t *             funk,
-                             fd_funk_txn_t *         txn,
-                             fd_funk_rec_prepare_t * prepare ) {
-  (void)txn;
+fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
+                             fd_accdb_client_t *       accdb,
+                             fd_funk_txn_xid_t const * txn_xid,
+                             fd_funk_rec_prepare_t *   prepare ) {
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
   /* Check that the prepared record is still valid -
@@ -242,7 +239,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
 
     /* Crashes the app if this key already exists in funk (conflicting
        write) */
-    fd_funk_rec_publish( funk, prepare );
+    fd_funk_rec_publish( accdb->funk, prepare );
   }
 }
 
