@@ -3,7 +3,6 @@
 #include <fcntl.h>
 
 #include "../../ballet/block/fd_microblock.h"
-#include "../../ballet/shred/fd_shred.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 
 #include <string.h>
@@ -11,7 +10,7 @@
 struct fd_rpc_block {
   ulong slot;
   ulong next;
-  fd_replay_notif_msg_t info;
+  fd_replay_slot_completed_t info;
   ulong file_offset;
   ulong file_size;
 };
@@ -154,8 +153,8 @@ fd_rpc_history_alloc_block(fd_rpc_history_t * hist, ulong slot) {
   blk->slot = slot;
   blk->file_offset = 0UL;
   blk->file_size = 0UL;
-  memset( &blk->info, 0, sizeof(fd_replay_notif_msg_t) );
-  blk->info.slot_exec.slot = slot;
+  memset( &blk->info, 0, sizeof(fd_replay_slot_completed_t) );
+  blk->info.slot = slot;
   if( hist->first_slot == ULONG_MAX ) {
     hist->first_slot = hist->latest_slot = slot;
   } else {
@@ -181,8 +180,8 @@ fd_rpc_history_debug(fd_rpc_history_t * hist) {
 }
 
 void
-fd_rpc_history_save_info(fd_rpc_history_t * hist, fd_replay_notif_msg_t * info) {
-  fd_rpc_block_t * blk = fd_rpc_history_alloc_block( hist, info->slot_exec.slot );
+fd_rpc_history_save_info(fd_rpc_history_t * hist, fd_replay_slot_completed_t * info) {
+  fd_rpc_block_t * blk = fd_rpc_history_alloc_block( hist, info->slot );
   if( blk == NULL ) return;
   blk->info = *info;
 }
@@ -420,7 +419,7 @@ fd_rpc_history_latest_slot(fd_rpc_history_t * hist) {
   return hist->latest_slot;
 }
 
-fd_replay_notif_msg_t *
+fd_replay_slot_completed_t *
 fd_rpc_history_get_block_info(fd_rpc_history_t * hist, ulong slot) {
   fd_rpc_block_t * blk = fd_rpc_block_map_query( hist->block_map, &slot, NULL );
   if( !blk ) {
@@ -429,13 +428,13 @@ fd_rpc_history_get_block_info(fd_rpc_history_t * hist, ulong slot) {
   return &blk->info;
 }
 
-fd_replay_notif_msg_t *
+fd_replay_slot_completed_t *
 fd_rpc_history_get_block_info_by_hash(fd_rpc_history_t * hist, fd_hash_t * h) {
   for( fd_rpc_block_map_iter_t i = fd_rpc_block_map_iter_init( hist->block_map );
        !fd_rpc_block_map_iter_done( hist->block_map, i );
        i = fd_rpc_block_map_iter_next( hist->block_map, i ) ) {
     fd_rpc_block_t * ele = fd_rpc_block_map_iter_ele( hist->block_map, i );
-    if( fd_hash_eq( &ele->info.slot_exec.block_hash, h ) ) return &ele->info;
+    if( fd_hash_eq( &ele->info.block_hash, h ) ) return &ele->info;
   }
   return NULL;
 }

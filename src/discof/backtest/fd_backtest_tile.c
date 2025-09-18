@@ -2,6 +2,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
@@ -79,7 +80,7 @@ typedef struct {
   ulong                 replay_out_wmark;
   ulong                 replay_out_chunk;
   ulong                 replay_out_idx;
-  fd_replay_slot_info_t replay_slot_info;
+  fd_replay_slot_completed_t replay_slot_info;
 
   ulong       tower_out_idx;
   fd_wksp_t * tower_out_mem;
@@ -310,7 +311,7 @@ before_frag( ctx_t * ctx,
              ulong                  sig ) {
   uint in_kind = ctx->in_kind[ in_idx ];
   switch( in_kind ) {
-  case IN_KIND_REPLAY: /* no op */                                                 return 0;
+  case IN_KIND_REPLAY: return sig!=REPLAY_SIG_SLOT_COMPLETED;
   case IN_KIND_SNAP:   ctx->credit = fd_ssmsg_sig_message( sig ) == FD_SSMSG_DONE; return ctx->credit;
   default:             FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", in_kind, in_idx ));
   }
@@ -327,7 +328,7 @@ during_frag( ctx_t * ctx,
   uint          in_kind     = ctx->in_kind[in_idx];
   uchar const * chunk_laddr = fd_chunk_to_laddr( ctx->in_links[in_idx].mem, chunk );
   switch( in_kind ) {
-  case IN_KIND_REPLAY: memcpy( &ctx->replay_slot_info,  chunk_laddr, sizeof(fd_replay_slot_info_t ) ); break;
+  case IN_KIND_REPLAY: memcpy( &ctx->replay_slot_info,  chunk_laddr, sizeof(fd_replay_slot_completed_t ) ); break;
   case IN_KIND_SNAP:   memcpy( &ctx->snapshot_manifest, chunk_laddr, sizeof(fd_snapshot_manifest_t) ); break;
   default:             FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", in_kind, in_idx ));
   }
@@ -482,6 +483,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->tower_out_idx!=ULONG_MAX );
   link  = &topo->links[ tile->out_link_id[ ctx->tower_out_idx ] ];
   ctx->tower_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+  FD_TEST( ctx->tower_out_mem );
   ctx->tower_out_chunk0 = fd_dcache_compact_chunk0( ctx->tower_out_mem, link->dcache );
   ctx->tower_out_wmark  = fd_dcache_compact_wmark( ctx->tower_out_mem, link->dcache, link->mtu );
   ctx->tower_out_chunk  = ctx->tower_out_chunk0;
