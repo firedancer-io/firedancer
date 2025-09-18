@@ -1,0 +1,12 @@
+$ sudo fdctl configure init ethtool-offloads
+[32mNOTICE [0m ethtool-offloads ... unconfigured ... device `ens3f0np0` has generic-receive-offload enabled. Should be disabled
+[32mNOTICE [0m ethtool-offloads ... configuring
+[32mNOTICE [0m RUN: `ethtool --offload ens3f0np0 generic-receive-offload off`
+[32mNOTICE [0m RUN: `ethtool --features ens3f0np0 tx-gre-segmentation off`
+[32mNOTICE [0m RUN: `ethtool --offload lo generic-receive-offload off`
+
+$ ethtool --show-offload ens3f0np0 | grep generic-receive-offload
+generic-receive-offload: off
+
+$ ethtool --show-offload ens3f0np0 | grep tx-gre-segmentation
+tx-gre-segmentation: off

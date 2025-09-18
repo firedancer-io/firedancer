@@ -223,7 +223,8 @@ fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
 static int
 get_feature_idx( fd_ethtool_ioctl_t * ioc,
                  char const *         name,
-                 uint *               feature_idx ) {
+                 uint *               feature_idx,
+                 uint *               feature_cnt ) {
   /* Check size of features string set is not too large (prevent overflow) */
   union {
     struct ethtool_sset_info m;
@@ -235,6 +236,7 @@ get_feature_idx( fd_ethtool_ioctl_t * ioc,
   TRY_RUN_IOCTL( ioc, "ETHTOOL_GSSET_INFO", &esi );
   if( FD_UNLIKELY( (esi.m.data[0] == 0) | (esi.m.data[0] > MAX_FEATURES) ) )
     return EINVAL;
+  *feature_cnt = esi.m.data[0];
 
   /* Get strings from features string set */
   union {
@@ -253,7 +255,7 @@ get_feature_idx( fd_ethtool_ioctl_t * ioc,
       return 0;
     }
   }
-  return EINVAL;
+  return -1;
 }
 
 int
@@ -261,22 +263,57 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
                               char const *         name,
                               int                  enabled ) {
   uint feature_idx;
-  if( FD_UNLIKELY( 0!=get_feature_idx( ioc, name, &feature_idx ) ) )
+  uint feature_cnt;
+  int ret = get_feature_idx( ioc, name, &feature_idx, &feature_cnt );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( (ret==-1) & (!enabled) ) return 0;
     return EINVAL;
+  }
+  uint feature_block = feature_idx / 32U;
+  uint feature_offset = feature_idx % 32U;
+
+  union {
+    struct ethtool_gfeatures m;
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_gfeatures, struct ethtool_get_features_block, MAX_FEATURES / 32U ) ];
+  } egf = { 0 };
+  egf.m.cmd = ETHTOOL_GFEATURES;
+  egf.m.size = MAX_FEATURES / 32U;
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GFEATURES", &egf );
+  if( enabled == !!(egf.m.features[ feature_block ].active & fd_uint_mask_bit( (int)feature_offset )) )
+    return 0;
 
   FD_LOG_NOTICE(( "RUN: `ethtool --features %s %s %s`",
                   ioc->ifr.ifr_name, name, enabled ? "on" : "off" ));
-  uint feature_block = feature_idx / 32u;
-  uint feature_offset = feature_idx % 32u;
   union {
     struct ethtool_sfeatures m;
-    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_sfeatures, struct ethtool_set_features_block, MAX_FEATURES / 32u ) ];
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_sfeatures, struct ethtool_set_features_block, MAX_FEATURES / 32U ) ];
   } esf = { 0 };
   esf.m.cmd = ETHTOOL_SFEATURES;
-  esf.m.size = feature_block + 1;
+  esf.m.size = fd_uint_align_up( feature_cnt, 32U ) / 32U;
   esf.m.features[ feature_block ].valid = fd_uint_mask_bit( (int)feature_offset );
   esf.m.features[ feature_block ].requested = enabled ? fd_uint_mask_bit( (int)feature_offset ) : 0;
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_SFEATURES", &esf );
+
+  /* Note: ETHTOOL_SFEATURES has special behavior where it returns a
+     positive nonzero number with flags set for specific things.
+     ETHTOOL_F_UNSUPPORTED is set if the feature is not able to be
+     changed, i.e. it is forever fixed on or fixed off. */
+  ioc->ifr.ifr_data = &esf;
+  ret = ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr );
+  if( FD_UNLIKELY( ret < 0 ) ) {
+    FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
+                     ioc->ifr.ifr_name, errno, fd_io_strerror( errno ) ));
+    return errno;
+  }
+  if( FD_UNLIKELY( ret==ETHTOOL_F_UNSUPPORTED ) ) {
+    FD_LOG_WARNING(( "error configuring network device (%s), unable to change fixed feature (%s)",
+                     ioc->ifr.ifr_name, name ));
+    return EINVAL;
+  }
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%d)",
+                     ioc->ifr.ifr_name, ret ));
+    return EINVAL;
+  }
   return 0;
 }
 
@@ -285,20 +322,57 @@ fd_ethtool_ioctl_feature_test( fd_ethtool_ioctl_t * ioc,
                                char const *         name,
                                int *                enabled ) {
   uint feature_idx;
-  if( FD_UNLIKELY( 0!=get_feature_idx( ioc, name, &feature_idx ) ) )
+  uint feature_cnt;
+  int ret = get_feature_idx( ioc, name, &feature_idx, &feature_cnt );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( ret==-1 ) {
+      *enabled = 0;
+      return 0;
+    }
     return EINVAL;
+  }
+  uint feature_block = feature_idx / 32U;
+  uint feature_offset = feature_idx % 32U;
 
-  uint feature_block = feature_idx / 32u;
-  uint feature_offset = feature_idx % 32u;
   union {
     struct ethtool_gfeatures m;
-    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_gfeatures, struct ethtool_get_features_block, MAX_FEATURES / 32u ) ];
+    uchar _[ ETHTOOL_CMD_SIZE( struct ethtool_gfeatures, struct ethtool_get_features_block, MAX_FEATURES / 32U ) ];
   } egf = { 0 };
   egf.m.cmd = ETHTOOL_GFEATURES;
-  egf.m.size = MAX_FEATURES / 32u;
+  egf.m.size = MAX_FEATURES / 32U;
   TRY_RUN_IOCTL( ioc, "ETHTOOL_GFEATURES", &egf );
 
   *enabled = !!(egf.m.features[ feature_block ].active & fd_uint_mask_bit( (int)feature_offset ));
+  return 0;
+}
+
+int
+fd_ethtool_ioctl_feature_gro_set( fd_ethtool_ioctl_t * ioc,
+                                  int                  enabled ) {
+  FD_LOG_NOTICE(( "RUN: `ethtool --offload %s generic-receive-offload %s`",
+                  ioc->ifr.ifr_name, enabled ? "on" : "off" ));
+  struct ethtool_value gro = {
+    .cmd = ETHTOOL_SGRO,
+    .data = !!enabled
+  };
+  int ret = run_ioctl( ioc, "ETHTOOL_SGRO", &gro, 1, 0 );
+  if( FD_UNLIKELY( (ret==EOPNOTSUPP) & (!enabled) ) ) return 0;
+  return ret;
+}
+
+int
+fd_ethtool_ioctl_feature_gro_test( fd_ethtool_ioctl_t * ioc,
+                                   int *                enabled ) {
+  struct ethtool_value gro = { .cmd = ETHTOOL_GGRO };
+  int ret = run_ioctl( ioc, "ETHTOOL_GGRO", &gro, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
+      *enabled = 0;
+      return 0;
+    }
+    return ret;
+  }
+  *enabled = !!gro.data;
   return 0;
 }
 
