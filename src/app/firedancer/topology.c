@@ -687,7 +687,7 @@ fd_topo_initialize( config_t * config ) {
   }
 
 
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0, 1 );
 
   /* There is a special fseq that sits between the pack, bank, and poh
      tiles to indicate when the bank/poh tiles are done processing a

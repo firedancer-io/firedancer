@@ -50,7 +50,7 @@ add_bench_topo( fd_topo_t  * topo,
                 ushort       rpc_port,
                 uint         rpc_ip_addr,
                 int          no_quic,
-                int          reserve_agave_cores ) {
+                int          is_firedancer ) {
 
   fd_topob_wksp( topo, "bench" );
   fd_topob_link( topo, "bencho_out", "bench", 128UL, 64UL, 1UL );
@@ -116,7 +116,7 @@ add_bench_topo( fd_topo_t  * topo,
   }
 
   /* This will blow away previous auto topology layouts and recompute an auto topology. */
-  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, reserve_agave_cores );
+  if( FD_UNLIKELY( is_bench_auto_affinity ) ) fd_topob_auto_layout( topo, !is_firedancer, is_firedancer );
   fd_topob_finish( topo, CALLBACKS );
 }
 
@@ -161,7 +161,7 @@ bench_cmd_fn( args_t *   args,
                   config->rpc.port,
                   config->net.ip_addr,
                   args->load.no_quic,
-                  !config->is_firedancer );
+                  config->is_firedancer );
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,

@@ -109,7 +109,7 @@ snapshot_load_topo( config_t *     config,
   snaprd_tile->snaprd.diagnostics = 0;
 
   if( !args->snapshot_load.tile_cpus[0] ) {
-    fd_topob_auto_layout( topo, 0 );
+    fd_topob_auto_layout( topo, 0, 1 );
   }
   fd_topob_finish( topo, CALLBACKS );
 }

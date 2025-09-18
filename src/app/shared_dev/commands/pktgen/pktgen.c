@@ -70,7 +70,7 @@ pktgen_topo( config_t * config ) {
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   fd_topos_net_tile_finish( topo, 0UL );
-  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo, 0, config->is_firedancer );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, CALLBACKS );
   fd_topo_print_log( /* stdout */ 1, topo );
