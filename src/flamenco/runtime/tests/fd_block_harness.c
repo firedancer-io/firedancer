@@ -461,6 +461,9 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       };
       capture_ctx = capture_ctx_;
     }
+    if( capture_ctx ) {
+      slot_ctx->capture_ctx = capture_ctx;
+    }
 
     fd_rewards_recalculate_partitioned_rewards( slot_ctx, capture_ctx, runner->spad );
 
