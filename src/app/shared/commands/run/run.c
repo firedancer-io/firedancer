@@ -704,9 +704,9 @@ fdctl_check_configure( config_t const * config ) {
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
                   "network device correctly.", check.message ));
 
-    check = fd_cfg_stage_ethtool_gro.check( config );
+    check = fd_cfg_stage_ethtool_offloads.check( config );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-gro` to disable generic-receive-offload "
+      FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-offloads` to disable features "
                   "as required.", check.message ));
 
     check = fd_cfg_stage_ethtool_loopback.check( config );
@@ -763,7 +763,7 @@ fdctl_setup_netns( config_t * config,
 
   if( 0==strcmp( config->net.provider, "xdp" ) ) {
     fd_cfg_stage_ethtool_channels.init( config );
-    fd_cfg_stage_ethtool_gro     .init( config );
+    fd_cfg_stage_ethtool_offloads.init( config );
     fd_cfg_stage_ethtool_loopback.init( config );
   }
 

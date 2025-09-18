@@ -20,9 +20,9 @@ $ fdctl configure init all
 [32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
 [32mNOTICE [0m ethtool-channels ... configuring
 [32mNOTICE [0m ethtool-channels ... RUN: `ethtool --set-channels ens3f0 combined 2`
-[32mNOTICE [0m ethtool-gro ... unconfigured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
-[32mNOTICE [0m ethtool-gro ... configuring
-[32mNOTICE [0m ethtool-gro ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
+[32mNOTICE [0m ethtool-offloads ... unconfigured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
+[32mNOTICE [0m ethtool-offloads ... configuring
+[32mNOTICE [0m ethtool-offloads ... RUN: `ethtool --offload ens3f0 generic-receive-offload off`
 [32mNOTICE [0m ethtool-loopback ... unconfigured ... device `lo` has tx-udp-segmentation enabled. Should be disabled
 [32mNOTICE [0m ethtool-loopback ... configuring
 [32mNOTICE [0m ethtool-loopback ... RUN: `ethtool --offload lo tx-udp-segmentation off`
