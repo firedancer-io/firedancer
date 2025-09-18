@@ -113,7 +113,7 @@ render_counter( fd_prom_render_t *        r,
       value = fd_metrics_convert_ticks_to_nanoseconds( value );
       break;
     case FD_METRICS_CONVERTER_SECONDS:
-      value = (ulong)(fd_metrics_convert_ticks_to_seconds( value ) * 1e9);
+      value = (ulong)(fd_metrics_convert_ticks_to_seconds( value ) + 0.5); /* round, not truncate */
       break;
     case FD_METRICS_CONVERTER_NONE:
       break;
