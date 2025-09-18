@@ -78,7 +78,7 @@ echo "
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init kill --config $(readlink -f firedancer-dev.toml)
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init hugetlbfs --config $(readlink -f firedancer-dev.toml)
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-channels --config $(readlink -f firedancer-dev.toml)
-sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-gro ethtool-loopback --config $(readlink -f firedancer-dev.toml)
+sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init ethtool-offloads ethtool-loopback --config $(readlink -f firedancer-dev.toml)
 sudo $FD_DIR/$OBJDIR/bin/firedancer-dev configure init keys --config $(readlink -f firedancer-dev.toml)
 
 sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/$OBJDIR/bin/firedancer-dev dev --no-configure --log-path $(readlink -f firedancer-dev.log) --config $(readlink -f firedancer-dev.toml)
