@@ -29,7 +29,7 @@
 
 union fd_eslot {
   struct {
-    ulong slot:  64-FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX;
+    ulong slot: 64UL-FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX;
 
     /* Prime counter, starting from 0, ++ for every equivocation on the
        slot. */
@@ -38,6 +38,21 @@ union fd_eslot {
   ulong id;
 };
 typedef union fd_eslot fd_eslot_t;
+
+FD_FN_CONST static inline fd_eslot_t
+fd_eslot( ulong slot, ulong prime ) {
+  return (fd_eslot_t){ .slot = slot&FD_ESLOT_SLOT_LSB_MASK, .prime = (ulong)prime&FD_ESLOT_PRIME_LSB_MASK };
+}
+
+FD_FN_CONST static inline ulong
+fd_eslot_slot( fd_eslot_t eslot ) {
+  return (ulong)eslot.slot;
+}
+
+FD_FN_CONST static inline uchar
+fd_eslot_prime( fd_eslot_t eslot ) {
+  return (uchar)eslot.prime;
+}
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
