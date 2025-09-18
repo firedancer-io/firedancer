@@ -172,7 +172,7 @@ sysvar_inject( fd_sysvar_cache_t * cache,
   fd_memcpy( (uchar *)cache+pos->data_off, data, data_sz );
   desc->data_sz = (uint)data_sz;
   desc->flags   = 0;
-  return fd_sysvar_obj_restore( cache, desc, pos, 1 );
+  return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
 static void

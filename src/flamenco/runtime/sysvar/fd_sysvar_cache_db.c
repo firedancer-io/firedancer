@@ -45,7 +45,7 @@ sysvar_data_fill( fd_sysvar_cache_t *  cache,
   desc->data_sz = (uint)data_sz;
 
   /* Recover object cache entry from data cache entry */
-  return fd_sysvar_obj_restore( cache, desc, pos, log_fails );
+  return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
 static int
