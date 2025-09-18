@@ -11,6 +11,7 @@
 #define AFFINITY_SZ                      (256UL)
 #define CONFIGURE_STAGE_COUNT            ( 12UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
+#define SNAPSHOT_TILE_HTTP_PEERS_MAX     ( 16UL)
 #define IP4_PORT_STR_MAX                 ( 22UL)
 
 struct fd_configh {
@@ -119,28 +120,41 @@ struct fd_configf {
   } layout;
 
   struct {
-    ulong heap_size_gib;
-
-    struct {
-      ulong max_rooted_slots;
-      ulong max_live_slots;
-      ulong max_transactions_per_slot;
-      ulong snapshot_grace_period_seconds;
-      ulong max_vote_accounts;
-      ulong max_total_banks;
-      ulong max_fork_width;
-    } limits;
+    ulong max_rooted_slots;
+    ulong max_live_slots;
+    ulong max_transactions_per_slot;
+    ulong snapshot_grace_period_seconds;
+    ulong max_vote_accounts;
+    ulong max_total_banks;
+    ulong max_fork_width;
   } runtime;
 
   struct {
+    char host[ 256 ];
+  } gossip;
+
+  struct {
+
+    struct {
+
+      struct {
+        ulong            peers_cnt;
+        struct {
+          int  enabled;
+          char url[ PATH_MAX ];
+        } peers[ SNAPSHOT_TILE_HTTP_PEERS_MAX ];
+      } http;
+
+    } sources;
+
     int   incremental_snapshots;
     uint  maximum_local_snapshot_age;
+    int   genesis_download;
     int   download;
     ulong known_validators_cnt;
     char  known_validators[ 16 ][ 256 ];
     uint  minimum_download_speed_mib;
     uint  maximum_download_retry_abort;
-    char  cluster[ 8UL ];
     uint  max_full_snapshots_to_keep;
     uint  max_incremental_snapshots_to_keep;
   } snapshots;
@@ -169,6 +183,7 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
+    char rss_queue_mode[ 16 ]; /* "simple" or "dedicated" */
   } xdp;
 
   struct {
@@ -208,6 +223,7 @@ struct fd_config {
     char identity_key[ PATH_MAX ];
     char vote_account[ PATH_MAX ];
     char snapshots[ PATH_MAX ];
+    char genesis[ PATH_MAX ];
   } paths;
 
   struct {
@@ -233,6 +249,7 @@ struct fd_config {
 
   struct {
     ushort expected_shred_version;
+    char   expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
   } consensus;
 
   struct {
@@ -241,7 +258,6 @@ struct fd_config {
     fd_ip4_port_t resolved_entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
 
     ushort        port;
-    char          host[ 256 ];
   } gossip;
 
   struct {
@@ -336,6 +352,10 @@ struct fd_config {
     struct {
       char affinity[ AFFINITY_SZ ];
     } snapshot_load;
+
+    struct {
+      int websocket_compression;
+    } gui;
   } development;
 
   struct {
@@ -427,20 +447,17 @@ struct fd_config {
     struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
-      char   good_peer_cache_file[ PATH_MAX ];
       ulong  slot_max;
     } repair;
 
     struct {
       char  funk_checkpt[ PATH_MAX ];
-      char  genesis[ PATH_MAX ];
-      char  slots_replayed[PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
       char  tower_checkpt[ PATH_MAX ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
-      ulong max_exec_slices;
+      ulong heap_size_gib;
     } replay;
 
     struct {

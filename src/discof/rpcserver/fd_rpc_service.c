@@ -5,9 +5,11 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../disco/fd_disco_base.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../ballet/shred/fd_shred.h"
+#include "../../choreo/tower/fd_tower.h"
 #include "../reasm/fd_reasm.h"
 #include "fd_rpc_history.h"
 #include "fd_block_to_json.h"
@@ -38,31 +40,6 @@
 #define CRLF "\r\n"
 #define MATCH_STRING(_text_,_text_sz_,_str_) (_text_sz_ == sizeof(_str_)-1 && memcmp(_text_, _str_, sizeof(_str_)-1) == 0)
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
-
-/* If the 0th bit is set, this indicates the block is preparing, which
-   means it might be partially executed e.g. a subset of the microblocks
-   have been executed.  It is not safe to remove, relocate, or modify
-   the block in any way at this time.
-
-   Callers holding a pointer to a block should always make sure to
-   inspect this flag.
-
-   Other flags mainly provide useful metadata for read-only callers, eg.
-   RPC. */
-
-#define FD_BLOCK_FLAG_RECEIVING 0 /* xxxxxxx1 still receiving shreds */
-#define FD_BLOCK_FLAG_COMPLETED 1 /* xxxxxx1x received the block ie. all shreds (SLOT_COMPLETE) */
-#define FD_BLOCK_FLAG_REPLAYING 2 /* xxxxx1xx replay in progress (DO NOT REMOVE) */
-#define FD_BLOCK_FLAG_PROCESSED 3 /* xxxx1xxx successfully replayed the block */
-#define FD_BLOCK_FLAG_EQVOCSAFE 4 /* xxxx1xxx 52% of cluster has voted on this (slot, bank hash) */
-#define FD_BLOCK_FLAG_CONFIRMED 5 /* xxx1xxxx 2/3 of cluster has voted on this (slot, bank hash) */
-#define FD_BLOCK_FLAG_FINALIZED 6 /* xx1xxxxx 2/3 of cluster has rooted this slot */
-#define FD_BLOCK_FLAG_DEADBLOCK 7 /* x1xxxxxx failed to replay the block */
-
-static const uint PATH_COMMITMENT[4] = { ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_PARAMS,
-                                         ( JSON_TOKEN_LBRACKET << 16 ) | 1,
-                                         ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_COMMITMENT,
-                                         ( JSON_TOKEN_STRING << 16 ) };
 
 struct fd_ws_subscription {
   ulong conn_id;
@@ -115,6 +92,11 @@ struct fd_rpc_global_ctx {
   ulong acct_age;
   fd_rpc_history_t * history;
   fd_pubkey_t const * identity_key; /* nullable */
+  ulong replay_towers_cnt;
+  fd_replay_tower_t replay_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  int replay_towers_eom;
+  ulong confirmed_slot;
+  ulong root_slot;
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -156,31 +138,34 @@ read_account( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, ulong * result_len 
 
 static ulong
 get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx ) {
+  static const uint PATH_COMMITMENT[4] = { ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_PARAMS,
+                                           ( JSON_TOKEN_LBRACKET << 16 ) | 1,
+                                           ( JSON_TOKEN_LBRACE << 16 ) | KEYW_JSON_COMMITMENT,
+                                           ( JSON_TOKEN_STRING << 16 ) };
+
   ulong        commit_str_sz = 0;
   const void * commit_str    = json_get_value( values, PATH_COMMITMENT, 4, &commit_str_sz );
   if( commit_str == NULL ) {
-    return fd_rpc_history_latest_slot( ctx->global->history );
+    return ctx->global->root_slot;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "confirmed" ) ) {
-    return 0;
+    return ctx->global->confirmed_slot;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "processed" ) ) {
-    return 0;
+    return fd_rpc_history_latest_slot( ctx->global->history );
   } else if( MATCH_STRING( commit_str, commit_str_sz, "finalized" ) ) {
-    return 0;
+    return ctx->global->root_slot;
   } else {
     fd_method_error( ctx, -1, "invalid commitment %s", (const char *)commit_str );
     return FD_SLOT_NULL;
   }
 }
 
-/*
 static const char *
-block_flags_to_confirmation_status( uchar flags ) {
-  if( flags & (1U << FD_BLOCK_FLAG_FINALIZED) ) return "\"finalized\"";
-  if( flags & (1U << FD_BLOCK_FLAG_CONFIRMED) ) return "\"confirmed\"";
-  if( flags & (1U << FD_BLOCK_FLAG_PROCESSED) ) return "\"processed\"";
-  return "null";
+get_commitment_level_from_slot( ulong slot, fd_rpc_ctx_t * ctx ) {
+  if( slot <= ctx->global->root_slot ) return "finalized";
+  if( slot <= ctx->global->confirmed_slot ) return "confirmed";
+  if( slot <= fd_rpc_history_latest_slot( ctx->global->history ) ) return "processed";
+  return "unknown";
 }
-*/
 
 // Implementation of the "getAccountInfo" method
 // curl http://localhost:8123 -X POST -H "Content-Type: application/json" -d '{ "jsonrpc": "2.0", "id": 1, "method": "getAccountInfo", "params": [ "21bVZhkqPJRVYDG3YpYtzHLMvkc7sa4KB7fMwGekTquG", { "encoding": "base64" } ] }'
@@ -309,7 +294,7 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     fd_account_meta_t * metadata = (fd_account_meta_t *)val;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
-                         fd_rpc_history_latest_slot( ctx->global->history ), metadata->info.lamports, ctx->call_id);
+                         fd_rpc_history_latest_slot( ctx->global->history ), metadata->lamports, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -681,19 +666,27 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     fd_webserver_t * ws   = &ctx->global->ws;
     ulong            slot = get_slot_from_commitment_level( values, ctx );
-
     fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
     if( info == NULL ) {
       fd_method_error(ctx, -1, "unable to find slot info");
       return 0;
     }
-
+    fd_funk_txn_map_t * map = fd_funk_txn_map( ctx->global->funk );
+    fd_funk_txn_xid_t xid;
+    xid.ul[0] = xid.ul[1] = slot;
+    fd_funk_txn_t * txn = fd_funk_txn_query( &xid, map );
+    fd_epoch_schedule_t epoch_schedule_out[1];
+    fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( ctx->global->funk, txn, epoch_schedule_out );
+    if( epoch_schedule == NULL ) {
+      fd_method_error(ctx, -1, "unable to find epoch schedule");
+      return 0;
+    }
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
                          info->slot_exec.height,
                          info->slot_exec.epoch,
                          info->slot_exec.slot_in_epoch,
-                         432000UL,
+                         epoch_schedule->slots_per_epoch,
                          info->slot_exec.transaction_count,
                          ctx->call_id);
   } FD_SPAD_FRAME_END;
@@ -783,9 +776,7 @@ method_getGenesisHash(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     fd_webserver_t * ws = &ctx->global->ws;
-    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"");
-    // fd_web_reply_encode_base58(ws, epoch_bank->genesis_hash.uc, sizeof(fd_pubkey_t));
-    fd_web_reply_sprintf(ws, "\",\"id\":%s}" CRLF, ctx->call_id);
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":\"11111111111111111111111111111111\",\"id\":%s}" CRLF, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -1181,6 +1172,9 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
+    ulong slot_max = get_slot_from_commitment_level( values, ctx );
+    if( slot_max == ULONG_MAX ) return 0;
+
     static const uint PATH2[4] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
       (JSON_TOKEN_LBRACKET<<16) | 1,
@@ -1198,13 +1192,18 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
     const void * iter = fd_rpc_history_first_txn_for_acct( gctx->history, &acct, &sig, &slot );
     ulong cnt = 0;
     while( iter != NULL && cnt < limit ) {
+      if( slot > slot_max ) {
+        iter = fd_rpc_history_next_txn_for_acct( gctx->history, &sig, &slot, iter );
+        continue;
+      }
+
       if( cnt ) EMIT_SIMPLE(",");
 
       fd_replay_notif_msg_t * info = fd_rpc_history_get_block_info( ctx->global->history, slot );
       char buf64[FD_BASE58_ENCODED_64_SZ];
       fd_base58_encode_64((uchar const*)&sig, NULL, buf64);
       fd_web_reply_sprintf(ws, "{\"blockTime\":%ld,\"confirmationStatus\":\"%s\",\"err\":null,\"memo\":null,\"signature\":\"%s\",\"slot\":%lu}",
-                           (long)info->slot_exec.ts/(long)1e9, "confirmed", buf64, slot);
+                           (long)info->slot_exec.ts/(long)1e9, get_commitment_level_from_slot(slot, ctx), buf64, slot);
 
       cnt++;
 
@@ -1259,7 +1258,7 @@ method_getSignatureStatuses(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
     // TODO other fields
     fd_web_reply_sprintf(ws, "{\"slot\":%lu,\"confirmations\":null,\"err\":null,\"status\":{\"Ok\":null},\"confirmationStatus\":\"%s\"}",
-                         slot, "processed");
+                         slot, get_commitment_level_from_slot(slot, ctx));
   }
 
   fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
@@ -1374,9 +1373,13 @@ method_getStakeMinimumDelegation(struct json_values* values, fd_rpc_ctx_t * ctx)
 static int
 method_getSupply(struct json_values* values, fd_rpc_ctx_t * ctx) {
   (void)values;
-  (void)ctx;
-  FD_LOG_WARNING(( "getSupply is not implemented" ));
-  fd_method_error(ctx, -1, "getSupply is not implemented");
+  fd_webserver_t * ws = &ctx->global->ws;
+  fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":{\"circulating\":%lu,\"nonCirculating\":%lu,\"total\":%lu,\"nonCirculatingAccounts\":[]}},\"id\":%s}" CRLF,
+                       fd_rpc_history_latest_slot( ctx->global->history ),
+                       0UL, // ctx->global->supply.circulating,
+                       0UL, // ctx->global->supply.non_circulating,
+                       0UL, // ctx->global->supply.total,
+                       ctx->call_id);
   return 0;
 }
 
@@ -1477,20 +1480,8 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
     return 0;
   }
 
-  ulong commit_str_sz = 0;
-  const void* commit_str = json_get_value(values, PATH_COMMITMENT, 4, &commit_str_sz);
-  uchar need_blk_flags;
-  if (commit_str == NULL || MATCH_STRING(commit_str, commit_str_sz, "processed"))
-    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_PROCESSED);
-  else if (MATCH_STRING(commit_str, commit_str_sz, "confirmed"))
-    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_CONFIRMED);
-  else if (MATCH_STRING(commit_str, commit_str_sz, "finalized"))
-    need_blk_flags = (uchar)(1U << FD_BLOCK_FLAG_FINALIZED);
-  else {
-    fd_method_error(ctx, -1, "invalid commitment %s", (const char*)commit_str);
-    return 0;
-  }
-  (void)need_blk_flags;
+  ulong slot_max = get_slot_from_commitment_level( values, ctx );
+  if( slot_max == ULONG_MAX ) return 0;
 
   fd_rpc_txn_key_t key;
   if ( fd_base58_decode_64( sig, (uchar*)&key) == NULL ) {
@@ -1500,7 +1491,7 @@ method_getTransaction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong txn_sz;
   ulong slot;
   uchar * txn_data_raw = fd_rpc_history_get_txn( ctx->global->history, &key, &txn_sz, &slot );
-  if( txn_data_raw == NULL ) {
+  if( txn_data_raw == NULL || slot > slot_max ) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":null,\"id\":%s}" CRLF, ctx->call_id);
     return 0;
   }
@@ -1539,10 +1530,9 @@ method_getTransactionCount(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error( ctx, -1, "slot bank %lu not found", slot );
       return 0;
     }
-    /* FIXME: should be the transaction count here */
     fd_web_reply_sprintf( ws,
                           "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                          0UL,
+                          info->slot_exec.transaction_count,
                           ctx->call_id );
   } FD_SPAD_FRAME_END;
   return 0;
@@ -1563,8 +1553,9 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-    fd_webserver_t * ws = &ctx->global->ws;
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  FD_SPAD_FRAME_BEGIN( glob->spad ) {
+    fd_webserver_t * ws = &glob->ws;
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"current\":[");
 
     uint path[4] = {
@@ -1574,86 +1565,126 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       (JSON_TOKEN_STRING<<16)
     };
     ulong arg_sz = 0;
-    const void* arg = json_get_value(values, path, 4, &arg_sz);
-    (void)arg; // Ignore for now
+    const void* filter_arg = json_get_value(values, path, 4, &arg_sz);
+    fd_hash_t filter_key = {0};
+    if( filter_arg != NULL ) {
+      if( fd_base58_decode_32((const char *)filter_arg, filter_key.uc) == NULL ) {
+        fd_method_error(ctx, -1, "invalid base58 encoding");
+        return 0;
+      }
+    }
 
+    if( !glob->replay_towers_eom ) {
+      fd_method_error( ctx, -1, "vote accounts are not ready" );
+      return 0;
+    }
 
-    /* TODO: Integrate properly. Maybe snoop link out of replay? */
-    // ulong                 slot      = get_slot_from_commitment_level( values, ctx );
-    // fd_slot_bank_t *      slot_bank = read_slot_bank( ctx, slot );
-    // if( FD_UNLIKELY( !slot_bank ) ) {
-    //   fd_method_error( ctx, -1, "slot bank %lu not found", slot );
-    //   return 0;
-    // }
+    int needcomma = 0;
+    for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
+      fd_replay_tower_t const * w = &glob->replay_towers[i];
+      if( filter_arg != NULL ) {
+        if( !fd_hash_eq( &w->key, &filter_key ) ) continue;
+      }
+      if( needcomma ) fd_web_reply_sprintf(ws, ",");
 
-    // int needcomma = 0;
+      fd_bincode_decode_ctx_t ctx = {
+        .data    = w->acc,
+        .dataend = w->acc + w->acc_sz,
+      };
+      ulong total_sz = 0UL;
+      int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_CRIT(( "unable to decode vote state versioned" ));
+        continue;
+      }
+      uchar mem[total_sz];
+      fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
-    // fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = NULL;
-    // fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = NULL;
-    // fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = NULL; // slot_bank->epoch_stakes.vote_accounts_root;
-    // fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = NULL; // slot_bank->epoch_stakes.vote_accounts_pool;
-    // for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
-    //      n;
-    //      n = fd_vote_accounts_pair_t_map_successor( vote_acc_pool, n ) ) {
+      fd_pubkey_t node_account;
+      uchar       commission;
+      ulong       root_slot;
+      ulong       last_vote_slot;
+      ulong       credits_cnt = 0UL;
+      ushort      epoch[EPOCH_CREDITS_MAX];
+      ulong       credits[EPOCH_CREDITS_MAX];
+      ulong       prev_credits[EPOCH_CREDITS_MAX];
 
-    //   /* get timestamp */
-    //   fd_pubkey_t const * vote_pubkey = &n->elem.key;
+      fd_vote_epoch_credits_t * epoch_credits = NULL;
 
-    //   if( timestamp_votes_pool == NULL ) {
-    //     continue;
-    //   } else {
-    //     fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
-    //     query_vote_acc_node.elem.pubkey = *vote_pubkey;
-    //     fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
-    //     ulong vote_timestamp = 0;
-    //     ulong vote_slot = 0;
-    //     if( vote_acc_node == NULL ) {
-    //       int err;
-    //       fd_vote_state_versioned_t * vsv = fd_bincode_decode_spad(
-    //         vote_state_versioned, ctx->global->spad,
-    //         n->elem.value.data,
-    //         n->elem.value.data_len,
-    //         &err );
-    //       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    //         FD_LOG_WARNING(( "Vote state versioned decode failed" ));
-    //         continue;
-    //       }
+      switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        node_account        = vsv->inner.v0_23_5.node_pubkey;
+        commission          = vsv->inner.v0_23_5.commission;
+        root_slot           = vsv->inner.v0_23_5.root_slot;
+        last_vote_slot      = vsv->inner.v0_23_5.last_timestamp.slot;
+        epoch_credits       = vsv->inner.v0_23_5.epoch_credits;
+        for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+             !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+             iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+          fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+          epoch[credits_cnt]        = (ushort)ele->epoch;
+          credits[credits_cnt]      = ele->credits;
+          prev_credits[credits_cnt] = ele->prev_credits;
+          credits_cnt++;
+        }
+        break;
 
-    //       switch( vsv->discriminant ) {
-    //       case fd_vote_state_versioned_enum_v0_23_5:
-    //         vote_timestamp = (ulong)vsv->inner.v0_23_5.last_timestamp.timestamp;
-    //         vote_slot = vsv->inner.v0_23_5.last_timestamp.slot;
-    //         break;
-    //       case fd_vote_state_versioned_enum_v1_14_11:
-    //         vote_timestamp = (ulong)vsv->inner.v1_14_11.last_timestamp.timestamp;
-    //         vote_slot = vsv->inner.v1_14_11.last_timestamp.slot;
-    //         break;
-    //       case fd_vote_state_versioned_enum_current:
-    //         vote_timestamp = (ulong)vsv->inner.current.last_timestamp.timestamp;
-    //         vote_slot = vsv->inner.current.last_timestamp.slot;
-    //         break;
-    //       default:
-    //         __builtin_unreachable();
-    //       }
+      case fd_vote_state_versioned_enum_v1_14_11:
+        node_account        = vsv->inner.v1_14_11.node_pubkey;
+        commission          = vsv->inner.v1_14_11.commission;
+        root_slot           = vsv->inner.v1_14_11.root_slot;
+        last_vote_slot      = vsv->inner.v1_14_11.last_timestamp.slot;
+        epoch_credits       = vsv->inner.v1_14_11.epoch_credits;
+        for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+             !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+             iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+          fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+          epoch[credits_cnt]        = (ushort)ele->epoch;
+          credits[credits_cnt]      = ele->credits;
+          prev_credits[credits_cnt] = ele->prev_credits;
+          credits_cnt++;
+        }
+        break;
 
-    //     } else {
-    //       vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
-    //       vote_slot = vote_acc_node->elem.slot;
-    //     }
-    //     (void)vote_timestamp;
+      case fd_vote_state_versioned_enum_current:
+        node_account        = vsv->inner.current.node_pubkey;
+        commission          = vsv->inner.current.commission;
+        root_slot           = vsv->inner.current.root_slot;
+        last_vote_slot      = vsv->inner.current.last_timestamp.slot;
+        epoch_credits       = vsv->inner.current.epoch_credits;
+        for( deq_fd_vote_epoch_credits_t_iter_t iter = deq_fd_vote_epoch_credits_t_iter_init( epoch_credits );
+             !deq_fd_vote_epoch_credits_t_iter_done( epoch_credits, iter );
+             iter = deq_fd_vote_epoch_credits_t_iter_next( epoch_credits, iter ) ) {
+          fd_vote_epoch_credits_t * ele = deq_fd_vote_epoch_credits_t_iter_ele( epoch_credits, iter );
+          epoch[credits_cnt]        = (ushort)ele->epoch;
+          credits[credits_cnt]      = ele->credits;
+          prev_credits[credits_cnt] = ele->prev_credits;
+          credits_cnt++;
+        }
+        break;
 
-    //     char pubkey[50];
-    //     fd_base58_encode_32(vote_pubkey->uc, 0, pubkey);
-    //     char key[50];
-    //     fd_base58_encode_32(n->elem.key.uc, 0, key);
-    //     if( needcomma ) fd_web_reply_sprintf(ws, ",");
-    //     fd_web_reply_sprintf(ws, "{\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"activatedStake\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-    //                          pubkey, vote_slot, n->elem.stake, key);
-    //     needcomma = 1;
-    //   }
-    // }
+      default:
+        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, vsv->discriminant ));
+        __builtin_unreachable();
+      }
 
-    // fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
+      char vote_account_s[50];
+      fd_base58_encode_32(w->key.uc, 0, vote_account_s);
+      char node_account_s[50];
+      fd_base58_encode_32(node_account.uc, 0, node_account_s);
+      fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[",
+                           w->stake, (uint)commission);
+      for( ulong j=(credits_cnt >= 5U ? credits_cnt - 5U : 0UL); j<credits_cnt; j++ ) {
+        fd_web_reply_sprintf(ws, "[%u,%lu,%lu]", epoch[j], credits[j], prev_credits[j]);
+        if( j < credits_cnt - 1 ) fd_web_reply_sprintf(ws, ",");
+      }
+      fd_web_reply_sprintf(ws, "],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":%lu}",
+                           node_account_s, last_vote_slot, vote_account_s, root_slot);
+
+      needcomma = 1;
+    }
+
+    fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
   } FD_SPAD_FRAME_END;
   return 0;
 }
@@ -2344,7 +2375,7 @@ fd_rpc_create_ctx(fd_rpcserver_args_t * args, fd_rpc_ctx_t ** ctx_p) {
   FD_TEST( gctx->perf_samples );
 
   gctx->history = fd_rpc_history_create(args);
-  gctx->identity_key = args->identity_key;
+  gctx->identity_key = &args->identity_key;
 
   FD_LOG_NOTICE(( "starting web server on port %u", (uint)args->port ));
   if (fd_webserver_start(args->port, args->params, gctx->spad, &gctx->ws, ctx))
@@ -2406,9 +2437,10 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx) {
       /* Record a new perf sample */
 
       if( FD_LIKELY( subs->perf_sample_snapshot.highest_slot ) ) {
+        ulong diff = msg->slot_exec.transaction_count - subs->perf_sample_snapshot.num_transactions;
+        if( diff > 100000000 ) diff = 0; // ignore huge diffs, they are caused by integer overflows
         fd_perf_sample_t perf_sample = { .num_slots = msg->slot_exec.slot - subs->perf_sample_snapshot.highest_slot,
-                                         .num_transactions = msg->slot_exec.transaction_count -
-                                                             subs->perf_sample_snapshot.num_transactions,
+                                         .num_transactions = diff,
                                          .num_non_vote_transactions = 0,
                                          .highest_slot              = msg->slot_exec.slot };
         fd_perf_sample_deque_push_tail( subs->perf_samples, perf_sample );
@@ -2467,4 +2499,185 @@ fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx) {
   if( subs->buffer_sz != (int)sizeof(fd_reasm_fec_t) ) return;
   fd_reasm_fec_t * fec_p = (fd_reasm_fec_t *)subs->buffer;
   fd_rpc_history_save_fec( subs->history, subs->store, fec_p );
+}
+
+#define MAX_LOCKOUT_HISTORY 31UL
+
+static fd_landed_vote_t *
+landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
+                            fd_spad_t *         spad ) {
+  if( !lockouts ) return NULL;
+
+  /* Allocate MAX_LOCKOUT_HISTORY (sane case) by default.  In case the
+     vote account is corrupt, allocate as many entries are needed. */
+
+  ulong cnt = deq_fd_vote_lockout_t_cnt( lockouts );
+        cnt = fd_ulong_max( cnt, MAX_LOCKOUT_HISTORY );
+  uchar * deque_mem = fd_spad_alloc( spad,
+                                     deq_fd_landed_vote_t_align(),
+                                     deq_fd_landed_vote_t_footprint( cnt ) );
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, cnt ) );
+
+  for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
+       !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
+       iter = deq_fd_vote_lockout_t_iter_next( lockouts, iter ) ) {
+    fd_vote_lockout_t const * ele = deq_fd_vote_lockout_t_iter_ele_const( lockouts, iter );
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( landed_votes );
+    fd_landed_vote_new( elem );
+    elem->latency                    = 0;
+    elem->lockout.slot               = ele->slot;
+    elem->lockout.confirmation_count = ele->confirmation_count;
+  }
+
+  return landed_votes;
+}
+
+struct weight_by_slot {
+  #define WEIGHT_BY_SLOT_MAX 256UL
+  ulong weight[WEIGHT_BY_SLOT_MAX];
+  uint cnt;
+  ulong first;
+};
+typedef struct weight_by_slot weight_by_slot_t;
+
+static void
+weight_by_slot_init( weight_by_slot_t * wbs ) {
+  memset( wbs, 0, sizeof(weight_by_slot_t) );
+}
+
+static void
+weight_by_slot_add( weight_by_slot_t * wbs, ulong slot, ulong weight ) {
+  if( wbs->cnt == 0U ) {
+    wbs->first = slot;
+    wbs->cnt = 1U;
+    wbs->weight[slot & (WEIGHT_BY_SLOT_MAX - 1)] = 0UL;
+  } else if( slot < wbs->first ) {
+    do {
+      if( wbs->cnt == WEIGHT_BY_SLOT_MAX ) {
+        return; // Too far back, ignore
+      }
+      // Extend the queue backwards
+      wbs->first--;
+      wbs->cnt++;
+      wbs->weight[wbs->first & (WEIGHT_BY_SLOT_MAX - 1)] = 0UL;
+    } while( slot < wbs->first );
+  } else if ( slot >= wbs->first + wbs->cnt ) {
+    do {
+      if( wbs->cnt < WEIGHT_BY_SLOT_MAX ) {
+        wbs->cnt++; // Extend the queue forwards
+      } else {
+        wbs->first++; // Roll the queue forward
+      }
+      wbs->weight[(wbs->first + wbs->cnt - 1U) & (WEIGHT_BY_SLOT_MAX - 1)] = 0UL;
+    } while( slot >= wbs->first + wbs->cnt );
+  }
+  FD_TEST( slot >= wbs->first && slot < wbs->first + wbs->cnt && wbs->cnt <= WEIGHT_BY_SLOT_MAX );
+  wbs->weight[slot & (WEIGHT_BY_SLOT_MAX - 1)] += weight;
+}
+
+static void
+fd_rpc_recompute_confirmed( fd_rpc_global_ctx_t * glob ) {
+  FD_SPAD_FRAME_BEGIN( glob->spad ) {
+    ulong total_stake = 0UL;
+    weight_by_slot_t wbs_votes;
+    weight_by_slot_init( &wbs_votes );
+    weight_by_slot_t wbs_root;
+    weight_by_slot_init( &wbs_root );
+
+    for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
+      fd_replay_tower_t const * w = &glob->replay_towers[i];
+
+      fd_bincode_decode_ctx_t ctx = {
+        .data    = w->acc,
+        .dataend = w->acc + w->acc_sz,
+      };
+      ulong total_sz = 0UL;
+      int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+      if( FD_UNLIKELY( err ) ) {
+        FD_LOG_CRIT(( "unable to decode vote state versioned" ));
+        continue;
+      }
+      uchar mem[total_sz];
+      fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
+
+      ulong root_slot;
+      fd_landed_vote_t * votes; /* fd_deque_dynamic (min cnt 32) */
+
+      switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        root_slot = vsv->inner.v0_23_5.root_slot;
+        votes     = landed_votes_from_lockouts( vsv->inner.v0_23_5.votes, glob->spad );
+        break;
+
+      case fd_vote_state_versioned_enum_v1_14_11:
+        root_slot = vsv->inner.v1_14_11.root_slot;
+        votes     = landed_votes_from_lockouts( vsv->inner.v1_14_11.votes, glob->spad );
+        break;
+
+      case fd_vote_state_versioned_enum_current:
+        root_slot = vsv->inner.current.root_slot;
+        votes     = vsv->inner.current.votes;
+        break;
+
+      default:
+        FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, vsv->discriminant ));
+        __builtin_unreachable();
+      }
+
+      for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( votes );
+           !deq_fd_landed_vote_t_iter_done( votes, iter );
+           iter = deq_fd_landed_vote_t_iter_next( votes, iter ) ) {
+        fd_landed_vote_t const * ele = deq_fd_landed_vote_t_iter_ele_const( votes, iter );
+        weight_by_slot_add( &wbs_votes, ele->lockout.slot, w->stake );
+      }
+      weight_by_slot_add( &wbs_root, root_slot, w->stake );
+
+      total_stake += w->stake;
+    }
+
+    /* Find the latest slot that has 2/3 of the total stake. */
+    ulong threshold = total_stake * 2UL / 3UL;
+    for( uint i=wbs_votes.cnt; i>0; i-- ) {
+      ulong slot = wbs_votes.first + i - 1U;
+      ulong stake = wbs_votes.weight[slot & (WEIGHT_BY_SLOT_MAX - 1)];
+      if( stake >= threshold ) {
+        glob->confirmed_slot = slot;
+        break;
+      }
+    }
+
+    /* Find a slot for 2/3 of the total stake is rooted. */
+    ulong sum = 0UL;
+    for( uint i=wbs_root.cnt; i>0; i-- ) {
+      ulong slot = wbs_root.first + i - 1U;
+      sum += wbs_root.weight[slot & (WEIGHT_BY_SLOT_MAX - 1)];
+      if( sum >= threshold ) {
+        glob->root_slot = slot;
+        break;
+      }
+    }
+  } FD_SPAD_FRAME_END;
+}
+
+void
+fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+  fd_rpc_global_ctx_t * glob = ctx->global;
+  if( FD_LIKELY( sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
+    if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) {
+      glob->replay_towers_cnt = 0;
+      glob->replay_towers_eom = 0;
+    }
+    if( FD_UNLIKELY( glob->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
+    FD_TEST( sz == (int)sizeof(fd_replay_tower_t) );
+    memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_tower_t) );
+    glob->replay_towers_eom = fd_frag_meta_ctl_eom( ctl );
+    if( glob->replay_towers_eom ) {
+      fd_rpc_recompute_confirmed( glob );
+    }
+  }
+}
+
+void
+fd_rpc_tower_after_frag(fd_rpc_ctx_t * ctx) {
+  (void)ctx;
 }

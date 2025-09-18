@@ -490,12 +490,14 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   fd_gossip_view_pull_request_t * pr = view->pull_request;
 
   CHECK_LEFT(                    8U ); pr->bloom_keys_len    = FD_LOAD( ulong, CURSOR ) ; INC( 8U );
+  CHECK( pr->bloom_keys_len<=((ULONG_MAX-7U)/8U) );
   CHECK_LEFT( pr->bloom_keys_len*8U ); pr->bloom_keys_offset = CUR_OFFSET               ; INC( pr->bloom_keys_len*8U );
 
   uchar has_bits = 0;
   CHECK_LEFT(                    1U ); has_bits = FD_LOAD( uchar, CURSOR )              ; INC( 1U );
   if( has_bits ) {
     CHECK_LEFT(                  8U ); pr->bloom_len         = FD_LOAD( ulong, CURSOR ) ; INC( 8U );
+    CHECK( pr->bloom_len<=((ULONG_MAX-7U)/8U) );
     CHECK_LEFT(    pr->bloom_len*8U ); pr->bloom_bits_offset = CUR_OFFSET               ; INC( pr->bloom_len*8U );
     CHECK_LEFT(                  8U ); pr->bloom_bits_cnt    = FD_LOAD( ulong, CURSOR ) ; INC( 8U );
   } else {
@@ -541,9 +543,10 @@ fd_gossip_msg_prune_parse( fd_gossip_view_t * view,
   CHECK_INIT( payload, payload_sz, start_offset );
   fd_gossip_view_prune_t * prune = view->prune;
   CHECKED_INC( 32U ); /* pubkey is sent twice */
-  CHECK_LEFT(                   32U ); prune->origin_off      = CUR_OFFSET               ; INC( 32U );
-  CHECK_LEFT(                    8U ); prune->prunes_len      = FD_LOAD( ulong, CURSOR ) ; INC(  8U );
-  CHECK_LEFT( prune->prunes_len*32U ); prune->prunes_off      = CUR_OFFSET               ; INC( prune->prunes_len*32U );
+  CHECK_LEFT(                   32U ); prune->pubkey_off      = CUR_OFFSET               ; INC( 32U );
+  CHECK_LEFT(                    8U ); prune->origins_len     = FD_LOAD( ulong, CURSOR ) ; INC(  8U );
+  CHECK( prune->origins_len<=((ULONG_MAX-31U)/32U) );
+  CHECK_LEFT( prune->origins_len*32U ); prune->origins_off    = CUR_OFFSET               ; INC( prune->origins_len*32U );
   CHECK_LEFT(                   64U ); prune->signature_off   = CUR_OFFSET               ; INC( 64U );
   CHECK_LEFT(                   32U ); prune->destination_off = CUR_OFFSET               ; INC( 32U );
   CHECK_LEFT(                    8U ); prune->wallclock       = FD_LOAD( ulong, CURSOR ) ; INC(  8U );

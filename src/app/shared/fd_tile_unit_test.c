@@ -16,7 +16,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
-extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
@@ -36,7 +35,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
-  &fd_obj_cb_runtime_pub,
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
@@ -86,6 +84,7 @@ fd_topo_run_tile_t dummy_tile_snapin = { .name = "snapin" };
 fd_topo_run_tile_t dummy_tile_arch_f = { .name = "arch_f" };
 fd_topo_run_tile_t dummy_tile_arch_w = { .name = "arch_w" };
 fd_topo_run_tile_t dummy_tile_scap   = { .name = "scap"   };
+fd_topo_run_tile_t dummy_tile_genesi = { .name = "genesi" };
 fd_topo_run_tile_t dummy_tile_ipecho = { .name = "ipecho" };
 
 fd_topo_run_tile_t * TILES[] = {
@@ -127,6 +126,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_arch_f,
   &dummy_tile_arch_w,
   &dummy_tile_scap,
+  &dummy_tile_genesi,
   &dummy_tile_ipecho,
   NULL,
 };

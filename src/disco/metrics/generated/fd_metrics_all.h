@@ -9,8 +9,10 @@
 #include "fd_metrics_bundle.h"
 #include "fd_metrics_verify.h"
 #include "fd_metrics_dedup.h"
+#include "fd_metrics_resolf.h"
 #include "fd_metrics_resolv.h"
 #include "fd_metrics_pack.h"
+#include "fd_metrics_bankf.h"
 #include "fd_metrics_bank.h"
 #include "fd_metrics_poh.h"
 #include "fd_metrics_shred.h"
@@ -163,7 +165,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 
 #define FD_METRICS_TOTAL_SZ (8UL*253UL)
 
-#define FD_METRICS_TILE_KIND_CNT 25
+#define FD_METRICS_TILE_KIND_CNT 27
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

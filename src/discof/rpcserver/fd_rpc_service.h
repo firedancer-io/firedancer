@@ -21,8 +21,9 @@ struct fd_rpcserver_args {
   uint                       block_index_max;
   uint                       txn_index_max;
   uint                       acct_index_max;
+  int                        include_votes;
   char                       history_file[ PATH_MAX ];
-  fd_pubkey_t const *        identity_key; /* nullable */
+  fd_pubkey_t                identity_key;
 
   /* Bump allocator */
   fd_spad_t                * spad;
@@ -48,5 +49,9 @@ void fd_rpc_stake_after_frag(fd_rpc_ctx_t * ctx);
 void fd_rpc_repair_during_frag(fd_rpc_ctx_t * ctx, void const * msg, int sz);
 
 void fd_rpc_repair_after_frag(fd_rpc_ctx_t * ctx);
+
+void fd_rpc_tower_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz);
+
+void fd_rpc_tower_after_frag(fd_rpc_ctx_t * ctx);
 
 #endif /* HEADER_fd_src_discof_rpcserver_fd_rpc_service_h */

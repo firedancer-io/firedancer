@@ -1,8 +1,5 @@
 [layout]
-    affinity = "auto"
-    bank_tile_count = 1
     shred_tile_count = 4
-    exec_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -11,7 +8,7 @@
         rocksdb_path = "{ledger}/rocksdb"
     [tiles.replay]
         cluster_version = "{cluster_version}"
-        max_exec_slices = 256
+        heap_size_gib = {heap_size}
     [tiles.gui]
         enabled = false
 [funk]
@@ -19,10 +16,8 @@
     max_account_records = {index_max}
     max_database_transactions = 64
 [runtime]
-    heap_size_gib = {heap_size}
-    [runtime.limits]
-        max_total_banks = 4
-        max_fork_width = 4
+    max_total_banks = 4
+    max_fork_width = 4
 [blockstore]
     shred_max = 16777216
     block_max = 8192
@@ -47,3 +42,5 @@
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
+[gossip]
+    entrypoints = [ "0.0.0.0:1" ]

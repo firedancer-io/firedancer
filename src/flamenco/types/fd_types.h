@@ -5,7 +5,6 @@
 #include "fd_bincode.h"
 #include "../../ballet/utf8/fd_utf8.h"
 #include "fd_types_custom.h"
-#define FD_ACCOUNT_META_MAGIC 9823
 
 /* sdk/program/src/feature.rs#L22 */
 /* Encoded Size: Dynamic */
@@ -151,6 +150,23 @@ struct fd_solana_account {
 typedef struct fd_solana_account fd_solana_account_t;
 #define FD_SOLANA_ACCOUNT_ALIGN alignof(fd_solana_account_t)
 
+struct fd_solana_account_global {
+  ulong lamports;
+  ulong data_len;
+  ulong data_offset;
+  fd_pubkey_t owner;
+  uchar executable;
+  ulong rent_epoch;
+};
+typedef struct fd_solana_account_global fd_solana_account_global_t;
+#define FD_SOLANA_ACCOUNT_GLOBAL_ALIGN alignof(fd_solana_account_global_t)
+
+FD_FN_UNUSED static uchar * fd_solana_account_data_join( fd_solana_account_global_t const * struct_mem ) { // vector
+  return struct_mem->data_offset ? (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->data_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_solana_account_data_update( fd_solana_account_global_t * struct_mem, uchar * vec ) {
+  struct_mem->data_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
+}
 /* Encoded Size: Fixed (48 bytes) */
 struct __attribute__((packed)) fd_solana_account_stored_meta {
   ulong write_version_obsolete;
@@ -180,17 +196,6 @@ struct __attribute__((packed)) fd_solana_account_hdr {
 };
 typedef struct fd_solana_account_hdr fd_solana_account_hdr_t;
 #define FD_SOLANA_ACCOUNT_HDR_ALIGN (8UL)
-
-/* Encoded Size: Fixed (72 bytes) */
-struct __attribute__((packed)) fd_account_meta {
-  ushort magic;
-  ushort hlen;
-  ulong dlen;
-  ulong slot;
-  fd_solana_account_meta_t info;
-};
-typedef struct fd_account_meta fd_account_meta_t;
-#define FD_ACCOUNT_META_ALIGN (8UL)
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L303 */
 /* Encoded Size: Fixed (64 bytes) */
@@ -250,6 +255,16 @@ struct fd_poh_config {
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_ALIGN alignof(fd_poh_config_t)
 
+struct fd_poh_config_global {
+  fd_rust_duration_t target_tick_duration;
+  ulong target_tick_count;
+  uchar has_target_tick_count;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
+};
+typedef struct fd_poh_config_global fd_poh_config_global_t;
+#define FD_POH_CONFIG_GLOBAL_ALIGN alignof(fd_poh_config_global_t)
+
 /* Encoded Size: Dynamic */
 struct fd_string_pubkey_pair {
   ulong string_len;
@@ -259,6 +274,20 @@ struct fd_string_pubkey_pair {
 typedef struct fd_string_pubkey_pair fd_string_pubkey_pair_t;
 #define FD_STRING_PUBKEY_PAIR_ALIGN alignof(fd_string_pubkey_pair_t)
 
+struct fd_string_pubkey_pair_global {
+  ulong string_len;
+  ulong string_offset;
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_string_pubkey_pair_global fd_string_pubkey_pair_global_t;
+#define FD_STRING_PUBKEY_PAIR_GLOBAL_ALIGN alignof(fd_string_pubkey_pair_global_t)
+
+FD_FN_UNUSED static uchar * fd_string_pubkey_pair_string_join( fd_string_pubkey_pair_global_t const * struct_mem ) { // vector
+  return struct_mem->string_offset ? (uchar *)fd_type_pun( (uchar *)struct_mem + struct_mem->string_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_string_pubkey_pair_string_update( fd_string_pubkey_pair_global_t * struct_mem, uchar * vec ) {
+  struct_mem->string_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
+}
 /* Encoded Size: Dynamic */
 struct fd_pubkey_account_pair {
   fd_pubkey_t key;
@@ -266,6 +295,13 @@ struct fd_pubkey_account_pair {
 };
 typedef struct fd_pubkey_account_pair fd_pubkey_account_pair_t;
 #define FD_PUBKEY_ACCOUNT_PAIR_ALIGN alignof(fd_pubkey_account_pair_t)
+
+struct fd_pubkey_account_pair_global {
+  fd_pubkey_t key;
+  fd_solana_account_global_t account;
+};
+typedef struct fd_pubkey_account_pair_global fd_pubkey_account_pair_global_t;
+#define FD_PUBKEY_ACCOUNT_PAIR_GLOBAL_ALIGN alignof(fd_pubkey_account_pair_global_t)
 
 /* Encoded Size: Dynamic */
 struct fd_genesis_solana {
@@ -289,6 +325,45 @@ struct fd_genesis_solana {
 typedef struct fd_genesis_solana fd_genesis_solana_t;
 #define FD_GENESIS_SOLANA_ALIGN alignof(fd_genesis_solana_t)
 
+struct fd_genesis_solana_global {
+  ulong creation_time;
+  ulong accounts_len;
+  ulong accounts_offset;
+  ulong native_instruction_processors_len;
+  ulong native_instruction_processors_offset;
+  ulong rewards_pools_len;
+  ulong rewards_pools_offset;
+  ulong ticks_per_slot;
+  ulong unused;
+  fd_poh_config_global_t poh_config;
+  ulong __backwards_compat_with_v0_23;
+  fd_fee_rate_governor_t fee_rate_governor;
+  fd_rent_t rent;
+  fd_inflation_t inflation;
+  fd_epoch_schedule_t epoch_schedule;
+  uint cluster_type;
+};
+typedef struct fd_genesis_solana_global fd_genesis_solana_global_t;
+#define FD_GENESIS_SOLANA_GLOBAL_ALIGN alignof(fd_genesis_solana_global_t)
+
+FD_FN_UNUSED static fd_pubkey_account_pair_global_t * fd_genesis_solana_accounts_join( fd_genesis_solana_global_t const * struct_mem ) { // vector
+  return struct_mem->accounts_offset ? (fd_pubkey_account_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->accounts_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_genesis_solana_accounts_update( fd_genesis_solana_global_t * struct_mem, fd_pubkey_account_pair_global_t * vec ) {
+  struct_mem->accounts_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
+}
+FD_FN_UNUSED static fd_string_pubkey_pair_global_t * fd_genesis_solana_native_instruction_processors_join( fd_genesis_solana_global_t const * struct_mem ) { // vector
+  return struct_mem->native_instruction_processors_offset ? (fd_string_pubkey_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->native_instruction_processors_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_genesis_solana_native_instruction_processors_update( fd_genesis_solana_global_t * struct_mem, fd_string_pubkey_pair_global_t * vec ) {
+  struct_mem->native_instruction_processors_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
+}
+FD_FN_UNUSED static fd_pubkey_account_pair_global_t * fd_genesis_solana_rewards_pools_join( fd_genesis_solana_global_t const * struct_mem ) { // vector
+  return struct_mem->rewards_pools_offset ? (fd_pubkey_account_pair_global_t *)fd_type_pun( (uchar *)struct_mem + struct_mem->rewards_pools_offset ) : NULL;
+}
+FD_FN_UNUSED static void fd_genesis_solana_rewards_pools_update( fd_genesis_solana_global_t * struct_mem, fd_pubkey_account_pair_global_t * vec ) {
+  struct_mem->rewards_pools_offset = !!vec ? (ulong)vec - (ulong)struct_mem : 0UL;
+}
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L114 */
 /* Encoded Size: Fixed (40 bytes) */
 struct fd_sol_sysvar_clock {
@@ -2525,61 +2600,6 @@ struct fd_transaction_cost {
 typedef struct fd_transaction_cost fd_transaction_cost_t;
 #define FD_TRANSACTION_COST_ALIGN alignof(fd_transaction_cost_t)
 
-/* Encoded Size: Fixed (40 bytes) */
-struct fd_account_costs_pair {
-  fd_pubkey_t key;
-  ulong cost;
-};
-typedef struct fd_account_costs_pair fd_account_costs_pair_t;
-#define FD_ACCOUNT_COSTS_PAIR_ALIGN alignof(fd_account_costs_pair_t)
-
-typedef struct fd_account_costs_pair_t_mapnode fd_account_costs_pair_t_mapnode_t;
-#define REDBLK_T fd_account_costs_pair_t_mapnode_t
-#define REDBLK_NAME fd_account_costs_pair_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_account_costs_pair_t_mapnode {
-    fd_account_costs_pair_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_account_costs_pair_t_mapnode_t *
-fd_account_costs_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_costs_pair_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_account_costs_pair_t_map_footprint( len );
-  return fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct fd_account_costs {
-  fd_account_costs_pair_t_mapnode_t * account_costs_pool;
-  fd_account_costs_pair_t_mapnode_t * account_costs_root;
-};
-typedef struct fd_account_costs fd_account_costs_t;
-#define FD_ACCOUNT_COSTS_ALIGN alignof(fd_account_costs_t)
-
-/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
-/* Encoded Size: Dynamic */
-struct fd_cost_tracker {
-  ulong account_cost_limit;
-  ulong block_cost_limit;
-  ulong vote_cost_limit;
-  fd_account_costs_t cost_by_writable_accounts;
-  ulong block_cost;
-  ulong vote_cost;
-  ulong transaction_count;
-  ulong allocated_accounts_data_size;
-  ulong transaction_signature_count;
-  ulong secp256k1_instruction_signature_count;
-  ulong ed25519_instruction_signature_count;
-  ulong secp256r1_instruction_signature_count;
-};
-typedef struct fd_cost_tracker fd_cost_tracker_t;
-#define FD_COST_TRACKER_ALIGN alignof(fd_cost_tracker_t)
-
 /* Encoded Size: Fixed (16 bytes) */
 struct fd_rent_paying {
   ulong lamports;
@@ -2770,6 +2790,9 @@ ulong fd_solana_account_size( fd_solana_account_t const * self );
 static inline ulong fd_solana_account_align( void ) { return FD_SOLANA_ACCOUNT_ALIGN; }
 int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_solana_account_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_solana_account_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_solana_account_encode_global( fd_solana_account_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+ulong fd_solana_account_size_global( fd_solana_account_global_t const * self );
 
 static inline void fd_solana_account_stored_meta_new( fd_solana_account_stored_meta_t * self ) { fd_memset( self, 0, sizeof(fd_solana_account_stored_meta_t) ); }
 int fd_solana_account_stored_meta_encode( fd_solana_account_stored_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2798,14 +2821,6 @@ static inline ulong fd_solana_account_hdr_size( fd_solana_account_hdr_t const * 
 static inline ulong fd_solana_account_hdr_align( void ) { return FD_SOLANA_ACCOUNT_HDR_ALIGN; }
 int fd_solana_account_hdr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_solana_account_hdr_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_account_meta_new( fd_account_meta_t * self );
-int fd_account_meta_encode( fd_account_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_account_meta_walk( void * w, fd_account_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_account_meta_size( fd_account_meta_t const * self ) { (void)self; return 72UL; }
-static inline ulong fd_account_meta_align( void ) { return FD_ACCOUNT_META_ALIGN; }
-int fd_account_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_account_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 static inline void fd_delegation_new( fd_delegation_t * self ) { fd_memset( self, 0, sizeof(fd_delegation_t) ); }
 int fd_delegation_encode( fd_delegation_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2877,6 +2892,9 @@ ulong fd_poh_config_size( fd_poh_config_t const * self );
 static inline ulong fd_poh_config_align( void ) { return FD_POH_CONFIG_ALIGN; }
 int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_poh_config_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_poh_config_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_poh_config_encode_global( fd_poh_config_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+ulong fd_poh_config_size_global( fd_poh_config_global_t const * self );
 
 void fd_string_pubkey_pair_new( fd_string_pubkey_pair_t * self );
 int fd_string_pubkey_pair_encode( fd_string_pubkey_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2885,6 +2903,9 @@ ulong fd_string_pubkey_pair_size( fd_string_pubkey_pair_t const * self );
 static inline ulong fd_string_pubkey_pair_align( void ) { return FD_STRING_PUBKEY_PAIR_ALIGN; }
 int fd_string_pubkey_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_string_pubkey_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_string_pubkey_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_string_pubkey_pair_encode_global( fd_string_pubkey_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+ulong fd_string_pubkey_pair_size_global( fd_string_pubkey_pair_global_t const * self );
 
 void fd_pubkey_account_pair_new( fd_pubkey_account_pair_t * self );
 int fd_pubkey_account_pair_encode( fd_pubkey_account_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2893,6 +2914,9 @@ ulong fd_pubkey_account_pair_size( fd_pubkey_account_pair_t const * self );
 static inline ulong fd_pubkey_account_pair_align( void ) { return FD_PUBKEY_ACCOUNT_PAIR_ALIGN; }
 int fd_pubkey_account_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_pubkey_account_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_pubkey_account_pair_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_pubkey_account_pair_encode_global( fd_pubkey_account_pair_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+ulong fd_pubkey_account_pair_size_global( fd_pubkey_account_pair_global_t const * self );
 
 void fd_genesis_solana_new( fd_genesis_solana_t * self );
 int fd_genesis_solana_encode( fd_genesis_solana_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -2901,6 +2925,9 @@ ulong fd_genesis_solana_size( fd_genesis_solana_t const * self );
 static inline ulong fd_genesis_solana_align( void ) { return FD_GENESIS_SOLANA_ALIGN; }
 int fd_genesis_solana_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_genesis_solana_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_genesis_solana_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+int fd_genesis_solana_encode_global( fd_genesis_solana_global_t const * self, fd_bincode_encode_ctx_t * ctx );
+ulong fd_genesis_solana_size_global( fd_genesis_solana_global_t const * self );
 
 static inline void fd_sol_sysvar_clock_new( fd_sol_sysvar_clock_t * self ) { fd_memset( self, 0, sizeof(fd_sol_sysvar_clock_t) ); }
 int fd_sol_sysvar_clock_encode( fd_sol_sysvar_clock_t const * self, fd_bincode_encode_ctx_t * ctx );
@@ -5150,34 +5177,6 @@ enum {
 fd_transaction_cost_enum_simple_vote = 0,
 fd_transaction_cost_enum_transaction = 1,
 };
-static inline void fd_account_costs_pair_new( fd_account_costs_pair_t * self ) { fd_memset( self, 0, sizeof(fd_account_costs_pair_t) ); }
-int fd_account_costs_pair_encode( fd_account_costs_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_account_costs_pair_walk( void * w, fd_account_costs_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_account_costs_pair_size( fd_account_costs_pair_t const * self ) { (void)self; return 40UL; }
-static inline ulong fd_account_costs_pair_align( void ) { return FD_ACCOUNT_COSTS_PAIR_ALIGN; }
-static inline int fd_account_costs_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_account_costs_pair_t);
-  if( (ulong)ctx->data + 40UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_account_costs_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_account_costs_new( fd_account_costs_t * self );
-int fd_account_costs_encode( fd_account_costs_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_account_costs_walk( void * w, fd_account_costs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_account_costs_size( fd_account_costs_t const * self );
-static inline ulong fd_account_costs_align( void ) { return FD_ACCOUNT_COSTS_ALIGN; }
-int fd_account_costs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_cost_tracker_new( fd_cost_tracker_t * self );
-int fd_cost_tracker_encode( fd_cost_tracker_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_cost_tracker_walk( void * w, fd_cost_tracker_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_cost_tracker_size( fd_cost_tracker_t const * self );
-static inline ulong fd_cost_tracker_align( void ) { return FD_COST_TRACKER_ALIGN; }
-int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_rent_paying_new( fd_rent_paying_t * self ) { fd_memset( self, 0, sizeof(fd_rent_paying_t) ); }
 int fd_rent_paying_encode( fd_rent_paying_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_rent_paying_walk( void * w, fd_rent_paying_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );

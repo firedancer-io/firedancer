@@ -347,9 +347,6 @@
 |--------|------|-------------|
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;sanitize_&#8203;failure</span> | counter | Number of transactions that failed to sanitize. |
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;not_&#8203;executed_&#8203;failure</span> | counter | Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain. |
-| <span class="metrics-name">bank_&#8203;slot_&#8203;acquire</span><br/>{bank_&#8203;slot_&#8203;acquire="<span class="metrics-enum">success</span>"} | counter | Result of acquiring a slot. (Success) |
-| <span class="metrics-name">bank_&#8203;slot_&#8203;acquire</span><br/>{bank_&#8203;slot_&#8203;acquire="<span class="metrics-enum">too_&#8203;high</span>"} | counter | Result of acquiring a slot. (Too high) |
-| <span class="metrics-name">bank_&#8203;slot_&#8203;acquire</span><br/>{bank_&#8203;slot_&#8203;acquire="<span class="metrics-enum">too_&#8203;low</span>"} | counter | Result of acquiring a slot. (Too low) |
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{bank_&#8203;load_&#8203;address_&#8203;lookup_&#8203;table="<span class="metrics-enum">success</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported. (Success) |
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{bank_&#8203;load_&#8203;address_&#8203;lookup_&#8203;table="<span class="metrics-enum">slot_&#8203;hashes_&#8203;sysvar_&#8203;not_&#8203;found</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported. (The slot hashes syvar could not be found.) |
 | <span class="metrics-name">bank_&#8203;transaction_&#8203;load_&#8203;address_&#8203;tables</span><br/>{bank_&#8203;load_&#8203;address_&#8203;lookup_&#8203;table="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported. (The account storing the address lookup table was deactivated or could not be found.) |
@@ -444,6 +441,8 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv</span> | counter | The number of times we received a repair shred |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
 
@@ -485,8 +484,6 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">replay_&#8203;slot</span> | gauge |  |
-| <span class="metrics-name">replay_&#8203;last_&#8203;voted_&#8203;slot</span> | gauge |  |
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
@@ -690,12 +687,17 @@
 | <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | Server messages received (Orphan) |
 | <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">unknown</span>"} | counter | Server messages received (Unknown) |
 | <span class="metrics-name">repair_&#8203;recv_&#8203;pkt_&#8203;corrupted_&#8203;msg</span> | counter | How many corrupt messages have we received |
-| <span class="metrics-name">repair_&#8203;send_&#8203;pkt_&#8203;cnt</span> | counter | How many packets have sent |
+| <span class="metrics-name">repair_&#8203;shred_&#8203;repair_&#8203;req</span> | counter | How many repair requests have we sent |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Highest Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | What types of client messages are we sending (Need Orphans) |
+| <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | What types of client messages are we sending (Pong) |
+| <span class="metrics-name">repair_&#8203;repaired_&#8203;slots</span> | counter | Until which slots have we fully repaired |
+| <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
 | <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
 | <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
+| <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
+| <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
 
 </div>
@@ -976,5 +978,76 @@
 | <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;origin_&#8203;shred_&#8203;version</span>"} | counter |  (Push (origin shred version)) |
 | <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;inactive</span>"} | counter |  (Push (inactive)) |
 | <span class="metrics-name">gossvf_&#8203;crds_&#8203;rx_&#8203;bytes</span><br/>{gossvf_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;push_&#8203;wallclock</span>"} | counter |  (Push (wallclock)) |
+
+</div>
+
+## Bankf Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">success</span>"} | counter | Result of loading and executing a transaction. (Success) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;in_&#8203;use</span>"} | counter | Result of loading and executing a transaction. (An account is already being processed in another transaction in a way that does not support parallelism.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;loaded_&#8203;twice</span>"} | counter | Result of loading and executing a transaction. (A `Pubkey` appears twice in the transaction's `account_keys`.  Instructions can reference `Pubkey`s more than once but the message must contain a list with no duplicate keys.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction. (Attempt to debit an account but found no record of a prior credit.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;account_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction. (Attempt to load a program that does not exist.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction. (The fee payer `Pubkey` does not have sufficient balance to pay the fee to schedule the transaction.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;account_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction. (This account may not be used to pay transaction fees.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">already_&#8203;processed</span>"} | counter | Result of loading and executing a transaction. (The bank has seen this transaction before. This can occur under normal operation when a UDP packet is duplicated, as a user error from a client not updating its `recent_blockhash`, or as a double-spend attack.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">blockhash_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction. (The bank has not seen the given `recent_blockhash` or the transaction is too old and the `recent_blockhash` has been discarded.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">instruction_&#8203;error</span>"} | counter | Result of loading and executing a transaction. (An error occurred while processing an instruction.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">call_&#8203;chain_&#8203;too_&#8203;deep</span>"} | counter | Result of loading and executing a transaction. (Loader call chain is too deep.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">missing_&#8203;signature_&#8203;for_&#8203;fee</span>"} | counter | Result of loading and executing a transaction. (Transaction requires a fee but has no signature present.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;account_&#8203;index</span>"} | counter | Result of loading and executing a transaction. (Transaction contains an invalid account reference.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">signature_&#8203;failure</span>"} | counter | Result of loading and executing a transaction. (Transaction did not pass signature verification.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;program_&#8203;for_&#8203;execution</span>"} | counter | Result of loading and executing a transaction. (This program may not be used for executing instructions.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">sanitize_&#8203;failure</span>"} | counter | Result of loading and executing a transaction. (Transaction failed to sanitize accounts offsets correctly implies that account locks are not taken for this TX, and should not be unlocked.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">cluster_&#8203;maintenance</span>"} | counter | Result of loading and executing a transaction. (Transactions are currently disabled due to cluster maintenance.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">account_&#8203;borrow_&#8203;outstanding</span>"} | counter | Result of loading and executing a transaction. (Transaction processing left an account with an outstanding borrowed reference.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;block_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (Transaction would exceed max Block Cost Limit.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">unsupported_&#8203;version</span>"} | counter | Result of loading and executing a transaction. (Transaction version is unsupported.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;writable_&#8203;account</span>"} | counter | Result of loading and executing a transaction. (Transaction loads a writable account that cannot be written.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;account_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (Transaction would exceed max account limit within the block.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;block_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (Transaction would exceed account data limit within the block.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">too_&#8203;many_&#8203;account_&#8203;locks</span>"} | counter | Result of loading and executing a transaction. (Transaction locked too many accounts.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">address_&#8203;lookup_&#8203;table_&#8203;not_&#8203;found</span>"} | counter | Result of loading and executing a transaction. (Address lookup table not found.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;owner</span>"} | counter | Result of loading and executing a transaction. (Attempted to lookup addresses from an account owned by the wrong program.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;data</span>"} | counter | Result of loading and executing a transaction. (Attempted to lookup addresses from an invalid account.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;address_&#8203;lookup_&#8203;table_&#8203;index</span>"} | counter | Result of loading and executing a transaction. (Address table lookup uses an invalid index.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;rent_&#8203;paying_&#8203;account</span>"} | counter | Result of loading and executing a transaction. (Transaction leaves an account with a lower balance than rent-exempt minimum.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;max_&#8203;vote_&#8203;cost_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (Transaction would exceed max Vote Cost Limit.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">would_&#8203;exceed_&#8203;account_&#8203;data_&#8203;total_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (Transaction would exceed total account data limit.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">duplicate_&#8203;instruction</span>"} | counter | Result of loading and executing a transaction. (Transaction contains a duplicate instruction that is not allowed.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">insufficient_&#8203;funds_&#8203;for_&#8203;rent</span>"} | counter | Result of loading and executing a transaction. (Transaction results in an account with insufficient funds for rent.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">max_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;exceeded</span>"} | counter | Result of loading and executing a transaction. (Transaction exceeded max loaded accounts data size cap.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">invalid_&#8203;loaded_&#8203;accounts_&#8203;data_&#8203;size_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (LoadedAccountsDataSizeLimit set for transaction must be greater than 0.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">resanitization_&#8203;needed</span>"} | counter | Result of loading and executing a transaction. (Sanitized transaction differed before/after feature activation. Needs to be resanitized.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;execution_&#8203;temporarily_&#8203;restricted</span>"} | counter | Result of loading and executing a transaction. (Program execution is temporarily restricted on an account.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">unbalanced_&#8203;transaction</span>"} | counter | Result of loading and executing a transaction. (The total balance before the transaction does not equal the total balance after the transaction.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">program_&#8203;cache_&#8203;hit_&#8203;max_&#8203;limit</span>"} | counter | Result of loading and executing a transaction. (The total program cache size hit the maximum allowed limit.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">commit_&#8203;cancelled</span>"} | counter | Result of loading and executing a transaction. (The process for committing the transaction was cancelled internally.) |
+| <span class="metrics-name">bankf_&#8203;transaction_&#8203;result</span><br/>{transaction_&#8203;error="<span class="metrics-enum">bundle_&#8203;peer</span>"} | counter | Result of loading and executing a transaction. (Transaction is part of a bundle and one of the peer transactions failed.) |
+
+</div>
+
+## Resolf Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">inserted</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
+| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">overrun</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
+| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">published</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
+| <span class="metrics-name">resolf_&#8203;stash_&#8203;operation</span><br/>{resolve_&#8203;stash_&#8203;operation="<span class="metrics-enum">removed</span>"} | counter | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories.) |
+| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;lookup_&#8203;index</span>"} | counter | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
+| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;uninitialized</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
+| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;data</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
+| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">invalid_&#8203;account_&#8203;owner</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT wasn't owned by the ALUT program ID) |
+| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">account_&#8203;not_&#8203;found</span>"} | counter | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
+| <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
+| <span class="metrics-name">resolf_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
+| <span class="metrics-name">resolf_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 </div>

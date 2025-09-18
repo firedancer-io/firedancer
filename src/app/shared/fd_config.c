@@ -4,7 +4,6 @@
 
 #include "../platform/fd_net_util.h"
 #include "../platform/fd_sys_util.h"
-#include "genesis_hash.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
 
@@ -217,24 +216,26 @@ fd_config_fill_net( fd_config_t * config ) {
     if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->net.interface, &iface_ip ) ) )
       FD_LOG_ERR(( "could not get IP address for interface `%s`", config->net.interface ));
 
-    if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
-      uint gossip_ip_addr = iface_ip;
-      int  has_gossip_ip4 = 0;
-      if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
-        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
-        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
+    if( FD_UNLIKELY( config->is_firedancer ) ) {
+      if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {
+        uint gossip_ip_addr = iface_ip;
+        int  has_gossip_ip4 = 0;
+        if( FD_UNLIKELY( strlen( config->firedancer.gossip.host )<=15UL ) ) {
+          /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+          has_gossip_ip4 = fd_cstr_to_ip4_addr( config->firedancer.gossip.host, &gossip_ip_addr );
+        }
+        if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+          FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                      "transactions, but it is part of a private network and will not be routable "
+                      "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+      } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
+        FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                    "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                    "and will not be routable for other Solana network nodes. If you are running "
+                    "behind a NAT and this interface is publicly reachable, you can continue by "
+                    "manually specifying the IP address to advertise in your configuration under "
+                    "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
       }
-      if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
-        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
-                     "transactions, but it is part of a private network and will not be routable "
-                     "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
-    } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
-      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
-                   "and will not be routable for other Solana network nodes. If you are running "
-                   "behind a NAT and this interface is publicly reachable, you can continue by "
-                   "manually specifying the IP address to advertise in your configuration under "
-                   "[gossip.host].", config->net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
     }
 
     config->net.ip_addr = iface_ip;
@@ -353,6 +354,13 @@ fd_config_fill( fd_config_t * config,
     replace( config->paths.snapshots, "{name}", config->name );
   } else {
     FD_TEST( fd_cstr_printf_check( config->paths.snapshots, sizeof(config->paths.snapshots), NULL, "%s/snapshots", config->paths.base ) );
+  }
+
+  if( FD_UNLIKELY( strcmp( config->paths.genesis, "" ) ) ) {
+    replace( config->paths.genesis, "{user}", config->user );
+    replace( config->paths.genesis, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.genesis, sizeof(config->paths.genesis), NULL, "%s/genesis.bin", config->paths.base ) );
   }
 
   long ts = -fd_log_wallclock();
@@ -508,6 +516,13 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
+    if( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) {
+      if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
+        FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
+    } else if( 0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\" or \"dedicated\"",
+                   config->net.xdp.rss_queue_mode  ));
+    }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {
     CFG_HAS_NON_ZERO( net.socket.receive_buffer_size );
     CFG_HAS_NON_ZERO( net.socket.send_buffer_size );

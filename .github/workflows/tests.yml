@@ -58,6 +58,11 @@ jobs:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
+      - name: cleanup
+        if: always()
+        run: |
+          sudo killall firedancer-dev || true
+
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -134,7 +139,7 @@ jobs:
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
-          DUMP_DIR=../dump make run-solcap-tests
+          DUMP=../dump make run-solcap-tests
 
       - name: run integration tests
         if: ${{ matrix.run-integration-tests }}

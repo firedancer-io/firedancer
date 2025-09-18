@@ -3,9 +3,9 @@
 #include "../../../shared/commands/configure/configure.h"
 
 #include "../../../platform/fd_file_util.h"
-#include "../../../shared/genesis_hash.h"
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../../flamenco/types/fd_types_custom.h"
@@ -142,7 +142,7 @@ create_genesis( config_t const * config,
   if( !strcmp( config->paths.vote_account, "" ) ) {
     FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->paths.base ) );
   } else {
-    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1 ) );
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->paths.vote_account, PATH_MAX-1UL ) );
   }
 
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
@@ -220,7 +220,18 @@ create_genesis( config_t const * config,
 
 static void
 init( config_t const * config ) {
-  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->paths.ledger, config->uid, config->gid ) ) )
+  int bootstrap = !config->gossip.entrypoints_cnt;
+  if( FD_LIKELY( !bootstrap ) ) return;
+
+  char _genesis_path[ PATH_MAX ];
+  char const * genesis_path;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  else {
+    genesis_path = _genesis_path;
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+  }
+
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
     FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
 
   static uchar blob[ 16<<20UL ];
@@ -238,8 +249,6 @@ init( config_t const * config ) {
 
   mode_t previous = umask( S_IRWXO | S_IRWXG );
 
-  char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
   do {
     FILE * genesis_file = fopen( genesis_path, "w" );
     FD_TEST( genesis_file );
@@ -254,7 +263,10 @@ init( config_t const * config ) {
 
   uchar genesis_hash[ 32 ];
   char  genesis_hash_cstr[ FD_BASE58_ENCODED_32_SZ ];
-  ushort shred_version = compute_shred_version( genesis_path, genesis_hash );
+
+  ushort shred_version;
+  int result = compute_shred_version( genesis_path, &shred_version, genesis_hash );
+  if( FD_UNLIKELY( -1==result ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   FD_LOG_INFO(( "Created %s:  genesis_hash=%s sz=%lu",
                 genesis_path,
@@ -263,25 +275,45 @@ init( config_t const * config ) {
   FD_LOG_INFO(( "Shred version: %hu", shred_version ));
 }
 
-static void
+static int
 fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
 
-  char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+  char _genesis_path[ PATH_MAX ];
+  char const * genesis_path;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  else {
+    genesis_path = _genesis_path;
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+  }
+
   if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+  return 0;
 }
 
 static configure_result_t
 check( config_t const * config ) {
-  char genesis_path[ PATH_MAX ];
-  fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger );
+  int bootstrap = !config->gossip.entrypoints_cnt;
+
+  char _genesis_path[ PATH_MAX ];
+  char const * genesis_path;
+  if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
+  else {
+    genesis_path = _genesis_path;
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+  }
 
   struct stat st;
-  if( FD_UNLIKELY( stat( genesis_path, &st ) && errno==ENOENT ) )
-    NOT_CONFIGURED( "`%s` does not exist", genesis_path );
+  int err = stat( genesis_path, &st );
+  if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( bootstrap ) ) {
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
+  } else {
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) CONFIGURE_OK();
+  }
 
   CHECK( check_dir( config->paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
@@ -290,15 +322,10 @@ check( config_t const * config ) {
 }
 
 configure_stage_t fd_cfg_stage_genesis = {
-  .name            = NAME,
-  .init            = init,
-  .fini            = fini,
-  .check           = check,
-  /* It might be nice to not regenerate the genesis.bin if the
-     parameters didn't change here, but it has a timestamp in it and
-     also a variable number of hashes per tick in some configurations,
-     which we would need to pull out and skip in the comparison, so we
-     just always recreate it for now. */
+  .name  = NAME,
+  .init  = init,
+  .fini  = fini,
+  .check = check,
   .always_recreate = 1,
 };
 

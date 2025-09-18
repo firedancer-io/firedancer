@@ -76,9 +76,6 @@ dump_account_state( fd_txn_account_t const *    txn_account,
     // Executable
     output_account->executable = (bool)fd_txn_account_is_executable( txn_account );
 
-    // Rent epoch
-    output_account->rent_epoch = (uint64_t)fd_txn_account_get_rent_epoch( txn_account );
-
     // Owner
     fd_memcpy(output_account->owner, fd_txn_account_get_owner( txn_account ), sizeof(fd_pubkey_t));
 
@@ -579,8 +576,8 @@ static void
 create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_msg,
                                       fd_exec_txn_ctx_t *          txn_ctx,
                                       fd_spad_t *                  spad ) {
-  fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
-  uchar const *    txn_payload    = (uchar const *) txn_ctx->_txn_raw->raw;
+  fd_txn_t const * txn_descriptor = TXN( &txn_ctx->txn );
+  uchar const *    txn_payload    = (uchar const *) txn_ctx->txn.payload;
 
   /* We don't want to store builtins in account shared data */
   fd_pubkey_t const loaded_builtins[] = {
@@ -857,7 +854,7 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                            ushort              instruction_idx ) {
   FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
     // Get base58-encoded tx signature
-    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
     ulong out_size;
@@ -903,7 +900,7 @@ void
 fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
-    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+    const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
     char encoded_signature[FD_BASE58_ENCODED_64_SZ];
     ulong out_size;
@@ -998,7 +995,7 @@ fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
 FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
 
   fd_ed25519_sig_t signature;
-  memcpy( signature, (uchar const *)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off, sizeof(fd_ed25519_sig_t) );
+  memcpy( signature, (uchar const *)vm->instr_ctx->txn_ctx->txn.payload + TXN( &vm->instr_ctx->txn_ctx->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 
@@ -1126,7 +1123,7 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* Serialize the ELF to protobuf */
   fd_ed25519_sig_t signature;
-  memcpy( signature, (uchar const *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->signature_off, sizeof(fd_ed25519_sig_t) );
+  memcpy( signature, (uchar const *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 

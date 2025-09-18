@@ -2,40 +2,15 @@
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../disco/store/fd_store.h"
-#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../discof/replay/fd_exec.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
+#include "../../flamenco/runtime/fd_txncache.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
   if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
   __x; }))
-
-static ulong
-runtime_pub_footprint( fd_topo_t const *     topo,
-                       fd_topo_obj_t const * obj ) {
-  (void)topo;
-  return fd_runtime_public_footprint( VAL("mem_max") );
-}
-
-static ulong
-runtime_pub_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_runtime_public_align();
-}
-
-static void
-runtime_pub_new( fd_topo_t const *     topo,
-                 fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_runtime_public_new( fd_topo_obj_laddr( topo, obj->id ), VAL("mem_max") ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub = {
-  .name      = "runtime_pub",
-  .footprint = runtime_pub_footprint,
-  .align     = runtime_pub_align,
-  .new       = runtime_pub_new,
-};
 
 static ulong
 banks_footprint( fd_topo_t const *     topo,

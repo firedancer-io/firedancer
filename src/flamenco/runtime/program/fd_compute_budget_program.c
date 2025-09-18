@@ -19,7 +19,7 @@
 FD_FN_PURE static inline uchar
 get_program_kind( fd_exec_txn_ctx_t const * txn_ctx,
                   fd_txn_instr_t const *    instr ) {
-  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
+  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
   fd_pubkey_t const *    program_pubkey = fd_type_pun_const( &txn_accs[ instr->program_id ] );
 
   /* The program is a standard, non-migrating builtin (e.g. system program) */
@@ -46,9 +46,9 @@ get_program_kind( fd_exec_txn_ctx_t const * txn_ctx,
 
 FD_FN_PURE static inline int
 is_compute_budget_instruction( fd_txn_t const *       txn,
-                               fd_rawtxn_b_t const *  txn_raw,
+                               uchar const *          txn_payload,
                                fd_txn_instr_t const * instr ) {
-  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn, txn_raw->raw );
+  fd_acct_addr_t const * txn_accs       = fd_txn_get_acct_addrs( txn, txn_payload );
   fd_acct_addr_t const * program_pubkey = &txn_accs[ instr->program_id ];
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
 }
@@ -119,8 +119,8 @@ int
 fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx ) {
   fd_compute_budget_details_t * details = &ctx->compute_budget_details;
 
-  for( ushort i=0; i<ctx->txn_descriptor->instr_cnt; i++ ) {
-    fd_txn_instr_t const * instr = &ctx->txn_descriptor->instr[i];
+  for( ushort i=0; i<TXN( &ctx->txn )->instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &TXN( &ctx->txn )->instr[i];
 
     /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
     uchar program_kind = get_program_kind( ctx, instr );
@@ -130,12 +130,12 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
       details->num_non_builtin_instrs++;
     }
 
-    if( !is_compute_budget_instruction( ctx->txn_descriptor, ctx->_txn_raw, instr ) ) {
+    if( !is_compute_budget_instruction( TXN( &ctx->txn ), ctx->txn.payload, instr ) ) {
       continue;
     }
 
     /* Deserialize the ComputeBudgetInstruction enum */
-    uchar * data = (uchar *)ctx->_txn_raw->raw + instr->data_off;
+    uchar * data = (uchar *)ctx->txn.payload + instr->data_off;
 
     int ret;
     fd_compute_budget_program_instruction_t * instruction =

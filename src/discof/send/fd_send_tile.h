@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_fd_send_tile_h
-#define HEADER_fd_src_app_fdctl_run_tiles_fd_send_tile_h
+#ifndef HEADER_fd_src_discof_send_fd_send_tile_h
+#define HEADER_fd_src_discof_send_fd_send_tile_h
 
 /* Sender tile signs and sends transactions to the current leader.
    Currently only supports transactions which require one signature.
@@ -10,7 +10,6 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/stem/fd_stem.h"
 #include "../../disco/fd_disco.h"
-#include "../../disco/pack/fd_microblock.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -104,9 +103,6 @@ struct fd_send_tile_ctx {
       ulong                      contact_cnt;
     };
 
-    /* IN_KIND_SIGN */
-    uchar txn_buf[ sizeof(fd_txn_p_t) ] __attribute__((aligned(alignof(fd_txn_p_t))));
-
     /* IN_KIND_NET */
     uchar quic_buf[ FD_NET_MTU ];
   };
@@ -160,6 +156,8 @@ struct fd_send_tile_ctx {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
+
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;
 
-#endif
+#endif /* HEADER_fd_src_discof_send_fd_send_tile_h */
+

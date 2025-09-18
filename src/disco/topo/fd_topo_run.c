@@ -30,6 +30,21 @@ initialize_logging( char const * tile_name,
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_INFO(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
+
+  /* FD_LOG_* calls fd_log_wallclock_cstr, which calls localtime_r.  In
+     glibc, this ends up calling a function called tzset_internal.  The
+     first time tzset_internal is called by a process, it may (and
+     almost always does) call __tzfile_read, which invokes the openat
+     syscall, and possibly several others on the time zone file
+     (typically /etc/localtime) or on a file in the time zone directory.
+     This kind of behavior is tricky to sandbox, so the easiest thing to
+     do is initialize it prior to the sandbox and hope whatever libc is
+     used behaves like glibc.  This only matters when both the logfile
+     and stderr filters are strict enough so that the immediately prior
+     FD_LOG_INFO call is a no-op, since otherwise that call would have
+     taken care of it. */
+  char wallclock[FD_LOG_WALLCLOCK_CSTR_BUF_SZ];
+  fd_log_wallclock_cstr( 0L, wallclock );
 }
 
 static void

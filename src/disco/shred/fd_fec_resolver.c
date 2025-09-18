@@ -309,13 +309,15 @@ ctx_ll_insert( set_ctx_t * p, set_ctx_t * c ) {
   return c;
 }
 
-int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t const     * shred,
-                               ulong                  shred_sz,
-                               uchar const          * leader_pubkey,
-                               fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t const   * * out_shred,
-                               fd_bmtree_node_t     * out_merkle_root ) {
+int
+fd_fec_resolver_add_shred( fd_fec_resolver_t         * resolver,
+                           fd_shred_t const          * shred,
+                           ulong                       shred_sz,
+                           uchar const               * leader_pubkey,
+                           fd_fec_set_t const      * * out_fec_set,
+                           fd_shred_t const        * * out_shred,
+                           fd_bmtree_node_t          * out_merkle_root,
+                           fd_fec_resolver_spilled_t * out_spilled ) {
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
   ulong done_depth    = resolver->done_depth;
@@ -406,7 +408,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   /* This, combined with the check on shred->code.data_cnt implies that
      shred_idx is in [0, DATA_SHREDS_MAX+PARITY_SHREDS_MAX). */
 
-  if( FD_UNLIKELY( tree_depth>FD_SHRED_MERKLE_LAYER_CNT-1UL             ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
+  if( FD_UNLIKELY( tree_depth>FD_SHRED_MERKLE_LAYER_CNT-1UL          ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
   if( FD_UNLIKELY( fd_bmtree_depth( shred_idx+1UL ) > tree_depth+1UL ) ) return FD_FEC_RESOLVER_SHRED_REJECTED;
 
   if( FD_UNLIKELY( !ctx ) ) { /* This is the first shred in the FEC set */
@@ -418,10 +420,29 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
          set to the back of the free list. */
       set_ctx_t * victim_ctx = resolver->curr_ll_sentinel->prev;
 
-      /* Add this one that we're sacrificing to the done map to
-         prevent the possibility of thrashing. */
-      ctx_ll_insert( done_ll_sentinel, ctx_map_insert( done_map, victim_ctx->sig ) );
-      if( FD_UNLIKELY( ctx_map_key_cnt( done_map ) > done_depth ) ) ctx_map_remove( done_map, ctx_ll_remove( done_ll_sentinel->prev ) );
+
+      if( FD_LIKELY( out_spilled ) ) {
+        fd_fec_set_t * set = victim_ctx->set;
+
+        /* Find the highest data shred received in the FEC set */
+
+        ulong max_rcvd_dshred_idx = d_rcvd_last( set->data_shred_rcvd );
+        fd_shred_t const * max_shred;
+        if( FD_UNLIKELY( max_rcvd_dshred_idx == ~0UL ) ) {
+          max_rcvd_dshred_idx = FD_SHRED_BLK_MAX; /* No data shreds received. Use a parity shred to determine the spilled slot and fec_set_idx */
+          max_shred = fd_shred_parse( set->parity_shreds[ p_rcvd_first( set->parity_shred_rcvd ) ], FD_SHRED_MAX_SZ );
+        } else {
+          max_shred = fd_shred_parse( set->data_shreds  [ max_rcvd_dshred_idx ],                    FD_SHRED_MIN_SZ );
+        }
+
+        if( FD_LIKELY( out_spilled ) ) {
+          out_spilled->slot           = max_shred->slot;
+          out_spilled->fec_set_idx    = max_shred->fec_set_idx;
+          out_spilled->max_dshred_idx = (uint)max_rcvd_dshred_idx;
+        }
+
+        FD_LOG_INFO(("Spilled from fec_resolver in-progress map %lu %u, data_shreds_rcvd %lu, parity_shreds_rcvd %lu, max_d_rcvd_shred_idx %lu", max_shred->slot, max_shred->fec_set_idx, d_rcvd_cnt( set->data_shred_rcvd ), p_rcvd_cnt( set->parity_shred_rcvd ), max_rcvd_dshred_idx ));
+      }
 
       freelist_push_tail( free_list,        victim_ctx->set  );
       bmtrlist_push_tail( bmtree_free_list, victim_ctx->tree );
@@ -813,10 +834,15 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
   ctx->set->parity_shred_cnt = 0UL;
 
   /* Reject FEC set if it didn't validate and return mem to the pools */
+  set_ctx_t * done_ll_sentinel = resolver->done_ll_sentinel;
+  set_ctx_t * curr_map         = resolver->curr_map;
+  set_ctx_t * done_map         = resolver->done_map;
+  ulong       done_depth       = resolver->done_depth;
 
   if( FD_UNLIKELY( reject ) ) {
     freelist_push_tail( resolver->free_list,        ctx->set  );
     bmtrlist_push_tail( resolver->bmtree_free_list, ctx->tree );
+    ctx_map_remove( curr_map, ctx_ll_remove( ctx ));
     FD_MCNT_INC( SHRED, FEC_REJECTED_FATAL, 1UL );
     return FD_FEC_RESOLVER_SHRED_REJECTED;
   }
@@ -827,11 +853,6 @@ fd_fec_resolver_force_complete( fd_fec_resolver_t  *  resolver,
 
   /* Don't need to populate merkle proofs or retransmitter signatures
      because it is by definition the full set of rcvd data shreds. */
-
-  set_ctx_t * done_ll_sentinel = resolver->done_ll_sentinel;
-  set_ctx_t * curr_map         = resolver->curr_map;
-  set_ctx_t * done_map         = resolver->done_map;
-  ulong       done_depth       = resolver->done_depth;
 
   fd_fec_set_t        * set  = ctx->set;
   fd_bmtree_commit_t  * tree = ctx->tree;

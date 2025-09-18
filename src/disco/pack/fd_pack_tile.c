@@ -23,7 +23,8 @@
 #define IN_KIND_POH          (1UL)
 #define IN_KIND_BANK         (2UL)
 #define IN_KIND_SIGN         (3UL)
-#define IN_KIND_EXECUTED_TXN (4UL)
+#define IN_KIND_REPLAY       (4UL)
+#define IN_KIND_EXECUTED_TXN (5UL)
 
 /* Pace microblocks, but only slightly.  This helps keep performance
    more stable.  This limit is 2,000 microblocks/second/bank.  At 31
@@ -137,6 +138,7 @@ typedef struct {
      are not the leader. */
   ulong  leader_slot;
   void const * leader_bank;
+  ulong        leader_bank_idx;
 
   fd_became_leader_t _became_leader[1];
 
@@ -193,11 +195,7 @@ typedef struct {
   fd_rng_t * rng;
 
   /* The end wallclock time of the leader slot we are currently packing
-     for, if we are currently packing for a slot.
-
-     _slot_end_ns is used as a temporary between during_frag and
-     after_frag in case the tile gets overrun. */
-  long _slot_end_ns;
+     for, if we are currently packing for a slot.*/
   long slot_end_ns;
 
   /* pacer and ticks_per_ns are used for pacing CUs through the slot,
@@ -487,11 +485,6 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   ulong bank_cnt = ctx->bank_cnt;
 
-  /* If we're using CU rebates, then we have one in for each bank in
-     addition to the two normal ones.  That means that after_credit will
-     be called about (bank_cnt/2) times more frequently per transaction
-     we receive. */
-  fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(bank_cnt/2UL) );
 
   /* If any banks are busy, check one of the busy ones see if it is
      still busy. */
@@ -589,7 +582,10 @@ after_credit( fd_pack_ctx_t *     ctx,
       /* Pack notifies poh when banks are drained so that poh can
          relinquish pack's ownership over the slot bank (by decrementing
          its Arc). We do this by sending a ULONG_MAX sig over the
-         pack_poh mcache. */
+         pack_poh mcache.
+
+         TODO: This is only needed for Frankendancer, not Firedancer,
+         which manages bank lifetime different. */
       fd_stem_publish( stem, 1UL, ULONG_MAX, 0UL, 0UL, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     } else {
       return;
@@ -722,6 +718,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
+      trailer->bank_idx = ctx->leader_bank_idx;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
@@ -742,6 +739,12 @@ after_credit( fd_pack_ctx_t *     ctx,
 
       memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
       ctx->last_sched_metrics->time = now2;
+
+      /* If we're using CU rebates, then we have one in for each bank in
+        addition to the two normal ones. We want to skip schedule attempts
+        for (bank_cnt + 1) link polls after a successful schedule attempt.
+        */
+      fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(ctx->bank_cnt + 1) );
     }
   }
 
@@ -805,6 +808,7 @@ during_frag( fd_pack_ctx_t * ctx,
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_REPLAY:
   case IN_KIND_POH: {
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
@@ -953,6 +957,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   long now = fd_tickcount();
 
   switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_REPLAY:
   case IN_KIND_POH: {
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
@@ -981,6 +986,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     ctx->leader_bank          = ctx->_became_leader->bank;
+    ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
@@ -1010,15 +1016,9 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, ctx->_became_leader->slot_end_ns ));
 
-    /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
-       the slot will get skipped.  Then update it in the `after_frag` case
-       below to the correct value. */
-    ctx->slot_end_ns = 0L;
-    ctx->_slot_end_ns = ctx->_became_leader->slot_end_ns;
-
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
 
-    ctx->slot_end_ns = ctx->_slot_end_ns;
+    ctx->slot_end_ns = ctx->_became_leader->slot_end_ns;
     fd_pack_limits_t limits[ 1 ];
     limits->max_cost_per_block = ctx->limits.slot_max_cost;
     limits->max_data_bytes_per_block = ctx->slot_max_data;
@@ -1159,6 +1159,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
@@ -1231,6 +1232,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
+  ctx->leader_bank_idx               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;

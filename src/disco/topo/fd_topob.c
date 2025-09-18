@@ -139,6 +139,7 @@ fd_topob_tile( fd_topo_t *    topo,
 
   fd_topo_tile_t * tile = &topo->tiles[ topo->tile_cnt ];
   strncpy( tile->name, tile_name, sizeof(tile->name) );
+  tile->metrics_name[ 0 ]   = 0;
   tile->id                  = topo->tile_cnt;
   tile->kind_id             = kind_id;
   tile->is_agave            = is_agave;
@@ -301,7 +302,7 @@ validate( fd_topo_t const * topo ) {
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     for( ulong j=0UL; j<topo->wksp_cnt; j++ ) {
       if( FD_UNLIKELY( i==j ) ) continue;
-      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name,  topo->workspaces[ j ].name ) ) )
+      if( FD_UNLIKELY( !strcmp( topo->workspaces[ i ].name, topo->workspaces[ j ].name ) ) )
         FD_LOG_ERR(( "duplicate workspace name %s", topo->workspaces[ i ].name ));
     }
   }
@@ -345,6 +346,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "metric",
     "cswtch",
     "bencho",
+    "genesi", /* FIREDANCER ONLY */
     "ipecho", /* FIREDANCER ONLY */
   };
 
@@ -388,6 +390,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
   char const * CRITICAL_TILES[] = {
     "pack",
     "poh",
+    "snapin", /* TODO: Snapshot loading speed depends on having full core */
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

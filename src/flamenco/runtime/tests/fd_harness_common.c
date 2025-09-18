@@ -42,7 +42,6 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
   acc->starting_dlen     = size;
   fd_txn_account_set_lamports( acc, state->lamports );
   fd_txn_account_set_executable( acc, state->executable );
-  fd_txn_account_set_rent_epoch( acc, state->rent_epoch );
   fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
 
   /* make the account read-only by default */

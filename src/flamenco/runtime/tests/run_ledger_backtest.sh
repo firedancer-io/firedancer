@@ -1,12 +1,6 @@
 #!/bin/bash -f
 
-echo_notice() {
-  echo -e "\033[34m$1\033[0m"
-}
-
-echo_error() {
-  echo -e "\033[31m$1$2\033[0m"
-}
+source contrib/test/ledger_common.sh
 
 POSITION_ARGS=()
 OBJDIR=${OBJDIR:-build/native/gcc}
@@ -27,6 +21,7 @@ ONE_OFFS=""
 HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
+REDOWNLOAD=1
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -101,6 +96,10 @@ while [[ $# -gt 0 ]]; do
        HAS_INCREMENTAL="$2"
        shift
        ;;
+    -nr|--no-redownload)
+       REDOWNLOAD=0
+       shift
+       ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -120,27 +119,36 @@ mkdir -p $OBJDIR/cov/raw
 DUMP=$(realpath $DUMP_DIR)
 mkdir -p $DUMP
 
-if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
-  if [[ -n "$ZST" ]]; then
-    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
-  else
-    echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
-  fi
-  if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
-    if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
-      if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
-        gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
-      fi
-      if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
-        gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
+download_and_extract_ledger() {
+  if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+    if [[ -n "$ZST" ]]; then
+      echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
+    else
+      echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.gz"
+    fi
+    if [ "`gcloud auth list |& grep  firedancer-scratch | wc -l`" == "0" ]; then
+      if [ "`gcloud auth list |& grep  firedancer-ci | wc -l`" == "0" ]; then
+        if [ -f /etc/firedancer-scratch-bucket-key.json ]; then
+          gcloud auth activate-service-account --key-file /etc/firedancer-scratch-bucket-key.json
+        fi
+        if [ -f /etc/firedancer-ci-78fff3e07c8b.json ]; then
+          gcloud auth activate-service-account --key-file /etc/firedancer-ci-78fff3e07c8b.json
+        fi
       fi
     fi
+    if [[ -n "$ZST" ]]; then
+      gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP
+    else
+      gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
+    fi
   fi
-  if [[ -n "$ZST" ]]; then
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP
-  else
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
-  fi
+}
+
+if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+  download_and_extract_ledger
+  create_checksum
+else
+  check_ledger_checksum_and_redownload
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
@@ -152,14 +160,12 @@ fi
 echo "
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
+    download = false
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
 [layout]
-    affinity = \"auto\"
-    bank_tile_count = 1
     shred_tile_count = 4
-    exec_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -170,11 +176,8 @@ echo "
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
-        enable_features = [ $FORMATTED_ONE_OFFS ] " > $DUMP_DIR/${LEDGER}_backtest.toml
-if [[ -n "$GENESIS" ]]; then
-  echo -n "        genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
-fi
-echo "
+        heap_size_gib = 50
+        enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
 [store]
@@ -184,10 +187,8 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 64
 [runtime]
-    heap_size_gib = 50
-    [runtime.limits]
-        max_total_banks = 4
-        max_fork_width = 4
+    max_total_banks = 4
+    max_fork_width = 4
 [development]
     sandbox = false
     no_agave = true
@@ -199,13 +200,21 @@ echo "
     snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
-" >> $DUMP_DIR/${LEDGER}_backtest.toml
+    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+
+if [[ -z "$GENESIS" ]]; then
+  echo "[gossip]
+    entrypoints = [ \"0.0.0.0:1\" ]" >> $DUMP_DIR/${LEDGER}_backtest.toml
+else
+  echo "[paths]
+    genesis = \"$DUMP/$LEDGER/genesis.bin\""  >> $DUMP_DIR/${LEDGER}_backtest.toml
+fi
 
 echo "Running backtest for $LEDGER"
-sudo $OBJDIR/bin/firedancer-dev configure init all --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
+
+sudo killall firedancer-dev || true
 
 set -x
 sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
@@ -220,6 +229,9 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 echo_notice "Finished on-demand ingest and replay\n"
 
 echo "Log for ledger $LEDGER at $LOG"
+
+# check that the ledger is not corrupted after a run
+check_ledger_checksum
 
 if grep -q "Backtest playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
 then

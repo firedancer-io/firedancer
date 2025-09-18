@@ -245,18 +245,6 @@ void *fd_solana_account_hdr_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   return mem;
 }
 
-void *fd_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_account_meta_t *self = (fd_account_meta_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_account_meta_t);
-  fd_account_meta_new(mem);
-  self->magic = fd_rng_ushort( rng );
-  self->hlen = fd_rng_ushort( rng );
-  self->dlen = fd_rng_ulong( rng );
-  self->slot = fd_rng_ulong( rng );
-  fd_solana_account_meta_generate( &self->info, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_delegation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_delegation_t *self = (fd_delegation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_delegation_t);
@@ -3353,49 +3341,6 @@ void *fd_transaction_cost_generate( void *mem, void **alloc_mem, fd_rng_t * rng 
   fd_transaction_cost_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 2;
   fd_transaction_cost_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_account_costs_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_account_costs_pair_t *self = (fd_account_costs_pair_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_account_costs_pair_t);
-  fd_account_costs_pair_new(mem);
-  fd_pubkey_generate( &self->key, alloc_mem, rng );
-  self->cost = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_account_costs_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_account_costs_t *self = (fd_account_costs_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_account_costs_t);
-  fd_account_costs_new(mem);
-  ulong account_costs_len = fd_rng_ulong( rng ) % 8;
-  self->account_costs_pool = fd_account_costs_pair_t_map_join_new( alloc_mem, fd_ulong_max( account_costs_len, 4096 ) );
-  self->account_costs_root = NULL;
-  for( ulong i=0; i < account_costs_len; i++ ) {
-    fd_account_costs_pair_t_mapnode_t * node = fd_account_costs_pair_t_map_acquire( self->account_costs_pool );
-    fd_account_costs_pair_generate( &node->elem, alloc_mem, rng );
-    fd_account_costs_pair_t_map_insert( self->account_costs_pool, &self->account_costs_root, node );
-  }
-  return mem;
-}
-
-void *fd_cost_tracker_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_cost_tracker_t *self = (fd_cost_tracker_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_cost_tracker_t);
-  fd_cost_tracker_new(mem);
-  self->account_cost_limit = fd_rng_ulong( rng );
-  self->block_cost_limit = fd_rng_ulong( rng );
-  self->vote_cost_limit = fd_rng_ulong( rng );
-  fd_account_costs_generate( &self->cost_by_writable_accounts, alloc_mem, rng );
-  self->block_cost = fd_rng_ulong( rng );
-  self->vote_cost = fd_rng_ulong( rng );
-  self->transaction_count = fd_rng_ulong( rng );
-  self->allocated_accounts_data_size = fd_rng_ulong( rng );
-  self->transaction_signature_count = fd_rng_ulong( rng );
-  self->secp256k1_instruction_signature_count = fd_rng_ulong( rng );
-  self->ed25519_instruction_signature_count = fd_rng_ulong( rng );
-  self->secp256r1_instruction_signature_count = fd_rng_ulong( rng );
   return mem;
 }
 

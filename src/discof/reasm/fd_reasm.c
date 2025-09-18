@@ -201,13 +201,13 @@ fd_reasm_query( fd_reasm_t const * reasm,
 }
 
 static void
-overwrite_invalid_block_id( fd_reasm_t * reasm, fd_reasm_fec_t * child ) {
+overwrite_invalid_cmr( fd_reasm_t * reasm, fd_reasm_fec_t * child ) {
   if( FD_UNLIKELY( child->fec_set_idx==0 && !fd_reasm_query( reasm, &child->cmr ) ) ) {
     slot_mr_t * slot_mr_parent = slot_mr_query( reasm->slot_mr, child->slot - child->parent_off, NULL );
     if( FD_LIKELY( slot_mr_parent ) ) {
       fd_reasm_fec_t * parent = fd_reasm_query( reasm, &slot_mr_parent->block_id );
       if( FD_LIKELY( parent ) ) {
-        FD_LOG_NOTICE(( "overwriting invalid block_id for FEC slot: %lu fec_set_idx: %u from %s to %s", child->slot, child->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &child->cmr ), FD_BASE58_ENC_32_ALLOCA( &parent->key ) ));
+        FD_LOG_INFO(( "overwriting invalid cmr for FEC slot: %lu fec_set_idx: %u from %s (CMR) to %s (parent's block id)", child->slot, child->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &child->cmr ), FD_BASE58_ENC_32_ALLOCA( &parent->key ) ));
         child->cmr = parent->key; /* use the parent's merkle root */
       }
     }
@@ -238,7 +238,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            data_cnt,
                  int               data_complete,
                  int               slot_complete ) {
-  // FD_LOG_NOTICE(( "inserting (%lu %u) %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), data_cnt, data_complete, slot_complete ));
+  // FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ), data_cnt, data_complete, slot_complete ));
 
 # if FD_REASM_USE_HANDHOLDING
   FD_TEST( pool_free( reasm->pool ) );
@@ -291,7 +291,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
       slot_mr->block_id = fec->key;
     }
   }
-  overwrite_invalid_block_id( reasm, fec ); /* handle receiving parent before child */
+  overwrite_invalid_cmr( reasm, fec ); /* handle receiving parent before child */
 
   /* First, we search for the parent of this new FEC and link if found.
      The new FEC set may result in a new leaf or a new orphan tree root
@@ -332,7 +332,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   /* connects subtrees to the new FEC */
   while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
     fd_reasm_fec_t * orphan_root = pool_ele( reasm->pool, bfs_pop_head( bfs ) );
-    overwrite_invalid_block_id( reasm, orphan_root ); /* handle receiving child before parent */
+    overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );

@@ -147,7 +147,6 @@ do{
   fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
   uint                     input_mem_regions_cnt                   = 0U;
   int                      direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
-  int                      mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
 
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
@@ -171,7 +170,6 @@ do{
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
                                                       direct_mapping,
-                                                      mask_out_rent_epoch_in_vm_serialization,
                                                       is_deprecated,
                                                       &input_ptr );
   if( FD_UNLIKELY( err ) ) {
@@ -447,13 +445,12 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
 
-  ulong                   input_sz                                = 0UL;
-  ulong                   pre_lens[256]                           = {0};
-  fd_vm_input_region_t    input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt                   = 0U;
-  int                     direct_mapping                          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, bpf_account_data_direct_mapping );
-  int                     mask_out_rent_epoch_in_vm_serialization = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, mask_out_rent_epoch_in_vm_serialization );
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt   = 0U;
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, bpf_account_data_direct_mapping );
 
   uchar *            input_ptr      = NULL;
   uchar              program_id_idx = ctx->instr->program_id;
@@ -476,7 +473,6 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
                                                       direct_mapping,
-                                                      mask_out_rent_epoch_in_vm_serialization,
                                                       is_deprecated,
                                                       &input_ptr );
   if( FD_UNLIKELY( err ) ) {

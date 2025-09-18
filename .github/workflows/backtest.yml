@@ -21,6 +21,11 @@ jobs:
       MACHINE: ${{ inputs.machine }}
       EXTRAS: ${{ inputs.extras }}
     steps:
+      - name: cleanup
+        if: always()
+        run: |
+          sudo killall firedancer-dev || true
+
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -52,4 +57,5 @@ jobs:
       - name: fini
         if: always()
         run: |
+          sudo killall firedancer-dev || true
           sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml || true

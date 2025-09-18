@@ -5,6 +5,7 @@
 #include "../fd_gossip_out.h"
 
 #include "../../../disco/metrics/generated/fd_metrics_gossip.h"
+#include "../../../ballet/sha256/fd_sha256.h"
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;

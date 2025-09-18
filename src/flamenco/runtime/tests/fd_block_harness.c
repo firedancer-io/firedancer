@@ -14,6 +14,7 @@
 #include "../../rewards/fd_rewards.h"
 #include "../../stakes/fd_stakes.h"
 #include "../../types/fd_types.h"
+#include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
 
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
@@ -193,17 +194,16 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Set up slot context */
   ulong slot = test_ctx->slot_ctx.slot;
 
-  slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->funk      = funk;
-  runner->bank->slot_ = slot;
-  slot_ctx->silent    = 1;
+  slot_ctx->funk_txn = funk_txn;
+  slot_ctx->funk     = funk;
+  slot_ctx->silent   = 1;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
 
   /* All bank mgr stuff here. */
 
-  slot_ctx->bank->slot_ = slot;
+  fd_bank_slot_set( slot_ctx->bank, slot );
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
@@ -474,10 +474,6 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       return res;
     }
 
-    /* Initialize the cost tracker */
-    fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runner->spad, FD_COST_TRACKER_ALIGN, sizeof(fd_cost_tracker_t) );
-    fd_cost_tracker_init( cost_tracker, runner->spad );
-
     fd_txn_p_t * txn_ptrs = block_info->microblock_batch_infos[0].microblock_infos[0].txns;
     ulong        txn_cnt  = block_info->microblock_batch_infos[0].txn_cnt;
 
@@ -493,7 +489,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_exec_txn_ctx_t * txn_ctx = fd_runtime_fuzz_txn_ctx_exec( runner, slot_ctx, txn, &res );
       txn_ctx->exec_err           = res;
 
-      if( FD_UNLIKELY( !( txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
+      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
         break;
       }
 
@@ -505,12 +501,11 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
           slot_ctx->bank,
           capture_ctx );
 
-      /* Update the cost tracker */
-      fd_transaction_cost_t transaction_cost = fd_calculate_cost_for_executed_transaction( txn_ctx, runner->spad );
-      res = fd_cost_tracker_try_add( cost_tracker, txn_ctx, &transaction_cost );
-      if( FD_UNLIKELY( res ) ) {
+      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
         break;
       }
+
+      res = FD_RUNTIME_EXECUTE_SUCCESS;
     }
 
     /* Finalize the block */
@@ -565,6 +560,14 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     /* Capture hashes */
     fd_hash_t bank_hash = fd_bank_bank_hash_get( slot_ctx->bank );
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
+
+    /* Capture cost tracker */
+    fd_cost_tracker_t cost_tracker = fd_bank_cost_tracker_get( slot_ctx->bank );
+    effects->has_cost_tracker = 1;
+    effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
+      .block_cost = cost_tracker.block_cost,
+      .vote_cost  = cost_tracker.vote_cost,
+    };
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_runtime_fuzz_block_ctx_destroy( runner );

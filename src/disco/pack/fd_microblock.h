@@ -33,7 +33,7 @@ struct fd_entry_batch_meta {
   /* Chained merkle root needed by shred tile.  This is the merkle
      root of the last FEC set of the parent block (that's used as
      the chaining Merkle root for the first FEC set in the current
-     block). */
+     block).  TODO: Remove. Not a good design. */
   uchar parent_block_id[ 32 ];
   uchar parent_block_id_valid;
 };

@@ -3,6 +3,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/fd_txn_m_t.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../discof/tower/fd_tower_tile.h"
 #include "generated/fd_send_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
 
@@ -100,8 +101,7 @@ quic_hs_complete( fd_quic_conn_t * conn,
 
 inline static int
 port_idx_is_quic( ulong port_idx ) {
-  return !!(port_idx == FD_SEND_PORT_QUIC_VOTE_IDX) |
-         !!(port_idx == FD_SEND_PORT_QUIC_TPU_IDX);
+  return (port_idx==FD_SEND_PORT_QUIC_VOTE_IDX) | (port_idx==FD_SEND_PORT_QUIC_TPU_IDX);
 }
 
 /* quic_conn_final is called when the QUIC connection dies. */
@@ -127,7 +127,7 @@ quic_conn_final( fd_quic_conn_t * conn,
   }
 
   if( FD_UNLIKELY( clr_idx == ~0UL ) ) {
-    FD_LOG_CRIT(( "conn not found in entry" ));
+    FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
   }
 }
 
@@ -285,10 +285,10 @@ ensure_conn_for_slot( fd_send_tile_ctx_t * ctx,
 /* leader_send sends a payload to 'pubkey' in all possible ways. For quic targets,
    it relies on quic connections that are already established. */
 static void
-leader_send( fd_send_tile_ctx_t  *  ctx,
-             fd_pubkey_t const   *  pubkey,
-             uchar const         *  payload,
-             ulong                  payload_sz ) {
+leader_send( fd_send_tile_ctx_t * ctx,
+             fd_pubkey_t const  * pubkey,
+             uchar const        * payload,
+             ulong                payload_sz ) {
 
   fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, *pubkey, NULL );
   if( FD_UNLIKELY( !entry ) ) {
@@ -405,12 +405,11 @@ handle_contact_info_removal( fd_send_tile_ctx_t *                ctx FD_PARAM_UN
                               fd_gossip_update_message_t const * msg FD_PARAM_UNUSED ) {
   fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
   if( FD_LIKELY( entry ) ) {
-    /* clear entry */
     for( ulong i=0UL; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
       if( FD_UNLIKELY( entry->conn[i] ) ) fd_quic_conn_close( entry->conn[i], 0 );
+      entry->ip4s[i]  = 0;
+      entry->ports[i] = 0;
     }
-    /* clear entry */
-    *entry = (fd_send_conn_entry_t){.pubkey = entry->pubkey, .hash = entry->hash };
     ctx->metrics.ci_removed++;
   }
 }
@@ -447,14 +446,17 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
 
 static void
 handle_vote_msg( fd_send_tile_ctx_t * ctx,
-                 ulong                vote_slot ) {
+                 ulong                vote_slot,
+                 uchar *              signed_vote_txn,
+                 ulong                vote_txn_sz ) {
 
-  fd_txn_p_t * txn = fd_type_pun( ctx->txn_buf );
+  fd_txn_t txn;
+  FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, &txn, NULL ) );
 
   /* sign the txn */
-  uchar * signature = txn->payload + TXN(txn)->signature_off;
-  uchar * message   = txn->payload + TXN(txn)->message_off;
-  ulong message_sz  = txn->payload_sz - TXN(txn)->message_off;
+  uchar * signature = signed_vote_txn + txn.signature_off;
+  uchar const * message   = signed_vote_txn + txn.message_off;
+  ulong message_sz  = vote_txn_sz - txn.message_off;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   ulong poh_slot  = vote_slot+1;
@@ -465,7 +467,7 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
     ulong target_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
     if( FD_LIKELY( leader ) ) {
-      leader_send( ctx, leader, txn->payload, txn->payload_sz );
+      leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
     } else {
       ctx->metrics.leader_not_found++;
       FD_LOG_DEBUG(("send_tile: Failed to get leader contact for slot %lu", target_slot));
@@ -483,13 +485,17 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   uchar * msg_to_gossip = fd_chunk_to_laddr( gossip_verify_out->mem, gossip_verify_out->chunk );
   fd_txn_m_t * txnm = (fd_txn_m_t *)msg_to_gossip;
   *txnm = (fd_txn_m_t) { 0UL };
-  txnm->payload_sz = (ushort)txn->payload_sz;
+  txnm->payload_sz = (ushort)vote_txn_sz;
   txnm->source_ipv4 = ctx->src_ip_addr;
   txnm->source_tpu  = FD_TXN_M_TPU_SOURCE_SEND;
-  fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), txn->payload, txn->payload_sz );
-  fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, fd_txn_m_realized_footprint( txnm, 0, 0 ), 0UL, 0, 0 );
-  gossip_verify_out->chunk = fd_dcache_compact_next( gossip_verify_out->chunk, txn->payload_sz, gossip_verify_out->chunk0,
-      gossip_verify_out->wmark );
+  fd_memcpy( msg_to_gossip+sizeof(fd_txn_m_t), signed_vote_txn, vote_txn_sz );
+  ulong msg_sz = fd_txn_m_realized_footprint( txnm, 0, 0 );
+  fd_stem_publish( ctx->stem, gossip_verify_out->idx, 1UL, gossip_verify_out->chunk, msg_sz, 0UL, 0, 0 );
+  gossip_verify_out->chunk = fd_dcache_compact_next(
+    gossip_verify_out->chunk,
+    msg_sz,
+    gossip_verify_out->chunk0,
+    gossip_verify_out->wmark );
 }
 
 /* Stem callbacks */
@@ -546,15 +552,19 @@ during_frag( fd_send_tile_ctx_t * ctx,
     fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( dcache_entry ) );
   }
 
-  if( FD_UNLIKELY( kind==IN_KIND_GOSSIP ) ) {
+  if( FD_LIKELY( kind==IN_KIND_GOSSIP ) ) {
     fd_memcpy( ctx->contact_buf, dcache_entry, sz );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
-    if( sz!=sizeof(fd_txn_p_t) ) {
-      FD_LOG_ERR(( "sz %lu != expected txn size %lu", sz, sizeof(fd_txn_p_t) ));
-    }
-    fd_memcpy( ctx->txn_buf, dcache_entry, sz );
+    FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
+
+    fd_tower_slot_done_t const * slot_done = (fd_tower_slot_done_t const *)dcache_entry;
+
+    uchar signed_vote_txn[ FD_TPU_MTU ];
+    fd_memcpy( signed_vote_txn, slot_done->vote_txn, slot_done->vote_txn_sz );
+
+    handle_vote_msg( ctx, slot_done->vote_slot, signed_vote_txn, slot_done->vote_txn_sz );
   }
 }
 
@@ -562,7 +572,7 @@ static void
 after_frag( fd_send_tile_ctx_t * ctx,
             ulong                in_idx,
             ulong                seq FD_PARAM_UNUSED,
-            ulong                sig,
+            ulong                sig FD_PARAM_UNUSED,
             ulong                sz,
             ulong                tsorig FD_PARAM_UNUSED,
             ulong                tspub FD_PARAM_UNUSED,
@@ -593,10 +603,6 @@ after_frag( fd_send_tile_ctx_t * ctx,
   if( FD_UNLIKELY( kind==IN_KIND_STAKE ) ) {
     finalize_stake_msg( ctx );
   }
-
-  if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
-    handle_vote_msg( ctx, sig );
-  }
 }
 
 static void
@@ -612,7 +618,6 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)(fd_keyload_load( tile->send.identity_key_path, /* pubkey only: */ 1 ) );
-  FD_LOG_NOTICE(("send_tile: identity key %s", FD_BASE58_ENC_32_ALLOCA( ctx->identity_key[ 0 ].key )));
 }
 
 static fd_send_link_in_t *
@@ -705,9 +710,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_port    = tile->send.send_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
-  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out" );
-  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "stake_out"   );
-  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_send"  );
+  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out"   );
+  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "replay_stake" );
+  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_out"    );
 
   fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
   fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );

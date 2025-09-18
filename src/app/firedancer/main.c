@@ -16,7 +16,6 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_neigh4_hmap;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fib4;
 extern fd_topo_obj_callbacks_t fd_obj_cb_keyswitch;
 extern fd_topo_obj_callbacks_t fd_obj_cb_tile;
-extern fd_topo_obj_callbacks_t fd_obj_cb_runtime_pub;
 extern fd_topo_obj_callbacks_t fd_obj_cb_store;
 extern fd_topo_obj_callbacks_t fd_obj_cb_fec_sets;
 extern fd_topo_obj_callbacks_t fd_obj_cb_txncache;
@@ -36,7 +35,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_fib4,
   &fd_obj_cb_keyswitch,
   &fd_obj_cb_tile,
-  &fd_obj_cb_runtime_pub,
   &fd_obj_cb_store,
   &fd_obj_cb_fec_sets,
   &fd_obj_cb_txncache,
@@ -50,7 +48,6 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
 configure_stage_t * STAGES[] = {
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
-  &fd_cfg_stage_hyperthreads,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
   &fd_cfg_stage_ethtool_loopback,
@@ -65,8 +62,9 @@ extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
-extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_resolv;
+extern fd_topo_run_tile_t fd_tile_pack;
+extern fd_topo_run_tile_t fd_tile_bank;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
@@ -85,6 +83,7 @@ extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
+extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 
 fd_topo_run_tile_t * TILES[] = {
@@ -94,8 +93,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_quic,
   &fd_tile_verify,
   &fd_tile_dedup,
-  &fd_tile_pack,
   &fd_tile_resolv,
+  &fd_tile_pack,
+  &fd_tile_bank,
   &fd_tile_shred,
   &fd_tile_sign,
   &fd_tile_metric,
@@ -113,6 +113,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_send,
   &fd_tile_tower,
   &fd_tile_rpcserv,
+  &fd_tile_genesi,
   &fd_tile_ipecho,
   NULL,
 };

@@ -1,5 +1,3 @@
-[snapshots]
-    cluster = "mainnet"
 [gossip]
     entrypoints = [
         "entrypoint.mainnet-beta.solana.com:8001",

@@ -287,18 +287,6 @@ dynamic_port_range = "8900-9000"
     # to find a default will always fail.
     port = 8001
 
-    # DNS name or IP address to advertise to the network in gossip.  If
-    # none is provided, the default is to ask the first entrypoint which
-    # replies to the port check described above what our IP address is.
-    # If no entrypoints are specified, then this will be defaulted to
-    # 127.0.0.1.  If connecting to a public cluster like mainnet or
-    # testnet, this IP must be externally resolvable and should not be
-    # on a local subnet.
-    #
-    # This option is passed to the Agave client with the
-    # `--gossip-host` argument.
-    host = ""
-
 [rpc]
     # If nonzero, enable JSON RPC on this port, and use the next port
     # for the RPC websocket.  If zero, disable JSON RPC.  This option is
@@ -912,8 +900,7 @@ dynamic_port_range = "8900-9000"
     #   Sockets are slower and socket support is provided on a best-effort
     #   basis.  The socket option is provided as a fallback for hosts which
     #   do not support XDP, and to support experimental features that are
-    #   not yet implemented in the XDP stack.  Currently, DoubleZero is only
-    #   supported by the socket provider.
+    #   not yet implemented in the XDP stack.
     #
     # Using the XDP networking stack is strongly preferred where possible,
     # as it is faster and better tested by the development team.
@@ -1002,6 +989,28 @@ dynamic_port_range = "8900-9000"
         # device.  Smaller values improve latency, larger values may
         # improve throughput.
         flush_timeout_micros = 20
+
+        # RSS (RX hardware flow steering) queue mode
+        #
+        # Each XDP net tile services exactly one hardware queue.  Thus we
+        # must ensure the system routes all incoming Firedancer packets to
+        # the correct queue(s).  The queue setup and initialization has the
+        # following options:
+        #
+        # "simple" (default)
+        #   Reduces the total queue count to equal the number of net tiles.
+        #   All packets (both interesting to Firedancer and not) are sharded
+        #   amongst these queues.  Simple, reliable, and works everywhere
+        #   but suboptimal performance impact, especially to socket-based
+        #   traffic.
+        #
+        # "dedicated" (experimental)
+        #   Reserves a dedicated hardware queue for each net tile.  For
+        #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
+        #   to route interesting packets based on UDP dst port.  This mode
+        #   is considered experimental and may not work with some network
+        #   device setups. This should not yet be used in production.
+        rss_queue_mode = "simple"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
@@ -1753,3 +1762,22 @@ dynamic_port_range = "8900-9000"
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
+
+    # Development only options for the GUI tile.  These should not be
+    # change on a production validator.
+    [development.gui]
+        # Enables support for WebSocket compression.  Compression may
+        # improve startup speed when loading the GUI and decrease
+        # overall bandwidth use.  GUI WebSocket messages are by default
+        # always a single WebSocket text frame with plaintext JSON
+        # contents.  If this option is enabled, a client may indicate
+        # support for receiving compressed messages with the
+        # Sec-WebSocket-Protocol header.
+        #
+        # If compression is successfully negotiated, the server will
+        # optionally compress large frames with ZSTD, indicating this
+        # by marking the frame as binary instead of text.
+        #
+        # This option has not been tested or security audited and should
+        # not currently be used in production.
+        websocket_compression = false

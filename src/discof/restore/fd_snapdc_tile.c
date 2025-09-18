@@ -147,6 +147,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       FD_TEST( ctx->state==FD_SNAPDC_STATE_DONE );
       ctx->state = FD_SNAPDC_STATE_SHUTDOWN;
+      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
@@ -242,11 +243,13 @@ returnable_frag( fd_snapdc_tile_t *  ctx,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
+                 ulong               ctl,
                  ulong               tsorig,
                  ulong               tspub,
                  fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
+  (void)ctl;
   (void)tsorig;
   (void)tspub;
 

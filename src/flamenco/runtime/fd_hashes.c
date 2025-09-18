@@ -6,6 +6,7 @@
 #include "../../ballet/blake3/fd_blake3.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "fd_txn_account.h"
 
 void
 fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
@@ -15,18 +16,18 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
   fd_lthash_zero( lthash_out );
 
   /* Accounts with zero lamports are not included in the hash, so they should always be treated as zero */
-  if( FD_UNLIKELY( account->info.lamports == 0 ) ) {
+  if( FD_UNLIKELY( account->lamports == 0 ) ) {
     return;
   }
 
-  uchar executable = account->info.executable & 0x1;
+  uchar executable = account->executable & 0x1;
 
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
-  fd_blake3_append( b3, &account->info.lamports, sizeof( ulong ) );
+  fd_blake3_append( b3, &account->lamports, sizeof( ulong ) );
   fd_blake3_append( b3, data, account->dlen );
   fd_blake3_append( b3, &executable, sizeof( uchar ) );
-  fd_blake3_append( b3, account->info.owner, FD_PUBKEY_FOOTPRINT );
+  fd_blake3_append( b3, account->owner, FD_PUBKEY_FOOTPRINT );
   fd_blake3_append( b3, pubkey, FD_PUBKEY_FOOTPRINT );
   fd_blake3_fini_2048( b3, lthash_out->bytes );
 }
@@ -79,10 +80,11 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
 
   /* Write the new account state to the capture file */
   if( capture_ctx && capture_ctx->capture && fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot ) {
+    fd_solana_account_meta_t meta = fd_txn_account_get_solana_meta( account );
     int err = fd_solcap_write_account(
       capture_ctx->capture,
       account->pubkey,
-      &meta->info,
+      &meta,
       fd_txn_account_get_data( account ),
       fd_txn_account_get_data_len( account ) );
     if( FD_UNLIKELY( err ) ) {

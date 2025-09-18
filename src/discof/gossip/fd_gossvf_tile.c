@@ -149,7 +149,6 @@ struct fd_gossvf_tile_ctx {
   } stake;
 
   uchar payload[ FD_NET_MTU ];
-  ulong payload_sz;
   fd_ip4_port_t peer;
 
   fd_gossip_ping_update_t _ping_update[1];
@@ -255,30 +254,6 @@ before_frag( fd_gossvf_tile_ctx_t * ctx,
   }
 }
 
-static void
-strip_network_hdrs( uchar const *   data,
-                    ulong           data_sz,
-                    uchar ** const  payload,
-                    ulong *         payload_sz,
-                    fd_ip4_port_t * peer_address ) {
-  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)data;
-  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
-  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-
-  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+data_sz ) ) FD_LOG_ERR(( "Malformed UDP header" ));
-  ulong udp_sz = fd_ushort_bswap( udp->net_len );
-  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) FD_LOG_ERR(( "Malformed UDP header" ));
-  ulong payload_sz_ = udp_sz-sizeof(fd_udp_hdr_t);
-
-  *payload     = (uchar *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
-  *payload_sz  = payload_sz_;
-
-  if( FD_UNLIKELY( (ulong)(*payload)+payload_sz_>(ulong)data+data_sz ) ) FD_LOG_ERR(( "Malformed UDP payload" ));
-
-  peer_address->addr = ip4->saddr;
-  peer_address->port = udp->net_sport;
-}
-
 static inline void
 during_frag( fd_gossvf_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -297,17 +272,15 @@ during_frag( fd_gossvf_tile_ctx_t * ctx,
       break;
     }
     case IN_KIND_NET: {
-      uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      uchar * payload;
-      strip_network_hdrs( src, sz, &payload, &ctx->payload_sz, &ctx->peer );
-      fd_memcpy( ctx->payload, payload, ctx->payload_sz );
+      uchar * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      fd_memcpy( ctx->payload, src, sz );
       break;
     }
     case IN_KIND_REPLAY: {
-      fd_stake_weight_msg_t const * msg = (fd_stake_weight_msg_t const *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      ulong msg_sz = fd_ulong_sat_add( fd_ulong_sat_mul( FD_STAKE_CI_STAKE_MSG_RECORD_SZ, msg->staked_cnt ), FD_STAKE_CI_STAKE_MSG_HEADER_SZ );
-      if( FD_UNLIKELY( FD_STAKE_CI_STAKE_MSG_SZ<msg_sz ) )
-        FD_LOG_ERR(( "stake message corrupt staked_cnt %lu", msg->staked_cnt ));
+      fd_stake_weight_msg_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+      if( FD_UNLIKELY( msg->staked_cnt>MAX_STAKED_LEADERS ) )
+        FD_LOG_ERR(( "Malformed stake update with %lu stakes in it, but the maximum allowed is %lu", msg->staked_cnt, MAX_SHRED_DESTS ));
+      ulong msg_sz = FD_STAKE_CI_STAKE_MSG_RECORD_SZ*msg->staked_cnt+FD_STAKE_CI_STAKE_MSG_HEADER_SZ;
       fd_memcpy( ctx->stake.msg_buf, msg, msg_sz );
       break;
     }
@@ -349,16 +322,16 @@ verify_prune( fd_gossip_view_prune_t const * view,
               uchar const *                  payload,
               fd_sha512_t *                  sha ) {
   uchar sign_data[ FD_NET_MTU ];
-  fd_memcpy(       sign_data,                            "\xffSOLANA_PRUNE_DATA",       18UL );
-  fd_memcpy(       sign_data+18UL,                       payload+view->origin_off,      32UL );
-  FD_STORE( ulong, sign_data+50UL,                       view->prunes_len );
-  fd_memcpy(       sign_data+58UL,                       payload+view->prunes_off,      view->prunes_len*32UL );
-  fd_memcpy(       sign_data+58UL+view->prunes_len*32UL, payload+view->destination_off, 32UL );
-  FD_STORE( ulong, sign_data+90UL+view->prunes_len*32UL, view->wallclock );
+  fd_memcpy(       sign_data,                             "\xffSOLANA_PRUNE_DATA",       18UL );
+  fd_memcpy(       sign_data+18UL,                        payload+view->pubkey_off,      32UL );
+  FD_STORE( ulong, sign_data+50UL,                        view->origins_len );
+  fd_memcpy(       sign_data+58UL,                        payload+view->origins_off,     view->origins_len*32UL );
+  fd_memcpy(       sign_data+58UL+view->origins_len*32UL, payload+view->destination_off, 32UL );
+  FD_STORE( ulong, sign_data+90UL+view->origins_len*32UL, view->wallclock );
 
-  ulong sign_data_len = 98UL+view->prunes_len*32UL;
-  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      payload+view->signature_off, payload+view->origin_off, sha );
-  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, payload+view->signature_off, payload+view->origin_off, sha );
+  ulong sign_data_len = 98UL+view->origins_len*32UL;
+  int err_prefix    = fd_ed25519_verify( sign_data,      sign_data_len,      payload+view->signature_off, payload+view->pubkey_off, sha );
+  int err_no_prefix = fd_ed25519_verify( sign_data+18UL, sign_data_len-18UL, payload+view->signature_off, payload+view->pubkey_off, sha );
 
   if( FD_LIKELY( err_prefix==FD_ED25519_SUCCESS || err_no_prefix==FD_ED25519_SUCCESS ) ) return 0;
   else                                                                                   return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_SIGNATURE_IDX;
@@ -691,7 +664,6 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       break;
     default:
       FD_LOG_ERR(( "unexpected view tag %u", view->tag ));
-      __builtin_unreachable();
   }
 
   ulong i = 0UL;
@@ -807,18 +779,27 @@ handle_peer_update( fd_gossvf_tile_ctx_t *       ctx,
       peer_pool_ele_release( ctx->peers, peer );
       break;
     }
-    default: __builtin_unreachable();
+    default: FD_LOG_ERR(( "unexpected gossip_update tag %u", gossip_update->tag ));
   }
 }
 
 static int
 handle_net( fd_gossvf_tile_ctx_t * ctx,
+            ulong                  sz,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
+  uchar * payload;
+  ulong payload_sz;
+  fd_ip4_hdr_t * ip4_hdr;
+  fd_udp_hdr_t * udp_hdr;
+  FD_TEST( fd_ip4_udp_hdr_strip( ctx->payload, sz, &payload, &payload_sz, NULL, &ip4_hdr, &udp_hdr ) );
+  ctx->peer.addr = ip4_hdr->saddr;
+  ctx->peer.port = udp_hdr->net_sport;
+
   long now = ctx->last_wallclock + (long)((double)(fd_tickcount()-ctx->last_tickcount)/ctx->ticks_per_ns);
 
   fd_gossip_view_t view[ 1 ];
-  ulong decode_sz = fd_gossip_msg_parse( view, ctx->payload, ctx->payload_sz );
+  ulong decode_sz = fd_gossip_msg_parse( view, payload, payload_sz );
   if( FD_UNLIKELY( !decode_sz ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_UNPARSEABLE_IDX;
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) FD_TEST( view->push->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
@@ -826,8 +807,8 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( view->pull_request->contact_info->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
-    if( FD_UNLIKELY( !memcmp( ctx->payload+view->pull_request->contact_info->pubkey_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
-    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->contact_info, ctx->payload, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
+    if( FD_UNLIKELY( !memcmp( payload+view->pull_request->contact_info->pubkey_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_LOOPBACK_IDX;
+    if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, view->pull_request->contact_info, payload, stem ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_INACTIVE_IDX;
 
     /* TODO: Jitter? */
     long clamp_wallclock_lower_nanos = now-15L*1000L*1000L*1000L;
@@ -837,7 +818,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PRUNE ) ) {
-    if( FD_UNLIKELY( !!memcmp( ctx->payload+view->prune->destination_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
+    if( FD_UNLIKELY( !!memcmp( payload+view->prune->destination_off, ctx->identity_pubkey, 32UL ) ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_DESTINATION_IDX;
     if( FD_UNLIKELY( now-1000L*1000L*1000L>view->prune->wallclock_nanos ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PRUNE_WALLCLOCK_IDX;
   }
 
@@ -859,21 +840,21 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !view->push->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
   }
 
-  int result = filter_shred_version( ctx, view, ctx->payload );
+  int result = filter_shred_version( ctx, view, payload );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_addresses( ctx, view, ctx->payload, stem );
+  result = verify_addresses( ctx, view, payload, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
-  result = verify_signatures( ctx, view, ctx->payload, ctx->sha );
+  result = verify_signatures( ctx, view, payload, ctx->sha );
   if( FD_UNLIKELY( result ) ) return result;
 
-  check_duplicate_instance( ctx, view, ctx->payload );
+  check_duplicate_instance( ctx, view, payload );
 
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
       for( ulong i=0UL; i<view->pull_response->crds_values_len; i++ ) {
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( ctx->payload+view->pull_response->crds_values[ i ].signature_off );
+        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( payload+view->pull_response->crds_values[ i ].signature_off );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         (void)ha_dup; /* unused */
@@ -882,7 +863,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     }
     case FD_GOSSIP_MESSAGE_PUSH: {
       for( ulong i=0UL; i<view->push->crds_values_len; i++ ) {
-        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( ctx->payload+view->push->crds_values[ i ].signature_off );
+        ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( payload+view->push->crds_values[ i ].signature_off );
         int ha_dup = 0;
         FD_TCACHE_INSERT( ha_dup, *ctx->tcache.sync, ctx->tcache.ring, ctx->tcache.depth, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         (void)ha_dup; /* unused */
@@ -922,11 +903,11 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
 
   uchar * dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
   fd_memcpy( dst, view, sizeof(fd_gossip_view_t) );
-  fd_memcpy( dst+sizeof(fd_gossip_view_t), ctx->payload, ctx->payload_sz );
+  fd_memcpy( dst+sizeof(fd_gossip_view_t), payload, payload_sz );
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, sizeof(fd_gossip_view_t)+ctx->payload_sz, 0UL, tsorig, tspub );
-  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_view_t)+ctx->payload_sz, ctx->out->chunk0, ctx->out->wmark );
+  fd_stem_publish( stem, 0UL, fd_gossvf_sig( ctx->peer.addr, ctx->peer.port, 0 ), ctx->out->chunk, sizeof(fd_gossip_view_t)+payload_sz, 0UL, tsorig, tspub );
+  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_view_t)+payload_sz, ctx->out->chunk0, ctx->out->wmark );
 
   return result;
 }
@@ -950,7 +931,7 @@ after_frag( fd_gossvf_tile_ctx_t * ctx,
     case IN_KIND_GOSSIP: handle_peer_update( ctx, ctx->_gossip_update ); break;
     case IN_KIND_REPLAY: handle_stakes( ctx, (fd_stake_weight_msg_t const *) ctx->stake.msg_buf ); break;
     case IN_KIND_NET: {
-      int result = handle_net( ctx, tsorig, stem );
+      int result = handle_net( ctx, sz, tsorig, stem );
       ctx->metrics.message_rx[ result ]++;
       ctx->metrics.message_rx_bytes[ result ] += sz;
       break;
@@ -1065,10 +1046,10 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mtu    = link->mtu;
 
     if(      !strcmp( link->name, "gossip_gossv" ) ) ctx->in[ i ].kind = IN_KIND_PINGS;
-    else if( !strcmp( link->name, "ipecho_out" ) )   ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
-    else if( !strcmp( link->name, "gossip_out" ) )   ctx->in[ i ].kind = IN_KIND_GOSSIP;
-    else if( !strcmp( link->name, "net_gossvf" ) )   ctx->in[ i ].kind = IN_KIND_NET;
-    else if( !strcmp( link->name, "stake_out" ) )    ctx->in[ i ].kind = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in[ i ].kind = IN_KIND_SHRED_VERSION;
+    else if( !strcmp( link->name, "gossip_out"   ) ) ctx->in[ i ].kind = IN_KIND_GOSSIP;
+    else if( !strcmp( link->name, "net_gossvf"   ) ) ctx->in[ i ].kind = IN_KIND_NET;
+    else if( !strcmp( link->name, "replay_stake" ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 

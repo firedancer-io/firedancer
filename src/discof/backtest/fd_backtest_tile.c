@@ -3,12 +3,15 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/tower/fd_tower_tile.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../util/pod/fd_pod_format.h"
 
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_SNAP   (1)
 #define MAX_IN_LINKS   (16)
+
+#define FD_BACKTEST_BLOCK_ID_FLAG (999UL)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -26,8 +29,10 @@ typedef struct {
 
   /* Metadata */
 
-  ulong root;
-  ulong staged_root;
+  ulong     root;
+  ulong     staged_root;
+  fd_hash_t staged_root_block_id;
+
   ulong start_slot;
   ulong end_slot;
   long  replay_time;
@@ -62,7 +67,7 @@ typedef struct {
 
   fd_store_t *           store;
   fd_shred_t const *     curr;
-  fd_hash_t              prev_mr;
+  fd_shred_t const *     prev;
 
   /* Links */
 
@@ -76,7 +81,11 @@ typedef struct {
   ulong                 replay_out_idx;
   fd_replay_slot_info_t replay_slot_info;
 
-  ulong root_out_idx;
+  ulong       tower_out_idx;
+  fd_wksp_t * tower_out_mem;
+  ulong       tower_out_chunk0;
+  ulong       tower_out_wmark;
+  ulong       tower_out_chunk;
 
 } ctx_t;
 
@@ -229,7 +238,20 @@ after_credit( ctx_t *             ctx,
   fd_shred_t const * curr = ctx->curr ? ctx->curr : rocksdb_next_shred( ctx, &sz );
   if( FD_UNLIKELY ( !curr ) ) return; /* finished replay */
 
-  fd_hash_t mr = shred_merkle_root( curr );
+  /* FEC sets from the backtest tile will have their merkle root and
+     chained merkle root overwritten with their slot numbers and fec
+     set index. This is done in order to preserve behavior for older
+     ledgers which may not have merkle roots or chained merkle roots. */
+  fd_hash_t mr  = { .ul[0] = curr->slot, .ul[1] = curr->fec_set_idx, .ul[2] = FD_BACKTEST_BLOCK_ID_FLAG };
+  fd_hash_t cmr = {0};
+  if( FD_UNLIKELY( !ctx->prev ) ) {
+    cmr.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID;
+  } else {
+    cmr.ul[0] = ctx->prev->slot;
+    cmr.ul[1] = ctx->prev->fec_set_idx;
+    cmr.ul[2] = FD_BACKTEST_BLOCK_ID_FLAG;
+  }
+
   fd_store_shacq ( ctx->store );
   fd_store_insert( ctx->store, 0, &mr );
   fd_store_shrel ( ctx->store );
@@ -246,23 +268,18 @@ after_credit( ctx_t *             ctx,
     curr = rocksdb_next_shred( ctx, &sz );
     if( FD_UNLIKELY( !curr || curr->fec_set_idx != prev->fec_set_idx || curr->slot != prev->slot ) ) break;
   }
-  FD_TEST( prev );
+  if( FD_UNLIKELY( !prev ) ) {
+    FD_LOG_CRIT(( "invariant violation: prev is NULL" ));
+  }
+  ctx->prev = prev;
 
   /* We're guaranteed to iterate slots in order from RocksDB (linear
      chain) so link the merkle roots to the previous one. */
 
   fd_store_exacq ( ctx->store );
-  fd_store_link( ctx->store, &mr, &ctx->prev_mr );
+  fd_store_link( ctx->store, &mr, &cmr );
   fd_store_exrel( ctx->store );
 
-  /* Instead of using the shred->chained_mr, there's a known issue where
-  the cluster can converge on bad chained merkle roots across slots.  So
-  we just track the previous mr ourselves vs. relying on chained mr. */
-
-  ctx->prev_mr = mr;
-
-  fd_hash_t cmr;
-  memcpy( cmr.uc, (uchar const *)prev + fd_shred_chain_off( prev->variant ), sizeof(fd_hash_t) );
   fd_reasm_fec_t out = {
     .key           = mr,
     .cmr           = cmr,
@@ -359,8 +376,16 @@ after_frag( ctx_t *             ctx,
 
       /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
 
-      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->root_out_idx, ctx->staged_root, 0, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->staged_root = slot;
+      fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
+      msg->root_slot             = ctx->staged_root;
+      msg->root_block_id         = ctx->staged_root_block_id;
+      msg->new_root              = 1;
+      msg->reset_block_id        = ctx->replay_slot_info.block_id;
+
+      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
+      ctx->staged_root          = slot;
+      ctx->staged_root_block_id = ctx->replay_slot_info.block_id;
       ctx->credit = 1;
     }
     break;
@@ -426,8 +451,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
-  ctx->curr = NULL;
-  ctx->prev_mr = (fd_hash_t){0};
+  ctx->curr    = NULL;
+  ctx->prev    = NULL;
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
@@ -453,9 +478,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
   ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
-  ctx->root_out_idx = fd_topo_find_tile_out_link( topo, tile, "root_out", 0 );
-  FD_TEST( ctx->root_out_idx!=ULONG_MAX );
-  /* no root_out dcache */
+  ctx->tower_out_idx = fd_topo_find_tile_out_link( topo, tile, "tower_out", 0 );
+  FD_TEST( ctx->tower_out_idx!=ULONG_MAX );
+  link  = &topo->links[ tile->out_link_id[ ctx->tower_out_idx ] ];
+  ctx->tower_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->tower_out_chunk0 = fd_dcache_compact_chunk0( ctx->tower_out_mem, link->dcache );
+  ctx->tower_out_wmark  = fd_dcache_compact_wmark( ctx->tower_out_mem, link->dcache, link->mtu );
+  ctx->tower_out_chunk  = ctx->tower_out_chunk0;
 }
 
 #define STEM_BURST                  (2UL) /* 1 after_credit + 1 after_frag*/

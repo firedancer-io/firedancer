@@ -101,10 +101,12 @@ snapshot_load_topo( config_t *     config,
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
-    if( !fd_topo_configure_tile( tile, config ) ) {
-      FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
-    }
+    fd_topo_configure_tile( tile, config );
   }
+
+  /* No need for diagnostics, this is a diagnostic tool which prints on
+     its own. */
+  snaprd_tile->snaprd.diagnostics = 0;
 
   if( !args->snapshot_load.tile_cpus[0] ) {
     fd_topob_auto_layout( topo, 0 );
@@ -196,17 +198,17 @@ snapshot_load_cmd_fn( args_t *   args,
     ulong total_off    = snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ] +
                          snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ];
     ulong snaprd_backp = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snaprd_wait  = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
-                         snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snaprd_backp;
+    ulong snaprd_wait  = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snaprd_backp;
     ulong snapdc_backp = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snapdc_wait  = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
-                         snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapdc_backp;
+    ulong snapdc_wait  = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapdc_backp;
     ulong snapin_backp = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
-                         snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
+    ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
+
+    double progress = 100.0 * (double)snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ] / (double)snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ];
 
     ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
-    printf( "bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
+    printf( "%.1f %% bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
+            progress,
             (double)( total_off-total_off_old )/1e6,
             ( (double)( snaprd_backp-snaprd_backp_old )*ns_per_tick )/1e7,
             ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
@@ -227,9 +229,6 @@ snapshot_load_cmd_fn( args_t *   args,
 
     next+=1000L*1000L*1000L;
   }
-
-  long end = fd_log_wallclock();
-  FD_LOG_NOTICE(( "Loaded %.1fM accounts in %.1f seconds", (double)snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) ]/1e6, ((double)(end-start))/(1e9)));
 }
 
 action_t fd_action_snapshot_load = {

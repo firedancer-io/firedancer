@@ -96,12 +96,6 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
     return 0;
   }
 
-  /* AcctState -> rent_epoch */
-  if( expected->rent_epoch != actual->rent_epoch ) {
-    FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
-    return 0;
-  }
-
   /* AcctState -> owner */
   if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
     char a[ FD_BASE58_ENCODED_32_SZ ];
@@ -258,7 +252,7 @@ fd_solfuzz_instr_fixture( fd_solfuzz_runner_t * runner,
                           ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_instr_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_instr_fixture_t_msg );
   if( !res ) {
     FD_LOG_WARNING(( "Invalid instr fixture." ));
     return 0;
@@ -283,7 +277,7 @@ fd_solfuzz_txn_fixture( fd_solfuzz_runner_t * runner,
                         ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_txn_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_txn_fixture_t_msg );
   if( !res ) {
     FD_LOG_WARNING(( "Invalid txn fixture." ));
     return 0;
@@ -311,7 +305,7 @@ fd_solfuzz_block_fixture( fd_solfuzz_runner_t * runner,
                           ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_block_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_block_fixture_t_msg );
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_block_fixture_t_msg );
   if( !res ) {
     FD_LOG_WARNING(( "Invalid block fixture" ));
     return 0;
@@ -334,7 +328,7 @@ fd_solfuzz_elf_loader_fixture( fd_solfuzz_runner_t * runner,
                                ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_elf_loader_fixture_t fixture[1] = {0};
-  void * res = sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg );
+  void * res = sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_elf_loader_fixture_t_msg );
   if( !res ) {
     FD_LOG_WARNING(( "Invalid elf_loader fixture." ));
     return 0;
@@ -357,7 +351,7 @@ fd_solfuzz_syscall_fixture( fd_solfuzz_runner_t * runner,
                             ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
     FD_LOG_WARNING(( "Invalid syscall fixture." ));
     return 0;
   }
@@ -379,7 +373,7 @@ fd_solfuzz_vm_interp_fixture( fd_solfuzz_runner_t * runner,
                               ulong                 in_sz ) {
   // Decode fixture
   fd_exec_test_syscall_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
+  if( !sol_compat_decode_lenient( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
     FD_LOG_WARNING(( "Invalid syscall fixture." ));
     return 0;
   }

@@ -2,12 +2,21 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
-#include "../../flamenco/runtime/fd_runtime_public.h"
-#include "../../flamenco/runtime/fd_executor.h"
 
 #include "../../funk/fd_funk.h"
+
+/* The exec tile is responsible for executing single transactions. The
+   tile recieves a parsed transaction (fd_txn_p_t) and an identifier to
+   which bank to execute against (index into the bank pool). With this,
+   the exec tile is able to identify the correct bank and accounts db
+   handle (funk_txn) to execute the transaction against. The results of
+   the execution are then published to the writer tile(s). A writer tile
+   is responsible for committing the results of the transaction to the
+   accounts db and making any updates to the bank. */
 
 struct fd_exec_tile_out_ctx {
   ulong       idx;
@@ -22,7 +31,6 @@ struct fd_exec_tile_ctx {
 
   /* link-related data structures. */
   ulong                 replay_exec_in_idx;
-  ulong                 tile_cnt;
   ulong                 tile_idx;
 
   fd_wksp_t *           replay_in_mem;
@@ -32,17 +40,11 @@ struct fd_exec_tile_ctx {
   fd_exec_tile_out_ctx_t exec_writer_out[ 1 ];
   uchar                  boot_msg_sent;
 
-  /* Runtime public and local joins of its members. */
-  fd_wksp_t *           runtime_public_wksp;
-  fd_runtime_public_t * runtime_public;
-
   /* Shared bank hash cmp object. */
-  fd_bank_hash_cmp_t * bank_hash_cmp;
+  fd_bank_hash_cmp_t *  bank_hash_cmp;
 
   fd_spad_t *           exec_spad;
   fd_wksp_t *           exec_spad_wksp;
-
-  fd_funk_t             funk[1];
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
@@ -50,31 +52,17 @@ struct fd_exec_tile_ctx {
      local join that lives in the top-most frame of the spad that is
      setup when the exec tile is booted; its members are refreshed on
      the slot/epoch boundary. */
-  fd_txn_p_t            txn;
   fd_exec_txn_ctx_t *   txn_ctx;
-  int                   exec_res;
 
-  /* The txn/bpf id are sequence numbers. */
-  /* The txn id is a value that is monotonically increased after
-     executing a transaction. It is used to prevent race conditions in
-     interactions between the exec and replay tile. It is expected to
-     overflow back to 0. */
-  uint                  txn_id;
-  /* The bpf id is the txn_id counterparts for updates to the bpf cache. */
-  uint                  bpf_id;
-
-  ulong *               exec_fseq;
-
-  /* Pairs len is the number of accounts to hash. */
-  ulong                 pairs_len;
-
-  /* Current slot being executed. */
-  ulong                 slot;
-
-  /* Current bank being executed. */
-  fd_banks_t *          banks;
-
+  /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
+
+  /* A transaction can be executed as long as there is a valid handle to
+     a funk_txn and a bank. These are queried from fd_banks_t and
+     fd_funk_t.
+     TODO: These should probably be made read-only handles. */
+  fd_banks_t *          banks;
+  fd_funk_t             funk[1];
 };
 typedef struct fd_exec_tile_ctx fd_exec_tile_ctx_t;
 
@@ -94,19 +82,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static void
-execute_txn( fd_exec_tile_ctx_t * ctx ) {
-  ctx->exec_res = fd_runtime_prepare_and_execute_txn(
-      ctx->banks,
-      ctx->txn_ctx,
-      &ctx->txn,
-      ctx->exec_spad,
-      ctx->slot,
-      ctx->capture_ctx,
-      1
-  );
-}
-
-static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,
              ulong                seq FD_PARAM_UNUSED,
@@ -115,20 +90,30 @@ during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                sz,
              ulong                ctl FD_PARAM_UNUSED ) {
 
-  if( FD_LIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
+  if( FD_LIKELY( in_idx==ctx->replay_exec_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
-                    chunk,
-                    sz,
-                    ctx->replay_in_chunk0,
-                    ctx->replay_in_wmark ));
+                   chunk,
+                   sz,
+                   ctx->replay_in_chunk0,
+                   ctx->replay_in_wmark ));
     }
 
     if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
-      fd_runtime_public_txn_msg_t * txn = (fd_runtime_public_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-      ctx->txn  = txn->txn;
-      ctx->slot = txn->slot;
-      execute_txn( ctx );
+      fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+
+      ctx->txn_ctx->spad      = ctx->exec_spad;
+      ctx->txn_ctx->spad_wksp = ctx->exec_spad_wksp;
+
+      ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
+          ctx->banks,
+          txn->bank_idx,
+          ctx->txn_ctx,
+          &txn->txn,
+          ctx->exec_spad,
+          ctx->capture_ctx,
+          1 );
+
       return;
     } else {
       FD_LOG_CRIT(( "Unknown signature" ));
@@ -151,14 +136,11 @@ after_frag( fd_exec_tile_ctx_t * ctx,
     /* At this point we can assume that the transaction is done
        executing. A writer tile will be repsonsible for commiting
        the transaction back to funk. */
-    ctx->txn_ctx->exec_err = ctx->exec_res;
-    ctx->txn_ctx->flags    = ctx->txn.flags;
 
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
-    fd_runtime_public_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    fd_exec_writer_txn_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
     msg->exec_tile_id = (uchar)ctx->tile_idx;
-    msg->txn_id       = ctx->txn_id;
 
     fd_stem_publish(
         stem,
@@ -170,13 +152,6 @@ after_frag( fd_exec_tile_ctx_t * ctx,
         tsorig,
         tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
-
-    /* Make sure that the txn/bpf id can never be equal to the sentinel
-       value (this means that this is unintialized. )*/
-    ctx->txn_id++;
-    if( FD_UNLIKELY( ctx->txn_id==FD_EXEC_ID_SENTINEL ) ) {
-      ctx->txn_id = 0U;
-    }
   } else {
     FD_LOG_ERR(( "Unknown message signature" ));
   }
@@ -207,7 +182,6 @@ unprivileged_init( fd_topo_t *      topo,
   /* validate links                                                   */
   /********************************************************************/
 
-  ctx->tile_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->tile_idx = tile->kind_id;
 
   /* First find and setup the in-link from replay to exec. */
@@ -240,25 +214,6 @@ unprivileged_init( fd_topo_t *      topo,
   exec_out->wmark                   = fd_dcache_compact_wmark( exec_out->mem, exec_out_link->dcache, exec_out_link->mtu );
   exec_out->chunk                   = exec_out->chunk0;
   ctx->boot_msg_sent                = 0U;
-
-  /********************************************************************/
-  /* runtime public                                                   */
-  /********************************************************************/
-
-  ulong runtime_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_pub" );
-  if( FD_UNLIKELY( runtime_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for runtime public" ));
-  }
-
-  ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ runtime_obj_id ].wksp_id ].wksp;
-  if( FD_UNLIKELY( !ctx->runtime_public_wksp ) ) {
-    FD_LOG_ERR(( "No runtime_public workspace" ));
-  }
-
-  ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, runtime_obj_id ) );
-  if( FD_UNLIKELY( !ctx->runtime_public ) ) {
-    FD_LOG_ERR(( "Failed to join runtime public" ));
-  }
 
   /********************************************************************/
   /* banks                                                            */
@@ -330,31 +285,16 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->txn_ctx->funk         = *ctx->funk;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
 
-  /********************************************************************/
-  /* setup exec fseq                                                  */
-  /********************************************************************/
-
-  ulong exec_fseq_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_fseq.%lu", ctx->tile_idx );
-  ctx->exec_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, exec_fseq_id ) );
-  if( FD_UNLIKELY( !ctx->exec_fseq ) ) {
-    FD_LOG_ERR(( "exec tile %lu has no fseq", ctx->tile_idx ));
-  }
-  fd_fseq_update( ctx->exec_fseq, FD_EXEC_STATE_NOT_BOOTED );
-
-  /* Initialize sequence numbers to be 0. */
-  ctx->txn_id = 0U;
-  ctx->bpf_id = 0U;
-
   FD_LOG_INFO(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 
-  if( strlen(tile->exec.dump_proto_dir) > 0 ) {
+  if( strlen( tile->exec.dump_proto_dir )>0 ) {
     ctx->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
     ctx->capture_ctx->dump_proto_output_dir = tile->exec.dump_proto_dir;
     ctx->capture_ctx->dump_proto_start_slot = tile->exec.capture_start_slot;
-    ctx->capture_ctx->dump_instr_to_pb = tile->exec.dump_instr_to_pb;
-    ctx->capture_ctx->dump_txn_to_pb = tile->exec.dump_txn_to_pb;
-    ctx->capture_ctx->dump_syscall_to_pb = tile->exec.dump_syscall_to_pb;
-    ctx->capture_ctx->dump_elf_to_pb = tile->exec.dump_elf_to_pb;
+    ctx->capture_ctx->dump_instr_to_pb      = tile->exec.dump_instr_to_pb;
+    ctx->capture_ctx->dump_txn_to_pb        = tile->exec.dump_txn_to_pb;
+    ctx->capture_ctx->dump_syscall_to_pb    = tile->exec.dump_syscall_to_pb;
+    ctx->capture_ctx->dump_elf_to_pb        = tile->exec.dump_elf_to_pb;
   } else {
     ctx->capture_ctx = NULL;
   }
@@ -363,11 +303,8 @@ unprivileged_init( fd_topo_t *      topo,
 static void
 after_credit( fd_exec_tile_ctx_t * ctx,
               fd_stem_context_t *  stem,
-              int *                opt_poll_in,
-              int *                charge_busy ) {
-
-  (void)opt_poll_in;
-  (void)charge_busy;
+              int *                opt_poll_in FD_PARAM_UNUSED,
+              int *                charge_busy FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( !ctx->boot_msg_sent ) ) {
 
@@ -395,7 +332,7 @@ after_credit( fd_exec_tile_ctx_t * ctx,
 
     fd_exec_tile_out_ctx_t * exec_out = ctx->exec_writer_out;
 
-    fd_runtime_public_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
+    fd_exec_writer_boot_msg_t * msg = fd_type_pun( fd_chunk_to_laddr( exec_out->mem, exec_out->chunk ) );
 
     msg->txn_ctx_offset = txn_ctx_offset;
 
@@ -410,31 +347,23 @@ after_credit( fd_exec_tile_ctx_t * ctx,
                      tspub );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*msg), exec_out->chunk0, exec_out->wmark );
 
-    /* Notify replay tile. */
-
-    fd_fseq_update( ctx->exec_fseq, fd_exec_fseq_set_booted( txn_ctx_offset ) );
   }
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile,
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
   populate_sock_filter_policy_fd_exec_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_exec_tile_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t const *      topo,
-                      fd_topo_tile_t const * tile,
+populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                      fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
 
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 

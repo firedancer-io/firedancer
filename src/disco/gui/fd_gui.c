@@ -79,11 +79,12 @@ fd_gui_new( void *             shmem,
   gui->summary.cluster                       = cluster;
   gui->summary.startup_time_nanos            = gui->next_sample_400millis;
 
-  gui->summary.startup_progress                       = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
-  gui->summary.startup_got_full_snapshot              = 0;
-  gui->summary.startup_full_snapshot_slot             = 0;
-  gui->summary.startup_incremental_snapshot_slot      = 0;
-  gui->summary.startup_waiting_for_supermajority_slot = ULONG_MAX;
+  gui->summary.startup_progress.phase                                  = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+  gui->summary.startup_progress.startup_got_full_snapshot              = 0;
+  gui->summary.startup_progress.startup_full_snapshot_slot             = 0;
+  gui->summary.startup_progress.startup_incremental_snapshot_slot      = 0;
+  gui->summary.startup_progress.startup_waiting_for_supermajority_slot = ULONG_MAX;
+  gui->summary.startup_progress.startup_ledger_max_slot                = ULONG_MAX;
 
   gui->summary.identity_account_balance      = 0UL;
   gui->summary.vote_account_balance          = 0UL;
@@ -168,6 +169,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_vote_state,
     fd_gui_printf_vote_distance,
     fd_gui_printf_skipped_history,
+    fd_gui_printf_skipped_history_cluster,
     fd_gui_printf_tps_history,
     fd_gui_printf_tiles,
     fd_gui_printf_schedule_strategy,
@@ -893,7 +895,7 @@ fd_gui_request_slot( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -914,7 +916,7 @@ fd_gui_request_slot_transactions( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
@@ -935,12 +937,106 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
   ulong _slot = slot_param->valueulong;
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
-    fd_gui_printf_null_query_response( gui, "slot", "query", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
 
   fd_gui_printf_slot_request_detailed( gui, _slot, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+static inline ulong
+fd_gui_slot_duration( fd_gui_t const * gui, fd_gui_slot_t const * cur ) {
+  if( FD_UNLIKELY( cur->slot == ULONG_MAX || cur->slot == 0UL ) ) return ULONG_MAX;
+
+  fd_gui_slot_t const * prev = gui->slots[ (cur->slot - 1UL) % FD_GUI_SLOTS_CNT ];
+  if( FD_UNLIKELY( prev->slot == ULONG_MAX ||
+                   prev->skipped ||
+                   prev->completed_time == LONG_MAX ||
+                   prev->slot != (cur->slot - 1UL) ||
+                   cur->skipped ||
+                   cur->completed_time == LONG_MAX ) ) return ULONG_MAX;
+
+  return (ulong)(cur->completed_time - prev->completed_time);
+}
+
+static inline void
+fd_gui_try_insert_ranking( fd_gui_t               * gui,
+                           fd_gui_slot_rankings_t * rankings,
+                           fd_gui_slot_t const    * slot ) {
+  /* Rankings are inserted into an extra slot at the end of the ranking
+     array, then the array is sorted. */
+#define TRY_INSERT_SLOT( ranking_name, ranking_slot, ranking_value ) \
+  do { \
+    rankings->FD_CONCAT2(largest_, ranking_name) [ FD_GUI_SLOT_RANKINGS_SZ ] = (fd_gui_slot_ranking_t){ .slot = (ranking_slot), .value = (ranking_value), .type = FD_GUI_SLOT_RANKING_TYPE_DESC }; \
+    fd_gui_slot_ranking_sort_insert( rankings->FD_CONCAT2(largest_, ranking_name), FD_GUI_SLOT_RANKINGS_SZ+1UL ); \
+    rankings->FD_CONCAT2(smallest_, ranking_name)[ FD_GUI_SLOT_RANKINGS_SZ ] = (fd_gui_slot_ranking_t){ .slot = (ranking_slot), .value = (ranking_value), .type = FD_GUI_SLOT_RANKING_TYPE_ASC  }; \
+    fd_gui_slot_ranking_sort_insert( rankings->FD_CONCAT2(smallest_, ranking_name), FD_GUI_SLOT_RANKINGS_SZ+1UL ); \
+  } while (0)
+
+    if( slot->skipped ) {
+      TRY_INSERT_SLOT( skipped, slot->slot, slot->slot );
+      return;
+    }
+
+    ulong dur = fd_gui_slot_duration( gui, slot );
+    if( FD_LIKELY( dur!=ULONG_MAX ) ) TRY_INSERT_SLOT( duration, slot->slot, dur );
+    TRY_INSERT_SLOT( tips,          slot->slot, slot->tips                      );
+    TRY_INSERT_SLOT( fees,          slot->slot, slot->priority_fee              );
+    TRY_INSERT_SLOT( rewards,       slot->slot, slot->tips + slot->priority_fee );
+    TRY_INSERT_SLOT( compute_units, slot->slot, slot->compute_units             );
+#undef TRY_INSERT_SLOT
+}
+
+static void
+fd_gui_update_slot_rankings( fd_gui_t * gui ) {
+  if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( gui->summary.slot_rooted==0UL                                    ) ) return;
+
+  ulong epoch_start_slot = ULONG_MAX;
+  ulong epoch            = ULONG_MAX;
+  for( ulong i = 0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
+      /* the "current" epoch is the smallest */
+      epoch_start_slot = fd_ulong_min( epoch_start_slot, gui->epoch.epochs[ i ].start_slot );
+      epoch            = fd_ulong_min( epoch,            gui->epoch.epochs[ i ].epoch      );
+    }
+  }
+
+  if( FD_UNLIKELY( epoch==ULONG_MAX ) ) return;
+  ulong epoch_idx = epoch % 2UL;
+
+  /* No new slots since the last update */
+  if( FD_UNLIKELY( gui->epoch.epochs[ epoch_idx ].rankings_slot>gui->summary.slot_rooted ) ) return;
+
+  /* Slots before startup_ledger_max_slot are unavailable. */
+  gui->epoch.epochs[ epoch_idx ].rankings_slot = fd_ulong_max( gui->epoch.epochs[ epoch_idx ].rankings_slot, gui->summary.startup_progress.startup_ledger_max_slot+1UL );
+
+  /* Update the rankings. Only look through slots we haven't already. */
+  for( ulong s = gui->summary.slot_rooted; s>=gui->epoch.epochs[ epoch_idx ].rankings_slot; s--) {
+    fd_gui_slot_t * slot = gui->slots[ s % FD_GUI_SLOTS_CNT ];
+    if( FD_UNLIKELY( slot->slot!=s || slot->slot==ULONG_MAX ) ) break;
+
+    fd_gui_try_insert_ranking( gui, gui->epoch.epochs[ epoch_idx ].rankings, slot );
+    if( FD_UNLIKELY( slot->mine ) ) fd_gui_try_insert_ranking( gui, gui->epoch.epochs[ epoch_idx ].my_rankings, slot );
+  }
+
+  gui->epoch.epochs[ epoch_idx ].rankings_slot = gui->summary.slot_rooted + 1UL;
+}
+
+int
+fd_gui_request_slot_rankings( fd_gui_t *    gui,
+                              ulong         ws_conn_id,
+                              ulong         request_id,
+                              cJSON const * params ) {
+  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "mine" );
+  if( FD_UNLIKELY( !cJSON_IsBool( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  int mine = !!(slot_param->type & cJSON_True);
+  fd_gui_update_slot_rankings( gui );
+  fd_gui_printf_slot_rankings_request( gui, request_id, mine );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   return 0;
 }
@@ -1005,6 +1101,16 @@ fd_gui_ws_message( fd_gui_t *    gui,
     }
 
     int result = fd_gui_request_slot_transactions( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_rankings" ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
     cJSON_Delete( json );
     return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
@@ -1099,6 +1205,10 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
+
+  memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings[ 0 ])    );
+  memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings[ 0 ]) );
+  gui->epoch.epochs[ idx ].rankings_slot = start_slot;
 
   fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
   memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt*sizeof(fd_vote_stake_weight_t) );
@@ -1304,8 +1414,8 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     if( FD_UNLIKELY( parent_slot_idx>=parent_cnt ) ) break;
   }
 
-  ulong last_slot = _slot;
-  long last_published = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->completed_time;
+  ulong duration_sum = 0UL;
+  ulong slot_cnt = 0UL;
 
   for( ulong i=0UL; i<fd_ulong_min( _slot+1, 750UL ); i++ ) {
     ulong parent_slot = _slot - i;
@@ -1317,14 +1427,15 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
       FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
     }
 
-    if( FD_LIKELY( !slot->skipped ) ) {
-      last_slot = parent_slot;
-      last_published = slot->completed_time;
+    ulong slot_duration = fd_gui_slot_duration( gui, slot );
+    if( FD_LIKELY( slot_duration!=ULONG_MAX ) ) {
+      duration_sum += slot_duration;
+      slot_cnt++;
     }
   }
 
-  if( FD_LIKELY( _slot!=last_slot )) {
-    gui->summary.estimated_slot_duration_nanos = (ulong)(fd_log_wallclock()-last_published)/(_slot-last_slot);
+  if( FD_LIKELY( slot_cnt>0 )) {
+    gui->summary.estimated_slot_duration_nanos = (ulong)(duration_sum / slot_cnt);
     fd_gui_printf_estimated_slot_duration_nanos( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
@@ -1519,16 +1630,16 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
 
   switch (type) {
     case 0:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
       FD_LOG_INFO(( "progress: initializing" ));
       break;
     case 1: {
       char const * snapshot_type;
-      if( FD_UNLIKELY( gui->summary.startup_got_full_snapshot ) ) {
-        gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_INCREMENTAL_SNAPSHOT;
+      if( FD_UNLIKELY( gui->summary.startup_progress.startup_got_full_snapshot ) ) {
+        gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_INCREMENTAL_SNAPSHOT;
         snapshot_type = "incremental";
       } else {
-        gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_FULL_SNAPSHOT;
+        gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_SEARCHING_FOR_FULL_SNAPSHOT;
         snapshot_type = "full";
       }
       FD_LOG_INFO(( "progress: searching for %s snapshot", snapshot_type ));
@@ -1537,70 +1648,71 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
     case 2: {
       uchar is_full_snapshot = msg[ 1 ];
       if( FD_LIKELY( is_full_snapshot ) ) {
-          gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
-          gui->summary.startup_full_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_full_snapshot_throughput = *((double *)(msg + 48));
-          FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_full_snapshot_slot ));
+          gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_FULL_SNAPSHOT;
+          gui->summary.startup_progress.startup_full_snapshot_slot = *((ulong *)(msg + 2));
+          gui->summary.startup_progress.startup_full_snapshot_peer_ip_addr = *((uint *)(msg + 10));
+          gui->summary.startup_progress.startup_full_snapshot_peer_port = *((ushort *)(msg + 14));
+          gui->summary.startup_progress.startup_full_snapshot_total_bytes = *((ulong *)(msg + 16));
+          gui->summary.startup_progress.startup_full_snapshot_current_bytes = *((ulong *)(msg + 24));
+          gui->summary.startup_progress.startup_full_snapshot_elapsed_secs = *((double *)(msg + 32));
+          gui->summary.startup_progress.startup_full_snapshot_remaining_secs = *((double *)(msg + 40));
+          gui->summary.startup_progress.startup_full_snapshot_throughput = *((double *)(msg + 48));
+          FD_LOG_INFO(( "progress: downloading full snapshot: slot=%lu", gui->summary.startup_progress.startup_full_snapshot_slot ));
       } else {
-          gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
-          gui->summary.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
-          gui->summary.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
-          gui->summary.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
-          gui->summary.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
-          gui->summary.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
-          gui->summary.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
-          gui->summary.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
-          gui->summary.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
-          FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_incremental_snapshot_slot ));
+          gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_DOWNLOADING_INCREMENTAL_SNAPSHOT;
+          gui->summary.startup_progress.startup_incremental_snapshot_slot = *((ulong *)(msg + 2));
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_ip_addr = *((uint *)(msg + 10));
+          gui->summary.startup_progress.startup_incremental_snapshot_peer_port = *((ushort *)(msg + 14));
+          gui->summary.startup_progress.startup_incremental_snapshot_total_bytes = *((ulong *)(msg + 16));
+          gui->summary.startup_progress.startup_incremental_snapshot_current_bytes = *((ulong *)(msg + 24));
+          gui->summary.startup_progress.startup_incremental_snapshot_elapsed_secs = *((double *)(msg + 32));
+          gui->summary.startup_progress.startup_incremental_snapshot_remaining_secs = *((double *)(msg + 40));
+          gui->summary.startup_progress.startup_incremental_snapshot_throughput = *((double *)(msg + 48));
+          FD_LOG_INFO(( "progress: downloading incremental snapshot: slot=%lu", gui->summary.startup_progress.startup_incremental_snapshot_slot ));
       }
       break;
     }
     case 3: {
-      gui->summary.startup_got_full_snapshot = 1;
+      gui->summary.startup_progress.startup_got_full_snapshot = 1;
       break;
     }
     case 4:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_CLEANING_BLOCK_STORE;
       FD_LOG_INFO(( "progress: cleaning block store" ));
       break;
     case 5:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_CLEANING_ACCOUNTS;
       FD_LOG_INFO(( "progress: cleaning accounts" ));
       break;
     case 6:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_LOADING_LEDGER;
       FD_LOG_INFO(( "progress: loading ledger" ));
       break;
     case 7: {
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
-      gui->summary.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
-      gui->summary.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
-      FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_ledger_slot, gui->summary.startup_ledger_max_slot ));
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
+      gui->summary.startup_progress.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_progress.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
+      FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_progress.startup_ledger_slot, gui->summary.startup_progress.startup_ledger_max_slot ));
       break;
     }
     case 8:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_STARTING_SERVICES;
       FD_LOG_INFO(( "progress: starting services" ));
       break;
     case 9:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_HALTED;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_HALTED;
       FD_LOG_INFO(( "progress: halted" ));
       break;
     case 10: {
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
-      gui->summary.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
-      gui->summary.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
-      FD_LOG_INFO(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_waiting_for_supermajority_slot, gui->summary.startup_waiting_for_supermajority_stake_pct ));
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY;
+      gui->summary.startup_progress.startup_waiting_for_supermajority_slot = fd_ulong_load_8( msg + 1 );
+      gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct = fd_ulong_load_8( msg + 9 );
+      FD_LOG_INFO(( "progress: waiting for supermajority: slot=%lu, gossip_stake_percent=%lu", gui->summary.startup_progress.startup_waiting_for_supermajority_slot, gui->summary.startup_progress.startup_waiting_for_supermajority_stake_pct ));
       break;
     }
     case 11:
-      gui->summary.startup_progress = FD_GUI_START_PROGRESS_TYPE_RUNNING;
+      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_RUNNING;
       FD_LOG_INFO(( "progress: running" ));
       break;
     default:

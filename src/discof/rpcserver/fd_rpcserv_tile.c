@@ -17,6 +17,7 @@
 #define IN_KIND_REPLAY_NOTIF  0
 #define IN_KIND_STAKE_OUT     1
 #define IN_KIND_REPAIR_REPLAY 2
+#define IN_KIND_REPLAY_TOWER  3
 
 #define MAX_IN_LINKS    (16)
 
@@ -92,7 +93,7 @@ static void
 during_frag( fd_rpcserv_tile_ctx_t * ctx,
              ulong                   in_idx,
              ulong                   seq FD_PARAM_UNUSED,
-             ulong                   sig FD_PARAM_UNUSED,
+             ulong                   sig,
              ulong                   chunk,
              ulong                   sz,
              ulong                   ctl FD_PARAM_UNUSED ) {
@@ -107,6 +108,8 @@ during_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_stake_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else if( FD_UNLIKELY( kind == IN_KIND_REPAIR_REPLAY ) ) {
     fd_rpc_repair_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
+  } else if( FD_UNLIKELY( kind == IN_KIND_REPLAY_TOWER ) ) {
+    fd_rpc_tower_during_frag( ctx->ctx, sig, ctl,fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -140,6 +143,8 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
     fd_rpc_stake_after_frag( ctx->ctx );
   } else if( kind == IN_KIND_REPAIR_REPLAY ) {
     fd_rpc_repair_after_frag( ctx->ctx );
+  } else if( kind == IN_KIND_REPLAY_TOWER ) {
+    fd_rpc_tower_after_frag( ctx->ctx );
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
   }
@@ -178,7 +183,7 @@ privileged_init( fd_topo_t *      topo,
   args->txn_index_max = tile->rpcserv.txn_index_max;
   args->acct_index_max = tile->rpcserv.acct_index_max;
   strncpy( args->history_file, tile->rpcserv.history_file, sizeof(args->history_file) );
-  args->identity_key = &ctx->identity_key;
+  args->identity_key = ctx->identity_key;
 
   fd_spad_push( args->spad ); /* We close this out when we stop the server */
   fd_rpc_create_ctx( args, &ctx->ctx );
@@ -210,10 +215,12 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
     if( 0==strcmp( link->name, "replay_notif" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_NOTIF;
-    } else if( 0==strcmp( link->name, "stake_out" ) ) {
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
     } else if( 0==strcmp( link->name, "repair_repla" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_REPAIR_REPLAY;
+    } else if( 0==strcmp( link->name, "replay_tower" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_TOWER;
     } else {
       FD_LOG_ERR(( "rpcserv tile has unexpected input link %s", link->name ));
     }

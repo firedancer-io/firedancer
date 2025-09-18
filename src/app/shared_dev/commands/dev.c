@@ -1,10 +1,10 @@
 #define _GNU_SOURCE
 
 #include "../../platform/fd_sys_util.h"
-#include "../../shared/genesis_hash.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h"
 #include "../../shared/commands/monitor/monitor.h"
+#include "../../../discof/genesis/genesis_hash.h"
 
 #include <stdio.h>
 #include <stdlib.h> /* setenv */
@@ -90,7 +90,11 @@ update_config_for_dev( fd_config_t * config ) {
      set to zero and get from gossip. */
   char genesis_path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
-  ushort shred_version = compute_shred_version( genesis_path, NULL );
+
+  ushort shred_version = 0;
+  int result = compute_shred_version( genesis_path, &shred_version, NULL );
+  if( FD_UNLIKELY( -1==result && errno!=ENOENT ) ) FD_LOG_ERR(( "could not compute shred version from genesis file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
   for( ulong i=0UL; i<config->layout.shred_tile_count; i++ ) {
     ulong shred_id = fd_topo_find_tile( &config->topo, "shred", i );
     if( FD_UNLIKELY( shred_id==ULONG_MAX ) ) FD_LOG_ERR(( "could not find shred tile %lu", i ));
