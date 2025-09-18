@@ -250,18 +250,18 @@ fd_gossip_msg_crds_snapshot_hashes_parse( fd_gossip_view_crds_value_t * crds_val
 }
 
 static ulong
-version_parse( fd_gossip_view_version_t * version,
-               uchar const *              payload,
-               ulong                      payload_sz,
-               ulong                      start_offset ) {
+version_parse( fd_contact_info_t * ci,
+               uchar const *       payload,
+               ulong               payload_sz,
+               ulong               start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
   ulong decode_sz;
-  READ_CHECKED_COMPACT_U16( decode_sz, version->major, CUR_OFFSET ) ; INC( decode_sz );
-  READ_CHECKED_COMPACT_U16( decode_sz, version->minor, CUR_OFFSET ) ; INC( decode_sz );
-  READ_CHECKED_COMPACT_U16( decode_sz, version->patch, CUR_OFFSET ) ; INC( decode_sz );
-  CHECK_LEFT( 4U ); version->commit = FD_LOAD( uint, CURSOR )      ; INC( 4U );
-  CHECK_LEFT( 4U ); version->feature_set = FD_LOAD( uint, CURSOR ) ; INC( 4U );
-  READ_CHECKED_COMPACT_U16( decode_sz, version->client, CUR_OFFSET ); INC( decode_sz );
+  READ_CHECKED_COMPACT_U16( decode_sz, ci->version.major, CUR_OFFSET ) ; INC( decode_sz );
+  READ_CHECKED_COMPACT_U16( decode_sz, ci->version.minor, CUR_OFFSET ) ; INC( decode_sz );
+  READ_CHECKED_COMPACT_U16( decode_sz, ci->version.patch, CUR_OFFSET ) ; INC( decode_sz );
+  CHECK_LEFT( 4U ); ci->version.commit      = FD_LOAD( uint, CURSOR )  ; INC( 4U );
+  CHECK_LEFT( 4U ); ci->version.feature_set = FD_LOAD( uint, CURSOR )  ; INC( 4U );
+  READ_CHECKED_COMPACT_U16( decode_sz, ci->version.client, CUR_OFFSET ); INC( decode_sz );
   return BYTES_CONSUMED;
 }
 
@@ -270,7 +270,18 @@ version_parse( fd_gossip_view_version_t * version,
    - Each socket entry references a unique socket tag
    - Socket offsets do not cause an overflow
    - All addresses are referenced at least once across all sockets
-   https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L599 */
+   https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/gossip/src/contact_info.rs#L599
+
+   We perform additional checks when populating the
+   contact_info->sockets array:
+   - Address must be ipv4
+   - Socket tag must fall within range of tags defined in
+     fd_gossip_types.c (bounded by FD_CONTACT_INFO_SOCKET_LAST)
+
+  Note that these additional checks are not parser failure conditions.
+  These sockets are simply skipped when populating
+  contact_info->sockets (marked as null entries). The CRDS value is
+  considered valid and is still processed into the CRDS table. */
 
 #define SET_NAME ip4_seen_set
 #define SET_MAX  (1<<15)
@@ -307,65 +318,88 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
                                        ulong                         payload_sz,
                                        ulong                         start_offset ) {
   CHECK_INIT( payload, payload_sz, start_offset );
-  CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                                                         ; INC( 32U );
+  CHECK_LEFT( 32U ); crds_val->pubkey_off = CUR_OFFSET                                                     ; INC( 32U );
   ulong wallclock = 0UL;
   INC( decode_u64_varint( payload, payload_sz, CUR_OFFSET, &wallclock ) );
   crds_val->wallclock_nanos = FD_MILLI_TO_NANOSEC( wallclock );
 
-  CHECK_LEFT( 8U ); crds_val->contact_info->instance_creation_wallclock_nanos = FD_MICRO_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
-  CHECK_LEFT( 2U ); crds_val->contact_info->shred_version = FD_LOAD( ushort, CURSOR )                                          ; INC(  2U );
-  INC( version_parse( crds_val->contact_info->version, payload, payload_sz, CUR_OFFSET ) );
+  fd_contact_info_t * ci = crds_val->ci_view->contact_info;
+  fd_memcpy( ci->pubkey.uc, payload + crds_val->pubkey_off, 32UL );
+  ci->wallclock_nanos = crds_val->wallclock_nanos;
 
-  ulong decode_sz;
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->addrs_len, CUR_OFFSET )                                         ; INC( decode_sz );
-  CHECK( crds_val->contact_info->addrs_len<=FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES );
+  CHECK_LEFT( 8U ); ci->instance_creation_wallclock_nanos = FD_MICRO_TO_NANOSEC( FD_LOAD( ulong, CURSOR ) ); INC(  8U );
+  CHECK_LEFT( 2U ); ci->shred_version = FD_LOAD( ushort, CURSOR )                                          ; INC(  2U );
+  INC( version_parse( ci, payload, payload_sz, CUR_OFFSET ) );
+
+  ulong decode_sz, addrs_len;
+  READ_CHECKED_COMPACT_U16( decode_sz, addrs_len, CUR_OFFSET )                                             ; INC( decode_sz );
+  CHECK( addrs_len<=FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES );
 
   ip4_seen_set_t ip4_seen[ ip4_seen_set_word_cnt ];
   ip6_seen_set_t ip6_seen[ ip6_seen_set_word_cnt ];
   ip4_seen_set_new( ip4_seen );
   ip6_seen_set_new( ip6_seen );
 
-  for( ulong i=0UL; i<crds_val->contact_info->addrs_len; i++ ) {
-    fd_gossip_view_ipaddr_t * addr = &crds_val->contact_info->addrs[i];
-    CHECK_LEFT( 4U ); addr->is_ip6 = FD_LOAD( uchar, CURSOR )                                                                  ; INC( 4U );
-    if( FD_LIKELY( !addr->is_ip6 ) ) {
-      CHECK_LEFT( 4U ); addr->ip4 = FD_LOAD( uint, CURSOR )                                                                    ; INC( 4U );
-      ulong idx = fd_uint_hash( addr->ip4 )&(ip4_seen_set_max( ip4_seen )-1);
+  uint ip4_addrs[ FD_GOSSIP_CONTACT_INFO_MAX_ADDRESSES ];
+
+  for( ulong i=0UL; i<addrs_len; i++ ) {
+    CHECK_LEFT( 4U ); uchar is_ip6 = FD_LOAD( uchar, CURSOR )                                              ; INC( 4U );
+    if( FD_LIKELY( !is_ip6 ) ) {
+      CHECK_LEFT( 4U ); ip4_addrs[ i ] = FD_LOAD( uint, CURSOR )                                           ; INC( 4U );
+      ulong idx = fd_uint_hash( ip4_addrs[ i ] )&(ip4_seen_set_max( ip4_seen )-1);
       CHECK( !ip4_seen_set_test( ip4_seen, idx ) ); /* Should not be set initially */
       ip4_seen_set_insert( ip4_seen, idx );
     } else {
-      CHECK_LEFT( 16U ); addr->ip6_off = CUR_OFFSET                                                                            ; INC( 16U );
-      ulong idx = ipv6_hash( (ipv6_addr_t *)(payload+addr->ip6_off) )&(ip6_seen_set_max( ip6_seen )-1);
+      /* TODO: Support IPv6 ... */
+      CHECK_LEFT( 16U ); ipv6_addr_t * ip6_addr = (ipv6_addr_t *)CURSOR                                    ; INC( 16U );
+      ulong idx = ipv6_hash( ip6_addr )&(ip6_seen_set_max( ip6_seen )-1);
       CHECK( !ip6_seen_set_test( ip6_seen, idx ) );
       ip6_seen_set_insert( ip6_seen, idx );
+      ip4_addrs[ i ] = 0U; /* Mark as null entry */
     }
   }
+  crds_val->ci_view->ip6_cnt = ip6_seen_set_cnt( ip6_seen );
 
   addr_idx_set_t ip_addr_hits[ addr_idx_set_word_cnt ];
   socket_tag_set_t socket_tag_hits[ socket_tag_set_word_cnt ];
   addr_idx_set_new( ip_addr_hits );
   socket_tag_set_new( socket_tag_hits );
 
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->sockets_len, CUR_OFFSET )                                       ; INC( decode_sz );
-  CHECK( crds_val->contact_info->sockets_len<=FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS );
+  ulong sockets_len;
+  READ_CHECKED_COMPACT_U16( decode_sz, sockets_len, CUR_OFFSET )                                           ; INC( decode_sz );
+  CHECK( sockets_len<=FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS );
 
-  ushort offset = 0U;
-  for( ulong i=0UL; i<crds_val->contact_info->sockets_len; i++ ) {
-    fd_gossip_view_socket_t * socket = &crds_val->contact_info->sockets[i];
-    CHECK_LEFT( 1U ); socket->key   = FD_LOAD( uchar, CURSOR )                                                                 ; INC( 1U );
-    CHECK_LEFT( 1U ); socket->index = FD_LOAD( uchar, CURSOR )                                                                 ; INC( 1U );
-    READ_CHECKED_COMPACT_U16( decode_sz, socket->offset, CUR_OFFSET )                                                          ; INC( decode_sz );
-    CHECK( ((uint)offset + (uint)socket->offset)<=(uint)USHORT_MAX ); /* overflow check */
-    offset = (ushort)(offset + socket->offset);
-    CHECK( !socket_tag_set_test( socket_tag_hits, socket->key ) ); socket_tag_set_insert( socket_tag_hits, socket->key );
-    CHECK( socket->index<crds_val->contact_info->addrs_len );
-    addr_idx_set_insert( ip_addr_hits, socket->index );
+  fd_memset( ci->sockets, 0, (FD_CONTACT_INFO_SOCKET_LAST+1UL)*sizeof(fd_ip4_port_t) );
+  crds_val->ci_view->unrecognized_socket_tag_cnt = 0UL;
+
+  ushort cur_port = 0U;
+  for( ulong i=0UL; i<sockets_len; i++ ) {
+    uchar tag, addr_idx;
+    CHECK_LEFT( 1U ); tag      = FD_LOAD( uchar, CURSOR )                                                  ; INC( 1U );
+    CHECK_LEFT( 1U ); addr_idx = FD_LOAD( uchar, CURSOR )                                                  ; INC( 1U );
+
+    ushort offset;
+    READ_CHECKED_COMPACT_U16( decode_sz, offset, CUR_OFFSET )                                              ; INC( decode_sz );
+    CHECK( ((uint)cur_port + (uint)offset)<=(uint)USHORT_MAX ); /* overflow check */
+    cur_port = (ushort)(cur_port + offset);
+    CHECK( !socket_tag_set_test( socket_tag_hits, tag ) ); socket_tag_set_insert( socket_tag_hits, tag );
+    CHECK( addr_idx<addrs_len );
+    addr_idx_set_insert( ip_addr_hits, addr_idx );
+
+    if( FD_LIKELY( tag<=FD_CONTACT_INFO_SOCKET_LAST ) ) {
+      if( FD_UNLIKELY( !!ip4_addrs[ addr_idx ] ) ) {
+        ci->sockets[ tag ].addr = ip4_addrs[ addr_idx ];
+        ci->sockets[ tag ].port = fd_ushort_bswap( cur_port ); /* TODO: change this to host order */
+      }
+    } else {
+      crds_val->ci_view->unrecognized_socket_tag_cnt++;
+    }
   }
-  CHECK( addr_idx_set_cnt( ip_addr_hits )==crds_val->contact_info->addrs_len );
+  CHECK( addr_idx_set_cnt( ip_addr_hits )==addrs_len );
 
   /* extensions are currently unused */
-  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->contact_info->ext_len, CUR_OFFSET )                                           ; INC( decode_sz );
-  CHECKED_INC( 4*crds_val->contact_info->ext_len );
+  READ_CHECKED_COMPACT_U16( decode_sz, crds_val->ci_view->ext_len, CUR_OFFSET )                            ; INC( decode_sz );
+  CHECKED_INC( 4*crds_val->ci_view->ext_len );
 
   return BYTES_CONSUMED;
 }
@@ -507,7 +541,7 @@ fd_gossip_pull_req_parse( fd_gossip_view_t * view,
   CHECK_LEFT(                    8U ); pr->mask      = FD_LOAD( ulong, CURSOR )         ; INC( 8U );
   CHECK_LEFT(                    4U ); pr->mask_bits = FD_LOAD( uint, CURSOR )          ; INC( 4U );
 
-  INC( fd_gossip_msg_crds_vals_parse( pr->contact_info,
+  INC( fd_gossip_msg_crds_vals_parse( pr->pr_ci,
                                       1U, /* pull request holds only one contact info */
                                       payload,
                                       payload_sz,

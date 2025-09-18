@@ -28,7 +28,3 @@ fstat: (eq (arg 0) restore_fd)
 # arg 0 is the file descriptor to fsync.
 fsync: (or (eq (arg 0) logfile_fd)
            (eq (arg 0) checkpt_fd))
-
-# tower: rename is needed to atomically swap the new tower file with the
-#        old tower file
-rename

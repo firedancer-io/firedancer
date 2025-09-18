@@ -680,8 +680,8 @@ fd_block_to_json( fd_webserver_t * ws,
                   const char * call_id,
                   const uchar * blk_data,
                   ulong blk_sz,
-                  fd_replay_notif_msg_t * info,
-                  fd_replay_notif_msg_t * parent_info,
+                  fd_replay_slot_completed_t * info,
+                  fd_replay_slot_completed_t * parent_info,
                   fd_rpc_encoding_t encoding,
                   long maxvers,
                   enum fd_block_detail detail,
@@ -690,15 +690,16 @@ fd_block_to_json( fd_webserver_t * ws,
   EMIT_SIMPLE("{\"jsonrpc\":\"2.0\",\"result\":{");
 
   char hash[50];
-  fd_base58_encode_32(info->slot_exec.block_hash.uc, 0, hash);
+  fd_base58_encode_32(info->block_hash.uc, 0, hash);
   char phash[50];
   if( parent_info ) {
-    fd_base58_encode_32(parent_info->slot_exec.block_hash.uc, 0, phash);
+    fd_base58_encode_32(parent_info->block_hash.uc, 0, phash);
   } else {
     phash[0] = '\0';
   }
+  // TODO: local completion time is not block time
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
-                       info->slot_exec.height, info->slot_exec.ts/(long)1e9, info->slot_exec.parent, hash, phash);
+                       info->block_height, info->completion_time_nanos/(long)1e9, info->parent_slot, hash, phash);
 
   if( rewards ) {
     fd_base58_encode_32(rewards->leader.uc, 0, hash);

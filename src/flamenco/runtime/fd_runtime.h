@@ -486,6 +486,11 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t * slot_ctx );
 
+/* Look up the funk transaction for the given slot */
+fd_funk_txn_t *
+fd_runtime_funk_txn_get( fd_funk_t * funk,
+                         ulong       slot );
+
 /* Transaction Level Execution Management *************************************/
 
 int
@@ -556,9 +561,11 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 /* Offline Replay *************************************************************/
 
 void
-fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
-                         char const *         genesis_filepath,
-                         fd_spad_t *          spad );
+fd_runtime_read_genesis( fd_exec_slot_ctx_t *               slot_ctx,
+                         fd_hash_t const *                  genesis_hash,
+                         fd_lthash_value_t const *          genesis_lthash,
+                         fd_genesis_solana_global_t const * genesis_block,
+                         fd_spad_t *                        runtime_spad );
 
 
 /* Returns whether the specified epoch should use the new vote account

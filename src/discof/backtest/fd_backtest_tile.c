@@ -2,6 +2,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../discof/reasm/fd_reasm.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
@@ -10,6 +11,8 @@
 #define IN_KIND_REPLAY (0)
 #define IN_KIND_SNAP   (1)
 #define MAX_IN_LINKS   (16)
+
+#define FD_BACKTEST_BLOCK_ID_FLAG (999UL)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -20,6 +23,8 @@ typedef struct {
 
 typedef struct {
 
+  int initialized;
+
   /* Flag for whether after_credit can publish another FEC set to
      progress replay */
 
@@ -27,8 +32,10 @@ typedef struct {
 
   /* Metadata */
 
-  ulong root;
-  ulong staged_root;
+  ulong     root;
+  ulong     staged_root;
+  fd_hash_t staged_root_block_id;
+
   ulong start_slot;
   ulong end_slot;
   long  replay_time;
@@ -40,11 +47,6 @@ typedef struct {
      not alloc. */
 
   fd_valloc_t valloc;
-
-  /* Manifest is received from the snap_out link to discover the
-     snapshot slot (TODO block id) */
-
-  fd_snapshot_manifest_t snapshot_manifest;
 
   /* RocksDB-related ctx for iterating shreds in RocksDB and checking
      bank hash */
@@ -64,19 +66,17 @@ typedef struct {
   fd_store_t *           store;
   fd_shred_t const *     curr;
   fd_shred_t const *     prev;
-  fd_hash_t              prev_mr;
 
   /* Links */
 
   uchar    in_kind [ MAX_IN_LINKS ];
   in_ctx_t in_links[ MAX_IN_LINKS ];
 
-  fd_wksp_t *           replay_out_mem;
-  ulong                 replay_out_chunk0;
-  ulong                 replay_out_wmark;
-  ulong                 replay_out_chunk;
-  ulong                 replay_out_idx;
-  fd_replay_slot_info_t replay_slot_info;
+  fd_wksp_t * replay_out_mem;
+  ulong       replay_out_chunk0;
+  ulong       replay_out_wmark;
+  ulong       replay_out_chunk;
+  ulong       replay_out_idx;
 
   ulong       tower_out_idx;
   fd_wksp_t * tower_out_mem;
@@ -154,7 +154,7 @@ rocksdb_next_shred( ctx_t * ctx,
    recorded in RocksDB. */
 
 static void
-rocksdb_check_bank_hash( ctx_t * ctx, ulong slot, fd_hash_t * bank_hash ) {
+rocksdb_check_bank_hash( ctx_t * ctx, ulong slot, fd_hash_t const * bank_hash ) {
   ulong slot_be = fd_ulong_bswap(slot);
 
   size_t vallen = 0;
@@ -239,13 +239,14 @@ after_credit( ctx_t *             ctx,
      chained merkle root overwritten with their slot numbers and fec
      set index. This is done in order to preserve behavior for older
      ledgers which may not have merkle roots or chained merkle roots. */
-  fd_hash_t mr  = { .ul[0] = curr->slot, .ul[1] = curr->fec_set_idx };
+  fd_hash_t mr  = { .ul[0] = curr->slot, .ul[1] = curr->fec_set_idx, .ul[2] = FD_BACKTEST_BLOCK_ID_FLAG };
   fd_hash_t cmr = {0};
   if( FD_UNLIKELY( !ctx->prev ) ) {
     cmr.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID;
   } else {
     cmr.ul[0] = ctx->prev->slot;
     cmr.ul[1] = ctx->prev->fec_set_idx;
+    cmr.ul[2] = FD_BACKTEST_BLOCK_ID_FLAG;
   }
 
   fd_store_shacq ( ctx->store );
@@ -273,14 +274,8 @@ after_credit( ctx_t *             ctx,
      chain) so link the merkle roots to the previous one. */
 
   fd_store_exacq ( ctx->store );
-  fd_store_link( ctx->store, &mr, &ctx->prev_mr );
+  fd_store_link( ctx->store, &mr, &cmr );
   fd_store_exrel( ctx->store );
-
-  /* Instead of using the shred->chained_mr, there's a known issue where
-  the cluster can converge on bad chained merkle roots across slots.  So
-  we just track the previous mr ourselves vs. relying on chained mr. */
-
-  ctx->prev_mr = mr;
 
   fd_reasm_fec_t out = {
     .key           = mr,
@@ -306,105 +301,95 @@ after_credit( ctx_t *             ctx,
 }
 
 static inline int
-before_frag( ctx_t * ctx,
-             ulong                  in_idx,
-             ulong                  seq FD_PARAM_UNUSED,
-             ulong                  sig ) {
-  uint in_kind = ctx->in_kind[ in_idx ];
-  switch( in_kind ) {
-  case IN_KIND_REPLAY: /* no op */                                                 return 0;
-  case IN_KIND_SNAP:   ctx->credit = fd_ssmsg_sig_message( sig ) == FD_SSMSG_DONE; return ctx->credit;
-  default:             FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", in_kind, in_idx ));
-  }
-}
+returnable_frag( ctx_t *             ctx,
+                 ulong               in_idx,
+                 ulong               seq,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl,
+                 ulong               tsorig,
+                 ulong               tspub,
+                 fd_stem_context_t * stem ) {
+  (void)seq;
+  (void)sz;
+  (void)ctl;
+  (void)tsorig;
 
-static void
-during_frag( ctx_t * ctx,
-             ulong   in_idx,
-             ulong   seq FD_PARAM_UNUSED,
-             ulong   sig FD_PARAM_UNUSED,
-             ulong   chunk,
-             ulong   sz FD_PARAM_UNUSED,
-             ulong   ctl FD_PARAM_UNUSED ) {
-  uint          in_kind     = ctx->in_kind[in_idx];
-  uchar const * chunk_laddr = fd_chunk_to_laddr( ctx->in_links[in_idx].mem, chunk );
-  switch( in_kind ) {
-  case IN_KIND_REPLAY: memcpy( &ctx->replay_slot_info,  chunk_laddr, sizeof(fd_replay_slot_info_t ) ); break;
-  case IN_KIND_SNAP:   memcpy( &ctx->snapshot_manifest, chunk_laddr, sizeof(fd_snapshot_manifest_t) ); break;
-  default:             FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", in_kind, in_idx ));
-  }
-}
+  switch( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_SNAP: {
+      ctx->credit = fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE;
+      if( FD_LIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) return 0;
 
-static void
-after_frag( ctx_t *             ctx,
-            ulong               in_idx,
-            ulong               seq FD_PARAM_UNUSED,
-            ulong               sig FD_PARAM_UNUSED,
-            ulong               sz FD_PARAM_UNUSED,
-            ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub,
-            fd_stem_context_t * stem ) {
-  uint in_kind = ctx->in_kind[ in_idx ];
-  switch( in_kind ) {
-  case IN_KIND_REPLAY: {
-    ulong slot = ctx->replay_slot_info.slot;
-    if( slot==0UL ) {
-      if( FD_UNLIKELY( ctx->start_from_genesis ) ) {
-        FD_LOG_CRIT(( "invariant violation: start_from_genesis is true for slot 0" ));
-      }
-      ctx->start_from_genesis = 1;
-      ctx->root               = 0UL;
-      ctx->start_slot         = 0UL;
-      ctx->replay_time        = -fd_log_wallclock();
+      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
 
-      /* Initialize RocksDB iterator for genesis case, similar to snapshot case */
+      ctx->initialized = 1;
+      ctx->root        = manifest->slot;
+      ctx->start_slot  = manifest->slot;
+      ctx->replay_time = -fd_log_wallclock();
+
       fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
       if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, ctx->root, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
         FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
       }
-      ctx->rocksdb_iter = rocksdb_create_iterator_cf( ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED] );
-
-      FD_LOG_NOTICE(( "Genesis case: initialized RocksDB iterator for slot %lu", ctx->root ));
+      ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+      break;
     }
+    case IN_KIND_REPLAY: {
+      if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return 0;
 
-    rocksdb_check_bank_hash( ctx, slot, &ctx->replay_slot_info.bank_hash );
-    if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
-      ctx->replay_time    += fd_log_wallclock();
-      double replay_time_s = (double)ctx->replay_time * 1e-9;
-      double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
-      FD_LOG_NOTICE(( "replay completed - slots: %lu, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, replay_time_s, sec_per_slot ));
-      FD_LOG_ERR(( "Backtest playback done." ));
-    } else {
+      fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
 
-      /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
+      if( FD_UNLIKELY( !ctx->initialized && msg->slot ) ) return 1;
+      ctx->initialized = 1;
 
-      fd_tower_slot_done_t * msg = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
-      msg->new_root = 1;
-      msg->root_slot = ctx->staged_root;
-      fd_memset( &msg->root_block_id, 0, sizeof(fd_hash_t) ); /* TODO ... should we set this? */
+      ulong slot = msg->slot;
+      if( FD_UNLIKELY( !slot ) ) {
+        if( FD_UNLIKELY( ctx->start_from_genesis ) ) FD_LOG_CRIT(( "invariant violation: start_from_genesis is true for slot 0" ));
 
-      if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
-      ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
-      ctx->staged_root = slot;
-      ctx->credit = 1;
+        ctx->start_from_genesis = 1;
+        ctx->root               = 0UL;
+        ctx->start_slot         = 0UL;
+        ctx->replay_time        = -fd_log_wallclock();
+
+        /* Initialize RocksDB iterator for genesis case, similar to snapshot case */
+        fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
+        if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, ctx->root, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
+          FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
+        }
+        ctx->rocksdb_iter = rocksdb_create_iterator_cf( ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED] );
+
+        FD_LOG_NOTICE(( "Genesis case: initialized RocksDB iterator for slot %lu", ctx->root ));
+      }
+
+      rocksdb_check_bank_hash( ctx, slot, &msg->bank_hash );
+      if( FD_UNLIKELY( slot>=ctx->end_slot ) ) {
+        ctx->replay_time    += fd_log_wallclock();
+        double replay_time_s = (double)ctx->replay_time * 1e-9;
+        double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
+        FD_LOG_NOTICE(( "replay completed - slots: %lu, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, replay_time_s, sec_per_slot ));
+        FD_LOG_ERR(( "Backtest playback done." ));
+      } else {
+        /* Delay publishing by 1 slot otherwise there is a replay tile race when it tries to query the parent. */
+
+        fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
+        dst->root_slot      = ctx->staged_root;
+        dst->root_block_id  = ctx->staged_root_block_id;
+        dst->new_root       = 1;
+        dst->reset_block_id = msg->block_id;
+
+        if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX || ctx->start_from_genesis ) ) fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
+        ctx->staged_root          = slot;
+        ctx->staged_root_block_id = msg->block_id;
+        ctx->credit = 1;
+      }
+      break;
     }
-    break;
+    default: FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", ctx->in_kind[in_idx], in_idx ));
   }
-  case IN_KIND_SNAP: {
-    if( FD_UNLIKELY( ctx->root != ULONG_MAX ) ) FD_LOG_CRIT(( "backtest got multiple manifests" ));
-    ctx->root        = ctx->snapshot_manifest.slot;
-    ctx->start_slot  = ctx->snapshot_manifest.slot;
-    ctx->replay_time = -fd_log_wallclock();
 
-    fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
-    if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, ctx->root, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
-      FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
-    }
-    ctx->rocksdb_iter = rocksdb_create_iterator_cf(ctx->rocksdb.db, ctx->rocksdb.ro, ctx->rocksdb.cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
-    break;
-  }
-  default: FD_LOG_ERR(( "unhandled in_kind: %u in_idx: %lu", in_kind, in_idx ));
-  }
+  return 0;
 }
 
 static void
@@ -418,6 +403,7 @@ unprivileged_init( fd_topo_t *      topo,
   ulong   scratch_top       = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align()                        );
   FD_TEST( scratch_top == (ulong)scratch + scratch_footprint( tile ) );
 
+  ctx->initialized = 0;
   ctx->credit = 0;
 
   ctx->root        = ULONG_MAX;
@@ -453,7 +439,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->store );
   ctx->curr    = NULL;
   ctx->prev    = NULL;
-  ctx->prev_mr = (fd_hash_t){0};
 
   for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
@@ -483,6 +468,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->tower_out_idx!=ULONG_MAX );
   link  = &topo->links[ tile->out_link_id[ ctx->tower_out_idx ] ];
   ctx->tower_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+  FD_TEST( ctx->tower_out_mem );
   ctx->tower_out_chunk0 = fd_dcache_compact_chunk0( ctx->tower_out_mem, link->dcache );
   ctx->tower_out_wmark  = fd_dcache_compact_wmark( ctx->tower_out_mem, link->dcache, link->mtu );
   ctx->tower_out_chunk  = ctx->tower_out_chunk0;
@@ -492,10 +478,8 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(ctx_t)
 
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

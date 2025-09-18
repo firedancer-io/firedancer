@@ -235,6 +235,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
       ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
+      FD_TEST( ctx->funk_txn );
+
       ctx->full     = 0;
       ctx->state    = FD_SNAPIN_STATE_LOADING;
       break;
@@ -250,6 +252,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
       ctx->state = FD_SNAPIN_STATE_SHUTDOWN;
+      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));

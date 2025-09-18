@@ -32,10 +32,10 @@ void fd_gui_printf_estimated_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
 
 void
-fd_gui_printf_null_query_response( fd_gui_t *   gui,
-                                   char const * topic,
-                                   char const * key,
-                                   ulong        id );
+fd_gui_printf_null_query_response( fd_http_server_t * http,
+                                   char const *       topic,
+                                   char const *       key,
+                                   ulong              id );
 
 void
 fd_gui_printf_skip_rate( fd_gui_t * gui,

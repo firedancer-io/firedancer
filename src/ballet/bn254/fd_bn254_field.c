@@ -175,7 +175,7 @@ fd_bn254_fp_neg( fd_bn254_fp_t * r,
 static inline fd_bn254_fp_t *
 fd_bn254_fp_halve( fd_bn254_fp_t * r,
                    fd_bn254_fp_t const * a ) {
-  int is_odd = r->limbs[0] & 0x1;
+  int is_odd = a->limbs[0] & 0x1;
   fd_uint256_add( r, a, is_odd ? fd_bn254_const_p : fd_bn254_const_zero );
   r->limbs[0] = (r->limbs[0] >> 1) | (r->limbs[1] << 63);
   r->limbs[1] = (r->limbs[1] >> 1) | (r->limbs[2] << 63);

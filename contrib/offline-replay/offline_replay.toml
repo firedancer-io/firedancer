@@ -1,8 +1,5 @@
 [layout]
-    affinity = "auto"
-    bank_tile_count = 1
     shred_tile_count = 4
-    exec_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -45,3 +42,5 @@
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
+[gossip]
+    entrypoints = [ "0.0.0.0:1" ]

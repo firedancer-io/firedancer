@@ -639,6 +639,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       rename_snapshots( ctx );
       ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
+      metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
@@ -647,6 +648,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       if( FD_LIKELY( !ctx->config.incremental_snapshot_fetch ) ) {
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
+        metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
@@ -671,6 +673,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       if( FD_LIKELY( !ctx->config.incremental_snapshot_fetch ) ) {
         rename_snapshots( ctx );
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
+        metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }

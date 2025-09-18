@@ -536,6 +536,8 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
       fd_ip4_port_t origin_addr = fd_contact_info_gossip_socket( contact_info );
       if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
+      gossip->metrics->ci_rx_unrecognized_socket_tag_cnt += value->ci_view->unrecognized_socket_tag_cnt;
+      gossip->metrics->ci_rx_ipv6_address_cnt            += value->ci_view->ip6_cnt;
     }
     active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   }
@@ -583,6 +585,8 @@ process_push_crds( fd_gossip_t *                       gossip,
 
     fd_ip4_port_t origin_addr = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
     if( FD_LIKELY( !is_me ) ) fd_ping_tracker_track( gossip->ping_tracker, origin_pubkey, origin_stake, origin_addr, now );
+    gossip->metrics->ci_rx_unrecognized_socket_tag_cnt += value->ci_view->unrecognized_socket_tag_cnt;
+    gossip->metrics->ci_rx_ipv6_address_cnt            += value->ci_view->ip6_cnt;
   }
   active_push_set_insert( gossip, payload+value->value_off, value->length, origin_pubkey, origin_stake, stem, now, 0 /* flush_immediately */ );
   return 0;

@@ -5,7 +5,7 @@
 #include "../../../platform/fd_file_util.h"
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../discof/ipecho/genesis_hash.h"
+#include "../../../../discof/genesis/genesis_hash.h"
 #include "../../../../flamenco/features/fd_features.h"
 #include "../../../../flamenco/genesis/fd_genesis_create.h"
 #include "../../../../flamenco/types/fd_types_custom.h"
@@ -220,6 +220,9 @@ create_genesis( config_t const * config,
 
 static void
 init( config_t const * config ) {
+  int bootstrap = !config->gossip.entrypoints_cnt;
+  if( FD_LIKELY( !bootstrap ) ) return;
+
   char _genesis_path[ PATH_MAX ];
   char const * genesis_path;
   if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
@@ -287,11 +290,13 @@ fini( config_t const * config,
 
   if( FD_UNLIKELY( unlink( genesis_path ) && errno!=ENOENT ) )
     FD_LOG_ERR(( "could not remove genesis.bin file `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
-  return 1;
+  return 0;
 }
 
 static configure_result_t
 check( config_t const * config ) {
+  int bootstrap = !config->gossip.entrypoints_cnt;
+
   char _genesis_path[ PATH_MAX ];
   char const * genesis_path;
   if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
@@ -301,8 +306,14 @@ check( config_t const * config ) {
   }
 
   struct stat st;
-  if( FD_UNLIKELY( stat( genesis_path, &st ) && errno==ENOENT ) )
-    NOT_CONFIGURED( "`%s` does not exist", genesis_path );
+  int err = stat( genesis_path, &st );
+  if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
+
+  if( FD_UNLIKELY( bootstrap ) ) {
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
+  } else {
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) CONFIGURE_OK();
+  }
 
   CHECK( check_dir( config->paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
@@ -311,15 +322,10 @@ check( config_t const * config ) {
 }
 
 configure_stage_t fd_cfg_stage_genesis = {
-  .name            = NAME,
-  .init            = init,
-  .fini            = fini,
-  .check           = check,
-  /* It might be nice to not regenerate the genesis.bin if the
-     parameters didn't change here, but it has a timestamp in it and
-     also a variable number of hashes per tick in some configurations,
-     which we would need to pull out and skip in the comparison, so we
-     just always recreate it for now. */
+  .name  = NAME,
+  .init  = init,
+  .fini  = fini,
+  .check = check,
   .always_recreate = 1,
 };
 

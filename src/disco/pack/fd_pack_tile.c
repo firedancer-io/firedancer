@@ -138,6 +138,7 @@ typedef struct {
      are not the leader. */
   ulong  leader_slot;
   void const * leader_bank;
+  ulong        leader_bank_idx;
 
   fd_became_leader_t _became_leader[1];
 
@@ -717,6 +718,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
+      trailer->bank_idx = ctx->leader_bank_idx;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
       trailer->pack_idx = ctx->pack_idx;
       trailer->pack_txn_idx = ctx->pack_txn_cnt;
@@ -984,6 +986,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     ctx->leader_bank          = ctx->_became_leader->bank;
+    ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
@@ -1229,6 +1232,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
+  ctx->leader_bank_idx               = ULONG_MAX;
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;

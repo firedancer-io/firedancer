@@ -1,12 +1,12 @@
 #include "topology.h"
 
-#include "../../choreo/fd_choreo_base.h"
 #include "../../discof/reasm/fd_reasm.h"
-#include "../../discof/replay/fd_replay_notif.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/gossip/fd_gossip_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/resolv/fd_resolv_tile.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/tiles.h"
@@ -222,6 +222,7 @@ fd_topo_initialize( config_t * config ) {
 
   /*             topo, name */
   fd_topob_wksp( topo, "metric"       );
+  fd_topob_wksp( topo, "genesi"       );
   fd_topob_wksp( topo, "ipecho"       );
   fd_topob_wksp( topo, "gossvf"       );
   fd_topob_wksp( topo, "gossip"       );
@@ -250,6 +251,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "net_send"     );
   fd_topob_wksp( topo, "net_quic"     );
 
+  fd_topob_wksp( topo, "genesi_out"   );
   fd_topob_wksp( topo, "ipecho_out"   );
   fd_topob_wksp( topo, "gossvf_gossi" );
   fd_topob_wksp( topo, "gossip_gossv" );
@@ -260,7 +262,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_pack"  );
   fd_topob_wksp( topo, "replay_stake" );
   fd_topob_wksp( topo, "replay_exec"  );
-  fd_topob_wksp( topo, "replay_tower" );
+  fd_topob_wksp( topo, "replay_out"   );
   fd_topob_wksp( topo, "exec_writer"  );
   fd_topob_wksp( topo, "tower_out"    );
   fd_topob_wksp( topo, "send_txns"    ); /* TODO: Badly named. Rename to indicate tiles */
@@ -271,6 +273,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "resolv_pack"  );
   fd_topob_wksp( topo, "pack_poh"     );
   fd_topob_wksp( topo, "pack_bank"    );
+  fd_topob_wksp( topo, "resolv_repla" );
   fd_topob_wksp( topo, "bank_pack"    );
   fd_topob_wksp( topo, "bank_poh"     );
   fd_topob_wksp( topo, "bank_busy"    );
@@ -331,7 +334,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
   }
 
-  /**/                 fd_topob_link( topo, "ipecho_out",   "ipecho_out",   4UL,                                      0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   2UL,                                      10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
+  /**/                 fd_topob_link( topo, "ipecho_out",   "ipecho_out",   2UL,                                      0UL,                           1UL );
   FOR(gossvf_tile_cnt) fd_topob_link( topo, "gossvf_gossi", "gossvf_gossi", config->net.ingress_buffer_size,          sizeof(fd_gossip_view_t)+FD_NET_MTU, 1UL );
   /**/                 fd_topob_link( topo, "gossip_gossv", "gossip_gossv", 65536UL*4UL,                              sizeof(fd_gossip_ping_update_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
   /**/                 fd_topob_link( topo, "gossip_out",   "gossip_out",   65536UL*4UL,                              sizeof(fd_gossip_update_message_t), 1UL ); /* TODO: Unclear where this depth comes from ... fix */
@@ -342,6 +346,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_pack",  "resolv_pack",  65536UL,                                  FD_TPU_RESOLVED_MTU,           1UL );
   /**/                 fd_topob_link( topo, "replay_pack",  "replay_pack",  128UL,                                    sizeof(fd_became_leader_t),    1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "replay_stake", "replay_stake", 128UL,                                    FD_STAKE_OUT_MTU,              1UL ); /* TODO: Depth probably doesn't need to be 128 */
+  /**/                 fd_topob_link( topo, "replay_out",   "replay_out",   8192UL,                                   sizeof(fd_replay_message_t),   1UL );
   /**/                 fd_topob_link( topo, "pack_poh",     "pack_poh",     128UL,                                    sizeof(fd_done_packing_t),     1UL );
   /* pack_bank is shared across all banks, so if one bank stalls due to complex transactions, the buffer neeeds to be large so that
      other banks can keep proceeding. */
@@ -350,7 +355,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_link( topo, "bank_pack",    "bank_pack",    16384UL,                                  USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "poh_replay",   "poh_replay",   128UL,                                    sizeof(fd_poh_leader_slot_ended_t), 1UL ); /* TODO: Depth probably doesn't need to be 128 */
-  /**/                 fd_topob_link( topo, "replay_resol", "bank_poh",     128UL,                                    sizeof(fd_completed_bank_t),   1UL ); /* TODO: Don't reuse bank_poh link for this. Depth doesn't need to be 128 */
+  FOR(resolv_tile_cnt) fd_topob_link( topo, "resolv_repla", "resolv_repla", 128UL,                                    sizeof(fd_resolv_slot_exchanged_t), 1UL );
   /**/                 fd_topob_link( topo, "executed_txn", "executed_txn", 16384UL,                                  64UL,                          1UL ); /* TODO: Rename this ... */
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
@@ -370,7 +375,6 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),        1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair", "shred_repair", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Also pending_fec_shreds_depth? Seems wrong */
-  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", fd_ulong_pow2_up( config->firedancer.runtime.max_total_banks*FD_REPLAY_TOWER_VOTE_ACC_MAX ), sizeof(fd_replay_tower_t), 1UL ); /* TODO: Don't think this depth makes much sense? This is weirdly outsized for a vote link */
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_slot_done_t),  1UL );
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TPU_RAW_MTU,                1UL ); /* TODO: Horribly named. Rename to indicate tile and where its going */
 
@@ -427,6 +431,7 @@ fd_topo_initialize( config_t * config ) {
                        fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
   }
 
+  /**/                 fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
   /**/                 fd_topob_tile( topo, "ipecho",  "ipecho",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(gossvf_tile_cnt) fd_topob_tile( topo, "gossvf",  "gossvf",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   /**/                 fd_topob_tile( topo, "gossip",  "gossip",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
@@ -467,6 +472,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                fd_topos_tile_in_net( topo,                          "metric_in", "send_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(quic_tile_cnt)  fd_topos_tile_in_net( topo,                          "metric_in", "quic_net",     i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
+  /**/                 fd_topob_tile_out(   topo, "genesi", 0UL,                        "genesi_out",   0UL                                                );
+  /**/                 fd_topob_tile_in (   topo, "ipecho", 0UL,           "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "ipecho", 0UL,                        "ipecho_out",   0UL                                                );
 
   FOR(gossvf_tile_cnt) fd_topob_tile_out(   topo, "gossvf", i,                          "gossvf_gossi", i                                                  );
@@ -496,6 +503,7 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_in (    topo, "replay",  0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
+  /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -505,14 +513,16 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "shred_repair", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_repla", 0UL                                                );
   FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_shred", i                                                  );
+  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "repair_repla", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",   0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_stake", 0UL                                                );
-  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_resol", 0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "executed_txn", 0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_pack",  0UL                                                );
   FOR(exec_tile_cnt)   fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_exec",  i                                                  );
-  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_tower", 0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "resolv_repla", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+
   /**/                 fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_out(   topo, "exec",    i,                         "exec_writer",  i                                                  );
@@ -520,7 +530,8 @@ fd_topo_initialize( config_t * config ) {
      single out link, over which all the writer tiles round-robin. */
   FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
                        fd_topob_tile_in(    topo, "writer",  i,            "metric_in", "exec_writer",  j,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_tower", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",  0UL,           "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
@@ -543,8 +554,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(    topo, "dedup",   0UL,          "metric_in", "executed_txn", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "dedup",   0UL,                       "dedup_resolv", 0UL                                                );
   FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "resolv",  i,            "metric_in", "dedup_resolv", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "resolv",  i,            "metric_in", "replay_resol", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolv_tile_cnt) fd_topob_tile_out(   topo, "resolv",  i,                         "resolv_pack",  i                                                  );
+  FOR(resolv_tile_cnt) fd_topob_tile_out(   topo, "resolv",  i,                         "resolv_repla", i                                                  );
   /**/                 fd_topob_tile_in(    topo, "pack",    0UL,          "metric_in", "resolv_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "pack",    0UL,          "metric_in", "replay_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in(    topo, "pack",    0UL,          "metric_in", "executed_txn", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -555,9 +566,10 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_out(   topo, "bank",    i,                         "bank_poh",     i                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out(   topo, "bank",    i,                         "bank_pack",    i                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_in(    topo, "poh",     0UL,          "metric_in", "bank_poh",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) )
+  if( FD_LIKELY( config->tiles.pack.use_consumed_cus ) ) {
   /**/                 fd_topob_tile_in(    topo, "poh",     0UL,          "metric_in", "pack_poh",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                fd_topob_tile_in(     topo, "poh",     0UL,          "metric_in", "replay_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
+  /**/                 fd_topob_tile_in(    topo, "poh",     0UL,          "metric_in", "replay_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "poh",     0UL,                       "poh_shred",    0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "poh",     0UL,                       "poh_replay",   0UL                                                );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -649,19 +661,13 @@ fd_topo_initialize( config_t * config ) {
     /* No default fd_topob_tile_in connection to stake_out */
   }
 
-  fd_topob_wksp( topo, "replay_notif" );
-  /* We may be notifying an external service, so always publish on this link. */
-  fd_topob_link( topo, "replay_notif", "replay_notif", FD_REPLAY_NOTIF_DEPTH, FD_REPLAY_NOTIF_MTU, 1UL )->permit_no_consumers = 1;
-  fd_topob_tile_out( topo, "replay",  0UL, "replay_notif", 0UL );
-
   int rpc_enabled = config->rpc.port;
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_wksp( topo, "rpcsrv" );
     fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_tower", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /* For now the only plugin consumer is the GUI */
@@ -689,7 +695,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "writ_repl" );
   FOR(writer_tile_cnt) fd_topob_link(     topo, "writ_repl", "writ_repl", 16384UL, sizeof(fd_writer_replay_txn_finalized_msg_t), 1UL );
   FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",    i,                               "writ_repl", i );
-  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,      "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,    "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "writer",    i,      "metric_in", "send_txns", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   if( FD_UNLIKELY( solcap_enabled ) ) {
     /* Capture account updates, whose updates must be centralized in the replay tile as solcap is currently not thread-safe.
@@ -745,11 +752,15 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_total_banks, config->firedancer.runtime.max_fork_width );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
   /* TODO: This should not exist in production */
@@ -793,11 +804,12 @@ fd_topo_initialize( config_t * config ) {
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
   }
 
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcserv", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcserv", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) fd_topo_configure_tile( &topo->tiles[ i ], config );
@@ -851,12 +863,21 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "ipecho") ) ) {
 
-    strncpy( tile->ipecho.genesis_path, config->paths.genesis, sizeof(tile->ipecho.genesis_path) );
     tile->ipecho.expected_shred_version = config->consensus.expected_shred_version;
     tile->ipecho.bind_address           = config->net.ip_addr;
     tile->ipecho.bind_port              = config->gossip.port;
     tile->ipecho.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     fd_memcpy( tile->ipecho.entrypoints, config->gossip.resolved_entrypoints, tile->ipecho.entrypoints_cnt * sizeof(fd_ip4_port_t) );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "genesi" ) ) ) {
+
+    tile->genesi.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+
+    tile->genesi.allow_download = config->firedancer.snapshots.genesis_download;
+    strncpy( tile->genesi.genesis_path, config->paths.genesis, sizeof(tile->genesi.genesis_path) );
+    tile->genesi.expected_shred_version = config->consensus.expected_shred_version;
+    tile->genesi.entrypoints_cnt        = config->gossip.entrypoints_cnt;
+    fd_memcpy( tile->genesi.entrypoints, config->gossip.resolved_entrypoints, tile->genesi.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
@@ -925,7 +946,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
-    tile->snapin.funk_obj_id            = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
+    tile->snapin.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
@@ -1022,6 +1043,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "resolv" ) ) ) {
 
+    tile->resolv.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+
   } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
 
     tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;
@@ -1047,6 +1070,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
+    tile->bank.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
     strncpy( tile->poh.identity_key_path, config->paths.identity_key, sizeof(tile->poh.identity_key_path) );

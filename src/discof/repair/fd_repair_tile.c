@@ -79,6 +79,7 @@
 #define IN_KIND_SNAP    (5)
 #define IN_KIND_STAKE   (6)
 #define IN_KIND_GOSSIP  (7)
+#define IN_KIND_GENESIS (8)
 
 #define MAX_IN_LINKS    (16)
 
@@ -644,7 +645,8 @@ during_frag( fd_repair_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( ctx->in_kind[in_idx]!=IN_KIND_SNAP || fd_ssmsg_sig_message( sig )!=FD_SSMSG_DONE ) ) ctx->snap_out_chunk = chunk;
     return;
-
+  } else if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
+    return;
   } else if ( FD_UNLIKELY( in_kind==IN_KIND_SIGN ) ) {
     dcache_entry = fd_chunk_to_laddr_const( in_ctx->mem, chunk );
     dcache_entry_sz = sz;
@@ -785,6 +787,13 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   ctx->stem = stem;
 
   uint in_kind = ctx->in_kind[ in_idx ];
+  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
+    fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
+    fd_reasm_init( ctx->reasm, &manifest_block_id, 0 );
+    fd_forest_init( ctx->forest, 0 );
+    return;
+  }
+
   if( FD_UNLIKELY( in_kind==IN_KIND_GOSSIP ) ) {
     fd_gossip_update_message_t const * msg = (fd_gossip_update_message_t const *)fd_type_pun_const( ctx->buffer );
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
@@ -901,17 +910,19 @@ after_frag( fd_repair_tile_ctx_t * ctx,
       for( uint j = i; j < blk->buffered_idx + 1; j++ ) {
         if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->fecs, j ) ) ) {
           fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-          ulong          sig      = fd_ulong_load_8( fec_sig->sig );
-          ulong          tile_idx = sig % ctx->shred_tile_cnt;
-          uint           last_idx = j - i;
+          if( FD_LIKELY( fec_sig ) ) {
+            ulong          sig      = fd_ulong_load_8( fec_sig->sig );
+            ulong          tile_idx = sig % ctx->shred_tile_cnt;
+            uint           last_idx = j - i;
 
-          uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-          memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-          fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
-          fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-          ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-          blk->consumed_idx = j;
-          i = j + 1;
+            uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
+            memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
+            fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
+            fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
+            ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
+            blk->consumed_idx = j;
+            i = j + 1;
+          }
         }
       }
     } else {
@@ -1163,6 +1174,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
     } else if( 0==strcmp( link->name, "replay_stake" ) ) {
       ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
+    } else if( 0==strcmp( link->name, "genesi_out" ) ) {
+      ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
     }else {
       FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }

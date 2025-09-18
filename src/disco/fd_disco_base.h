@@ -19,15 +19,25 @@
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
 #define POH_PKT_TYPE_FEAT_ACT_SLOT (2UL)
 
-#define REPLAY_FLAG_FINISHED_BLOCK      (0x01UL)
-#define REPLAY_FLAG_PACKED_MICROBLOCK   (0x02UL)
-#define REPLAY_FLAG_MICROBLOCK          (0x04UL)
-#define REPLAY_FLAG_CATCHING_UP         (0x08UL)
-#define REPLAY_FLAG_INIT                (0x10UL)
+/* Equivocatable slot.
 
-#define EXEC_FLAG_READY_NEW             (0x20UL)
-#define EXEC_FLAG_EXECUTING_SLICE       (0x40UL)
-#define EXEC_FLAG_FINISHED_SLOT         (0x80UL)
+   3 bits, or 8 versions/7 equivocations per slot. */
+#define FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX (3)
+#define FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX    (1UL<<FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX)
+#define FD_ESLOT_SLOT_LSB_MASK             ((1UL<<(64-FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX))-1UL)
+#define FD_ESLOT_PRIME_LSB_MASK            (FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX-1UL)
+
+union fd_eslot {
+  struct {
+    ulong slot:  64-FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX;
+
+    /* Prime counter, starting from 0, ++ for every equivocation on the
+       slot. */
+    ulong prime: FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX;
+  };
+  ulong id;
+};
+typedef union fd_eslot fd_eslot_t;
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -66,41 +76,6 @@ FD_STATIC_ASSERT( FD_SHRED_REPAIR_MTU == 152UL , update FD_SHRED_REPAIR_MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
-
-/* Maximum number of vote account states the Tower tile can process in one slot */
-#define FD_REPLAY_TOWER_VOTE_ACC_MAX (4096UL)
-
-/* Maximum size of the vote account data in a vote account state */
-#define FD_REPLAY_TOWER_ACC_DATA_MAX (4096UL)
-
-#define FD_REPLAY_SIG_SLOT_INFO  (1UL)
-#define FD_REPLAY_SIG_VOTE_STATE (2UL)
-
-/* Represents a single vote in a vote tower */
-struct __attribute__((packed)) fd_replay_out_vote {
-  ulong slot;
-  uint  conf;
-};
-typedef struct fd_replay_out_vote fd_replay_out_vote_t;
-
-/* The minimal information Tower needs about a vote account at the end of a slot */
-struct __attribute__((packed)) fd_replay_tower {
-  fd_pubkey_t key;
-  ulong       stake;
-  uchar       acc[FD_REPLAY_TOWER_ACC_DATA_MAX];
-  ulong       acc_sz;
-};
-typedef struct fd_replay_tower fd_replay_tower_t;
-
-/* Summary information from Replay at the end of a slot */
-struct fd_replay_slot_info {
-  ulong     slot;
-  fd_hash_t block_id;        /* block id (last FEC set's merkle root) of the slot received from replay */
-  fd_hash_t parent_block_id; /* parent block id of the slot received from replay */
-  fd_hash_t bank_hash;       /* bank hash of the slot received from replay */
-  fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
-};
-typedef struct fd_replay_slot_info fd_replay_slot_info_t;
 
 FD_PROTOTYPES_BEGIN
 

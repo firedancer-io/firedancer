@@ -1,16 +1,21 @@
+#include "fd_resolv_tile.h"
+#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../bank/fd_bank_err.h"
-#include "../../disco/tiles.h"
+#include "../replay/fd_replay_tile.h"
 #include "generated/fd_resolv_tile_seccomp.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_bank.h"
+#include "../../util/pod/fd_pod_format.h"
 
 #if FD_HAS_AVX
 #include "../../util/simd/fd_avx.h"
 #endif
 
 #define FD_RESOLV_IN_KIND_FRAGMENT (0)
-#define FD_RESOLV_IN_KIND_BANK     (1)
+#define FD_RESOLV_IN_KIND_REPLAY   (1)
 
 struct blockhash {
   uchar b[ 32 ];
@@ -113,6 +118,13 @@ typedef struct {
 } fd_resolv_in_ctx_t;
 
 typedef struct {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+} fd_resolv_out_ctx_t;
+
+typedef struct {
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
@@ -124,6 +136,19 @@ typedef struct {
   ulong flushing_slot;
   ulong flush_pool_idx;
 
+  /* In the full client, the resolv tile is passed only a rooted bank
+     index from replay whenever the root is advanced.
+
+     This is enough to query the accounts database for that bank and
+     retrieve the address lookup tables.  Because of lifetime concerns
+     around bank ownership, the replay tile is solely responsible for
+     freeing the bank when it is no longer needed.  To facilitate this,
+     the resolv tile sends a message to replay when it is done with a
+     rooted bank (after exchanging it for a new rooted bank). */
+  fd_banks_t * banks;
+  fd_bank_t *  bank;
+  fd_funk_t    funk[1];
+
   fd_stashed_txn_m_t * pool;
   map_chain_t *        map_chain;
   lru_list_t           lru_list[1];
@@ -132,7 +157,8 @@ typedef struct {
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
-  uchar _bank_msg[ sizeof(fd_completed_bank_t) ];
+  fd_replay_root_advanced_t  _rooted_slot_msg;
+  fd_replay_slot_completed_t _completed_slot_msg;
 
   struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
@@ -143,10 +169,8 @@ typedef struct {
 
   fd_resolv_in_ctx_t in[ 64UL ];
 
-  fd_wksp_t * out_mem;
-  ulong       out_chunk0;
-  ulong       out_wmark;
-  ulong       out_chunk;
+  fd_resolv_out_ctx_t out_pack[ 1UL ];
+  fd_resolv_out_ctx_t out_replay[ 1UL ];
 } fd_resolv_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -167,10 +191,10 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
-  FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
-  FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
-  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION, ctx->metrics.stash );
-  FD_MCNT_SET( RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
+  FD_MCNT_SET(       RESOLF, BLOCKHASH_EXPIRED,               ctx->metrics.blockhash_expired );
+  FD_MCNT_ENUM_COPY( RESOLF, LUT_RESOLVED,                    ctx->metrics.lut );
+  FD_MCNT_ENUM_COPY( RESOLF, STASH_OPERATION,                 ctx->metrics.stash );
+  FD_MCNT_SET(       RESOLF, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure );
 }
 
 static int
@@ -180,7 +204,7 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             sig ) {
   (void)sig;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_REPLAY ) ) return 0;
 
   return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
@@ -198,13 +222,20 @@ during_frag( fd_resolv_ctx_t * ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   switch( ctx->in[in_idx].kind ) {
-    case FD_RESOLV_IN_KIND_BANK:
-      fd_memcpy( ctx->_bank_msg, fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk ), sz );
-      break;
     case FD_RESOLV_IN_KIND_FRAGMENT: {
       uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
-      uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+      uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
       fd_memcpy( dst, src, sz );
+      break;
+    }
+    case FD_RESOLV_IN_KIND_REPLAY: {
+      if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
+        ctx->_rooted_slot_msg = *(fd_replay_root_advanced_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+        ctx->_completed_slot_msg = *(fd_replay_slot_completed_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+      } else {
+        FD_LOG_ERR(( "invariant violation: unknown sig %lu", sig ));
+      }
       break;
     }
     default:
@@ -216,7 +247,7 @@ static inline int
 publish_txn( fd_resolv_ctx_t *          ctx,
              fd_stem_context_t *        stem,
              fd_stashed_txn_m_t const * stashed ) {
-  fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
   fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( (fd_txn_m_t *)stashed->_, 1, 0 ) );
 
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
@@ -224,25 +255,32 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    // TODO: We shouldn't really be querying funk here, as we cannot
-    // guarantee the root would not get swapped.  This tile needs to
-    // backpressure the replay root advancement system_root to achieve
-    // this.
+    fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( ctx->bank );
+    FD_TEST( sysvar_cache );
+
+    /* TODO: We really should use a specific transaction for the root
+       slot, not "NULL" which has TOCTOU issues with replay swapping
+       the funk root in the background.  If we took any reference to
+       the root slot number (e.g. ALUT cannot be closed before slot
+       "root" + 512 due to not currently closed), this could end up
+       being wrong. */
+    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
     int result = fd_runtime_load_txn_address_lookup_tables( txnt,
                                                             fd_txn_m_payload( txnm ),
-                                                            NULL, // TODO: Funk ...
-                                                            NULL, // TODO: Funk transaction ...
-                                                            0UL,  // TODO: Funk transaction root slot
-                                                            NULL, // TODO: ... need slot hashes sysvar from bank manager
+                                                            ctx->funk,
+                                                            NULL, /* NULL is the root Funk transaction */
+                                                            fd_bank_slot_get( ctx->bank ),
+                                                            slot_hashes,
                                                             fd_txn_m_alut( txnm) );
+    fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
     ctx->metrics.lut[ result ]++;
     if( FD_UNLIKELY( result ) ) return 0;
   }
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, 0UL, tspub );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, 0UL, tspub );
+  ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, realized_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
 
   return 1;
 }
@@ -303,10 +341,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_REPLAY ) ) {
     switch( sig ) {
-      case 1: {
-        fd_completed_bank_t * frag = (fd_completed_bank_t *)ctx->_bank_msg;
+      case REPLAY_SIG_SLOT_COMPLETED: {
+        fd_replay_slot_completed_t const * msg = &ctx->_completed_slot_msg;
 
         /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
         if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
@@ -314,26 +352,48 @@ after_frag( fd_resolv_ctx_t *   ctx,
           if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
         }
 
-        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, frag->hash, 32UL );
+        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
         ctx->blockhash_ring_idx++;
 
-        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)frag->hash );
-        blockhash->slot = frag->slot;
+        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
+        blockhash->slot = msg->slot;
 
-        blockhash_t * hash = (blockhash_t *)frag->hash;
+        blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
-        ctx->flushing_slot   = frag->slot;
+        ctx->flushing_slot   = msg->slot;
 
-        ctx->completed_slot = frag->slot;
+        ctx->completed_slot = msg->slot;
         break;
       }
+      case REPLAY_SIG_ROOT_ADVANCED: {
+        fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
+
+        /* Replace current bank with new bank */
+        ulong prev_bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->bank );
+        ctx->bank = fd_banks_get_bank_idx( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
+
+        /* Send slot completed message back to replay, so it can decrement
+           the refcount of the previous bank. */
+        if( FD_UNLIKELY( prev_bank_idx!=fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) ) ) ) {
+          ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+          fd_resolv_slot_exchanged_t * slot_exchanged =
+            fd_type_pun( fd_chunk_to_laddr( ctx->out_replay->mem, ctx->out_replay->chunk ) );
+          slot_exchanged->bank_idx = prev_bank_idx;
+          fd_stem_publish( stem, 1UL, 0UL, ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), 0UL, tsorig, tspub );
+          ctx->out_replay->chunk = fd_dcache_compact_next( ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), ctx->out_replay->chunk0, ctx->out_replay->wmark );
+        }
+
+        break;
+      }
+      case REPLAY_SIG_VOTE_STATE: break;
       default:
         FD_LOG_ERR(( "unknown sig %lu", sig ));
     }
     return;
   }
 
-  fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
   FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
   FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
@@ -416,17 +476,21 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    // TODO: We shouldn't really be querying funk here, as we cannot
-    // guarantee the root would not get swapped.  This tile needs to
-    // backpressure the replay root advancement system_root to achieve
-    // this.
+    fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( ctx->bank );
+    FD_TEST( sysvar_cache );
+    fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
+    FD_TEST( slot_hashes );
+
+    /* TODO: As above, should probably try and use a funk transaction
+       referencing the specific root slot. */
     int result = fd_runtime_load_txn_address_lookup_tables( txnt,
                                                             fd_txn_m_payload( txnm ),
-                                                            NULL, // TODO: Funk ...
-                                                            NULL, // TODO: Funk transaction ...
-                                                            0UL,  // TODO: Funk transaction root slot
-                                                            NULL, // TODO: ... need slot hashes sysvar from bank manager
+                                                            ctx->funk,
+                                                            NULL, /* NULL is the root Funk transaction */
+                                                            fd_bank_slot_get( ctx->bank ),
+                                                            slot_hashes,
                                                             fd_txn_m_alut( txnm) );
+    fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
     ctx->metrics.lut[ -fd_bank_lut_err_from_runtime_err( result ) ]++;
     if( FD_UNLIKELY( result ) ) {
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
@@ -436,8 +500,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_pack->chunk, realized_sz, 0UL, tsorig, tspub );
+  ctx->out_pack->chunk = fd_dcache_compact_next( ctx->out_pack->chunk, realized_sz, ctx->out_pack->chunk0, ctx->out_pack->wmark );
 }
 
 static void
@@ -478,8 +542,8 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[i].kind = FD_RESOLV_IN_KIND_BANK;
-    else                                                     ctx->in[i].kind = FD_RESOLV_IN_KIND_FRAGMENT;
+    if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[ i ].kind = FD_RESOLV_IN_KIND_REPLAY;
+    else                                                     ctx->in[ i ].kind = FD_RESOLV_IN_KIND_FRAGMENT;
 
     ctx->in[i].mem    = link_wksp->wksp;
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
@@ -487,10 +551,23 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[i].mtu    = link->mtu;
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
-  ctx->out_chunk  = ctx->out_chunk0;
+  ctx->out_pack->mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_pack->chunk0 = fd_dcache_compact_chunk0( ctx->out_pack->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_pack->wmark  = fd_dcache_compact_wmark ( ctx->out_pack->mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
+  ctx->out_pack->chunk  = ctx->out_pack->chunk0;
+
+  ctx->out_replay->mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_replay->chunk0 = fd_dcache_compact_chunk0( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
+  ctx->out_replay->wmark  = fd_dcache_compact_wmark ( ctx->out_replay->mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
+  ctx->out_replay->chunk  = ctx->out_replay->chunk0;
+
+  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->resolv.funk_obj_id ) ) );
+
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+  FD_TEST( banks_obj_id!=ULONG_MAX );
+  ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
+  FD_TEST( ctx->banks );
+  ctx->bank = NULL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

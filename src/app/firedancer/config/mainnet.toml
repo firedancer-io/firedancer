@@ -8,6 +8,6 @@
     ]
 [funk]
     heap_size_gib = 600
-    max_account_records = 1_000_000_000
+    max_account_records = 1_100_000_000
 [consensus]
     expected_shred_version = 50093

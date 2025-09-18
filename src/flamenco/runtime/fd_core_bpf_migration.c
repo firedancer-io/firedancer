@@ -283,8 +283,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L52-L62 */
   uint custom_err = UINT_MAX;
   fd_pubkey_t target_program_data_address[ 1UL ];
-  uchar * seeds[ 1UL ];
-  seeds[ 0UL ]    = (uchar *)builtin_program_id;
+  uchar const * seeds[ 1UL ];
+  seeds[ 0UL ]    = (uchar const *)builtin_program_id;
   ulong seed_sz   = sizeof(fd_pubkey_t);
   uchar bump_seed = 0;
   err = fd_pubkey_find_program_address( &fd_solana_bpf_loader_upgradeable_program_id, 1UL, seeds, &seed_sz, target_program_data_address, &bump_seed, &custom_err );

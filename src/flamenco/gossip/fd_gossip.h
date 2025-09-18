@@ -81,6 +81,9 @@ struct fd_gossip_metrics {
   ulong crds_tx_push_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong crds_tx_pull_response[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
   ulong crds_tx_pull_response_bytes[ FD_METRICS_ENUM_CRDS_VALUE_CNT ];
+
+  ulong ci_rx_unrecognized_socket_tag_cnt;
+  ulong ci_rx_ipv6_address_cnt;
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;

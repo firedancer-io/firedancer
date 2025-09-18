@@ -273,10 +273,10 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L109-L118 */
   fd_pubkey_t derived_tbl_key[1];
-  uchar *     seeds[2];
-  ulong       seed_szs[2] = { sizeof(fd_pubkey_t), sizeof(ulong) };
-  seeds[0] = (uchar *)authority_key;
-  seeds[1] = (uchar *)&derivation_slot;
+  uchar const * seeds[2];
+  ulong         seed_szs[2] = { sizeof(fd_pubkey_t), sizeof(ulong) };
+  seeds[0] = (uchar const *)authority_key;
+  seeds[1] = (uchar const *)&derivation_slot;
   err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds,
                                   seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_ctx->custom_err );
   if( FD_UNLIKELY( err ) ) {

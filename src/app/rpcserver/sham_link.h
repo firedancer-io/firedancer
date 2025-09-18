@@ -39,10 +39,10 @@ SHAM_LINK_(start)( SHAM_LINK_(t) * self ) {
 }
 
 static void
-SHAM_LINK_(during_frag)( SHAM_LINK_CONTEXT * ctx, ulong sig, ulong ctl, void const * msg, int sz );
+SHAM_LINK_(during_frag)( SHAM_LINK_CONTEXT * ctx, ulong sig, ulong ctl, void const * msg, ulong sz );
 
 static void
-SHAM_LINK_(after_frag)( SHAM_LINK_CONTEXT * ctx );
+SHAM_LINK_(after_frag)( SHAM_LINK_CONTEXT * ctx, ulong sig );
 
 static inline void
 SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx ) {
@@ -74,7 +74,7 @@ SHAM_LINK_(poll)( SHAM_LINK_(t) * self, SHAM_LINK_CONTEXT * ctx ) {
       continue;
     }
 
-    SHAM_LINK_(after_frag)( ctx );
+    SHAM_LINK_(after_frag)( ctx, mline->sig );
 
     self->seq_expect++;
   }

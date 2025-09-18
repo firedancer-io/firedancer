@@ -9,12 +9,12 @@
    Every FEC set has a parent (the immediately preceding FEC set in the
    slot or parent slot) and children (immediately succeeding FEC set(s)
    for the same slot or child slots).  Reasm always delivers a parent
-   before its child.  However, because of forks, not every FEC set has a
-   ancestor->descendant relationship.  Forks are treated as concurrent,
-   and thus reasm only provides a partial ordering such that reasm makes
-   no guarantees about the delivery order of FEC sets across forks, but
-   in general this will be the order in which the reasm is able to chain
-   them to their connected parents.
+   before its child.  This guarantees that every fork will be delivered
+   in-order  Forks are treated as concurrent, and thus reasm
+   only provides a partial ordering such that reasm makes no guarantees
+   about the delivery order of FEC sets across forks, but in general
+   this will be the order in which the reasm is able to chain them to
+   their connected parents.
 
    Forks manifest in reasm as a FEC set with more than one child, and
    mostly occur across slots due to leader skipping (ie. parent and
@@ -217,7 +217,7 @@ fd_reasm_t *
 fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot );
 
 /* fd_reasm_next returns the next successfully reassembled FEC set, NULL
-   if there is no FEC set to return. This pops and returns the head of
+   if there is no FEC set to return.  This pops and returns the head of
    the reasm out queue.  Any FEC sets in the out queue are part of a
    connected ancestry chain to the root therefore a parent is always
    guaranteed to be returned by consume before its child (see top-level

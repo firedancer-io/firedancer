@@ -47,11 +47,12 @@
    the follower state once again, and waits for further instructions
    from replay. */
 
-#define STATE_UNINIT           (0)
-#define STATE_FOLLOWER         (1)
-#define STATE_WAITING_FOR_BANK (2)
-#define STATE_WAITING_FOR_SLOT (3)
-#define STATE_LEADER           (4)
+#define STATE_UNINIT            (0)
+#define STATE_FOLLOWER          (1)
+#define STATE_WAITING_FOR_BANK  (2)
+#define STATE_WAITING_FOR_SLOT  (3)
+#define STATE_LEADER            (4)
+#define STATE_WAITING_FOR_RESET (5)
 
 FD_FN_CONST ulong
 fd_poh_align( void ) {
@@ -77,6 +78,7 @@ fd_poh_new( void * shmem ) {
     return NULL;
   }
 
+  poh->hashcnt_per_tick = ULONG_MAX;
   poh->state = STATE_UNINIT;
 
   FD_COMPILER_MFENCE();
@@ -87,9 +89,9 @@ fd_poh_new( void * shmem ) {
 }
 
 fd_poh_t *
-fd_poh_join( void *             shpoh,
-             fd_poh_out_ctx_t * shred_out,
-             fd_poh_out_ctx_t * replay_out ) {
+fd_poh_join( void *         shpoh,
+             fd_poh_out_t * shred_out,
+             fd_poh_out_t * replay_out ) {
   if( FD_UNLIKELY( !shpoh ) ) {
     FD_LOG_WARNING(( "NULL shpoh" ));
     return NULL;
@@ -113,36 +115,25 @@ fd_poh_join( void *             shpoh,
   return poh;
 }
 
-fd_poh_t *
-fd_poh_init( fd_poh_t * poh,
-             ulong      tick_duration_ns,
-             ulong      ticks_per_slot ) {
-  FD_TEST( poh->state==STATE_UNINIT );
-  poh->state            = STATE_FOLLOWER;
-  poh->hashcnt_per_tick = ULONG_MAX;
-  poh->tick_duration_ns = tick_duration_ns;
-  poh->ticks_per_slot   = ticks_per_slot;
-  return poh;
-}
-
 static void
 transition_to_follower( fd_poh_t *          poh,
                         fd_stem_context_t * stem,
                         int                 completed_leader_slot ) {
-  FD_TEST( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_BANK || poh->state==STATE_WAITING_FOR_SLOT );
-  poh->state = STATE_FOLLOWER;
-  FD_COMPILER_MFENCE();
+  FD_TEST( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_BANK || poh->state==STATE_WAITING_FOR_SLOT || poh->state==STATE_WAITING_FOR_RESET );
+
   if( FD_LIKELY( completed_leader_slot ) ) FD_TEST( poh->state==STATE_LEADER );
 
-  if( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_SLOT ) {
-    fd_poh_leader_slot_ended_t * dst = fd_chunk_to_laddr( poh->shred_out->mem, poh->shred_out->chunk );
+  if( FD_LIKELY( poh->state==STATE_LEADER || poh->state==STATE_WAITING_FOR_SLOT ) ) {
+    fd_poh_leader_slot_ended_t * dst = fd_chunk_to_laddr( poh->replay_out->mem, poh->replay_out->chunk );
     dst->completed = completed_leader_slot;
-    dst->slot      = poh->slot;
+    dst->slot      = poh->slot-1UL;
     fd_memcpy( dst->blockhash, poh->hash, 32UL );
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, poh->replay_out->idx, poh->slot, poh->shred_out->chunk, sizeof(fd_poh_leader_slot_ended_t), 0UL, 0UL, tspub );
-    poh->shred_out->chunk = fd_dcache_compact_next( poh->shred_out->chunk, sizeof(fd_poh_leader_slot_ended_t), poh->shred_out->chunk0, poh->shred_out->wmark );
+    fd_stem_publish( stem, poh->replay_out->idx, 0UL, poh->replay_out->chunk, sizeof(fd_poh_leader_slot_ended_t), 0UL, 0UL, tspub );
+    poh->replay_out->chunk = fd_dcache_compact_next( poh->replay_out->chunk, sizeof(fd_poh_leader_slot_ended_t), poh->replay_out->chunk0, poh->replay_out->wmark );
   }
+
+  poh->state = STATE_FOLLOWER;
 }
 
 static void
@@ -157,14 +148,6 @@ update_hashes_per_tick( fd_poh_t * poh,
     poh->hashcnt_duration_ns = (double)poh->tick_duration_ns/(double)hashcnt_per_tick;
     poh->hashcnt_per_slot = poh->ticks_per_slot*hashcnt_per_tick;
     poh->hashcnt_per_tick = hashcnt_per_tick;
-
-    if( FD_UNLIKELY( poh->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      poh->max_microblocks_per_slot = poh->ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      poh->max_microblocks_per_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, poh->ticks_per_slot*(poh->hashcnt_per_tick-1UL) );
-    }
 
     /* Discard any ticks we might have done in the interim.  They will
        have the wrong number of hashes per tick.  We can just catch back
@@ -193,12 +176,13 @@ update_hashes_per_tick( fd_poh_t * poh,
 void
 fd_poh_reset( fd_poh_t *          poh,
               fd_stem_context_t * stem,
-              ulong               hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
-              ulong               completed_slot,      /* The slot that successfully produced a bloc */
-              uchar const *       completed_blockhash, /* The hash of the last tick in the produced block */
-              ulong               next_leader_slot     /* The next slot where this node will be leader */ ) {
-  FD_TEST( poh->state!=STATE_UNINIT );
-
+              ulong               hashcnt_per_tick,       /* The hashcnt per tick of the bank that completed */
+              ulong               ticks_per_slot,
+              ulong               tick_duration_ns,
+              ulong               completed_slot,         /* The slot that successfully produced a bloc */
+              uchar const *       completed_blockhash,    /* The hash of the last tick in the produced block */
+              ulong               next_leader_slot,       /* The next slot where this node will be leader */
+              ulong               max_microblocks_in_slot /* The maximum number of microblocks that may appear in a slot */ ) {
   memcpy( poh->reset_hash, completed_blockhash, 32UL );
   memcpy( poh->hash, completed_blockhash, 32UL );
   poh->slot             = completed_slot+1UL;
@@ -207,7 +191,16 @@ fd_poh_reset( fd_poh_t *          poh,
   poh->last_hashcnt     = 0UL;
   poh->reset_slot       = poh->slot;
   poh->next_leader_slot = next_leader_slot;
+  poh->max_microblocks_per_slot = max_microblocks_in_slot;
 
+  if( FD_UNLIKELY( poh->state==STATE_UNINIT ) ) {
+    poh->tick_duration_ns = tick_duration_ns;
+    poh->ticks_per_slot   = ticks_per_slot;
+    poh->state = STATE_FOLLOWER;
+  } else {
+    FD_TEST( tick_duration_ns==poh->tick_duration_ns );
+    FD_TEST( ticks_per_slot==poh->ticks_per_slot );
+  }
   update_hashes_per_tick( poh, hashcnt_per_tick );
 
   /* When we reset, we need to allow PoH to tick freely again rather
@@ -217,19 +210,27 @@ fd_poh_reset( fd_poh_t *          poh,
   poh->microblocks_lower_bound = poh->max_microblocks_per_slot;
 
   if( FD_UNLIKELY( poh->state!=STATE_FOLLOWER ) ) transition_to_follower( poh, stem, 0 );
+  if( FD_UNLIKELY( poh->slot==poh->next_leader_slot ) ) poh->state = STATE_WAITING_FOR_BANK;
 }
 
 void
 fd_poh_begin_leader( fd_poh_t * poh,
                      ulong      slot,
-                     ulong      hashcnt_per_tick ) {
+                     ulong      hashcnt_per_tick,
+                     ulong      ticks_per_slot,
+                     ulong      tick_duration_ns,
+                     ulong      max_microblocks_in_slot ) {
   FD_TEST( poh->state==STATE_FOLLOWER || poh->state==STATE_WAITING_FOR_BANK );
   FD_TEST( slot==poh->next_leader_slot );
 
+  poh->max_microblocks_per_slot = max_microblocks_in_slot;
+
+  FD_TEST( tick_duration_ns==poh->tick_duration_ns );
+  FD_TEST( ticks_per_slot==poh->ticks_per_slot );
   update_hashes_per_tick( poh, hashcnt_per_tick );
 
-  if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) poh->state = STATE_LEADER;
-  else                                          poh->state = STATE_WAITING_FOR_SLOT;
+  if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) poh->state = STATE_WAITING_FOR_SLOT;
+  else                                          poh->state = STATE_LEADER;
 
   poh->slot_done               = 0;
   poh->microblocks_lower_bound = 0UL;
@@ -245,6 +246,7 @@ fd_poh_have_leader_bank( fd_poh_t const * poh ) {
 void
 fd_poh_done_packing( fd_poh_t * poh,
                      ulong      microblocks_in_slot ) {
+  FD_TEST( poh->state==STATE_LEADER );
   FD_LOG_INFO(( "done_packing(slot=%lu,seen_microblocks=%lu,microblocks_in_slot=%lu)",
                 poh->slot,
                 poh->microblocks_lower_bound,
@@ -252,7 +254,8 @@ fd_poh_done_packing( fd_poh_t * poh,
   FD_TEST( poh->microblocks_lower_bound==microblocks_in_slot );
   FD_TEST( poh->microblocks_lower_bound<=poh->max_microblocks_per_slot );
   poh->slot_done = 1;
-  poh->microblocks_lower_bound = poh->max_microblocks_per_slot - microblocks_in_slot;
+  poh->microblocks_lower_bound += poh->max_microblocks_per_slot - microblocks_in_slot;
+  FD_TEST( poh->microblocks_lower_bound==poh->max_microblocks_per_slot );
 }
 
 static void
@@ -307,7 +310,7 @@ fd_poh_advance( fd_poh_t *          poh,
                 fd_stem_context_t * stem,
                 int *               opt_poll_in,
                 int *               charge_busy ) {
-  if( FD_UNLIKELY( poh->state==STATE_UNINIT ) ) return;
+  if( FD_UNLIKELY( poh->state==STATE_UNINIT || poh->state==STATE_WAITING_FOR_RESET ) ) return;
   if( FD_UNLIKELY( poh->state==STATE_WAITING_FOR_BANK ) ) {
     /* If we are the leader, but we didn't yet learn what the leader
        bank object is from the replay tile, do not do any hashing. */
@@ -546,6 +549,7 @@ fd_poh_advance( fd_poh_t *          poh,
            the state machine. */
         FD_TEST( !max_remaining_microblocks );
         transition_to_follower( poh, stem, 1 );
+        poh->state = STATE_WAITING_FOR_RESET;
       }
       break;
     }
@@ -600,7 +604,7 @@ publish_microblock( fd_poh_t *          poh,
   ulong payload_sz = 0UL;
   ulong included_txn_cnt = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = (fd_txn_p_t *)(txns + i*sizeof(fd_txn_p_t));
+    fd_txn_p_t const * txn = txns + i;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) continue;
 
     fd_memcpy( dst, txn->payload, txn->payload_sz );
@@ -681,6 +685,7 @@ fd_poh1_mixin( fd_poh_t *          poh,
       /* We ticked while leader and are no longer leader... transition
          the state machine. */
       transition_to_follower( poh, stem, 1 );
+      poh->state = STATE_WAITING_FOR_RESET;
     }
   }
 

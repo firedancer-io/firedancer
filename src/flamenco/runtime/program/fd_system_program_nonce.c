@@ -2,11 +2,9 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
-#include "../fd_executor.h"
 
 static int
 require_acct( fd_exec_instr_ctx_t * ctx,
@@ -27,18 +25,16 @@ require_acct( fd_exec_instr_ctx_t * ctx,
 static int
 require_acct_rent( fd_exec_instr_ctx_t * ctx,
                    ushort                idx,
-                   fd_rent_t const **    out_rent ) {
+                   fd_rent_t *           rent ) {
 
   do {
     int err = require_acct( ctx, idx, &fd_sysvar_rent_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rent ) )
+  if( FD_UNLIKELY( !fd_sysvar_cache_rent_read( ctx->sysvar_cache, rent ) ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-  *out_rent = rent;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -489,9 +485,9 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L450 */
 
-  fd_rent_t const * rent = NULL;
+  fd_rent_t rent[1];
   do {
-    int err = require_acct_rent( ctx, 3UL, &rent );
+    int err = require_acct_rent( ctx, 3UL, rent );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -652,9 +648,9 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L479 */
 
-  fd_rent_t const * rent = NULL;
+  fd_rent_t rent[1];
   do {
-    err = require_acct_rent( ctx, 2UL, &rent );
+    err = require_acct_rent( ctx, 2UL, rent );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 

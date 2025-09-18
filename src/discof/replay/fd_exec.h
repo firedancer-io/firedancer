@@ -23,7 +23,6 @@ generate_stake_weight_msg( ulong                       epoch,
   fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
 
   stake_weight_msg->epoch             = epoch;
-  stake_weight_msg->staked_cnt        = fd_vote_states_cnt( epoch_stakes );
   stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
   stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
   stake_weight_msg->excluded_stake    = 0UL;
@@ -41,14 +40,17 @@ generate_stake_weight_msg( ulong                       epoch,
   ulong idx = 0UL;
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, epoch_stakes ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    if( FD_UNLIKELY( !vote_state->stake ) ) continue;
+
     stake_weights[ idx ].stake = vote_state->stake;
     memcpy( stake_weights[ idx ].id_key.uc, &vote_state->node_account, sizeof(fd_pubkey_t) );
     memcpy( stake_weights[ idx ].vote_key.uc, &vote_state->vote_account, sizeof(fd_pubkey_t) );
     idx++;
   }
-  sort_vote_weights_by_stake_vote_inplace( stake_weights, fd_vote_states_cnt( epoch_stakes ) );
+  stake_weight_msg->staked_cnt = idx;
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, idx );
 
-  return fd_stake_weight_msg_sz( fd_vote_states_cnt( epoch_stakes ) );
+  return fd_stake_weight_msg_sz( idx );
 }
 
 static inline ulong

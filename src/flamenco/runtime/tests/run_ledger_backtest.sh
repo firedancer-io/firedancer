@@ -165,10 +165,7 @@ echo "
     maximum_local_snapshot_age = 0
     maximum_download_retry_abort = 0
 [layout]
-    affinity = \"auto\"
-    bank_tile_count = 1
     shred_tile_count = 4
-    exec_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -212,6 +209,8 @@ fi
 echo "Running backtest for $LEDGER"
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
+
+sudo killall firedancer-dev || true
 
 set -x
 sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null

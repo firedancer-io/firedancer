@@ -872,6 +872,9 @@ metric introduced.
     <counter name="CrdsPurgedExpiredCount" label="The number of purged entries expired from the purged list due to age" />
     <counter name="CrdsPurgedEvictedCount" label="The number of purged entries evicted from the data store to make space for new entries" />
 
+    <counter name="ContactInfoUnrecognizedSocketTags" label="The number of unrecognized socket tags seen in Contact Infos" />
+    <counter name="ContactInfoIpv6" label="The number of IPv6 addresses seen in Contact Infos" />
+
     <counter name="CrdsRxCount" label="Outcome of incoming CRDS messages" enum="GossipCrdsOutcome" />
 
     <counter name="MessageTxCount" label="Number of gossip messages sent" enum="GossipMessage" />

@@ -8,7 +8,7 @@
 #include "../../../../ballet/poh/fd_poh.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/tiles.h"
-#include "../../../../discof/ipecho/genesis_hash.h"
+#include "../../../../discof/genesis/genesis_hash.h"
 
 #include <unistd.h>
 #include <dirent.h>
@@ -95,7 +95,7 @@ init( config_t const * config ) {
   fd_shredder_set_shred_version( shredder, shred_version );
 
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
-  fd_shredder_next_fec_set( shredder, &fec, /* chained */ NULL );
+  fd_shredder_next_fec_set( shredder, &fec, /* chained */ NULL, NULL );
 
   /* Fork off a new process for inserting the shreds to the blockstore.
      RocksDB creates a dozen background workers, and doesn't close them

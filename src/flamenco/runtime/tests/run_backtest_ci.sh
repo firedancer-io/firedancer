@@ -11,7 +11,8 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-321168308-v2.3.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-327324660-v2.3.0 -y 4 -m 2000000 -e 327324660 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-370199634-v2.3.0 -y 3 -m 200000 -e 370199634 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-378683870-v2.3.0 -y 3 -m 2000000 -e 378683872 -c 2.3.0
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-330219081-v2.3.0 -y 4 -m 2000000 -e 330219082 -c 2.3.0
+# TODO: Disabled, seems corrupt.  Vote account cache has an account missing from the snapshot.
+# src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-330219081-v2.3.0 -y 4 -m 2000000 -e 330219082 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907-v2.3.0 -y 3 -m 2000000 -e 372721910 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646-v2.3.0 -y 4 -m 2000000 -e 331691647 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v2.3.0 -y 5 -m 2000000 -e 336218683 -c 2.3.0

@@ -27,10 +27,6 @@
 #define SHAM_LINK_NAME    repair_sham_link
 #include "sham_link.h"
 
-#define SHAM_LINK_CONTEXT fd_rpc_ctx_t
-#define SHAM_LINK_NAME    tower_sham_link
-#include "sham_link.h"
-
 static void
 init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   memset( args, 0, sizeof(fd_rpcserver_args_t) );
@@ -162,7 +158,6 @@ int main( int argc, char ** argv ) {
   replay_sham_link_t * rep_notify = NULL;
   stake_sham_link_t * stake_notify = NULL;
   repair_sham_link_t * repair_notify = NULL;
-  tower_sham_link_t * tower_notify = NULL;
 
   ulong offline = fd_env_strip_cmdline_ulong( &argc, &argv, "--offline", NULL, 0 );
   if( !offline ) {
@@ -171,14 +166,11 @@ int main( int argc, char ** argv ) {
     const char * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-notify", NULL, "fd1_replay_notif.wksp" );
     rep_notify = replay_sham_link_new( aligned_alloc( replay_sham_link_align(), replay_sham_link_footprint() ), wksp_name );
 
-    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-stake-out", NULL, "fd1_stake_out.wksp" );
+    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-stake", NULL, "fd1_replay_stake.wksp" );
     stake_notify = stake_sham_link_new( aligned_alloc( stake_sham_link_align(), stake_sham_link_footprint() ), wksp_name );
 
     wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-repair-repla", NULL, "fd1_repair_repla.wksp" );
     repair_notify = repair_sham_link_new( aligned_alloc( repair_sham_link_align(), repair_sham_link_footprint() ), wksp_name );
-
-    wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-tower", NULL, "fd1_replay_tower.wksp" );
-    tower_notify = tower_sham_link_new( aligned_alloc( tower_sham_link_align(), tower_sham_link_footprint() ), wksp_name );
 
   } else {
     init_args_offline( &argc, &argv, &args );
@@ -214,13 +206,11 @@ int main( int argc, char ** argv ) {
   replay_sham_link_start( rep_notify );
   stake_sham_link_start( stake_notify );
   repair_sham_link_start( repair_notify );
-  tower_sham_link_start( tower_notify );
 
   while( !stopflag ) {
     replay_sham_link_poll( rep_notify, ctx );
     stake_sham_link_poll( stake_notify, ctx );
     repair_sham_link_poll( repair_notify, ctx );
-    tower_sham_link_poll( tower_notify, ctx );
 
     fd_rpc_ws_poll( ctx );
   }
@@ -230,47 +220,39 @@ int main( int argc, char ** argv ) {
 }
 
 static void
-replay_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+replay_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, ulong sz) {
   (void)sig;
   (void)ctl;
-  fd_rpc_replay_during_frag( ctx, msg, sz );
+  fd_rpc_replay_during_frag( ctx, msg, sig, sz, ctl );
 }
 
 static void
-replay_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
-  fd_rpc_replay_after_frag( ctx );
+replay_sham_link_after_frag(fd_rpc_ctx_t * ctx, ulong sig) {
+  fd_rpc_replay_after_frag( ctx, sig );
 }
 
 static void
-stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+stake_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, ulong sz) {
   (void)sig;
   (void)ctl;
   fd_rpc_stake_during_frag( ctx, msg, sz );
 }
 
 static void
-stake_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
+stake_sham_link_after_frag(fd_rpc_ctx_t * ctx, ulong sig) {
+  (void)sig;
   fd_rpc_stake_after_frag( ctx );
 }
 
 static void
-repair_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
+repair_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, ulong sz) {
   (void)sig;
   (void)ctl;
   fd_rpc_repair_during_frag( ctx, msg, sz );
 }
 
 static void
-repair_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
+repair_sham_link_after_frag(fd_rpc_ctx_t * ctx, ulong sig) {
+  (void)sig;
   fd_rpc_repair_after_frag( ctx );
-}
-
-static void
-tower_sham_link_during_frag(fd_rpc_ctx_t * ctx, ulong sig, ulong ctl, void const * msg, int sz) {
-  fd_rpc_tower_during_frag( ctx, sig, ctl, msg, sz );
-}
-
-static void
-tower_sham_link_after_frag(fd_rpc_ctx_t * ctx) {
-  fd_rpc_tower_after_frag( ctx );
 }
