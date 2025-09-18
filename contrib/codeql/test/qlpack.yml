@@ -1,0 +1,8 @@
+name: asymmetric-research/fd-nightly-queries-tests
+version: 0.0.0
+dependencies:
+  asymmetric-research/fd-nightly-queries: "*"
+  codeql/cpp-all: "*"
+extractor: cpp
+warnOnImplicitThis: true
+tests: .
