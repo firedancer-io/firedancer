@@ -552,10 +552,8 @@ during_frag( fd_shred_ctx_t * ctx,
         /* chained_merkle_root also applies to resigned FEC sets. */
         load_for_32_shreds = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
       }
-      /* TODO remove once unchained fec sets have been deprecated. */
       if( FD_LIKELY( IS_FIREDANCER ) ) {
         pending_batch_wmark = FD_SHRED_BATCH_WMARK_NORMAL;
-        chained_merkle_root = NULL;
         load_for_32_shreds  = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
       }
 
