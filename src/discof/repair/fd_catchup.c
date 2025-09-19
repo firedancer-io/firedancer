@@ -40,6 +40,12 @@ fd_catchup_add_slot( fd_catchup_t * catchup,
   catchup->metrics[ next_en ].repair_cnt       = repair_cnt;
   catchup->metrics[ next_en ].turbine_cnt      = turbine_cnt;
   catchup->en = next_en;
+
+# if DEBUG_LOGGING
+  if( FD_UNLIKELY( slot == catchup->turbine_slot0 ) ) {
+    fd_catchup_print( catchup );
+  }
+# endif
 }
 
 #define MAX_WIDTH 120

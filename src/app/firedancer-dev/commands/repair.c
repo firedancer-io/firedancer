@@ -143,10 +143,10 @@ repair_topo( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "ping_sign",    "repair_sign",  128UL,                                    2048UL,                        1UL );
+  /**/                 fd_topob_link( topo, "ping_sign",    "repair_sign",  128UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   /**/                 fd_topob_link( topo, "sign_ping",    "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    2048UL,                        1UL );
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  1024UL,                                   sizeof(fd_ed25519_sig_t),      1UL );
+  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
+  FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),    1UL );
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
@@ -686,6 +686,7 @@ repair_cmd_fn_profiler_mode( args_t *   args,
       char buf2[ 64 ];
       ulong rcvd = shred_metrics [ MIDX( COUNTER, SHRED,  SHRED_REPAIR_RCV ) ];
       ulong sent = repair_metrics[ MIDX( COUNTER, REPAIR, SHRED_REPAIR_REQ ) ];
+      ulong sign_tile_unavail = repair_metrics[ MIDX( COUNTER, REPAIR, SIGN_TILE_UNAVAIL ) ];
       printf(" Requests received: (%lu/%lu) %.1f%% \n", rcvd, sent, (double)rcvd / (double)sent * 100.0 );
       printf( " +---------------+--------------+\n" );
       printf( " | Request Type  | Count        |\n" );
@@ -702,6 +703,8 @@ repair_cmd_fn_profiler_mode( args_t *   args,
                                FD_METRICS_HISTOGRAM_REPAIR_RESPONSE_LATENCY_MAX,
                                "Response Latency" );
 
+      printf(" Sign tile unavailable: %lu\n", sign_tile_unavail);
+      printf(" Repair Peers: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_PEERS ) ] );
       printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ], turbine_slot0, turbine_slot0 - repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] );
       /* Print histogram buckets similar to Prometheus format */
       print_histogram_buckets( repair_metrics,
@@ -711,7 +714,6 @@ repair_cmd_fn_profiler_mode( args_t *   args,
                                FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_TIME_MAX,
                                "Slot Complete Time" );
 
-      printf( " Repair Peers: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_PEERS ) ] );
 
       printf("\n");
       fflush( stdout );

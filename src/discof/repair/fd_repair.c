@@ -75,17 +75,17 @@ fd_repair_delete( void * repair ) {
 }
 
 fd_repair_msg_t *
-fd_repair_pong( fd_repair_t * repair, fd_hash_t * ping_token, fd_repair_msg_t * out_msg ) {
+fd_repair_pong( fd_repair_t * repair, fd_hash_t * ping_token ) {
   uchar pre_image[FD_REPAIR_PONG_PREIMAGE_SZ];
   memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
   memcpy( pre_image+16UL, ping_token->uc, 32UL);
 
   /* Generate response hash token */
-  fd_sha256_hash( pre_image, FD_REPAIR_PONG_PREIMAGE_SZ, &out_msg->pong.hash );
+  fd_sha256_hash( pre_image, FD_REPAIR_PONG_PREIMAGE_SZ, &repair->msg.pong.hash );
 
-  out_msg->kind      = FD_REPAIR_KIND_PONG;
-  out_msg->pong.from = repair->identity_key;
-  return out_msg;
+  repair->msg.kind      = FD_REPAIR_KIND_PONG;
+  repair->msg.pong.from = repair->identity_key;
+  return &repair->msg;
 }
 
 fd_repair_msg_t *
@@ -94,17 +94,16 @@ fd_repair_shred( fd_repair_t *     repair,
                  ulong             ts,
                  uint              nonce,
                  ulong             slot,
-                 ulong             shred_idx,
-                 fd_repair_msg_t * out_msg ) {
-  memset(out_msg, 0, sizeof(fd_repair_msg_t));
-  out_msg->kind            = FD_REPAIR_KIND_SHRED;
-  out_msg->shred.from      = repair->identity_key;
-  out_msg->shred.to        = *to;
-  out_msg->shred.ts        = ts;
-  out_msg->shred.nonce     = nonce;
-  out_msg->shred.slot      = slot;
-  out_msg->shred.shred_idx = shred_idx;
-  return out_msg;
+                 ulong             shred_idx ) {
+  memset(&repair->msg, 0, sizeof(fd_repair_msg_t));
+  repair->msg.kind            = FD_REPAIR_KIND_SHRED;
+  repair->msg.shred.from      = repair->identity_key;
+  repair->msg.shred.to        = *to;
+  repair->msg.shred.ts        = ts;
+  repair->msg.shred.nonce     = nonce;
+  repair->msg.shred.slot      = slot;
+  repair->msg.shred.shred_idx = shred_idx;
+  return &repair->msg;
 }
 
 fd_repair_msg_t *
@@ -113,17 +112,16 @@ fd_repair_highest_shred( fd_repair_t *     repair,
                          ulong             ts,
                          uint              nonce,
                          ulong             slot,
-                         ulong             shred_idx,
-                         fd_repair_msg_t * out_msg ) {
-  memset(out_msg, 0, sizeof(fd_repair_msg_t));
-  out_msg->kind                    = FD_REPAIR_KIND_HIGHEST_SHRED;
-  out_msg->highest_shred.from      = repair->identity_key;
-  out_msg->highest_shred.to        = *to;
-  out_msg->highest_shred.ts        = ts;
-  out_msg->highest_shred.nonce     = nonce;
-  out_msg->highest_shred.slot      = slot;
-  out_msg->highest_shred.shred_idx = shred_idx;
-  return out_msg;
+                         ulong             shred_idx ) {
+  memset(&repair->msg, 0, sizeof(fd_repair_msg_t));
+  repair->msg.kind                    = FD_REPAIR_KIND_HIGHEST_SHRED;
+  repair->msg.highest_shred.from      = repair->identity_key;
+  repair->msg.highest_shred.to        = *to;
+  repair->msg.highest_shred.ts        = ts;
+  repair->msg.highest_shred.nonce     = nonce;
+  repair->msg.highest_shred.slot      = slot;
+  repair->msg.highest_shred.shred_idx = shred_idx;
+  return &repair->msg;
 }
 
 fd_repair_msg_t *
@@ -131,14 +129,13 @@ fd_repair_orphan( fd_repair_t *     repair,
                   fd_pubkey_t const * to,
                   ulong             ts,
                   uint              nonce,
-                  ulong             slot,
-                  fd_repair_msg_t * out_msg ) {
-  memset(out_msg, 0, sizeof(fd_repair_msg_t));
-  out_msg->kind         = FD_REPAIR_KIND_ORPHAN;
-  out_msg->orphan.from  = repair->identity_key;
-  out_msg->orphan.to    = *to;
-  out_msg->orphan.ts    = ts;
-  out_msg->orphan.nonce = nonce;
-  out_msg->orphan.slot  = slot;
-  return out_msg;
+                  ulong             slot ) {
+  memset(&repair->msg, 0, sizeof(fd_repair_msg_t));
+  repair->msg.kind         = FD_REPAIR_KIND_ORPHAN;
+  repair->msg.orphan.from  = repair->identity_key;
+  repair->msg.orphan.to    = *to;
+  repair->msg.orphan.ts    = ts;
+  repair->msg.orphan.nonce = nonce;
+  repair->msg.orphan.slot  = slot;
+  return &repair->msg;
 }

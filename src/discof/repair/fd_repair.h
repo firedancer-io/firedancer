@@ -65,7 +65,6 @@
     fd_types. */
 
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 /* FD_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
@@ -83,13 +82,6 @@
 #define FD_REPAIR_KIND_SHRED         (8U)
 #define FD_REPAIR_KIND_HIGHEST_SHRED (9U)
 #define FD_REPAIR_KIND_ORPHAN        (10U)
-
-/* FD_REPAIR_PONG_PREIMAGE_PREFIX is used by Repair's Ping-Pong protocol.
-   Both a Ping and Pong contain a hash token, that is generated from a
-   preimage prefixed with the below.  */
-
-#define FD_REPAIR_PONG_PREIMAGE_PREFIX "SOLANA_PING_PONG"
-#define FD_REPAIR_PONG_PREIMAGE_SZ (48UL)
 
 /* fd_repair_pong describes the schema of a Pong. */
 
@@ -161,6 +153,19 @@ struct __attribute__((packed)) fd_repair_ping {
 };
 typedef struct fd_repair_ping fd_repair_ping_t;
 
+/* FD_REPAIR_PONG_PREIMAGE_PREFIX is used by Repair's Ping-Pong protocol.
+   Both a Ping and Pong contain a hash token, that is generated from a
+   preimage prefixed with the below.  */
+
+#define FD_REPAIR_PONG_PREIMAGE_PREFIX "SOLANA_PING_PONG"
+#define FD_REPAIR_PONG_PREIMAGE_SZ (48UL)
+
+/* FD_REPAIR_MAX_PREIMAGE_SZ is the maximum size of a preimage for a
+   repair request. This is the size of the largest repair request
+   (highest_shred or shred) without the signature. */
+
+#define FD_REPAIR_MAX_PREIMAGE_SZ (sizeof(fd_repair_msg_t) - sizeof(fd_ed25519_sig_t))
+
 static const fd_pubkey_t null_pubkey = {{ 0 }};
 
 /* fd_repair_sign_fn defines the function signature for a user-provided
@@ -172,7 +177,7 @@ struct fd_repair {
   fd_pubkey_t         identity_key; /* validator identity key */
   fd_repair_sign_fn * sign_fn;      /* user-provided signing callback */
   void *              sign_ctx;     /* user-provided context for signing callback */
-  //fd_repair_msg_t     msg;          /* buffer for outgoing repair requests */
+  fd_repair_msg_t     msg;          /* buffer for outgoing repair requests */
 };
 typedef struct fd_repair fd_repair_t;
 
@@ -234,10 +239,10 @@ fd_repair_delete( void * repair );
    success, NULL on failure. */
 
 
-fd_repair_msg_t * fd_repair_pong         ( fd_repair_t * repair, fd_hash_t * ping_token, fd_repair_msg_t * out_msg );
-fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx, fd_repair_msg_t * out_msg );
-fd_repair_msg_t * fd_repair_highest_shred( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx, fd_repair_msg_t * out_msg );
-fd_repair_msg_t * fd_repair_orphan       ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, fd_repair_msg_t * out_msg );
+fd_repair_msg_t * fd_repair_pong         ( fd_repair_t * repair, fd_hash_t * ping_token );
+fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );
+fd_repair_msg_t * fd_repair_highest_shred( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );
+fd_repair_msg_t * fd_repair_orphan       ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot );
 
 /* fd_repair_sz returns the bincode-serialized sz of msg. */
 
@@ -255,6 +260,7 @@ fd_repair_sz( fd_repair_msg_t const * msg ) {
 /* preimage_pong takes a pong and takes the token in a ping and a
    FD_REPAIR_PONG_PREIMAGE_SZ-byte buffer and returns a pointer to a
    preimage that can be signed. */
+
 static inline uchar *
 preimage_pong( fd_hash_t const * ping_token, uchar * preimage_buf, ulong preimage_sz ) {
 # if FD_REPAIR_USE_HANDHOLDING
