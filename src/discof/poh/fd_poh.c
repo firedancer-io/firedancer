@@ -225,7 +225,11 @@ fd_poh_begin_leader( fd_poh_t * poh,
   FD_TEST( poh->state==STATE_FOLLOWER || poh->state==STATE_WAITING_FOR_BANK );
   FD_TEST( slot==poh->next_leader_slot );
 
-  poh->max_microblocks_per_slot = max_microblocks_in_slot;
+  /* PoH ends the slot once it "ticks" through all of the hashes, but we
+     only want that to happen if we have received a done packing message
+     from pack, so we always reserve an empty microblock at the end so
+     the tick advance will not end the slot without being told. */
+  poh->max_microblocks_per_slot = max_microblocks_in_slot+1UL;
 
   FD_TEST( tick_duration_ns==poh->tick_duration_ns );
   FD_TEST( ticks_per_slot==poh->ticks_per_slot );
@@ -234,7 +238,6 @@ fd_poh_begin_leader( fd_poh_t * poh,
   if( FD_LIKELY( poh->state==STATE_FOLLOWER ) ) poh->state = STATE_WAITING_FOR_SLOT;
   else                                          poh->state = STATE_LEADER;
 
-  poh->slot_done               = 0;
   poh->microblocks_lower_bound = 0UL;
 
   FD_LOG_INFO(( "begin_leader(slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, poh->last_slot, poh->last_hashcnt ));
@@ -255,7 +258,6 @@ fd_poh_done_packing( fd_poh_t * poh,
                 microblocks_in_slot ));
   FD_TEST( poh->microblocks_lower_bound==microblocks_in_slot );
   FD_TEST( poh->microblocks_lower_bound<=poh->max_microblocks_per_slot );
-  poh->slot_done = 1;
   poh->microblocks_lower_bound += poh->max_microblocks_per_slot - microblocks_in_slot;
   FD_TEST( poh->microblocks_lower_bound==poh->max_microblocks_per_slot );
 }
@@ -345,10 +347,6 @@ fd_poh_advance( fd_poh_t *          poh,
      that we can mixin any potential microblocks still coming from the
      pack tile for this slot. */
   ulong max_remaining_microblocks = poh->max_microblocks_per_slot - poh->microblocks_lower_bound;
-
-  /* We don't want to tick over (finish) the slot until pack tell us
-     it's done.  If we're waiting on pack, them we clamp to [0, 1]. */
-  if( FD_LIKELY( !poh->slot_done && poh->state==STATE_LEADER ) ) max_remaining_microblocks = fd_ulong_max( fd_ulong_min( 1UL, max_remaining_microblocks ), max_remaining_microblocks );
 
   /* With hashcnt_per_tick hashes per tick, we actually get
      hashcnt_per_tick-1 chances to mixin a microblock.  For each tick
@@ -553,6 +551,7 @@ fd_poh_advance( fd_poh_t *          poh,
         /* We ticked while leader and are no longer leader... transition
            the state machine. */
         FD_TEST( !max_remaining_microblocks );
+        FD_LOG_INFO(( "fd_poh_ticked_outof_leader(slot=%lu)", poh->slot-1UL ));
         transition_to_follower( poh, stem, 1 );
         poh->state = STATE_WAITING_FOR_RESET;
       }
