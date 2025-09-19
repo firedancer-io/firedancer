@@ -455,6 +455,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
         FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
       }
       capture_ctx->capture   = runner->solcap;
+      capture_ctx->solcap_start_slot = fd_bank_slot_get( slot_ctx->bank );
       slot_ctx->capture_ctx = capture_ctx;
       fd_solcap_writer_set_slot( slot_ctx->capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
     }
