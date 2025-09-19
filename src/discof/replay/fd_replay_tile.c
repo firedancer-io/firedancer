@@ -185,7 +185,7 @@ struct fd_replay_tile {
      single ulong rather than a 32-byte hash, the header for a bank will
      fit in a cache line.  An eslot also has the benefit of being known
      and unique upfront at the beginning of a leader slot. */
-  fd_eslot_mgr_t * eslot_mgr;
+  fd_eqvoc_index_t * eqvoc_index;
 
   /* A note on publishing ...
 
@@ -389,7 +389,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_eqvoc_index_align(),      fd_eqvoc_index_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN,        FD_CAPTURE_CTX_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(),             fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
@@ -677,14 +677,14 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
                         int                 is_initial ) {
   ulong slot = fd_bank_slot_get( bank );
 
-  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_eslot_get( bank ) );
+  fd_eqvoc_index_ele_t * ele = fd_eqvoc_index_query_eslot( ctx->eqvoc_index, fd_bank_eslot_get( bank ) );
   if( FD_UNLIKELY( !ele ) ) {
     FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_eslot_get( bank ) ), fd_eslot_prime( fd_bank_eslot_get( bank ) ) ));
   }
 
   fd_hash_t parent_block_id = {0};
   if( FD_LIKELY( !is_initial ) ) {
-    fd_eslot_ele_t * parent_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_parent_eslot_get( bank ) );
+    fd_eqvoc_index_ele_t * parent_ele = fd_eqvoc_index_query_eslot( ctx->eqvoc_index, fd_bank_parent_eslot_get( bank ) );
     if( FD_UNLIKELY( !parent_ele ) ) {
       FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_parent_eslot_get( bank ) ), fd_eslot_prime( fd_bank_parent_eslot_get( bank ) ) ));
     }
@@ -731,11 +731,11 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* We know at this point that we must have an entry in the eslot mgr
      for both the current bank's eslot and the parent eslot as well. */
-  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, eslot );
+  fd_eqvoc_index_ele_t * ele = fd_eqvoc_index_query_eslot( ctx->eqvoc_index, eslot );
   if( FD_UNLIKELY( !ele ) ) {
     FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
   }
-  fd_eslot_ele_t * parent_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_parent_eslot_get( bank ) );
+  fd_eqvoc_index_ele_t * parent_ele = fd_eqvoc_index_query_eslot( ctx->eqvoc_index, fd_bank_parent_eslot_get( bank ) );
   if( FD_UNLIKELY( !parent_ele ) ) {
     FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_parent_eslot_get( bank ) ), fd_eslot_prime( fd_bank_parent_eslot_get( bank ) ) ));
   }
@@ -852,14 +852,14 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
      possible.  */
   fd_eslot_t curr_eslot = fd_eslot( slot, 0UL );
 
-  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_merkle_root( ctx->eslot_mgr, parent_block_id );
+  fd_eqvoc_index_ele_t * ele = fd_eqvoc_index_query_merkle_root( ctx->eqvoc_index, parent_block_id );
   if( FD_UNLIKELY( !ele ) ) {
     FD_LOG_CRIT(( "invariant violation: eslot entry not found for merkle root %s", FD_BASE58_ENC_32_ALLOCA( parent_block_id->uc ) ));
   }
   fd_eslot_t parent_eslot = ele->eslot;
   ulong      parent_slot  = fd_eslot_slot( parent_eslot );
 
-  fd_eslot_mgr_ele_insert_leader( ctx->eslot_mgr, slot, parent_eslot );
+  fd_eqvoc_index_insert_leader( ctx->eqvoc_index, slot, parent_eslot );
 
   fd_bank_t * bank = fd_banks_clone_from_parent( ctx->banks, curr_eslot, parent_eslot );
   if( FD_UNLIKELY( !bank ) ) {
@@ -968,7 +968,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   /* Copy the vote tower of all the vote accounts into the buffer,
       which will be published in after_credit. */
-  buffer_vote_towers( ctx, ctx->slot_ctx->funk_txn, ctx->slot_ctx->bank );
+  buffer_vote_towers( ctx, funk_txn, bank );
 }
 
 static void
@@ -1232,7 +1232,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_store_exrel( ctx->store );
 
   /* Initialize eslot map. */
-  fd_eslot_mgr_ele_insert_initial( ctx->eslot_mgr, 0UL );
+  fd_eqvoc_index_insert_initial( ctx->eqvoc_index, 0UL );
 
   ctx->consensus_root_slot = 0UL;
   ctx->published_root_slot = 0UL;
@@ -1288,7 +1288,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
     publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
 
-    fd_eslot_mgr_ele_insert_initial( ctx->eslot_mgr, snapshot_slot );
+    fd_eqvoc_index_insert_initial( ctx->eqvoc_index, snapshot_slot );
     ctx->consensus_root_slot = snapshot_slot;
     ctx->published_root_slot = snapshot_slot;
     fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = snapshot_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL }, NULL );
@@ -1516,7 +1516,7 @@ funk_publish( fd_replay_tile_t * ctx,
 
 static void
 advance_published_root( fd_replay_tile_t * ctx ) {
-  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_merkle_root( ctx->eslot_mgr, &ctx->consensus_root );
+  fd_eqvoc_index_ele_t * ele = fd_eqvoc_index_query_merkle_root( ctx->eqvoc_index, &ctx->consensus_root );
   if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "invariant violation: eslot not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
   fd_sched_root_notify( ctx->sched, &ele->eslot );
 
@@ -1537,7 +1537,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, publishable_root );
   FD_TEST( bank );
 
-  fd_eslot_ele_t * publishable_root_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, publishable_root );
+  fd_eqvoc_index_ele_t * publishable_root_ele = fd_eqvoc_index_query_eslot( ctx->eqvoc_index, publishable_root );
 
   long exacq_start, exacq_end, exrel_end;
   FD_STORE_EXCLUSIVE_LOCK( ctx->store, exacq_start, exacq_end, exrel_end ) {
@@ -1553,7 +1553,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_sched_root_publish( ctx->sched, &ele->eslot );
 
-  fd_eslot_mgr_publish( ctx->eslot_mgr, ctx->published_root_slot, publishable_root_slot );
+  fd_eqvoc_index_publish( ctx->eqvoc_index, ctx->published_root_slot, publishable_root_slot );
 
   fd_banks_publish( ctx->banks, publishable_root );
 
@@ -1571,7 +1571,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
 
-  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_merkle_root( ctx->eslot_mgr, &msg->reset_block_id );
+  fd_eqvoc_index_ele_t * ele = fd_eqvoc_index_query_merkle_root( ctx->eqvoc_index, &msg->reset_block_id );
 
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, ele->eslot );
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with slot %lu", (ulong)ele->eslot.slot ));
@@ -1638,22 +1638,21 @@ process_fec_set( fd_replay_tile_t *  ctx,
      on our leader block.  We are also now free to remove a refcnt from
      the bank. */
 
-  if( fd_eslot_mgr_is_leader( ctx->eslot_mgr, reasm_fec->slot ) ) {
+  if( fd_eqvoc_index_is_leader( ctx->eqvoc_index, reasm_fec->slot ) ) {
     if( !!reasm_fec->slot_complete ) {
       /* The block id for the slot is the merkle root for the last FEC
          set.  We need to update the fd_eslot_mgr_t entry and the
          corresponding fd_bank_t with the new merkle root. */
-      fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_eslot( reasm_fec->slot, 0UL ) );
+      fd_eqvoc_index_ele_t * ele = fd_eqvoc_index_query_eslot( ctx->eqvoc_index, fd_eslot( reasm_fec->slot, 0UL ) );
       if( FD_UNLIKELY( !ele ) ) {
         FD_LOG_CRIT(( "eslot_mgr entry for leader slot %lu not found", reasm_fec->slot ));
       }
-      fd_eslot_mgr_rekey_merkle_root( ctx->eslot_mgr, ele, &reasm_fec->key );
+      fd_eqvoc_index_set_leader_block_id( ctx->eqvoc_index, ele, &reasm_fec->key );
 
       fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( reasm_fec->slot, 0UL ) );
       if( FD_UNLIKELY( !bank ) ) {
         FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
       }
-      FD_LOG_WARNING(("FINI LEADER BANK %lu", reasm_fec->slot));
       fini_leader_bank( ctx, bank, stem );
       bank->refcnt--;
     }
@@ -1697,13 +1696,13 @@ process_fec_set( fd_replay_tile_t *  ctx,
   /* Update the eslot_mgr with the incoming FEC.  This will detect any
      equivocation that may have occurred and return the corresponding
      eslot that the scheduler should use. */
-  int              is_equiv = 0;
-  fd_eslot_ele_t * ele      = fd_eslot_mgr_ele_insert_fec( ctx->eslot_mgr,
-                                                           reasm_fec->slot,
-                                                           &reasm_fec->key,
-                                                           &reasm_fec->cmr,
-                                                           reasm_fec->fec_set_idx,
-                                                           &is_equiv );
+  int                    is_equiv = 0;
+  fd_eqvoc_index_ele_t * ele      = fd_eqvoc_index_insert_fec( ctx->eqvoc_index,
+                                                               reasm_fec->slot,
+                                                               &reasm_fec->key,
+                                                               &reasm_fec->cmr,
+                                                               reasm_fec->fec_set_idx,
+                                                               &is_equiv );
   if( FD_UNLIKELY( is_equiv ) ) {
     /* FIXME: There are two places where equivocation is still not
        supported.
@@ -1846,7 +1845,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   void * sched_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
-  void * eslot_mgr_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
+  void * eqvoc_index_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_eqvoc_index_align(),      fd_eqvoc_index_footprint( FD_BLOCK_MAX ) );
   void * slot_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
   void * _capture_ctx     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN,        FD_CAPTURE_CTX_FOOTPRINT );
   void * spad_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),             fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
@@ -1923,8 +1922,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem ) );
   FD_TEST( ctx->sched );
 
-  ctx->eslot_mgr = fd_eslot_mgr_join( fd_eslot_mgr_new( eslot_mgr_mem, FD_BLOCK_MAX, 999UL ) );
-  FD_TEST( ctx->eslot_mgr );
+  ctx->eqvoc_index = fd_eqvoc_index_init( eqvoc_index_mem, FD_BLOCK_MAX, 999UL );
+  FD_TEST( ctx->eqvoc_index );
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->published_root_slot = ULONG_MAX;
