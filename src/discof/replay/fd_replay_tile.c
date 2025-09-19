@@ -356,6 +356,15 @@ struct fd_replay_tile {
   double    slot_duration_nanos;
   ulong     max_active_descendant;
 
+  /* In order to finish being leader, we need to wait for two things:
+     the block id and the PoH hash.  We receive the block id from leader
+     block FEC sets which are sent from repair.  We receive the PoH hash
+     from PoH.  We need to wait for both of these before we can finalize
+     the leader bank and release a reference to it and send a message to
+     the tower tile. */
+  int leader_poh_received;
+  int leader_block_id_received;
+
   ulong  resolv_tile_cnt;
 
   int in_kind[ 64 ];
@@ -967,8 +976,11 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   publish_slot_completed( ctx, stem, bank, 0 );
 
   /* Copy the vote tower of all the vote accounts into the buffer,
-      which will be published in after_credit. */
-  buffer_vote_towers( ctx, ctx->slot_ctx->funk_txn, ctx->slot_ctx->bank );
+     which will be published in after_credit. */
+  buffer_vote_towers( ctx, funk_txn, bank );
+
+  /* We can finally release the bank reference count. */
+  bank->refcnt--;
 }
 
 static void
@@ -1090,8 +1102,10 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     }
   }
 
-  ctx->is_leader = 1;
-  ctx->highwater_leader_slot = fd_ulong_max( ctx->next_leader_slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
+  ctx->is_leader                = 1;
+  ctx->highwater_leader_slot    = fd_ulong_max( ctx->next_leader_slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
+  ctx->leader_block_id_received = 0;
+  ctx->leader_poh_received      = 0;
 
   FD_LOG_NOTICE(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
@@ -1143,26 +1157,53 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   return 1;
 }
 
-static void
-unbecome_leader( fd_replay_tile_t *                 ctx,
-                 fd_poh_leader_slot_ended_t const * slot_ended ) {
+static int
+maybe_unbecome_leader( fd_replay_tile_t *  ctx,
+                       fd_stem_context_t * stem ) {
 
-  FD_TEST( ctx->is_booted );
+  if( FD_LIKELY( !ctx->leader_block_id_received || !ctx->leader_poh_received ) ) {
+    /* At this point we are either not leader or we have not received
+       the sufficient frags to finalize our leader block. */
+    return 0;
+  }
+
   FD_TEST( ctx->is_leader );
+  FD_TEST( ctx->is_booted );
+  FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
 
+  ctx->is_leader                = 0;
+  ctx->leader_block_id_received = 0;
+  ctx->leader_poh_received      = 0;
+
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( ctx->highwater_leader_slot, 0UL ) );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "bank for leader slot %lu not found", ctx->highwater_leader_slot ));
+  }
+
+  fini_leader_bank( ctx, bank, stem );
+
+  return 1;
+}
+
+static void
+process_leader_poh( fd_replay_tile_t *                 ctx,
+                    fd_poh_leader_slot_ended_t const * slot_ended ) {
+  FD_TEST( ctx->is_leader );
+  FD_TEST( ctx->is_booted );
   FD_TEST( ctx->highwater_leader_slot>=slot_ended->slot );
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
-  ctx->is_leader = 0;
 
-  /* Update the poh hash in the bank.  We will want to maintain a refcnt
-     on the bank until we have recieved the block id for the block after
-     it has been shredded. */
+  /* Update the poh hash in the bank.  We don't want to finalize the
+     bank and release a reference to it until we have also received the
+     block id for the leader block. */
   fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( slot_ended->slot, 0UL ) );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "bank for leader slot %lu not found", slot_ended->slot ));
   }
 
   memcpy( fd_bank_poh_modify( bank ), slot_ended->blockhash, sizeof(fd_hash_t) );
+
+  ctx->leader_poh_received = 1;
 }
 
 static void
@@ -1439,6 +1480,12 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  if( FD_UNLIKELY( maybe_unbecome_leader( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
   *charge_busy = replay( ctx, stem );
 }
 
@@ -1623,42 +1670,22 @@ process_tower_update( fd_replay_tile_t *           ctx,
 
 static void
 process_fec_set( fd_replay_tile_t *  ctx,
-                 fd_stem_context_t * stem,
                  fd_reasm_fec_t *    reasm_fec ) {
-
-  /* If the incoming reasm_fec's slot is a slot that we were leader for,
-     then we need to do some special handling.  If we were the leader
-     this means that we have already finished executing and packing the
-     block: the accounts database and bank is already updated.  We are
-     now receiving the FEC sets for the block from the repair tile now
-     that the packed block has been shredded.
-
-     The only thing left to do is to populate the block-id in the bank
-     and send a message to the tower tile so that we can correctly vote
-     on our leader block.  We are also now free to remove a refcnt from
-     the bank. */
-
-  if( fd_eslot_mgr_is_leader( ctx->eslot_mgr, reasm_fec->slot ) ) {
-    if( !!reasm_fec->slot_complete ) {
-      /* The block id for the slot is the merkle root for the last FEC
-         set.  We need to update the fd_eslot_mgr_t entry and the
-         corresponding fd_bank_t with the new merkle root. */
-      fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_eslot( reasm_fec->slot, 0UL ) );
-      if( FD_UNLIKELY( !ele ) ) {
-        FD_LOG_CRIT(( "eslot_mgr entry for leader slot %lu not found", reasm_fec->slot ));
-      }
-      fd_eslot_mgr_rekey_merkle_root( ctx->eslot_mgr, ele, &reasm_fec->key );
-
-      fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( reasm_fec->slot, 0UL ) );
-      if( FD_UNLIKELY( !bank ) ) {
-        FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
-      }
-      FD_LOG_WARNING(("FINI LEADER BANK %lu", reasm_fec->slot));
-      fini_leader_bank( ctx, bank, stem );
-      bank->refcnt--;
+  if( fd_eslot_mgr_is_leader( ctx->eslot_mgr, reasm_fec->slot ) && !!reasm_fec->slot_complete ) {
+    /* If we receieve a FEC set for a leader block, we don't need to
+       replay it because the bank tiles have already executed the block.
+       However, the block id is still unknown and will be retrieved from
+       the last FEC set in the leader block.  The block id for the slot
+       is the merkle root for the last FEC set.  We need to update the
+       fd_eslot_mgr_t entry and the corresponding fd_bank_t with the new
+       merkle root. */
+    fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_eslot( reasm_fec->slot, 0UL ) );
+    if( FD_UNLIKELY( !ele ) ) {
+      FD_LOG_CRIT(( "eslot_mgr entry for leader slot %lu not found", reasm_fec->slot ));
     }
-    /* We don't want to replay the block again, so we will not add any
-       of the FEC sets for a leader block to the scheduler. */
+    fd_eslot_mgr_rekey_merkle_root( ctx->eslot_mgr, ele, &reasm_fec->key );
+
+    ctx->leader_block_id_received = 1;
     return;
   }
 
@@ -1778,7 +1805,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_POH: {
-      unbecome_leader( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      process_leader_poh( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_RESOLV: {
@@ -1792,7 +1819,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_REPAIR: {
       FD_TEST( sz==sizeof(fd_reasm_fec_t) );
-      process_fec_set( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      process_fec_set( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     default:
@@ -1967,6 +1994,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->slot_duration_nanos   = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
   ctx->max_active_descendant = 0UL; /* TODO: Update this properly ... */
+
+  ctx->leader_block_id_received = 0;
+  ctx->leader_poh_received      = 0;
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
