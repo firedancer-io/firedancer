@@ -181,11 +181,12 @@ fd_keyguard_payload_matches_prune_data( uchar const * data,
 
   if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
 
-  ulong const static_sz = 80UL + 18UL; /* includes prune prefix */
+  ulong const static_sz = 8UL+18UL+80UL;
   if( sz < static_sz ) return 0;
-  if( memcmp( data, "\xffSOLANA_PRUNE_DATA", 18UL ) != 0 ) return 0;
+  if( FD_LOAD( ulong, data )!=18UL ) return 0; /* prune prefix size */
+  if( memcmp( data+8UL, "\xffSOLANA_PRUNE_DATA", 18UL ) != 0 ) return 0;
 
-  ulong prune_cnt = FD_LOAD( ulong, data+32UL+18UL );
+  ulong prune_cnt = FD_LOAD( ulong, data+8UL+18UL+32UL );
   ulong expected_sz;
   if( __builtin_umull_overflow( prune_cnt,   32UL,      &expected_sz ) ) return 0;
   if( __builtin_uaddl_overflow( expected_sz, static_sz, &expected_sz ) ) return 0;
