@@ -143,6 +143,35 @@ to coordinate concurrent access:
 - `accdb_users` session table for tracking active accdb users and
   reporting metrics
 
+### Funk record states
+
+A funk record is a `funk_rec` object allocated out of the record object
+pool.  Each record in funk is a non-rooted revision of an account.  Every
+record is associated with exactly one funk transaction.
+
+Each `funk_rec` account owns a variable-size piece of heap memory storing
+further account metadata and binary data (`funk_val`).  The `funk_val`
+blob starts with an account metadata descriptor (`fd_account_meta_t`), and
+is followed by a variable-size binary blob containing the raw account data.
+
+Older versions of funk had transactions that were not associated with any
+transaction object (instead having a sentinel txn_xid).  This is no longer
+the case.
+
+**Tombstones**
+
+Solana accounts have an "empty" state (the definition of which is out of
+scope in this document).  When an account transitions from occupied to
+empty, resources for that account should be "reclaimed" (i.e. underlying
+data is marked free, such that a garbage collection algorithm can recycle
+it eventually).
+
+Firedancer only reclaims account records when rooting (moving from funk to
+vinyl).  For simplicity, if an account turns empty while still in funk,
+that empty account revision sticks around in funk memory.  This logic
+effectively introduces the concept of 'tombstones', which are accounts that
+have ann underlying record, but appear as non-existent when looked up.
+
 ### Funk concurrency
 
 Funk users cooperate via shared memory concurrency.
