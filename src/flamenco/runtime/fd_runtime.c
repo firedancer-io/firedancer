@@ -1572,7 +1572,6 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_begin_partitioned_rewards( slot_ctx,
                                 stake_delegations,
-                                slot_ctx->capture_ctx,
                                 &parent_blockhash,
                                 parent_epoch,
                                 runtime_spad );
@@ -1981,7 +1980,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *               slot_ctx,
 
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_capture_ctx_t *   capture_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary ) {
 
@@ -2008,7 +2006,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   if( FD_LIKELY( fd_bank_slot_get( slot_ctx->bank )!=0UL ) ) {
-    fd_distribute_partitioned_epoch_rewards( slot_ctx, capture_ctx );
+    fd_distribute_partitioned_epoch_rewards( slot_ctx );
   }
 }
 
@@ -2017,24 +2015,23 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 /******************************************************************************/
 
 void
-fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
-                    fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_checkpt( fd_exec_slot_ctx_t * slot_ctx,
                     ulong                slot ) {
-  int is_checkpt_freq = capture_ctx != NULL && slot % capture_ctx->checkpt_freq == 0;
+  int is_checkpt_freq = slot_ctx->capture_ctx != NULL && slot % slot_ctx->capture_ctx->checkpt_freq == 0;
   int is_abort_slot   = slot == ULONG_MAX;
   if( !is_checkpt_freq && !is_abort_slot ) {
     return;
   }
 
-  if( capture_ctx->checkpt_path != NULL ) {
+  if( slot_ctx->capture_ctx->checkpt_path != NULL ) {
     if( !is_abort_slot ) {
-      FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, capture_ctx->checkpt_path ));
+      FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, slot_ctx->capture_ctx->checkpt_path ));
     } else {
-      FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", capture_ctx->checkpt_path ));
+      FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", slot_ctx->capture_ctx->checkpt_path ));
     }
 
-    unlink( capture_ctx->checkpt_path );
-    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+    unlink( slot_ctx->capture_ctx->checkpt_path );
+    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->funk ), slot_ctx->capture_ctx->checkpt_path, 0666, 0, NULL );
     if ( err ) {
       FD_LOG_ERR(( "backup failed: error %d", err ));
     }

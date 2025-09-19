@@ -460,12 +460,12 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_solcap_writer_set_slot( slot_ctx->capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( slot_ctx, capture_ctx, runner->spad );
+    fd_rewards_recalculate_partitioned_rewards( slot_ctx, runner->spad );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runner->spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, runner->spad, &is_epoch_boundary );
 
     res = fd_runtime_block_execute_prepare( slot_ctx, runner->spad );
     if( FD_UNLIKELY( res ) ) {

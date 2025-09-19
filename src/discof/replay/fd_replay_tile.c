@@ -629,7 +629,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
       ctx->slot_ctx,
-      ctx->slot_ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
@@ -910,7 +909,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
       &slot_ctx,
-      ctx->slot_ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, &slot_ctx, 1 );
@@ -996,7 +994,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->slot_ctx->capture_ctx, ctx->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->runtime_spad );
 
   ulong snapshot_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {

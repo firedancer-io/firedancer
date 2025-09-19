@@ -30,7 +30,6 @@ FD_PROTOTYPES_BEGIN
 void
 fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *           slot_ctx,
                               fd_stake_delegations_t const * stake_delegations,
-                              fd_capture_ctx_t *             capture_ctx,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch,
                               fd_spad_t *                    runtime_spad );
@@ -48,7 +47,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *           slot_ctx,
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_capture_ctx_t *   capture_ctx,
                                             fd_spad_t *          runtime_spad );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
@@ -59,8 +57,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
      - for each stake account: distribute_epoch_reward_to_stake_acc */
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                         fd_capture_ctx_t *   capture_ctx );
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx );
 
 FD_PROTOTYPES_END
 

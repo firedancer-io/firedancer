@@ -533,7 +533,6 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
  */
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_capture_ctx_t *   capture_ctx,
                                                 fd_spad_t *          runtime_spad,
                                                 int *                is_epoch_boundary );
 
@@ -554,8 +553,7 @@ fd_runtime_update_program_cache( fd_exec_slot_ctx_t * slot_ctx,
 /* Debugging Tools ************************************************************/
 
 void
-fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
-                    fd_exec_slot_ctx_t * slot_ctx,
+fd_runtime_checkpt( fd_exec_slot_ctx_t * slot_ctx,
                     ulong                slot );
 
 /* Offline Replay *************************************************************/
