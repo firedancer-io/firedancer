@@ -294,9 +294,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  FD_TEST( rent );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
   fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL ) );
