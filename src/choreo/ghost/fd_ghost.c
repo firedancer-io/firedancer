@@ -33,12 +33,14 @@ fd_ghost_new( void * shmem, ulong ele_max, ulong seed ) {
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_ghost_t * ghost = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),          sizeof( fd_ghost_t )                   );
+  void *       ver   = FD_SCRATCH_ALLOC_APPEND( l, fd_fseq_align(),           fd_fseq_footprint()                    );
   void *       pool  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_pool_align(),     fd_ghost_pool_footprint    ( ele_max ) );
   void *       hash  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_hash_map_align(), fd_ghost_hash_map_footprint( ele_max ) );
   void *       slot  = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_slot_map_align(), fd_ghost_slot_map_footprint( ele_max ) );
   void *       dup   = FD_SCRATCH_ALLOC_APPEND( l, fd_dup_seen_map_align(),   fd_dup_seen_map_footprint  ( elg_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_ghost_align() ) == (ulong)shmem + footprint );
 
+  ghost->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join          ( fd_fseq_new          ( ver,  ULONG_MAX     ) ) );
   ghost->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_ghost_pool_join    ( fd_ghost_pool_new    ( pool, ele_max       ) ) );
   ghost->hash_map_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_hash_map_join( fd_ghost_hash_map_new( hash, ele_max, seed ) ) );
   ghost->slot_map_gaddr = fd_wksp_gaddr_fast( wksp, fd_ghost_slot_map_join( fd_ghost_slot_map_new( slot, ele_max, seed ) ) );
