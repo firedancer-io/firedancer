@@ -416,7 +416,7 @@ fd_gossip_prune_encode( uchar const * my_pubkey,
                         ulong         origin_pubkeys_cnt,
                         uchar const * signature,
                         long          now,
-                        uchar *       out_buf, /* must be FD_GOSSIP_MTU sized */
+                        uchar *       out_buf,
                         ulong         out_buf_sz,
                         ulong *       opt_msg_sz );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */

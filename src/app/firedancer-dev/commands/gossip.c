@@ -1014,9 +1014,7 @@ gossip_cmd_fn( args_t *   args,
             gossvf_total_ticks > 0UL ? (double)gossvf_backpressure_ticks/(double)gossvf_total_ticks*100.0 : 0.0,
             gossvf_tiles.tile_count );
 
-    printf( " Prune Finder Insertions/Traversals: %s/%s\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PRUNE_FINDER_INSERTION_COUNT ) ] ), fmt_count( buf2, gossip_metrics[ MIDX( COUNTER, GOSSIP, PRUNE_FINDER_TRAVERSAL_COUNT ) ] ) );
     printf( " Prune Messages Sent: %s\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, MESSAGE_TX_COUNT_PRUNE ) ] ) );
-    printf( " Prune Finder Rx from Pruned Path Count: %s (%s)\n\n", fmt_count( buf1, gossip_metrics[ MIDX( COUNTER, GOSSIP, PRUNE_FINDER_RX_FROM_PRUNED_PATH_COUNT ) ] ), DIFFC( buf2, PRUNE_FINDER_RX_FROM_PRUNED_PATH_COUNT ) );
 
     ulong total_crds = 0UL;
     for( ulong i=0UL; i<FD_METRICS_ENUM_CRDS_VALUE_CNT; i++ ) total_crds += gossip_metrics[ MIDX( GAUGE, GOSSIP, CRDS_COUNT )+i ];

@@ -4,7 +4,6 @@
 #include "fd_gossip_txbuild.h"
 #include "fd_active_set.h"
 #include "fd_ping_tracker.h"
-#include "fd_prune_finder.h"
 #include "crds/fd_crds.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -560,23 +559,21 @@ rx_pull_response( fd_gossip_t *                          gossip,
 
 static void
 tx_prune( fd_gossip_t *                   gossip,
-          fd_prune_finder_prune_t const * prune,
+          fd_relayer_prune_data_t const * prune,
           fd_stem_context_t *             stem,
           long                            now ) {
-  ulong prune_msg_count = (prune->prune_len+(FD_GOSSIP_PRUNE_MAX_KEYS-1UL))/FD_GOSSIP_PRUNE_MAX_KEYS;
-
   fd_contact_info_t const * ci = fd_crds_contact_info_lookup( gossip->crds, prune->relayer_pubkey.uc );
   if( FD_UNLIKELY( !ci ) ) {
     return;
   }
 
+  ulong const prune_msg_count = (prune->prune_len+(FD_GOSSIP_PRUNE_MAX_KEYS-1UL))/FD_GOSSIP_PRUNE_MAX_KEYS;
   for( ulong i=0UL; i<prune_msg_count; i++ ) {
     uchar const * keys     = (prune->prunes+i*FD_GOSSIP_PRUNE_MAX_KEYS)->uc;
     ulong         num_keys = fd_ulong_min( FD_GOSSIP_PRUNE_MAX_KEYS, prune->prune_len - i*FD_GOSSIP_PRUNE_MAX_KEYS );
 
-    uchar buf[ sizeof(fd_gossip_prune_prefix)+FD_GOSSIP_MTU ];
-
-    ulong signable_sz;
+    uchar          buf[ sizeof(fd_gossip_prune_prefix)+FD_GOSSIP_MTU ];
+    ulong          signable_sz;
     fd_signature_t sign;
     fd_gossip_prune_get_signable( gossip->identity_pubkey, prune->relayer_pubkey.uc, keys, num_keys, now, buf, sizeof(buf), &signable_sz );
     gossip->sign_fn( gossip->sign_ctx, buf, signable_sz, FD_KEYGUARD_SIGN_TYPE_ED25519, sign.uc );
@@ -647,7 +644,7 @@ rx_push( fd_gossip_t *                 gossip,
          long                          now,
          fd_stem_context_t *           stem ) {
   uchar const * relayer_pubkey = payload+push->from_off;
-  ulong relayer_stake          = get_stake( gossip, relayer_pubkey );
+  ulong         relayer_stake  = get_stake( gossip, relayer_pubkey );
   uchar const * recorded_pubkeys[ FD_GOSSIP_MSG_MAX_CRDS ];
   ulong         recorded_cnt = 0UL;
 
@@ -659,25 +656,17 @@ rx_push( fd_gossip_t *                 gossip,
     if( FD_LIKELY( err>=0 ) ) {
       ulong num_duplicates = (ulong)err;
       recorded_pubkeys[ recorded_cnt++ ] = pubkey;
-      fd_prune_finder_record( gossip->prune_finder,
-                              pubkey,
-                              stake,
-                              relayer_pubkey,
-                              relayer_stake,
-                              num_duplicates );
+      fd_prune_finder_record( gossip->prune_finder, pubkey, stake, relayer_pubkey, relayer_stake, num_duplicates );
     }
   }
 
-  fd_prune_finder_prune_t const * prunes = NULL;
-  ulong                           prunes_cnt;
-  fd_prune_finder_get_prunes( gossip->prune_finder,
-                              gossip->identity_stake,
-                              recorded_pubkeys,
-                              recorded_cnt,
-                              &prunes,
-                              &prunes_cnt );
+  fd_prune_data_iter_t prune_iter = fd_prune_finder_gen_prunes( gossip->prune_finder, gossip->identity_stake, recorded_pubkeys, recorded_cnt );
 
-  for( ulong i=0UL; i<prunes_cnt; i++ ) tx_prune( gossip, &prunes[ i ], stem, now );
+  for( ; !fd_prune_finder_relayer_prune_data_iter_done( gossip->prune_finder, prune_iter );
+          prune_iter = fd_prune_finder_relayer_prune_data_iter_next( gossip->prune_finder, prune_iter ) ) {
+    fd_relayer_prune_data_t const * prune = fd_prune_finder_relayer_prune_data_iter_ele( gossip->prune_finder, prune_iter );
+    tx_prune( gossip, prune, stem, now );
+  }
 }
 
 static void

@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_gossip_fd_prune_finder_h
 #define HEADER_fd_src_flamenco_gossip_fd_prune_finder_h
 
-#include "../../util/fd_util.h"
 #include "fd_gossip_private.h"
 
 /* fd_prune_finder provides an API for tracking receiving gossip
@@ -47,36 +46,55 @@
    entries from the inner map with a low score, and then send prune
    messages for them.  */
 
+/* FD_PRUNE_MIN_INGRESS_NODES determines the minimum number of ingress
+   links to retain for a particular origin. It is recommended to set
+   this number to at least 2 for partition tolerance.
+
+   FD_PRUNE_MIN_UPSERTS determines the minimum CRDS upserts a particular
+   origin must observe before it is considered for pruning. When an
+   origin's upsert count exceeds this value during a
+   fd_prune_finder_get_prunes call, prune messages for ingress links
+   containing this origin may be generated, and the upsert count for
+   that origin is reset. A higher threshold provides more data points to
+   score ingress links, but also means longer intervals between
+   generating prune messages for a particular origin.
+
+   When considering an origin for pruning, the top ingress links
+   (sorted by score) are retained until the cumulative stake of the
+   retained links exceeds
+   FD_PRUNE_STAKE_THRESHOLD_PCT*min(origin_stake,my_stake). See
+   https://github.com/solana-labs/solana/issues/3214 for more details */
+#define FD_PRUNE_MIN_INGRESS_NODES   2UL
+#define FD_PRUNE_MIN_UPSERTS         20UL
+#define FD_PRUNE_STAKE_THRESHOLD_PCT 0.15
+
 struct fd_prune_finder_private;
 typedef struct fd_prune_finder_private fd_prune_finder_t;
 
-struct fd_prune_finder_prune {
-   /* TODO: convert pubkey refs to pointers to avoid redundant memcpies */
+/* fd_relayer_prune_data represents a set of paths to prune for
+   a specific relayer, needed to construct prune messages. */
+struct fd_relayer_prune_data {
    fd_pubkey_t relayer_pubkey;
    ulong       prune_len;
    fd_pubkey_t prunes[ FD_GOSSIP_MSG_MAX_CRDS ];
-
-   /* Internal structures do not touch */
-   struct {
-    ulong next;
-  } pool;
-
-  struct {
-    ulong next;
-    ulong prev;
-  } map;
 };
 
-typedef struct fd_prune_finder_prune fd_prune_finder_prune_t;
+typedef struct fd_relayer_prune_data fd_relayer_prune_data_t;
+
+typedef ulong fd_prune_data_iter_t;
+
+fd_prune_data_iter_t
+fd_prune_finder_relayer_prune_data_iter_next( fd_prune_finder_t * pf, fd_prune_data_iter_t iter );
+
+fd_relayer_prune_data_t const *
+fd_prune_finder_relayer_prune_data_iter_ele( fd_prune_finder_t * pf, fd_prune_data_iter_t iter );
+
+int
+fd_prune_finder_relayer_prune_data_iter_done( fd_prune_finder_t * pf, fd_prune_data_iter_t iter );
 
 struct fd_prune_finder_metrics {
    ulong origin_evicted_cnt;
    ulong origin_relayer_evicted_cnt;
-
-   ulong record_insertions_cnt;
-   ulong relayer_treap_traversals_cnt;
-
-   ulong rx_from_pruned_path_cnt;
 };
 typedef struct fd_prune_finder_metrics fd_prune_finder_metrics_t;
 
@@ -109,14 +127,7 @@ fd_prune_finder_metrics( fd_prune_finder_t const * pf );
    the node which forwarded the message to us, respectively.  num_dups
    is the number of times the message has already been received from
    other nodes.  The first peer to send the message to us should have a
-   value of zero, and the next peer a value of one, and so on.
-
-   If the message is the 20th recorded for a given originator, the
-   finder will prune any peers relaying that origin which have not been
-   performing well, and reset the record counter to zero.
-
-   NOTE: for a fixed CRDS value, each call to this function must
-   have a unique num_dups value. */
+   value of zero, and the next peer a value of one, and so on. */
 
 void
 fd_prune_finder_record( fd_prune_finder_t * pf,
@@ -126,33 +137,28 @@ fd_prune_finder_record( fd_prune_finder_t * pf,
                         ulong               relayer_stake,
                         ulong               num_dups );
 
-/* fd_prune_finder_get_prunes generates a list of out_prunes_len
-   fd_prune_finder_prune_t entries in out_prunes. This should be called
-   at the end of every push rx loop. out_prunes_len is bounded by
-   origins_len*relayer_max_per_origin (supplied in
-   fd_prune_finder_new).
+/* fd_prune_finder_gen_prunes returns an iterator to relayer prune data
+   entries generated from the supplied list of origins. Individual
+   fd_relayer_prune_data_t entries can be retrieved from with
+   fd_prune_finder_prune_data.
 
-   origins holds a list of pubkeys which should be considered
-   for pruning. Duplicates are OK, and will be skipped.
-   All origins must have been recorded with fd_prune_finder_record at
-   least once since the last call to fd_prune_finder_get_prunes. Since
-   the maximum number of unique origins that can be encountered during
-   a single rx_push loop is bounded by FD_GOSSIP_MSG_MAX_CRDS,
-   origins_len should not exceed that.
+   origins holds a list of pubkeys for which we are interested in
+   pruning their relayers. Duplicates are OK, and will be skipped.
+   Since the maximum number of unique origins that can be encountered
+   during a single rx_push loop is bounded by FD_GOSSIP_MSG_MAX_CRDS,
+   origins_len cannot exceed that.
 
    Origins that appear in any out_prunes entry will have their prune
    finder state reset. Therefore all prune messages must be
    transmitted prior to the next fd_prune_finder_record call.
-   out_prunes is valid until the next fd_prune_finder_get_prunes
-   call. */
+   The returned number is valid until the next
+   fd_prune_finder_gen_prunes call. */
 
-void
-fd_prune_finder_get_prunes( fd_prune_finder_t *              pf,
-                            ulong                            my_stake,
-                            uchar const * const *            origins,
-                            ulong                            origins_len,
-                            fd_prune_finder_prune_t const ** out_prunes,
-                            ulong *                          out_prunes_len );
+fd_prune_data_iter_t
+fd_prune_finder_gen_prunes( fd_prune_finder_t *   pf,
+                            ulong                 my_stake,
+                            uchar const * const * origins,
+                            ulong                 origins_len );
 
 FD_PROTOTYPES_END
 

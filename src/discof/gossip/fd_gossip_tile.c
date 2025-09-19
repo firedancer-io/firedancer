@@ -137,10 +137,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 
   fd_prune_finder_metrics_t const * prune_finder_metrics = fd_gossip_prune_finder_metrics( ctx->gossip );
 
-  FD_MCNT_SET( GOSSIP, PRUNE_FINDER_ORIGIN_RELAYER_EVICTED_COUNT, prune_finder_metrics->origin_relayer_evicted_cnt );
-  FD_MCNT_SET( GOSSIP, PRUNE_FINDER_INSERTION_COUNT,              prune_finder_metrics->record_insertions_cnt );
-  FD_MCNT_SET( GOSSIP, PRUNE_FINDER_TRAVERSAL_COUNT,              prune_finder_metrics->relayer_treap_traversals_cnt );
-  FD_MCNT_SET( GOSSIP, PRUNE_FINDER_RX_FROM_PRUNED_PATH_COUNT,    prune_finder_metrics->rx_from_pruned_path_cnt );
+  FD_MCNT_SET( GOSSIP, PRUNE_FINDER_ORIGIN_RELAYER_EVICTED_COUNT,    prune_finder_metrics->origin_relayer_evicted_cnt );
 
   fd_crds_metrics_t const * crds_metrics = fd_gossip_crds_metrics( ctx->gossip );
 
