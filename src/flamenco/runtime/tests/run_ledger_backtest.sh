@@ -22,6 +22,7 @@ HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
+DISABLE_LTHASH_VERIFICATION="true"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -100,6 +101,10 @@ while [[ $# -gt 0 ]]; do
        REDOWNLOAD=0
        shift
        ;;
+    -lt|--enable-lthash-verification)
+        DISABLE_LTHASH_VERIFICATION="false"
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -166,6 +171,7 @@ echo "
     maximum_download_retry_abort = 0
 [layout]
     shred_tile_count = 4
+    snaplt_tile_count = 4
 [tiles]
     [tiles.archiver]
         enabled = true
@@ -200,7 +206,10 @@ echo "
     snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
+[development]
+    [development.snapshots]
+        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION" > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]
