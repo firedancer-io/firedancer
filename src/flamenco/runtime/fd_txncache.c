@@ -870,8 +870,8 @@ fd_txncache_insert_batch( fd_txncache_t *              tc,
     for(;;) {
       fd_txncache_private_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
       if( FD_UNLIKELY( !txnpage ) ) {
-        goto unlock_fail;
         FD_LOG_WARNING(( "no txnpage found" ));
+        goto unlock_fail;
       }
 
       int success = fd_txncache_insert_txn( tc, blockcache, slotblockcache, txnpage, &txns[ i ] );
