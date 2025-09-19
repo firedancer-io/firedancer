@@ -36,29 +36,30 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   fd_forest_t * forest;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  forest          = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),          sizeof(fd_forest_t)                     );
-  void * ver      = FD_SCRATCH_ALLOC_APPEND( l, fd_fseq_align(),            fd_fseq_footprint()                     );
-  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) );
-  void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) );
-  void * frontier = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) );
-  void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) );
-  void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) );
-  void * consumed = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_consumed_align(), fd_forest_consumed_footprint( ele_max ) );
-  void * conspool = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_conspool_align(), fd_forest_conspool_footprint( ele_max ) );
-  void * deque    = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_deque_align(),    fd_forest_deque_footprint   ( ele_max ) );
+  forest          = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),          sizeof(fd_forest_t)                                    );
+  void * ver      = FD_SCRATCH_ALLOC_APPEND( l, fd_fseq_align(),            fd_fseq_footprint()                                    );
+  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max                ) );
+  void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max                ) );
+  void * frontier = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max                ) );
+  void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_subtrees_align(), fd_forest_subtrees_footprint( FD_FOREST_FORK_CNT_EST ) );
+  void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max                ) );
+  void * consumed = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_consumed_align(), fd_forest_consumed_footprint( FD_FOREST_FORK_CNT_EST ) );
+  void * conspool = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_conspool_align(), fd_forest_conspool_footprint( ele_max                ) );
+  void * deque    = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_deque_align(),    fd_forest_deque_footprint   ( ele_max                ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forest_align() ) == (ulong)shmem + footprint );
 
   forest->root           = ULONG_MAX;
+  forest->subtree_cnt    = 0;
   forest->wksp_gaddr     = fd_wksp_gaddr_fast( wksp, forest );
-  forest->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join           ( fd_fseq_new           ( ver,      FD_FOREST_VER_UNINIT ) ) );
-  forest->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_forest_pool_join    ( fd_forest_pool_new    ( pool,     ele_max              ) ) );
-  forest->ancestry_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_ancestry_join( fd_forest_ancestry_new( ancestry, ele_max, seed        ) ) );
-  forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, ele_max, seed        ) ) );
-  forest->subtrees_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_subtrees_join( fd_forest_subtrees_new( subtrees, ele_max, seed        ) ) );
-  forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, ele_max, seed        ) ) );
-  forest->consumed_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_consumed_join( fd_forest_consumed_new( consumed, ele_max, seed        ) ) );
-  forest->conspool_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_conspool_join( fd_forest_conspool_new( conspool, ele_max              ) ) );
-  forest->deque_gaddr    = fd_wksp_gaddr_fast( wksp, fd_forest_deque_join   ( fd_forest_deque_new   ( deque,    ele_max              ) ) );
+  forest->ver_gaddr      = fd_wksp_gaddr_fast( wksp, fd_fseq_join           ( fd_fseq_new           ( ver,      FD_FOREST_VER_UNINIT         ) ) );
+  forest->pool_gaddr     = fd_wksp_gaddr_fast( wksp, fd_forest_pool_join    ( fd_forest_pool_new    ( pool,     ele_max                      ) ) );
+  forest->ancestry_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_ancestry_join( fd_forest_ancestry_new( ancestry, ele_max, seed                ) ) );
+  forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, ele_max, seed                ) ) );
+  forest->subtrees_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_subtrees_join( fd_forest_subtrees_new( subtrees, FD_FOREST_FORK_CNT_EST, seed ) ) );
+  forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, ele_max, seed                ) ) );
+  forest->consumed_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_consumed_join( fd_forest_consumed_new( consumed, FD_FOREST_FORK_CNT_EST, seed ) ) );
+  forest->conspool_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_conspool_join( fd_forest_conspool_new( conspool, ele_max                      ) ) );
+  forest->deque_gaddr    = fd_wksp_gaddr_fast( wksp, fd_forest_deque_join   ( fd_forest_deque_new   ( deque,    ele_max                      ) ) );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( forest->magic ) = FD_FOREST_MAGIC;
@@ -342,8 +343,10 @@ static fd_forest_blk_t *
 subtrees_orphaned_remove( fd_forest_t * forest, ulong slot ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   fd_forest_blk_t * ele = NULL;
-  ele =                  fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &slot, NULL, pool );
-  ele = fd_ptr_if( !ele, fd_forest_subtrees_ele_remove( fd_forest_subtrees( forest ), &slot, NULL, pool ), ele );
+  ele = fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &slot, NULL, pool );
+  if( ele ) return ele;
+  ele = fd_forest_subtrees_ele_remove( fd_forest_subtrees( forest ), &slot, NULL, pool );
+  if( ele ) forest->subtree_cnt--;
   return ele;
 }
 
@@ -501,6 +504,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
     fd_forest_orphaned_ele_insert( orphaned, ele, pool );
   } else {                                                                                                   /* parent is not in any map, ele makes new subtree */
     fd_forest_subtrees_ele_insert( subtrees, ele, pool );
+    forest->subtree_cnt++;
   }
 
   if( FD_LIKELY( parent ) ) link( forest, parent, ele );
@@ -520,6 +524,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
       link( forest, ele, orphan );
       fd_forest_subtrees_ele_remove( subtrees, &orphan->slot, NULL, pool );
       fd_forest_orphaned_ele_insert( orphaned, orphan,              pool );
+      forest->subtree_cnt--;
     }
   }
 
@@ -1032,32 +1037,6 @@ ancestry_print2( fd_forest_t const * forest,
     }
   }
 
-}
-
-static void FD_FN_UNUSED
-ancestry_print( fd_forest_t const * forest, fd_forest_blk_t const * ele, int space, const char * prefix ) {
-  fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
-
-  if( ele == NULL ) return;
-
-  if( space > 0 ) printf( "\n" );
-  for( int i = 0; i < space; i++ ) printf( " " );
-  if ( ele->complete_idx == UINT_MAX ) printf( "%s%lu (%u/?)", prefix, ele->slot, ele->buffered_idx + 1 );
-  else printf( "%s%lu (%u/%u)", prefix, ele->slot, ele->buffered_idx + 1, ele->complete_idx + 1 );
-
-  fd_forest_blk_t const * curr = fd_forest_pool_ele_const( pool, ele->child );
-
-  char new_prefix[1024]; /* FIXME size this correctly */
-  while( curr ) {
-    if( fd_forest_pool_ele_const( pool, curr->sibling ) ) {
-      sprintf( new_prefix, "├── " ); /* branch indicating more siblings follow */
-      ancestry_print( forest, curr, space + 4, new_prefix );
-    } else {
-      sprintf( new_prefix, "└── " ); /* end branch */
-      ancestry_print( forest, curr, space + 4, new_prefix );
-    }
-    curr = fd_forest_pool_ele_const( pool, curr->sibling );
-  }
 }
 
 static void

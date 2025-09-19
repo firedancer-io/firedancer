@@ -135,25 +135,28 @@ static ulong ts_ms( void ) {
 }
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, fd_repair_msg_t * out ) {
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair ) {
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
   if( FD_UNLIKELY( policy->peers.cnt == 0    ) ) return NULL;
 
+  fd_repair_msg_t * out = NULL;
   ulong now = ts_ms();
 
-  for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
-        !fd_forest_subtrees_iter_done( iter, subtrees, pool );
-        iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
-    fd_forest_blk_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
-    ulong key                = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
-    if( FD_UNLIKELY( !dedup_next( policy, key ) ) ) {
-      out = fd_repair_orphan( repair, &policy->peers.arr[ policy->peers.idx ], now, policy->nonce, orphan->slot, out );
-      policy->peers.idx = (policy->peers.idx + 1) % policy->peers.cnt;
-      policy->nonce++;
-      return out;
+  if( FD_UNLIKELY( forest->subtree_cnt > 0 ) ) {
+    for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
+          !fd_forest_subtrees_iter_done( iter, subtrees, pool );
+          iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
+      fd_forest_blk_t * orphan = fd_forest_subtrees_iter_ele( iter, subtrees, pool );
+      ulong key                = fd_policy_dedup_key( FD_REPAIR_KIND_ORPHAN, orphan->slot, UINT_MAX );
+      if( FD_UNLIKELY( !dedup_next( policy, key ) ) ) {
+        out = fd_repair_orphan( repair, &policy->peers.arr[ policy->peers.idx ], now, policy->nonce, orphan->slot );
+        policy->peers.idx = (policy->peers.idx + 1) % policy->peers.cnt;
+        policy->nonce++;
+        return out;
+      }
     }
   }
 
@@ -184,20 +187,20 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
     if( FD_UNLIKELY( policy->iterf.shred_idx == UINT_MAX ) ) {
       ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_HIGHEST_SHRED, ele->slot, 0 );
       if( FD_UNLIKELY( !dedup_next( policy, key ) ) ) {
-        out = fd_repair_highest_shred( repair, &policy->peers.arr[ policy->peers.idx ], now, policy->nonce, ele->slot, 0, out );
+        out = fd_repair_highest_shred( repair, &policy->peers.arr[ policy->peers.idx ], now, policy->nonce, ele->slot, 0 );
         policy->peers.idx = (policy->peers.idx + 1) % policy->peers.cnt;
         policy->nonce++;
         req_made = 1;
       }
-    }
-
-    ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_SHRED, ele->slot, policy->iterf.shred_idx );
-    if( FD_UNLIKELY( !dedup_next( policy, key ) ) ) {
-      out = fd_repair_shred( repair, &policy->peers.arr[ policy->peers.idx ], now, policy->nonce, ele->slot, policy->iterf.shred_idx, out );
-      policy->peers.idx = (policy->peers.idx + 1) % policy->peers.cnt;
-      policy->nonce++;
-      if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
-      req_made = 1;
+    } else {
+      ulong key = fd_policy_dedup_key( FD_REPAIR_KIND_SHRED, ele->slot, policy->iterf.shred_idx );
+      if( FD_UNLIKELY( !dedup_next( policy, key ) ) ) {
+        out = fd_repair_shred( repair, &policy->peers.arr[ policy->peers.idx ], now, policy->nonce, ele->slot, policy->iterf.shred_idx );
+        policy->peers.idx = (policy->peers.idx + 1) % policy->peers.cnt;
+        policy->nonce++;
+        if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
+        req_made = 1;
+      }
     }
 
     /* Even if we have a request ready, we need to advance the iterator.
