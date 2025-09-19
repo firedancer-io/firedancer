@@ -325,10 +325,6 @@ struct fd_replay_tile {
   ulong     consensus_root_slot; /* slot number of the above. */
   ulong     published_root_slot; /* slot number of the published root. */
 
-  /* Capture-related configs */
-  fd_capture_ctx_t * capture_ctx;
-  FILE *             capture_file;
-
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis.*/
   int is_booted;
@@ -604,8 +600,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
 
-  if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fd_eslot_slot( eslot ) );
+  if( ctx->slot_ctx->capture_ctx ) {
+    fd_solcap_writer_set_slot( ctx->slot_ctx->capture_ctx->capture, fd_eslot_slot( eslot ) );
   }
 
   fd_bank_shred_cnt_set( bank, 0UL );
@@ -633,7 +629,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
       ctx->slot_ctx,
-      ctx->capture_ctx,
+      ctx->slot_ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
@@ -722,7 +718,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  if( FD_UNLIKELY( ctx->slot_ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->slot_ctx->capture_ctx->capture );
 
   fd_bank_t * bank = ctx->slot_ctx->bank;
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
@@ -914,7 +910,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
       &slot_ctx,
-      ctx->capture_ctx,
+      ctx->slot_ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, &slot_ctx, 1 );
@@ -1000,7 +996,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->capture_ctx, ctx->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->slot_ctx->capture_ctx, ctx->runtime_spad );
 
   ulong snapshot_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -1046,7 +1042,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
      exec tiles as ready. */
   ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  if( FD_UNLIKELY( ctx->slot_ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->slot_ctx->capture_ctx->capture );
 
   ctx->consensus_root_slot = snapshot_slot;
 }
@@ -1486,11 +1482,11 @@ process_txn_finalized( fd_replay_tile_t *                           ctx,
 static void
 process_solcap_account_update( fd_replay_tile_t *                         ctx,
                               fd_capture_ctx_account_update_msg_t const * msg ) {
-  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ) ) return;
-  if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->capture_ctx->solcap_start_slot ) ) return;
+  if( FD_UNLIKELY( !ctx->slot_ctx->capture_ctx || !ctx->slot_ctx->capture_ctx->capture ) ) return;
+  if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->slot_ctx->capture_ctx->solcap_start_slot ) ) return;
 
   uchar const * account_data = (uchar const *)fd_type_pun_const( msg )+sizeof(fd_capture_ctx_account_update_msg_t);
-  fd_solcap_write_account( ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
+  fd_solcap_write_account( ctx->slot_ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
 }
 
 static void
@@ -1892,24 +1888,24 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bootstrap = tile->replay.bootstrap;
   if( FD_UNLIKELY( ctx->bootstrap ) ) strncpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
 
-  ctx->capture_ctx = NULL;
+  ctx->slot_ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {
-    ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
+    ctx->slot_ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
   }
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-    ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
-    if( FD_UNLIKELY( !ctx->capture_file ) ) FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, fd_io_strerror( errno ) ));
+    ctx->slot_ctx->capture_ctx->checkpt_freq = ULONG_MAX;
+    ctx->slot_ctx->capture_ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
+    if( FD_UNLIKELY( !ctx->slot_ctx->capture_ctx->capture_file ) ) FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, fd_io_strerror( errno ) ));
 
-    ctx->capture_ctx->capture_txns = 0;
-    ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-    fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
+    ctx->slot_ctx->capture_ctx->capture_txns = 0;
+    ctx->slot_ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
+    fd_solcap_writer_init( ctx->slot_ctx->capture_ctx->capture, ctx->slot_ctx->capture_ctx->capture_file );
   }
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
-    ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
-    if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
+    ctx->slot_ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
+    if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->slot_ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
   }
 
   ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
@@ -1952,7 +1948,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->slot_ctx->funk         = ctx->funk;
   ctx->slot_ctx->status_cache = NULL; /* TODO: Integrate status cache */
-  ctx->slot_ctx->capture_ctx  = ctx->capture_ctx;
 
   ctx->has_identity_vote_rooted = 0;
 

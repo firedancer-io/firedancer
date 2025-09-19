@@ -3,6 +3,7 @@
 
 #include "../../capture/fd_solcap_writer.h"
 #include "../fd_runtime_const.h"
+#include <stdio.h>
 
 /* fd_capture_ctx_account_update_msg_t is the message sent from
    writer tile to replay tile that notifies the solcap writer that an
@@ -67,6 +68,8 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   uchar *                    account_updates_buffer;
   uchar *                    account_updates_buffer_ptr;
   ulong                      account_updates_len;
+
+  FILE *                     capture_file;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 #define FD_CAPTURE_CTX_FOOTPRINT ( sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint() + FD_CAPTURE_CTX_ACCOUNT_UPDATE_BUFFER_SZ )
