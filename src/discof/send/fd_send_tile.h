@@ -54,6 +54,7 @@ struct fd_send_link_in {
   ulong        chunk0;
   ulong        wmark;
   ulong        kind;
+  ulong        mtu;
   void      *  dcache;
 };
 typedef struct fd_send_link_in fd_send_link_in_t;
