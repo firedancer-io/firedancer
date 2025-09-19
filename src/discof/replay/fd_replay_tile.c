@@ -1293,7 +1293,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->published_root_slot = snapshot_slot;
     fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = snapshot_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL }, NULL );
 
-    fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+    fd_features_restore( ctx->slot_ctx );
 
     fd_runtime_update_leaders( ctx->slot_ctx->bank, fd_bank_slot_get( ctx->slot_ctx->bank ), ctx->runtime_spad );
 
