@@ -572,7 +572,7 @@ tx_prune( fd_gossip_t *                   gossip,
     uchar const * keys     = (prune->prunes+i*FD_GOSSIP_PRUNE_MAX_KEYS)->uc;
     ulong         num_keys = fd_ulong_min( FD_GOSSIP_PRUNE_MAX_KEYS, prune->prune_len - i*FD_GOSSIP_PRUNE_MAX_KEYS );
 
-    uchar          buf[ sizeof(fd_gossip_prune_prefix)+FD_GOSSIP_MTU ];
+    uchar          buf[ 8UL+sizeof(fd_gossip_prune_prefix)+FD_GOSSIP_MTU ];
     ulong          signable_sz;
     fd_signature_t sign;
     fd_gossip_prune_get_signable( gossip->identity_pubkey, prune->relayer_pubkey.uc, keys, num_keys, now, buf, sizeof(buf), &signable_sz );

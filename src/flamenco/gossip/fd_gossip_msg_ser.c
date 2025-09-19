@@ -314,7 +314,7 @@ fd_gossip_prune_get_signable( uchar const * my_pubkey,
                               ulong         out_buf_sz,
                               ulong *       opt_signable_sz ) {
   SER_INIT ( out_buf, out_buf_sz, 0U );
-  FD_STORE ( ulong, CURSOR, sizeof(fd_gossip_prune_prefix))                  ; INC( 8U );
+  FD_STORE ( ulong, CURSOR, sizeof(fd_gossip_prune_prefix) )                 ; INC( 8U );
   fd_memcpy( CURSOR, fd_gossip_prune_prefix, sizeof(fd_gossip_prune_prefix) ); INC( sizeof(fd_gossip_prune_prefix) );
   fd_memcpy( CURSOR, my_pubkey, 32UL )                                       ; INC( 32U );
   FD_STORE ( ulong, CURSOR, origin_pubkeys_cnt )                             ; INC(  8U );
