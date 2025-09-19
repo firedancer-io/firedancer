@@ -448,13 +448,14 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  uchar *              signed_vote_txn,
                  ulong                vote_txn_sz ) {
 
-  fd_txn_t txn;
-  FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, &txn, NULL ) );
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  fd_txn_t * txn = (fd_txn_t *)txn_mem;
+  FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
 
   /* sign the txn */
-  uchar * signature = signed_vote_txn + txn.signature_off;
-  uchar const * message   = signed_vote_txn + txn.message_off;
-  ulong message_sz  = vote_txn_sz - txn.message_off;
+  uchar * signature = signed_vote_txn + txn->signature_off;
+  uchar const * message   = signed_vote_txn + txn->message_off;
+  ulong message_sz  = vote_txn_sz - txn->message_off;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
   ulong poh_slot  = vote_slot+1;
