@@ -254,7 +254,7 @@ typedef struct {
   fd_shred_dest_idx_t scratchpad_dests[ FD_SHRED_DEST_MAX_FANOUT*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
   uchar * chained_merkle_root;
-  fd_bmtree_node_t out_merkle_root;
+  fd_bmtree_node_t out_merkle_roots[ FD_SHRED_BATCH_FEC_SETS_MAX ];
   uchar block_ids[ BLOCK_IDS_TABLE_CNT ][ FD_SHRED_MERKLE_ROOT_SZ ];
 } fd_shred_ctx_t;
 
@@ -599,12 +599,13 @@ during_frag( fd_shred_ctx_t * ctx,
 
           fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz_padded, target_slot, entry_meta );
 
-          ulong pend_sz = batch_sz_padded;
+          ulong pend_sz  = batch_sz_padded;
+          ulong pend_idx = 0;
           while( pend_sz > 0UL ) {
 
             fd_fec_set_t * out = ctx->fec_sets + ctx->shredder_fec_set_idx;
 
-            FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root, ctx->out_merkle_root.hash ) );
+            FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root, ctx->out_merkle_roots[pend_idx].hash ) );
 
             d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( out->data_shred_rcvd   ) ) ) );
             p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( out->parity_shred_rcvd ) ) ) );
@@ -614,6 +615,7 @@ during_frag( fd_shred_ctx_t * ctx,
             ctx->shredder_fec_set_idx = (ctx->shredder_fec_set_idx+1UL)%ctx->shredder_max_fec_set_idx;
 
             pend_sz -= load_for_32_shreds;
+            pend_idx++;
           }
 
           fd_shredder_fini_batch( ctx->shredder );
@@ -850,7 +852,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_shred_t * out_last_shred = (fd_shred_t *)fd_type_pun( buf_last_shred );
 
     fd_fec_set_t const * out_fec_set[1];
-    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set, &ctx->out_merkle_root );
+    rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set, &ctx->out_merkle_roots[0] );
     if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
       FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u %s", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( shred_sig ) ));
       FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
@@ -886,7 +888,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_fec_resolver_spilled_t spilled_fec = { 0 };
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_root, &spilled_fec );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, &ctx->out_merkle_roots[0], &spilled_fec );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -1034,7 +1036,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       long shacq_start, shacq_end, shrel_end;
       fd_store_fec_t * fec = NULL;
       FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
-        fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_root ) );
+        fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
       } FD_STORE_SHARED_LOCK_END;
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
@@ -1094,7 +1096,7 @@ after_frag( fd_shred_ctx_t *    ctx,
       ulong   sig   = fd_disco_shred_repair_fec_sig( last->slot, last->fec_set_idx, (uint)set->data_shred_cnt, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
       uchar * chunk = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
       memcpy( chunk,                                                   last,                                                FD_SHRED_DATA_HEADER_SZ );
-      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                           ctx->out_merkle_root.hash,                           FD_SHRED_MERKLE_ROOT_SZ );
+      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                           ctx->out_merkle_roots[fset_k].hash,                  FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ, (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
       ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2;
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -1414,7 +1416,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->shredder_max_fec_set_idx = (shred_store_mcache_depth+1UL)/2UL + 1UL;
 
   ctx->chained_merkle_root = NULL;
-  memset( &ctx->out_merkle_root, 0, sizeof(fd_bmtree_node_t) );
+  memset( ctx->out_merkle_roots, 0, sizeof(ctx->out_merkle_roots) );
 
   for( ulong i=0UL; i<FD_SHRED_BATCH_FEC_SETS_MAX; i++ ) { ctx->send_fec_set_idx[ i ] = ULONG_MAX; }
   ctx->send_fec_set_cnt = 0UL;
