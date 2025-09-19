@@ -230,8 +230,8 @@ encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   fd_memcpy( slot_done->vote_txn, txn->payload, txn->payload_sz );
   slot_done->vote_txn_sz = txn->payload_sz;
 
-  fd_txn_t txn_t;
-  FD_TEST( fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, &txn_t, NULL ) );
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  FD_TEST( fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, txn_mem, NULL ) );
 }
 
 #endif /* FD_SRC_APP_FIREDANCER_DEV_COMMANDS_SEND_TEST_HELPERS_C */

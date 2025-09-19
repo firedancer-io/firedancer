@@ -280,11 +280,12 @@ during_frag( fd_writer_tile_ctx_t * ctx,
 
     fd_txn_m_t * txnm    = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     uchar *      payload = ((uchar *)txnm) + sizeof(fd_txn_m_t);
-    fd_txn_t txn;
-    if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, &txn, NULL ) ) ) {
+    uchar        txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+    fd_txn_t *   txn = (fd_txn_t *)txn_mem;
+    if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, txn_mem, NULL ) ) ) {
       FD_LOG_CRIT(( "Could not parse txn from send tile" ));
     }
-    uchar * signature = payload + txn.signature_off;
+    uchar * signature = payload + txn->signature_off;
     memcpy( ctx->vote_msg, signature, 64UL );
     return;
   }
