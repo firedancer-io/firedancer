@@ -9,14 +9,14 @@ so Firedancer can run correctly. It does the following:
 * **hyperthreads** Checks hyperthreaded pair for critical CPU cores.
 * **ethtool-channels** Configures the number of channels on the network
 device.
-* **ethtool-gro** Disable generic-receive-offload (GRO) on the network
-device.
+* **ethtool-offloads** Disable generic-receive-offload (GRO) and GRE
+segmentation offload on the network device.
 * **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
-`ethtool-channels` and `ethtool-gro` to reconfigure the networking
+`ethtool-channels` and `ethtool-offloads` to reconfigure the networking
 device.
 
 The configure command is run like `fdctl configure <mode> <stage>...`
@@ -30,9 +30,9 @@ where `mode` is one of:
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
-`ethtool-channels`, `ethtool-gro`, `ethtool-loopback`, and `snapshots`
-and these stages are described below. You can also use the stage `all`
-which will configure everything.
+`ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`, and
+`snapshots` and these stages are described below. You can also use the
+stage `all` which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -169,21 +169,22 @@ dependent on the number of `net` tiles in your configuration.
 Changing device settings with `ethtool-channels` requires root privileges, and
 cannot be performed with capabilities.
 
-## ethtool-gro
+## ethtool-offloads
 XDP is incompatible with a feature of network devices called
 `generic-receive-offload`. This feature must be disabled for Firedancer
-to work.
+to work. GRE segmentation offload is also disabled.
 
-The command run by the stage is similar to running `ethtool --offload <device> generic-receive-offload off`
-but it also supports bonded devices. We can check that it worked:
+The command run by the stage is similar to running
+`ethtool --offload <device> <offload> off` but it also supports bonded
+devices. We can check that it worked:
 
-<<< @/snippets/ethtool-gro.ansi
+<<< @/snippets/ethtool-offloads.ansi
 
 The stage only needs to be run once after boot but before running
 Firedancer. It has no dependencies on any other stage.
 
-Changing device settings with `ethtool-gro` requires root privileges, and
-cannot be performed with capabilities.
+Changing device settings with `ethtool-offloads` requires root
+privileges, and cannot be performed with capabilities.
 
 ## ethtool-loopback
 XDP is incompatible with localhost UDP traffic using a feature called
