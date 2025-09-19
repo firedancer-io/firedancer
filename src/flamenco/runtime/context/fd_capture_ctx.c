@@ -9,12 +9,12 @@ fd_capture_ctx_new( void * mem ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_CAPTURE_CTX_ALIGN ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_capture_ctx_align() ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }
 
-  fd_memset(mem, 0, FD_CAPTURE_CTX_FOOTPRINT);
+  fd_memset( mem, 0, fd_capture_ctx_footprint() );
 
   /* TODO: use layout macros */
   fd_capture_ctx_t * self = (fd_capture_ctx_t *) mem;
@@ -71,7 +71,7 @@ fd_capture_ctx_delete( void * mem ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_CAPTURE_CTX_ALIGN) ) )  {
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_capture_ctx_align() ) ) )  {
     FD_LOG_WARNING(( "misaligned mem" ));
     return NULL;
   }

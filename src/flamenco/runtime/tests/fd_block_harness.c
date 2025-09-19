@@ -449,7 +449,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     fd_capture_ctx_t * capture_ctx = NULL;
     if( runner->solcap ) {
-      void * capture_ctx_mem = fd_spad_alloc( runner->spad, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+      void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
       capture_ctx            = fd_capture_ctx_new( capture_ctx_mem );
       if( FD_UNLIKELY( capture_ctx==NULL ) ) {
         FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
