@@ -1087,7 +1087,7 @@ fd_runtime_save_account( fd_funk_t *        funk,
   }
 
   /* Mix in the account hash into the bank hash */
-  fd_hashes_update_lthash( account, prev_hash, bank, NULL );
+  fd_hashes_update_lthash( account, prev_hash, bank, capture_ctx );
 
   /* Publish account update to replay tile for solcap writing
      TODO: write in the writer tile with solcap v2 */
