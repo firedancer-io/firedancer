@@ -471,8 +471,7 @@ fd_replay_out_vote_tower_from_funk(
     fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, funk_txn, &funk_key, NULL, &query );
     if( FD_UNLIKELY( !rec ) ) {
-      FD_LOG_WARNING(( "vote account not found. address: %s",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+      FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
       return -1;
     }
 
@@ -1653,8 +1652,14 @@ process_fec_set( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( !bank ) ) {
         FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
       }
-      FD_LOG_WARNING(("FINI LEADER BANK %lu", reasm_fec->slot));
       fini_leader_bank( ctx, bank, stem );
+
+      fd_eslot_t          eslot        = fd_eslot( reasm_fec->slot, 0UL );
+      fd_funk_txn_xid_t   xid          = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
+      fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
+      fd_funk_txn_t *     funk_txn     = fd_funk_txn_query( &xid, txn_map );
+      ctx->slot_ctx->funk_txn = funk_txn;
+
       bank->refcnt--;
     }
     /* We don't want to replay the block again, so we will not add any
