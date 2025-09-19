@@ -2577,25 +2577,24 @@ fd_rpc_recompute_confirmed( fd_rpc_global_ctx_t * glob ) {
 }
 
 void
-fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, void const * _msg, ulong sig, ulong sz, ulong ctl ) {
-  FD_TEST( sz <= sizeof(ctx->global->buffer) );
-  memcpy(ctx->global->buffer, _msg, (ulong)sz);
-  ctx->global->buffer_sz = sz;
-
-  if( FD_LIKELY( sig!=REPLAY_SIG_VOTE_STATE ) ) return;
-
+fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, void const * msg, ulong sig, ulong sz, ulong ctl ) {
   fd_rpc_global_ctx_t * glob = ctx->global;
+  glob->buffer_sz = 0;
 
+  if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+    FD_TEST( sz <= sizeof(glob->buffer) );
+    memcpy(glob->buffer, msg, (ulong)sz);
+    glob->buffer_sz = sz;
+    return;
+  }
+
+  if( FD_UNLIKELY( sig!=REPLAY_SIG_VOTE_STATE ) ) return;
   if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) {
     glob->replay_towers_cnt = 0;
     glob->replay_towers_eom = 0;
   }
   if( FD_UNLIKELY( glob->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
   FD_TEST( sz == (int)sizeof(fd_replay_tower_t) );
-
-  fd_rpc_global_ctx_t * subs = ctx->global;
-  if( subs->buffer_sz != (int)sizeof(fd_replay_slot_completed_t) ) return;
-  fd_replay_slot_completed_t * msg = (fd_replay_slot_completed_t *)subs->buffer;
   memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_tower_t) );
   glob->replay_towers_eom = fd_frag_meta_ctl_eom( ctl );
   if( glob->replay_towers_eom ) {

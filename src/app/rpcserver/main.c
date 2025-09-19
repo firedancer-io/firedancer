@@ -163,7 +163,7 @@ int main( int argc, char ** argv ) {
   if( !offline ) {
     init_args( &argc, &argv, &args );
 
-    const char * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-notify", NULL, "fd1_replay_notif.wksp" );
+    const char * wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-out", NULL, "fd1_replay_out.wksp" );
     rep_notify = replay_sham_link_new( aligned_alloc( replay_sham_link_align(), replay_sham_link_footprint() ), wksp_name );
 
     wksp_name = fd_env_strip_cmdline_cstr ( &argc, &argv, "--wksp-name-replay-stake", NULL, "fd1_replay_stake.wksp" );
