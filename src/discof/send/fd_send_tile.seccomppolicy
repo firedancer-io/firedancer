@@ -16,3 +16,6 @@ write: (or (eq (arg 0) 2)
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
+
+# QUIC uses getrandom for cryptographically secure randomness.
+getrandom

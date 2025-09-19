@@ -382,7 +382,7 @@ STEM_(run1)( ulong                        in_cnt,
   for(;;) {
 
 #ifdef STEM_CALLBACK_SHOULD_SHUTDOWN
-    if( FD_UNLIKELY( STEM_CALLBACK_SHOULD_SHUTDOWN( ctx ) ) ) break;
+    if( FD_UNLIKELY( STEM_CALLBACK_SHOULD_SHUTDOWN( ctx ) ) ) { break; }
 #endif
 
     /* Do housekeeping at a low rate in the background */
