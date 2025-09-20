@@ -85,7 +85,7 @@ main( int     argc,
     fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
     conn->srx->rx_sup_stream_id = (1UL<<62)-1;
     conn->last_activity         = state->now;
-    conn->idle_timeout_ns       = (ulong)100000e9;
+    conn->idle_timeout_ns       = 100000e9L;
     conn_list[ j ] = conn;
   }
 
@@ -158,7 +158,7 @@ main( int     argc,
     FD_TEST( quic->metrics.net_tx_pkt_cnt <= frame_cnt );
   }
 
-  fd_quic_svc_validate( quic );
+  fd_quic_state_validate( quic );
 
   fd_wksp_free_laddr( conn_list );
   fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );

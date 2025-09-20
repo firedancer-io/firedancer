@@ -185,6 +185,13 @@ metric introduced.
     <int value="7" name="Dead" label="connection about to be freed" />
 </enum>
 
+<enum name="QuicPktHandle">
+    <int value="0" name="Initial" label="initial" />
+    <int value="1" name="Retry" label="retry" />
+    <int value="2" name="Handshake" label="handshake" />
+    <int value="3" name="OneRtt" label="1-RTT" />
+</enum>
+
 <tile name="quic">
     <counter name="TxnsOverrun" summary="Count of txns overrun before reassembled (too small txn_reassembly_count)." />
     <counter name="TxnReasmsStarted" summary="Count of fragmented txn receive ops started." />
@@ -216,7 +223,7 @@ metric introduced.
     <counter name="ConnectionErrorNoSlots" summary="Number of connections that failed to create due to lack of slots." />
     <counter name="ConnectionErrorRetryFail" summary="Number of connections that failed during retry (e.g. invalid token)." />
 
-    <counter name="PktNoConn" summary="Number of packets with an unknown connection ID." />
+    <counter name="PktNoConn" enum="QuicPktHandle" summary="Number of packets with an unknown connection ID." />
     <counter name="FrameTxAlloc" enum="FrameTxAllocResult" summary="Results of attempts to acquire QUIC frame metadata." />
     <counter name="InitialTokenLen" enum="QuicInitialTokenLen" summary="Number of Initial packets grouped by token length." />
 
@@ -325,7 +332,7 @@ metric introduced.
     <!-- QUIC packet error metrics -->
     <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Total count of packets with crypto failures" />
     <counter name="PktNoKey" enum="QuicEncLevel" summary="Total count of packets with no key" />
-    <counter name="PktNoConn" summary="Total count of packets with no connection" />
+    <counter name="PktNoConn" enum="QuicPktHandle" summary="Total count of packets with no connection" />
     <counter name="PktTxAllocFail" summary="Total count of packet TX allocation failures" />
     <counter name="PktNetHeaderInvalid" summary="Total count of packets with invalid network headers" />
     <counter name="PktQuicHeaderInvalid" summary="Total count of packets with invalid QUIC headers" />

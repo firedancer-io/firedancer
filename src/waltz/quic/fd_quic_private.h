@@ -10,6 +10,7 @@
 #include "tls/fd_quic_tls.h"
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
+#include "fd_quic_svc_q.h"
 #include <math.h>
 
 #include "../../util/log/fd_dtrace.h"
@@ -40,24 +41,6 @@
    of an fd_quic_t. */
 
 #define FD_QUIC_MAGIC (0xdadf8cfa01cc5460UL)
-
-/* FD_QUIC_SVC_{...} specify connection timer types. */
-
-#define FD_QUIC_SVC_INSTANT (0U)  /* as soon as possible */
-#define FD_QUIC_SVC_ACK_TX  (1U)  /* within local max_ack_delay (ACK TX coalesce) */
-#define FD_QUIC_SVC_WAIT    (2U)  /* within min(idle_timeout, peer max_ack_delay) */
-#define FD_QUIC_SVC_CNT     (3U)  /* number of FD_QUIC_SVC_{...} levels */
-
-/* fd_quic_svc_queue_t is a simple doubly linked list. */
-
-struct fd_quic_svc_queue {
-  /* FIXME track count */ // uint cnt;
-  uint head;
-  uint tail;
-};
-
-typedef struct fd_quic_svc_queue fd_quic_svc_queue_t;
-
 
 /* fd_quic_state_t is the internal state of an fd_quic_t.  Valid for
    lifetime of join. */
@@ -96,8 +79,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
   fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_rng_t                _rng[1];        /* random number generator */
-  fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
-  long                    svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
 
   /* need to be able to access connections by index */
   ulong                   conn_base;      /* address of array of all connections */
@@ -118,6 +99,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   /* Scratch space for packet protection */
   uchar                   crypt_scratch[FD_QUIC_MTU];
+
+  /* the timer structs, large private fields / data follow */
+  fd_quic_svc_timers_t  * svc_timers;
 };
 
 /* FD_QUIC_STATE_OFF is the offset of fd_quic_state_t within fd_quic_t. */
@@ -195,20 +179,6 @@ fd_quic_conn_service( fd_quic_t *      quic,
                       fd_quic_conn_t * conn,
                       long             now );
 
-/* fd_quic_svc_schedule installs a connection timer.  svc_type is in
-   [0,FD_QUIC_SVC_CNT) and specifies the timer delay.  Lower timers
-   override higher ones. */
-
-void
-fd_quic_svc_schedule( fd_quic_state_t * state,
-                      fd_quic_conn_t *  conn,
-                      uint              svc_type );
-
-static inline void
-fd_quic_svc_schedule1( fd_quic_conn_t * conn,
-                       uint             svc_type ) {
-  fd_quic_svc_schedule( fd_quic_get_state( conn->quic ), conn, svc_type );
-}
 
 /* Memory management **************************************************/
 
