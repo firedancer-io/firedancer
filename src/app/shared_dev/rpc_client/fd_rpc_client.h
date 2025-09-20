@@ -55,6 +55,20 @@ typedef struct fd_rpc_client_private fd_rpc_client_t;
 
 FD_PROTOTYPES_BEGIN
 
+FD_FN_CONST static inline char const *
+fd_rpc_client_strerror( long err ) {
+  switch( err ) {
+    case FD_RPC_CLIENT_SUCCESS:       return "Success";
+    case FD_RPC_CLIENT_PENDING:       return "Pending";
+    case FD_RPC_CLIENT_ERR_NOT_FOUND: return "Not found";
+    case FD_RPC_CLIENT_ERR_TOO_LARGE: return "Request too large";
+    case FD_RPC_CLIENT_ERR_TOO_MANY:  return "Too many requests in flight";
+    case FD_RPC_CLIENT_ERR_MALFORMED: return "Malformed response";
+    case FD_RPC_CLIENT_ERR_NETWORK:   return "Network error";
+    default:                          return "Unknown error";
+  }
+}
+
 FD_FN_CONST static inline ulong fd_rpc_client_align    ( void ) { return FD_RPC_CLIENT_ALIGN; }
 FD_FN_CONST static inline ulong fd_rpc_client_footprint( void ) { return FD_RPC_CLIENT_FOOTPRINT; }
 

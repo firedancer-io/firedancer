@@ -714,14 +714,6 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_bank_signature_count_set( slot_ctx->bank, 0UL );
 
-  fd_bank_txn_count_set( slot_ctx->bank, 0UL );
-
-  fd_bank_nonvote_txn_count_set( slot_ctx->bank, 0UL );
-
-  fd_bank_failed_txn_count_set( slot_ctx->bank, 0UL );
-
-  fd_bank_nonvote_failed_txn_count_set( slot_ctx->bank, 0UL );
-
   fd_bank_total_compute_units_used_set( slot_ctx->bank, 0UL );
 
   /* Setup cost tracker */
@@ -729,7 +721,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
       fd_bank_cost_tracker_locking_modify( slot_ctx->bank ),
       fd_bank_features_query( slot_ctx->bank ),
       fd_bank_slot_get( slot_ctx->bank ),
-      999UL ) );
+      999UL /* TODO: Needs real seed */ ) );
   if( FD_UNLIKELY( !cost_tracker ) ) {
     FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
   }

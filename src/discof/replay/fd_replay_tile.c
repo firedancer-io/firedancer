@@ -471,8 +471,7 @@ fd_replay_out_vote_tower_from_funk(
     fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, funk_txn, &funk_key, NULL, &query );
     if( FD_UNLIKELY( !rec ) ) {
-      FD_LOG_WARNING(( "vote account not found. address: %s",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+      FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
       return -1;
     }
 
@@ -712,8 +711,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-  slot_info->transaction_count     = fd_bank_txn_count_get( ctx->slot_ctx->bank );
-  slot_info->shred_count           = fd_bank_shred_cnt_get( ctx->slot_ctx->bank );
+  slot_info->transaction_count     = fd_bank_txn_count_get( bank );
+  slot_info->shred_count           = fd_bank_shred_cnt_get( bank );
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -1093,7 +1092,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   ctx->is_leader = 1;
   ctx->highwater_leader_slot = fd_ulong_max( ctx->next_leader_slot, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
 
-  FD_LOG_NOTICE(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
+  FD_LOG_INFO(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
   /* Acquires bank, sets up initial state, and refcnts it. */
   fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, &ctx->reset_block_id, stem );
@@ -1653,8 +1652,14 @@ process_fec_set( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( !bank ) ) {
         FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
       }
-      FD_LOG_WARNING(("FINI LEADER BANK %lu", reasm_fec->slot));
       fini_leader_bank( ctx, bank, stem );
+
+      fd_eslot_t          eslot        = fd_eslot( reasm_fec->slot, 0UL );
+      fd_funk_txn_xid_t   xid          = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
+      fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
+      fd_funk_txn_t *     funk_txn     = fd_funk_txn_query( &xid, txn_map );
+      ctx->slot_ctx->funk_txn = funk_txn;
+
       bank->refcnt--;
     }
     /* We don't want to replay the block again, so we will not add any
