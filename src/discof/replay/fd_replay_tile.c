@@ -960,14 +960,15 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
     .bank     = bank,
     .funk_txn = funk_txn,
   };
-
   fd_runtime_block_execute_finalize( &slot_ctx );
 
   publish_slot_completed( ctx, stem, bank, 0 );
 
   /* Copy the vote tower of all the vote accounts into the buffer,
       which will be published in after_credit. */
-  buffer_vote_towers( ctx, ctx->slot_ctx->funk_txn, ctx->slot_ctx->bank );
+  buffer_vote_towers( ctx, funk_txn, bank );
+
+  bank->refcnt--;
 }
 
 static void
@@ -1116,7 +1117,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   }
 
   msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
-  msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( ctx->slot_ctx->bank ), ctx->next_leader_slot, NULL );
+  msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), ctx->next_leader_slot, NULL );
   fd_memset( msg->bundle, 0, sizeof(msg->bundle) );
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
@@ -1175,7 +1176,7 @@ publish_reset( fd_replay_tile_t *  ctx,
 
   fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
 
-  reset->completed_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+  reset->completed_slot = fd_bank_slot_get( bank );
   reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
   reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
@@ -1607,7 +1608,6 @@ process_tower_update( fd_replay_tile_t *           ctx,
   }
 
   FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, new_root=%d, root_slot=%lu, root_block_id=%s", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->new_root, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
-  maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->new_root ) ) {
 
@@ -1618,6 +1618,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
     publish_root_advanced( ctx, stem );
     advance_published_root( ctx );
   }
+  maybe_become_leader( ctx, stem );
 }
 
 static void
@@ -1653,14 +1654,6 @@ process_fec_set( fd_replay_tile_t *  ctx,
         FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
       }
       fini_leader_bank( ctx, bank, stem );
-
-      fd_eslot_t          eslot        = fd_eslot( reasm_fec->slot, 0UL );
-      fd_funk_txn_xid_t   xid          = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
-      fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
-      fd_funk_txn_t *     funk_txn     = fd_funk_txn_query( &xid, txn_map );
-      ctx->slot_ctx->funk_txn = funk_txn;
-
-      bank->refcnt--;
     }
     /* We don't want to replay the block again, so we will not add any
        of the FEC sets for a leader block to the scheduler. */
