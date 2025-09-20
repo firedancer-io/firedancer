@@ -75,12 +75,13 @@ struct fd_quic_conn_stream_rx {
 typedef struct fd_quic_conn_stream_rx fd_quic_conn_stream_rx_t;
 
 struct fd_quic_conn {
-  uint               conn_idx;            /* connection index */
+  /* 'PERSISTENT' means field should survive a conn_clear */
+  uint               conn_idx;            /* connection index - PERSISTENT */
                                           /* connections are sized at runtime */
                                           /* storing the index avoids a division */
-  uint               conn_gen;            /* generation of this connection slot */
+  uint               conn_gen;            /* generation of this connection slot - PERSISTENT */
 
-  fd_quic_t *        quic;
+  fd_quic_t *        quic;                /* PERSISTENT */
   void *             context;             /* user context */
 
   uint               server      : 1;     /* role from self POV: 0=client, 1=server */
@@ -155,7 +156,7 @@ struct fd_quic_conn {
   ulong tx_next_stream_id;  /* stream ID to be used for new stream */
   ulong tx_sup_stream_id;   /* highest allowed TX stream ID + 4 */
 
-  fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream */
+  fd_quic_stream_map_t *  stream_map;           /* map stream_id -> stream - PERSISTENT */
 
   /* packet number info
      each encryption level maps to a packet number space
@@ -163,10 +164,10 @@ struct fd_quic_conn {
      pkt_number[j] represents the minimum acceptable packet number
        "expected packet number"
        packets with a number lower than this will be dropped */
-  ulong exp_pkt_number[3]; /* different packet number spaces:
+  ulong exp_pkt_number[3];  /* different packet number spaces:
                                  INITIAL, HANDSHAKE and APPLICATION */
-  ulong pkt_number[3];     /* tx packet number by pn space */
-  ulong last_pkt_number[3]; /* last (highest) packet numer seen */
+  ulong pkt_number[3];      /* tx packet number by pn space */
+  ulong last_pkt_number[3]; /* last (highest) packet number seen */
 
   ushort ipv4_id;           /* ipv4 id field */
 
@@ -175,7 +176,7 @@ struct fd_quic_conn {
   uchar   tx_buf_conn[2048];
   uchar * tx_ptr; /* ptr to free space in tx_buf_conn */
 
-  uint state;
+  uint state;      /* PERSISTENT to keep state counters correct */
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
   uint app_reason; /* application reason for closing */
 
@@ -269,15 +270,17 @@ fd_quic_conn_new( void *                   mem,
 static inline void
 fd_quic_conn_clear( fd_quic_conn_t * conn ) {
   fd_quic_t            * quic       = conn->quic;
-  uint                   conn_state = conn->state;
   uint                   conn_idx   = conn->conn_idx;
+  uint                   conn_gen   = conn->conn_gen;
+  uint                   conn_state = conn->state;
   fd_quic_stream_map_t * stream_map = conn->stream_map;
 
   fd_memset( conn, 0, sizeof( fd_quic_conn_t ) );
 
   conn->quic       = quic;
-  conn->state      = conn_state;
   conn->conn_idx   = conn_idx;
+  conn->conn_gen   = conn_gen;
+  conn->state      = conn_state;
   conn->stream_map = stream_map;
 }
 
