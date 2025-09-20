@@ -146,7 +146,7 @@
   {"name":"delay_visibility_of_program_deployment","pubkey": "GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"apply_cost_tracker_during_replay","pubkey": "2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj","cleaned_up":[2,3,0],"hardcode_for_fuzzing":1},
   {"name":"deplete_cu_meter_on_vm_failure","pubkey": "B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq","comment":"do not set hardcode_for_fuzzing for this - it significantly degrades vm fuzzing discovery"},
-  {"name":"bpf_account_data_direct_mapping","pubkey": "AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx","old": "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq"},
+  {"name":"bpf_account_data_direct_mapping","pubkey": "AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx","old": "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq","reverted":1},
   {"name":"add_set_tx_loaded_accounts_data_size_instruction","pubkey": "G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"switch_to_new_elf_parser","pubkey": "Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD","cleaned_up":[2,1,0],"hardcode_for_fuzzing":1},
   {"name":"round_up_heap_size","pubkey": "CE2et8pqgyQMP2mQRg3CgvX8nJBKUArMu3wfiQiQKY1y","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
@@ -240,5 +240,7 @@
   {"name":"enable_extend_program_checked","pubkey":"2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz"},
   {"name":"require_static_nonce_account","pubkey":"7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm"},
   {"name":"enable_vote_address_leader_schedule","pubkey":"5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y"},
-  {"name":"enshrine_slashing_program","pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"}
+  {"name":"enshrine_slashing_program","pubkey":"sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ"},
+  {"name":"stricter_abi_and_runtime_constraints","pubkey":"C37iaPi6VE4CZDueU1vL8y6pGp5i8amAbEsF31xzz723"},
+  {"name":"direct_mapping_2","pubkey":"qTcv56zqjacegAfYXCciP1TAz7J4w6G43263C1ugD4S","comment":"FIXME: update with real pubkey once feature is created"}
 ]
