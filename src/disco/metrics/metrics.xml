@@ -358,7 +358,8 @@ metric introduced.
     <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent processing packets</summary>
     </histogram>
-    <histogram name="SignDurationSeconds" min="0.000001" max="0.1" converter="seconds">
+    <histogram name="SignDurationNanos" min="1000" max="5000000" converter="none">
+      <!-- 1µs to 5ms -->
       <summary>Duration spent waiting for tls_cv signatures</summary>
     </histogram>
 </tile>
