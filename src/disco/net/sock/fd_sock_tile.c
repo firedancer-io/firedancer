@@ -215,7 +215,7 @@ privileged_init( fd_topo_t *      topo,
   for( uint candidate_idx=0U; candidate_idx<7; candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
     uint sock_idx = ctx->sock_cnt;
-    if( candidate_idx>FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
+    if( sock_idx>=FD_SOCK_TILE_MAX_SOCKETS ) FD_LOG_ERR(( "too many sockets" ));
     ushort port = (ushort)udp_port_candidates[ candidate_idx ];
 
     /* Validate value of REPAIR_SHRED_SOCKET_ID */
