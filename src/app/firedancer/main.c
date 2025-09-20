@@ -70,6 +70,7 @@ extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_cswtch;
 extern fd_topo_run_tile_t fd_tile_gui;
+extern fd_topo_run_tile_t fd_tile_rpc;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bundle;
 
@@ -82,7 +83,6 @@ extern fd_topo_run_tile_t fd_tile_writer;
 extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
-extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_genesi;
 extern fd_topo_run_tile_t fd_tile_ipecho;
 
@@ -101,6 +101,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_metric,
   &fd_tile_cswtch,
   &fd_tile_gui,
+  &fd_tile_rpc,
   &fd_tile_plugin,
   &fd_tile_bundle,
   &fd_tile_gossvf,
@@ -112,7 +113,6 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_poh,
   &fd_tile_send,
   &fd_tile_tower,
-  &fd_tile_rpcserv,
   &fd_tile_genesi,
   &fd_tile_ipecho,
   NULL,

@@ -662,13 +662,11 @@ fd_topo_initialize( config_t * config ) {
     /* No default fd_topob_tile_in connection to stake_out */
   }
 
-  int rpc_enabled = config->rpc.port;
+  int rpc_enabled = config->tiles.rpc.enabled;
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_wksp( topo, "rpcsrv" );
-    fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_wksp( topo, "rpc" );
+    fd_topob_tile( topo, "rpc",  "rpc",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "replay_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /* For now the only plugin consumer is the GUI */
@@ -807,11 +805,6 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "genesi", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( snapshots_enabled ) ) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-
-  if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) fd_topo_configure_tile( &topo->tiles[ i ], config );
 
@@ -967,7 +960,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     strncpy( tile->replay.blockstore_file,    config->firedancer.blockstore.file,    sizeof(tile->replay.blockstore_file) );
     strncpy( tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(tile->replay.blockstore_checkpt) );
 
-    tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
+    tile->replay.tx_metadata_storage = config->tiles.replay.extended_tx_metadata_storage;
 
     tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
 
@@ -1134,19 +1127,14 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "rpc" ) ) ) {
 
-    strncpy( tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(tile->replay.blockstore_file) );
-    tile->rpcserv.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    tile->rpcserv.store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
-    tile->rpcserv.rpc_port = config->rpc.port;
-    tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
-    tile->rpcserv.tpu_ip_addr = config->net.ip_addr;
-    tile->rpcserv.block_index_max = config->rpc.block_index_max;
-    tile->rpcserv.txn_index_max = config->rpc.txn_index_max;
-    tile->rpcserv.acct_index_max = config->rpc.acct_index_max;
-    strncpy( tile->rpcserv.history_file, config->rpc.history_file, sizeof(tile->rpcserv.history_file) );
-    strncpy( tile->rpcserv.identity_key_path, config->paths.identity_key, sizeof(tile->rpcserv.identity_key_path) );
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.rpc.rpc_listen_address, &tile->rpc.listen_addr ) ) )
+      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
+    tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
+    tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
+    tile->rpc.max_http_request_length   = config->tiles.rpc.max_http_request_length;
+    tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                           !strcmp( tile->name, "arch_w" ) ) ) {

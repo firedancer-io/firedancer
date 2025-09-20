@@ -62,6 +62,8 @@ struct fd_configh {
   } consensus;
 
   struct {
+    ushort port;
+    int    extended_tx_metadata_storage;
     int    full_api;
     int    private;
     char   bind_address[ 16 ];
@@ -261,15 +263,6 @@ struct fd_config {
   } gossip;
 
   struct {
-    ushort port;
-    int    extended_tx_metadata_storage;
-    uint   block_index_max;
-    uint   txn_index_max;
-    uint   acct_index_max;
-    char   history_file[ PATH_MAX ];
-  } rpc;
-
-  struct {
     char affinity[ AFFINITY_SZ ];
 
     uint net_tile_count;
@@ -447,6 +440,15 @@ struct fd_config {
     } gui;
 
     struct {
+      int    enabled;
+      char   rpc_listen_address[ 16 ];
+      ushort rpc_listen_port;
+      ulong  max_http_connections;
+      ulong  max_http_request_length;
+      ulong  send_buffer_size_mb;
+    } rpc;
+
+    struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
       ulong  slot_max;
@@ -460,6 +462,7 @@ struct fd_config {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
       ulong heap_size_gib;
+      int   extended_tx_metadata_storage;
     } replay;
 
     struct {
