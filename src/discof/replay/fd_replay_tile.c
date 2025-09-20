@@ -727,21 +727,21 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_t * bank = ctx->slot_ctx->bank;
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
-  fd_eslot_t eslot = fd_bank_eslot_get( bank );
+  // fd_eslot_t eslot = fd_bank_eslot_get( bank );
 
-  /* We know at this point that we must have an entry in the eslot mgr
-     for both the current bank's eslot and the parent eslot as well. */
-  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, eslot );
-  if( FD_UNLIKELY( !ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
-  }
-  fd_eslot_ele_t * parent_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_parent_eslot_get( bank ) );
-  if( FD_UNLIKELY( !parent_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_parent_eslot_get( bank ) ), fd_eslot_prime( fd_bank_parent_eslot_get( bank ) ) ));
-  }
+  // /* We know at this point that we must have an entry in the eslot mgr
+  //    for both the current bank's eslot and the parent eslot as well. */
+  // fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, eslot );
+  // if( FD_UNLIKELY( !ele ) ) {
+  //   FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
+  // }
+  // fd_eslot_ele_t * parent_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_parent_eslot_get( bank ) );
+  // if( FD_UNLIKELY( !parent_ele ) ) {
+  //   FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_parent_eslot_get( bank ) ), fd_eslot_prime( fd_bank_parent_eslot_get( bank ) ) ));
+  // }
 
-  fd_hash_t const * block_id        = &ele->merkle_root;
-  fd_hash_t const * parent_block_id = &parent_ele->merkle_root;
+  fd_hash_t const * block_id        = NULL; /* TODO:FIXME: */
+  fd_hash_t const * parent_block_id = NULL; /* TODO:FIXME: */
   fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
   fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
   FD_TEST( block_id        );
@@ -750,11 +750,12 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   FD_TEST( block_hash      );
 
   /* Set poh hash in bank. */
-  fd_hash_t * poh = fd_sched_get_poh( ctx->sched, &eslot );
+  fd_eslot_t eslotFIXME = fd_eslot( 0, 0 ); /* TODO:FIXME: */
+  fd_hash_t * poh = fd_sched_get_poh( ctx->sched, &eslotFIXME );
   fd_bank_poh_set( bank, *poh );
 
   /* Set shred count in bank. */
-  fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, &eslot ) );
+  fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, &eslotFIXME ) );
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( ctx->slot_ctx );
@@ -799,7 +800,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
-  fd_bank_hash_cmp_insert( bank_hash_cmp, fd_eslot_slot( eslot ), bank_hash, 1, 0 );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, fd_bank_slot_get( bank ), bank_hash, 1, 0 );
 
   if( FD_UNLIKELY( ctx->shredcap_out->idx!=ULONG_MAX ) ) {
     /* TODO: We need some way to define common headers. */
@@ -936,8 +937,12 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
   bank->flags |= FD_BANK_FLAGS_FROZEN;
 
-  fd_eslot_t leader_eslot = fd_bank_eslot_get( bank );
-  fd_eslot_t parent_eslot = fd_eslot( fd_bank_parent_slot_get( bank ), 0UL );
+  ulong leader_slot = fd_bank_slot_get( bank );
+  ulong parent_slot = fd_bank_parent_slot_get( bank );
+
+  /* TODO:FIXME: */
+  fd_eslot_t leader_eslot = fd_eslot( leader_slot, 0UL );
+  fd_eslot_t parent_eslot = fd_eslot( parent_slot, 0UL );
   fd_sched_block_add_done( ctx->sched, &leader_eslot, &parent_eslot );
 
   ulong curr_slot = fd_bank_slot_get( bank );
@@ -975,12 +980,15 @@ static void
 publish_root_advanced( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem ) {
 
-  fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ) );
+  /* TODO:FIXME: Get the fork idx from the fork idx_map */
+
+  // fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ) );
+  fd_bank_t * consensus_root_bank = NULL;
   FD_TEST( consensus_root_bank );
   consensus_root_bank->refcnt += ctx->resolv_tile_cnt;
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
+  msg->bank_idx = consensus_root_bank->fork_idx;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_ROOT_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -1103,7 +1111,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->slot_start_ns = now;
   msg->slot_end_ns   = now+(long)ctx->slot_duration_nanos;
   msg->bank = NULL;
-  msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, bank );
+  msg->bank_idx = bank->fork_idx;
   msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
@@ -1339,7 +1347,8 @@ replay( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
   if( ctx->block_draining ) {
-    fd_eslot_t eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
+    /* TODO:FIXME: eslot is wrong */
+    fd_eslot_t eslot = fd_eslot( fd_bank_slot_get( ctx->slot_ctx->bank ), 0UL );
     if( fd_sched_block_is_done( ctx->sched, &eslot ) ) {
       ctx->block_draining = 0;
       replay_block_finalize( ctx, stem );
@@ -1354,7 +1363,10 @@ replay( fd_replay_tile_t *  ctx,
     if( FD_LIKELY( fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
       FD_TEST( ready_txn->txn_id!=FD_SCHED_TXN_ID_NULL );
       charge_busy = 1;
-      fd_eslot_t bank_eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
+
+      /* TODO:FIXME: eslot, should be fork idx */
+      // fd_eslot_t bank_eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
+      fd_eslot_t bank_eslot = fd_eslot( fd_bank_slot_get( ctx->slot_ctx->bank ), 0UL );
 
       if( FD_UNLIKELY( ready_txn->block_start ) ) {
         replay_block_start( ctx,
@@ -1399,7 +1411,7 @@ replay( fd_replay_tile_t *  ctx,
       fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
       fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
       memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
-      exec_msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->slot_ctx->bank );
+      exec_msg->bank_idx = ctx->slot_ctx->bank->fork_idx;
       fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
     } else {
@@ -1478,7 +1490,9 @@ process_txn_finalized( fd_replay_tile_t *                           ctx,
 
   /* Abort bad blocks. */
   if( FD_UNLIKELY( fd_banks_is_bank_dead( ctx->slot_ctx->bank ) ) ) {
-    fd_eslot_t eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
+    // fd_eslot_t eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
+    /* TODO:FIXME: eslot */
+    fd_eslot_t eslot = fd_eslot( fd_bank_slot_get( ctx->slot_ctx->bank ), 0UL );
     fd_sched_block_abandon( ctx->sched, &eslot );
   }
 }
@@ -1523,7 +1537,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
   if( !ctx->has_identity_vote_rooted ) {
-    fd_bank_t * root_bank = fd_banks_get_bank( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ) );
+    fd_bank_t * root_bank = fd_banks_get_fork_idx( ctx->banks, ctx->banks->root_idx );
     if( FD_LIKELY( !!root_bank ) ) {
       if( FD_UNLIKELY( !ctx->has_identity_vote_rooted && fd_bank_has_identity_vote_get( root_bank ) ) ) {
         ctx->has_identity_vote_rooted = 1;
@@ -1531,11 +1545,13 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     }
   }
 
-  fd_eslot_t publishable_root;
-  if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ), &publishable_root ) ) ) return;
+  /* TODO:FIXME: wtf */
 
-  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, publishable_root );
-  FD_TEST( bank );
+  ulong publishable_root;
+  if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, ULONG_MAX, &publishable_root ) ) ) return;
+
+  // fd_bank_t * bank = fd_banks_get_bank( ctx->banks, publishable_root );
+  // FD_TEST( bank );
 
   fd_eslot_ele_t * publishable_root_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, publishable_root );
 

@@ -524,7 +524,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
+  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 11000UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -574,7 +574,7 @@ test_program_upgraded_with_larger_programdata( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
+  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 11000UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 

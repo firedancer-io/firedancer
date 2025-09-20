@@ -64,9 +64,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* Slot */
 
-  fd_eslot_t old_eslot = fd_bank_eslot_get( slot_ctx->bank );
-  fd_eslot_t eslot     = fd_eslot( manifest->slot, 0UL );
-  fd_banks_rekey_bank( slot_ctx->banks, old_eslot, eslot );
+  fd_bank_slot_set( slot_ctx->bank, manifest->slot );
 
   /* Bank Hash */
 

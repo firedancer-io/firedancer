@@ -370,13 +370,12 @@ after_frag( fd_resolv_ctx_t *   ctx,
         fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
         /* Replace current bank with new bank */
-        ulong prev_bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->bank );
-        ctx->bank = fd_banks_get_bank_idx( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
+        ulong prev_bank_idx = ctx->bank->fork_idx;
 
         /* Send slot completed message back to replay, so it can decrement
            the refcount of the previous bank. */
-        if( FD_UNLIKELY( prev_bank_idx!=fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) ) ) ) {
+        if( FD_UNLIKELY( prev_bank_idx!=ULONG_MAX ) ) {
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           fd_resolv_slot_exchanged_t * slot_exchanged =
             fd_type_pun( fd_chunk_to_laddr( ctx->out_replay->mem, ctx->out_replay->chunk ) );
@@ -384,6 +383,9 @@ after_frag( fd_resolv_ctx_t *   ctx,
           fd_stem_publish( stem, 1UL, 0UL, ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), 0UL, tsorig, tspub );
           ctx->out_replay->chunk = fd_dcache_compact_next( ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), ctx->out_replay->chunk0, ctx->out_replay->wmark );
         }
+
+        ctx->bank = fd_banks_get_fork_idx( ctx->banks, msg->bank_idx );
+        FD_TEST( ctx->bank );
 
         break;
       }

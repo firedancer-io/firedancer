@@ -177,6 +177,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_BANKS_ITER(X)                                                                                                                                                                                                                               \
   /* type,                             name,                        footprint,                                 align,                                      CoW, limit fork width, has lock */                                                          \
+  X(ulong,                             slot,                        sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Slot */                                                   \
+  X(ulong,                             parent_slot,                 sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Parent slot */                                            \
   X(fd_blockhashes_t,                  block_hash_queue,            sizeof(fd_blockhashes_t),                  alignof(fd_blockhashes_t),                  0,   0,                0    )  /* Block hash queue */                                       \
   X(fd_fee_rate_governor_t,            fee_rate_governor,           sizeof(fd_fee_rate_governor_t),            alignof(fd_fee_rate_governor_t),            0,   0,                0    )  /* Fee rate governor */                                      \
   X(ulong,                             capitalization,              sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Capitalization */                                         \
@@ -313,14 +315,13 @@ struct fd_bank {
   #define FD_BANK_HEADER_SIZE (offsetof(fd_bank_t, refcnt) + sizeof(ulong))
 
   /* Fields used for internal pool and bank management */
-  fd_eslot_t        eslot_;        /* slot and slot counter that the bank is tracking */
-  fd_eslot_t        parent_eslot_; /* parent slot and slot counter that the bank is tracking */
-  ulong             next;          /* reserved for internal use by fd_pool_para, fd_map_chain_para and fd_banks_publish */
-  ulong             parent_idx;    /* index of the parent in the node pool */
-  ulong             child_idx;     /* index of the left-child in the node pool */
-  ulong             sibling_idx;   /* index of the right-sibling in the node pool */
-  ulong             flags;         /* (r) keeps track of the state of the bank, as well as some configurations */
-  ulong             refcnt;        /* (r) reference count on the bank, see replay for more details */
+  ulong             fork_idx;    /* index into the fork array */
+  ulong             parent_idx;  /* index of the parent in the node pool */
+  ulong             child_idx;   /* index of the left-child in the node pool */
+  ulong             sibling_idx; /* index of the right-sibling in the node pool */
+  ulong             flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
+  ulong             is_valid;
 
   /* First, layout all non-CoW fields contiguously. This is done to
      allow for cloning the bank state with a simple memcpy. Each
@@ -422,18 +423,6 @@ fd_bank_footprint( void );
    The data is laid out contiguously in memory starting from fd_banks_t;
    this can be seen in fd_banks_footprint(). */
 
-#define POOL_NAME fd_banks_pool
-#define POOL_T    fd_bank_t
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               fd_banks_map
-#define MAP_ELE_T              fd_bank_t
-#define MAP_KEY_T              fd_eslot_t
-#define MAP_KEY                eslot_
-#define MAP_KEY_EQ(k0,k1)      (k0->id==k1->id)
-#define MAP_KEY_HASH(key,seed) (fd_ulong_hash( key->id ^ seed ))
-#include "../../util/tmpl/fd_map_chain.c"
-
 struct fd_banks {
   ulong       magic;           /* ==FD_BANKS_MAGIC */
   ulong       max_total_banks; /* Maximum number of banks */
@@ -452,8 +441,7 @@ struct fd_banks {
      synchronization on individual fields within a bank. */
   fd_rwlock_t rwlock;
 
-  ulong       pool_offset;     /* offset of pool from banks */
-  ulong       map_offset;      /* offset of map from banks */
+  ulong bank_array_offset;
 
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:
@@ -513,45 +501,10 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1
 
-/* fd_bank_slot_get() returns the slot of a given bank. */
-
-static inline ulong
-fd_bank_slot_get( fd_bank_t const * bank ) {
-  return bank->eslot_.slot;
-}
-
-/* fd_bank_prime_get() returns the prime count of a given bank. */
-
-static inline uint
-fd_bank_prime_get( fd_bank_t const * bank ) {
-  return bank->eslot_.prime;
-}
-
-/* fd_bank_eslot_get() returns the eslot of a given bank. */
-
-static inline fd_eslot_t
-fd_bank_eslot_get( fd_bank_t const * bank ) {
-  return bank->eslot_;
-}
-
-static inline ulong
-fd_bank_parent_slot_get( fd_bank_t const * bank ) {
-  return bank->parent_eslot_.slot;
-}
-
-static inline uint
-fd_bank_parent_prime_get( fd_bank_t const * bank ) {
-  return bank->parent_eslot_.prime;
-}
-
-static inline fd_eslot_t
-fd_bank_parent_eslot_get( fd_bank_t const * bank ) {
-  return bank->parent_eslot_;
-}
-
-static inline void
-fd_bank_parent_eslot_set( fd_bank_t * bank, fd_eslot_t parent_eslot ) {
-  bank->parent_eslot_ = parent_eslot;
+static inline fd_bank_t *
+fd_banks_get_fork_idx( fd_banks_t * banks,
+                       ulong        fork_idx ) {
+  return (fd_bank_t *)((uchar *)banks + banks->bank_array_offset + fork_idx * fd_bank_footprint());
 }
 
 /* Each bank has a fd_stake_delegations_t object which is delta-based.
@@ -616,40 +569,6 @@ fd_bank_stake_delegations_frontier_query( fd_banks_t * banks,
 fd_stake_delegations_t *
 fd_banks_stake_delegations_root_query( fd_banks_t * banks );
 
-/* Simple getters and setters for the various maps and pools in
-   fd_banks_t. Notably, the map/pool pairs for the fd_bank_t structs as
-   well as all of the CoW structs in the banks. */
-
-static inline fd_bank_t *
-fd_banks_get_bank_pool( fd_banks_t const * banks ) {
-  return fd_banks_pool_join( ((uchar *)banks + banks->pool_offset) );
-}
-
-static inline fd_banks_map_t *
-fd_banks_get_bank_map( fd_banks_t const * banks ) {
-  return fd_banks_map_join( ((uchar *)banks + banks->map_offset) );
-}
-
-static inline void
-fd_banks_set_bank_pool( fd_banks_t * banks,
-                        fd_bank_t *  bank_pool ) {
-  void * bank_pool_mem = fd_banks_pool_leave( bank_pool );
-  if( FD_UNLIKELY( !bank_pool_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave bank pool" ));
-  }
-  banks->pool_offset = (ulong)bank_pool_mem - (ulong)banks;
-}
-
-static inline void
-fd_banks_set_bank_map( fd_banks_t *     banks,
-                       fd_banks_map_t * bank_map ) {
-  void * bank_map_mem = fd_banks_map_leave( bank_map );
-  if( FD_UNLIKELY( !bank_map_mem ) ) {
-    FD_LOG_CRIT(( "Failed to leave bank map" ));
-  }
-  banks->map_offset = (ulong)bank_map_mem - (ulong)banks;
-}
-
 #define HAS_COW_1(type, name, footprint, align)                                    \
 static inline fd_bank_##name##_t *                                                 \
 fd_banks_get_##name##_pool( fd_banks_t * banks ) {                                 \
@@ -672,20 +591,6 @@ FD_BANKS_ITER(X)
 #undef X
 #undef HAS_COW_0
 #undef HAS_COW_1
-
-
-/* fd_banks_root() and fd_banks_root_const() returns a non-const and
-   const pointer to the root bank respectively. */
-
-FD_FN_PURE static inline fd_bank_t const *
-fd_banks_root_const( fd_banks_t const * banks ) {
-  return fd_banks_pool_ele_const( fd_banks_get_bank_pool( banks ), banks->root_idx );
-}
-
-FD_FN_PURE static inline fd_bank_t *
-fd_banks_root( fd_banks_t * banks ) {
-  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), banks->root_idx );
-}
 
 /* fd_banks_align() returns the alignment of fd_banks_t */
 
@@ -744,43 +649,7 @@ fd_banks_delete( void * shmem );
 
 fd_bank_t *
 fd_banks_init_bank( fd_banks_t * banks,
-                    fd_eslot_t   eslot );
-
-/* fd_banks_get_bank() returns a bank for a given eslot.  If said eslot
-   does not exist, NULL is returned.
-
-   The returned pointer is valid so long as the underlying bank does not
-   get pruned by a publishing operation.  Higher level components are
-   responsible for ensuring that publishing does not happen while a bank
-   is being accessed.  This is done through the reference counter. */
-
-fd_bank_t *
-fd_banks_get_bank( fd_banks_t * banks,
-                   fd_eslot_t   eslot );
-
-/* fd_banks_get_bank_idx returns a bank for a given index into the pool
-   of banks.  This function otherwise has the same behavior as
-   fd_banks_get_bank(). */
-
-static inline fd_bank_t *
-fd_banks_get_bank_idx( fd_banks_t * banks,
-                       ulong        idx ) {
-  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), idx );
-}
-
-/* fd_banks_get_pool_idx returns the index of a bank in the pool. */
-
-static inline ulong
-fd_banks_get_pool_idx( fd_banks_t * banks,
-                       fd_bank_t *  bank ) {
-  return fd_banks_pool_idx( fd_banks_get_bank_pool( banks ), bank );
-}
-
-static inline fd_bank_t *
-fd_banks_get_parent( fd_banks_t * banks,
-                     fd_bank_t *  bank ) {
-  return fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
-}
+                    ulong        fork_idx );
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
    If the bank corresponding to the parent eslot does not exist,
@@ -796,8 +665,8 @@ fd_banks_get_parent( fd_banks_t * banks,
 
 fd_bank_t *
 fd_banks_clone_from_parent( fd_banks_t * banks,
-                            fd_eslot_t   eslot,
-                            fd_eslot_t   parent_eslot );
+                            ulong        fork_idx,
+                            ulong        parent_fork_idx );
 
 /* fd_banks_publish() publishes a bank to the bank manager. This
    should only be used when a bank is no longer needed. This will
@@ -809,7 +678,7 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
 fd_bank_t const *
 fd_banks_publish( fd_banks_t * banks,
-                  fd_eslot_t   eslot );
+                  ulong        fork_idx );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
    be used with banks that have no children.
@@ -843,18 +712,8 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
 int
 fd_banks_publish_prepare( fd_banks_t * banks,
-                          fd_eslot_t   target_eslot,
-                          fd_eslot_t * publishable_eslot_out );
-
-/* fd_banks_rekey_banks updates the bank with eslot old_eslot to have a
-   new eslot new_eslot.  A bank with eslot old_eslot must be a valid
-   bank or the program will crash.  This function should NOT be called
-   once the current bank has child banks. */
-
-fd_bank_t *
-fd_banks_rekey_bank( fd_banks_t * banks,
-                     fd_eslot_t   old_eslot,
-                     fd_eslot_t   new_eslot );
+                          ulong        target_fork_idx,
+                          ulong *      publishable_fork_idx_out );
 
 /* fd_banks_mark_bank_dead marks the current bank (and all of its
    descendants) as dead.  The caller is still responsible for handling
@@ -870,20 +729,6 @@ static inline int
 fd_banks_is_bank_dead( fd_bank_t * bank ) {
   return bank->flags & FD_BANK_FLAGS_DEAD;
 }
-
-/* fd_banks_print pretty-prints a formatted banks tree.  Printing begins
-   from the rooted bank.  The printer prints out the fork structure
-   and the slot, eslot, and flags of each bank.
-
-   Calling this function acquires a read lock on the banks struct.  The
-   caller is responsible for making sure that there are no concurrent
-   writes to the eslot/flag fields for each bank.
-
-   The usage is as follows:
-   `fd_banks_print( banks )`. */
-
-void
-fd_banks_print( fd_banks_t * banks );
 
 /* fd_banks_validate does validation on the banks struct to make sure
    that there are no corruptions/invariant violations.  It returns 0
