@@ -11,6 +11,7 @@
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../util/hist/fd_histf.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -65,6 +66,11 @@ struct fd_tower_tile {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  struct {
+    fd_histf_t vote_slot[ 1 ];
+    fd_histf_t reset_slot[ 1 ];
+  } metrics[ 1 ];
 };
 
 typedef struct fd_tower_tile fd_tower_tile_t;
@@ -195,7 +201,9 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* 1. Determine next slot to vote for, if one exists. */
 
-  msg->vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
+  FD_HISTF_BENCH_BEGIN( ctx->metrics->vote_slot ) {
+    msg->vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
+  } FD_HISTF_BENCH_END;
 
   /* 2. Determine new root, if there is one.  A new vote slot can result
         in a new root but not always. */
@@ -226,7 +234,9 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* 4. Determine next slot to reset leader pipeline to. */
 
-  msg->reset_slot     = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
+  FD_HISTF_BENCH_BEGIN( ctx->metrics->reset_slot ) {
+    msg->reset_slot = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
+  } FD_HISTF_BENCH_END;
   msg->reset_block_id = *fd_ghost_hash( ctx->ghost, msg->reset_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
 
   /* Publish the frag */
