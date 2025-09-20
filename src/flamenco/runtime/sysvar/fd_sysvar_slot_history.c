@@ -4,6 +4,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_txn_account.h"
 #include "../../../funk/fd_funk_txn.h"
+#include <stdint.h>
 
 /* FIXME These constants should be header defines */
 
@@ -117,8 +118,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 fd_slot_history_global_t *
 fd_sysvar_slot_history_read( fd_funk_t *     funk,
                              fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad ) {
-
+                             void *          buf,
+                             ulong           bufsz ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
@@ -148,12 +149,11 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
     FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
   }
 
-  uchar * mem = fd_spad_alloc( spad, fd_slot_history_align(), total_sz );
-  if( !mem ) {
-    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
+  if( FD_UNLIKELY( bufsz<total_sz ) ) {
+    FD_LOG_ERR(( "Insufficient buffer size for slot history: need %lu, have %lu", total_sz, bufsz ));
   }
 
-  return fd_slot_history_decode_global( mem, &ctx );
+  return fd_slot_history_decode_global( buf, &ctx );
 }
 
 int

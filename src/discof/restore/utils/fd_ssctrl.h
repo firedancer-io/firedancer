@@ -38,15 +38,19 @@
    The keeps the tiles in lockstep, and simplifies the state machine to
    a manageable level. */
 
-#define FD_SNAPSHOT_MSG_DATA                   (0UL) /* Fragment represents some snapshot data */
+#define FD_SNAPSHOT_MSG_DATA                    (0UL) /* Fragment represents some snapshot data */
 
-#define FD_SNAPSHOT_MSG_CTRL_RESET_FULL        (1UL) /* Reset to start loading a fresh full snapshot */
-#define FD_SNAPSHOT_MSG_CTRL_EOF_FULL          (2UL) /* Full snapshot data is done, incremental data starting now */
-#define FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL (3UL) /* Incremental data being retried, start incremental over */
-#define FD_SNAPSHOT_MSG_CTRL_DONE              (4UL) /* Snapshot load is over, data is finished for this tile */
-#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (5UL) /* All tiles have acknowledged snapshot load is done, can now shutdown */
+#define FD_SNAPSHOT_MSG_CTRL_EXPECT_INCREMENTAL (1UL) /* Informational message, snapshot tiles should expect an incremental snapshot stream */
+#define FD_SNAPSHOT_MSG_CTRL_EXPECT_FULL_ONLY   (2UL) /* Informational message, snapshot tiles should expect a full snapshot stream only */
+#define FD_SNAPSHOT_MSG_CTRL_EXPECTED_SLOT      (3UL) /* Information message, the expected slot of the incoming snapshot stream */
 
-#define FD_SNAPSHOT_MSG_CTRL_ACK               (6UL) /* Sent from tiles back to snaprd, meaning they ACK whatever control message was pending */
-#define FD_SNAPSHOT_MSG_CTRL_MALFORMED         (7UL) /* Sent from tiles back to snaprd, meaning they consider the current snapshot malformed */
+#define FD_SNAPSHOT_MSG_CTRL_RESET_FULL         (3UL) /* Reset to start loading a fresh full snapshot */
+#define FD_SNAPSHOT_MSG_CTRL_EOF_FULL           (4UL) /* Full snapshot data is done, incremental data starting now */
+#define FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL  (5UL) /* Incremental data being retried, start incremental over */
+#define FD_SNAPSHOT_MSG_CTRL_DONE               (6UL) /* Snapshot load is over, data is finished for this tile */
+#define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN           (7UL) /* All tiles have acknowledged snapshot load is done, can now shutdown */
+
+#define FD_SNAPSHOT_MSG_CTRL_ACK                (8UL) /* Sent from tiles back to snaprd, meaning they ACK whatever control message was pending */
+#define FD_SNAPSHOT_MSG_CTRL_MALFORMED          (9UL) /* Sent from tiles back to snaprd, meaning they consider the current snapshot malformed */
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */

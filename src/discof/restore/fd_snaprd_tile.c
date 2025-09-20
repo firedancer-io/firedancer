@@ -2,6 +2,7 @@
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssarchive.h"
+#include "utils/fd_ssmsg.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -546,6 +547,9 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
+      if( FD_LIKELY( ctx->config.incremental_snapshot_fetch ) ) fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EXPECT_INCREMENTAL, 0UL, 0UL, 0UL, 0UL, 0UL );
+      else                                                      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EXPECT_FULL_ONLY,   0UL, 0UL, 0UL, 0UL, 0UL );
+
       ulong highest_cluster_slot = 0UL; /* TODO: Implement, using incremental snapshot slot for age */
       if( FD_LIKELY( ctx->local_in.full_snapshot_slot!=ULONG_MAX && ctx->local_in.full_snapshot_slot>=fd_ulong_sat_sub( highest_cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
         FD_LOG_NOTICE(( "reading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
@@ -587,7 +591,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
-    case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
+    case FD_SNAPRD_STATE_FLUSHING_FULL_FILE: {
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
       ctx->ack_cnt = 0UL;
 
@@ -598,11 +602,15 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
+      uint tsorig; uint tspub;
+      fd_ssmsg_slot_to_frag( ctx->local_in.incremental_snapshot_slot, &tsorig, &tspub );
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EXPECTED_SLOT, 0UL, 0UL, 0UL, tspub, tsorig );
       FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
       ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
       break;
-    case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
+    }
+    case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP: {
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
       ctx->ack_cnt = 0UL;
 
@@ -623,10 +631,15 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
+      /* TODO: get the expected slot */
+      uint tsorig; uint tspub;
+      fd_ssmsg_slot_to_frag( ULONG_MAX, &tsorig, &tspub );
+      fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_EXPECTED_SLOT, 0UL, 0UL, 0UL, tspub, tsorig );
       FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
+    }
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:
     case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
