@@ -731,8 +731,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* init metrics */
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
   fd_histf_join( fd_histf_new( ctx->metrics.sign_duration,
-                                  FD_MHIST_SECONDS_MIN( SEND, SIGN_DURATION_SECONDS    ),
-                                  FD_MHIST_SECONDS_MAX( SEND, SIGN_DURATION_SECONDS    ) ) );
+                                  FD_MHIST_MIN( SEND, SIGN_DURATION_NANOS    ),
+                                  FD_MHIST_MAX( SEND, SIGN_DURATION_NANOS    ) ) );
 
   /* Call new/join here rather than in fd_quic so min/max can differ across uses */
   fd_histf_join( fd_histf_new( quic->metrics.service_duration,
@@ -807,7 +807,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET(     SEND, STAKED_NO_CI,                 ctx->metrics.staked_no_ci                                 );
   FD_MGAUGE_SET(     SEND, STALE_CI,                     ctx->metrics.stale_ci                                     );
 
-  FD_MHIST_COPY(     SEND, SIGN_DURATION_SECONDS,        ctx->metrics.sign_duration                                );
+  FD_MHIST_COPY(     SEND, SIGN_DURATION_NANOS,          ctx->metrics.sign_duration                                );
 
   /* General QUIC metrics */
   FD_MCNT_SET(         SEND, RECEIVED_BYTES,              ctx->quic->metrics.net_rx_byte_cnt         );

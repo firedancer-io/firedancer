@@ -836,7 +836,7 @@
 | <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | Total count of ACK frames transmitted (ACK suppressed by handler) |
 | <span class="metrics-name">send_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
 | <span class="metrics-name">send_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent processing packets |
-| <span class="metrics-name">send_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent waiting for tls_cv signatures |
+| <span class="metrics-name">send_&#8203;sign_&#8203;duration_&#8203;nanos</span> | histogram | Duration spent waiting for tls_cv signatures |
 
 </div>
 
