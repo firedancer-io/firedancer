@@ -679,6 +679,63 @@ metric introduced.
     </histogram>
 </tile>
 
+<enum name="RepairSentRequestTypes">
+    <int value="0" name="NeededWindow"          label="Need Window" />
+    <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
+    <int value="2" name="NeededOrphan"          label="Need Orphans" />
+    <int value="4" name="Pong"                  label="Pong" />
+</enum>
+
+<enum name="RepairServPktTypes">
+    <int value="0" name="Pong"                  label="Pong" />
+    <int value="1" name="Window"                label="Window" />
+    <int value="2" name="HighestWindow"         label="Highest Window" />
+    <int value="3" name="Orphan"                label="Orphan" />
+    <int value="4" name="Unknown"               label="Unknown" />
+</enum>
+
+<tile name="repair">
+    <counter name="RecvClntPkt"               clickhouse_exclude="true"                                 summary="Now many client packets have we received" />
+    <counter name="RecvServPkt"               clickhouse_exclude="true"                                 summary="How many server packets have we received" />
+    <counter name="RecvServCorruptPkt"        clickhouse_exclude="true"                                 summary="How many corrupt server packets have we received" />
+    <counter name="RecvServInvalidSignature"  clickhouse_exclude="true"                                 summary="How many invalid signatures have we received" />
+    <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
+    <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
+    <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
+    <counter name="ShredRepairReq"            clickhouse_exclude="true"                                 summary="How many repair requests have we sent" />
+    <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
+    <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
+    <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
+    <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
+      <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
+    </histogram>
+    <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
+      <summary>Time in seconds spent on linking a new FEC set</summary>
+    </histogram>
+    <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
+      <summary>Time in seconds it took to complete a slot</summary>
+    </histogram>
+    <histogram name="ResponseLatency"  min="10000000" max="1000000000">
+      <summary>Time in nanoseconds it took to receive a repair request response</summary>
+    </histogram>
+    <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
+</tile>
+
+<tile name="replay">
+  <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
+  </histogram>
+  <histogram name="StoreReadWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent on reading a FEC set</summary>
+  </histogram>
+  <histogram name="StorePublishWait" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to publish a new FEC set</summary>
+  </histogram>
+  <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent on publishing a new FEC set</summary>
+  </histogram>
+</tile>
+
 <enum name="ShredProcessingResult">
     <int value="-4" name="BadSlot" label="Shred was for a slot for which we don't know the leader" />
     <int value="-3" name="ParseFailed" label="Shred parsing failed" />
@@ -730,67 +787,13 @@ metric introduced.
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
-<tile name="replay">
-  <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
+<tile name="tower">
+  <histogram name="VoteSlot" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent computing vote slot</summary>
   </histogram>
-  <histogram name="StoreReadWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent on reading a FEC set</summary>
+  <histogram name="ResetSlot" min="0.00000001" max="0.001" converter="seconds">
+    <summary>Time in seconds spent computing reset slot</summary>
   </histogram>
-  <histogram name="StorePublishWait" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent waiting for the store to publish a new FEC set</summary>
-  </histogram>
-  <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
-    <summary>Time in seconds spent on publishing a new FEC set</summary>
-  </histogram>
-</tile>
-
-<tile name="storei">
-  <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
-  <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
-</tile>
-
-<enum name="RepairSentRequestTypes">
-    <int value="0" name="NeededWindow"          label="Need Window" />
-    <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
-    <int value="2" name="NeededOrphan"          label="Need Orphans" />
-    <int value="4" name="Pong"                  label="Pong" />
-</enum>
-
-<enum name="RepairServPktTypes">
-    <int value="0" name="Pong"                  label="Pong" />
-    <int value="1" name="Window"                label="Window" />
-    <int value="2" name="HighestWindow"         label="Highest Window" />
-    <int value="3" name="Orphan"                label="Orphan" />
-    <int value="4" name="Unknown"               label="Unknown" />
-</enum>
-
-
-<tile name="repair">
-    <counter name="RecvClntPkt"               clickhouse_exclude="true"                                 summary="Now many client packets have we received" />
-    <counter name="RecvServPkt"               clickhouse_exclude="true"                                 summary="How many server packets have we received" />
-    <counter name="RecvServCorruptPkt"        clickhouse_exclude="true"                                 summary="How many corrupt server packets have we received" />
-    <counter name="RecvServInvalidSignature"  clickhouse_exclude="true"                                 summary="How many invalid signatures have we received" />
-    <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
-    <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
-    <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
-    <counter name="ShredRepairReq"            clickhouse_exclude="true"                                 summary="How many repair requests have we sent" />
-    <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
-    <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
-    <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
-    <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
-      <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
-    </histogram>
-    <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
-      <summary>Time in seconds spent on linking a new FEC set</summary>
-    </histogram>
-    <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
-      <summary>Time in seconds it took to complete a slot</summary>
-    </histogram>
-    <histogram name="ResponseLatency"  min="10000000" max="1000000000">
-      <summary>Time in nanoseconds it took to receive a repair request response</summary>
-    </histogram>
-    <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
 </tile>
 
 <enum name="CrdsValue">

@@ -144,6 +144,7 @@
 
 #include "../../flamenco/fd_rwlock.h"
 #include "../../flamenco/types/fd_types_custom.h"
+#include "../../util/hist/fd_histf.h"
 
 /* FD_STORE_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -186,7 +187,8 @@ struct __attribute__((aligned(FD_STORE_ALIGN))) fd_store_fec {
   fd_store_key_t key; /* map key, merkle root of the FEC set + a partition index */
   fd_hash_t cmr;      /* parent's map key, chained merkle root of the FEC set */
 
-  /* Pointers */
+  /* Pointers.  These are internal to the store and callers should not
+                interface with them directly. */
 
   ulong next;    /* reserved for internal use by fd_pool, fd_map_chain */
   ulong parent;  /* pool idx of the parent */
@@ -335,8 +337,8 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_child_const  ( fd_store
 FD_FN_PURE static inline fd_store_fec_t       * fd_store_sibling      ( fd_store_t       * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool      ( store ); return fd_store_pool_ele      ( &pool, fec->sibling ); }
 FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store_t const * store, fd_store_fec_t const * fec ) { fd_store_pool_t pool = fd_store_pool_const( store ); return fd_store_pool_ele_const( &pool, fec->sibling ); }
 
-/* fd_store_{shacq, shrel, exacq, exrel} acquires / releases the
-   shared / exclusive lock.  Callers should typically use the
+/* fd_store_{shacq, shrel, exacq, exrel} acquires / releases the shared
+   / exclusive lock.  Callers should typically use the
    FD_STORE_SHARED_LOCK and FD_STORE_EXCLUSIVE_LOCK macros to acquire
    and release the lock instead of calling these functions directly. */
 
@@ -344,38 +346,6 @@ FD_FN_PURE static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_r
 FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
 FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
-
-struct fd_store_lock_ctx {
-  fd_store_t * store_;
-  long       * acq_start;
-  long       * acq_end;
-  long       * work_end;
-};
-
-static inline void
-fd_store_shared_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end) = fd_tickcount(); fd_store_shrel( ctx->store_ ); }
-
-#define FD_STORE_SHARED_LOCK(store, shacq_start, shacq_end, shrel_end) do {                                  \
-  struct fd_store_lock_ctx lock_ctx __attribute__((cleanup(fd_store_shared_lock_cleanup))) =                 \
-      { .store_ = (store), .work_end = &(shrel_end), .acq_start = &(shacq_start), .acq_end = &(shacq_end) }; \
-  shacq_start = fd_tickcount();                                                                              \
-  fd_store_shacq( lock_ctx.store_ );                                                                         \
-  shacq_end = fd_tickcount();                                                                                \
-  do
-
-#define FD_STORE_SHARED_LOCK_END while(0); } while(0)
-
-static inline void
-fd_store_exclusive_lock_cleanup( struct fd_store_lock_ctx * ctx ) { *(ctx->work_end) = fd_tickcount(); fd_store_exrel( ctx->store_ ); }
-
-#define FD_STORE_EXCLUSIVE_LOCK(store, exacq_start, exacq_end, exrel_end) do {                             \
-  struct fd_store_lock_ctx lock_ctx __attribute__((cleanup(fd_store_exclusive_lock_cleanup))) =            \
-    { .store_ = (store), .work_end = &(exrel_end), .acq_start = &(exacq_start), .acq_end = &(exacq_end) }; \
-  exacq_start = fd_tickcount();                                                                            \
-  fd_store_exacq( lock_ctx.store_ );                                                                       \
-  exacq_end = fd_tickcount();                                                                              \
-  do
-#define FD_STORE_EXCLUSIVE_LOCK_END while(0); } while(0)
 
 /* fd_store_{query,query_const} queries the FEC set keyed by merkle.
    Returns a pointer to the fd_store_fec_t if found, NULL otherwise.
