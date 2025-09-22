@@ -1660,6 +1660,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "enshrine_slashing_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, raise_account_cu_limit)>>3,
+    .id                        = {"\x0a\x79\xe3\x9b\x1a\xcc\x64\x5c\x8c\xdf\x47\xad\x61\x25\x63\x73\xdd\xf4\xc7\x34\x54\x57\x6d\x36\x90\xbe\xfd\xd7\x75\x72\x01\x7f"},
+                                 /* htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8 */
+    .name                      = "raise_account_cu_limit",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1908,6 +1914,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xa9e3bfbaf8d67260: return &ids[ 239 ];
   case 0x3711b30f40730240: return &ids[ 240 ];
   case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
+  case 0x5c64cc1a9be3790a: return &ids[ 242 ];
   default: break;
   }
   return NULL;
@@ -2155,4 +2162,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked        
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==239UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

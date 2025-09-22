@@ -440,6 +440,11 @@ fd_cost_tracker_new( void *                mem,
     cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v3.0.1/runtime/src/bank.rs#L4059-L4066 */
+  if( FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit ) ) {
+    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL;
+  }
+
   /* Initialize the current accumulated values */
 
   cost_tracker->block_cost                            = 0UL;
