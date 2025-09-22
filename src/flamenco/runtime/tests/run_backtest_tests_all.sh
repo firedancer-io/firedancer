@@ -63,7 +63,7 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-307395181-v2.3.0 -y
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-308392063-v2.3.0 -y 5 -m 2000000 -e 308392090 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-350814254-v2.3.0 -y 3 -m 2000000 -e 350814284 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-311586340-v2.3.0 -y 3 -m 2000000 -e 311586380 -c 2.3.0
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-281546597-v2.3.0 -y 3 -m 2000000 -e 281546597 -c 2.3.0
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-281546597-v2.3.0 -y 3 -m 2000000 -e 281546597 -c 2.3.0 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-324823213-v2.3.0 -y 4 -m 2000000 -e 324823214 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-325467935-v2.3.0 -y 4 -m 2000000 -e 325467936 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-283927487-v2.3.0 -y 3 -m 2000000 -e 283927497 -c 2.3.0
