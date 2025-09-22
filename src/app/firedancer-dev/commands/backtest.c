@@ -319,8 +319,6 @@ backtest_topo( config_t * config ) {
 
     /* Override */
     if( !strcmp( tile->name, "replay" ) ) {
-      tile->replay.bootstrap = !config->gossip.entrypoints_cnt;
-
       tile->replay.enable_bank_hash_cmp = 0;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {

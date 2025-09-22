@@ -443,10 +443,7 @@ struct fd_config {
     } repair;
 
     struct {
-      char  funk_checkpt[ PATH_MAX ];
-      char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
-      char  tower_checkpt[ PATH_MAX ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
       ulong heap_size_gib;
