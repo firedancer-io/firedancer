@@ -101,7 +101,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
-  runner->bank = fd_banks_init_bank( runner->banks, fd_eslot( 0UL, 0UL ) );
+  runner->bank = fd_banks_init_bank( runner->banks, 0UL );
+  fd_bank_slot_set( runner->bank, 0UL );
   if( FD_UNLIKELY( !runner->bank ) ) {
     FD_LOG_WARNING(( "fd_banks_init_bank failed" ));
     goto bail2;

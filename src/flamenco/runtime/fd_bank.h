@@ -28,19 +28,19 @@ FD_PROTOTYPES_BEGIN
   */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
-   for a given block. More specifically, the bank state corresponds to
+   for a given block.  More specifically, the bank state corresponds to
    all information needed during execution that is not stored on-chain,
-   but is instead cached in a validator's memory. Each of these bank
+   but is instead cached in a validator's memory.  Each of these bank
    fields are repesented by a member of the fd_bank_t struct.
 
    Management of fd_bank_t structs must be fork-aware: the state of each
-   fd_bank_t must be based on the fd_bank_t of it's parent block. This
+   fd_bank_t must be based on the fd_bank_t of it's parent block.  This
    state is managed by the fd_banks_t struct.
 
    In order to support fork-awareness, there are several key features
    that fd_banks_t and fd_bank_t MUST support:
    1. Query for any non-rooted block's bank: create a fast lookup
-      from eslot to bank
+      from a fork index to a bank pointer.
    2. Be able to create a new bank for a given block from the bank of
       that block's parent and maintain some tree-like structure to
       track the parent-child relationships: copy the contents from a
@@ -53,19 +53,19 @@ FD_PROTOTYPES_BEGIN
       from multiple threads: add read-write locks to the fields that are
       concurrently written to.
    5. In practice, a bank state for a given block can be very large and
-      not all of the fields are written to every block. Therefore, it can
-      be very expensive to copy the entire bank state for a given block
-      each time a bank is created. In order to avoid large memcpys, we
-      can use a CoW mechanism for certain fields.
+      not all of the fields are written to every block.  Therefore, it
+      can be very expensive to copy the entire bank state for a given
+      block each time a bank is created.  In order to avoid large
+      memcpys, we can use a CoW mechanism for certain fields.
    6. In a similar vein, some fields are very large and are not written
-      to very often, and are only read at the epoch boundary. The most
-      notable example is the stake delegations cache. In order to handle
-      this, we can use a delta-based approach where each bank only has
-      a delta of the stake delegations. The root bank will own the full
-      set of stake delegations. This means that the deltas are only
-      applied to the root bank as each bank gets rooted. If the caller
-      needs to access the full set of stake delegations for a given
-      bank, they can assemble the full set of stake delegations by
+      to very often, and are only read at the epoch boundary.  The most
+      notable example is the stake delegations cache.  In order to
+      handle this, we can use a delta-based approach where each bank
+      only has a delta of the stake delegations.  The root bank will own
+      the full set of stake delegations.  This means that the deltas are
+      only applied to the root bank as each bank gets rooted.  If the
+      caller needs to access the full set of stake delegations for a
+      given bank, they can assemble the full set of stake delegations by
       applying all of the deltas from the current bank and all of its
       ancestors up to the root bank.
 
@@ -79,42 +79,38 @@ FD_PROTOTYPES_BEGIN
 
   fd_banks_t is represented by a left-child, right-sibling n-ary tree
   (inspired by fd_ghost) to keep track of the parent-child fork tree.
-  The underlying data structure is a map of fd_bank_t structs that is
-  keyed by eslot. This map is backed by a simple memory pool.
-
-  NOTE: The reason fd_banks_t is keyed by fd_eslot_t and not by slot is
-  to handle block equivocation: if there are two different blocks for
-  the same slot, we need to be able to differentiate and handle both
-  blocks against different banks.  fd_eslot_t is a 64-bit bitfield that
-  contains both the slot number and a prime counter.
+  The underlying data structure is a simple array of fd_bank_t structs.
+  The management of free array elements (fork indices) is expected to be
+  handled upstream by the caller.  The fd_bank_t struct is keyed by a
+  fork index.
 
   Each field in fd_bank_t that is not CoW is laid out contiguously in
-  the fd_bank_t struct as simple uchar buffers. This allows for a simple
-  memcpy to clone the bank state from a parent to a child.
+  the fd_bank_t struct as simple uchar buffers.  This allows for a
+  simple memcpy to clone the bank state from a parent to a child.
 
-  Each field that is CoW has its own memory pool. The memory
+  Each field that is CoW has its own memory pool.  The memory
   corresponding to the field is not located in the fd_bank_t struct and
-  is instead represented by a pool index and a dirty flag. If the field
+  is instead represented by a pool index and a dirty flag.  If the field
   is modified, then the dirty flag is set, and an element of the pool
   is acquired and the data is copied over from the parent pool idx.
 
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer. The full state is stored in fd_banks_t also as
+  aligned uchar buffer.  The full state is stored in fd_banks_t also as
   a uchar buffer which corresponds to the full state of stake
-  delegations for the current root. fd_banks_t also reserves another
+  delegations for the current root.  fd_banks_t also reserves another
   buffer which can store the full state of the stake delegations.
 
   fd_bank_t also holds all of the rw-locks for the fields that have
   rw-locks.
 
   So, when a bank is cloned from a parent, the non CoW fields are copied
-  over and the CoW fields just copy over a pool index. The CoW behavior
+  over and the CoW fields just copy over a pool index.  The CoW behavior
   is completely abstracted away from the caller as callers have to
   query/modify fields using specific APIs.
 
   The memory for the banks is based off of two bounds:
-  1. the max number of unrooted blocks at any given time. Most fields
+  1. the max number of unrooted blocks at any given time.  Most fields
      can be bounded by this value.
   2. the max number of forks that execute through any 1 block.  We bound
      fields that are only written to at the epoch boundary by
@@ -131,16 +127,16 @@ FD_PROTOTYPES_BEGIN
   The usage pattern is as follows:
 
    To create an initial bank:
-   fd_bank_t * bank_init = fd_bank_init_bank( banks, eslot );
+   fd_bank_t * bank_init = fd_bank_init_bank( banks, idx );
 
    To clone bank from parent banks:
-   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, eslot, parent_eslot );
+   fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, idx, parent_idx );
 
    To publish a bank (aka update the root bank):
-   fd_bank_t * bank_publish = fd_banks_publish( banks, eslot );
+   fd_bank_t * bank_publish = fd_banks_publish( banks, idx );
 
    To query some arbitrary bank:
-   fd_bank_t * bank_query = fd_banks_get_bank( banks, eslot );
+   fd_bank_t * bank_query = fd_banks_get_bank( banks, idx );
 
   To access fields in the bank if a field does not have a lock:
 
@@ -345,9 +341,9 @@ struct fd_bank {
      set, then the element has been copied over for this bank. */
 
   #define HAS_COW_1(type, name, footprint, align) \
-    int                  name##_dirty;            \
-    ulong                name##_pool_idx;         \
-    ulong                name##_pool_offset;
+    int   name##_dirty;                           \
+    ulong name##_pool_idx;                        \
+    ulong name##_pool_offset;
 
   #define HAS_COW_0(type, name, footprint, align)
 
@@ -501,10 +497,26 @@ FD_BANKS_ITER(X)
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1
 
+/* fd_banks_bank_mem_query returns a pointer to the memory for an
+   fd_bank_t object for a given fork_idx. */
+
 static inline fd_bank_t *
-fd_banks_get_fork_idx( fd_banks_t * banks,
-                       ulong        fork_idx ) {
+fd_banks_bank_mem_query( fd_banks_t * banks,
+                         ulong        fork_idx ) {
   return (fd_bank_t *)((uchar *)banks + banks->bank_array_offset + fork_idx * fd_bank_footprint());
+}
+
+/* fd_banks_bank_query returns a pointer to a valid fd_bank_t object for
+   a given fork_idx.  If the bank for the given fork_idx is not being
+   used or the fork_idx is out of bounds, NULL is returned. */
+
+static inline fd_bank_t *
+fd_banks_bank_query( fd_banks_t * banks,
+                     ulong        fork_idx ) {
+  if( FD_UNLIKELY( fork_idx>=banks->max_total_banks ) ) return NULL;
+
+  fd_bank_t * bank = fd_banks_bank_mem_query( banks, fork_idx );
+  return bank->is_valid ? bank : NULL;
 }
 
 /* Each bank has a fd_stake_delegations_t object which is delta-based.
@@ -644,18 +656,20 @@ void *
 fd_banks_delete( void * shmem );
 
 /* fd_banks_init_bank() initializes a new bank in the bank manager.
-   This should only be used during bootup. This returns an initial
-   fd_bank_t with the corresponding eslot.. */
+   This should only be used during bootup.  This returns an initial
+   fd_bank_t from the corresponding fork index. */
 
 fd_bank_t *
 fd_banks_init_bank( fd_banks_t * banks,
                     ulong        fork_idx );
 
 /* fd_banks_clone_from_parent() clones a bank from a parent bank.
-   If the bank corresponding to the parent eslot does not exist,
-   NULL is returned.  If a bank is not able to be created, NULL is
-   returned. The data from the parent bank will copied over into
-   the new bank.
+   The data from the parent bank will copied over into the new bank.
+   This function has the invariant that the fork index for the new bank
+   doesn't already correspond to a valid bank and that the the
+   parent_fork_idx does correspond to a valid bank.  If these invariants
+   are violated, the program will crash.  On success, a pointer to the
+   new fd_bank_t is returned.
 
    A more detailed note: not all of the data is copied over and this
    is a shallow clone.  All of the CoW fields are not copied over and
@@ -668,19 +682,16 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
                             ulong        fork_idx,
                             ulong        parent_fork_idx );
 
-/* fd_banks_publish() publishes a bank to the bank manager. This
-   should only be used when a bank is no longer needed. This will
-   prune off the bank from the bank manager. It returns the new root
-   bank.
-
-   All banks that are ancestors or siblings of the new root bank will be
-   cancelled and their resources will be released back to the pool. */
+/* fd_banks_advance_root() advances the root of the bank manager.  This
+   should only be used when a bank is no longer needed.  Any banks which
+   are not direct descendants of the new root will be pruned away (any
+   siblings or ancestors).  The new root bank is returned. */
 
 fd_bank_t const *
-fd_banks_publish( fd_banks_t * banks,
-                  ulong        fork_idx );
+fd_banks_advance_root( fd_banks_t * banks,
+                       ulong        fork_idx );
 
-/* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
+/* fd_bank_clear_bank() clears the contents of a bank.  This should ONLY
    be used with banks that have no children.
 
    This function will memset all non-CoW fields to 0.

@@ -384,7 +384,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
           ctx->out_replay->chunk = fd_dcache_compact_next( ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), ctx->out_replay->chunk0, ctx->out_replay->wmark );
         }
 
-        ctx->bank = fd_banks_get_fork_idx( ctx->banks, msg->bank_idx );
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
 
         break;

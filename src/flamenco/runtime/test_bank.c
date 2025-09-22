@@ -28,85 +28,119 @@ test_bank_publishing( void * mem ) {
      all subtrees branching off of them, have refcnt 0. */
 
   /* Start with P as root. */
-  fd_bank_t * bank_P = fd_banks_init_bank( banks, fd_eslot( 100UL, 0UL ) ); /* P slot = 100 */
+  fd_bank_t * bank_P = fd_banks_init_bank( banks, 0UL ); /* P slot = 100 */
+  fd_bank_slot_set( bank_P, 100UL );
   FD_TEST( bank_P );
-  FD_TEST( fd_bank_eslot_get( bank_P ).id == 100UL );
+  FD_TEST( fd_bank_slot_get( bank_P ) == 100UL );
   bank_P->refcnt = 0UL; /* P(0) */
 
   /* Create Q branch from P. */
-  fd_bank_t * bank_Q = fd_banks_clone_from_parent( banks, fd_eslot( 101UL, 0UL ), fd_eslot( 100UL, 0UL ) );  /* Q slot = 101 */
+  fd_bank_t * bank_Q = fd_banks_clone_from_parent( banks, 1UL, 0UL );  /* Q slot = 101 */
   FD_TEST( bank_Q );
+  fd_bank_slot_set( bank_Q, 101UL );
+  FD_TEST( fd_bank_slot_get( bank_Q ) == 101UL );
   bank_Q->refcnt = 1UL; /* Q(1) */
 
   /* Create A branch from P - this is on the rooted fork. */
-  fd_bank_t * bank_A = fd_banks_clone_from_parent( banks, fd_eslot( 102UL, 0UL ), fd_eslot( 100UL, 0UL ) );  /* A slot = 102 */
+  fd_bank_t * bank_A = fd_banks_clone_from_parent( banks, 2UL, 0UL );  /* A slot = 102 */
+  FD_TEST( bank_A );
+  fd_bank_slot_set( bank_A, 102UL );
+  FD_TEST( fd_bank_slot_get( bank_A ) == 102UL );
   FD_TEST( bank_A );
   bank_A->refcnt = 0UL; /* A(0) */
 
   /* Create X branch from A. */
-  fd_bank_t * bank_X = fd_banks_clone_from_parent( banks, fd_eslot( 103UL, 0UL ), fd_eslot( 102UL, 0UL ) );  /* X slot = 103 */
+  fd_bank_t * bank_X = fd_banks_clone_from_parent( banks, 3UL, 2UL );  /* X slot = 103 */
+  FD_TEST( bank_X );
+  fd_bank_slot_set( bank_X, 103UL );
+  FD_TEST( fd_bank_slot_get( bank_X ) == 103UL );
   FD_TEST( bank_X );
   bank_X->refcnt = 0UL; /* X(0) */
 
   /* Create Y branch from X. */
-  fd_bank_t * bank_Y = fd_banks_clone_from_parent( banks, fd_eslot( 104UL, 0UL ), fd_eslot( 103UL, 0UL ) );  /* Y slot = 104 */
+  fd_bank_t * bank_Y = fd_banks_clone_from_parent( banks, 4UL, 3UL );  /* Y slot = 104 */
+  FD_TEST( bank_Y );
+  fd_bank_slot_set( bank_Y, 104UL );
+  FD_TEST( fd_bank_slot_get( bank_Y ) == 104UL );
   FD_TEST( bank_Y );
   bank_Y->refcnt = 0UL; /* Y(0) */
 
   /* Create B branch from A - this is on the rooted fork. */
-  fd_bank_t * bank_B = fd_banks_clone_from_parent( banks, fd_eslot( 105UL, 0UL ), fd_eslot( 102UL, 0UL ) );  /* B slot = 105 */
+  fd_bank_t * bank_B = fd_banks_clone_from_parent( banks, 5UL, 2UL );  /* B slot = 105 */
   FD_TEST( bank_B );
+  fd_bank_slot_set( bank_B, 105UL );
+  FD_TEST( fd_bank_slot_get( bank_B ) == 105UL );
   bank_B->refcnt = 0UL; /* B(0) */
 
   /* Create C branch from A. */
-  fd_bank_t * bank_C = fd_banks_clone_from_parent( banks, fd_eslot( 106UL, 0UL ), fd_eslot( 102UL, 0UL ) );  /* C slot = 106 */
+  fd_bank_t * bank_C = fd_banks_clone_from_parent( banks, 6UL, 2UL );  /* C slot = 106 */
+  FD_TEST( bank_C );
+  fd_bank_slot_set( bank_C, 106UL );
+  FD_TEST( fd_bank_slot_get( bank_C ) == 106UL );
   FD_TEST( bank_C );
   bank_C->refcnt = 0UL; /* C(0) */
 
   /* Create M branch from B - this is on the rooted fork. */
-  fd_bank_t * bank_M = fd_banks_clone_from_parent( banks, fd_eslot( 107UL, 0UL ), fd_eslot( 105UL, 0UL ) );  /* M slot = 107 */
+  fd_bank_t * bank_M = fd_banks_clone_from_parent( banks, 7UL, 5UL );  /* M slot = 107 */
+  FD_TEST( bank_M );
+  fd_bank_slot_set( bank_M, 107UL );
+  FD_TEST( fd_bank_slot_get( bank_M ) == 107UL );
   FD_TEST( bank_M );
   bank_M->refcnt = 0UL; /* M(0) */
 
   /* Create R branch from B. */
-  fd_bank_t * bank_R = fd_banks_clone_from_parent( banks, fd_eslot( 108UL, 0UL ), fd_eslot( 105UL, 0UL ) );  /* R slot = 108 */
+  fd_bank_t * bank_R = fd_banks_clone_from_parent( banks, 8UL, 5UL );  /* R slot = 108 */
+  FD_TEST( bank_R );
+  fd_bank_slot_set( bank_R, 108UL );
+  FD_TEST( fd_bank_slot_get( bank_R ) == 108UL );
   FD_TEST( bank_R );
   bank_R->refcnt = 0UL; /* R(0) */
 
   /* Create D branch from M. */
-  fd_bank_t * bank_D = fd_banks_clone_from_parent( banks, fd_eslot( 109UL, 0UL ), fd_eslot( 107UL, 0UL ) );  /* D slot = 109 */
+  fd_bank_t * bank_D = fd_banks_clone_from_parent( banks, 9UL, 7UL );  /* D slot = 109 */
   FD_TEST( bank_D );
+  fd_bank_slot_set( bank_D, 109UL );
+  FD_TEST( fd_bank_slot_get( bank_D ) == 109UL );
   bank_D->refcnt = 2UL; /* D(2) */
 
   /* Create T branch from M - this is on the rooted fork. */
-  fd_bank_t * bank_T = fd_banks_clone_from_parent( banks, fd_eslot( 110UL, 0UL ), fd_eslot( 107UL, 0UL ) );  /* T slot = 110 */
+  fd_bank_t * bank_T = fd_banks_clone_from_parent( banks, 10UL, 7UL );  /* T slot = 110 */
+  FD_TEST( bank_T );
+  fd_bank_slot_set( bank_T, 110UL );
+  FD_TEST( fd_bank_slot_get( bank_T ) == 110UL );
   FD_TEST( bank_T );
   bank_T->refcnt = 0UL; /* T(0) */
 
   /* Create J branch from R. */
-  fd_bank_t * bank_J = fd_banks_clone_from_parent( banks, fd_eslot( 111UL, 0UL ), fd_eslot( 108UL, 0UL ) );  /* J slot = 111 */
+  fd_bank_t * bank_J = fd_banks_clone_from_parent( banks, 11UL, 8UL );  /* J slot = 111 */
+  FD_TEST( bank_J );
+  fd_bank_slot_set( bank_J, 111UL );
+  FD_TEST( fd_bank_slot_get( bank_J ) == 111UL );
   FD_TEST( bank_J );
   bank_J->refcnt = 0UL; /* J(0) */
 
   /* Create L branch from R. */
-  fd_bank_t * bank_L = fd_banks_clone_from_parent( banks, fd_eslot( 112UL, 0UL ), fd_eslot( 108UL, 0UL ) );  /* L slot = 112 */
+  fd_bank_t * bank_L = fd_banks_clone_from_parent( banks, 12UL, 8UL );  /* L slot = 112 */
+  FD_TEST( bank_L );
+  fd_bank_slot_set( bank_L, 112UL );
+  FD_TEST( fd_bank_slot_get( bank_L ) == 112UL );
   FD_TEST( bank_L );
   bank_L->refcnt = 0UL; /* L(0) */
 
   /* Verify all banks exist. */
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 100UL, 0UL ) ) == bank_P );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 101UL, 0UL ) ) == bank_Q );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 102UL, 0UL ) ) == bank_A );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 103UL, 0UL ) ) == bank_X );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 104UL, 0UL ) ) == bank_Y );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 105UL, 0UL ) ) == bank_B );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 106UL, 0UL ) ) == bank_C );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 107UL, 0UL ) ) == bank_M );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 108UL, 0UL ) ) == bank_R );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 109UL, 0UL ) ) == bank_D );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 110UL, 0UL ) ) == bank_T );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 111UL, 0UL ) ) == bank_J );
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 112UL, 0UL ) ) == bank_L );
+  FD_TEST( fd_banks_bank_query( banks, 0UL  )==bank_P );
+  FD_TEST( fd_banks_bank_query( banks, 1UL  )==bank_Q );
+  FD_TEST( fd_banks_bank_query( banks, 2UL  )==bank_A );
+  FD_TEST( fd_banks_bank_query( banks, 3UL  )==bank_X );
+  FD_TEST( fd_banks_bank_query( banks, 4UL  )==bank_Y );
+  FD_TEST( fd_banks_bank_query( banks, 5UL  )==bank_B );
+  FD_TEST( fd_banks_bank_query( banks, 6UL  )==bank_C );
+  FD_TEST( fd_banks_bank_query( banks, 7UL  )==bank_M );
+  FD_TEST( fd_banks_bank_query( banks, 8UL  )==bank_R );
+  FD_TEST( fd_banks_bank_query( banks, 9UL  )==bank_D );
+  FD_TEST( fd_banks_bank_query( banks, 10UL )==bank_T );
+  FD_TEST( fd_banks_bank_query( banks, 11UL )==bank_J );
+  FD_TEST( fd_banks_bank_query( banks, 12UL )==bank_L );
 
   /* Verify initial refcnts. */
   FD_TEST( bank_P->refcnt == 0UL );
@@ -124,40 +158,38 @@ test_bank_publishing( void * mem ) {
   FD_TEST( bank_L->refcnt == 0UL );
 
   /* Try to publish with Q having refcnt 1 - should not be able to advance past P. */
-  fd_eslot_t publishable_eslot = {0};
-  int result = fd_banks_publish_prepare( banks, fd_eslot( 110UL, 0UL ), &publishable_eslot ); /* Try to publish up to T */
+  ulong publishable_fork_idx = ULONG_MAX;
+  int result = fd_banks_publish_prepare( banks, 10UL, &publishable_fork_idx ); /* Try to publish up to T */
   FD_TEST( result == 0 ); /* Should not be able to advance past P */
 
   /* Now decrement Q's refcnt to 0. */
   bank_Q->refcnt--;
   FD_TEST( bank_Q->refcnt == 0UL );
-
   /* Try to publish again - should now be able to advance to M. */
-  result = fd_banks_publish_prepare( banks, fd_eslot( 110UL, 0UL ), &publishable_eslot );
+  result = fd_banks_publish_prepare( banks, 10UL, &publishable_fork_idx );
   FD_TEST( result == 1 );
-  FD_TEST( publishable_eslot.slot == 107UL ); /* Should be able to publish up to M (slot 107) */
-
+  FD_TEST( publishable_fork_idx == 7UL ); /* Should be able to publish up to M (slot 107) */
   /* Actually publish up to M. */
-  fd_bank_t const * new_root = fd_banks_publish( banks, fd_eslot( 107UL, 0UL ) );
+  fd_bank_t const * new_root = fd_banks_advance_root( banks, 7UL );
   FD_TEST( new_root == bank_M );
-  FD_TEST( fd_bank_eslot_get( new_root ).id == 107UL );
+  FD_TEST( fd_bank_slot_get( new_root ) == 107UL );
 
   /* Verify that banks P, Q, A, X, Y, B, C and their subtrees have been pruned. */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 100UL, 0UL ) ) ); /* P should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 101UL, 0UL ) ) ); /* Q should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 102UL, 0UL ) ) ); /* A should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 103UL, 0UL ) ) ); /* X should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 104UL, 0UL ) ) ); /* Y should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 105UL, 0UL ) ) ); /* B should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 106UL, 0UL ) ) ); /* C should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 108UL, 0UL ) ) ); /* R should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 111UL, 0UL ) ) ); /* J should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 112UL, 0UL ) ) ); /* L should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 0UL  ) ); /* P should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 1UL  ) ); /* Q should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 2UL  ) ); /* A should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 3UL  ) ); /* X should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 4UL  ) ); /* Y should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 5UL  ) ); /* B should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 6UL  ) ); /* C should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 8UL  ) ); /* R should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 11UL ) ); /* J should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 12UL ) ); /* L should be gone */
 
   /* Verify that the remaining banks are still there. */
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 107UL, 0UL ) ) == bank_M ); /* M should be the new root */
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 109UL, 0UL ) ) == bank_D ); /* D should remain */
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 110UL, 0UL ) ) == bank_T ); /* T should remain */
+  FD_TEST( fd_banks_bank_query( banks, 7UL  ) == bank_M ); /* M should be the new root */
+  FD_TEST( fd_banks_bank_query( banks, 9UL  ) == bank_D ); /* D should remain */
+  FD_TEST( fd_banks_bank_query( banks, 10UL ) == bank_T ); /* T should remain */
 
   /* Verify that the new structure matches the expected result:
          M(0)
@@ -166,8 +198,8 @@ test_bank_publishing( void * mem ) {
           ||
           .. */
 
-  FD_TEST( fd_banks_root( banks ) == bank_M );
-  FD_TEST( fd_bank_eslot_get( fd_banks_root( banks ) ).id == 107UL );
+  FD_TEST( fd_banks_bank_query( banks, banks->root_idx ) == bank_M );
+  FD_TEST( fd_bank_slot_get( fd_banks_bank_query( banks, banks->root_idx ) ) == 107UL );
 
   /* Verify refcnts after publishing. */
   FD_TEST( bank_M->refcnt == 0UL );
@@ -180,19 +212,19 @@ test_bank_publishing( void * mem ) {
   FD_TEST( bank_D->refcnt == 0UL );
 
   /* Should now be able to publish up to T. */
-  result = fd_banks_publish_prepare( banks, fd_eslot( 110UL, 0UL ), &publishable_eslot );
+  result = fd_banks_publish_prepare( banks, 10UL, &publishable_fork_idx );
   FD_TEST( result == 1 );
-  FD_TEST( publishable_eslot.slot == 110UL ); /* Should be able to publish up to T */
+  FD_TEST( publishable_fork_idx == 10UL ); /* Should be able to publish up to T */
 
   /* Actually publish up to T. */
-  new_root = fd_banks_publish( banks, fd_eslot( 110UL, 0UL ) );
+  new_root = fd_banks_advance_root( banks, 10UL );
   FD_TEST( new_root == bank_T );
-  FD_TEST( fd_bank_eslot_get( new_root ).id == 110UL );
+  FD_TEST( fd_bank_slot_get( new_root ) == 110UL );
 
   /* Verify that M and D have been pruned. */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 107UL, 0UL ) ) ); /* M should be gone */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 109UL, 0UL ) ) ); /* D should be gone */
-  FD_TEST( fd_banks_get_bank( banks, fd_eslot( 110UL, 0UL ) ) == bank_T ); /* T should be the new root */
+  FD_TEST( !fd_banks_bank_query( banks, 7UL ) ); /* M should be gone */
+  FD_TEST( !fd_banks_bank_query( banks, 9UL ) ); /* D should be gone */
+  FD_TEST( fd_banks_bank_query( banks, 10UL ) == bank_T ); /* T should be the new root */
 
   FD_LOG_NOTICE(( "safe publishing test pass" ));
 }
@@ -232,24 +264,16 @@ main( int argc, char ** argv ) {
   fd_banks_t * banks = fd_banks_join( mem );
   FD_TEST( banks );
 
-  fd_bank_t * bank = fd_banks_init_bank( banks, fd_eslot( 999UL, 0UL ) );
+  for( ulong i=0UL; i<banks->max_total_banks; i++ ) {
+    fd_bank_t * bank = fd_banks_bank_mem_query( banks, i );
+    FD_TEST( bank->is_valid==0 );
+    FD_TEST( bank->fork_idx==i );
+  }
+
+  fd_bank_t * bank = fd_banks_init_bank( banks, 0UL );
   FD_TEST( bank );
 
-  /* Rekey the root bank to the same slot */
-
-  fd_banks_rekey_bank( banks, fd_bank_eslot_get( bank ), fd_eslot( 999UL, 0UL ) );
-  fd_bank_t * rekeyed_root = fd_banks_get_bank( banks, fd_eslot( 999UL, 0UL ) );
-  FD_TEST( rekeyed_root );
-  FD_TEST( fd_bank_eslot_get( rekeyed_root ).id == fd_eslot( 999UL, 0UL ).id );
-  FD_TEST( rekeyed_root == bank );
-
-  /* Rekey the root bank to a different slot */
-
-  fd_banks_rekey_bank( banks, fd_bank_eslot_get( bank ), fd_eslot( 1UL, 0UL ) );
-  rekeyed_root = fd_banks_get_bank( banks, fd_eslot( 1UL, 0UL ) );
-  FD_TEST( rekeyed_root );
-  FD_TEST( fd_bank_eslot_get( rekeyed_root ).id == fd_eslot( 1UL, 0UL ).id );
-  FD_TEST( rekeyed_root == bank );
+  fd_bank_slot_set( bank, 1UL );
 
   /* Set some fields */
 
@@ -287,7 +311,8 @@ main( int argc, char ** argv ) {
 
   /* Create some additional ancestry */
 
-  fd_bank_t * bank2 = fd_banks_clone_from_parent( banks, fd_eslot( 2UL, 0UL ), fd_eslot( 1UL, 0UL ) );
+  fd_bank_t * bank2 = fd_banks_clone_from_parent( banks, 1UL, 0UL );
+  fd_bank_slot_set( bank2, 2UL );
   FD_TEST( bank2 );
   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
   /* At this point, the first epoch leaders has been allocated from the
@@ -329,7 +354,8 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 100UL );
 
-  fd_bank_t * bank3 = fd_banks_clone_from_parent( banks, fd_eslot( 3UL, 0UL ), fd_eslot( 1UL, 0UL ) );
+  fd_bank_t * bank3 = fd_banks_clone_from_parent( banks, 2UL, 0UL );
+  fd_bank_slot_set( bank3, 3UL );
   FD_TEST( bank3 );
   FD_TEST( fd_bank_capitalization_get( bank3) == 1000UL );
   fd_bank_capitalization_set( bank3, 2000UL );
@@ -362,7 +388,8 @@ main( int argc, char ** argv ) {
   FD_TEST( epoch_leaders2 );
   fd_bank_epoch_leaders_end_locking_modify( bank3 );
 
-  fd_bank_t * bank4 = fd_banks_clone_from_parent( banks, fd_eslot( 4UL, 0UL ), fd_eslot( 3UL, 0UL ) );
+  fd_bank_t * bank4 = fd_banks_clone_from_parent( banks, 3UL, 2UL );
+  fd_bank_slot_set( bank4, 4UL );
   FD_TEST( bank4 );
   FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
 
@@ -371,19 +398,22 @@ main( int argc, char ** argv ) {
 
   FD_TEST( !fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4 ) ) );
 
-  fd_bank_t * bank5 = fd_banks_clone_from_parent( banks, fd_eslot( 5UL, 0UL ), fd_eslot( 3UL, 0UL ) );
+  fd_bank_t * bank5 = fd_banks_clone_from_parent( banks, 4UL, 2UL );
+  fd_bank_slot_set( bank5, 5UL );
   FD_TEST( bank5 );
   FD_TEST( fd_bank_capitalization_get( bank5 ) == 2000UL );
   fd_bank_capitalization_set( bank5, 3000UL );
   FD_TEST( fd_bank_capitalization_get( bank5 ) == 3000UL );
 
-  fd_bank_t * bank6 = fd_banks_clone_from_parent( banks, fd_eslot( 6UL, 0UL ), fd_eslot( 2UL, 0UL ) );
+  fd_bank_t * bank6 = fd_banks_clone_from_parent( banks, 5UL, 1UL );
+  fd_bank_slot_set( bank6, 6UL );
   FD_TEST( bank6 );
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 1000UL );
   fd_bank_capitalization_set( bank6, 2100UL );
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
 
-  fd_bank_t * bank7 = fd_banks_clone_from_parent( banks, fd_eslot( 7UL, 0UL ), fd_eslot( 6UL, 0UL ) );
+  fd_bank_t * bank7 = fd_banks_clone_from_parent( banks, 6UL, 5UL );
+  fd_bank_slot_set( bank7, 7UL );
   FD_TEST( bank7 );
   FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
 
@@ -412,7 +442,8 @@ main( int argc, char ** argv ) {
      2. 1 -> 3 -> 4
      3. 1 -> 3 -> 5 */
 
-  fd_bank_t * bank8 = fd_banks_clone_from_parent( banks, fd_eslot( 8UL, 0UL ), fd_eslot( 7UL, 0UL ) );
+  fd_bank_t * bank8 = fd_banks_clone_from_parent( banks, 7UL, 6UL );
+  fd_bank_slot_set( bank8, 8UL );
   FD_TEST( bank8 );
   FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
 
@@ -426,7 +457,8 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 4UL );
 
-  fd_bank_t * bank9 = fd_banks_clone_from_parent( banks, fd_eslot( 9UL, 0UL ), fd_eslot( 7UL, 0UL ) );
+  fd_bank_t * bank9 = fd_banks_clone_from_parent( banks, 8UL, 6UL );
+  fd_bank_slot_set( bank9, 9UL );
   FD_TEST( bank9 );
   FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
 
@@ -461,9 +493,9 @@ main( int argc, char ** argv ) {
      Also, verify that the stake delegations have been correctly
      applied to the new root. */
 
-  fd_bank_t const * new_root = fd_banks_publish( banks, fd_eslot( 7UL, 0UL ) );
+  fd_bank_t const * new_root = fd_banks_advance_root( banks, 6UL );
   FD_TEST( new_root );
-  FD_TEST( fd_bank_eslot_get( new_root ).id == 7UL );
+  FD_TEST( fd_bank_slot_get( new_root ) == 7UL );
   FD_TEST( new_root == bank7 );
 
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, (fd_bank_t *)new_root );
@@ -484,25 +516,10 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 100UL );
 
-  /* Rekey the new root to a different slot and make sure that
-     bank7 is still the root and that its children are still valid */
+  /* Create some new children */
 
-  fd_banks_rekey_bank( banks, fd_bank_eslot_get( bank7 ), fd_eslot( 1234UL, 0UL ) );
-  rekeyed_root = fd_banks_get_bank( banks, fd_eslot( 1234UL, 0UL ) );
-  FD_TEST( rekeyed_root );
-  FD_TEST( fd_bank_eslot_get( rekeyed_root ).id == 1234UL );
-  FD_TEST( rekeyed_root == bank7 );
-
-  FD_TEST( rekeyed_root == fd_banks_root( banks ) );
-
-  fd_bank_t const * parent = fd_banks_pool_ele_const( fd_banks_get_bank_pool( banks ), bank8->parent_idx );
-  FD_TEST( parent );
-  FD_TEST( fd_bank_eslot_get( parent ).id == 1234UL );
-  FD_TEST( parent == rekeyed_root );
-
-  /* Create some new children*/
-
-  fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, fd_eslot( 10UL, 0UL ), fd_eslot( 1234UL, 0UL ) );
+  fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, 9UL, 6UL );
+  fd_bank_slot_set( bank10, 10UL );
   FD_TEST( bank10 );
   FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
 
@@ -513,7 +530,8 @@ main( int argc, char ** argv ) {
   FD_TEST( epoch_leaders3 );
   fd_bank_epoch_leaders_end_locking_modify( bank10 );
 
-  fd_bank_t * bank11 = fd_banks_clone_from_parent( banks, fd_eslot( 11UL, 0UL ), fd_eslot( 9UL, 0UL ) );
+  fd_bank_t * bank11 = fd_banks_clone_from_parent( banks, 10UL, 8UL );
+  fd_bank_slot_set( bank11, 11UL );
   FD_TEST( bank11 );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
 
@@ -548,16 +566,16 @@ main( int argc, char ** argv ) {
      3  7 (1234) -> 10 */
 
   /* Verify that direct and competing forks are pruned off */
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 6UL, 0UL ) ) );
-  FD_TEST( !fd_banks_get_bank( banks, fd_eslot( 3UL, 0UL ) ) );
+  FD_TEST( !fd_banks_bank_query( banks, 5UL ) );
+  FD_TEST( !fd_banks_bank_query( banks, 2UL ) );
 
   /* At this point, bank7 is the root and it has 3 children: bank8, bank9, and bank10 */
 
   /* Verify that children slots are not pruned off */
 
-  FD_TEST( !!fd_banks_get_bank( banks, fd_eslot( 8UL, 0UL ) ) );
-  FD_TEST( !!fd_banks_get_bank( banks, fd_eslot( 9UL, 0UL ) ) );
-  FD_TEST( !!fd_banks_get_bank( banks, fd_eslot( 10UL, 0UL ) ) );
+  FD_TEST( !!fd_banks_bank_query( banks, 7UL ) );
+  FD_TEST( !!fd_banks_bank_query( banks, 8UL ) );
+  FD_TEST( !!fd_banks_bank_query( banks, 9UL ) );
 
   /* Verify that the CoW fields are properly set for bank11 */
 
@@ -583,7 +601,7 @@ main( int argc, char ** argv ) {
      4. Pool was made dirty and had a null parent pool idx. */
 
   fd_banks_clear_bank( banks, bank11 );
-  FD_TEST( fd_bank_eslot_get( bank11 ).id == 11UL );
+  FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
 
   keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
