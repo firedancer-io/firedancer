@@ -80,6 +80,7 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
 #define FD_GOSSIP_UPDATE_SZ_VOTE                (49UL + sizeof(fd_gossip_vote_t))
 #define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (49UL + sizeof(fd_gossip_duplicate_shred_t))
 #define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (49UL + sizeof(fd_gossip_snapshot_hashes_t))
+#define FD_GOSSIP_UPDATE_SZ_IN_CRDS_OUTCOME     (49UL + sizeof(fd_crds_outcome_t))
 
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;
