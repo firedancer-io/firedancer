@@ -116,7 +116,6 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   txn->stack_cidx        = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   txn->tag               = 0UL;
 
-  txn->lock = 0;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 
