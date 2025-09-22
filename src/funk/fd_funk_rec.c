@@ -250,13 +250,11 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   if( txn == NULL ) {
     fd_funk_txn_xid_set_root( rec->pair.xid );
     rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-    prepare->txn_lock     = &funk->shmem->lock;
   } else {
     fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );
     rec->txn_cidx = fd_funk_txn_cidx( (ulong)( txn - funk->txn_pool->ele ) );
     prepare->rec_head_idx = &txn->rec_head_idx;
     prepare->rec_tail_idx = &txn->rec_tail_idx;
-    prepare->txn_lock     = &txn->lock;
   }
   fd_funk_rec_key_copy( rec->pair.key, key );
   rec->tag = 0;
@@ -266,34 +264,89 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   return rec;
 }
 
+#if FD_HAS_ATOMIC
+
+static void
+fd_funk_rec_push_tail( fd_funk_t *             funk,
+                       fd_funk_rec_prepare_t * prepare ) {
+  fd_funk_rec_t * rec = prepare->rec;
+  uint rec_idx = (uint)( rec - funk->rec_pool->ele );
+  uint * rec_head_idx = prepare->rec_head_idx;
+  uint * rec_tail_idx = prepare->rec_tail_idx;
+
+  for(;;) {
+
+    /* Doubly linked list append.  Robust in the event of concurrent
+       publishes.  Iteration during publish not supported.  Sequence:
+       - Identify tail element
+       - Set new element's prev and next pointers
+       - Set tail element's next pointer
+       - Set tail pointer */
+
+    uint rec_prev_idx = FD_VOLATILE_CONST( *rec_tail_idx );
+    rec->prev_idx = rec_prev_idx;
+    FD_COMPILER_MFENCE();
+
+    uint * next_idx_p;
+    if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
+      next_idx_p = rec_head_idx;
+    } else {
+      next_idx_p = &funk->rec_pool->ele[ rec_prev_idx ].next_idx;
+    }
+
+    if( FD_UNLIKELY( !__sync_bool_compare_and_swap( next_idx_p, FD_FUNK_REC_IDX_NULL, rec_idx ) ) ) {
+      /* Another thread beat us to the punch */
+      FD_SPIN_PAUSE();
+      continue;
+    }
+
+    if( FD_UNLIKELY( !__sync_bool_compare_and_swap( rec_tail_idx, rec_prev_idx, rec_idx ) ) ) {
+      /* This CAS is guaranteed to succeed if the previous CAS passed. */
+      FD_LOG_CRIT(( "Irrecoverable data race encountered while appending to txn rec list (invariant violation?): cas(%p,%u,%u)",
+                    (void *)rec_tail_idx, rec_prev_idx, rec_idx ));
+    }
+
+    break;
+  }
+}
+
+#else
+
+static void
+fd_funk_rec_push_tail( fd_funk_t *             funk,
+                       fd_funk_rec_prepare_t * prepare ) {
+  fd_funk_rec_t * rec = prepare->rec;
+  uint rec_idx      = (uint)( rec - funk->rec_pool->ele );
+  uint * rec_head_idx = prepare->rec_head_idx;
+  uint * rec_tail_idx = prepare->rec_tail_idx;
+  uint rec_prev_idx = *rec_tail_idx;
+  *rec_tail_idx = rec_idx;
+  rec->prev_idx = rec_prev_idx;
+  rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
+    *rec_head_idx = rec_idx;
+  } else {
+    funk->rec_pool->ele[ rec_prev_idx ].next_idx = rec_idx;
+  }
+}
+
+#endif
+
 void
 fd_funk_rec_publish( fd_funk_t *             funk,
                      fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_t * rec = prepare->rec;
-  uint * rec_head_idx = prepare->rec_head_idx;
-  uint * rec_tail_idx = prepare->rec_tail_idx;
+  rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+  rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
-  /* Lock the txn */
-  while( FD_ATOMIC_CAS( prepare->txn_lock, 0, 1 ) ) FD_SPIN_PAUSE();
-
-  if( rec_head_idx ) {
-    uint rec_idx      = (uint)( rec - funk->rec_pool->ele );
-    uint rec_prev_idx = *rec_tail_idx;
-    *rec_tail_idx = rec_idx;
-    rec->prev_idx = rec_prev_idx;
-    rec->next_idx = FD_FUNK_REC_IDX_NULL;
-    if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
-      *rec_head_idx = rec_idx;
-    } else {
-      funk->rec_pool->ele[ rec_prev_idx ].next_idx = rec_idx;
-    }
+  if( prepare->rec_head_idx ) {
+    fd_funk_rec_push_tail( funk, prepare );
   }
 
-  if( fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
+  int insert_err = fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING );
+  if( insert_err ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_insert failed (err %i)", insert_err ));
   }
-
-  FD_VOLATILE( *prepare->txn_lock ) = 0;
 }
 
 void
