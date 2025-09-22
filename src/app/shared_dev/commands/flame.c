@@ -108,7 +108,9 @@ flame_cmd_fn( args_t *   args,
     ulong pid = fd_metrics_tile( config->topo.tiles[ tile_idxs[ i ] ].metrics )[ FD_METRICS_GAUGE_TILE_PID_OFF ];
 
     FD_TEST( pid<=INT_MAX );
-    if( FD_UNLIKELY( -1==kill( (int)pid, 0 ) ) ) {
+    if( FD_UNLIKELY( -1==kill( (int)tid, 0 ) ) ) {
+      if( FD_LIKELY( config->topo.tiles[ i ].allow_shutdown ) ) continue;
+
       if( FD_UNLIKELY( errno==ESRCH ) ) FD_LOG_ERR(( "tile %s:%lu is not running", config->topo.tiles[ i ].name, config->topo.tiles[ i ].kind_id ));
       else                              FD_LOG_ERR(( "kill() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
