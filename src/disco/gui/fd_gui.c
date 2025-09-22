@@ -1690,7 +1690,6 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
       break;
     case 7: {
       gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
-      gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_PROCESSING_LEDGER;
       gui->summary.startup_progress.startup_ledger_slot = fd_ulong_load_8( msg + 1 );
       gui->summary.startup_progress.startup_ledger_max_slot = fd_ulong_load_8( msg + 9 );
       FD_LOG_INFO(( "progress: processing ledger: slot=%lu, max_slot=%lu", gui->summary.startup_progress.startup_ledger_slot, gui->summary.startup_progress.startup_ledger_max_slot ));
