@@ -263,16 +263,20 @@ fd_reasm_next( fd_reasm_t * reasm ) {
   ulong            null         = pool_idx_null( reasm->pool );
 
   if( parent_fec->slot!=fec->slot ) {
-    fec->fork_idx = fd_reasm_get_new_fork_idx( reasm );
+    fec->fork_idx        = fd_reasm_get_new_fork_idx( reasm );
+    fec->parent_fork_idx = parent_fec->fork_idx;
   } else if( FD_LIKELY( fec->sibling==null && parent_fec->child==fec_pool_idx ) ) {
     /* This means that this FEC is the only child of its parent since it
        has no siblings and it is directly connected to its parent.  No
        new fork idx is needed. */
-    fec->fork_idx = parent_fec->fork_idx;
+    fec->fork_idx        = parent_fec->fork_idx;
+    fec->parent_fork_idx = parent_fec->parent_fork_idx;
   } else {
     /* There is equivocation in the middle of a block or the incoming
-       FEC can't be linked to its parent. */
-    fec->fork_idx = fd_reasm_get_new_fork_idx( reasm );
+       FEC can't be linked to its parent.  The parent fork idx is the
+       same because the equivocated block has the same parent fork. */
+    fec->fork_idx        = fd_reasm_get_new_fork_idx( reasm );
+    fec->parent_fork_idx = parent_fec->parent_fork_idx;
   }
 
   return fec;

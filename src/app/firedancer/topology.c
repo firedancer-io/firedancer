@@ -979,6 +979,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
 
     tile->replay.heap_size_gib = config->tiles.replay.heap_size_gib;
+    tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     /* not specified by [tiles.replay] */
 

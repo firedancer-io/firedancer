@@ -130,7 +130,8 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
 
   /* Fork Tree */
 
-  ulong fork_idx; /* pool idx of the fork element */
+  ulong fork_idx;        /* pool idx of the fork element */
+  ulong parent_fork_idx; /* pool idx of the parent fork element */
 
   /* Pointers */
 

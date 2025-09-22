@@ -509,7 +509,7 @@ user = ""
 
 [runtime]
     max_rooted_slots = 300
-    max_live_slots = 2048
+    max_live_slots = 1024
     max_transactions_per_slot = 65536
     snapshot_grace_period_seconds = 409
     max_vote_accounts = 2000000

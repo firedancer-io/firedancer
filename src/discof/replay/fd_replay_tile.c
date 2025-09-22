@@ -388,7 +388,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
   l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN,        FD_CAPTURE_CTX_FOOTPRINT );
@@ -733,6 +733,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   fd_bank_t * bank = ctx->slot_ctx->bank;
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
+  ulong bank_idx = fd_banks_get_pool_idx( ctx->banks, bank );
 
   // fd_eslot_t eslot = fd_bank_eslot_get( bank );
 
@@ -757,12 +758,11 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   FD_TEST( block_hash      );
 
   /* Set poh hash in bank. */
-  fd_eslot_t eslotFIXME = fd_eslot( 0, 0 ); /* TODO:FIXME: */
-  fd_hash_t * poh = fd_sched_get_poh( ctx->sched, &eslotFIXME );
+  fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank_idx );
   fd_bank_poh_set( bank, *poh );
 
   /* Set shred count in bank. */
-  fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, &eslotFIXME ) );
+  fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank_idx ) );
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( ctx->slot_ctx );
@@ -948,13 +948,9 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
   bank->flags |= FD_BANK_FLAGS_FROZEN;
 
-  ulong leader_slot = fd_bank_slot_get( bank );
-  ulong parent_slot = fd_bank_parent_slot_get( bank );
-
-  /* TODO:FIXME: */
-  fd_eslot_t leader_eslot = fd_eslot( leader_slot, 0UL );
-  fd_eslot_t parent_eslot = fd_eslot( parent_slot, 0UL );
-  fd_sched_block_add_done( ctx->sched, &leader_eslot, &parent_eslot );
+  ulong bank_idx = fd_banks_get_pool_idx( ctx->banks, bank );
+  ulong parent_bank_idx = fd_banks_get_pool_idx( ctx->banks, fd_bank_parent_get( bank ) );
+  fd_sched_block_add_done( ctx->sched, bank_idx, parent_bank_idx );
 
   ulong curr_slot = fd_bank_slot_get( bank );
 
@@ -1256,7 +1252,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   ctx->consensus_root_slot = 0UL;
   ctx->published_root_slot = 0UL;
-  fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = 0UL, .prime = 0UL }, NULL );
+  fd_sched_block_add_done( ctx->sched, fd_banks_get_pool_idx( ctx->banks, ctx->slot_ctx->bank ), ULONG_MAX );
 
   fd_bank_block_height_set( ctx->slot_ctx->bank, 1UL );
 
@@ -1311,7 +1307,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_eslot_mgr_ele_insert_initial( ctx->eslot_mgr, snapshot_slot );
     ctx->consensus_root_slot = snapshot_slot;
     ctx->published_root_slot = snapshot_slot;
-    fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = snapshot_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL }, NULL );
+    fd_sched_block_add_done( ctx->sched, fd_banks_get_pool_idx( ctx->banks, ctx->slot_ctx->bank ), ULONG_MAX );
 
     fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
 
@@ -1359,9 +1355,8 @@ replay( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
   if( ctx->block_draining ) {
-    /* TODO:FIXME: eslot is wrong */
-    fd_eslot_t eslot = fd_eslot( fd_bank_slot_get( ctx->slot_ctx->bank ), 0UL );
-    if( fd_sched_block_is_done( ctx->sched, &eslot ) ) {
+    ulong bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->slot_ctx->bank );
+    if( fd_sched_block_is_done( ctx->sched, bank_idx ) ) {
       ctx->block_draining = 0;
       replay_block_finalize( ctx, stem );
       return 1;
@@ -1373,7 +1368,7 @@ replay( fd_replay_tile_t *  ctx,
   while( ctx->exec_ready_bitset ) {
     fd_sched_txn_ready_t ready_txn[ 1 ];
     if( FD_LIKELY( fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
-      FD_TEST( ready_txn->txn_id!=FD_SCHED_TXN_ID_NULL );
+      FD_TEST( ready_txn->txn_idx!=FD_SCHED_TXN_IDX_NULL );
       charge_busy = 1;
 
       /* TODO:FIXME: eslot, should be fork idx */
@@ -1385,7 +1380,7 @@ replay( fd_replay_tile_t *  ctx,
                             stem,
                             ready_txn->block_id,
                             ready_txn->parent_block_id );
-        fd_sched_txn_done( ctx->sched, ready_txn->txn_id );
+        fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
         replay_ctx_switch( ctx, ready_txn->block_id );
         continue;
       }
@@ -1756,10 +1751,10 @@ process_fec_set( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "parent_slot %lu != %lu", parent_slot, (ulong)ele->parent_eslot.slot ));
   }
 
+  sched_fec->block_idx              = reasm_fec->fork_idx;
+  sched_fec->parent_block_idx       = reasm_fec->parent_fork_idx;
   sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
   sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->block_id               = ele->eslot;
-  sched_fec->parent_block_id        = ele->parent_eslot;
   sched_fec->alut_ctx->funk_txn     = NULL; /* Corresponds to the root txn. */
   sched_fec->alut_ctx->funk         = ctx->funk;
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
@@ -1880,7 +1875,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
-  void * sched_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
+  void * sched_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.max_live_slots ) );
   void * eslot_mgr_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
   void * slot_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
   void * _capture_ctx     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN,        FD_CAPTURE_CTX_FOOTPRINT );
@@ -1956,7 +1951,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->exec_ready_bitset = 0UL;
   ctx->is_booted = 0;
 
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem ) );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots ), tile->replay.max_live_slots );
   FD_TEST( ctx->sched );
 
   ctx->eslot_mgr = fd_eslot_mgr_join( fd_eslot_mgr_new( eslot_mgr_mem, FD_BLOCK_MAX, 999UL ) );
