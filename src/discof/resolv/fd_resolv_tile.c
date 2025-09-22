@@ -233,9 +233,6 @@ during_frag( fd_resolv_ctx_t * ctx,
         ctx->_rooted_slot_msg = *(fd_replay_root_advanced_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
       } else if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
         ctx->_completed_slot_msg = *(fd_replay_slot_completed_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-      } else if( FD_UNLIKELY( sig==REPLAY_SIG_VOTE_STATE ) ) {
-      } else {
-        FD_LOG_ERR(( "invariant violation: unknown sig %lu", sig ));
       }
       break;
     }
@@ -387,9 +384,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         break;
       }
-      case REPLAY_SIG_VOTE_STATE: break;
-      default:
-        FD_LOG_ERR(( "unknown sig %lu", sig ));
+      default: break;
     }
     return;
   }

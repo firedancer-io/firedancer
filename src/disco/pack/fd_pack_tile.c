@@ -3,6 +3,7 @@
 #include "generated/fd_pack_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
+#include "../../discof/replay/fd_replay_tile.h" // layering violation
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard.h"
@@ -809,7 +810,16 @@ during_frag( fd_pack_ctx_t * ctx,
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
-  case IN_KIND_REPLAY:
+  case IN_KIND_REPLAY: {
+    if( FD_LIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
+
+    /* There was a leader transition.  Handle it. */
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    fd_memcpy( ctx->_became_leader, dcache_entry, sizeof(fd_became_leader_t) );
+    return;
+  }
   case IN_KIND_POH: {
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
@@ -957,11 +967,23 @@ after_frag( fd_pack_ctx_t *     ctx,
 
   long now = fd_tickcount();
 
+  ulong leader_slot = ULONG_MAX;
+  switch( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_REPLAY:
+      if( FD_UNLIKELY( sig!=REPLAY_SIG_BECAME_LEADER ) ) return;
+      leader_slot = ctx->_became_leader->slot;
+      break;
+    case IN_KIND_POH:
+      if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
+      leader_slot = fd_disco_poh_sig_slot( sig );
+      break;
+    default:
+      break;
+  }
+
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_REPLAY:
   case IN_KIND_POH: {
-    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
-
     long now_ticks = fd_tickcount();
     long now_ns    = fd_log_wallclock();
 
@@ -973,7 +995,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       ctx->poh_out_chunk = fd_dcache_compact_next( ctx->poh_out_chunk, sizeof(fd_done_packing_t), ctx->poh_out_chunk0, ctx->poh_out_wmark );
       ctx->pack_idx++;
 
-      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
+      FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", leader_slot, ctx->leader_slot ));
       log_end_block_metrics( ctx, now_ticks, "switch" );
       ctx->drain_banks         = 1;
       ctx->leader_slot         = ULONG_MAX;
@@ -981,7 +1003,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       fd_pack_end_block( ctx->pack );
       remove_ib( ctx );
     }
-    ctx->leader_slot = fd_disco_poh_sig_slot( sig );
+    ctx->leader_slot = leader_slot;
 
     ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
     FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
@@ -1160,7 +1182,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else if( FD_LIKELY( !strcmp( link->name, "executed_txn" ) ) ) ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }

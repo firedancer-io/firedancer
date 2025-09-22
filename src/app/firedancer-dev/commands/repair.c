@@ -268,11 +268,8 @@ repair_topo( config_t * config ) {
     fd_topob_wksp( topo, "scap" );
 
     fd_topob_wksp( topo, "repair_scap" );
-    fd_topob_wksp( topo, "replay_scap" );
 
     fd_topo_tile_t * scap_tile = fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-
-    fd_topob_link( topo, "replay_scap", "replay_scap", 128UL, sizeof(fd_hash_t)+sizeof(ulong), 1UL );
 
     fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     for( ulong j=0UL; j<net_tile_cnt; j++ ) {
@@ -284,7 +281,7 @@ repair_topo( config_t * config ) {
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "repair_scap", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "replay_scap", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
     fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_out( topo, "scap", 0UL, "replay_stake", 0UL );
@@ -295,7 +292,6 @@ repair_topo( config_t * config ) {
   FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
   FD_TEST( fd_link_permit_no_producers( topo, "send_txns"    ) == 1UL           );
   FD_TEST( fd_link_permit_no_producers( topo, "repair_scap"  ) == 1UL           );
-  FD_TEST( fd_link_permit_no_producers( topo, "replay_scap"  ) == 1UL           );
 
   FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == quic_tile_cnt );
   FD_TEST( fd_link_permit_no_consumers( topo, "repair_repla" ) == 1UL           );

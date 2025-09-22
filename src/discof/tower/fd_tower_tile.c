@@ -364,10 +364,6 @@ returnable_frag( fd_tower_tile_t *   ctx,
       ctx->replay_towers_cnt++;
 
       if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) replay_slot_completed( ctx, &ctx->replay_slot_info, tsorig, stem );
-    } else if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
-      /* Ignore root advanced messages, we don't need them */
-    } else {
-      FD_LOG_ERR(( "unexpected replay message sig %lu", sig ));
     }
   } else {
     FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));

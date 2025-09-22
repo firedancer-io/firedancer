@@ -7,9 +7,9 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
-#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -48,8 +48,8 @@
 #define REPAIR_NET       (1UL)
 #define SHRED_REPAIR     (2UL)
 #define GOSSIP_OUT       (3UL)
-#define REPAIR_SHREDCAP (4UL)
-#define REPLAY_SHREDCAP (5UL)
+#define REPAIR_SHREDCAP  (4UL)
+#define REPLAY_OUT       (5UL)
 
 typedef union {
   struct {
@@ -379,17 +379,18 @@ during_frag( fd_capture_tile_ctx_t * ctx,
       FD_LOG_CRIT(( "failed to write slice trailer %d", err ));
     }
 
-  } else if( ctx->in_kind[ in_idx ] == REPLAY_SHREDCAP ) {
+  } else if( ctx->in_kind[ in_idx ] == REPLAY_OUT ) {
+    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return;
 
     /* FIXME this should all be happening in after_frag */
 
-   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
+   fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
    fd_shredcap_bank_hash_msg_t bank_hash_msg = {
      .magic   = FD_SHREDCAP_BANK_HASH_MAGIC,
      .version = FD_SHREDCAP_BANK_HASH_V1
    };
-   fd_memcpy( &bank_hash_msg.bank_hash, dcache_entry, sizeof(fd_hash_t) );
-   fd_memcpy( &bank_hash_msg.slot, dcache_entry+sizeof(fd_hash_t), sizeof(ulong) );
+   fd_memcpy( &bank_hash_msg.bank_hash, msg->bank_hash.uc, sizeof(fd_hash_t) );
+   bank_hash_msg.slot = msg->slot;
 
    fd_io_buffered_ostream_write( &ctx->bank_hashes_ostream, &bank_hash_msg, FD_SHREDCAP_BANK_HASH_FOOTPRINT );
 
@@ -713,8 +714,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = GOSSIP_OUT;
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {
       ctx->in_kind[ i ] = REPAIR_SHREDCAP;
-    } else if( 0==strcmp( link->name, "replay_scap" ) ) {
-      ctx->in_kind[ i ] = REPLAY_SHREDCAP;
+    } else if( 0==strcmp( link->name, "replay_out" ) ) {
+      ctx->in_kind[ i ] = REPLAY_OUT;
     } else {
       FD_LOG_ERR(( "scap tile has unexpected input link %s", link->name ));
     }
