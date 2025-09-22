@@ -1,5 +1,6 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
+#include "../accdb/fd_accdb_client.h"
 
 void *
 fd_txn_account_new( void *              mem,
@@ -168,7 +169,7 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        0 ), fd_funk_wksp( funk ) ) ) ) {
+        0 ), fd_funk_wksp( accdb->funk ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
@@ -176,17 +177,19 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
 }
 
 int
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
-                                       fd_pubkey_t const *     pubkey,
-                                       fd_funk_t *             funk,
-                                       fd_funk_txn_t *         funk_txn,
-                                       int                     do_create,
-                                       ulong                   min_data_sz,
-                                       fd_funk_rec_prepare_t * prepare_out ) {
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
+                                       fd_pubkey_t const *       pubkey,
+                                       fd_accdb_client_t *       accdb,
+                                       fd_funk_txn_xid_t const * funk_txn_xid,
+                                       int                       do_create,
+                                       ulong                     min_data_sz,
+                                       fd_funk_rec_prepare_t *   prepare_out ) {
+
+
   memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t * meta = fd_funk_get_acc_meta_mutable(
-      funk,
+      accdb->funk,
       funk_txn,
       pubkey,
       do_create,
@@ -208,7 +211,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        1 ), fd_funk_wksp( funk ) ) ) ) {
+        1 ), fd_funk_wksp( accdb->funk ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 

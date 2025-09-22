@@ -142,9 +142,6 @@ typedef struct fd_funk_shmem_private fd_funk_shmem_t;
 struct fd_funk_private;
 typedef struct fd_funk_private fd_funk_t;
 
-struct fd_funk_txn_private;
-typedef struct fd_funk_txn_private fd_funk_txn_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_funk_rec_key_hash provides a family of hashes that hash the key

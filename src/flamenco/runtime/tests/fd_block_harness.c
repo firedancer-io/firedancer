@@ -168,20 +168,15 @@ static fd_runtime_block_info_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                   fd_exec_slot_ctx_t *                 slot_ctx,
                                   fd_exec_test_block_context_t const * test_ctx ) {
-  fd_funk_t * funk = runner->funk;
-
   slot_ctx->banks = runner->banks;
   slot_ctx->bank  = runner->bank;
   fd_banks_clear_bank( slot_ctx->banks, slot_ctx->bank );
 
   /* Generate unique ID for funk txn */
-  fd_funk_txn_xid_t xid[1] = {0};
-  xid[0] = fd_funk_generate_xid();
+  fd_funk_txn_xid_t xid = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and slot / epoch contexts */
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_accdb_manager_txn_create( runner->accdb_mgr, NULL, &xid );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -193,9 +188,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Set up slot context */
   ulong slot = test_ctx->slot_ctx.slot;
 
-  slot_ctx->funk_txn = funk_txn;
-  slot_ctx->funk     = funk;
-  slot_ctx->silent   = 1;
+  slot_ctx->funk_txn_xid = xid;
+  slot_ctx->funk         = runner->funk;
+  slot_ctx->silent       = 1;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
@@ -269,7 +264,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     FD_TXN_ACCOUNT_DECL(acc);
-    fd_runtime_fuzz_load_account( acc, funk, funk_txn, &test_ctx->acct_states[i], 1 );
+    fd_runtime_fuzz_load_account( acc, slot_ctx->accdb, &slot_ctx->funk_txn_xid, &test_ctx->acct_states[i], 1 );
 
     /* Update vote accounts cache for epoch T */
     fd_pubkey_t pubkey;
@@ -292,10 +287,10 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_schedule_ );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  fd_rent_t const * rent = fd_sysvar_rent_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
   fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL ) );
@@ -337,7 +332,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memset( genesis_hash->hash, 0, sizeof(fd_hash_t) );
 
   // Use the latest lamports per signature
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
@@ -348,9 +343,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &fork_xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_accdb_manager_txn_create( runner->accdb_mgr, &slot_ctx->funk_txn_xid, &fork_xid );
+  slot_ctx->funk_txn_xid = fork_xid;
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
   fd_lthash_value_t lthash = {0};

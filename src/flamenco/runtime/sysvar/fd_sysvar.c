@@ -20,7 +20,7 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_TXN_ACCOUNT_DECL( rec );
   fd_funk_rec_prepare_t prepare = {0};
-  fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->funk_txn, 1, sz, &prepare );
+  fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->accdb, &slot_ctx->funk_txn_xid, 1, sz, &prepare );
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash( address, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
 

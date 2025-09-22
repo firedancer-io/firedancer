@@ -20,7 +20,6 @@ struct fd_exec_slot_ctx {
   fd_bank_t *     bank;
 
   fd_funk_t *     funk;     /* deprecated */
-  fd_funk_txn_t * funk_txn;
 
   fd_accdb_client_t * accdb;
   fd_funk_txn_xid_t   funk_txn_xid;

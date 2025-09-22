@@ -850,8 +850,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *           sl
 
     if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( vote_rec,
                                                             vote_pubkey,
-                                                            slot_ctx->funk,
-                                                            slot_ctx->funk_txn,
+                                                            slot_ctx->accdb,
+                                                            &slot_ctx->funk_txn_xid,
                                                             1,
                                                             0UL,
                                                             &prepare )!=FD_ACC_MGR_SUCCESS ) ) {
@@ -913,8 +913,8 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_rec_prepare_t prepare = {0};
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( stake_acc_rec,
                                                           stake_pubkey,
-                                                          slot_ctx->funk,
-                                                          slot_ctx->funk_txn,
+                                                          slot_ctx->accdb,
+                                                          &slot_ctx->funk_txn_xid,
                                                           0,
                                                           0UL,
                                                           &prepare )!=FD_ACC_MGR_SUCCESS ) ) {

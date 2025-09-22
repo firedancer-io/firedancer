@@ -244,7 +244,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Clock */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, clock_ );
   if( !clock ) {
     fd_sol_sysvar_clock_t sysvar_clock = {
       .slot                  = 10UL,
@@ -259,7 +259,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Epoch schedule */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
   fd_epoch_schedule_t epoch_schedule[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_schedule ) ) ) {
     fd_epoch_schedule_t sysvar_epoch_schedule = {
       .slots_per_epoch             = 432000UL,
       .leader_schedule_slot_offset = 432000UL,
@@ -272,7 +272,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Rent */
   // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  fd_rent_t const * rent = fd_sysvar_rent_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( !rent ) {
     fd_rent_t sysvar_rent = {
       .lamports_per_uint8_year = 3480UL,
@@ -283,31 +283,31 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   fd_sol_sysvar_last_restart_slot_t last_restart_slot_[1];
-  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, last_restart_slot_ );
+  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, last_restart_slot_ );
   if( !last_restart_slot ) {
     fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
     fd_sysvar_account_update( slot_ctx, &fd_sysvar_last_restart_slot_id, &restart.slot, sizeof(ulong) );
   }
 
   /* Set slot bank variables */
-  clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  clock = fd_sysvar_clock_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, clock_ );
 
   fd_bank_slot_set( slot_ctx->bank, clock->slot );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
-  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
+  if( fd_sysvar_epoch_schedule_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_schedule ) ) {
     fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
   }
 
   /* Override epoch bank rent setting */
-  rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  rent = fd_sysvar_rent_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( rent ) {
     fd_bank_rent_set( slot_ctx->bank, *rent );
   }
 
   /* Override most recent blockhash if given */
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
@@ -383,7 +383,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
                                       funk_wksp,
-                                      funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
 

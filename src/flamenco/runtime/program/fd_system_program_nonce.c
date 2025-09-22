@@ -48,7 +48,7 @@ require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->accdb, &ctx->txn_ctx->funk_txn_xid, ctx->txn_ctx->spad );
   if( FD_UNLIKELY( !rbh ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }

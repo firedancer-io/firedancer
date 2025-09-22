@@ -3243,7 +3243,7 @@ write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * sta
 
   FD_TXN_ACCOUNT_DECL(rec);
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->funk_txn, 1, data_sz, &prepare );
+  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->accdb, &slot_ctx->funk_txn_xid, 1, data_sz, &prepare );
   FD_TEST( !err );
 
   fd_txn_account_set_lamports( rec, 960480UL );

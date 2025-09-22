@@ -22,6 +22,7 @@ static ulong const SPAD_MEM_MAX = 100UL << 20; /* 100MB */
 /* Test setup and teardown helpers */
 static fd_wksp_t * test_wksp = NULL;
 static fd_funk_t * test_funk = NULL;
+static fd_accdb_client_t * test_accdb = NULL;
 static fd_spad_t * test_spad = NULL;
 static fd_exec_slot_ctx_t * test_slot_ctx = NULL;
 

@@ -38,10 +38,7 @@
 static void
 fd_runtime_fuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_slot_ctx_t *  slot_ctx ) {
-  if( !slot_ctx ) return; // This shouldn't be false either
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_accdb_manager_txn_cancel( runner->accdb_mgr, &slot_ctx->funk_txn_xid );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -57,12 +54,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, &xid, 1 );
+  fd_accdb_manager_txn_create( runner->accdb, NULL, &xid );
 
   /* Set up slot context */
-  slot_ctx->funk_txn = funk_txn;
-  slot_ctx->funk     = funk;
-
+  slot_ctx->funk  = funk;
   slot_ctx->banks = runner->banks;
   slot_ctx->bank  = runner->bank;
   fd_banks_clear_bank( slot_ctx->banks, slot_ctx->bank );
@@ -128,17 +123,17 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   // Override default values if provided
   fd_epoch_schedule_t epoch_schedule[1];
-  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
+  if( fd_sysvar_epoch_schedule_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_schedule ) ) {
     fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
   }
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  fd_rent_t const * rent = fd_sysvar_rent_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( rent ) {
     fd_bank_rent_set( slot_ctx->bank, *rent );
   }
 
   /* Provide default slot hashes of size 1 if not provided */
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, funk_txn, runner->spad );
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( !slot_hashes ) {
     FD_SPAD_FRAME_BEGIN( runner->spad ) {
       /* The offseted gaddr aware types need the memory for the entire
@@ -157,7 +152,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Provide default stake history if not provided */
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, funk_txn, runner->spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   if( !stake_history ) {
     // Provide a 0-set default entry
     fd_epoch_stake_history_entry_pair_t entry = {0};
@@ -167,7 +162,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Provide default last restart slot sysvar if not provided */
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, slot_ctx->accdb, &slot_ctx->funk_txn_xid );
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     fd_sysvar_last_restart_slot_init( slot_ctx );
   }
@@ -198,7 +193,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Provide a default clock if not present */
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, clock_ );
   if( !clock ) {
     /* solfuzz-agave uses a parent epoch of 0 as well */
     ulong parent_epoch = 0UL;
@@ -219,7 +214,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
      the epoch rewards sysvar, we may need to update this.
   */
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( !fd_sysvar_epoch_rewards_read( funk, funk_txn, epoch_rewards ) ) {
+  if( !fd_sysvar_epoch_rewards_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, epoch_rewards ) ) {
     fd_hash_t last_hash = {0};
     if( test_ctx->blockhash_queue_count > 0 ) last_hash = FD_LOAD( fd_hash_t, test_ctx->blockhash_queue[0]->bytes );
     fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, &last_hash );
@@ -235,7 +230,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), blockhash_seed );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, runner->spad );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_sysvar ) {
     rbh->hashes = rbh_sysvar->hashes;

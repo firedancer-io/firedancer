@@ -211,12 +211,10 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           char const *         data,
                           ulong                sz ) {
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
   fd_funk_rec_prepare_t prepare = {0};
 
-  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz, &prepare );
+  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, slot_ctx->accdb, &slot_ctx->funk_txn_xid, 1, sz, &prepare );
   FD_TEST( !err );
 
   fd_lthash_value_t prev_hash[1];
@@ -252,9 +250,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
-  fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
+  fd_pubkey_t const * key = &fd_solana_spl_native_mint_id;
   FD_TXN_ACCOUNT_DECL( rec );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
@@ -264,7 +260,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data), &prepare );
+  int err = fd_txn_account_init_from_funk_mutable( rec, key, slot_ctx->accdb, &slot_ctx->funk_txn_xid, 1, sizeof(data), &prepare );
   FD_TEST( !err );
 
   fd_txn_account_set_lamports( rec, 1000000000UL );

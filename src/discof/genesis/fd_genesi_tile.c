@@ -15,8 +15,8 @@
 struct fd_genesi_tile {
   int fd;
 
-  fd_funk_t funk[1];
-  fd_funk_txn_t * funk_txn;
+  fd_funk_t           funk[1];
+  fd_accdb_client_t * accdb;
 
   ushort shred_version;
   uchar  genesis_hash[ 32UL ];
@@ -71,8 +71,8 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     FD_TXN_ACCOUNT_DECL( rec );
     int err = fd_txn_account_init_from_funk_mutable( rec,
                                                      &account->key,
-                                                     ctx->funk,
-                                                     ctx->funk_txn,
+                                                     ctx->accdb,
+                                                     NULL,
                                                      1, /* do_create */
                                                      account->account.data_len,
                                                      &prepare );
@@ -82,7 +82,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     fd_txn_account_set_lamports( rec, account->account.lamports );
     fd_txn_account_set_executable( rec, account->account.executable );
     fd_txn_account_set_owner( rec, &account->account.owner );
-    fd_txn_account_mutable_fini( rec, ctx->funk, ctx->funk_txn, &prepare );
+    fd_txn_account_mutable_fini( rec, ctx->accdb, NULL, &prepare );
 
     fd_lthash_value_t new_hash[1];
     fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), new_hash );
@@ -218,7 +218,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
-  ctx->funk_txn = fd_funk_txn_query( fd_funk_root( ctx->funk ), ctx->funk->txn_map );
 
   fd_lthash_zero( ctx->lthash );
 

@@ -1371,13 +1371,9 @@ void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_exec_txn_ctx_t *        ctx,
                                     fd_wksp_t const *          funk_wksp,
-                                    ulong                      funk_txn_gaddr,
                                     ulong                      funk_gaddr,
                                     fd_bank_hash_cmp_t *       bank_hash_cmp ) {
-  ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
-  if( FD_UNLIKELY( !ctx->funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
+  ctx->funk_txn_xid = slot_ctx->funk_txn_xid;
 
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
@@ -1407,8 +1403,8 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
 
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      txn_ctx->funk,
-      txn_ctx->funk_txn,
+      txn_ctx->accdb,
+      &txn_ctx->funk_txn_xid,
       acc,
       &err );
 
@@ -1493,8 +1489,8 @@ fd_executor_setup_executable_account( fd_exec_txn_ctx_t *      txn_ctx,
   fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
   if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[ *executable_idx ],
                                                             programdata_acc,
-                                                            txn_ctx->funk,
-                                                            txn_ctx->funk_txn )==0 ) ) {
+                                                            txn_ctx->accdb,
+                                                            &txn_ctx->funk_txn_xid )==0 ) ) {
     (*executable_idx)++;
   }
 }

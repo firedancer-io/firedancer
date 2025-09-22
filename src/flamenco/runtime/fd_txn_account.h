@@ -125,13 +125,13 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
    IMPORTANT: Cannot be called in the executor tile. */
 
 int
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
-                                       fd_pubkey_t const *     pubkey,
-                                       fd_funk_t *             funk,
-                                       fd_funk_txn_t *         funk_txn,
-                                       int                     do_create,
-                                       ulong                   min_data_sz,
-                                       fd_funk_rec_prepare_t * prepare_out );
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
+                                       fd_pubkey_t const *       pubkey,
+                                       fd_accdb_client_t *       accdb,
+                                       fd_funk_txn_xid_t const * funk_txn_xid,
+                                       int                       do_create,
+                                       ulong                     min_data_sz,
+                                       fd_funk_rec_prepare_t *   prepare_out );
 
 /* Publishes the record contents of a mutable fd_txn_account_t object
    obtained from fd_txn_account_init_from_funk_mutable into funk

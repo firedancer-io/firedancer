@@ -176,11 +176,6 @@ struct fd_stake_delegations_iter {
 };
 typedef struct fd_stake_delegations_iter fd_stake_delegations_iter_t;
 
-struct fd_funk_private;
-typedef struct fd_funk_private fd_funk_t;
-struct fd_funk_txn_private;
-typedef struct fd_funk_txn_private fd_funk_txn_t;
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_stake_delegations_align returns the alignment of the stake

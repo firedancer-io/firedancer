@@ -208,10 +208,10 @@ fd_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * pr
 }
 
 uchar const *
-fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
-                                          fd_funk_txn_t const *    funk_txn,
-                                          fd_txn_account_t const * program_acc,
-                                          ulong *                  out_program_data_len ) {
+fd_program_cache_get_account_programdata( fd_accdb_client_t *       accdb,
+                                          fd_funk_txn_xid_t const * funk_txn_xid,
+                                          fd_txn_account_t const *  program_acc,
+                                          ulong *                   out_program_data_len ) {
   /* v1/v2 loaders: Programdata is just the account data.
      v3 loader: Programdata lives in a separate account. Deserialize the
                 program account and lookup the programdata account.
@@ -219,7 +219,7 @@ fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
      v4 loader: Programdata lives in the program account, offset by
                 LOADER_V4_PROGRAM_DATA_OFFSET. */
   if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len );
+    return fd_get_executable_program_content_for_upgradeable_loader( accdb, funk_txn_xid, program_acc, out_program_data_len );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_get_executable_program_content_for_v4_loader( program_acc, out_program_data_len );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||

@@ -8,12 +8,9 @@
 #include "../resolv/fd_resolv_tile.h"
 #include "../restore/utils/fd_ssload.h"
 
-<<<<<<< Updated upstream
 #include "../../disco/tiles.h"
-=======
 #include "../../flamenco/accdb/fd_accdb_manager.h"
 #include "../../flamenco/runtime/fd_svm_account.h"
->>>>>>> Stashed changes
 #include "../../disco/store/fd_store.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_exec.h"
@@ -685,15 +682,6 @@ eslot_mgr_purge( fd_replay_tile_t * ctx,
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
 
-<<<<<<< Updated upstream
-static fd_bank_t *
-replay_block_start( fd_replay_tile_t *  ctx,
-                    fd_stem_context_t * stem,
-                    ulong               slot,
-                    ulong               parent_slot,
-                    fd_hash_t const *   merkle_hash,
-                    fd_hash_t const *   parent_merkle_hash ) {
-=======
 static void
 handle_existing_block( fd_replay_tile_t * ctx,
                        fd_hash_t *        merkle_hash ) {
@@ -709,14 +697,13 @@ handle_existing_block( fd_replay_tile_t * ctx,
   ctx->slot_ctx->funk_txn_xid = xid;
 }
 
-static void
-handle_new_block( fd_replay_tile_t *  ctx,
-                  fd_stem_context_t * stem,
-                  ulong               slot,
-                  ulong               parent_slot,
-                  fd_hash_t *         merkle_hash,
-                  fd_hash_t *         parent_merkle_hash ) {
->>>>>>> Stashed changes
+static fd_bank_t *
+replay_block_start( fd_replay_tile_t *  ctx,
+                    fd_stem_context_t * stem,
+                    ulong               slot,
+                    ulong               parent_slot,
+                    fd_hash_t const *   merkle_hash,
+                    fd_hash_t const *   parent_merkle_hash ) {
   /* Switch to a new block that we don't have a bank for. */
   FD_LOG_INFO(( "Creating new bank (slot: %lu, merkle hash: %s; parent slot: %lu, parent_merkle %s) ", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ), parent_slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
 
@@ -783,10 +770,10 @@ handle_new_block( fd_replay_tile_t *  ctx,
      slot_ctx. */
   // FIXME: slot_ctx is really just a parameter blob at this point, we
   // shouldn't conflate replay's active ctx with slot_ctx
-  fd_funk_txn_t * old_funk_txn = ctx->slot_ctx->funk_txn;
-  fd_bank_t *     old_bank     = ctx->slot_ctx->bank;
-  ctx->slot_ctx->funk_txn = funk_txn;
-  ctx->slot_ctx->bank     = bank;
+  fd_funk_txn_xid_t old_txn_xid = ctx->slot_ctx->funk_txn_xid;
+  fd_bank_t *       old_bank    = ctx->slot_ctx->bank;
+  ctx->slot_ctx->funk_txn_xid = xid;
+  ctx->slot_ctx->bank         = bank;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
@@ -801,8 +788,8 @@ handle_new_block( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
 
-  ctx->slot_ctx->funk_txn = old_funk_txn;
-  ctx->slot_ctx->bank     = old_bank;
+  ctx->slot_ctx->funk_txn_xid = old_txn_xid;
+  ctx->slot_ctx->bank         = old_bank;
 
   return bank;
 }
@@ -822,12 +809,8 @@ replay_ctx_switch( fd_replay_tile_t * ctx,
 
   ulong slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_xid_t   xid     = { .ul = { slot, slot } };
-  ctx->slot_ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !ctx->slot_ctx->funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
-  }
+  fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
+  ctx->slot_ctx->funk_txn_xid = xid;
 }
 
 static void
@@ -1002,30 +985,14 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_bank_t * bank = fd_banks_clone_from_parent( ctx->banks, &leader_hash, parent_block_id );
 
-  /* prepare the funk transaction for the leader bank */
-  fd_funk_txn_start_write( ctx->funk );
-
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
 
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn_map is NULL for slot %lu", slot ));
-  }
-
-  fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
-
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
-  }
-
-  fd_funk_txn_end_write( ctx->funk );
+  fd_accdb_manager_txn_create( ctx->accdb, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
   fd_bank_shred_cnt_set( bank, 0UL );
-
 
   fd_bank_parent_block_id_set( bank, *parent_block_id );
 
@@ -1052,7 +1019,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     .bank     = bank,
     .funk     = ctx->funk,
     .banks    = ctx->banks,
-    .funk_txn = funk_txn,
+
+    .funk_txn_xid = xid,
   };
 
   int is_epoch_boundary = 0;
@@ -1089,23 +1057,14 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   /* TODO: get the poh hash */
 
   /* Do hashing and other end-of-block processing */
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map->map ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction map" ));
-  }
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
-  fd_funk_txn_start_read( ctx->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  fd_funk_txn_end_read( ctx->funk );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", curr_slot ));
-  }
+  (void)xid;
 
   fd_exec_slot_ctx_t slot_ctx = {
     .funk     = ctx->funk,
     .banks    = ctx->banks,
     .bank     = bank,
-    .funk_txn = funk_txn,
+    //.funk_txn = funk_txn,
   };
 
   fd_runtime_block_execute_finalize( &slot_ctx );

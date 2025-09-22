@@ -235,7 +235,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->funk_txn, txn_ctx, bank, NULL );
+    fd_runtime_finalize_txn( ctx->txn_ctx->accdb, &txn_ctx->funk_txn_xid, txn_ctx, bank, NULL );
     FD_TEST( txn->flags );
   }
 
