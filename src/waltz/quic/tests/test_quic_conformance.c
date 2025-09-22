@@ -200,7 +200,7 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
 
   /* Verify that the response looks correct */
 
-  fd_quic_service( quic );
+  fd_quic_service( quic, sandbox->wallclock );
   fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
   FD_TEST( frag );
 
@@ -398,14 +398,14 @@ test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
 
   /* internal connection_map setup to process packet */
   do {
-    fd_quic_conn_map_t * insert_entry = fd_quic_conn_map_insert( fd_quic_get_state(sandbox->quic)->conn_map,
+    fd_quic_conn_map_t * insert_entry = fd_quic_conn_map_insert( fd_quic_get_state( sandbox->quic )->conn_map,
       FD_LOAD( ulong, conn->peer_cids[0].conn_id ) ); /* insert peer_cid.conn_id */
     FD_TEST( insert_entry );
     insert_entry->conn = conn;
   } while(0);
 
   ulong before = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ];
-  fd_quic_process_packet( sandbox->quic, data, frag->sz );
+  fd_quic_process_packet( sandbox->quic, data, frag->sz, sandbox->wallclock );
   ulong after = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ]; /* correctly parsed small ping packet */
   FD_TEST( after == before + 1 );
 }
@@ -649,9 +649,9 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
   for( uint j = 0; j < 5; ++j ) {
     conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-    sandbox->wallclock += (ulong)10e6;
+    sandbox->wallclock += (long)10e6;
     fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
-    fd_quic_service( quic );
+    fd_quic_service( quic, sandbox->wallclock );
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
     next_pkt_number++;
   }
@@ -679,9 +679,9 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
   for( uint j = 0; j < 15; ++j ) {
     conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-    sandbox->wallclock += (ulong)10e6;
+    sandbox->wallclock += (long)10e6;
     fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
-    fd_quic_service( quic );
+    fd_quic_service( quic, sandbox->wallclock );
     FD_TEST( conn->pkt_number[2] == next_pkt_number );
     FD_TEST( *metrics_alloc_fail_cnt > alloc_fail_cnt );
     alloc_fail_cnt = *metrics_alloc_fail_cnt;
@@ -695,8 +695,8 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
     fd_quic_sandbox_send_ping_pkt( sandbox, conn, pktnum++ );
 
     /* wait for the ack delay timeout */
-    sandbox->wallclock += (ulong)100e6;
-    fd_quic_service( quic );
+    sandbox->wallclock += (long)100e6;
+    fd_quic_service( quic, sandbox->wallclock );
 
     /* verify packet sent */
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
@@ -718,9 +718,9 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
   for( uint j = 0; j < 5; ++j ) {
     conn->flags          = ( conn->flags & ~FD_QUIC_CONN_FLAGS_PING_SENT ) | FD_QUIC_CONN_FLAGS_PING;
     conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-    sandbox->wallclock += (ulong)10e6;
+    sandbox->wallclock += (long)10e6;
     fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
-    fd_quic_service( quic );
+    fd_quic_service( quic, sandbox->wallclock );
     FD_TEST( conn->pkt_number[2] == next_pkt_number + 1UL );
     next_pkt_number++;
   }
@@ -730,11 +730,7 @@ test_quic_pktmeta_pktnum_skip( fd_quic_sandbox_t * sandbox,
 
 static void
 test_quic_rtt_sample( void ) {
-  fd_quic_t quic = {
-    .config = {
-      .tick_per_us = 2500.
-    }
-  };
+  fd_quic_t quic = {0};
   fd_quic_conn_t conn = {
     .quic = &quic
   };
@@ -746,8 +742,8 @@ test_quic_rtt_sample( void ) {
     .max_ack_delay              = 100 /* 100ms */
   };
   fd_quic_apply_peer_params( &conn, &peer_tp );
-  FD_TEST( conn.peer_ack_delay_scale     ==  10e3f );
-  FD_TEST( conn.peer_max_ack_delay_ticks == 250e6f );
+  FD_TEST( conn.peer_ack_delay_scale  ==  4e3f );
+  FD_TEST( conn.peer_max_ack_delay_ns == 100e6f );
 
   #define SAMPLE( rtt_sample, ack_delay ) do { \
       fd_quic_sample_rtt( &conn, (rtt_sample), (ack_delay) ); \
@@ -760,7 +756,7 @@ test_quic_rtt_sample( void ) {
   FD_TEST( conn.rtt->latest_rtt   == 9000000.0f );
   FD_TEST( conn.rtt->smoothed_rtt == 9000000.0f );
   FD_TEST( conn.rtt->var_rtt      == 4500000.0f );
-  /* ack_delay: 250*(2 us^2) = 1e6 ns = 2.5e6 ticks */
+  /* ack_delay: 250*(2 us^2) = 1e6 ns */
 
   SAMPLE( (long)5000e3, 0L );
   FD_TEST( conn.rtt->min_rtt      == 5000000.0f );
@@ -777,17 +773,17 @@ test_quic_rtt_sample( void ) {
 
   conn.rtt[0] = est2;
   SAMPLE( (long)8000e3, (long)250 );
-  /* 250 ack_delay = 250 * 4us = 1000us = 2500e3 ticks */
+  /* 250 ack_delay = 250 * 4us = 1000us */
   FD_TEST( conn.rtt->min_rtt      == 5000000.0f );
-  FD_TEST( conn.rtt->latest_rtt   == 5500000.0f );
-  FD_TEST( conn.rtt->smoothed_rtt == 8125000.0f );
-  FD_TEST( conn.rtt->var_rtt      == 3843750.0f );
+  FD_TEST( conn.rtt->latest_rtt   == 7000000.0f );
+  FD_TEST( conn.rtt->smoothed_rtt == 8312500.0f );
+  FD_TEST( conn.rtt->var_rtt      == 3515625.0f );
 
   SAMPLE( (long)2500e3, 0L );
-  FD_TEST( conn.rtt->min_rtt      == 2500000.0f );
-  FD_TEST( conn.rtt->latest_rtt   == 2500000.0f );
-  FD_TEST( conn.rtt->smoothed_rtt == 7421875.0f );
-  FD_TEST( conn.rtt->var_rtt      == 4113281.25f );
+  FD_TEST( conn.rtt->min_rtt      == 2500000.0f   );
+  FD_TEST( conn.rtt->latest_rtt   == 2500000.0f   );
+  FD_TEST( conn.rtt->smoothed_rtt == 7585937.5f   );
+  FD_TEST( conn.rtt->var_rtt      == 3908203.125f );
 
 #undef SAMPLE
 }

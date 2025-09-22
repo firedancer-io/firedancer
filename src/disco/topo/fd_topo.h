@@ -242,7 +242,7 @@ struct fd_topo_tile {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       ushort quic_transaction_listen_port;
-      ulong  idle_timeout_millis;
+      long   idle_timeout_millis;
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];
@@ -338,6 +338,7 @@ struct fd_topo_tile {
       int    schedule_strategy;
 
       int websocket_compression;
+      int frontend_release_channel;
     } gui;
 
     struct {
@@ -646,6 +647,23 @@ fd_topo_obj_laddr( fd_topo_t const * topo,
   FD_TEST( obj->id == obj_id );
   FD_TEST( obj->offset );
   return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
+}
+
+/* Returns a pointer in the local address space to the base address of
+   the workspace out of which the given object was allocated. */
+
+static inline void *
+fd_topo_obj_wksp_base( fd_topo_t const * topo,
+                       ulong             obj_id ) {
+  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
+  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  FD_TEST( obj->id == obj_id );
+  ulong const wksp_id = obj->wksp_id;
+
+  FD_TEST( wksp_id<FD_TOPO_MAX_WKSPS );
+  fd_topo_wksp_t const * wksp = &topo->workspaces[ wksp_id ];
+  FD_TEST( wksp->id == wksp_id );
+  return wksp->wksp;
 }
 
 FD_FN_PURE static inline ulong

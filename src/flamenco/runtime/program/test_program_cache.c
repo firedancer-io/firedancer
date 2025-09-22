@@ -248,7 +248,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
   /* Fast forward to next epoch */
-  fd_bank_slot_set( test_slot_ctx->bank, fd_bank_slot_get( test_slot_ctx->bank ) + 432000UL );
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 432000UL, 0UL );
 
   /* This should trigger reverification */
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
@@ -295,7 +295,7 @@ test_program_in_cache_queued_for_reverification( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 1000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 1000UL, 0UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -350,7 +350,7 @@ test_program_queued_for_reverification_account_does_not_exist( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 1000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 1000UL, 0UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -401,7 +401,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 11000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -424,7 +424,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( valid_prog->last_slot_modified>original_slot );
 
   /* Fast forward to a future slot */
-  fd_bank_slot_set( test_slot_ctx->bank, fd_bank_slot_get( test_slot_ctx->bank ) + 11000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
   ulong future_update_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_update_slot>future_slot );
 
@@ -450,7 +450,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
   test_slot_ctx->funk_txn = funk_txn;
-  fd_bank_slot_set( test_slot_ctx->bank, 0UL );
+  test_slot_ctx->bank->eslot_.slot = 0UL;
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -474,7 +474,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 11000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -501,7 +501,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
   test_slot_ctx->funk_txn = funk_txn;
-  fd_bank_slot_set( test_slot_ctx->bank, 0UL );
+  test_slot_ctx->bank->eslot_.slot = 0UL;
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -525,7 +525,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 11000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -551,7 +551,7 @@ test_program_upgraded_with_larger_programdata( void ) {
 
   fd_funk_txn_t * funk_txn = create_test_funk_txn();
   test_slot_ctx->funk_txn = funk_txn;
-  fd_bank_slot_set( test_slot_ctx->bank, 0UL );
+  test_slot_ctx->bank->eslot_.slot = 0UL;
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -575,7 +575,7 @@ test_program_upgraded_with_larger_programdata( void ) {
 
   /* Fast forward to a future slot */
   ulong original_slot = fd_bank_slot_get( test_slot_ctx->bank );
-  fd_bank_slot_set( test_slot_ctx->bank, original_slot + 11000UL ); /* Move to future slot */
+  test_slot_ctx->bank->eslot_ = fd_eslot( test_slot_ctx->bank->eslot_.slot + 11000UL, 0UL );
   ulong future_slot = fd_bank_slot_get( test_slot_ctx->bank );
   FD_TEST( future_slot>original_slot );
 
@@ -678,9 +678,7 @@ main( int     argc,
 
     fd_banks_t * banks = fd_banks_join( fd_banks_new( banks_mem, 1UL, 1UL ) );
     FD_TEST( banks );
-    fd_hash_t block_id = { .ul[0] = 433000UL };
-    fd_bank_t * bank = fd_banks_init_bank( banks, &block_id );
-    fd_bank_slot_set( bank, 433000UL ); // Epoch 1
+    fd_bank_t * bank = fd_banks_init_bank( banks, fd_eslot( 433000UL, 0UL ) );
     FD_TEST( bank );
 
     test_slot_ctx->bank  = bank;

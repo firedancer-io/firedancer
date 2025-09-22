@@ -292,7 +292,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Set slot bank variables */
   clock = fd_sysvar_clock_read( slot_ctx->accdb, &slot_ctx->funk_txn_xid, clock_ );
 
-  fd_bank_slot_set( slot_ctx->bank, clock->slot );
+  slot_ctx->bank->eslot_ = fd_eslot( clock->slot, 0UL );
 
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 

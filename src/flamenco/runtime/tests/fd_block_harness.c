@@ -197,11 +197,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* All bank mgr stuff here. */
 
-  fd_bank_slot_set( slot_ctx->bank, slot );
+  slot_ctx->bank->eslot_ = fd_eslot( slot, 0UL );
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
-  fd_bank_parent_slot_set( slot_ctx->bank, test_ctx->slot_ctx.prev_slot );
+  fd_bank_parent_eslot_set( slot_ctx->bank, fd_eslot( test_ctx->slot_ctx.prev_slot, 0UL ) );
 
   fd_bank_capitalization_set( slot_ctx->bank, test_ctx->slot_ctx.prev_epoch_capitalization );
 
@@ -441,18 +441,16 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     fd_capture_ctx_t * capture_ctx = NULL;
-    fd_capture_ctx_t capture_ctx_[1];
     if( runner->solcap ) {
-      capture_ctx_[0] = (fd_capture_ctx_t) {
-        .capture            = runner->solcap,
-        .capture_txns       = 1,
-        .dump_instr_to_pb   = 1,
-        .dump_txn_to_pb     = 1,
-        .dump_block_to_pb   = 1,
-        .dump_syscall_to_pb = 1,
-        .dump_elf_to_pb     = 1
-      };
-      capture_ctx = capture_ctx_;
+      void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
+      capture_ctx            = fd_capture_ctx_new( capture_ctx_mem );
+      if( FD_UNLIKELY( capture_ctx==NULL ) ) {
+        FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
+      }
+      capture_ctx->capture   = runner->solcap;
+      capture_ctx->solcap_start_slot = fd_bank_slot_get( slot_ctx->bank );
+      slot_ctx->capture_ctx = capture_ctx;
+      fd_solcap_writer_set_slot( slot_ctx->capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
     }
 
     fd_rewards_recalculate_partitioned_rewards( slot_ctx, capture_ctx, runner->spad );

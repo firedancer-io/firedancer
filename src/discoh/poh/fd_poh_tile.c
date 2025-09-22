@@ -1763,7 +1763,7 @@ after_credit( fd_poh_ctx_t *      ctx,
     ctx->expect_sequential_leader_slot = ctx->slot;
 
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)*tick_per_ns) );
     ctx->next_leader_slot = next_leader_slot( ctx );
 
     if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {

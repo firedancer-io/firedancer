@@ -1,6 +1,7 @@
 #include "fd_tower_tile.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
+#include "../replay/fd_replay_tile.h"
 #include "../../choreo/ghost/fd_ghost.h"
 #include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/voter/fd_voter.h"
@@ -47,7 +48,7 @@ struct fd_tower_tile {
   long  ts;   /* tower timestamp */
 
   fd_snapshot_manifest_t manifest;
-  fd_replay_slot_info_t replay_slot_info;
+  fd_replay_slot_completed_t replay_slot_info;
 
   ulong             replay_towers_cnt;
   fd_replay_tower_t replay_towers[ FD_REPLAY_TOWER_VOTE_ACC_MAX ];
@@ -149,10 +150,10 @@ update_ghost( fd_tower_tile_t * ctx ) {
 }
 
 static void
-replay_slot_done( fd_tower_tile_t *       ctx,
-                  fd_replay_slot_info_t * slot_info,
-                  ulong                   tsorig,
-                  fd_stem_context_t *     stem ) {
+replay_slot_completed( fd_tower_tile_t *            ctx,
+                       fd_replay_slot_completed_t * slot_info,
+                       ulong                        tsorig,
+                       fd_stem_context_t *          stem ) {
   /* If we have not received any votes, something is wrong. */
   if( FD_UNLIKELY( !ctx->replay_towers_cnt ) ) {
     /* TODO: This is not correct. It is fine and valid to receive a
@@ -184,7 +185,7 @@ replay_slot_done( fd_tower_tile_t *       ctx,
 
   /* Update ghost with the vote account states received from replay. */
 
-  fd_ghost_ele_t  const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
+  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
   update_ghost( ctx );
 
@@ -199,16 +200,17 @@ replay_slot_done( fd_tower_tile_t *       ctx,
   /* 2. Determine new root, if there is one.  A new vote slot can result
         in a new root but not always. */
 
-  msg->root_slot = ULONG_MAX;
   if( FD_LIKELY( msg->vote_slot!=FD_SLOT_NULL ) ) {
-    msg->root_slot = fd_tower_vote( ctx->tower, msg->vote_slot );
-  }
-  msg->new_root = msg->root_slot!=FD_SLOT_NULL;
-  if( FD_LIKELY( msg->new_root ) ) {
-    msg->root_block_id = *fd_ghost_hash( ctx->ghost, msg->root_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
-    fd_ghost_publish( ctx->ghost, &msg->root_block_id );
-  } else {
-    memset( &msg->root_block_id, 0, sizeof(fd_hash_t) );
+    msg->root_slot                  = fd_tower_vote( ctx->tower, msg->vote_slot );
+    fd_hash_t const * root_block_id = fd_ghost_hash( ctx->ghost, msg->root_slot );
+    if( FD_LIKELY( root_block_id ) ) {
+      msg->root_block_id = *root_block_id;
+      msg->new_root      = 1;
+      fd_ghost_publish( ctx->ghost, &msg->root_block_id );
+    } else {
+      msg->root_block_id = (fd_hash_t){ 0 };
+      msg->new_root      = 0;
+    }
   }
 
   /* 3. Populate vote_txn with the current tower (regardless of whether
@@ -352,16 +354,18 @@ returnable_frag( fd_tower_tile_t *   ctx,
        just wait until we initialize and then process. */
     if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
 
-    if( FD_LIKELY( sig==FD_REPLAY_SIG_SLOT_INFO ) ) {
-      fd_memcpy( &ctx->replay_slot_info, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_info_t) );
-    } else if( FD_LIKELY( sig==FD_REPLAY_SIG_VOTE_STATE ) ) {
+    if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+      fd_memcpy( &ctx->replay_slot_info, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
+    } else if( FD_LIKELY( sig==REPLAY_SIG_VOTE_STATE ) ) {
       if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_towers_cnt = 0;
 
       if( FD_UNLIKELY( ctx->replay_towers_cnt>=FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
       memcpy( &ctx->replay_towers[ ctx->replay_towers_cnt ], fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_tower_t) );
       ctx->replay_towers_cnt++;
 
-      if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) replay_slot_done( ctx, &ctx->replay_slot_info, tsorig, stem );
+      if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) replay_slot_completed( ctx, &ctx->replay_slot_info, tsorig, stem );
+    } else if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
+      /* Ignore root advanced messages, we don't need them */
     } else {
       FD_LOG_ERR(( "unexpected replay message sig %lu", sig ));
     }
@@ -439,9 +443,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "genesi_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
-    else if( FD_LIKELY( !strcmp( link->name, "snap_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_tower" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    if( FD_LIKELY( !strcmp( link->name, "genesi_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
+    else if( FD_LIKELY( !strcmp( link->name, "snap_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

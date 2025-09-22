@@ -1025,7 +1025,7 @@ fd_runtime_save_account( fd_accdb_client_t *       accdb,
   }
 
   /* Mix in the account hash into the bank hash */
-  fd_hashes_update_lthash( account, prev_hash, bank, NULL );
+  fd_hashes_update_lthash( account, prev_hash, bank, capture_ctx );
 
   /* Publish account update to replay tile for solcap writing
      TODO: write in the writer tile with solcap v2 */
@@ -1328,11 +1328,7 @@ fd_feature_activate( fd_features_t *         features,
                      fd_exec_slot_ctx_t *    slot_ctx,
                      fd_feature_id_t const * id,
                      fd_pubkey_t const *     addr ) {
-
-  // Skip reverted features from being activated
-  if( id->reverted==1 ) {
-    return;
-  }
+  if( id->reverted==1 ) return;
 
   FD_TXN_ACCOUNT_DECL( acct_rec );
   int err = fd_txn_account_init_from_funk_readonly( acct_rec, addr, slot_ctx->accdb, &slot_ctx->funk_txn_xid );
@@ -1341,8 +1337,8 @@ fd_feature_activate( fd_features_t *         features,
   }
 
   FD_BASE58_ENCODE_32_BYTES( addr->uc, addr_b58 );
-  int decode_err = 0;
   fd_feature_t feature[1];
+  int decode_err = 0;
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       feature, feature,
       fd_txn_account_get_data( acct_rec ),
@@ -1380,7 +1376,7 @@ fd_feature_activate( fd_features_t *         features,
     };
     int encode_err = fd_feature_encode( feature, &encode_ctx );
     if( FD_UNLIKELY( encode_err != FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "Failed to encode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( addr->uc ), decode_err ));
+      FD_LOG_ERR(( "Failed to encode feature account %s (%d)", addr_b58, decode_err ));
     }
 
     fd_hashes_update_lthash( modify_acct_rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
@@ -1445,7 +1441,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
   fd_features_activate( slot_ctx );
-  fd_features_restore( slot_ctx, runtime_spad );
+  fd_features_restore( slot_ctx );
 
   /* Apply builtin program feature transitions
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
@@ -1882,7 +1878,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *               slot_ctx,
     fd_write_builtin_account( slot_ctx, a->pubkey, (const char *)string, a->string_len );
   }
 
-  fd_features_restore( slot_ctx, runtime_spad );
+  fd_features_restore( slot_ctx );
 
   /* At this point, state related to the bank and the accounts db
      have been initialized and we are free to finish executing the

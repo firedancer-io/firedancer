@@ -1,7 +1,6 @@
 #include "fd_catchup.h"
 #include <stdio.h>
 
-#include "../types/fd_types.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 void *

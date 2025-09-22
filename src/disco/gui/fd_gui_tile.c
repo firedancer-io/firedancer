@@ -6,7 +6,14 @@
 
    from the repository root. */
 
-#include "generated/http_import_dist.h"
+#include "../../disco/gui/generated/http_import_dist.h"
+
+/* The list of files used to serve the frontend is set here.  This is a
+   global variable since is is populated at boot based on the
+   `development.gui.frontend_release_channel` option and is accessed in
+   the gui_http_request callback. */
+static fd_http_static_file_t * STATIC_FILES;
+
 #define DIST_COMPRESSION_LEVEL (19)
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
@@ -123,11 +130,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 FD_FN_CONST static ulong
 dist_file_sz( void ) {
-  ulong tot_sz = 0UL;
-  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
-    tot_sz += *(f->data_len);
+  ulong tots_sz = 0UL;
+  for( fd_http_static_file_t const * f = STATIC_FILES_STABLE; f->name; f++ ) {
+    tots_sz += *(f->data_len);
   }
-  return tot_sz;
+  ulong tota_sz = 0UL;
+  for( fd_http_static_file_t const * f = STATIC_FILES_ALPHA; f->name; f++ ) {
+    tota_sz += *(f->data_len);
+  }
+  return fd_ulong_max( tots_sz, tota_sz );
 }
 
 FD_FN_PURE static inline ulong
@@ -306,7 +317,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
                      !strncmp( request->path, "/gossip?", strlen("/gossip?") );
 
-  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+  FD_TEST( STATIC_FILES );
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
     if( !strcmp( request->path, f->name ) ||
         (!strcmp( f->name, "/index.html" ) && is_vite_page) ) {
       char const * content_type = NULL;
@@ -445,6 +457,7 @@ pre_compress_files( fd_wksp_t * wksp ) {
   fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_wksp_laddr_fast( wksp, glo ), fd_spad_mem_max_max( ghi-glo ) ) );
   fd_spad_push( spad );
 
+  FD_TEST( STATIC_FILES );
   for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
     char const * ext = strrchr( f->name, '.' );
     if( !ext ) continue;
@@ -469,7 +482,8 @@ pre_compress_files( fd_wksp_t * wksp ) {
 
   ulong uncompressed_sz = 0UL;
   ulong compressed_sz   = 0UL;
-  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
+  FD_TEST( STATIC_FILES );
+  for( fd_http_static_file_t const * f=STATIC_FILES; f->name; f++ ) {
     uncompressed_sz += *f->data_len;
     compressed_sz   += fd_ulong_if( !!f->zstd_data_len, f->zstd_data_len, *f->data_len );
   }
@@ -506,6 +520,9 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
+  STATIC_FILES = fd_ptr_if( gui_tile->gui.frontend_release_channel==0UL, (fd_http_static_file_t *)STATIC_FILES_STABLE, (fd_http_static_file_t *)STATIC_FILES_ALPHA );
 
 # if FD_HAS_ZSTD
   pre_compress_files( topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp );

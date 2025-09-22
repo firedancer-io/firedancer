@@ -1,7 +1,8 @@
 #include "fd_sched.h"
+#include "fd_exec.h"
+#include "fd_replay_tile.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
-#include "fd_replay_notif.h"
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
@@ -12,6 +13,7 @@
 #include "../../flamenco/accdb/fd_accdb_manager.h"
 #include "../../flamenco/runtime/fd_svm_account.h"
 #include "../../disco/store/fd_store.h"
+#include "../../discof/replay/fd_eslot_mgr.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../disco/keyguard/fd_keyload.h"
@@ -61,14 +63,15 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
-#define IN_KIND_GENESIS (0)
-#define IN_KIND_SNAP    (1)
+#define IN_KIND_SNAP    (0)
+#define IN_KIND_GENESIS (1)
 #define IN_KIND_REPAIR  (2)
 #define IN_KIND_TOWER   (3)
-#define IN_KIND_WRITER  (4)
-#define IN_KIND_CAPTURE (5)
-#define IN_KIND_POH     (6)
-#define IN_KIND_RESOLV  (7)
+#define IN_KIND_RESOLV  (4)
+#define IN_KIND_POH     (5)
+#define IN_KIND_WRITER  (6)
+#define IN_KIND_CAPTURE (7)
+
 
 struct fd_replay_in_link {
   fd_wksp_t * mem;
@@ -93,6 +96,7 @@ struct block_id_eslot {
   fd_eslot_t eslot;        /* immutable */
   fd_hash_t  block_id;     /* mutable via rekey */
   fd_eslot_t parent_eslot; /* immutable */
+  int        is_leader;    /* immutable*/
   ulong      next;
 };
 typedef struct block_id_eslot block_id_eslot_t;
@@ -144,8 +148,10 @@ struct fd_replay_tile {
   /* Banks */
   fd_banks_t * banks;
 
-  /* slot_ctx is a wrapper used across the execution pipeline as a
-     wrapper around funk, banks, and the capture ctx.  */
+  /* slot_ctx holds a local view of the bank, accounts database, and
+     the capture ctx for the slot that is currently being replayed.
+     This does NOT correspond to the execution state for any active
+     leader. */
   fd_exec_slot_ctx_t * slot_ctx;
 
   /* This flag is 1 If we have seen a vote signature that our node has
@@ -182,9 +188,7 @@ struct fd_replay_tile {
      single ulong rather than a 32-byte hash, the header for a bank will
      fit in a cache line.  An eslot also has the benefit of being known
      and unique upfront at the beginning of a leader slot. */
-  eslot_block_id_t   eslot_block_id[ ESLOT_CNT_MAX ];
-  eslot_map_t *      eslot_map;  /* map_chain */
-  block_id_eslot_t * eslot_pool; /* pool */
+  fd_eslot_mgr_t * eslot_mgr;
 
   /* A note on publishing ...
 
@@ -346,26 +350,25 @@ struct fd_replay_tile {
 
   fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
 
-  int    is_leader;
-  ulong  next_leader_slot;
-  ulong  highwater_leader_slot;
-  ulong  reset_slot;
-  long   reset_timestamp_nanos;
-  double slot_duration_nanos;
-  ulong  max_active_descendant;
+  int       is_leader;
+  ulong     next_leader_slot;
+  ulong     highwater_leader_slot;
+  ulong     reset_slot;
+  fd_hash_t reset_block_id;
+  long      reset_timestamp_nanos;
+  double    slot_duration_nanos;
+  ulong     max_active_descendant;
 
   ulong  resolv_tile_cnt;
 
   int in_kind[ 64 ];
   fd_replay_in_link_t in[ 64 ];
 
-  fd_replay_out_link_t notif_out[1];
+  fd_replay_out_link_t replay_out[1];
+
   fd_replay_out_link_t stake_out[1];
   fd_replay_out_link_t shredcap_out[1];
-  fd_replay_out_link_t tower_out[1];
-  fd_replay_out_link_t replay_out[1];
   fd_replay_out_link_t pack_out[1];
-  fd_replay_out_link_t resolv_out[1];
 
   struct {
     fd_histf_t store_read_wait[ 1 ];
@@ -386,15 +389,12 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  ulong chain_cnt = eslot_map_chain_cnt_est( FD_BLOCK_MAX );
-
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
-  l = FD_LAYOUT_APPEND( l, eslot_map_align(),           eslot_map_footprint( chain_cnt ) );
-  l = FD_LAYOUT_APPEND( l, eslot_pool_align(),          eslot_pool_footprint( FD_BLOCK_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN,        FD_CAPTURE_CTX_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(),             fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
@@ -433,41 +433,6 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
 
   fd_multi_epoch_leaders_stake_msg_init( ctx->mleaders, fd_type_pun_const( stake_weights_msg ) );
   fd_multi_epoch_leaders_stake_msg_fini( ctx->mleaders );
-}
-
-static void
-publish_slot_notifications( fd_replay_tile_t *  ctx,
-                            fd_stem_context_t * stem,
-                            ulong               block_entry_block_height,
-                            fd_bank_t const *   bank ) {
-  if( FD_LIKELY( ctx->notif_out->idx==ULONG_MAX ) ) return;
-
-  ulong curr_slot = fd_bank_slot_get( bank );
-
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
-  ulong slot_idx;
-  ulong epoch = fd_slot_to_epoch( epoch_schedule, curr_slot, &slot_idx );
-
-  fd_replay_notif_msg_t * msg = fd_chunk_to_laddr( ctx->notif_out->mem, ctx->notif_out->chunk );
-  msg->slot_exec.ts                = fd_log_wallclock();
-  msg->type                        = FD_REPLAY_SLOT_TYPE;
-  msg->slot_exec.slot              = curr_slot;
-  msg->slot_exec.epoch             = epoch;
-  msg->slot_exec.slot_in_epoch     = slot_idx;
-  msg->slot_exec.parent            = fd_bank_parent_slot_get( bank );
-  msg->slot_exec.root              = ctx->consensus_root_slot;
-  msg->slot_exec.height            = block_entry_block_height;
-  msg->slot_exec.transaction_count = fd_bank_txn_count_get( bank );
-  msg->slot_exec.shred_cnt         = fd_bank_shred_cnt_get( bank );
-  msg->slot_exec.bank_hash         = fd_bank_bank_hash_get( bank );
-
-  fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
-  fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
-  FD_TEST( last_hash );
-  msg->slot_exec.block_hash = *last_hash;
-
-  fd_stem_publish( stem, ctx->notif_out->idx, 0UL, ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->notif_out->chunk = fd_dcache_compact_next( ctx->notif_out->chunk, sizeof(fd_replay_notif_msg_t), ctx->notif_out->chunk0, ctx->notif_out->wmark );
 }
 
 /**********************************************************************/
@@ -519,16 +484,20 @@ fd_replay_out_vote_tower_from_funk(
   }
 }
 
-/* This function buffers all the vote account towers that Tower needs at the end of this slot
-   into the ctx->vote_tower_out buffer. These will then be published in after_credit.
+/* This function buffers all the vote account towers that Tower needs at
+   the end of this slot into the ctx->vote_tower_out buffer.  These will
+   then be published in after_credit.
 
-   This function should be called at the end of a slot, before any epoch boundary processing. */
+   This function should be called at the end of a slot, before any epoch
+   boundary processing. */
 static void
-buffer_vote_towers( fd_replay_tile_t * ctx ) {
-  ctx->vote_tower_out_idx = 0;
-  ctx->vote_tower_out_len = 0;
+buffer_vote_towers( fd_replay_tile_t *        ctx,
+                    fd_funk_txn_xid_t const * txn_xid,
+                    fd_bank_t *               bank ) {
+  ctx->vote_tower_out_idx = 0UL;
+  ctx->vote_tower_out_len = 0UL;
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_prev_locking_query( ctx->slot_ctx->bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_prev_locking_query( bank );
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
        !fd_vote_states_iter_done( iter );
@@ -539,12 +508,12 @@ buffer_vote_towers( fd_replay_tile_t * ctx ) {
     if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
     fd_replay_out_vote_tower_from_funk(
         &ctx->accdb->client,
-        &ctx->slot_ctx->funk_txn_xid,
+        txn_xid,
         vote_account_pubkey,
         vote_state->stake,
         &ctx->vote_tower_out[ctx->vote_tower_out_len++] );
   }
-  fd_bank_vote_states_prev_end_locking_query( ctx->slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_query( bank );
 }
 
 /* This function publishes the next vote tower in the
@@ -560,122 +529,12 @@ publish_next_vote_tower( fd_replay_tile_t *  ctx,
   int som = ctx->vote_tower_out_idx==0;
   int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
 
-  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   *vote_state = ctx->vote_tower_out[ ctx->vote_tower_out_idx ];
-  fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_VOTE_STATE, ctx->tower_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) ); ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_tower_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_VOTE_STATE, ctx->replay_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_tower_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->vote_tower_out_idx++;
-}
-
-/**********************************************************************/
-/* Equivocatable slot manager                                         */
-/**********************************************************************/
-
-/* FIXME: We shouldn't really have to do this.  But banks have been
-   keyed by merkle hash, so we have to translate eslot back to merkle
-   hash.  Remove this when bank is re-keyed. */
-static fd_hash_t const *
-eslot_mgr_query_eslot_nofail( fd_replay_tile_t * ctx,
-                              fd_eslot_t         eslot ) {
-  eslot_block_id_t * eslot_entry = ctx->eslot_block_id+(eslot.slot%ESLOT_CNT_MAX);
-  if( FD_UNLIKELY( eslot_entry->slot!=eslot.slot ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot_entry->slot %lu != slot %lu", eslot_entry->slot, (ulong)eslot.slot ));
-  }
-  if( FD_UNLIKELY( !eslot_entry->eqvoc_bitset ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot_entry->eqvoc_bitset is 0 for slot %lu", (ulong)eslot.slot ));
-  }
-  if( FD_UNLIKELY( !fd_ulong_extract_bit( eslot_entry->eqvoc_bitset, eslot.prime ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot_entry->eqvoc_bitset 0x%lx does not have bit %d set", eslot_entry->eqvoc_bitset, eslot.prime ));
-  }
-  return &eslot_entry->block_id[ eslot.prime ];
-}
-
-static fd_eslot_t
-eslot_mgr_query( fd_replay_tile_t * ctx,
-                 fd_hash_t const *  block_id ) {
-  block_id_eslot_t * entry = eslot_map_ele_query( ctx->eslot_map, block_id, NULL, ctx->eslot_pool );
-  if( FD_UNLIKELY( !entry ) ) {
-    return (fd_eslot_t){ .id = ULONG_MAX };
-  }
-  return entry->eslot;
-}
-
-static block_id_eslot_t *
-eslot_mgr_insert( fd_replay_tile_t * ctx,
-                  ulong              slot,
-                  fd_hash_t const *  block_id,
-                  fd_eslot_t         parent_eslot ) {
-  eslot_block_id_t * eslot_entry = ctx->eslot_block_id+(slot%ESLOT_CNT_MAX);
-  if( FD_LIKELY( eslot_entry->slot!=slot ) ) { /* Optimize for new insertions. */
-    eslot_entry->slot         = slot;
-    eslot_entry->eqvoc_bitset = 0UL;
-  }
-  int prime = fd_ulong_find_lsb( ~eslot_entry->eqvoc_bitset );
-  if( FD_UNLIKELY( prime>=(int)FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX ) ) {
-    /* Too many equivocations on this slot. */
-    FD_LOG_CRIT(( "prime %d >= FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX %lu", prime, FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX ));
-  }
-  if( FD_UNLIKELY( prime>0 ) ) {
-    FD_LOG_WARNING(( "slot %lu has %d equivocations", slot, prime ));
-  }
-  eslot_entry->eqvoc_bitset      = fd_ulong_set_bit( eslot_entry->eqvoc_bitset, prime );
-  eslot_entry->block_id[ prime ] = *block_id;
-
-  block_id_eslot_t * entry = eslot_pool_ele_acquire( ctx->eslot_pool );
-  if( FD_UNLIKELY( !entry ) ) {
-    FD_LOG_CRIT(( "failed to acquire block_id_slot_t from pool" ));
-  }
-  entry->eslot    = (fd_eslot_t){ .slot = slot&FD_ESLOT_SLOT_LSB_MASK, .prime = (ulong)prime&FD_ESLOT_PRIME_LSB_MASK };
-  entry->block_id = *block_id;
-  entry->parent_eslot = parent_eslot;
-  eslot_map_ele_insert( ctx->eslot_map, entry, ctx->eslot_pool );
-  return entry;
-}
-
-static block_id_eslot_t *
-eslot_mgr_rekey( fd_replay_tile_t * ctx,
-                 fd_eslot_t         eslot,
-                 fd_hash_t const *  old_block_id,
-                 fd_hash_t const *  new_block_id ) {
-  block_id_eslot_t * entry = eslot_map_ele_remove( ctx->eslot_map, old_block_id, NULL, ctx->eslot_pool );
-  if( FD_UNLIKELY( !entry ) ) {
-    FD_LOG_CRIT(( "invariant violation: failed to find block id %s in map when we try to rekey to %s", FD_BASE58_ENC_32_ALLOCA( old_block_id ), FD_BASE58_ENC_32_ALLOCA( new_block_id ) ));
-  }
-  entry->block_id = *new_block_id;
-  eslot_map_ele_insert( ctx->eslot_map, entry, ctx->eslot_pool );
-
-  eslot_block_id_t * eslot_entry = ctx->eslot_block_id+(eslot.slot%ESLOT_CNT_MAX);
-  if( FD_UNLIKELY( eslot_entry->slot!=eslot.slot ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot_entry->slot %lu != slot %lu", eslot_entry->slot, (ulong)eslot.slot ));
-  }
-  if( FD_UNLIKELY( !eslot_entry->eqvoc_bitset ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot_entry->eqvoc_bitset is 0 for slot %lu", (ulong)eslot.slot ));
-  }
-  if( FD_UNLIKELY( !fd_ulong_extract_bit( eslot_entry->eqvoc_bitset, eslot.prime ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: eslot_entry->eqvoc_bitset 0x%lx does not have bit %d set", eslot_entry->eqvoc_bitset, eslot.prime ));
-  }
-  eslot_entry->block_id[ eslot.prime ] = *new_block_id;
-
-  return entry;
-}
-
-static void
-eslot_mgr_purge( fd_replay_tile_t * ctx,
-                 ulong              old_root_slot,
-                 ulong              new_root_slot ) {
-  for( ulong i = old_root_slot; i<new_root_slot; i++ ) {
-    eslot_block_id_t * eslot_entry = ctx->eslot_block_id+(i%ESLOT_CNT_MAX);
-    while( eslot_entry->eqvoc_bitset ) {
-      int prime = fd_ulong_find_lsb( eslot_entry->eqvoc_bitset );
-      eslot_entry->eqvoc_bitset = fd_ulong_clear_bit( eslot_entry->eqvoc_bitset, prime );
-      block_id_eslot_t * entry = eslot_map_ele_remove( ctx->eslot_map, &eslot_entry->block_id[ prime ], NULL, ctx->eslot_pool );
-      if( FD_UNLIKELY( !entry ) ) {
-        FD_LOG_CRIT(( "invariant violation: failed to remove (%lu, %d) block id %s from map", i, prime, FD_BASE58_ENC_32_ALLOCA( &eslot_entry->block_id[ prime ] ) ));
-      }
-      eslot_pool_ele_release( ctx->eslot_pool, entry );
-    }
-    eslot_entry->slot = ULONG_MAX;
-  }
 }
 
 /**********************************************************************/
@@ -700,34 +559,33 @@ handle_existing_block( fd_replay_tile_t * ctx,
 static fd_bank_t *
 replay_block_start( fd_replay_tile_t *  ctx,
                     fd_stem_context_t * stem,
-                    ulong               slot,
-                    ulong               parent_slot,
-                    fd_hash_t const *   merkle_hash,
-                    fd_hash_t const *   parent_merkle_hash ) {
-  /* Switch to a new block that we don't have a bank for. */
-  FD_LOG_INFO(( "Creating new bank (slot: %lu, merkle hash: %s; parent slot: %lu, parent_merkle %s) ", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ), parent_slot, FD_BASE58_ENC_32_ALLOCA( parent_merkle_hash ) ));
+                    fd_eslot_t          eslot,
+                    fd_eslot_t          parent_eslot ) {
 
-  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, merkle_hash );
+  /* Switch to a new block that we don't have a bank for. */
+  FD_LOG_INFO(( "Creating new bank (slot: %lu, prime: %u; parent slot: %lu, prime %u) ", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ), fd_eslot_slot( parent_eslot ), fd_eslot_prime( parent_eslot ) ));
+
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, eslot );
   if( FD_UNLIKELY( !!bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: block with slot: %lu and merkle hash: %s already exists", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ) ));
+    FD_LOG_CRIT(( "invariant violation: block with (slot: %lu, prime: %u) already exists", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
   }
 
   /* Clone the bank from the parent.  We must special case the first
      slot that is executed as the snapshot does not provide a parent
      block id. */
 
-  bank = fd_banks_clone_from_parent( ctx->banks, merkle_hash, parent_merkle_hash );
+  bank = fd_banks_clone_from_parent( ctx->banks, eslot, parent_eslot );
   if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu merkle hash %s", slot, FD_BASE58_ENC_32_ALLOCA( merkle_hash ) ));
+    FD_LOG_CRIT(( "invariant violation: bank is NULL for (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
   }
 
   /* Create a new funk txn for the block. */
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
+  fd_funk_txn_xid_t xid        = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
+  fd_funk_txn_xid_t parent_xid = { .ul = { fd_eslot_slot( parent_eslot ), fd_eslot_slot( parent_eslot ) } };
 
   if( FD_UNLIKELY( !fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
+    FD_LOG_CRIT(( "invariant violation: can't prepare funk_txn for (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
   }
 
   ctx->slot_ctx->funk_txn_xid = xid;
@@ -736,7 +594,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
      boundary change. */
 
   if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
+    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fd_eslot_slot( eslot ) );
   }
 
   fd_bank_shred_cnt_set( bank, 0UL );
@@ -744,13 +602,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_bank_priority_fees_set( bank, 0UL );
 
   fd_bank_has_identity_vote_set( bank, 0 );
-
-  fd_bank_slot_set( bank, slot );
-
-  fd_bank_parent_block_id_set( bank, *parent_merkle_hash );
-
-  /* Set the parent slot. */
-  fd_bank_parent_slot_set( bank, parent_slot );
 
   /* Set the tick height. */
   fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( bank ) );
@@ -760,18 +611,11 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   ulong * max_tick_height = fd_bank_max_tick_height_modify( bank );
   ulong   ticks_per_slot  = fd_bank_ticks_per_slot_get( bank );
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height(ticks_per_slot, slot, max_tick_height ) ) ) {
-    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height(ticks_per_slot, fd_eslot_slot( eslot ), max_tick_height ) ) ) {
+    FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", fd_eslot_slot( eslot ), ticks_per_slot ));
   }
   bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
-  /* Temporarily switch to the new bank and funk txn because the
-     following functions work on these objects that are passed in via
-     slot_ctx. */
-  // FIXME: slot_ctx is really just a parameter blob at this point, we
-  // shouldn't conflate replay's active ctx with slot_ctx
-  fd_funk_txn_xid_t old_txn_xid = ctx->slot_ctx->funk_txn_xid;
-  fd_bank_t *       old_bank    = ctx->slot_ctx->bank;
   ctx->slot_ctx->funk_txn_xid = xid;
   ctx->slot_ctx->bank         = bank;
 
@@ -788,9 +632,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
 
-  ctx->slot_ctx->funk_txn_xid = old_txn_xid;
-  ctx->slot_ctx->bank         = old_bank;
-
   return bank;
 }
 
@@ -799,18 +640,66 @@ replay_block_start( fd_replay_tile_t *  ctx,
    needed. */
 static void
 replay_ctx_switch( fd_replay_tile_t * ctx,
-                   fd_eslot_t         to_eslot,
-                   fd_hash_t const *  to_merkle_hash ) {
+                   fd_eslot_t         to_eslot ) {
 
-  ctx->slot_ctx->bank = fd_banks_get_bank( ctx->banks, to_merkle_hash );
+  ctx->slot_ctx->bank = fd_banks_get_bank( ctx->banks, to_eslot );
   if( FD_UNLIKELY( !ctx->slot_ctx->bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for slot (%lu, %lu) merkle root %s", (ulong)to_eslot.slot, (ulong)to_eslot.prime, FD_BASE58_ENC_32_ALLOCA(to_merkle_hash) ));
+    FD_LOG_CRIT(( "invariant violation: bank is NULL for slot (%lu, %u)", fd_eslot_slot( to_eslot ), fd_eslot_prime( to_eslot ) ));
   }
 
   ulong slot = fd_bank_slot_get( ctx->slot_ctx->bank );
 
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   ctx->slot_ctx->funk_txn_xid = xid;
+}
+
+static void
+publish_slot_completed( fd_replay_tile_t *  ctx,
+                        fd_stem_context_t * stem,
+                        fd_bank_t *         bank,
+                        int                 is_initial ) {
+  ulong slot = fd_bank_slot_get( bank );
+
+  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_eslot_get( bank ) );
+  if( FD_UNLIKELY( !ele ) ) {
+    FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_eslot_get( bank ) ), fd_eslot_prime( fd_bank_eslot_get( bank ) ) ));
+  }
+
+  fd_hash_t parent_block_id = {0};
+  if( FD_LIKELY( !is_initial ) ) {
+    fd_eslot_ele_t * parent_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_parent_eslot_get( bank ) );
+    if( FD_UNLIKELY( !parent_ele ) ) {
+      FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_parent_eslot_get( bank ) ), fd_eslot_prime( fd_bank_parent_eslot_get( bank ) ) ));
+    }
+    parent_block_id = parent_ele->merkle_root;
+  }
+
+  fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( bank_hash  );
+  FD_TEST( block_hash );
+
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong slot_idx;
+  ulong epoch = fd_slot_to_epoch( epoch_schedule, slot, &slot_idx );
+
+  fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  slot_info->slot                  = slot;
+  slot_info->root_slot             = ctx->consensus_root_slot;
+  slot_info->epoch                 = epoch;
+  slot_info->slot_in_epoch         = slot_idx;
+  slot_info->block_height          = fd_bank_block_height_get( bank );
+  slot_info->parent_slot           = fd_bank_parent_slot_get( bank );
+  slot_info->completion_time_nanos = fd_log_wallclock();
+  slot_info->block_id              = ele->merkle_root;
+  slot_info->parent_block_id       = parent_block_id;
+  slot_info->bank_hash             = *bank_hash;
+  slot_info->block_hash            = *block_hash;
+  slot_info->transaction_count     = fd_bank_txn_count_get( ctx->slot_ctx->bank );
+  slot_info->shred_count           = fd_bank_shred_cnt_get( ctx->slot_ctx->bank );
+
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
 static void
@@ -821,20 +710,31 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_t * bank = ctx->slot_ctx->bank;
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
-  ulong curr_slot = fd_bank_slot_get( bank );
+  fd_eslot_t eslot = fd_bank_eslot_get( bank );
 
-  fd_hash_t const * block_id        = fd_bank_block_id_query( bank );
-  fd_hash_t const * parent_block_id = fd_bank_block_id_query( fd_banks_get_parent( ctx->banks, bank ) );
+  /* We know at this point that we must have an entry in the eslot mgr
+     for both the current bank's eslot and the parent eslot as well. */
+  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, eslot );
+  if( FD_UNLIKELY( !ele ) ) {
+    FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
+  }
+  fd_eslot_ele_t * parent_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_bank_parent_eslot_get( bank ) );
+  if( FD_UNLIKELY( !parent_ele ) ) {
+    FD_LOG_CRIT(( "invariant violation: eslot entry not found: (slot %lu, prime %u)", fd_eslot_slot( fd_bank_parent_eslot_get( bank ) ), fd_eslot_prime( fd_bank_parent_eslot_get( bank ) ) ));
+  }
+
+  fd_hash_t const * block_id        = &ele->merkle_root;
+  fd_hash_t const * parent_block_id = &parent_ele->merkle_root;
   fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
   fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( block_id        );
   FD_TEST( parent_block_id );
   FD_TEST( bank_hash       );
   FD_TEST( block_hash      );
 
   /* Set poh hash in bank. */
-  fd_eslot_t eslot = eslot_mgr_query( ctx, block_id );
   fd_hash_t * poh = fd_sched_get_poh( ctx->sched, &eslot );
-  memcpy( fd_bank_poh_modify( bank ), poh, sizeof(fd_hash_t) );
+  fd_bank_poh_set( bank, *poh );
 
   /* Set shred count in bank. */
   fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, &eslot ) );
@@ -843,69 +743,23 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_runtime_block_execute_finalize( ctx->slot_ctx );
   bank->flags |= FD_BANK_FLAGS_FROZEN;
 
-  ulong block_entry_height = fd_bank_block_height_get( bank );
-  publish_slot_notifications( ctx, stem, block_entry_height, bank );
+  publish_slot_completed( ctx, stem, bank, 0 );
 
-  /* Construct the end of slot notification message */
-  fd_replay_slot_info_t slot_info[1];
-  slot_info->slot            = curr_slot;
-  slot_info->block_id        = *block_id;
-  slot_info->parent_block_id = *parent_block_id;
-  slot_info->bank_hash       = *bank_hash;
-  slot_info->block_hash      = *block_hash;
+  /* Copy the vote tower of all the vote accounts into the buffer,
+     which will be published in after_credit. */
+  buffer_vote_towers( ctx, &ctx->slot_ctx->funk_txn_xid, ctx->slot_ctx->bank );
 
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * replay_slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    *replay_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  }
-
-  /* Send Tower the state needed for processing the end of a slot. We
-     send a message with the summary information, and then buffer the
-     state of each vote account to be sent in after_credit so that we
-     don't have to burst all the vote state messages in one go.
-f
-     TODO: potentially send only the vote states of the vote accounts
-           that voted in this slot. Not clear whether this is worth the
-           complexity. */
-
-  if( FD_LIKELY( ctx->tower_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * tower_slot_info = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-    *tower_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
-
-    /* Copy the vote tower of all the vote accounts into the buffer,
-       which will be published in after_credit. */
-    buffer_vote_towers( ctx );
-  }
-
-  /* Send resolve tile the slot and the blockhash */
-  if( FD_LIKELY( ctx->resolv_out->idx!=ULONG_MAX ) ) {
-    fd_resov_completed_slot_t * msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
-    msg->slot = curr_slot;
-    memcpy( msg->blockhash, block_hash, sizeof(fd_hash_t) );
-    fd_stem_publish(
-      stem,
-      ctx->resolv_out->idx,
-      FD_RESOLV_COMPLETED_SLOT_SIG,
-      ctx->resolv_out->chunk,
-      sizeof(fd_resov_completed_slot_t),
-      0UL,
-      fd_frag_meta_ts_comp( fd_tickcount() ),
-      fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resov_completed_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
-  }
-
+  /* TODO: Don't think we want to reset pack/poh here? Should probably
+     be deleted. */
   if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
 
-    reset->completed_slot = curr_slot;
+    reset->completed_slot   = fd_eslot_slot( eslot );
     reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
-    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+    reset->ticks_per_slot   = fd_bank_ticks_per_slot_get( bank );
     reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
     fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
+    fd_memcpy( reset->completed_block_id, block_id->uc, sizeof(fd_hash_t) );
 
     ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
     if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
@@ -928,9 +782,9 @@ f
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
-  fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, fd_eslot_slot( eslot ), bank_hash, 1, 0 );
 
-  if( ctx->shredcap_out->idx!=ULONG_MAX ) {
+  if( FD_UNLIKELY( ctx->shredcap_out->idx!=ULONG_MAX ) ) {
     /* TODO: We need some way to define common headers. */
     uchar *           chunk_laddr = fd_chunk_to_laddr( ctx->shredcap_out->mem, ctx->shredcap_out->chunk );
     fd_hash_t const * bank_hash   = fd_bank_bank_hash_query( bank );
@@ -942,7 +796,7 @@ f
   }
 
   /* Try to move the bank hash comparison watermark forward */
-  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
+  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < fd_eslot_slot( eslot ); cmp_slot++ ) {
     if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
       bank_hash_cmp->watermark = cmp_slot;
       break;
@@ -974,16 +828,26 @@ f
 static fd_bank_t *
 prepare_leader_bank( fd_replay_tile_t *  ctx,
                      ulong               slot,
-                     ulong               parent_slot,
+                     fd_hash_t const *   parent_block_id,
                      fd_stem_context_t * stem ) {
 
-  fd_eslot_t        parent_eslot    = { .slot = parent_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL };
-  fd_hash_t const * parent_block_id = eslot_mgr_query_eslot_nofail( ctx, parent_eslot );
+  /* When we are leader we assume that there is no equivocation
+     possible.  */
+  fd_eslot_t curr_eslot = fd_eslot( slot, 0UL );
 
-  fd_hash_t leader_hash = { .ul[0] = slot };
-  eslot_mgr_insert( ctx, slot, &leader_hash, parent_eslot );
+  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_merkle_root( ctx->eslot_mgr, parent_block_id );
+  if( FD_UNLIKELY( !ele ) ) {
+    FD_LOG_CRIT(( "invariant violation: eslot entry not found for merkle root %s", FD_BASE58_ENC_32_ALLOCA( parent_block_id->uc ) ));
+  }
+  fd_eslot_t parent_eslot = ele->eslot;
+  ulong      parent_slot  = fd_eslot_slot( parent_eslot );
 
-  fd_bank_t * bank = fd_banks_clone_from_parent( ctx->banks, &leader_hash, parent_block_id );
+  fd_eslot_mgr_ele_insert_leader( ctx->eslot_mgr, slot, parent_eslot );
+
+  fd_bank_t * bank = fd_banks_clone_from_parent( ctx->banks, curr_eslot, parent_eslot );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank is NULL for slot %lu", slot ));
+  }
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
@@ -993,13 +857,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
   fd_bank_shred_cnt_set( bank, 0UL );
-
-  fd_bank_parent_block_id_set( bank, *parent_block_id );
-
-  fd_bank_slot_set( bank, slot );
-
-  /* Set the parent slot. */
-  fd_bank_parent_slot_set( bank, parent_slot );
 
   /* Set the tick height. */
   fd_bank_tick_height_set( bank, fd_bank_max_tick_height_get( bank ) );
@@ -1048,13 +905,11 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
   bank->flags |= FD_BANK_FLAGS_FROZEN;
 
-  fd_eslot_t leader_eslot = { .slot = fd_bank_slot_get( bank )&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL };
-  fd_eslot_t parent_eslot = { .slot = fd_bank_parent_slot_get( bank )&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL };
+  fd_eslot_t leader_eslot = fd_bank_eslot_get( bank );
+  fd_eslot_t parent_eslot = fd_eslot( fd_bank_parent_slot_get( bank ), 0UL );
   fd_sched_block_add_done( ctx->sched, &leader_eslot, &parent_eslot );
 
   ulong curr_slot = fd_bank_slot_get( bank );
-
-  /* TODO: get the poh hash */
 
   /* Do hashing and other end-of-block processing */
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
@@ -1069,84 +924,26 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_runtime_block_execute_finalize( &slot_ctx );
 
-  ulong block_entry_height = fd_bank_block_height_get( bank );
-  publish_slot_notifications( ctx, stem, block_entry_height, bank );
+  publish_slot_completed( ctx, stem, bank, 0 );
 
-  /* Construct the end of slot notification message */
-
-  fd_hash_t const * bank_hash       = fd_bank_bank_hash_query( bank );
-  fd_hash_t const * block_hash      = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-  FD_TEST( bank_hash       );
-  FD_TEST( block_hash      );
-
-  fd_hash_t const * block_id        = fd_bank_block_id_query( bank );
-  fd_hash_t const * parent_block_id = fd_bank_parent_block_id_query( bank );
-
-  fd_replay_slot_info_t slot_info[1];
-  slot_info->slot            = curr_slot;
-  slot_info->block_id        = *block_id;
-  slot_info->parent_block_id = *parent_block_id;
-  slot_info->bank_hash       = *bank_hash;
-  slot_info->block_hash      = *block_hash;
-
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * replay_slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    *replay_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  }
-
-  /* Send Tower the state needed for processing the end of a slot. We
-     send a message with the summary information, and then buffer the
-     state of each vote account to be sent in after_credit so that we
-     don't have to burst all the vote state messages in one go.
-     TODO: potentially send only the vote states of the vote accounts
-           that voted in this slot. Not clear whether this is worth the
-           complexity. */
-
-  if( FD_LIKELY( ctx->tower_out->idx!=ULONG_MAX ) ) {
-    fd_replay_slot_info_t * tower_slot_info = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
-    *tower_slot_info = *slot_info;
-    fd_stem_publish( stem, ctx->tower_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_replay_slot_info_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
-
-    /* Copy the vote tower of all the vote accounts into the buffer,
-       which will be published in after_credit. */
-    buffer_vote_towers( ctx );
-  }
-
-  /* Send resolve tile the slot and the blockhash */
-  if( FD_LIKELY( ctx->resolv_out->idx!=ULONG_MAX ) ) {
-    fd_resov_completed_slot_t * msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
-    msg->slot = curr_slot;
-    memcpy( msg->blockhash, block_hash, sizeof(fd_hash_t) );
-    fd_stem_publish(
-      stem,
-      ctx->resolv_out->idx,
-      FD_RESOLV_COMPLETED_SLOT_SIG,
-      ctx->resolv_out->chunk,
-      sizeof(fd_resov_completed_slot_t),
-      0UL,
-      fd_frag_meta_ts_comp( fd_tickcount() ),
-      fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resov_completed_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
-  }
+  /* Copy the vote tower of all the vote accounts into the buffer,
+      which will be published in after_credit. */
+  buffer_vote_towers( ctx, &ctx->slot_ctx->funk_txn_xid, ctx->slot_ctx->bank );
 }
 
 static void
-notify_resolv_of_new_consensus_root( fd_replay_tile_t *  ctx,
-                                     fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( ctx->resolv_out->idx==ULONG_MAX ) ) return;
+publish_root_advanced( fd_replay_tile_t *  ctx,
+                       fd_stem_context_t * stem ) {
 
-  fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, &ctx->consensus_root );
+  fd_bank_t * consensus_root_bank = fd_banks_get_bank( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ) );
   FD_TEST( consensus_root_bank );
   consensus_root_bank->refcnt += ctx->resolv_tile_cnt;
 
-  fd_resolv_rooted_slot_t * rooted_slot_msg = fd_chunk_to_laddr( ctx->resolv_out->mem, ctx->resolv_out->chunk );
-  rooted_slot_msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
+  fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  msg->bank_idx = fd_banks_get_pool_idx( ctx->banks, consensus_root_bank );
 
-  fd_stem_publish( stem, ctx->resolv_out->idx, FD_RESOLV_ROOTED_SLOT_SIG, ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->resolv_out->chunk = fd_dcache_compact_next( ctx->resolv_out->chunk, sizeof(fd_resolv_rooted_slot_t), ctx->resolv_out->chunk0, ctx->resolv_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_ROOT_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
 static void
@@ -1174,8 +971,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     fd_runtime_update_leaders( ctx->slot_ctx->bank,
                                fd_bank_slot_get( ctx->slot_ctx->bank ),
                                ctx->runtime_spad );
-
-    fd_bank_parent_slot_set( ctx->slot_ctx->bank, 0UL );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( ctx->slot_ctx->bank ) * fd_bank_ticks_per_slot_get( ctx->slot_ctx->bank );
     fd_hash_t * poh = fd_bank_poh_modify( ctx->slot_ctx->bank );
@@ -1261,7 +1056,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   FD_LOG_NOTICE(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
   /* Acquires bank, sets up initial state, and refcnts it. */
-  fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, ctx->reset_slot, stem );
+  fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, &ctx->reset_block_id, stem );
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
   msg->slot = ctx->next_leader_slot;
@@ -1310,8 +1105,8 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
 static void
 unbecome_leader( fd_replay_tile_t *                 ctx,
-                 fd_stem_context_t *                stem,
                  fd_poh_leader_slot_ended_t const * slot_ended ) {
+
   FD_TEST( ctx->is_booted );
   FD_TEST( ctx->is_leader );
 
@@ -1319,15 +1114,47 @@ unbecome_leader( fd_replay_tile_t *                 ctx,
   FD_TEST( ctx->next_leader_slot>ctx->highwater_leader_slot );
   ctx->is_leader = 0;
 
-  /* Remove the refcnt for the leader bank and finalize it. */
-
-  fd_hash_t key = { .ul[0] = slot_ended->slot };
-  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &key );
-  FD_TEST( !!bank );
+  /* Update the poh hash in the bank.  We will want to maintain a refcnt
+     on the bank until we have recieved the block id for the block after
+     it has been shredded. */
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( slot_ended->slot, 0UL ) );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "bank for leader slot %lu not found", slot_ended->slot ));
+  }
 
   memcpy( fd_bank_poh_modify( bank ), slot_ended->blockhash, sizeof(fd_hash_t) );
-  fini_leader_bank( ctx, bank, stem );
-  bank->refcnt--;
+}
+
+static void
+publish_reset( fd_replay_tile_t *  ctx,
+               fd_stem_context_t * stem,
+               fd_bank_t const *   bank ) {
+  if( FD_LIKELY( ctx->pack_out->idx==ULONG_MAX ) ) return;
+
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
+  FD_TEST( block_hash );
+
+  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+
+  reset->completed_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
+  reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
+  reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+  fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
+
+  ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
+  if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
+    /* Low power producer, maximum of one microblock per tick in the slot */
+    reset->max_microblocks_in_slot = ticks_per_slot;
+  } else {
+    /* See the long comment in after_credit for this limit */
+    reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
+  }
+  reset->next_leader_slot = ctx->next_leader_slot;
+
+  ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
+  fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
 }
 
 static void
@@ -1365,84 +1192,22 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_store_exrel( ctx->store );
 
   /* Initialize eslot map. */
-  eslot_mgr_insert( ctx, 0UL, &genesis_block_id, (fd_eslot_t){ .id=ULONG_MAX } );
+  fd_eslot_mgr_ele_insert_initial( ctx->eslot_mgr, 0UL );
+
   ctx->consensus_root_slot = 0UL;
   ctx->published_root_slot = 0UL;
-  notify_resolv_of_new_consensus_root( ctx, stem );
   fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = 0UL, .prime = 0UL }, NULL );
 
-  /* Publish slot notifs */
-  ulong curr_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-  ulong block_entry_height = 0;
-
-  /* Block after genesis has a height of 1.
-     TODO: We should be able to query slot 1 block_map entry to get this
-     (using the above for loop), but blockstore/fork setup on genesis is
-     broken for now. */
-  block_entry_height = 1UL;
-
-  publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
-
-  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
-    fd_hash_t   parent_block_id = {0};
-    fd_bank_t * bank            = ctx->slot_ctx->bank;
-
-    fd_hash_t const * block_id = fd_bank_block_id_query( bank );
-
-    fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
-    if( FD_UNLIKELY( !bank_hash ) ) {
-      FD_LOG_CRIT(( "invariant violation: bank_hash is NULL for slot %lu", curr_slot ));
-    }
-    fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-    if( FD_UNLIKELY( !block_hash ) ) {
-      FD_LOG_CRIT(( "invariant violation: block_hash is NULL for slot %lu", curr_slot ));
-    }
-    fd_replay_slot_info_t out = {
-      .slot            = 0UL,
-      .block_id        = *block_id,
-      .parent_block_id = parent_block_id,
-      .bank_hash       = *bank_hash,
-      .block_hash      = *block_hash,
-    };
-
-    uchar * chunk_laddr = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-    memcpy( chunk_laddr, &out, sizeof(fd_replay_slot_info_t) );
-    fd_stem_publish( stem, ctx->replay_out->idx, FD_REPLAY_SIG_SLOT_INFO, ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_info_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-  }
+  fd_bank_block_height_set( ctx->slot_ctx->bank, 1UL );
 
   ctx->reset_slot = 0UL;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+  ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+  ctx->consensus_root_slot   = 0UL;
 
-  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
-    fd_bank_t * bank = ctx->slot_ctx->bank;
-
-    fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
-    FD_TEST( block_hash );
-
-    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
-
-    reset->completed_slot = curr_slot;
-    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
-    reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
-    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
-    fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
-
-    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
-    if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      reset->max_microblocks_in_slot = ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
-    }
-    reset->next_leader_slot = ctx->next_leader_slot;
-
-    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
-    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
-  }
+  publish_slot_completed( ctx, stem, ctx->slot_ctx->bank, 1 );
+  publish_root_advanced( ctx, stem );
+  publish_reset( ctx, stem, ctx->slot_ctx->bank );
 
   ctx->is_booted = 1;
   maybe_become_leader( ctx, stem );
@@ -1483,24 +1248,23 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
     publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
 
-    eslot_mgr_insert( ctx, snapshot_slot, &manifest_block_id, (fd_eslot_t){ .id=ULONG_MAX } );
+    fd_eslot_mgr_ele_insert_initial( ctx->eslot_mgr, snapshot_slot );
     ctx->consensus_root_slot = snapshot_slot;
     ctx->published_root_slot = snapshot_slot;
     fd_sched_block_add_done( ctx->sched, &(fd_sched_block_id_t){ .slot = snapshot_slot&FD_ESLOT_SLOT_LSB_MASK, .prime = 0UL }, NULL );
 
-    fd_features_restore( ctx->slot_ctx, ctx->runtime_spad );
+    fd_features_restore( ctx->slot_ctx );
 
     fd_runtime_update_leaders( ctx->slot_ctx->bank, fd_bank_slot_get( ctx->slot_ctx->bank ), ctx->runtime_spad );
 
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx );
-    notify_resolv_of_new_consensus_root( ctx, stem );
-
-    ulong block_entry_height = fd_bank_block_height_get( ctx->slot_ctx->bank );
-    publish_slot_notifications( ctx, stem, block_entry_height, ctx->slot_ctx->bank );
 
     ctx->slot_ctx->bank->flags |= FD_BANK_FLAGS_FROZEN;
+
+    publish_slot_completed( ctx, stem, ctx->slot_ctx->bank, 1 );
+    publish_root_advanced( ctx, stem );
 
     return;
   }
@@ -1535,8 +1299,7 @@ replay( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
   if( ctx->block_draining ) {
-    fd_hash_t const * block_id = fd_bank_block_id_query( ctx->slot_ctx->bank );
-    fd_eslot_t eslot = eslot_mgr_query( ctx, block_id );
+    fd_eslot_t eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
     if( fd_sched_block_is_done( ctx->sched, &eslot ) ) {
       ctx->block_draining = 0;
       replay_block_finalize( ctx, stem );
@@ -1551,14 +1314,15 @@ replay( fd_replay_tile_t *  ctx,
     if( FD_LIKELY( fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
       FD_TEST( ready_txn->txn_id!=FD_SCHED_TXN_ID_NULL );
       charge_busy = 1;
-      fd_hash_t const * curr_block_id         = fd_bank_block_id_query( ctx->slot_ctx->bank );
-      fd_hash_t const * ready_block_id        = eslot_mgr_query_eslot_nofail( ctx, ready_txn->block_id );
-      fd_hash_t const * ready_parent_block_id = eslot_mgr_query_eslot_nofail( ctx, ready_txn->parent_block_id );
+      fd_eslot_t bank_eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
 
       if( FD_UNLIKELY( ready_txn->block_start ) ) {
-        replay_block_start( ctx, stem, ready_txn->block_id.slot, ready_txn->parent_block_id.slot, ready_block_id, ready_parent_block_id );
+        replay_block_start( ctx,
+                            stem,
+                            ready_txn->block_id,
+                            ready_txn->parent_block_id );
         fd_sched_txn_done( ctx->sched, ready_txn->txn_id );
-        replay_ctx_switch( ctx, ready_txn->block_id, ready_block_id );
+        replay_ctx_switch( ctx, ready_txn->block_id );
         continue;
       }
 
@@ -1569,9 +1333,9 @@ replay( fd_replay_tile_t *  ctx,
       }
 
       /* We got a real transaction.  See if we need to context switch. */
-      if( FD_UNLIKELY( !fd_memeq( curr_block_id, ready_block_id, sizeof(*curr_block_id) ) ) ) {
+      if( FD_UNLIKELY( bank_eslot.id!=ready_txn->block_id.id ) ) {
         /* Context switch. */
-        replay_ctx_switch( ctx, ready_txn->block_id, ready_block_id );
+        replay_ctx_switch( ctx, ready_txn->block_id );
       }
 
       /* Find an exec tile and mark it busy. */
@@ -1674,7 +1438,7 @@ process_txn_finalized( fd_replay_tile_t *                           ctx,
 
   /* Abort bad blocks. */
   if( FD_UNLIKELY( fd_banks_is_bank_dead( ctx->slot_ctx->bank ) ) ) {
-    fd_eslot_t eslot = eslot_mgr_query( ctx, fd_bank_block_id_query( ctx->slot_ctx->bank ) );
+    fd_eslot_t eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
     fd_sched_block_abandon( ctx->sched, &eslot );
   }
 }
@@ -1708,14 +1472,14 @@ funk_publish( fd_replay_tile_t * ctx,
 
 static void
 advance_published_root( fd_replay_tile_t * ctx ) {
-  fd_eslot_t eslot = eslot_mgr_query( ctx, &ctx->consensus_root );
-  if( FD_UNLIKELY( eslot.id==ULONG_MAX ) ) FD_LOG_CRIT(( "invariant violation: eslot not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
-  fd_sched_root_notify( ctx->sched, &eslot );
+  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_merkle_root( ctx->eslot_mgr, &ctx->consensus_root );
+  if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "invariant violation: eslot not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
+  fd_sched_root_notify( ctx->sched, &ele->eslot );
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
   if( !ctx->has_identity_vote_rooted ) {
-    fd_bank_t * root_bank = fd_banks_get_bank( ctx->banks, &ctx->consensus_root );
+    fd_bank_t * root_bank = fd_banks_get_bank( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ) );
     if( FD_LIKELY( !!root_bank ) ) {
       if( FD_UNLIKELY( !ctx->has_identity_vote_rooted && fd_bank_has_identity_vote_get( root_bank ) ) ) {
         ctx->has_identity_vote_rooted = 1;
@@ -1723,15 +1487,17 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     }
   }
 
-  fd_hash_t publishable_root;
-  if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, &ctx->consensus_root, &publishable_root ) ) ) return;
+  fd_eslot_t publishable_root;
+  if( FD_UNLIKELY( !fd_banks_publish_prepare( ctx->banks, fd_eslot( ctx->consensus_root_slot, 0UL ), &publishable_root ) ) ) return;
 
-  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &publishable_root );
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, publishable_root );
   FD_TEST( bank );
+
+  fd_eslot_ele_t * publishable_root_ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, publishable_root );
 
   long exacq_start, exacq_end, exrel_end;
   FD_STORE_EXCLUSIVE_LOCK( ctx->store, exacq_start, exacq_end, exrel_end ) {
-    fd_store_publish( ctx->store, &publishable_root );
+    fd_store_publish( ctx->store, &publishable_root_ele->merkle_root );
   } FD_STORE_EXCLUSIVE_LOCK_END;
 
   fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
@@ -1741,12 +1507,11 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   funk_publish( ctx, publishable_root_slot );
 
-  /* FIXME: shouldn't have to do this query when bank is just eslot. */
-  eslot = eslot_mgr_query( ctx, &publishable_root );
-  fd_sched_root_publish( ctx->sched, &eslot );
-  eslot_mgr_purge( ctx, ctx->published_root_slot, publishable_root_slot );
+  fd_sched_root_publish( ctx->sched, &ele->eslot );
 
-  fd_banks_publish( ctx->banks, &publishable_root );
+  fd_eslot_mgr_publish( ctx->eslot_mgr, ctx->published_root_slot, publishable_root_slot );
+
+  fd_banks_publish( ctx->banks, publishable_root );
 
   ctx->published_root_slot = publishable_root_slot;
 }
@@ -1755,13 +1520,17 @@ static void
 process_tower_update( fd_replay_tile_t *           ctx,
                       fd_stem_context_t *          stem,
                       fd_tower_slot_done_t const * msg ) {
-  ctx->reset_slot = msg->reset_slot;
+
+  ctx->reset_block_id = msg->reset_block_id;
+  ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
 
-  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, &msg->reset_block_id );
-  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with id %s", FD_BASE58_ENC_32_ALLOCA( &msg->reset_block_id ) ));
+  fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_merkle_root( ctx->eslot_mgr, &msg->reset_block_id );
+
+  fd_bank_t * bank = fd_banks_get_bank( ctx->banks, ele->eslot );
+  if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with slot %lu", (ulong)ele->eslot.slot ));
   FD_TEST( bank );
 
   if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
@@ -1771,6 +1540,8 @@ process_tower_update( fd_replay_tile_t *           ctx,
     reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
     reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
     reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
+
+    fd_memcpy( reset->completed_block_id, &ele->merkle_root, sizeof(fd_hash_t) );
 
     fd_blockhashes_t const * block_hash_queue = fd_bank_block_hash_queue_query( bank );
     fd_hash_t const * last_hash = fd_blockhashes_peek_last( block_hash_queue );
@@ -1796,36 +1567,61 @@ process_tower_update( fd_replay_tile_t *           ctx,
   maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->new_root ) ) {
-    /* We have recieved a root message.  We don't want to update the
-      rooted slot and block id if we are processing the genesis block. */
-    if( FD_UNLIKELY( !fd_bank_slot_get( ctx->slot_ctx->bank ) ) ) return;
 
+    FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     ctx->consensus_root_slot = msg->root_slot;
     ctx->consensus_root      = msg->root_block_id;
-    notify_resolv_of_new_consensus_root( ctx, stem );
 
+    publish_root_advanced( ctx, stem );
     advance_published_root( ctx );
   }
 }
 
 static void
-process_fec_set( fd_replay_tile_t * ctx,
-                 fd_reasm_fec_t *   reasm_fec ) {
+process_fec_set( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem,
+                 fd_reasm_fec_t *    reasm_fec ) {
+
+  /* If the incoming reasm_fec's slot is a slot that we were leader for,
+     then we need to do some special handling.  If we were the leader
+     this means that we have already finished executing and packing the
+     block: the accounts database and bank is already updated.  We are
+     now receiving the FEC sets for the block from the repair tile now
+     that the packed block has been shredded.
+
+     The only thing left to do is to populate the block-id in the bank
+     and send a message to the tower tile so that we can correctly vote
+     on our leader block.  We are also now free to remove a refcnt from
+     the bank. */
+
+  if( fd_eslot_mgr_is_leader( ctx->eslot_mgr, reasm_fec->slot ) ) {
+    if( !!reasm_fec->slot_complete ) {
+      /* The block id for the slot is the merkle root for the last FEC
+         set.  We need to update the fd_eslot_mgr_t entry and the
+         corresponding fd_bank_t with the new merkle root. */
+      fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_eslot( reasm_fec->slot, 0UL ) );
+      if( FD_UNLIKELY( !ele ) ) {
+        FD_LOG_CRIT(( "eslot_mgr entry for leader slot %lu not found", reasm_fec->slot ));
+      }
+      fd_eslot_mgr_rekey_merkle_root( ctx->eslot_mgr, ele, &reasm_fec->key );
+
+      fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( reasm_fec->slot, 0UL ) );
+      if( FD_UNLIKELY( !bank ) ) {
+        FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
+      }
+      FD_LOG_WARNING(("FINI LEADER BANK %lu", reasm_fec->slot));
+      fini_leader_bank( ctx, bank, stem );
+      bank->refcnt--;
+    }
+    /* We don't want to replay the block again, so we will not add any
+       of the FEC sets for a leader block to the scheduler. */
+    return;
+  }
+
   /* Forks form a partial ordering over FEC sets. The Repair tile
      delivers FEC sets in-order per fork, but FEC set ordering across
      forks is arbitrary */
   fd_sched_fec_t sched_fec[ 1 ];
-
-  FD_LOG_DEBUG(( "fec %lu %u", reasm_fec->slot, reasm_fec->fec_set_idx ));
-  /* If the incoming reasm_fec's slot is a slot that we were leader for,
-     then we should skip it.
-     TODO: Replace block id lookup with slot prime counting. */
-  fd_hash_t  leader_block_id = { .ul[0] = reasm_fec->slot };
-  fd_eslot_t leader_eslot    = eslot_mgr_query( ctx, &leader_block_id );
-  if( FD_UNLIKELY( leader_eslot.id!=ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "skipping fec for slot where we were leader: %lu", reasm_fec->slot ));
-    return;
-  }
 
   /* Read FEC set from the store.  This should happen before we try to
      ingest the FEC set.  This allows us to filter out frags that were
@@ -1854,43 +1650,44 @@ process_fec_set( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
   fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
 
-  /* Translate from merkle hash to slot number and figure out
-     equivocation status. */
-  fd_eslot_t chained_eslot = eslot_mgr_query( ctx, &reasm_fec->cmr );
-  if( FD_UNLIKELY( chained_eslot.id==ULONG_MAX ) ) {
-    fd_banks_print( ctx->banks );
-    FD_LOG_CRIT(( "invariant violation: failed to find cmr %s when we got key %s for slot %lu parent_off %hu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), reasm_fec->slot, reasm_fec->parent_off, reasm_fec->fec_set_idx ));
-  }
-  block_id_eslot_t * entry = NULL;
-  if( FD_UNLIKELY( reasm_fec->slot!=chained_eslot.slot ) ) {
-    /* FIXME: This supports equivocation on slot boundary only.  This
-       does NOT handle the case where there is an equivocated block
-       where the two blocks share some initial amount of FEC sets. */
-    /* New slot observed. */
-    entry = eslot_mgr_insert( ctx, reasm_fec->slot, &reasm_fec->key, chained_eslot );
-  }
-  if( FD_LIKELY( reasm_fec->slot==chained_eslot.slot ) ) {
-    entry = eslot_mgr_rekey( ctx, chained_eslot, &reasm_fec->cmr, &reasm_fec->key );
-    if( FD_LIKELY( fd_banks_get_bank( ctx->banks, &reasm_fec->cmr ) ) ) {
-      fd_banks_rekey_bank( ctx->banks, &reasm_fec->cmr, &reasm_fec->key ); /* FIXME: bank should just be keyed by eslot */
-    }
+  /* Update the eslot_mgr with the incoming FEC.  This will detect any
+     equivocation that may have occurred and return the corresponding
+     eslot that the scheduler should use. */
+  int              is_equiv = 0;
+  fd_eslot_ele_t * ele      = fd_eslot_mgr_ele_insert_fec( ctx->eslot_mgr,
+                                                           reasm_fec->slot,
+                                                           &reasm_fec->key,
+                                                           &reasm_fec->cmr,
+                                                           reasm_fec->fec_set_idx,
+                                                           &is_equiv );
+  if( FD_UNLIKELY( is_equiv ) ) {
+    /* FIXME: There are two places where equivocation is still not
+       supported.
+       1. The Accounts DB does not support equivocation yet.  This is
+          a relatively simple fix and just involves keying the funk xid
+          by (slot, prime count) very similar to how the fd_eslot_t is
+          keyed.
+       2. Mid-block equivocation is not yet supported.  This is a little
+          tricky because it involves inserting all FEC sets up to the
+          FEC where mid-block equivocation was detected again into the
+          scheduler with the equivocated eslot.  Another blocker for
+          this is that reasm fecs do not include the parent block id. */
+    FD_LOG_ERR(( "equivocation detected for slot %lu.  This behavior is not yet fully supported.", reasm_fec->slot ));
   }
 
-  if( FD_UNLIKELY( entry->parent_eslot.slot!=reasm_fec->slot-reasm_fec->parent_off ) ) {
-    FD_LOG_CRIT(( "invariant violation: parent_eslot.slot %lu != reasm_fec->slot - reasm_fec->parent_off %lu", (ulong)entry->parent_eslot.slot, reasm_fec->slot - reasm_fec->parent_off ));
+  ulong parent_slot = reasm_fec->slot-reasm_fec->parent_off;
+  if( FD_UNLIKELY( ele->parent_eslot.slot!=parent_slot ) ) {
+    FD_LOG_ERR(( "parent_slot %lu != %lu", parent_slot, (ulong)ele->parent_eslot.slot ));
   }
 
-  sched_fec->is_last_in_batch = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block = !!reasm_fec->slot_complete;
-  sched_fec->block_id         = entry->eslot;
-  sched_fec->parent_block_id  = entry->parent_eslot;
-
-  /* Believe it or not, NULL stands for the root txn. */
-  sched_fec->alut_ctx->funk_txn = NULL;
-  sched_fec->alut_ctx->funk     = ctx->funk;
-  sched_fec->alut_ctx->els      = ctx->published_root_slot;
+  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
+  sched_fec->block_id               = ele->eslot;
+  sched_fec->parent_block_id        = ele->parent_eslot;
+  sched_fec->alut_ctx->funk_txn     = NULL; /* Corresponds to the root txn. */
+  sched_fec->alut_ctx->funk         = ctx->funk;
+  sched_fec->alut_ctx->els          = ctx->published_root_slot;
   sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
-
   fd_sched_fec_ingest( ctx->sched, sched_fec );
 }
 
@@ -1937,7 +1734,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_POH: {
-      unbecome_leader( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      unbecome_leader( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_RESOLV: {
@@ -1951,7 +1748,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     }
     case IN_KIND_REPAIR: {
       FD_TEST( sz==sizeof(fd_reasm_fec_t) );
-      process_fec_set( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      process_fec_set( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     default:
@@ -2002,15 +1799,12 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  ulong chain_cnt = eslot_map_chain_cnt_est( FD_BLOCK_MAX );
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   void * sched_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
-  void * eslot_map_mem    = FD_SCRATCH_ALLOC_APPEND( l, eslot_map_align(),           eslot_map_footprint( chain_cnt ) );
-  void * eslot_pool_mem   = FD_SCRATCH_ALLOC_APPEND( l, eslot_pool_align(),          eslot_pool_footprint( FD_BLOCK_MAX ) );
+  void * eslot_mgr_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
   void * slot_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
-  void * _capture_ctx     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN,        FD_CAPTURE_CTX_FOOTPRINT );
+  void * _capture_ctx     = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * spad_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),             fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
@@ -2026,12 +1820,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
-  fd_hash_t   init_hash = {.ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
-  fd_bank_t * bank      = fd_banks_init_bank( ctx->banks, &init_hash );
+  fd_bank_t * bank = fd_banks_init_bank( ctx->banks, fd_eslot( 0UL, 0UL ) );
   FD_TEST( bank );
 
   ctx->consensus_root_slot = ULONG_MAX;
-  ctx->consensus_root      = init_hash;
+  ctx->consensus_root      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
 
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */
@@ -2086,11 +1879,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem ) );
   FD_TEST( ctx->sched );
 
-  fd_memset( ctx->eslot_block_id, 0, sizeof(ctx->eslot_block_id) );
-  ctx->eslot_map = eslot_map_join( eslot_map_new( eslot_map_mem, chain_cnt, (ulong)fd_tickcount() ) ); /* TODO: better seed */
-  FD_TEST( ctx->eslot_map );
-  ctx->eslot_pool = eslot_pool_join( eslot_pool_new( eslot_pool_mem, FD_BLOCK_MAX ) );
-  FD_TEST( ctx->eslot_pool );
+  ctx->eslot_mgr = fd_eslot_mgr_join( fd_eslot_mgr_new( eslot_mgr_mem, FD_BLOCK_MAX, 999UL ) );
+  FD_TEST( ctx->eslot_mgr );
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->published_root_slot = ULONG_MAX;
@@ -2113,8 +1903,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->slot_ctx );
   ctx->slot_ctx->banks = ctx->banks;
 
-  fd_hash_t initial_hash = { .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
-  ctx->slot_ctx->bank = fd_banks_get_bank( ctx->slot_ctx->banks, &initial_hash );
+  ctx->slot_ctx->bank = bank;
   FD_TEST( ctx->slot_ctx->bank );
 
   ctx->slot_ctx->funk         = ctx->funk;
@@ -2126,12 +1915,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->mleaders = fd_multi_epoch_leaders_join( fd_multi_epoch_leaders_new( ctx->mleaders_mem ) );
   FD_TEST( ctx->mleaders );
 
-  ctx->is_leader = 0;
-  ctx->reset_slot = 0UL;
+  ctx->is_leader             = 0;
+  ctx->reset_slot            = 0UL;
+  ctx->reset_block_id        = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->reset_timestamp_nanos = 0UL;
-  ctx->next_leader_slot = ULONG_MAX;
+  ctx->next_leader_slot      = ULONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
-  ctx->slot_duration_nanos = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
+  ctx->slot_duration_nanos   = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
   ctx->max_active_descendant = 0UL; /* TODO: Update this properly ... */
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
@@ -2159,15 +1949,12 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
-  *ctx->notif_out        = out1( topo, tile, "replay_notif" );
   *ctx->shredcap_out     = out1( topo, tile, "replay_scap" );
-  *ctx->tower_out        = out1( topo, tile, "replay_tower" );
   *ctx->plugin_out       = out1( topo, tile, "replay_plugi" );
   *ctx->votes_plugin_out = out1( topo, tile, "votes_plugin" ); /* TODO: Delete this */
   *ctx->stake_out        = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   *ctx->replay_out       = out1( topo, tile, "replay_out" );
   *ctx->pack_out         = out1( topo, tile, "replay_pack" );
-  *ctx->resolv_out       = out1( topo, tile, "replay_resol" );
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
@@ -2199,24 +1986,20 @@ unprivileged_init( fd_topo_t *      topo,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile,
+populate_allowed_seccomp( fd_topo_t const *      topo FD_FN_UNUSED,
+                          fd_topo_tile_t const * tile FD_FN_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
 
   populate_sock_filter_policy_fd_replay_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_fd_replay_tile_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( fd_topo_t const *      topo,
-                      fd_topo_tile_t const * tile,
+populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
+                      fd_topo_tile_t const * tile FD_FN_UNUSED,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
 
   if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 

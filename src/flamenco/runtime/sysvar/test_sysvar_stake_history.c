@@ -46,8 +46,8 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
   static uchar spad_mem[ FD_SPAD_FOOTPRINT( 1<<17 ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
   fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem, 1<<17 ) );
   fd_spad_push( spad );
-  fd_bank_slot_set( env->slot_ctx->bank, 3 );
-  fd_bank_parent_slot_set( env->slot_ctx->bank, 2 );
+  env->slot_ctx->bank->eslot_ = fd_eslot( 3UL, 0UL );
+  fd_bank_parent_eslot_set( env->slot_ctx->bank, fd_eslot( 2UL, 0UL ) );
   fd_epoch_stake_history_entry_pair_t const entry0 = {
     .epoch = 1UL, .entry = {
       .effective    = 0x111UL,
@@ -60,8 +60,8 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
   fd_sysvar_cache_restore( env->slot_ctx );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
-  fd_bank_slot_set( env->slot_ctx->bank, 432000 );
-  fd_bank_parent_slot_set( env->slot_ctx->bank, 431999 );
+  env->slot_ctx->bank->eslot_ = fd_eslot( 432000UL, 0UL );
+  fd_bank_parent_eslot_set( env->slot_ctx->bank, fd_eslot( 431999UL, 0UL ) );
   fd_sysvar_stake_history_update( env->slot_ctx, &entry0, spad );
   fd_sysvar_cache_restore( env->slot_ctx );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );

@@ -221,7 +221,7 @@ init( send_test_ctx_t * ctx, config_t * config ) {
     ctx->delay[ MOCK_CI_IDX ] = LONG_MAX;
   }
 
-  encode_vote( ctx, ctx->txn_buf );
+  encode_vote( ctx, ctx->twr_buf );
 
   /* send first epoch of stake info */
   send_test_stake( ctx, &ctx->out_links[ MOCK_STAKE_IDX ] );

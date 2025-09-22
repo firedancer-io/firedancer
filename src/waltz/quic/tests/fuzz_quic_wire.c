@@ -25,12 +25,7 @@
 #include <assert.h>
 #include <stdlib.h> /* putenv, atexit */
 
-static FD_TL ulong g_clock;
-
-static ulong
-test_clock( void * context FD_FN_UNUSED ) {
-  return g_clock;
-}
+static FD_TL long g_clock = 1L;
 
 int
 LLVMFuzzerInitialize( int *    pargc,
@@ -93,7 +88,7 @@ send_udp_packet( fd_quic_t *   quic,
 
   /* Main fuzz entrypoint */
 
-  fd_quic_process_packet( quic, buf, headers_sz + size );
+  fd_quic_process_packet( quic, buf, headers_sz + size, g_clock );
 }
 
 int
@@ -133,7 +128,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_tls_test_sign_ctx( test_signer, rng );
   fd_quic_config_test_signer( quic, test_signer );
 
-  quic->cb.now = test_clock;
   quic->config.retry = enable_retry;
 
   fd_aio_t aio_[1];
@@ -145,6 +139,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( quic->config.idle_timeout > 0 );
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
+  state->now = g_clock;
 
   /* Create dummy connection */
   ulong             our_conn_id  = ULONG_MAX;
@@ -183,7 +178,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   long svc_quota = fd_long_max( (long)size, 1000L );
 
   while( state->svc_queue[ FD_QUIC_SVC_INSTANT ].tail!=UINT_MAX ) {
-    fd_quic_service( quic );
+    fd_quic_service( quic, g_clock );
     assert( --svc_quota > 0 );
   }
   assert( conn->svc_type != FD_QUIC_SVC_INSTANT );
@@ -191,8 +186,8 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Generate ACKs */
   while( state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head != UINT_MAX ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head );
-    g_clock = conn->svc_time;
-    fd_quic_service( quic );
+    g_clock = (long)conn->svc_time;
+    fd_quic_service( quic, g_clock );
     assert( --svc_quota > 0 );
   }
   assert( conn->svc_type != FD_QUIC_SVC_INSTANT &&
@@ -200,14 +195,14 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* Simulate conn timeout */
   while( state->svc_queue[ FD_QUIC_SVC_WAIT ].head != UINT_MAX ) {
-    ulong idle_timeout_ts = conn->last_activity + quic->config.idle_timeout + 1UL;
+    long idle_timeout_ts = conn->last_activity + quic->config.idle_timeout + 1L;
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_WAIT ].head );
 
     /* Idle timeouts should not be scheduled significantly late */
-    assert( conn->svc_time < idle_timeout_ts + (ulong)2e9 );
+    assert( conn->svc_time < idle_timeout_ts + (long)2e9 );
 
-    g_clock = conn->svc_time;
-    fd_quic_service( quic );
+    g_clock = (long)conn->svc_time;
+    fd_quic_service( quic, g_clock );
     assert( --svc_quota > 0 );
   }
   assert( conn->svc_type == UINT_MAX );

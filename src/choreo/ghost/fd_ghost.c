@@ -276,7 +276,7 @@ fd_ghost_mark_invalid( fd_ghost_t * ghost, ulong slot, ulong total_stake ) {
 fd_ghost_ele_t *
 fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, fd_hash_t const * hash, ulong total_stake ) {
 # if LOGGING
-  FD_LOG_INFO(( "[%s] slot: %lu, %s. parent: %s.", __func__, slot, FD_BASE58_ENC_32_ALLOCA(hash), FD_BASE58_ENC_32_ALLOCA(parent_hash) ));
+  FD_LOG_NOTICE(( "[%s] slot: %lu, %s. parent: %s.", __func__, slot, FD_BASE58_ENC_32_ALLOCA(hash), FD_BASE58_ENC_32_ALLOCA(parent_hash) ));
 # endif
 
 # if FD_GHOST_USE_HANDHOLDING

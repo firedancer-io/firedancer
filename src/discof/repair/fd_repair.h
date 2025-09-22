@@ -66,7 +66,7 @@
 
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
-#include "../../flamenco/types/fd_types.h"
+#include "../../flamenco/types/fd_types_custom.h"
 
 /* FD_REPAIR_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -78,6 +78,7 @@
 /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} specify discriminant
    values the protocol uses to distinguish message types. */
 
+#define FD_REPAIR_KIND_PING          (0U)
 #define FD_REPAIR_KIND_PONG          (7U)
 #define FD_REPAIR_KIND_SHRED         (8U)
 #define FD_REPAIR_KIND_HIGHEST_SHRED (9U)
@@ -88,6 +89,7 @@
    preimage prefixed with the below.  */
 
 #define FD_REPAIR_PONG_PREIMAGE_PREFIX "SOLANA_PING_PONG"
+#define FD_REPAIR_PONG_PREIMAGE_SZ (48UL)
 
 /* fd_repair_pong describes the schema of a Pong. */
 
@@ -97,7 +99,6 @@ struct __attribute__((packed)) fd_repair_pong {
   fd_ed25519_sig_t sig;  /* from's signature over the preceding hash field */
 };
 typedef struct fd_repair_pong fd_repair_pong_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_pong_t)==sizeof(fd_pingpong_pong_t), Incompatible with fd_types );
 
 /* REQ_HDR defines the common header of Repair request types. */
 
@@ -111,51 +112,54 @@ FD_STATIC_ASSERT( sizeof(fd_repair_pong_t)==sizeof(fd_pingpong_pong_t), Incompat
 /* fd_repair_shred requests the specific shred at slot and shred_idx
    from a peer validator. */
 
-struct __attribute__((packed)) fd_repair_shred {
+/* TODO: remove _req suffix from below after we remove all fd_types inclusions in repair_tile */
+struct __attribute__((packed)) fd_repair_shred_req {
   REQ_HDR
   ulong slot;
   ulong shred_idx;
 };
-typedef struct fd_repair_shred fd_repair_shred_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_shred_t)==sizeof(fd_repair_protocol_window_index_t), Incompatible with fd_types );
+typedef struct fd_repair_shred_req fd_repair_shred_req_t;
 
 /* fd_repair_highest_shred requests the highest shred in slot greater
    than shred_idx that a peer validator has.  Note this is not
    necessarily the last shred in the slot, as it depends on what the
    peer has available. */
 
-struct __attribute__((packed)) fd_repair_highest_shred {
+struct __attribute__((packed)) fd_repair_highest_shred_req {
   REQ_HDR
   ulong slot;
   ulong shred_idx;
 };
-typedef struct fd_repair_highest_shred fd_repair_highest_shred_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_highest_shred_t)==sizeof(fd_repair_protocol_highest_window_index_t), Incompatible with bincode serde type );
+typedef struct fd_repair_highest_shred_req fd_repair_highest_shred_req_t;
 
 /* fd_repair_orphan requests the ancestors of slot (an "orphaned" slot)
    from a peer validator.  The peer can respond with shreds for up to 10
    ancestor slots, where every shred is the last shred for that slot. */
 
-struct __attribute__((packed)) fd_repair_orphan {
+struct __attribute__((packed)) fd_repair_orphan_req {
   REQ_HDR
   ulong slot;
 };
-typedef struct fd_repair_orphan fd_repair_orphan_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_orphan_t)==sizeof(fd_repair_protocol_orphan_t), Incompatible with bincode serde type );
+typedef struct fd_repair_orphan_req fd_repair_orphan_req_t;
 
 /* fd_repair_msg_t defines the schema of all Repair message types. */
 
 struct __attribute__((packed)) fd_repair_msg {
   uint kind; /* FD_REPAIR_KIND_{PONG,SHRED,HIGHEST_SHRED,ORPHAN} */
   union {
-    fd_repair_pong_t          pong;
-    fd_repair_shred_t         shred;
-    fd_repair_highest_shred_t highest_shred;
-    fd_repair_orphan_t        orphan;
+    fd_repair_pong_t              pong;
+    fd_repair_shred_req_t         shred;
+    fd_repair_highest_shred_req_t highest_shred;
+    fd_repair_orphan_req_t        orphan;
   };
 };
 typedef struct fd_repair_msg fd_repair_msg_t;
-FD_STATIC_ASSERT( sizeof(fd_repair_msg_t)==sizeof(fd_repair_protocol_t), Incompatible with bincode serde type );
+
+struct __attribute__((packed)) fd_repair_ping {
+  uint kind;
+  fd_repair_pong_t ping;
+};
+typedef struct fd_repair_ping fd_repair_ping_t;
 
 static const fd_pubkey_t null_pubkey = {{ 0 }};
 
@@ -168,7 +172,7 @@ struct fd_repair {
   fd_pubkey_t         identity_key; /* validator identity key */
   fd_repair_sign_fn * sign_fn;      /* user-provided signing callback */
   void *              sign_ctx;     /* user-provided context for signing callback */
-  fd_repair_msg_t     msg;          /* buffer for outgoing repair requests */
+  //fd_repair_msg_t     msg;          /* buffer for outgoing repair requests */
 };
 typedef struct fd_repair fd_repair_t;
 
@@ -191,10 +195,11 @@ fd_repair_footprint( void ) {
 
 /* fd_repair_new formats an unused memory region for use as a repair.
    mem is a non-NULL pointer to this region in the local address space
-   with the required footprint and alignment. */
+   with the required footprint and alignment.
+   Initializes repair with the public identity key. */
 
 void *
-fd_repair_new( void * shmem );
+fd_repair_new( void * shmem, fd_pubkey_t * identity_key );
 
 /* fd_repair_join joins the caller to the repair.  repair points to the
    first byte of the memory region backing the repair in the caller's
@@ -229,16 +234,10 @@ fd_repair_delete( void * repair );
    success, NULL on failure. */
 
 
-fd_repair_msg_t * fd_repair_pong         ( fd_repair_t * repair, fd_hash_t   * ping_token );
-fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );
-fd_repair_msg_t * fd_repair_highest_shred( fd_repair_t * repair, fd_pubkey_t * to, ulong ts, uint nonce, ulong slot, ulong shred_idx );
-fd_repair_msg_t * fd_repair_orphan       ( fd_repair_t * repair, fd_pubkey_t * to, ulong ts, uint nonce, ulong slot                  );
-
-/* fd_repair_sign_{ed25519,keyguard} implements the Repair signing
-   callback with either fd_ed25519_sign or fd_keyguard_client_sign. */
-
-void fd_repair_sign_ed25519 ( void * ctx, fd_repair_msg_t * msg, uchar * sig_out );
-void fd_repair_sign_keyguard( void * ctx, fd_repair_msg_t * msg, uchar * sig_out );
+fd_repair_msg_t * fd_repair_pong         ( fd_repair_t * repair, fd_hash_t * ping_token, fd_repair_msg_t * out_msg );
+fd_repair_msg_t * fd_repair_shred        ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx, fd_repair_msg_t * out_msg );
+fd_repair_msg_t * fd_repair_highest_shred( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, ulong shred_idx, fd_repair_msg_t * out_msg );
+fd_repair_msg_t * fd_repair_orphan       ( fd_repair_t * repair, fd_pubkey_t const * to, ulong ts, uint nonce, ulong slot, fd_repair_msg_t * out_msg );
 
 /* fd_repair_sz returns the bincode-serialized sz of msg. */
 
@@ -246,39 +245,58 @@ FD_FN_PURE static inline ulong
 fd_repair_sz( fd_repair_msg_t const * msg ) {
    switch( msg->kind ) {
      case FD_REPAIR_KIND_PONG:          return sizeof(uint) + sizeof(fd_repair_pong_t);
-     case FD_REPAIR_KIND_SHRED:         return sizeof(uint) + sizeof(fd_repair_shred_t);
-     case FD_REPAIR_KIND_HIGHEST_SHRED: return sizeof(uint) + sizeof(fd_repair_highest_shred_t);
-     case FD_REPAIR_KIND_ORPHAN:        return sizeof(uint) + sizeof(fd_repair_orphan_t);
+     case FD_REPAIR_KIND_SHRED:         return sizeof(uint) + sizeof(fd_repair_shred_req_t);
+     case FD_REPAIR_KIND_HIGHEST_SHRED: return sizeof(uint) + sizeof(fd_repair_highest_shred_req_t);
+     case FD_REPAIR_KIND_ORPHAN:        return sizeof(uint) + sizeof(fd_repair_orphan_req_t);
      default:                           FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind ));
    }
 }
 
-/* fd_repair_serialize bincode-serializes msg into buf_out.  Returns a
-   pointer to buf_out.  Assumes buf is at least as large as
-   fd_repair_sz( msg ).  This can be implemented as a simple cast of a
-   packed struct but calls fd_types for the sake of conformance. */
-
-FD_FN_PURE static inline uchar *
-fd_repair_serialize( fd_repair_msg_t const * msg, uchar * buf_out ) {
-   fd_repair_protocol_t const * protocol = (fd_repair_protocol_t const *)fd_type_pun_const( msg );
-   fd_bincode_encode_ctx_t ctx = { .data = buf_out, .dataend = buf_out + fd_repair_sz( msg ) };
-   fd_repair_protocol_encode( protocol, &ctx );
-   return buf_out;
+/* preimage_pong takes a pong and takes the token in a ping and a
+   FD_REPAIR_PONG_PREIMAGE_SZ-byte buffer and returns a pointer to a
+   preimage that can be signed. */
+static inline uchar *
+preimage_pong( fd_hash_t const * ping_token, uchar * preimage_buf, ulong preimage_sz ) {
+# if FD_REPAIR_USE_HANDHOLDING
+  if( FD_UNLIKELY( preimage_sz != FD_REPAIR_PONG_PREIMAGE_SZ ) ) {
+    FD_LOG_ERR(( "preimage_sz %lu must be %lu", preimage_sz, FD_REPAIR_PONG_PREIMAGE_SZ ));
+  }
+# endif
+  ulong prefix_sz = sizeof(FD_REPAIR_PONG_PREIMAGE_PREFIX) - 1 /* subtract NUL */;
+  memcpy( preimage_buf,        FD_REPAIR_PONG_PREIMAGE_PREFIX, prefix_sz         );
+  memcpy( preimage_buf + prefix_sz, ping_token, sizeof(fd_hash_t) );
+  return preimage_buf;
 }
 
-/* fd_repair_deserialize bincode-deserializes buf.  Returns a pointer to
-   res_out.  Assumes buf is at least as large as sizeof(fd_repair_t).
-   This can be implemented as a simple cast of a packed struct but calls
-   fd_types for the sake of conformance. */
+/* preimage_req takes a repair request populated with all fields except
+   for the signature, and returns a pointer to a preimage that can be
+   signed.  Modifies the msg in place.
 
-FD_FN_PURE static inline ulong
-fd_repair_deserialize( uchar * buf, ulong sz, fd_repair_response_t * res_out ) {
-  fd_bincode_decode_ctx_t decode_ctx = { .data = buf, .dataend = buf + sz };
-  ulong dsz = 0UL;
-  int err = fd_repair_response_decode_footprint( &decode_ctx, &dsz );
-  FD_TEST( err == FD_BINCODE_SUCCESS );
-  fd_repair_response_decode( res_out, &decode_ctx );
-  return dsz;
+   At the start of this function, the repair_msg_t should contain
+
+     [ discriminant ] [ empty sig ] [ repair request fields ]
+     ^                ^             ^
+     0                4             68
+
+     https://github.com/solana-labs/solana/blob/master/core/src/repair/serve_repair.rs#L1258
+
+     We want to sign over
+     [ discriminant ] [ payload ]
+      ^                ^
+      buffer           buffer+4
+
+   We can do this without using any extra memory copying the discriminant
+   to the last 4 bytes of the sig field, and returning a pointer to
+   that copied location.  The sig field should be overwritten with the
+   actual signature value later, else the fd_repair_msg_t will be
+   incorrect. */
+
+static inline uchar *
+preimage_req( fd_repair_msg_t * msg, ulong * preimage_sz ) {
+  uchar * preimage = (uchar *)fd_type_pun(msg);
+  preimage += sizeof(fd_ed25519_sig_t);
+  FD_STORE( uint, preimage, msg->kind ); /* copy discriminant over */
+  *preimage_sz = fd_repair_sz( msg ) - sizeof(fd_ed25519_sig_t);
+  return preimage;
 }
-
 #endif /* HEADER_fd_src_discof_repair_fd_repair_h */

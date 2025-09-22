@@ -1,37 +1,27 @@
-/* Repair tile runs the repair protocol for a Firedancer node. */
-#define _GNU_SOURCE
-
-#include <sys/socket.h>
-
 #include "../../disco/topo/fd_topo.h"
+#include <sys/socket.h>
 #include "generated/fd_rpcserv_tile_seccomp.h"
 #include "../rpcserver/fd_rpc_service.h"
-#include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
-#include "../../ballet/shred/fd_shred.h"
 
 #include <fcntl.h>
 #include <unistd.h>
 
-#define IN_KIND_REPLAY_NOTIF  0
-#define IN_KIND_STAKE_OUT     1
-#define IN_KIND_REPAIR_REPLAY 2
-#define IN_KIND_REPLAY_TOWER  3
+#define IN_KIND_REPLAY_OUT    (0)
+#define IN_KIND_STAKE_OUT     (1)
+#define IN_KIND_REPAIR_REPLAY (2)
 
-#define MAX_IN_LINKS    (16)
+struct fd_rpcserv_in {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
+};
 
-typedef union {
-  struct {
-    fd_wksp_t * mem;
-    ulong       chunk0;
-    ulong       wmark;
-    ulong       mtu;
-    ulong       last_seq;
-  };
-} fd_rpcserv_in_ctx_t;
+typedef struct fd_rpcserv_in fd_rpcserv_in_t;
 
-struct fd_rpcserv_tile_ctx {
+struct fd_rpcserv_tile {
   fd_rpcserver_args_t args;
 
   fd_rpc_ctx_t * ctx;
@@ -39,10 +29,11 @@ struct fd_rpcserv_tile_ctx {
   fd_pubkey_t      identity_key;
   fd_keyswitch_t * keyswitch;
 
-  uchar               in_kind[ MAX_IN_LINKS ];
-  fd_rpcserv_in_ctx_t in_links[ MAX_IN_LINKS ];
+  int in_kind[ 16UL ];
+  fd_rpcserv_in_t in[ 16UL ];
 };
-typedef struct fd_rpcserv_tile_ctx fd_rpcserv_tile_ctx_t;
+
+typedef struct fd_rpcserv_tile fd_rpcserv_tile_t;
 
 #define FD_RPC_SCRATCH_MAX (1LU<<30)
 
@@ -63,8 +54,8 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RPC_SCRATCH_MAX ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_rpcserv_tile_t), sizeof(fd_rpcserv_tile_t) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(),            fd_spad_footprint( FD_RPC_SCRATCH_MAX ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -74,7 +65,7 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 static inline void
-during_housekeeping( fd_rpcserv_tile_ctx_t * ctx ) {
+during_housekeeping( fd_rpcserv_tile_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     memcpy( &ctx->identity_key, ctx->keyswitch->bytes, sizeof(fd_pubkey_t) );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
@@ -82,72 +73,53 @@ during_housekeeping( fd_rpcserv_tile_ctx_t * ctx ) {
 }
 
 static inline void
-before_credit( fd_rpcserv_tile_ctx_t * ctx,
+before_credit( fd_rpcserv_tile_t * ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
   *charge_busy = fd_rpc_ws_poll( ctx->ctx );
 }
 
-static void
-during_frag( fd_rpcserv_tile_ctx_t * ctx,
-             ulong                   in_idx,
-             ulong                   seq FD_PARAM_UNUSED,
-             ulong                   sig,
-             ulong                   chunk,
-             ulong                   sz,
-             ulong                   ctl FD_PARAM_UNUSED ) {
-  if( FD_UNLIKELY( chunk<ctx->in_links[in_idx].chunk0 || chunk>ctx->in_links[in_idx].wmark ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-                  ctx->in_links[in_idx].chunk0, ctx->in_links[in_idx].wmark ));
-  }
-  uchar kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( kind==IN_KIND_REPLAY_NOTIF ) ) {
-    fd_rpc_replay_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
-  } else if( FD_UNLIKELY( kind == IN_KIND_STAKE_OUT ) ) {
-    fd_rpc_stake_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
-  } else if( FD_UNLIKELY( kind == IN_KIND_REPAIR_REPLAY ) ) {
-    fd_rpc_repair_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
-  } else if( FD_UNLIKELY( kind == IN_KIND_REPLAY_TOWER ) ) {
-    fd_rpc_tower_during_frag( ctx->ctx, sig, ctl,fd_chunk_to_laddr_const( ctx->in_links[in_idx].mem, chunk ), (int)sz );
-  } else {
-    FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
-  }
-}
-
-static void
-after_frag( fd_rpcserv_tile_ctx_t * ctx,
-            ulong                  in_idx,
-            ulong                  seq,
-            ulong                  sig,
-            ulong                  sz,
-            ulong                  tsorig,
-            ulong                  tspub,
-            fd_stem_context_t *    stem ) {
-  (void)sig;
-  (void)sz;
+static inline int
+returnable_frag( fd_rpcserv_tile_t * ctx,
+                 ulong               in_idx,
+                 ulong               seq,
+                 ulong               sig,
+                 ulong               chunk,
+                 ulong               sz,
+                 ulong               ctl,
+                 ulong               tsorig,
+                 ulong               tspub,
+                 fd_stem_context_t * stem ) {
+  (void)seq;
   (void)tsorig;
   (void)tspub;
   (void)stem;
 
-  ulong * last_seq = &ctx->in_links[ in_idx ].last_seq;
-  if( FD_UNLIKELY( seq != *last_seq + 1 && seq != 0 ) ) {
-    FD_LOG_NOTICE(( "seq jump from %lu to %lu on input %lu", *last_seq, seq, in_idx ));
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
   }
-  *last_seq = seq;
 
-  uchar kind = ctx->in_kind[ in_idx ];
-  if( kind==IN_KIND_REPLAY_NOTIF ) {
-    fd_rpc_replay_after_frag( ctx->ctx );
-  } else if( kind == IN_KIND_STAKE_OUT ) {
-    fd_rpc_stake_after_frag( ctx->ctx );
-  } else if( kind == IN_KIND_REPAIR_REPLAY ) {
-    fd_rpc_repair_after_frag( ctx->ctx );
-  } else if( kind == IN_KIND_REPLAY_TOWER ) {
-    fd_rpc_tower_after_frag( ctx->ctx );
-  } else {
-    FD_LOG_ERR(("Unknown in_idx %lu for rpc", in_idx));
+  switch( ctx->in_kind[ in_idx ] ) {
+    case IN_KIND_REPLAY_OUT: {
+      fd_rpc_replay_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sig, sz, ctl );
+      fd_rpc_replay_after_frag( ctx->ctx, sig );
+      break;
+    }
+    case IN_KIND_STAKE_OUT: {
+      fd_rpc_stake_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+      fd_rpc_stake_after_frag( ctx->ctx );
+      break;
+    }
+    case IN_KIND_REPAIR_REPLAY: {
+      fd_rpc_repair_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
+      fd_rpc_repair_after_frag( ctx->ctx );
+      break;
+    }
+    default: FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[ in_idx ] ));
   }
+
+  return 0;
 }
 
 static void
@@ -156,12 +128,11 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  void * spad_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_RPC_SCRATCH_MAX ) );
+  fd_rpcserv_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_t), sizeof(fd_rpcserv_tile_t) );
+  void * spad_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),            fd_spad_footprint( FD_RPC_SCRATCH_MAX ) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-  if( FD_UNLIKELY( !strcmp( tile->rpcserv.identity_key_path, "" ) ) )
-    FD_LOG_ERR( ( "identity_key_path not set" ) );
+  if( FD_UNLIKELY( !strcmp( tile->rpcserv.identity_key_path, "" ) ) ) FD_LOG_ERR( ( "identity_key_path not set" ) );
   memcpy( &ctx->identity_key, fd_keyload_load( tile->rpcserv.identity_key_path, /* pubkey only: */ 1 ), sizeof(fd_pubkey_t) );
 
   fd_rpcserver_args_t * args = &ctx->args;
@@ -188,7 +159,6 @@ privileged_init( fd_topo_t *      topo,
   fd_spad_push( args->spad ); /* We close this out when we stop the server */
   fd_rpc_create_ctx( args, &ctx->ctx );
 
-
   /* Wait until after replay tile boots before starting service */
 }
 
@@ -197,54 +167,38 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->out_cnt != 0 ) ) {
-    FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
-  }
-
-  /* Scratch mem setup */
-
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_ulong_align_up( FD_RPC_SCRATCH_MAX, fd_spad_align() ) );
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
-    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
-    if( 0==strcmp( link->name, "replay_notif" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_NOTIF;
-    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
-    } else if( 0==strcmp( link->name, "repair_repla" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_REPAIR_REPLAY;
-    } else if( 0==strcmp( link->name, "replay_tower" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_TOWER;
-    } else {
-      FD_LOG_ERR(( "rpcserv tile has unexpected input link %s", link->name ));
-    }
-
-    ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
-    ctx->in_links[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in_links[ in_idx ].mem, link->dcache, link->mtu );
-    ctx->in_links[ in_idx ].mtu    = link->mtu;
-    ctx->in_links[ in_idx ].last_seq = 0;
-    FD_TEST( fd_dcache_compact_is_safe( ctx->in_links[in_idx].mem, link->dcache, link->mtu, link->depth ) );
-   }
+  fd_rpcserv_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_t), sizeof(fd_rpcserv_tile_t) );
+                            FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),            fd_ulong_align_up( FD_RPC_SCRATCH_MAX, fd_spad_align() ) );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
   fd_rpcserver_args_t * args = &ctx->args;
-  if( FD_UNLIKELY( !fd_funk_join( args->funk, fd_topo_obj_laddr( topo, tile->rpcserv.funk_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "Failed to join database cache" ));
-  }
+  FD_TEST( fd_funk_join( args->funk, fd_topo_obj_laddr( topo, tile->rpcserv.funk_obj_id ) ) );
 
   args->store = fd_store_join( fd_topo_obj_laddr( topo, tile->rpcserv.store_obj_id ) );
-  FD_TEST( args->store->magic == FD_STORE_MAGIC );
+  FD_TEST( args->store );
 
   fd_rpc_start_service( args, ctx->ctx );
+
+  for( uint in_idx=0U; in_idx<(tile->in_cnt); in_idx++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ in_idx ] ];
+
+    if( FD_LIKELY( !strcmp( link->name, "replay_out"        ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
+    else if( FD_LIKELY( !strcmp( link->name, "repair_repla" ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPAIR_REPLAY;
+    else FD_LOG_ERR(( "rpcserv tile has unexpected input link %s", link->name ));
+
+    ctx->in[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->in[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ in_idx ].mem, link->dcache );
+    ctx->in[ in_idx ].wmark  = fd_dcache_compact_wmark ( ctx->in[ in_idx ].mem, link->dcache, link->mtu );
+    ctx->in[ in_idx ].mtu    = link->mtu;
+  }
+
+  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
+    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 }
 
 static ulong
@@ -253,8 +207,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
+  fd_rpcserv_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_t), sizeof(fd_rpcserv_tile_t) );
 
   populate_sock_filter_policy_fd_rpcserv_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)fd_rpc_ws_fd( ctx->ctx ) );
   return sock_filter_policy_fd_rpcserv_tile_instr_cnt;
@@ -266,8 +221,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_rpcserv_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_ctx_t), sizeof(fd_rpcserv_tile_ctx_t) );
+  fd_rpcserv_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_rpcserv_tile_t), sizeof(fd_rpcserv_tile_t) );
 
   if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
@@ -279,16 +235,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* TODO: This is probably not correct. */
 #define STEM_BURST (1UL)
 
-#define STEM_CALLBACK_CONTEXT_TYPE  fd_rpcserv_tile_ctx_t
-#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_rpcserv_tile_ctx_t)
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_rpcserv_tile_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_rpcserv_tile_t)
 
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_RETURNABLE_FRAG     returnable_frag
 
 #include "../../disco/stem/fd_stem.c"
 

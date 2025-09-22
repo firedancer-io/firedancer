@@ -198,8 +198,8 @@ fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_
 }
 
 fd_store_fec_t *
-fd_store_publish( fd_store_t  * store,
-                  fd_hash_t   * merkle_root ) {
+fd_store_publish( fd_store_t *      store,
+                  fd_hash_t const * merkle_root ) {
 
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }

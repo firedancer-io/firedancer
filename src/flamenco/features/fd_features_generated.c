@@ -1476,7 +1476,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x4f\x6e\x58\xf2\xa5\x04\x0c\xd3\x86\x2c\xea\xf5\xe7\x5e\x1a\xc4\x52\x52\xca\xea\xdf\x75\x06\xd3\x0e\xef\x5e\x33\x25\x16\xaf\xcf"},
                                  /* 6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk */
     .name                      = "migrate_stake_program_to_core_bpf",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
     .id                        = {"\xd4\xca\x06\xb3\x6d\xa7\x8e\xef\xd9\x92\x66\x67\x6d\xe3\x92\xab\x4e\x56\x31\x5b\xd3\x9e\x97\x15\xd2\xf6\x0d\x3d\x02\x29\xf8\x10"},

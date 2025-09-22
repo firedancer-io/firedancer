@@ -319,18 +319,33 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 1UL                          );
+  ulong        numa_idx = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx", NULL, fd_shmem_numa_idx( cpu_idx ) );
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
+
   /**********************************************************************/
   /* Initialization                                                     */
   /**********************************************************************/
 
-  /* FIXME Make this test setup more in line with other unit tests */
-  fd_wksp_t * wksp    = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 5UL, fd_log_cpu_id(), "wksp", 0UL );
-  int lg_max_naccts   = fd_ulong_find_msb( fd_ulong_pow2_up( FD_TXN_CONFLICT_MAP_MAX_NACCT ) );
+  int   lg_max_naccts = 20;
+  ulong max_naccts    = 1UL<<lg_max_naccts;
+  FD_LOG_NOTICE(( "fd_conflict_detect_map_footprint = %.1f MiB",
+                  (double)fd_conflict_detect_map_footprint( lg_max_naccts )/1048576. ));
+
   void * acct_map_mem = fd_wksp_alloc_laddr( wksp, fd_conflict_detect_map_align(), fd_conflict_detect_map_footprint( lg_max_naccts ), 1234UL );
-  void * acct_arr_mem = fd_wksp_alloc_laddr( wksp, 32UL, sizeof(fd_acct_addr_t)*FD_TXN_CONFLICT_MAP_MAX_NACCT, 1235UL );
+  void * acct_arr_mem = fd_wksp_alloc_laddr( wksp, 32UL, sizeof(fd_acct_addr_t)*max_naccts, 1235UL );
   ulong tag=2345UL, seed=5678UL, txn_max=1024, accdb_ses_max=2;
   uint rec_max=1024;
-  void * funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), tag );
+  void * funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), 1236UL );
   void * sestab_mem   = fd_wksp_alloc_laddr( wksp, fd_accdb_sestab_align(), fd_accdb_sestab_footprint( accdb_ses_max ), tag );
   void * acc_mgr_mem  = fd_wksp_alloc_laddr( wksp, fd_accdb_manager_align(), fd_accdb_manager_footprint(), tag );
   FD_TEST( funk_mem );
@@ -353,8 +368,6 @@ main( int     argc,
   fd_funk_txn_xid_t xid = {.ul={ slot+1, slot+1 }};
   fd_accdb_manager_txn_create( accdb_mgr, NULL, &xid );
 
-  FD_LOG_NOTICE(( "Allocating %lu MB for the account map", fd_conflict_detect_map_footprint( lg_max_naccts )/1024/1024 ));
-
   /**********************************************************************/
   /* Unit test without address lookup tables                            */
   /**********************************************************************/
@@ -372,5 +385,11 @@ main( int     argc,
   test_write_write_conflict_alt( accdb, &xid, acct_map, acct_arr );
   test_read_write_conflict_alt_sentinel( accdb, &xid, acct_map, acct_arr );
 
+  fd_wksp_free_laddr( fd_accdb_sestab_delete( fd_accdb_sestab_leave( sestab ) ) );
+  fd_wksp_free_laddr( fd_accdb_manager_delete( fd_accdb_manager_leave( accdb_mgr ) ) );
+  fd_wksp_free_laddr( acct_arr_mem );
+  fd_wksp_free_laddr( acct_map_mem );
+  fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
+  fd_wksp_delete_anonymous( wksp );
   return 0;
 }
