@@ -89,6 +89,7 @@ typedef struct fd_sched_fec fd_sched_fec_t;
 struct fd_sched_txn_ready {
   ulong block_idx;        /* Same as in fd_sched_fec_t. */
   ulong parent_block_idx; /* Same as in fd_sched_fec_t. */
+  ulong slot;             /* Slot number of the block. */
   ulong txn_idx;
   uint  block_end:1;      /* Set for the final sentinel in the block; relevant because the
                              caller might need to do end-of-block processing; special txn_idx. */

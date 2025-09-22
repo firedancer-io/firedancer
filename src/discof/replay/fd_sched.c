@@ -545,6 +545,7 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
     out_txn->txn_idx          = FD_SCHED_TXN_IDX_BLOCK_START;
     out_txn->block_idx        = block_idx;
     out_txn->parent_block_idx = block->parent_idx;
+    out_txn->slot             = block->slot;
     out_txn->block_start      = 1;
 
     block->block_start_signaled = 1;
@@ -569,6 +570,7 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
     }
     out_txn->block_idx        = block_idx;
     out_txn->parent_block_idx = block->parent_idx;
+    out_txn->slot             = block->slot;
 
     long now = fd_tickcount();
     ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
@@ -588,6 +590,7 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
     out_txn->txn_idx          = FD_SCHED_TXN_IDX_BLOCK_END;
     out_txn->block_idx        = block_idx;
     out_txn->parent_block_idx = block->parent_idx;
+    out_txn->slot             = block->slot;
     out_txn->block_end        = 1;
 
     block->block_end_signaled = 1;
