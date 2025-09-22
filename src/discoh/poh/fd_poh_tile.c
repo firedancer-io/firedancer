@@ -309,6 +309,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/pod/fd_pod.h"

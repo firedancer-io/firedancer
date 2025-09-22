@@ -20,6 +20,8 @@
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
 #include "../../../disco/topo/fd_cpu_topo.h" /* fd_topo_cpus */
+#include "../../../disco/pack/fd_pack.h"
+#include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 
@@ -125,7 +127,7 @@ sim_topo( config_t * config ) {
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.max_rooted_slots,
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.max_transactions_per_slot );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_total_banks, config->firedancer.runtime.max_fork_width );
 

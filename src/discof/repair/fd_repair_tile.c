@@ -202,14 +202,6 @@ struct ctx {
 
   ulong snap_out_chunk;
 
-  /* These will only be used if shredcap is enabled */
-  uint        shredcap_out_idx;
-  uint        shredcap_enabled;
-  fd_wksp_t * shredcap_out_mem;
-  ulong       shredcap_out_chunk0;
-  ulong       shredcap_out_wmark;
-  ulong       shredcap_out_chunk;
-
   uint      shred_tile_cnt;
   out_ctx_t shred_out_ctx[ MAX_SHRED_TILE_CNT ];
 
@@ -1065,15 +1057,6 @@ unprivileged_init( fd_topo_t *      topo,
       shred_out->chunk0     = fd_dcache_compact_chunk0( shred_out->mem, link->dcache );
       shred_out->wmark      = fd_dcache_compact_wmark( shred_out->mem, link->dcache, link->mtu );
       shred_out->chunk      = shred_out->chunk0;
-
-    } else if( 0==strcmp( link->name, "repair_scap" ) ) {
-
-      ctx->shredcap_enabled    = 1;
-      ctx->shredcap_out_idx    = out_idx;
-      ctx->shredcap_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-      ctx->shredcap_out_chunk0 = fd_dcache_compact_chunk0( ctx->shredcap_out_mem, link->dcache );
-      ctx->shredcap_out_wmark  = fd_dcache_compact_wmark( ctx->shredcap_out_mem, link->dcache, link->mtu );
-      ctx->shredcap_out_chunk  = ctx->shredcap_out_chunk0;
 
     } else if( 0==strcmp( link->name, "ping_sign" ) ) {
 

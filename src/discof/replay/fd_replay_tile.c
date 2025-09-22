@@ -1350,6 +1350,12 @@ replay( fd_replay_tile_t *  ctx,
       charge_busy = 1;
       fd_eslot_t bank_eslot = fd_bank_eslot_get( ctx->slot_ctx->bank );
 
+      /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
+         that FD_TXN_MAX_PER_SLOT is respected here, and we do not
+         schedule above it (must end block with failure now if we would
+         go over), otherwise a malicious block could exceed the CU limit
+         and overflow the status cache or scheduler. */
+
       if( FD_UNLIKELY( ready_txn->block_start ) ) {
         replay_block_start( ctx,
                             stem,
