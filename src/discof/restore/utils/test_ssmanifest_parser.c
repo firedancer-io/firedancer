@@ -54,14 +54,14 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Parsing %lu bytes from %s", size, argv[1] ));
 
-  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint( 1UL<<24UL ) ), 1UL<<24UL, 42UL ) );
+  fd_ssmanifest_parser_t * parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() ) ) );
   FD_TEST( parser );
 
   fd_ssmanifest_parser_init( parser, manifest );
 
   long ts = -fd_log_wallclock();
 
-  int result = fd_ssmanifest_parser_consume( parser, buffer, size );
+  int result = fd_ssmanifest_parser_consume( parser, buffer, size, NULL, NULL );
   if( FD_UNLIKELY( result ) ) FD_LOG_ERR(( "fd_ssmanifest_parser_consume failed (%d)", result ));
 
   long elapsed = fd_log_wallclock() + ts;

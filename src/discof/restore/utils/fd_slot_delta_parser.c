@@ -23,29 +23,27 @@
 #define FD_SLOT_DELTA_PARSER_SLOT_SET_MAX_ENTRIES (512UL)
 
 struct fd_slot_delta_parser_private {
-  int     state;                                    /* parser state machine */
+  int     state;                       /* parser state machine */
+  int     entry_avail;                 /* whether a parsed entry is available */
+  int     group_avail;                 /* whether a parsed group is available */
 
-  uchar * dst;                                      /* where to store the next parsed value */
-  ulong   dst_cur;                                  /* offset into dst */
-  ulong   dst_sz;                                   /* size of dst */
+  uchar * dst;                         /* where to store the next parsed value */
+  ulong   dst_cur;                     /* offset into dst */
+  ulong   dst_sz;                      /* size of dst */
 
-  ulong   len;                                      /* number of slot delta entries */
-  int     is_root;                                  /* whether the current slot delta entry is rooted */
-  ulong   txnhash_offset;                           /* offset into the txncache for the current slot delta entry */
-  ulong   slot_delta_status_len;                    /* number of blockhashes in the slot delta entry */
-  ulong   cache_status_len;                         /* number of txns associated with the blockhash */
-  ulong   borsh_io_error_len;                       /* used to parse a variable len borsh_io_error string */
-  uint    error_discriminant;                       /* stores the error discriminant of a txn result */
-  uchar   error;                                    /* stores the error code of a txn result */
+  ulong   len;                         /* number of slot delta entries */
+  int     is_root;                     /* whether the current slot delta entry is rooted */
+  ulong   txnhash_offset;              /* offset into the txncache for the current slot delta entry */
+  ulong   slot_delta_status_len;       /* number of blockhashes in the slot delta entry */
+  ulong   cache_status_len;            /* number of txns associated with the blockhash */
+  ulong   borsh_io_error_len;          /* used to parse a variable len borsh_io_error string */
+  uint    error_discriminant;          /* stores the error discriminant of a txn result */
+  uchar   error;                       /* stores the error code of a txn result */
 
-  fd_slot_delta_parser_process_group_fn_t group_cb; /* callback invoked for each parsed group of entrys */
-  fd_slot_delta_parser_process_entry_fn_t entry_cb; /* callback invoked for each parsed entry */
-  void *                                  cb_arg;   /* callback arg */
-
-  fd_slot_entry_t * slot_pool;                      /* pool backing a slot hashset */
-  slot_set_t *      slot_set;                       /* slot hash set to detect duplicate slots */
-  ulong             slot_pool_ele_cnt;              /* count of slots in pool */
-  fd_sstxncache_entry_t entry[1];                   /* parsed slot delta entry */
+  fd_slot_entry_t * slot_pool;         /* pool backing a slot hashset */
+  slot_set_t *      slot_set;          /* slot hash set to detect duplicate slots */
+  ulong             slot_pool_ele_cnt; /* count of slots in pool */
+  fd_sstxncache_entry_t entry[1];      /* parsed slot delta entry */
 };
 
 static inline ulong
@@ -116,15 +114,15 @@ state_validate( fd_slot_delta_parser_t * parser ) {
   switch( parser->state ) {
     case STATE_SLOT_DELTAS_LEN:
       if( FD_UNLIKELY( parser->len>FD_SLOT_DELTA_MAX_ENTRIES ) ) {
-        return FD_SLOT_DELTA_PARSER_ERROR_TOO_MANY_ENTRIES;
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES;
       }
       break;
     case STATE_SLOT_DELTA_SLOT: {
       ulong slot_idx = slot_set_idx_query_const( parser->slot_set, &parser->entry->slot, ULONG_MAX, parser->slot_pool );
-      if( FD_UNLIKELY( slot_idx!=ULONG_MAX ) ) return FD_SLOT_DELTA_PARSER_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
+      if( FD_UNLIKELY( slot_idx!=ULONG_MAX ) ) return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES;
 
       if( FD_UNLIKELY( parser->slot_pool_ele_cnt>=FD_SLOT_DELTA_MAX_ENTRIES ) ) {
-        return FD_SLOT_DELTA_PARSER_ERROR_TOO_MANY_ENTRIES;
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES;
       }
 
       fd_slot_entry_t * slot_entry = &parser->slot_pool[ parser->slot_pool_ele_cnt++ ];
@@ -134,7 +132,7 @@ state_validate( fd_slot_delta_parser_t * parser ) {
     }
     case STATE_SLOT_DELTA_IS_ROOT:
       if( FD_UNLIKELY( !parser->is_root) ) {
-        return FD_SLOT_DELTA_PARSER_ERROR_SLOT_IS_NOT_ROOT;
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT;
       }
       break;
     default: break;
@@ -158,7 +156,7 @@ loop( fd_slot_delta_parser_t * parser ) {
 
 static inline void
 result_loop( fd_slot_delta_parser_t * parser ) {
-  if( FD_LIKELY( parser->entry_cb ) ) parser->entry_cb( parser->cb_arg, parser->entry );
+  parser->entry_avail = 1;
   loop( parser );
 }
 
@@ -186,8 +184,8 @@ state_process( fd_slot_delta_parser_t * parser ) {
       parser->slot_delta_status_len--;
       break;
     case STATE_STATUS_TXN_IDX:
-      parser->state = STATE_CACHE_STATUS_LEN;
-      if( FD_LIKELY( parser->group_cb ) ) parser->group_cb( parser->cb_arg, parser->entry->blockhash, parser->txnhash_offset );
+      parser->state       = STATE_CACHE_STATUS_LEN;
+      parser->group_avail = 1;
       break;
     case STATE_CACHE_STATUS_LEN:
       if( FD_UNLIKELY( !parser->cache_status_len ) ) loop( parser );
@@ -291,6 +289,7 @@ fd_slot_delta_parser_new( void * shmem ) {
     slot_entry->slot = ULONG_MAX;
   }
 
+  parser->entry_avail       = 0;
   parser->slot_pool_ele_cnt = 0UL;
   parser->state             = STATE_DONE;
 
@@ -313,10 +312,7 @@ fd_slot_delta_parser_delete( void * shmem ) {
 }
 
 void
-fd_slot_delta_parser_init( fd_slot_delta_parser_t *                parser,
-                           fd_slot_delta_parser_process_group_fn_t group_cb,
-                           fd_slot_delta_parser_process_entry_fn_t entry_cb,
-                           void *                                  cb_arg ) {
+fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser ) {
   parser->state     = STATE_SLOT_DELTAS_LEN;
   parser->len       = 0UL;
   parser->is_root   = 0;
@@ -334,29 +330,30 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t *                parser,
 
   parser->slot_pool_ele_cnt = 0UL;
 
-  parser->group_cb = group_cb;
-  parser->entry_cb = entry_cb;
-  parser->cb_arg   = cb_arg;
-
   parser->dst       = state_dst( parser );
   parser->dst_sz    = state_size( parser );
   parser->dst_cur   = 0UL;
 }
 
 int
-fd_slot_delta_parser_consume( fd_slot_delta_parser_t * parser,
-                              uchar const *            buf,
-                              ulong                    bufsz ) {
-  while( bufsz ) {
-    ulong consume = fd_ulong_min( bufsz, parser->dst_sz-parser->dst_cur );
+fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
+                              uchar const *                           buf,
+                              ulong                                   bufsz,
+                              fd_slot_delta_parser_advance_result_t * result ) {
+  uchar const * data    = buf;
+  ulong         data_sz = bufsz;
+  while( data_sz ) {
+    if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
+
+    ulong consume = fd_ulong_min( data_sz, parser->dst_sz-parser->dst_cur );
 
     if( FD_LIKELY( parser->dst && consume ) ) {
-      memcpy( parser->dst+parser->dst_cur, buf, consume );
+      memcpy( parser->dst+parser->dst_cur, data, consume );
     }
 
     parser->dst_cur += consume;
-    buf             += consume;
-    bufsz           -= consume;
+    data            += consume;
+    data_sz         -= consume;
 
 #if SLOT_DELTA_PARSER_DEBUG
     state_log( parser );
@@ -373,14 +370,27 @@ fd_slot_delta_parser_consume( fd_slot_delta_parser_t * parser,
       parser->dst_sz  = state_size( parser );
       parser->dst_cur = 0UL;
 
-      if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
+      if( FD_LIKELY( parser->group_avail ) ) {
+        parser->group_avail          = 0;
+        result->entry                = NULL;
+        result->group.blockhash      = parser->entry->blockhash;
+        result->group.txnhash_offset = parser->txnhash_offset;
+        result->bytes_consumed       = (ulong)(data - buf);
+        return FD_SLOT_DELTA_PARSER_ADVANCE_GROUP;
+      } else if( FD_LIKELY( parser->entry_avail ) ) {
+        parser->entry_avail    = 0;
+        result->entry          = parser->entry;
+        result->bytes_consumed = (ulong)(data - buf);
+        return FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY;
+      }
     }
   }
 
-  if( FD_UNLIKELY( bufsz ) ) {
+  if( FD_UNLIKELY( data_sz ) ) {
     FD_LOG_WARNING(( "excess data in buffer" ));
     return -1;
   }
 
-  return parser->state==STATE_DONE ? 0 : 1;
+  result->bytes_consumed = (ulong)(data - buf);
+  return parser->state==STATE_DONE ? FD_SLOT_DELTA_PARSER_ADVANCE_DONE : FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN;
 }

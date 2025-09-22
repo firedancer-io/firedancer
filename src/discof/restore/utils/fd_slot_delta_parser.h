@@ -16,10 +16,6 @@ typedef struct fd_sstxncache_entry fd_sstxncache_entry_t;
 
 #define FD_SLOT_DELTA_MAX_ENTRIES (300UL)
 
-#define FD_SLOT_DELTA_PARSER_ERROR_SLOT_IS_NOT_ROOT           (-1)
-#define FD_SLOT_DELTA_PARSER_ERROR_SLOT_HASH_MULTIPLE_ENTRIES (-2)
-#define FD_SLOT_DELTA_PARSER_ERROR_TOO_MANY_ENTRIES           (-3)
-
 struct fd_slot_entry {
   ulong slot;
 
@@ -79,16 +75,33 @@ void *
 fd_slot_delta_parser_delete( void * shmem );
 
 void
-fd_slot_delta_parser_init( fd_slot_delta_parser_t *                parser,
-                           fd_slot_delta_parser_process_group_fn_t group_cb,
-                           fd_slot_delta_parser_process_entry_fn_t entry_cb,
-                           void *                                  cb_arg );
+fd_slot_delta_parser_init( fd_slot_delta_parser_t * parser );
 
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT           (-1)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES (-2)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES           (-3)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_AGAIN                            ( 0)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY                            ( 1)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_GROUP                            ( 2)
+#define FD_SLOT_DELTA_PARSER_ADVANCE_DONE                             ( 3)
+
+struct fd_slot_delta_parser_advance_result {
+  ulong                         bytes_consumed;
+  fd_sstxncache_entry_t const * entry;
+
+  struct {
+    uchar const * blockhash;
+    ulong         txnhash_offset;
+  } group;
+};
+
+typedef struct fd_slot_delta_parser_advance_result fd_slot_delta_parser_advance_result_t;
 
 int
-fd_slot_delta_parser_consume( fd_slot_delta_parser_t * parser,
-                              uchar const *            buf,
-                              ulong                    bufsz );
+fd_slot_delta_parser_consume( fd_slot_delta_parser_t *                parser,
+                              uchar const *                           buf,
+                              ulong                                   bufsz,
+                              fd_slot_delta_parser_advance_result_t * result );
 
 FD_PROTOTYPES_END
 
