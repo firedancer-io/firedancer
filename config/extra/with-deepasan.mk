@@ -3,6 +3,6 @@ FD_HAS_DEEPASAN:=1
 CPPFLAGS+=-DFD_HAS_ASAN=1
 CFLAGS+=-DFD_HAS_DEEPASAN=1
 
-CPPFLAGS+=-fsanitize=address,leak  -fno-omit-frame-pointer
+CPPFLAGS+=-fsanitize=address,leak
 
 LDFLAGS+=-fsanitize=address,leak

@@ -4,7 +4,6 @@ ifndef AFL_LIB
 $(error AFL_LIB is not set. Please point it to your installation dir. E.g.: /usr/local/lib/afl ...)
 endif
 
-CPPFLAGS+=-fno-omit-frame-pointer
 CPPFLAGS+=-fsanitize=fuzzer-no-link
 CPPFLAGS+=-fsanitize-coverage=trace-pc-guard
 
