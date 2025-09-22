@@ -10,7 +10,7 @@ max_database_transactions = 1024
 heap_size_gib = 4
 
 [runtime.limits]
-max_live_slots = 512
+max_live_slots = 128
 snapshot_grace_period_seconds = 15
 max_vote_accounts = 32
 max_total_banks = 64

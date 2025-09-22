@@ -367,6 +367,9 @@ struct fd_topo_tile {
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
 
+      ulong heap_size_gib;
+      ulong max_live_slots;
+
       /* not specified in TOML */
 
       ulong enable_features_cnt;
@@ -380,8 +383,6 @@ struct fd_topo_tile {
       int   dump_block_to_pb;
 
       ulong manifest_dcache_obj_id;
-
-      ulong heap_size_gib;
     } replay;
 
     struct {
