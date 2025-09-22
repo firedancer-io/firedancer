@@ -9,7 +9,7 @@ $(call add-objs,fd_snapin_tile,fd_discof)
 endif
 endif
 ifdef FD_HAS_INT128
-$(call add-objs,utils/fd_snapshot_parser,fd_discof)
+$(call add-objs,utils/fd_ssparse,fd_discof)
 $(call add-objs,utils/fd_ssmanifest_parser,fd_discof)
 $(call add-objs,utils/fd_ssload,fd_discof)
 $(call add-objs,utils/fd_slot_delta_parser,fd_discof)
