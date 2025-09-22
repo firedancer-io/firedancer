@@ -541,6 +541,8 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
                   sched->active_block_idx, block->txn_parsed_cnt, block->txn_done_cnt, (uint)block->fec_eos, (uint)block->dying, block->slot, block->parent_slot ));
   }
 
+  out_txn->slot = block->slot;
+
   if( FD_UNLIKELY( !block->block_start_signaled ) ) {
     out_txn->txn_idx          = FD_SCHED_TXN_IDX_BLOCK_START;
     out_txn->block_idx        = block_idx;
