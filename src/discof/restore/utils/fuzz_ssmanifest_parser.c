@@ -18,12 +18,11 @@ LLVMFuzzerInitialize( int  *   argc,
   fd_boot( argc, argv );
   atexit( fd_halt );
 
-#define MAX_ACC_VECS 1024UL
   output_mem = aligned_alloc( alignof(fd_snapshot_manifest_t), sizeof(fd_snapshot_manifest_t) );
   assert( output_mem );
-  void * parser_mem = aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint( MAX_ACC_VECS ) );
+  void * parser_mem = aligned_alloc( fd_ssmanifest_parser_align(), fd_ssmanifest_parser_footprint() );
   assert( parser_mem  );
-  parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem, MAX_ACC_VECS, 42UL ) );
+  parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( parser_mem ) );
   assert( parser );
 
   /* Disable parsing error logging */
@@ -36,6 +35,6 @@ int
 LLVMFuzzerTestOneInput( uchar const * data_,
                         ulong         size ) {
   fd_ssmanifest_parser_init( parser, output_mem );
-  fd_ssmanifest_parser_consume( parser, data_, size );
+  fd_ssmanifest_parser_consume( parser, data_, size, NULL, NULL );
   return 0;
 }
