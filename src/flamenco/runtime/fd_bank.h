@@ -437,7 +437,14 @@ struct fd_banks {
      synchronization on individual fields within a bank. */
   fd_rwlock_t rwlock;
 
+  /* offset of the bank array of all of the fd_bank_t structs. */
+
   ulong bank_array_offset;
+
+  /* Offset of the deque used to hold the frontier set during BFS
+     traversals of the bank tree. */
+
+  ulong bfs_offset;
 
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:

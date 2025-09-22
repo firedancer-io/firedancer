@@ -2,10 +2,14 @@
 #include "fd_runtime_const.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 
-#define DEQUE_NAME frontier_set
+#define DEQUE_NAME bfs
 #define DEQUE_T    ulong
-#define DEQUE_MAX  256UL
-#include "../../util/tmpl/fd_deque.c"
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
+static inline ulong *
+fd_banks_bfs_init( fd_banks_t * banks ) {
+  return bfs_join( bfs_new( (uchar *)banks + banks->bfs_offset, banks->max_total_banks ) );
+}
 
 ulong
 fd_bank_align( void ) {
@@ -146,6 +150,7 @@ fd_banks_footprint( ulong max_total_banks,
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_banks_align(), sizeof(fd_banks_t) );
+  l = FD_LAYOUT_APPEND( l, bfs_align(),      bfs_footprint( max_total_banks ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_align(),  fd_bank_footprint() * max_total_banks );
 
   /* Need to count the footprint for all of the CoW pools. The footprint
@@ -194,6 +199,7 @@ fd_banks_new( void * shmem,
   /* First, layout the banks and the pool/map used by fd_banks_t. */
   FD_SCRATCH_ALLOC_INIT( l, banks );
   banks            = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(), sizeof(fd_banks_t) );
+  void * bfs_mem   = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),      bfs_footprint( max_total_banks ) );
   void * array_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_align(),  fd_bank_footprint() * max_total_banks );
 
   /* Need to layout all of the CoW pools. */
@@ -227,6 +233,12 @@ fd_banks_new( void * shmem,
     bank->fork_idx = i;
   }
   banks->bank_array_offset = (ulong)array_mem - (ulong)banks;
+
+  banks->bfs_offset = (ulong)bfs_mem - (ulong)banks;
+  if( FD_UNLIKELY( !fd_banks_bfs_init( banks ) ) ) {
+    FD_LOG_WARNING(( "Failed to initialize BFS" ));
+    return NULL;
+  }
 
   /* Now, call _new() and _join() for all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name)                                                     \
@@ -303,6 +315,7 @@ fd_banks_join( void * mem ) {
 
   FD_SCRATCH_ALLOC_INIT( l, banks );
   banks            = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(), sizeof(fd_banks_t) );
+  void * bfs_mem   = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),      bfs_footprint( banks->max_total_banks ) );
   void * array_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_align(),  fd_bank_footprint() * banks->max_total_banks );
 
 
@@ -325,6 +338,11 @@ fd_banks_join( void * mem ) {
   #undef HAS_COW_1_LIMIT_1
 
   FD_SCRATCH_ALLOC_FINI( l, fd_banks_align() );
+
+  if( FD_UNLIKELY( banks->bfs_offset != (ulong)bfs_mem - (ulong)banks ) ) {
+    FD_LOG_WARNING(( "bfs offset mismatch" ));
+    return NULL;
+  }
 
   if( FD_UNLIKELY( banks->bank_array_offset != (ulong)array_mem - (ulong)banks ) ) {
     FD_LOG_WARNING(( "bank array offset mismatch" ));
@@ -680,13 +698,11 @@ fd_banks_advance_root( fd_banks_t * banks,
      are not direct descendants of the new root as dead and free any
      associated pool elements. */
 
-  uchar frontier[ frontier_set_footprint() ] __attribute__((aligned(128UL)));
-  ulong * frontier_set = frontier_set_join( frontier_set_new( frontier ) );
+  ulong * frontier_set = fd_banks_bfs_init( banks );
+  bfs_push_head( frontier_set, old_root->fork_idx );
 
-  frontier_set_push_head( frontier_set, old_root->fork_idx );
-
-  while( !frontier_set_empty( frontier_set ) ) {
-    ulong       curr_idx  = frontier_set_pop_tail( frontier_set );
+  while( !bfs_empty( frontier_set ) ) {
+    ulong       curr_idx  = bfs_pop_tail( frontier_set );
     fd_bank_t * curr_bank = fd_banks_bank_query( banks, curr_idx );
     if( FD_UNLIKELY( !curr_bank ) ) {
       FD_LOG_CRIT(( "invariant violation: bank at fork idx %lu is not valid", curr_idx ));
@@ -696,14 +712,14 @@ fd_banks_advance_root( fd_banks_t * banks,
       /* Only add sibling to the frontier set, and don't mark new root
          as invalid. */
       if( curr_bank->sibling_idx!=ULONG_MAX ) {
-        frontier_set_push_head( frontier_set, curr_bank->sibling_idx );
+        bfs_push_head( frontier_set, curr_bank->sibling_idx );
         curr_bank->sibling_idx = ULONG_MAX;
       }
     } else {
       /* Mark bank as invalid. */
       curr_bank->is_valid = 0;
-      if( curr_bank->child_idx!=ULONG_MAX )   frontier_set_push_head( frontier_set, curr_bank->child_idx );
-      if( curr_bank->sibling_idx!=ULONG_MAX ) frontier_set_push_head( frontier_set, curr_bank->sibling_idx );
+      if( curr_bank->child_idx!=ULONG_MAX )   bfs_push_head( frontier_set, curr_bank->child_idx );
+      if( curr_bank->sibling_idx!=ULONG_MAX ) bfs_push_head( frontier_set, curr_bank->sibling_idx );
 
       /* Decide if we need to free any CoW fields. We free a CoW member
         from its pool if the dirty flag is set unless it is the same
