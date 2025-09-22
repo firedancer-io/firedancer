@@ -12,6 +12,7 @@
 #define PB_ENABLE_MALLOC 1
 
 #include "pb.h"
+#include "pb_decode.h"
 #include "../../util/fd_util.h"
 
 #endif /* HEADER_fd_src_flamenco_nanopb_pb_firedancer_h */

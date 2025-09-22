@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <unistd.h>
-#include "../../ballet/nanopb/pb_decode.h"
 #include "fd_webserver.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/block/fd_microblock.h"
