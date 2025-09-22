@@ -19,6 +19,7 @@
 
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
+#if 0
 void
 fd_tokenbalance_to_json( fd_webserver_t * ws, struct _fd_solblock_TokenBalance * b ) {
   fd_web_reply_sprintf(ws, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%s\",\"uiTokenAmount\":{",
@@ -34,6 +35,7 @@ fd_tokenbalance_to_json( fd_webserver_t * ws, struct _fd_solblock_TokenBalance *
     fd_web_reply_sprintf(ws, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
   fd_web_reply_sprintf(ws, "\"uiAmountString\":\"%s\"}}", b->ui_token_amount.ui_amount_string);
 }
+#endif
 
 static char const *
 instr_strerror( int err ) {
@@ -143,6 +145,7 @@ fd_error_to_json( fd_webserver_t * ws,
   EMIT_SIMPLE("\"");
 }
 
+#if 0
 void fd_inner_instructions_to_json( fd_webserver_t * ws,
                                     struct _fd_solblock_InnerInstructions * insts ) {
   fd_web_reply_sprintf(ws, "{\"index\":%u,\"instructions\":[", insts->index);
@@ -263,6 +266,7 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
 
   return NULL;
 }
+#endif
 
 static const char *
 generic_program_to_json( fd_webserver_t * ws,
@@ -535,8 +539,10 @@ fd_txn_to_json_full( fd_webserver_t * ws,
     return NULL;
   }
 
+#if 0
   const char * err = fd_txn_meta_to_json( ws, NULL, 0 );
   if ( err ) return err;
+#endif
 
   EMIT_SIMPLE("\"transaction\":{\"message\":{\"accountKeys\":[");
 

@@ -20,55 +20,44 @@ typedef enum _fd_solblock_RewardType {
 
 /* Struct definitions */
 typedef struct _fd_solblock_MessageHeader {
-    bool has_num_required_signatures;
     uint32_t num_required_signatures;
-    bool has_num_readonly_signed_accounts;
     uint32_t num_readonly_signed_accounts;
-    bool has_num_readonly_unsigned_accounts;
     uint32_t num_readonly_unsigned_accounts;
 } fd_solblock_MessageHeader;
 
-typedef struct _fd_solblock_Instruction {
-    bool has_program_id_index;
-    uint32_t program_id_index;
-    pb_bytes_array_t *accounts;
-    pb_bytes_array_t *data;
-} fd_solblock_Instruction;
+typedef struct _fd_solblock_Message {
+    fd_solblock_MessageHeader header;
+    pb_callback_t account_keys;
+    pb_callback_t recent_blockhash;
+    pb_callback_t instructions;
+    bool versioned;
+    pb_callback_t address_table_lookups;
+} fd_solblock_Message;
+
+typedef struct _fd_solblock_Transaction {
+    pb_callback_t signatures;
+    fd_solblock_Message message;
+} fd_solblock_Transaction;
 
 typedef struct _fd_solblock_MessageAddressTableLookup {
-    bool has_account_key;
-    pb_byte_t account_key[32];
+    pb_callback_t account_key;
     pb_callback_t writable_indexes;
     pb_callback_t readonly_indexes;
 } fd_solblock_MessageAddressTableLookup;
 
-typedef struct _fd_solblock_Message {
-    bool has_header;
-    fd_solblock_MessageHeader header;
-    pb_size_t account_keys_count;
-    pb_byte_t (*account_keys)[32];
-    bool has_recent_blockhash;
-    pb_byte_t recent_blockhash[32];
-    pb_size_t instructions_count;
-    struct _fd_solblock_Instruction *instructions;
-    bool has_versioned;
-    bool versioned;
-    pb_size_t address_table_lookups_count;
-    struct _fd_solblock_MessageAddressTableLookup *address_table_lookups;
-} fd_solblock_Message;
+typedef struct _fd_solblock_TransactionError {
+    pb_callback_t err;
+} fd_solblock_TransactionError;
 
-typedef struct _fd_solblock_Transaction {
-    pb_size_t signatures_count;
-    pb_byte_t (*signatures)[32];
-    bool has_message;
-    fd_solblock_Message message;
-} fd_solblock_Transaction;
+typedef struct _fd_solblock_InnerInstructions {
+    uint32_t index;
+    pb_callback_t instructions;
+} fd_solblock_InnerInstructions;
 
 typedef struct _fd_solblock_InnerInstruction {
-    bool has_program_id_index;
     uint32_t program_id_index;
-    pb_bytes_array_t *accounts;
-    pb_bytes_array_t *data;
+    pb_callback_t accounts;
+    pb_callback_t data;
     /* Invocation stack height of an inner instruction.
  Available since Solana v1.14.6
  Set to `None` for txs executed on earlier versions. */
@@ -76,101 +65,98 @@ typedef struct _fd_solblock_InnerInstruction {
     uint32_t stack_height;
 } fd_solblock_InnerInstruction;
 
-typedef struct _fd_solblock_InnerInstructions {
-    bool has_index;
-    uint32_t index;
-    pb_size_t instructions_count;
-    struct _fd_solblock_InnerInstruction *instructions;
-} fd_solblock_InnerInstructions;
-
-typedef struct _fd_solblock_TransactionError {
-    pb_bytes_array_t *err;
-} fd_solblock_TransactionError;
+typedef struct _fd_solblock_CompiledInstruction {
+    uint32_t program_id_index;
+    pb_callback_t accounts;
+    pb_callback_t data;
+} fd_solblock_CompiledInstruction;
 
 typedef struct _fd_solblock_UiTokenAmount {
-    bool has_ui_amount;
     double ui_amount;
-    bool has_decimals;
     uint32_t decimals;
-    char *amount;
-    char *ui_amount_string;
+    pb_callback_t amount;
+    pb_callback_t ui_amount_string;
 } fd_solblock_UiTokenAmount;
 
 typedef struct _fd_solblock_TokenBalance {
-    bool has_account_index;
     uint32_t account_index;
-    bool has_mint;
-    char mint[45];
-    bool has_ui_token_amount;
+    pb_callback_t mint;
     fd_solblock_UiTokenAmount ui_token_amount;
-    bool has_owner;
-    char owner[45];
-    bool has_program_id;
-    char program_id[45];
+    pb_callback_t owner;
+    pb_callback_t program_id;
 } fd_solblock_TokenBalance;
 
-typedef struct _fd_solblock_Reward {
-    bool has_pubkey;
-    char pubkey[45];
-    bool has_lamports;
-    int64_t lamports;
-    bool has_post_balance;
-    uint64_t post_balance;
-    bool has_reward_type;
-    fd_solblock_RewardType reward_type;
-    char *commission;
-} fd_solblock_Reward;
-
 typedef struct _fd_solblock_ReturnData {
-    bool has_program_id;
-    pb_byte_t program_id[32];
+    pb_callback_t program_id;
     pb_callback_t data;
 } fd_solblock_ReturnData;
 
 typedef struct _fd_solblock_TransactionStatusMeta {
-    bool has_err;
     fd_solblock_TransactionError err;
-    bool has_fee;
     uint64_t fee;
-    pb_size_t pre_balances_count;
-    uint64_t *pre_balances;
-    pb_size_t post_balances_count;
-    uint64_t *post_balances;
-    pb_size_t inner_instructions_count;
-    struct _fd_solblock_InnerInstructions *inner_instructions;
-    pb_size_t log_messages_count;
-    char **log_messages;
-    pb_size_t pre_token_balances_count;
-    struct _fd_solblock_TokenBalance *pre_token_balances;
-    pb_size_t post_token_balances_count;
-    struct _fd_solblock_TokenBalance *post_token_balances;
-    pb_size_t rewards_count;
-    struct _fd_solblock_Reward *rewards;
-    bool has_inner_instructions_none;
+    pb_callback_t pre_balances;
+    pb_callback_t post_balances;
+    pb_callback_t inner_instructions;
+    pb_callback_t log_messages;
+    pb_callback_t pre_token_balances;
+    pb_callback_t post_token_balances;
+    pb_callback_t rewards;
     bool inner_instructions_none;
-    bool has_log_messages_none;
     bool log_messages_none;
-    pb_size_t loaded_writable_addresses_count;
-    pb_bytes_array_t **loaded_writable_addresses;
-    pb_size_t loaded_readonly_addresses_count;
-    pb_bytes_array_t **loaded_readonly_addresses;
-    bool has_return_data;
+    pb_callback_t loaded_writable_addresses;
+    pb_callback_t loaded_readonly_addresses;
     fd_solblock_ReturnData return_data;
-    bool has_return_data_none;
     bool return_data_none;
     /* Sum of compute units consumed by all instructions.
  Available since Solana v1.10.35 / v1.11.6.
  Set to `None` for txs executed on earlier versions. */
     bool has_compute_units_consumed;
     uint64_t compute_units_consumed;
+    /* Total transaction cost */
+    bool has_cost_units;
+    uint64_t cost_units;
 } fd_solblock_TransactionStatusMeta;
 
 typedef struct _fd_solblock_ConfirmedTransaction {
-    bool has_transaction;
     fd_solblock_Transaction transaction;
-    bool has_meta;
     fd_solblock_TransactionStatusMeta meta;
 } fd_solblock_ConfirmedTransaction;
+
+typedef struct _fd_solblock_Reward {
+    pb_callback_t pubkey;
+    int64_t lamports;
+    uint64_t post_balance;
+    fd_solblock_RewardType reward_type;
+    pb_callback_t commission;
+} fd_solblock_Reward;
+
+typedef struct _fd_solblock_UnixTimestamp {
+    int64_t timestamp;
+} fd_solblock_UnixTimestamp;
+
+typedef struct _fd_solblock_BlockHeight {
+    uint64_t block_height;
+} fd_solblock_BlockHeight;
+
+typedef struct _fd_solblock_NumPartitions {
+    uint64_t num_partitions;
+} fd_solblock_NumPartitions;
+
+typedef struct _fd_solblock_ConfirmedBlock {
+    pb_callback_t previous_blockhash;
+    pb_callback_t blockhash;
+    uint64_t parent_slot;
+    pb_callback_t transactions;
+    pb_callback_t rewards;
+    fd_solblock_UnixTimestamp block_time;
+    fd_solblock_BlockHeight block_height;
+    fd_solblock_NumPartitions num_partitions;
+} fd_solblock_ConfirmedBlock;
+
+typedef struct _fd_solblock_Rewards {
+    pb_callback_t rewards;
+    fd_solblock_NumPartitions num_partitions;
+} fd_solblock_Rewards;
 
 
 #ifdef __cplusplus
@@ -193,51 +179,60 @@ extern "C" {
 
 
 
+
+
+
 #define fd_solblock_Reward_reward_type_ENUMTYPE fd_solblock_RewardType
 
 
 
 
+
+
 /* Initializer values for message structs */
-#define fd_solblock_MessageHeader_init_default   {false, 0, false, 0, false, 0}
-#define fd_solblock_Instruction_init_default     {false, 0, NULL, NULL}
-#define fd_solblock_MessageAddressTableLookup_init_default {false, {0}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define fd_solblock_Message_init_default         {false, fd_solblock_MessageHeader_init_default, 0, NULL, false, {0}, 0, NULL, false, 0, 0, NULL}
-#define fd_solblock_Transaction_init_default     {0, NULL, false, fd_solblock_Message_init_default}
-#define fd_solblock_ConfirmedTransaction_init_default {false, fd_solblock_Transaction_init_default, false, fd_solblock_TransactionStatusMeta_init_default}
-#define fd_solblock_InnerInstruction_init_default {false, 0, NULL, NULL, false, 0}
-#define fd_solblock_InnerInstructions_init_default {false, 0, 0, NULL}
-#define fd_solblock_TransactionError_init_default {NULL}
-#define fd_solblock_UiTokenAmount_init_default   {false, 0, false, 0, NULL, NULL}
-#define fd_solblock_TokenBalance_init_default    {false, 0, false, "", false, fd_solblock_UiTokenAmount_init_default, false, "", false, ""}
-#define fd_solblock_Reward_init_default          {false, "", false, 0, false, 0, false, _fd_solblock_RewardType_MIN, NULL}
-#define fd_solblock_ReturnData_init_default      {false, {0}, {{NULL}, NULL}}
-#define fd_solblock_TransactionStatusMeta_init_default {false, fd_solblock_TransactionError_init_default, false, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, 0, false, 0, 0, NULL, 0, NULL, false, fd_solblock_ReturnData_init_default, false, 0, false, 0}
-#define fd_solblock_MessageHeader_init_zero      {false, 0, false, 0, false, 0}
-#define fd_solblock_Instruction_init_zero        {false, 0, NULL, NULL}
-#define fd_solblock_MessageAddressTableLookup_init_zero {false, {0}, {{NULL}, NULL}, {{NULL}, NULL}}
-#define fd_solblock_Message_init_zero            {false, fd_solblock_MessageHeader_init_zero, 0, NULL, false, {0}, 0, NULL, false, 0, 0, NULL}
-#define fd_solblock_Transaction_init_zero        {0, NULL, false, fd_solblock_Message_init_zero}
-#define fd_solblock_ConfirmedTransaction_init_zero {false, fd_solblock_Transaction_init_zero, false, fd_solblock_TransactionStatusMeta_init_zero}
-#define fd_solblock_InnerInstruction_init_zero   {false, 0, NULL, NULL, false, 0}
-#define fd_solblock_InnerInstructions_init_zero  {false, 0, 0, NULL}
-#define fd_solblock_TransactionError_init_zero   {NULL}
-#define fd_solblock_UiTokenAmount_init_zero      {false, 0, false, 0, NULL, NULL}
-#define fd_solblock_TokenBalance_init_zero       {false, 0, false, "", false, fd_solblock_UiTokenAmount_init_zero, false, "", false, ""}
-#define fd_solblock_Reward_init_zero             {false, "", false, 0, false, 0, false, _fd_solblock_RewardType_MIN, NULL}
-#define fd_solblock_ReturnData_init_zero         {false, {0}, {{NULL}, NULL}}
-#define fd_solblock_TransactionStatusMeta_init_zero {false, fd_solblock_TransactionError_init_zero, false, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, false, 0, false, 0, 0, NULL, 0, NULL, false, fd_solblock_ReturnData_init_zero, false, 0, false, 0}
+#define fd_solblock_ConfirmedBlock_init_default  {{{NULL}, NULL}, {{NULL}, NULL}, 0, {{NULL}, NULL}, {{NULL}, NULL}, fd_solblock_UnixTimestamp_init_default, fd_solblock_BlockHeight_init_default, fd_solblock_NumPartitions_init_default}
+#define fd_solblock_ConfirmedTransaction_init_default {fd_solblock_Transaction_init_default, fd_solblock_TransactionStatusMeta_init_default}
+#define fd_solblock_Transaction_init_default     {{{NULL}, NULL}, fd_solblock_Message_init_default}
+#define fd_solblock_Message_init_default         {fd_solblock_MessageHeader_init_default, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, 0, {{NULL}, NULL}}
+#define fd_solblock_MessageHeader_init_default   {0, 0, 0}
+#define fd_solblock_MessageAddressTableLookup_init_default {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_TransactionStatusMeta_init_default {fd_solblock_TransactionError_init_default, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, fd_solblock_ReturnData_init_default, 0, false, 0, false, 0}
+#define fd_solblock_TransactionError_init_default {{{NULL}, NULL}}
+#define fd_solblock_InnerInstructions_init_default {0, {{NULL}, NULL}}
+#define fd_solblock_InnerInstruction_init_default {0, {{NULL}, NULL}, {{NULL}, NULL}, false, 0}
+#define fd_solblock_CompiledInstruction_init_default {0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_TokenBalance_init_default    {0, {{NULL}, NULL}, fd_solblock_UiTokenAmount_init_default, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_UiTokenAmount_init_default   {0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_ReturnData_init_default      {{{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_Reward_init_default          {{{NULL}, NULL}, 0, 0, _fd_solblock_RewardType_MIN, {{NULL}, NULL}}
+#define fd_solblock_Rewards_init_default         {{{NULL}, NULL}, fd_solblock_NumPartitions_init_default}
+#define fd_solblock_UnixTimestamp_init_default   {0}
+#define fd_solblock_BlockHeight_init_default     {0}
+#define fd_solblock_NumPartitions_init_default   {0}
+#define fd_solblock_ConfirmedBlock_init_zero     {{{NULL}, NULL}, {{NULL}, NULL}, 0, {{NULL}, NULL}, {{NULL}, NULL}, fd_solblock_UnixTimestamp_init_zero, fd_solblock_BlockHeight_init_zero, fd_solblock_NumPartitions_init_zero}
+#define fd_solblock_ConfirmedTransaction_init_zero {fd_solblock_Transaction_init_zero, fd_solblock_TransactionStatusMeta_init_zero}
+#define fd_solblock_Transaction_init_zero        {{{NULL}, NULL}, fd_solblock_Message_init_zero}
+#define fd_solblock_Message_init_zero            {fd_solblock_MessageHeader_init_zero, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, 0, {{NULL}, NULL}}
+#define fd_solblock_MessageHeader_init_zero      {0, 0, 0}
+#define fd_solblock_MessageAddressTableLookup_init_zero {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_TransactionStatusMeta_init_zero {fd_solblock_TransactionError_init_zero, 0, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}, 0, 0, {{NULL}, NULL}, {{NULL}, NULL}, fd_solblock_ReturnData_init_zero, 0, false, 0, false, 0}
+#define fd_solblock_TransactionError_init_zero   {{{NULL}, NULL}}
+#define fd_solblock_InnerInstructions_init_zero  {0, {{NULL}, NULL}}
+#define fd_solblock_InnerInstruction_init_zero   {0, {{NULL}, NULL}, {{NULL}, NULL}, false, 0}
+#define fd_solblock_CompiledInstruction_init_zero {0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_TokenBalance_init_zero       {0, {{NULL}, NULL}, fd_solblock_UiTokenAmount_init_zero, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_UiTokenAmount_init_zero      {0, 0, {{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_ReturnData_init_zero         {{{NULL}, NULL}, {{NULL}, NULL}}
+#define fd_solblock_Reward_init_zero             {{{NULL}, NULL}, 0, 0, _fd_solblock_RewardType_MIN, {{NULL}, NULL}}
+#define fd_solblock_Rewards_init_zero            {{{NULL}, NULL}, fd_solblock_NumPartitions_init_zero}
+#define fd_solblock_UnixTimestamp_init_zero      {0}
+#define fd_solblock_BlockHeight_init_zero        {0}
+#define fd_solblock_NumPartitions_init_zero      {0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define fd_solblock_MessageHeader_num_required_signatures_tag 1
 #define fd_solblock_MessageHeader_num_readonly_signed_accounts_tag 2
 #define fd_solblock_MessageHeader_num_readonly_unsigned_accounts_tag 3
-#define fd_solblock_Instruction_program_id_index_tag 1
-#define fd_solblock_Instruction_accounts_tag     2
-#define fd_solblock_Instruction_data_tag         3
-#define fd_solblock_MessageAddressTableLookup_account_key_tag 1
-#define fd_solblock_MessageAddressTableLookup_writable_indexes_tag 2
-#define fd_solblock_MessageAddressTableLookup_readonly_indexes_tag 3
 #define fd_solblock_Message_header_tag           1
 #define fd_solblock_Message_account_keys_tag     2
 #define fd_solblock_Message_recent_blockhash_tag 3
@@ -246,13 +241,19 @@ extern "C" {
 #define fd_solblock_Message_address_table_lookups_tag 6
 #define fd_solblock_Transaction_signatures_tag   1
 #define fd_solblock_Transaction_message_tag      2
+#define fd_solblock_MessageAddressTableLookup_account_key_tag 1
+#define fd_solblock_MessageAddressTableLookup_writable_indexes_tag 2
+#define fd_solblock_MessageAddressTableLookup_readonly_indexes_tag 3
+#define fd_solblock_TransactionError_err_tag     1
+#define fd_solblock_InnerInstructions_index_tag  1
+#define fd_solblock_InnerInstructions_instructions_tag 2
 #define fd_solblock_InnerInstruction_program_id_index_tag 1
 #define fd_solblock_InnerInstruction_accounts_tag 2
 #define fd_solblock_InnerInstruction_data_tag    3
 #define fd_solblock_InnerInstruction_stack_height_tag 4
-#define fd_solblock_InnerInstructions_index_tag  1
-#define fd_solblock_InnerInstructions_instructions_tag 2
-#define fd_solblock_TransactionError_err_tag     1
+#define fd_solblock_CompiledInstruction_program_id_index_tag 1
+#define fd_solblock_CompiledInstruction_accounts_tag 2
+#define fd_solblock_CompiledInstruction_data_tag 3
 #define fd_solblock_UiTokenAmount_ui_amount_tag  1
 #define fd_solblock_UiTokenAmount_decimals_tag   2
 #define fd_solblock_UiTokenAmount_amount_tag     3
@@ -262,11 +263,6 @@ extern "C" {
 #define fd_solblock_TokenBalance_ui_token_amount_tag 3
 #define fd_solblock_TokenBalance_owner_tag       4
 #define fd_solblock_TokenBalance_program_id_tag  5
-#define fd_solblock_Reward_pubkey_tag            1
-#define fd_solblock_Reward_lamports_tag          2
-#define fd_solblock_Reward_post_balance_tag      3
-#define fd_solblock_Reward_reward_type_tag       4
-#define fd_solblock_Reward_commission_tag        5
 #define fd_solblock_ReturnData_program_id_tag    1
 #define fd_solblock_ReturnData_data_tag          2
 #define fd_solblock_TransactionStatusMeta_err_tag 1
@@ -285,130 +281,107 @@ extern "C" {
 #define fd_solblock_TransactionStatusMeta_return_data_tag 14
 #define fd_solblock_TransactionStatusMeta_return_data_none_tag 15
 #define fd_solblock_TransactionStatusMeta_compute_units_consumed_tag 16
+#define fd_solblock_TransactionStatusMeta_cost_units_tag 17
 #define fd_solblock_ConfirmedTransaction_transaction_tag 1
 #define fd_solblock_ConfirmedTransaction_meta_tag 2
+#define fd_solblock_Reward_pubkey_tag            1
+#define fd_solblock_Reward_lamports_tag          2
+#define fd_solblock_Reward_post_balance_tag      3
+#define fd_solblock_Reward_reward_type_tag       4
+#define fd_solblock_Reward_commission_tag        5
+#define fd_solblock_UnixTimestamp_timestamp_tag  1
+#define fd_solblock_BlockHeight_block_height_tag 1
+#define fd_solblock_NumPartitions_num_partitions_tag 1
+#define fd_solblock_ConfirmedBlock_previous_blockhash_tag 1
+#define fd_solblock_ConfirmedBlock_blockhash_tag 2
+#define fd_solblock_ConfirmedBlock_parent_slot_tag 3
+#define fd_solblock_ConfirmedBlock_transactions_tag 4
+#define fd_solblock_ConfirmedBlock_rewards_tag   5
+#define fd_solblock_ConfirmedBlock_block_time_tag 6
+#define fd_solblock_ConfirmedBlock_block_height_tag 7
+#define fd_solblock_ConfirmedBlock_num_partitions_tag 8
+#define fd_solblock_Rewards_rewards_tag          1
+#define fd_solblock_Rewards_num_partitions_tag   2
 
 /* Struct field encoding specification for nanopb */
-#define fd_solblock_MessageHeader_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, UINT32,   num_required_signatures,   1) \
-X(a, STATIC,   OPTIONAL, UINT32,   num_readonly_signed_accounts,   2) \
-X(a, STATIC,   OPTIONAL, UINT32,   num_readonly_unsigned_accounts,   3)
-#define fd_solblock_MessageHeader_CALLBACK NULL
-#define fd_solblock_MessageHeader_DEFAULT NULL
-
-#define fd_solblock_Instruction_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, UINT32,   program_id_index,   1) \
-X(a, POINTER,  OPTIONAL, BYTES,    accounts,          2) \
-X(a, POINTER,  OPTIONAL, BYTES,    data,              3)
-#define fd_solblock_Instruction_CALLBACK NULL
-#define fd_solblock_Instruction_DEFAULT NULL
-
-#define fd_solblock_MessageAddressTableLookup_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, account_key,       1) \
-X(a, CALLBACK, OPTIONAL, BYTES,    writable_indexes,   2) \
-X(a, CALLBACK, OPTIONAL, BYTES,    readonly_indexes,   3)
-#define fd_solblock_MessageAddressTableLookup_CALLBACK pb_default_field_callback
-#define fd_solblock_MessageAddressTableLookup_DEFAULT NULL
-
-#define fd_solblock_Message_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  header,            1) \
-X(a, POINTER,  REPEATED, FIXED_LENGTH_BYTES, account_keys,      2) \
-X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, recent_blockhash,   3) \
-X(a, POINTER,  REPEATED, MESSAGE,  instructions,      4) \
-X(a, STATIC,   OPTIONAL, BOOL,     versioned,         5) \
-X(a, POINTER,  REPEATED, MESSAGE,  address_table_lookups,   6)
-#define fd_solblock_Message_CALLBACK NULL
-#define fd_solblock_Message_DEFAULT NULL
-#define fd_solblock_Message_header_MSGTYPE fd_solblock_MessageHeader
-#define fd_solblock_Message_instructions_MSGTYPE fd_solblock_Instruction
-#define fd_solblock_Message_address_table_lookups_MSGTYPE fd_solblock_MessageAddressTableLookup
-
-#define fd_solblock_Transaction_FIELDLIST(X, a) \
-X(a, POINTER,  REPEATED, FIXED_LENGTH_BYTES, signatures,        1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  message,           2)
-#define fd_solblock_Transaction_CALLBACK NULL
-#define fd_solblock_Transaction_DEFAULT NULL
-#define fd_solblock_Transaction_message_MSGTYPE fd_solblock_Message
+#define fd_solblock_ConfirmedBlock_FIELDLIST(X, a) \
+X(a, CALLBACK, REQUIRED, STRING,   previous_blockhash,   1) \
+X(a, CALLBACK, REQUIRED, STRING,   blockhash,         2) \
+X(a, STATIC,   REQUIRED, UINT64,   parent_slot,       3) \
+X(a, CALLBACK, REPEATED, MESSAGE,  transactions,      4) \
+X(a, CALLBACK, REPEATED, MESSAGE,  rewards,           5) \
+X(a, STATIC,   REQUIRED, MESSAGE,  block_time,        6) \
+X(a, STATIC,   REQUIRED, MESSAGE,  block_height,      7) \
+X(a, STATIC,   REQUIRED, MESSAGE,  num_partitions,    8)
+#define fd_solblock_ConfirmedBlock_CALLBACK pb_default_field_callback
+#define fd_solblock_ConfirmedBlock_DEFAULT NULL
+#define fd_solblock_ConfirmedBlock_transactions_MSGTYPE fd_solblock_ConfirmedTransaction
+#define fd_solblock_ConfirmedBlock_rewards_MSGTYPE fd_solblock_Reward
+#define fd_solblock_ConfirmedBlock_block_time_MSGTYPE fd_solblock_UnixTimestamp
+#define fd_solblock_ConfirmedBlock_block_height_MSGTYPE fd_solblock_BlockHeight
+#define fd_solblock_ConfirmedBlock_num_partitions_MSGTYPE fd_solblock_NumPartitions
 
 #define fd_solblock_ConfirmedTransaction_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  transaction,       1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  meta,              2)
+X(a, STATIC,   REQUIRED, MESSAGE,  transaction,       1) \
+X(a, STATIC,   REQUIRED, MESSAGE,  meta,              2)
 #define fd_solblock_ConfirmedTransaction_CALLBACK NULL
 #define fd_solblock_ConfirmedTransaction_DEFAULT NULL
 #define fd_solblock_ConfirmedTransaction_transaction_MSGTYPE fd_solblock_Transaction
 #define fd_solblock_ConfirmedTransaction_meta_MSGTYPE fd_solblock_TransactionStatusMeta
 
-#define fd_solblock_InnerInstruction_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, UINT32,   program_id_index,   1) \
-X(a, POINTER,  OPTIONAL, BYTES,    accounts,          2) \
-X(a, POINTER,  OPTIONAL, BYTES,    data,              3) \
-X(a, STATIC,   OPTIONAL, UINT32,   stack_height,      4)
-#define fd_solblock_InnerInstruction_CALLBACK NULL
-#define fd_solblock_InnerInstruction_DEFAULT NULL
+#define fd_solblock_Transaction_FIELDLIST(X, a) \
+X(a, CALLBACK, REPEATED, BYTES,    signatures,        1) \
+X(a, STATIC,   REQUIRED, MESSAGE,  message,           2)
+#define fd_solblock_Transaction_CALLBACK pb_default_field_callback
+#define fd_solblock_Transaction_DEFAULT NULL
+#define fd_solblock_Transaction_message_MSGTYPE fd_solblock_Message
 
-#define fd_solblock_InnerInstructions_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, UINT32,   index,             1) \
-X(a, POINTER,  REPEATED, MESSAGE,  instructions,      2)
-#define fd_solblock_InnerInstructions_CALLBACK NULL
-#define fd_solblock_InnerInstructions_DEFAULT NULL
-#define fd_solblock_InnerInstructions_instructions_MSGTYPE fd_solblock_InnerInstruction
+#define fd_solblock_Message_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, MESSAGE,  header,            1) \
+X(a, CALLBACK, REPEATED, BYTES,    account_keys,      2) \
+X(a, CALLBACK, REQUIRED, BYTES,    recent_blockhash,   3) \
+X(a, CALLBACK, REPEATED, MESSAGE,  instructions,      4) \
+X(a, STATIC,   REQUIRED, BOOL,     versioned,         5) \
+X(a, CALLBACK, REPEATED, MESSAGE,  address_table_lookups,   6)
+#define fd_solblock_Message_CALLBACK pb_default_field_callback
+#define fd_solblock_Message_DEFAULT NULL
+#define fd_solblock_Message_header_MSGTYPE fd_solblock_MessageHeader
+#define fd_solblock_Message_instructions_MSGTYPE fd_solblock_CompiledInstruction
+#define fd_solblock_Message_address_table_lookups_MSGTYPE fd_solblock_MessageAddressTableLookup
 
-#define fd_solblock_TransactionError_FIELDLIST(X, a) \
-X(a, POINTER,  OPTIONAL, BYTES,    err,               1)
-#define fd_solblock_TransactionError_CALLBACK NULL
-#define fd_solblock_TransactionError_DEFAULT NULL
+#define fd_solblock_MessageHeader_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT32,   num_required_signatures,   1) \
+X(a, STATIC,   REQUIRED, UINT32,   num_readonly_signed_accounts,   2) \
+X(a, STATIC,   REQUIRED, UINT32,   num_readonly_unsigned_accounts,   3)
+#define fd_solblock_MessageHeader_CALLBACK NULL
+#define fd_solblock_MessageHeader_DEFAULT NULL
 
-#define fd_solblock_UiTokenAmount_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, DOUBLE,   ui_amount,         1) \
-X(a, STATIC,   OPTIONAL, UINT32,   decimals,          2) \
-X(a, POINTER,  OPTIONAL, STRING,   amount,            3) \
-X(a, POINTER,  OPTIONAL, STRING,   ui_amount_string,   4)
-#define fd_solblock_UiTokenAmount_CALLBACK NULL
-#define fd_solblock_UiTokenAmount_DEFAULT NULL
-
-#define fd_solblock_TokenBalance_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, UINT32,   account_index,     1) \
-X(a, STATIC,   OPTIONAL, STRING,   mint,              2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  ui_token_amount,   3) \
-X(a, STATIC,   OPTIONAL, STRING,   owner,             4) \
-X(a, STATIC,   OPTIONAL, STRING,   program_id,        5)
-#define fd_solblock_TokenBalance_CALLBACK NULL
-#define fd_solblock_TokenBalance_DEFAULT NULL
-#define fd_solblock_TokenBalance_ui_token_amount_MSGTYPE fd_solblock_UiTokenAmount
-
-#define fd_solblock_Reward_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, STRING,   pubkey,            1) \
-X(a, STATIC,   OPTIONAL, INT64,    lamports,          2) \
-X(a, STATIC,   OPTIONAL, UINT64,   post_balance,      3) \
-X(a, STATIC,   OPTIONAL, UENUM,    reward_type,       4) \
-X(a, POINTER,  OPTIONAL, STRING,   commission,        5)
-#define fd_solblock_Reward_CALLBACK NULL
-#define fd_solblock_Reward_DEFAULT NULL
-
-#define fd_solblock_ReturnData_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, FIXED_LENGTH_BYTES, program_id,        1) \
-X(a, CALLBACK, OPTIONAL, BYTES,    data,              2)
-#define fd_solblock_ReturnData_CALLBACK pb_default_field_callback
-#define fd_solblock_ReturnData_DEFAULT NULL
+#define fd_solblock_MessageAddressTableLookup_FIELDLIST(X, a) \
+X(a, CALLBACK, REQUIRED, BYTES,    account_key,       1) \
+X(a, CALLBACK, REQUIRED, BYTES,    writable_indexes,   2) \
+X(a, CALLBACK, REQUIRED, BYTES,    readonly_indexes,   3)
+#define fd_solblock_MessageAddressTableLookup_CALLBACK pb_default_field_callback
+#define fd_solblock_MessageAddressTableLookup_DEFAULT NULL
 
 #define fd_solblock_TransactionStatusMeta_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  err,               1) \
-X(a, STATIC,   OPTIONAL, UINT64,   fee,               2) \
-X(a, POINTER,  REPEATED, UINT64,   pre_balances,      3) \
-X(a, POINTER,  REPEATED, UINT64,   post_balances,     4) \
-X(a, POINTER,  REPEATED, MESSAGE,  inner_instructions,   5) \
-X(a, POINTER,  REPEATED, STRING,   log_messages,      6) \
-X(a, POINTER,  REPEATED, MESSAGE,  pre_token_balances,   7) \
-X(a, POINTER,  REPEATED, MESSAGE,  post_token_balances,   8) \
-X(a, POINTER,  REPEATED, MESSAGE,  rewards,           9) \
-X(a, STATIC,   OPTIONAL, BOOL,     inner_instructions_none,  10) \
-X(a, STATIC,   OPTIONAL, BOOL,     log_messages_none,  11) \
-X(a, POINTER,  REPEATED, BYTES,    loaded_writable_addresses,  12) \
-X(a, POINTER,  REPEATED, BYTES,    loaded_readonly_addresses,  13) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  return_data,      14) \
-X(a, STATIC,   OPTIONAL, BOOL,     return_data_none,  15) \
-X(a, STATIC,   OPTIONAL, UINT64,   compute_units_consumed,  16)
-#define fd_solblock_TransactionStatusMeta_CALLBACK NULL
+X(a, STATIC,   REQUIRED, MESSAGE,  err,               1) \
+X(a, STATIC,   REQUIRED, UINT64,   fee,               2) \
+X(a, CALLBACK, REPEATED, UINT64,   pre_balances,      3) \
+X(a, CALLBACK, REPEATED, UINT64,   post_balances,     4) \
+X(a, CALLBACK, REPEATED, MESSAGE,  inner_instructions,   5) \
+X(a, CALLBACK, REPEATED, STRING,   log_messages,      6) \
+X(a, CALLBACK, REPEATED, MESSAGE,  pre_token_balances,   7) \
+X(a, CALLBACK, REPEATED, MESSAGE,  post_token_balances,   8) \
+X(a, CALLBACK, REPEATED, MESSAGE,  rewards,           9) \
+X(a, STATIC,   REQUIRED, BOOL,     inner_instructions_none,  10) \
+X(a, STATIC,   REQUIRED, BOOL,     log_messages_none,  11) \
+X(a, CALLBACK, REPEATED, BYTES,    loaded_writable_addresses,  12) \
+X(a, CALLBACK, REPEATED, BYTES,    loaded_readonly_addresses,  13) \
+X(a, STATIC,   REQUIRED, MESSAGE,  return_data,      14) \
+X(a, STATIC,   REQUIRED, BOOL,     return_data_none,  15) \
+X(a, STATIC,   OPTIONAL, UINT64,   compute_units_consumed,  16) \
+X(a, STATIC,   OPTIONAL, UINT64,   cost_units,       17)
+#define fd_solblock_TransactionStatusMeta_CALLBACK pb_default_field_callback
 #define fd_solblock_TransactionStatusMeta_DEFAULT NULL
 #define fd_solblock_TransactionStatusMeta_err_MSGTYPE fd_solblock_TransactionError
 #define fd_solblock_TransactionStatusMeta_inner_instructions_MSGTYPE fd_solblock_InnerInstructions
@@ -417,101 +390,214 @@ X(a, STATIC,   OPTIONAL, UINT64,   compute_units_consumed,  16)
 #define fd_solblock_TransactionStatusMeta_rewards_MSGTYPE fd_solblock_Reward
 #define fd_solblock_TransactionStatusMeta_return_data_MSGTYPE fd_solblock_ReturnData
 
-extern const pb_msgdesc_t fd_solblock_MessageHeader_msg;
-extern const pb_msgdesc_t fd_solblock_Instruction_msg;
-extern const pb_msgdesc_t fd_solblock_MessageAddressTableLookup_msg;
-extern const pb_msgdesc_t fd_solblock_Message_msg;
-extern const pb_msgdesc_t fd_solblock_Transaction_msg;
+#define fd_solblock_TransactionError_FIELDLIST(X, a) \
+X(a, CALLBACK, REQUIRED, BYTES,    err,               1)
+#define fd_solblock_TransactionError_CALLBACK pb_default_field_callback
+#define fd_solblock_TransactionError_DEFAULT NULL
+
+#define fd_solblock_InnerInstructions_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT32,   index,             1) \
+X(a, CALLBACK, REPEATED, MESSAGE,  instructions,      2)
+#define fd_solblock_InnerInstructions_CALLBACK pb_default_field_callback
+#define fd_solblock_InnerInstructions_DEFAULT NULL
+#define fd_solblock_InnerInstructions_instructions_MSGTYPE fd_solblock_InnerInstruction
+
+#define fd_solblock_InnerInstruction_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT32,   program_id_index,   1) \
+X(a, CALLBACK, REQUIRED, BYTES,    accounts,          2) \
+X(a, CALLBACK, REQUIRED, BYTES,    data,              3) \
+X(a, STATIC,   OPTIONAL, UINT32,   stack_height,      4)
+#define fd_solblock_InnerInstruction_CALLBACK pb_default_field_callback
+#define fd_solblock_InnerInstruction_DEFAULT NULL
+
+#define fd_solblock_CompiledInstruction_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT32,   program_id_index,   1) \
+X(a, CALLBACK, REQUIRED, BYTES,    accounts,          2) \
+X(a, CALLBACK, REQUIRED, BYTES,    data,              3)
+#define fd_solblock_CompiledInstruction_CALLBACK pb_default_field_callback
+#define fd_solblock_CompiledInstruction_DEFAULT NULL
+
+#define fd_solblock_TokenBalance_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT32,   account_index,     1) \
+X(a, CALLBACK, REQUIRED, STRING,   mint,              2) \
+X(a, STATIC,   REQUIRED, MESSAGE,  ui_token_amount,   3) \
+X(a, CALLBACK, REQUIRED, STRING,   owner,             4) \
+X(a, CALLBACK, REQUIRED, STRING,   program_id,        5)
+#define fd_solblock_TokenBalance_CALLBACK pb_default_field_callback
+#define fd_solblock_TokenBalance_DEFAULT NULL
+#define fd_solblock_TokenBalance_ui_token_amount_MSGTYPE fd_solblock_UiTokenAmount
+
+#define fd_solblock_UiTokenAmount_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, DOUBLE,   ui_amount,         1) \
+X(a, STATIC,   REQUIRED, UINT32,   decimals,          2) \
+X(a, CALLBACK, REQUIRED, STRING,   amount,            3) \
+X(a, CALLBACK, REQUIRED, STRING,   ui_amount_string,   4)
+#define fd_solblock_UiTokenAmount_CALLBACK pb_default_field_callback
+#define fd_solblock_UiTokenAmount_DEFAULT NULL
+
+#define fd_solblock_ReturnData_FIELDLIST(X, a) \
+X(a, CALLBACK, REQUIRED, BYTES,    program_id,        1) \
+X(a, CALLBACK, REQUIRED, BYTES,    data,              2)
+#define fd_solblock_ReturnData_CALLBACK pb_default_field_callback
+#define fd_solblock_ReturnData_DEFAULT NULL
+
+#define fd_solblock_Reward_FIELDLIST(X, a) \
+X(a, CALLBACK, REQUIRED, STRING,   pubkey,            1) \
+X(a, STATIC,   REQUIRED, INT64,    lamports,          2) \
+X(a, STATIC,   REQUIRED, UINT64,   post_balance,      3) \
+X(a, STATIC,   REQUIRED, UENUM,    reward_type,       4) \
+X(a, CALLBACK, REQUIRED, STRING,   commission,        5)
+#define fd_solblock_Reward_CALLBACK pb_default_field_callback
+#define fd_solblock_Reward_DEFAULT NULL
+
+#define fd_solblock_Rewards_FIELDLIST(X, a) \
+X(a, CALLBACK, REPEATED, MESSAGE,  rewards,           1) \
+X(a, STATIC,   REQUIRED, MESSAGE,  num_partitions,    2)
+#define fd_solblock_Rewards_CALLBACK pb_default_field_callback
+#define fd_solblock_Rewards_DEFAULT NULL
+#define fd_solblock_Rewards_rewards_MSGTYPE fd_solblock_Reward
+#define fd_solblock_Rewards_num_partitions_MSGTYPE fd_solblock_NumPartitions
+
+#define fd_solblock_UnixTimestamp_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, INT64,    timestamp,         1)
+#define fd_solblock_UnixTimestamp_CALLBACK NULL
+#define fd_solblock_UnixTimestamp_DEFAULT NULL
+
+#define fd_solblock_BlockHeight_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT64,   block_height,      1)
+#define fd_solblock_BlockHeight_CALLBACK NULL
+#define fd_solblock_BlockHeight_DEFAULT NULL
+
+#define fd_solblock_NumPartitions_FIELDLIST(X, a) \
+X(a, STATIC,   REQUIRED, UINT64,   num_partitions,    1)
+#define fd_solblock_NumPartitions_CALLBACK NULL
+#define fd_solblock_NumPartitions_DEFAULT NULL
+
+extern const pb_msgdesc_t fd_solblock_ConfirmedBlock_msg;
 extern const pb_msgdesc_t fd_solblock_ConfirmedTransaction_msg;
-extern const pb_msgdesc_t fd_solblock_InnerInstruction_msg;
-extern const pb_msgdesc_t fd_solblock_InnerInstructions_msg;
-extern const pb_msgdesc_t fd_solblock_TransactionError_msg;
-extern const pb_msgdesc_t fd_solblock_UiTokenAmount_msg;
-extern const pb_msgdesc_t fd_solblock_TokenBalance_msg;
-extern const pb_msgdesc_t fd_solblock_Reward_msg;
-extern const pb_msgdesc_t fd_solblock_ReturnData_msg;
+extern const pb_msgdesc_t fd_solblock_Transaction_msg;
+extern const pb_msgdesc_t fd_solblock_Message_msg;
+extern const pb_msgdesc_t fd_solblock_MessageHeader_msg;
+extern const pb_msgdesc_t fd_solblock_MessageAddressTableLookup_msg;
 extern const pb_msgdesc_t fd_solblock_TransactionStatusMeta_msg;
+extern const pb_msgdesc_t fd_solblock_TransactionError_msg;
+extern const pb_msgdesc_t fd_solblock_InnerInstructions_msg;
+extern const pb_msgdesc_t fd_solblock_InnerInstruction_msg;
+extern const pb_msgdesc_t fd_solblock_CompiledInstruction_msg;
+extern const pb_msgdesc_t fd_solblock_TokenBalance_msg;
+extern const pb_msgdesc_t fd_solblock_UiTokenAmount_msg;
+extern const pb_msgdesc_t fd_solblock_ReturnData_msg;
+extern const pb_msgdesc_t fd_solblock_Reward_msg;
+extern const pb_msgdesc_t fd_solblock_Rewards_msg;
+extern const pb_msgdesc_t fd_solblock_UnixTimestamp_msg;
+extern const pb_msgdesc_t fd_solblock_BlockHeight_msg;
+extern const pb_msgdesc_t fd_solblock_NumPartitions_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
-#define fd_solblock_MessageHeader_fields &fd_solblock_MessageHeader_msg
-#define fd_solblock_Instruction_fields &fd_solblock_Instruction_msg
-#define fd_solblock_MessageAddressTableLookup_fields &fd_solblock_MessageAddressTableLookup_msg
-#define fd_solblock_Message_fields &fd_solblock_Message_msg
-#define fd_solblock_Transaction_fields &fd_solblock_Transaction_msg
+#define fd_solblock_ConfirmedBlock_fields &fd_solblock_ConfirmedBlock_msg
 #define fd_solblock_ConfirmedTransaction_fields &fd_solblock_ConfirmedTransaction_msg
-#define fd_solblock_InnerInstruction_fields &fd_solblock_InnerInstruction_msg
-#define fd_solblock_InnerInstructions_fields &fd_solblock_InnerInstructions_msg
-#define fd_solblock_TransactionError_fields &fd_solblock_TransactionError_msg
-#define fd_solblock_UiTokenAmount_fields &fd_solblock_UiTokenAmount_msg
-#define fd_solblock_TokenBalance_fields &fd_solblock_TokenBalance_msg
-#define fd_solblock_Reward_fields &fd_solblock_Reward_msg
-#define fd_solblock_ReturnData_fields &fd_solblock_ReturnData_msg
+#define fd_solblock_Transaction_fields &fd_solblock_Transaction_msg
+#define fd_solblock_Message_fields &fd_solblock_Message_msg
+#define fd_solblock_MessageHeader_fields &fd_solblock_MessageHeader_msg
+#define fd_solblock_MessageAddressTableLookup_fields &fd_solblock_MessageAddressTableLookup_msg
 #define fd_solblock_TransactionStatusMeta_fields &fd_solblock_TransactionStatusMeta_msg
+#define fd_solblock_TransactionError_fields &fd_solblock_TransactionError_msg
+#define fd_solblock_InnerInstructions_fields &fd_solblock_InnerInstructions_msg
+#define fd_solblock_InnerInstruction_fields &fd_solblock_InnerInstruction_msg
+#define fd_solblock_CompiledInstruction_fields &fd_solblock_CompiledInstruction_msg
+#define fd_solblock_TokenBalance_fields &fd_solblock_TokenBalance_msg
+#define fd_solblock_UiTokenAmount_fields &fd_solblock_UiTokenAmount_msg
+#define fd_solblock_ReturnData_fields &fd_solblock_ReturnData_msg
+#define fd_solblock_Reward_fields &fd_solblock_Reward_msg
+#define fd_solblock_Rewards_fields &fd_solblock_Rewards_msg
+#define fd_solblock_UnixTimestamp_fields &fd_solblock_UnixTimestamp_msg
+#define fd_solblock_BlockHeight_fields &fd_solblock_BlockHeight_msg
+#define fd_solblock_NumPartitions_fields &fd_solblock_NumPartitions_msg
 
 /* Maximum encoded size of messages (where known) */
-/* fd_solblock_Instruction_size depends on runtime parameters */
-/* fd_solblock_MessageAddressTableLookup_size depends on runtime parameters */
-/* fd_solblock_Message_size depends on runtime parameters */
-/* fd_solblock_Transaction_size depends on runtime parameters */
+/* fd_solblock_ConfirmedBlock_size depends on runtime parameters */
 /* fd_solblock_ConfirmedTransaction_size depends on runtime parameters */
-/* fd_solblock_InnerInstruction_size depends on runtime parameters */
-/* fd_solblock_InnerInstructions_size depends on runtime parameters */
-/* fd_solblock_TransactionError_size depends on runtime parameters */
-/* fd_solblock_UiTokenAmount_size depends on runtime parameters */
-/* fd_solblock_TokenBalance_size depends on runtime parameters */
-/* fd_solblock_Reward_size depends on runtime parameters */
-/* fd_solblock_ReturnData_size depends on runtime parameters */
+/* fd_solblock_Transaction_size depends on runtime parameters */
+/* fd_solblock_Message_size depends on runtime parameters */
+/* fd_solblock_MessageAddressTableLookup_size depends on runtime parameters */
 /* fd_solblock_TransactionStatusMeta_size depends on runtime parameters */
+/* fd_solblock_TransactionError_size depends on runtime parameters */
+/* fd_solblock_InnerInstructions_size depends on runtime parameters */
+/* fd_solblock_InnerInstruction_size depends on runtime parameters */
+/* fd_solblock_CompiledInstruction_size depends on runtime parameters */
+/* fd_solblock_TokenBalance_size depends on runtime parameters */
+/* fd_solblock_UiTokenAmount_size depends on runtime parameters */
+/* fd_solblock_ReturnData_size depends on runtime parameters */
+/* fd_solblock_Reward_size depends on runtime parameters */
+/* fd_solblock_Rewards_size depends on runtime parameters */
 #define SOLANA_STORAGE_CONFIRMEDBLOCK_FD_SOLANA_BLOCK_PB_H_MAX_SIZE fd_solblock_MessageHeader_size
+#define fd_solblock_BlockHeight_size             11
 #define fd_solblock_MessageHeader_size           18
+#define fd_solblock_NumPartitions_size           11
+#define fd_solblock_UnixTimestamp_size           11
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define solana_storage_ConfirmedBlock_RewardType fd_solblock_RewardType
-#define solana_storage_ConfirmedBlock_MessageHeader fd_solblock_MessageHeader
-#define solana_storage_ConfirmedBlock_Instruction fd_solblock_Instruction
-#define solana_storage_ConfirmedBlock_MessageAddressTableLookup fd_solblock_MessageAddressTableLookup
-#define solana_storage_ConfirmedBlock_Message fd_solblock_Message
-#define solana_storage_ConfirmedBlock_Transaction fd_solblock_Transaction
+#define solana_storage_ConfirmedBlock_ConfirmedBlock fd_solblock_ConfirmedBlock
 #define solana_storage_ConfirmedBlock_ConfirmedTransaction fd_solblock_ConfirmedTransaction
-#define solana_storage_ConfirmedBlock_InnerInstruction fd_solblock_InnerInstruction
-#define solana_storage_ConfirmedBlock_InnerInstructions fd_solblock_InnerInstructions
-#define solana_storage_ConfirmedBlock_TransactionError fd_solblock_TransactionError
-#define solana_storage_ConfirmedBlock_UiTokenAmount fd_solblock_UiTokenAmount
-#define solana_storage_ConfirmedBlock_TokenBalance fd_solblock_TokenBalance
-#define solana_storage_ConfirmedBlock_Reward fd_solblock_Reward
-#define solana_storage_ConfirmedBlock_ReturnData fd_solblock_ReturnData
+#define solana_storage_ConfirmedBlock_Transaction fd_solblock_Transaction
+#define solana_storage_ConfirmedBlock_Message fd_solblock_Message
+#define solana_storage_ConfirmedBlock_MessageHeader fd_solblock_MessageHeader
+#define solana_storage_ConfirmedBlock_MessageAddressTableLookup fd_solblock_MessageAddressTableLookup
 #define solana_storage_ConfirmedBlock_TransactionStatusMeta fd_solblock_TransactionStatusMeta
+#define solana_storage_ConfirmedBlock_TransactionError fd_solblock_TransactionError
+#define solana_storage_ConfirmedBlock_InnerInstructions fd_solblock_InnerInstructions
+#define solana_storage_ConfirmedBlock_InnerInstruction fd_solblock_InnerInstruction
+#define solana_storage_ConfirmedBlock_CompiledInstruction fd_solblock_CompiledInstruction
+#define solana_storage_ConfirmedBlock_TokenBalance fd_solblock_TokenBalance
+#define solana_storage_ConfirmedBlock_UiTokenAmount fd_solblock_UiTokenAmount
+#define solana_storage_ConfirmedBlock_ReturnData fd_solblock_ReturnData
+#define solana_storage_ConfirmedBlock_Reward fd_solblock_Reward
+#define solana_storage_ConfirmedBlock_Rewards fd_solblock_Rewards
+#define solana_storage_ConfirmedBlock_UnixTimestamp fd_solblock_UnixTimestamp
+#define solana_storage_ConfirmedBlock_BlockHeight fd_solblock_BlockHeight
+#define solana_storage_ConfirmedBlock_NumPartitions fd_solblock_NumPartitions
 #define _solana_storage_ConfirmedBlock_RewardType_MIN _fd_solblock_RewardType_MIN
 #define _solana_storage_ConfirmedBlock_RewardType_MAX _fd_solblock_RewardType_MAX
 #define _solana_storage_ConfirmedBlock_RewardType_ARRAYSIZE _fd_solblock_RewardType_ARRAYSIZE
-#define solana_storage_ConfirmedBlock_MessageHeader_init_default fd_solblock_MessageHeader_init_default
-#define solana_storage_ConfirmedBlock_Instruction_init_default fd_solblock_Instruction_init_default
-#define solana_storage_ConfirmedBlock_MessageAddressTableLookup_init_default fd_solblock_MessageAddressTableLookup_init_default
-#define solana_storage_ConfirmedBlock_Message_init_default fd_solblock_Message_init_default
-#define solana_storage_ConfirmedBlock_Transaction_init_default fd_solblock_Transaction_init_default
+#define solana_storage_ConfirmedBlock_ConfirmedBlock_init_default fd_solblock_ConfirmedBlock_init_default
 #define solana_storage_ConfirmedBlock_ConfirmedTransaction_init_default fd_solblock_ConfirmedTransaction_init_default
-#define solana_storage_ConfirmedBlock_InnerInstruction_init_default fd_solblock_InnerInstruction_init_default
-#define solana_storage_ConfirmedBlock_InnerInstructions_init_default fd_solblock_InnerInstructions_init_default
-#define solana_storage_ConfirmedBlock_TransactionError_init_default fd_solblock_TransactionError_init_default
-#define solana_storage_ConfirmedBlock_UiTokenAmount_init_default fd_solblock_UiTokenAmount_init_default
-#define solana_storage_ConfirmedBlock_TokenBalance_init_default fd_solblock_TokenBalance_init_default
-#define solana_storage_ConfirmedBlock_Reward_init_default fd_solblock_Reward_init_default
-#define solana_storage_ConfirmedBlock_ReturnData_init_default fd_solblock_ReturnData_init_default
+#define solana_storage_ConfirmedBlock_Transaction_init_default fd_solblock_Transaction_init_default
+#define solana_storage_ConfirmedBlock_Message_init_default fd_solblock_Message_init_default
+#define solana_storage_ConfirmedBlock_MessageHeader_init_default fd_solblock_MessageHeader_init_default
+#define solana_storage_ConfirmedBlock_MessageAddressTableLookup_init_default fd_solblock_MessageAddressTableLookup_init_default
 #define solana_storage_ConfirmedBlock_TransactionStatusMeta_init_default fd_solblock_TransactionStatusMeta_init_default
-#define solana_storage_ConfirmedBlock_MessageHeader_init_zero fd_solblock_MessageHeader_init_zero
-#define solana_storage_ConfirmedBlock_Instruction_init_zero fd_solblock_Instruction_init_zero
-#define solana_storage_ConfirmedBlock_MessageAddressTableLookup_init_zero fd_solblock_MessageAddressTableLookup_init_zero
-#define solana_storage_ConfirmedBlock_Message_init_zero fd_solblock_Message_init_zero
-#define solana_storage_ConfirmedBlock_Transaction_init_zero fd_solblock_Transaction_init_zero
+#define solana_storage_ConfirmedBlock_TransactionError_init_default fd_solblock_TransactionError_init_default
+#define solana_storage_ConfirmedBlock_InnerInstructions_init_default fd_solblock_InnerInstructions_init_default
+#define solana_storage_ConfirmedBlock_InnerInstruction_init_default fd_solblock_InnerInstruction_init_default
+#define solana_storage_ConfirmedBlock_CompiledInstruction_init_default fd_solblock_CompiledInstruction_init_default
+#define solana_storage_ConfirmedBlock_TokenBalance_init_default fd_solblock_TokenBalance_init_default
+#define solana_storage_ConfirmedBlock_UiTokenAmount_init_default fd_solblock_UiTokenAmount_init_default
+#define solana_storage_ConfirmedBlock_ReturnData_init_default fd_solblock_ReturnData_init_default
+#define solana_storage_ConfirmedBlock_Reward_init_default fd_solblock_Reward_init_default
+#define solana_storage_ConfirmedBlock_Rewards_init_default fd_solblock_Rewards_init_default
+#define solana_storage_ConfirmedBlock_UnixTimestamp_init_default fd_solblock_UnixTimestamp_init_default
+#define solana_storage_ConfirmedBlock_BlockHeight_init_default fd_solblock_BlockHeight_init_default
+#define solana_storage_ConfirmedBlock_NumPartitions_init_default fd_solblock_NumPartitions_init_default
+#define solana_storage_ConfirmedBlock_ConfirmedBlock_init_zero fd_solblock_ConfirmedBlock_init_zero
 #define solana_storage_ConfirmedBlock_ConfirmedTransaction_init_zero fd_solblock_ConfirmedTransaction_init_zero
-#define solana_storage_ConfirmedBlock_InnerInstruction_init_zero fd_solblock_InnerInstruction_init_zero
-#define solana_storage_ConfirmedBlock_InnerInstructions_init_zero fd_solblock_InnerInstructions_init_zero
-#define solana_storage_ConfirmedBlock_TransactionError_init_zero fd_solblock_TransactionError_init_zero
-#define solana_storage_ConfirmedBlock_UiTokenAmount_init_zero fd_solblock_UiTokenAmount_init_zero
-#define solana_storage_ConfirmedBlock_TokenBalance_init_zero fd_solblock_TokenBalance_init_zero
-#define solana_storage_ConfirmedBlock_Reward_init_zero fd_solblock_Reward_init_zero
-#define solana_storage_ConfirmedBlock_ReturnData_init_zero fd_solblock_ReturnData_init_zero
+#define solana_storage_ConfirmedBlock_Transaction_init_zero fd_solblock_Transaction_init_zero
+#define solana_storage_ConfirmedBlock_Message_init_zero fd_solblock_Message_init_zero
+#define solana_storage_ConfirmedBlock_MessageHeader_init_zero fd_solblock_MessageHeader_init_zero
+#define solana_storage_ConfirmedBlock_MessageAddressTableLookup_init_zero fd_solblock_MessageAddressTableLookup_init_zero
 #define solana_storage_ConfirmedBlock_TransactionStatusMeta_init_zero fd_solblock_TransactionStatusMeta_init_zero
+#define solana_storage_ConfirmedBlock_TransactionError_init_zero fd_solblock_TransactionError_init_zero
+#define solana_storage_ConfirmedBlock_InnerInstructions_init_zero fd_solblock_InnerInstructions_init_zero
+#define solana_storage_ConfirmedBlock_InnerInstruction_init_zero fd_solblock_InnerInstruction_init_zero
+#define solana_storage_ConfirmedBlock_CompiledInstruction_init_zero fd_solblock_CompiledInstruction_init_zero
+#define solana_storage_ConfirmedBlock_TokenBalance_init_zero fd_solblock_TokenBalance_init_zero
+#define solana_storage_ConfirmedBlock_UiTokenAmount_init_zero fd_solblock_UiTokenAmount_init_zero
+#define solana_storage_ConfirmedBlock_ReturnData_init_zero fd_solblock_ReturnData_init_zero
+#define solana_storage_ConfirmedBlock_Reward_init_zero fd_solblock_Reward_init_zero
+#define solana_storage_ConfirmedBlock_Rewards_init_zero fd_solblock_Rewards_init_zero
+#define solana_storage_ConfirmedBlock_UnixTimestamp_init_zero fd_solblock_UnixTimestamp_init_zero
+#define solana_storage_ConfirmedBlock_BlockHeight_init_zero fd_solblock_BlockHeight_init_zero
+#define solana_storage_ConfirmedBlock_NumPartitions_init_zero fd_solblock_NumPartitions_init_zero
 
 #ifdef __cplusplus
 } /* extern "C" */
