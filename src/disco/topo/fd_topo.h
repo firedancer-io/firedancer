@@ -364,9 +364,6 @@ struct fd_topo_tile {
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
-      char  blockstore_file[ PATH_MAX ];
-      char  blockstore_checkpt[ PATH_MAX ];
-
       /* not specified in TOML */
 
       ulong enable_features_cnt;

@@ -96,16 +96,6 @@ typedef struct fd_configh fd_configh_t;
 
 struct fd_configf {
   struct {
-    ulong shred_max;
-    ulong block_max;
-    ulong idx_max;
-    ulong alloc_max;
-    char  file[PATH_MAX];
-    char  checkpt[PATH_MAX];
-    char  restore[PATH_MAX];
-  } blockstore;
-
-  struct {
     ulong max_account_records;
     ulong heap_size_gib;
     ulong max_database_transactions;

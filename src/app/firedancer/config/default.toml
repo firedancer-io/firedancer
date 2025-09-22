@@ -434,13 +434,6 @@ user = ""
     # in the historical transaction info stored.
     extended_tx_metadata_storage = false
 
-# TODO: Relocate and document.
-[blockstore]
-    shred_max = 16_777_216
-    block_max = 4096
-    idx_max = 512
-    alloc_max = 107_374_182_400
-
 [consensus]
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
