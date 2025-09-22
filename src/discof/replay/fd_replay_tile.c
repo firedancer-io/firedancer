@@ -133,9 +133,6 @@ struct fd_replay_tile {
   /* tx_metadata_storage enables the log collector if enabled */
   int tx_metadata_storage;
 
-  int bootstrap;
-  char genesis_path[ PATH_MAX ];
-
   /* Funk */
   fd_funk_t funk[1];
 
@@ -1201,8 +1198,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               ulong               in_idx,
               ulong               chunk ) {
-  FD_TEST( ctx->bootstrap );
-
   uchar const * lthash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   uchar const * genesis_hash = (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t);
 
@@ -1893,9 +1888,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
 
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
-
-  ctx->bootstrap = tile->replay.bootstrap;
-  if( FD_UNLIKELY( ctx->bootstrap ) ) strncpy( ctx->genesis_path, tile->replay.genesis_path, sizeof(ctx->genesis_path) );
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {

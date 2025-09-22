@@ -817,25 +817,6 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
   fd_topob_finish( topo, CALLBACKS );
-
-  const char * status_cache = config->tiles.replay.status_cache;
-  if ( strlen( status_cache ) > 0 ) {
-    /* Make the status cache workspace match the parameters used to create the
-       checkpoint. This is a bit nonintuitive because of the way
-       fd_topo_create_workspace works. */
-    fd_wksp_preview_t preview[1];
-    int err = fd_wksp_preview( status_cache, preview );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "unable to preview %s: error %d", status_cache, err ));
-    fd_topo_wksp_t * wksp = &topo->workspaces[ topo->objs[ txncache_obj->id ].wksp_id ];
-    wksp->part_max = preview->part_max;
-    wksp->known_footprint = 0;
-    wksp->total_footprint = preview->data_max;
-    ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
-    wksp->page_sz = page_sz;
-    ulong footprint = fd_wksp_footprint( preview->part_max, preview->data_max );
-    wksp->page_cnt = footprint / page_sz;
-  }
-
   config->topo = *topo;
 }
 
@@ -968,11 +949,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
 
-    tile->replay.bootstrap = !config->gossip.entrypoints_cnt;
-    strncpy( tile->replay.genesis_path, config->paths.genesis, sizeof(tile->replay.genesis_path) );
-
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
-    strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
 
     tile->replay.heap_size_gib = config->tiles.replay.heap_size_gib;
 
