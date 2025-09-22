@@ -964,9 +964,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     /* specified by [tiles.replay] */
 
-    strncpy( tile->replay.blockstore_file,    config->firedancer.blockstore.file,    sizeof(tile->replay.blockstore_file) );
-    strncpy( tile->replay.blockstore_checkpt, config->firedancer.blockstore.checkpt, sizeof(tile->replay.blockstore_checkpt) );
-
     tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
 
     tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
@@ -1136,7 +1133,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
 
-    strncpy( tile->replay.blockstore_file, config->firedancer.blockstore.file, sizeof(tile->replay.blockstore_file) );
     tile->rpcserv.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
     tile->rpcserv.store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
     tile->rpcserv.rpc_port = config->rpc.port;

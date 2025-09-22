@@ -61,13 +61,6 @@ echo "
 [paths]
     identity_key = \"fd-identity-keypair.json\"
     vote_account = \"fd-vote-keypair.json\"
-[blockstore]
-    shred_max = 16777216
-    block_max = 4096
-    idx_max = 1024
-    txn_max = 1024
-    alloc_max = 10737418240
-    file = \"/tmp/localnet.blockstore\"
 [funk]
     max_account_records = 10000000
     heap_size_gib = 32

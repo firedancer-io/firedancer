@@ -83,14 +83,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
 
-  CFG_POP      ( ulong,  blockstore.shred_max                                );
-  CFG_POP      ( ulong,  blockstore.block_max                                );
-  CFG_POP      ( ulong,  blockstore.idx_max                                  );
-  CFG_POP      ( ulong,  blockstore.alloc_max                                );
-  CFG_POP      ( cstr,   blockstore.file                                     );
-  CFG_POP      ( cstr,   blockstore.checkpt                                  );
-  CFG_POP      ( cstr,   blockstore.restore                                  ); /* TODO delete blockstore fields */
-
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
