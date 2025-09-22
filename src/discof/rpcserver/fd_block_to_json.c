@@ -19,23 +19,16 @@
 
 #define EMIT_SIMPLE(_str_) fd_web_reply_append(ws, _str_, sizeof(_str_)-1)
 
-#if 0
 void
 fd_tokenbalance_to_json( fd_webserver_t * ws, struct _fd_solblock_TokenBalance * b ) {
   fd_web_reply_sprintf(ws, "{\"accountIndex\":%u,\"mint\":\"%s\",\"owner\":\"%s\",\"programId\":\"%s\",\"uiTokenAmount\":{",
                        b->account_index, b->mint, b->owner, b->program_id);
   fd_web_reply_sprintf(ws, "\"amount\":\"%s\",", b->ui_token_amount.amount);
-  int dec;
-  if (b->ui_token_amount.has_decimals) {
-    fd_web_reply_sprintf(ws, "\"decimals\":%u,", b->ui_token_amount.decimals);
-    dec = (int)b->ui_token_amount.decimals;
-  } else
-    dec = 0;
-  if (b->ui_token_amount.has_ui_amount)
-    fd_web_reply_sprintf(ws, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
+  int dec = (int)b->ui_token_amount.decimals;;
+  fd_web_reply_sprintf(ws, "\"decimals\":%d,", dec);
+  fd_web_reply_sprintf(ws, "\"uiAmount\":%.*f,", dec, b->ui_token_amount.ui_amount);
   fd_web_reply_sprintf(ws, "\"uiAmountString\":\"%s\"}}", b->ui_token_amount.ui_amount_string);
 }
-#endif
 
 static char const *
 instr_strerror( int err ) {
@@ -145,7 +138,6 @@ fd_error_to_json( fd_webserver_t * ws,
   EMIT_SIMPLE("\"");
 }
 
-#if 0
 void fd_inner_instructions_to_json( fd_webserver_t * ws,
                                     struct _fd_solblock_InnerInstructions * insts ) {
   fd_web_reply_sprintf(ws, "{\"index\":%u,\"instructions\":[", insts->index);
@@ -195,8 +187,8 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
   if (txn_status.has_compute_units_consumed)
     fd_web_reply_sprintf(ws, "\"computeUnitsConsumed\":%lu,", txn_status.compute_units_consumed);
   EMIT_SIMPLE("\"err\":");
-  if (txn_status.has_err)
-    fd_error_to_json(ws, txn_status.err.err->bytes, txn_status.err.err->size);
+  if (txn_status.err)
+    fd_error_to_json(ws, txn_status.err->err->bytes, txn_status.err->err->size);
   else
     EMIT_SIMPLE("null");
   fd_web_reply_sprintf(ws, ",\"fee\":%lu,\"innerInstructions\":[", txn_status.fee);
@@ -252,9 +244,9 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
     EMIT_SIMPLE(",\"returnData\":{\"data\":[\"");
     fd_web_reply_encode_base64( ws, return_data_buf.data, return_data_buf.sz );
     EMIT_SIMPLE("\",\"base64\"]");
-    if( txn_status.return_data.has_program_id ) {
+    if( txn_status.return_data.program_id ) {
       char buf32[FD_BASE58_ENCODED_32_SZ];
-      fd_base58_encode_32(txn_status.return_data.program_id, NULL, buf32);
+      fd_base58_encode_32(txn_status.return_data.program_id->bytes, NULL, buf32);
       fd_web_reply_sprintf(ws, ",\"programId\":\"%s\"", buf32);
     }
     EMIT_SIMPLE("}");
@@ -266,7 +258,6 @@ fd_txn_meta_to_json( fd_webserver_t * ws,
 
   return NULL;
 }
-#endif
 
 static const char *
 generic_program_to_json( fd_webserver_t * ws,
