@@ -8,6 +8,7 @@
 #include "../keyguard/fd_keyguard.h"
 #include "../metrics/fd_metrics.h"
 #include "../pack/fd_pack.h"
+#include "../pack/fd_pack_cost.h"
 #include "../pack/fd_pack_pacing.h"
 
 #include <linux/unistd.h>

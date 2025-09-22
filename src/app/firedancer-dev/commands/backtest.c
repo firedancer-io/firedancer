@@ -20,6 +20,7 @@
 #include "../../platform/fd_sys_util.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
+#include "../../../disco/pack/fd_pack.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_tile.h"
@@ -293,7 +294,7 @@ backtest_topo( config_t * config ) {
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.max_rooted_slots,
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.max_transactions_per_slot );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) {

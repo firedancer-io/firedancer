@@ -9,13 +9,13 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/quic/fd_tpu.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 
@@ -641,7 +641,6 @@ fd_topo_initialize( config_t * config ) {
 
     fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
-    fd_topob_link( topo, "repair_scap", "repair_scap", 128UL, FD_SLICE_MAX_WITH_HEADERS, 1UL );
     fd_topob_link( topo, "replay_scap", "replay_scap", 128UL, sizeof(fd_hash_t)+sizeof(ulong), 1UL );
 
     fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -790,7 +789,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.max_rooted_slots,
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.max_transactions_per_slot );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 

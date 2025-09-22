@@ -149,6 +149,32 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 /* Every transaction has at least a fee payer, a writable signer. */
 #define FD_PACK_MIN_TXN_COST (FD_PACK_COST_PER_SIGNATURE+FD_PACK_COST_PER_WRITABLE_ACCT)
 
+/* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
+   CHANGED WITHOUT COORDINATING WITH ANZA. */
+
+/* These are bounds on known limits. Upper bound values are used to
+   calculate memory footprints while lower bounds are used for
+   initializing consensus-dependent logic and invariant checking.  As a
+   leader, it is OK to produce blocks using limits smaller than the
+   active on-chain limits. Replay should always use the correct
+   chain-derived limits.
+
+   The actual limits used by pack may be updated dynamically to some
+   in-bounds value. If there is an anticipated feature activation that
+   changes these limits, the upper bound should be the largest
+   anticipated value while the lower bound should be the current active
+   limit. For Frankendancer, the actual value used for consensus will be
+   retrieved from Agave at runtime. */
+#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
+
+#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (100000000UL) /* simd 0286 */
+#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
+#define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
+
+#define FD_PACK_MAX_TXN_PER_SLOT (FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND/FD_PACK_MIN_TXN_COST)
+
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
 
