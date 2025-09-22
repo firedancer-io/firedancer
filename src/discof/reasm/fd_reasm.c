@@ -7,9 +7,11 @@ fd_reasm_align( void ) {
 }
 
 ulong
-fd_reasm_footprint( ulong fec_max ) {
+fd_reasm_footprint( ulong fec_max,
+                    ulong fork_max ) {
   int lgf_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
   return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -22,6 +24,7 @@ fd_reasm_footprint( ulong fec_max ) {
     FD_LAYOUT_INIT,
       alignof(fd_reasm_t), sizeof(fd_reasm_t)            ),
       pool_align(),        pool_footprint    ( fec_max ) ),
+      fork_pool_align(),   fork_pool_footprint( fork_max ) ),
       ancestry_align(),    ancestry_footprint( fec_max ) ),
       frontier_align(),    frontier_footprint( fec_max ) ),
       orphaned_align(),    orphaned_footprint( fec_max ) ),
@@ -33,7 +36,10 @@ fd_reasm_footprint( ulong fec_max ) {
 }
 
 void *
-fd_reasm_new( void * shmem, ulong fec_max, ulong seed ) {
+fd_reasm_new( void * shmem,
+              ulong  fec_max,
+              ulong  fork_max,
+              ulong  seed ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -45,7 +51,7 @@ fd_reasm_new( void * shmem, ulong fec_max, ulong seed ) {
     return NULL;
   }
 
-  ulong footprint = fd_reasm_footprint( fec_max );
+  ulong footprint = fd_reasm_footprint( fec_max, fork_max );
   if( FD_UNLIKELY( !footprint ) ) {
     FD_LOG_WARNING(( "bad fec_max (%lu)", fec_max ));
     return NULL;
@@ -63,27 +69,29 @@ fd_reasm_new( void * shmem, ulong fec_max, ulong seed ) {
 
   fd_reasm_t * reasm;
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  reasm           = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_t), sizeof(fd_reasm_t)            );
-  void * pool     = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),        pool_footprint    ( fec_max ) );
-  void * ancestry = FD_SCRATCH_ALLOC_APPEND( l, ancestry_align(),    ancestry_footprint( fec_max ) );
-  void * frontier = FD_SCRATCH_ALLOC_APPEND( l, frontier_align(),    frontier_footprint( fec_max ) );
-  void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, orphaned_align(),    orphaned_footprint( fec_max ) );
-  void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, subtrees_align(),    subtrees_footprint( fec_max ) );
-  void * bfs      = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),         bfs_footprint     ( fec_max ) );
-  void * out      = FD_SCRATCH_ALLOC_APPEND( l, out_align(),         out_footprint     ( fec_max ) );
-  void * slot_mr  = FD_SCRATCH_ALLOC_APPEND( l, slot_mr_align(),     slot_mr_footprint ( lgf_max ) );
+  reasm            = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_reasm_t), sizeof(fd_reasm_t)              );
+  void * pool      = FD_SCRATCH_ALLOC_APPEND( l, pool_align(),        pool_footprint     ( fec_max  ) );
+  void * fork_pool = FD_SCRATCH_ALLOC_APPEND( l, fork_pool_align(),   fork_pool_footprint( fork_max ) );
+  void * ancestry  = FD_SCRATCH_ALLOC_APPEND( l, ancestry_align(),    ancestry_footprint ( fec_max  ) );
+  void * frontier  = FD_SCRATCH_ALLOC_APPEND( l, frontier_align(),    frontier_footprint ( fec_max  ) );
+  void * orphaned  = FD_SCRATCH_ALLOC_APPEND( l, orphaned_align(),    orphaned_footprint ( fec_max  ) );
+  void * subtrees  = FD_SCRATCH_ALLOC_APPEND( l, subtrees_align(),    subtrees_footprint ( fec_max  ) );
+  void * bfs       = FD_SCRATCH_ALLOC_APPEND( l, bfs_align(),         bfs_footprint      ( fec_max  ) );
+  void * out       = FD_SCRATCH_ALLOC_APPEND( l, out_align(),         out_footprint      ( fec_max  ) );
+  void * slot_mr   = FD_SCRATCH_ALLOC_APPEND( l, slot_mr_align(),     slot_mr_footprint  ( lgf_max  ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_reasm_align() ) == (ulong)shmem + footprint );
 
-  reasm->slot0    = ULONG_MAX;
-  reasm->root     = pool_idx_null( pool                    );
-  reasm->pool     = pool_new     ( pool,     fec_max       );
-  reasm->ancestry = ancestry_new ( ancestry, fec_max, seed );
-  reasm->frontier = frontier_new ( frontier, fec_max, seed );
-  reasm->orphaned = orphaned_new ( orphaned, fec_max, seed );
-  reasm->subtrees = subtrees_new ( subtrees, fec_max, seed );
-  reasm->bfs      = bfs_new      ( bfs,      fec_max       );
-  reasm->out      = out_new      ( out,      fec_max       );
-  reasm->slot_mr  = slot_mr_new  ( slot_mr,  lgf_max       );
+  reasm->slot0     = ULONG_MAX;
+  reasm->root      = pool_idx_null( pool                    );
+  reasm->pool      = pool_new     ( pool,     fec_max       );
+  reasm->fork_pool = fork_pool_new( fork_pool, fork_max       );
+  reasm->ancestry  = ancestry_new ( ancestry, fec_max, seed );
+  reasm->frontier  = frontier_new ( frontier, fec_max, seed );
+  reasm->orphaned  = orphaned_new ( orphaned, fec_max, seed );
+  reasm->subtrees  = subtrees_new ( subtrees, fec_max, seed );
+  reasm->bfs       = bfs_new      ( bfs,      fec_max       );
+  reasm->out       = out_new      ( out,      fec_max       );
+  reasm->slot_mr   = slot_mr_new  ( slot_mr,  lgf_max       );
 
   return shmem;
 }
@@ -97,14 +105,15 @@ fd_reasm_join( void * shreasm ) {
     return NULL;
   }
 
-  reasm->pool     = pool_join    ( reasm->pool     );
-  reasm->ancestry = ancestry_join( reasm->ancestry );
-  reasm->frontier = frontier_join( reasm->frontier );
-  reasm->orphaned = orphaned_join( reasm->orphaned );
-  reasm->subtrees = subtrees_join( reasm->subtrees );
-  reasm->bfs      = bfs_join     ( reasm->bfs      );
-  reasm->out      = out_join     ( reasm->out      );
-  reasm->slot_mr  = slot_mr_join ( reasm->slot_mr  );
+  reasm->pool      = pool_join     ( reasm->pool      );
+  reasm->fork_pool = fork_pool_join( reasm->fork_pool );
+  reasm->ancestry  = ancestry_join ( reasm->ancestry  );
+  reasm->frontier  = frontier_join ( reasm->frontier  );
+  reasm->orphaned  = orphaned_join ( reasm->orphaned  );
+  reasm->subtrees  = subtrees_join ( reasm->subtrees  );
+  reasm->bfs       = bfs_join      ( reasm->bfs       );
+  reasm->out       = out_join      ( reasm->out       );
+  reasm->slot_mr   = slot_mr_join  ( reasm->slot_mr   );
 
   return reasm;
 }
@@ -137,6 +146,54 @@ fd_reasm_delete( void * shreasm ) {
   return reasm;
 }
 
+/* fd_reasm_get_new_fork_idx acquires a new fork idx from the fork pool,
+   marks it as being used, and then returns the idx. */
+
+static inline ulong
+fd_reasm_get_new_fork_idx( fd_reasm_t * reasm ) {
+  if( FD_UNLIKELY( fork_pool_free( reasm->fork_pool )==0UL ) ) {
+    FD_LOG_CRIT(( "no free fork idx" ));
+  }
+
+  fork_ele_t * fork = fork_pool_ele_acquire( reasm->fork_pool );
+  if( FD_UNLIKELY( !fork ) ) {
+    FD_LOG_CRIT(( "failed to acquire fork ele" ));
+  }
+
+  if( FD_UNLIKELY( fork->is_valid==1UL ) ) {
+    FD_LOG_CRIT(( "fork idx already in use" ));
+  }
+
+  fork->is_valid = 1UL;
+
+  return fork_pool_idx( reasm->fork_pool, fork );
+}
+
+/* fd_reasm_release_valid_fork_idx will release a fork_idx into the pool
+   if it is still being used.  If the element is not valid this means
+   that the fork idx is no longer being used. */
+
+static inline void
+fd_reasm_release_valid_fork_idx( fd_reasm_t * reasm,
+                                 ulong        fork_idx ) {
+  if( FD_UNLIKELY( fork_idx==fork_pool_idx_null( reasm->fork_pool ) ) ) {
+    return;
+  }
+
+  fork_ele_t * fork = fork_pool_ele( reasm->fork_pool, fork_idx );
+  if( FD_UNLIKELY( !fork ) ) {
+    FD_LOG_CRIT(( "no fork idx found for %lu", fork_idx ));
+  }
+
+  /* We only need to release the fork idx if it still valid.  If it is
+     not valid, this likely means that the fork idx was already
+     released.  This makes the fork idx available for reuse. */
+  if( fork->is_valid==1UL ) {
+    fork->is_valid = 0UL;
+    fork_pool_idx_release( reasm->fork_pool, fork_idx );
+  }
+}
+
 fd_reasm_t *
 fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
 # if FD_REASM_USE_HANDHOLDING
@@ -161,6 +218,11 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
   fec->data_complete   = 0;
   fec->slot_complete   = 1;
 
+  /* The initial FEC set needs to be added to the fork tree.
+     TODO:FIXME: p sure this is always == 0. make sure though */
+
+  fec->fork_idx = fd_reasm_get_new_fork_idx( reasm );
+
   slot_mr_t * slot_mr = slot_mr_insert( reasm->slot_mr, slot );
   slot_mr->block_id   = fec->key;
 
@@ -176,7 +238,44 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
 fd_reasm_fec_t *
 fd_reasm_next( fd_reasm_t * reasm ) {
   if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
-  return pool_ele( reasm->pool, out_pop_head( reasm->out ) );
+  fd_reasm_fec_t * fec = pool_ele( reasm->pool, out_pop_head( reasm->out ) );
+
+  /* We now need to identify the fork idx of the new FEC set.  There are
+     two conditions where we need to create a new fork idx.
+     1. A new block: this is the most common case.  Everytime we receive
+        the first FEC set of a new block we need to create a new fork
+        idx.  This case implictly handles equivocation at the block
+        boundary because if the fet_set_idx == 0, then we allocate a new
+        fork idx anyway.
+     2. Equivocation: this is the uncommon case where equivocation
+        mid-block is detected.  If the FEC set's parent FEC set has
+        multiple children nodes and the FEC's idx != 0 this means that
+        there is equivocation in the middle of a block.  If this occurs
+        then we need to create a new fork idx.
+
+        NOTE: Correctly replaying and retrieving the correct parent FECs
+        for this equivocated FEC set must be handled downstream.  A FEC
+        will only be inserted into the out queue once even if it needs
+        to be replayed more than one time.  */
+
+  fd_reasm_fec_t * parent_fec   = pool_ele( reasm->pool, fec->parent );
+  ulong            fec_pool_idx = pool_idx( reasm->pool, fec );
+  ulong            null         = pool_idx_null( reasm->pool );
+
+  if( parent_fec->slot!=fec->slot ) {
+    fec->fork_idx = fd_reasm_get_new_fork_idx( reasm );
+  } else if( FD_LIKELY( fec->sibling==null && parent_fec->child==fec_pool_idx ) ) {
+    /* This means that this FEC is the only child of its parent since it
+       has no siblings and it is directly connected to its parent.  No
+       new fork idx is needed. */
+    fec->fork_idx = parent_fec->fork_idx;
+  } else {
+    /* There is equivocation in the middle of a block or the incoming
+       FEC can't be linked to its parent. */
+    fec->fork_idx = fd_reasm_get_new_fork_idx( reasm );
+  }
+
+  return fec;
 }
 
 fd_reasm_fec_t *
@@ -226,6 +325,9 @@ link( fd_reasm_t     * reasm,
     while( curr->sibling != pool_idx_null( reasm->pool ) ) curr = pool_ele( reasm->pool, curr->sibling );
     curr->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
   }
+
+  /* Set the fork idx of the child to the fork idx of the parent. */
+  child->fork_idx = parent->fork_idx;
 }
 
 fd_reasm_fec_t *
@@ -269,6 +371,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->data_cnt        = data_cnt;
   fec->data_complete   = data_complete;
   fec->slot_complete   = slot_complete;
+  fec->fork_idx        = fork_pool_idx_null( reasm->fork_pool );
 
   /* This is a gross case reasm needs to handle because Agave currently
      does not validate chained merkle roots across slots ie. if a leader
@@ -424,6 +527,8 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
     }
     slot_mr_t * slot_mr = slot_mr_query( reasm->slot_mr, head->slot, NULL );
     if( FD_UNLIKELY( slot_mr ) ) slot_mr_remove( reasm->slot_mr, slot_mr  ); /* only first FEC */
+
+    fd_reasm_release_valid_fork_idx( reasm, head->fork_idx );
 
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
     pool_ele_release( pool, head );                       /* release */

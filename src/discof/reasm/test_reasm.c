@@ -17,9 +17,10 @@
 
 void
 test_insert( fd_wksp_t * wksp ) {
-  ulong        fec_max = 32;
-  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
-  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  ulong        fec_max  = 32UL;
+  ulong        fork_max = 32UL;
+  void *       mem      = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max, fork_max ), 1UL );
+  fd_reasm_t * reasm    = fd_reasm_join( fd_reasm_new( mem, fec_max, fork_max, 0UL ) );
   FD_TEST( reasm );
 
   fd_reasm_fec_t * pool = reasm->pool;
@@ -84,8 +85,22 @@ test_insert( fd_wksp_t * wksp ) {
       f3_32->key,
       f3_64->key,
   };
+  ulong order_fork_idx[7] = {
+      1UL,
+      1UL,
+      2UL,
+      2UL,
+      3UL,
+      3UL,
+      3UL
+  };
+
   fd_reasm_fec_t * fec = NULL; ulong i = 0;
-  while( FD_LIKELY( fec = fd_reasm_next( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
+  while( FD_LIKELY( fec = fd_reasm_next( reasm ) ) ) {
+    FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) );
+    FD_TEST( fec->fork_idx==order_fork_idx[i] );
+    i++;
+  }
   FD_TEST( i==sizeof(order) / sizeof(fd_hash_t) );
 
   /* Equivocating last FEC set for slot 3 (mr3_64a), child (3, 64) of
@@ -108,9 +123,10 @@ test_insert( fd_wksp_t * wksp ) {
 
 void
 test_publish( fd_wksp_t * wksp ) {
-  ulong        fec_max = 32;
-  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
-  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  ulong        fec_max  = 32UL;
+  ulong        fork_max = 32UL;
+  void *       mem      = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max, fork_max ), 1UL );
+  fd_reasm_t * reasm    = fd_reasm_join( fd_reasm_new( mem, fec_max, fork_max, 0UL ) );
   FD_TEST( reasm );
 
   fd_hash_t mr0[1] = {{{ 0 }}};
@@ -183,9 +199,10 @@ test_publish( fd_wksp_t * wksp ) {
 
 void
 test_slot_mr( fd_wksp_t * wksp ) {
-  ulong        fec_max = 32;
-  void *       mem     = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max ), 1UL );
-  fd_reasm_t * reasm   = fd_reasm_join( fd_reasm_new( mem, fec_max, 0UL ) );
+  ulong        fec_max  = 32UL;
+  ulong        fork_max = 32UL;
+  void *       mem      = fd_wksp_alloc_laddr( wksp, fd_reasm_align(), fd_reasm_footprint( fec_max, fork_max ), 1UL );
+  fd_reasm_t * reasm    = fd_reasm_join( fd_reasm_new( mem, fec_max, fork_max, 0UL ) );
   FD_TEST( reasm );
   FD_TEST( reasm->slot_mr );
 
@@ -238,6 +255,8 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_disco_repair_replay_sig_parent_off( sig ) == 1 );
   FD_TEST( fd_disco_repair_replay_sig_data_cnt( sig ) == 32 );
   FD_TEST( fd_disco_repair_replay_sig_slot_complete( sig ) == 1 );
+
+  FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();
   return 0;

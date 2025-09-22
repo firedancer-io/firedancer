@@ -285,7 +285,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_policy_align(),    fd_policy_footprint   ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(), fd_inflights_footprint()                                       );
   l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),   fd_fec_sig_footprint  ( 20 )                                   );
-  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),     fd_reasm_footprint    ( 1 << 20 )                              );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),     fd_reasm_footprint    ( 1 << 20, tile->repair.fork_max )       );
   l = FD_LAYOUT_APPEND( l, fd_catchup_align(),   fd_catchup_footprint  ()                                       );
   l = FD_LAYOUT_APPEND( l, signs_pool_align(),   signs_pool_footprint  ( FD_REPAIR_PENDING_SIGN_REQ_MAX )       );
   l = FD_LAYOUT_APPEND( l, signs_map_align(),    signs_map_footprint   ( FD_REPAIR_PENDING_SIGN_REQ_MAX )       );
@@ -967,7 +967,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->policy     = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),    fd_policy_footprint   ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
   ctx->inflight   = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(), fd_inflights_footprint()                                       );
   ctx->fec_sigs   = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(),   fd_fec_sig_footprint  ( 20 )                                   );
-  ctx->reasm      = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),     fd_reasm_footprint    ( 1 << 20 )                              );
+  ctx->reasm      = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),     fd_reasm_footprint    ( 1 << 20, tile->repair.fork_max )       );
   ctx->catchup    = FD_SCRATCH_ALLOC_APPEND( l, fd_catchup_align(),   fd_catchup_footprint  ()                                       );
   ctx->signs_pool = FD_SCRATCH_ALLOC_APPEND( l, signs_pool_align(),   signs_pool_footprint  ( FD_REPAIR_PENDING_SIGN_REQ_MAX )       );
   ctx->signs_map  = FD_SCRATCH_ALLOC_APPEND( l, signs_map_align(),    signs_map_footprint   ( FD_REPAIR_PENDING_SIGN_REQ_MAX )       );
@@ -978,7 +978,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->policy   = fd_policy_join   ( fd_policy_new   ( ctx->policy,   FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX, ctx->repair_seed ) );
   ctx->inflight = fd_inflights_join( fd_inflights_new( ctx->inflight                                                         ) );
   ctx->fec_sigs = fd_fec_sig_join  ( fd_fec_sig_new  ( ctx->fec_sigs, 20                                                     ) );
-  ctx->reasm    = fd_reasm_join    ( fd_reasm_new    ( ctx->reasm,    1 << 20, 0                                             ) );
+  ctx->reasm    = fd_reasm_join    ( fd_reasm_new    ( ctx->reasm,    1 << 20, tile->repair.fork_max, 0                      ) );
   ctx->catchup  = fd_catchup_join  ( fd_catchup_new  ( ctx->catchup                                                          ) );
   ctx->signs_pool = signs_pool_join( signs_pool_new( ctx->signs_pool, FD_REPAIR_PENDING_SIGN_REQ_MAX                   ) );
   ctx->signs_map  = signs_map_join ( signs_map_new ( ctx->signs_map,  FD_REPAIR_PENDING_SIGN_REQ_MAX, ctx->repair_seed ) );

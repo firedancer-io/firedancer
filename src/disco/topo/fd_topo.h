@@ -429,6 +429,7 @@ struct fd_topo_tile {
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;
+      ulong   fork_max;
     } repair;
 
     struct {

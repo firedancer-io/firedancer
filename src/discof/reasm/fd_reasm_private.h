@@ -4,6 +4,16 @@
 #define POOL_T                 fd_reasm_fec_t
 #include "../../util/tmpl/fd_pool.c"
 
+struct fork_ele {
+  ulong is_valid; /* 0 if pool ele is not being used, 1 otherwise */
+  ulong next;     /* internal pool pointer */
+};
+typedef struct fork_ele fork_ele_t;
+
+#define POOL_NAME              fork_pool
+#define POOL_T                 fork_ele_t
+#include "../../util/tmpl/fd_pool.c"
+
 #define MAP_NAME               ancestry
 #define MAP_ELE_T              fd_reasm_fec_t
 #define MAP_KEY_T              fd_hash_t
@@ -57,6 +67,7 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   ulong            slot0;    /* special initialization slot. chains first FEC */
   ulong            root;     /* pool idx of the root FEC set */
   fd_reasm_fec_t * pool;     /* pool of FEC nodes backing the above maps / tree */
+  fork_ele_t *     fork_pool;/* pool of fork nodes for the fork tree */
   ancestry_t *     ancestry; /* map of mr->fec. non-leaves of the connected tree */
   frontier_t *     frontier; /* map of mr->fec. leaves of the connected tree */
   orphaned_t *     orphaned; /* map of mr->fec. non-roots of the orphaned subtrees */

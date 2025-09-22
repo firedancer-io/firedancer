@@ -51,6 +51,8 @@
 #define FD_REASM_ERR_UNIQUE (-1) /* key uniqueness conflict */
 #define FD_REASM_ERR_MERKLE (-2) /* chained merkle root conflict */
 
+/* TODO:FIXME: Write up what happen with the fork tree and fork idx. */
+
 /* fd_reasm is a tree-like structure backed by three maps.  At any
    given point in time, an element (FEC set) in the reasm is in one of
    three possible positions with respect to the tree: a non-leaf, leaf,
@@ -126,6 +128,10 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   fd_hash_t key; /* map key, merkle root of the FEC set */
   fd_hash_t cmr; /* parent's map key, chained merkle root of the FEC set */
 
+  /* Fork Tree */
+
+  ulong fork_idx; /* pool idx of the fork element */
+
   /* Pointers */
 
   ulong next;    /* reserved for internal use by fd_pool, fd_map_chain */
@@ -156,14 +162,18 @@ FD_FN_CONST ulong
 fd_reasm_align( void );
 
 FD_FN_CONST ulong
-fd_reasm_footprint( ulong fec_max );
+fd_reasm_footprint( ulong fec_max,
+                    ulong fork_max );
 
 /* fd_reasm_new formats an unused memory region for use as a
    reasm.  mem is a non-NULL pointer to this region in the local
    address space with the required footprint and alignment. */
 
 void *
-fd_reasm_new( void * shmem, ulong fec_max, ulong seed );
+fd_reasm_new( void * shmem,
+              ulong  fec_max,
+              ulong  fork_max,
+              ulong  seed );
 
 /* fd_reasm_join joins the caller to the reasm.  reasm points
    to the first byte of the memory region backing the reasm in the
