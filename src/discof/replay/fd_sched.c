@@ -413,7 +413,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
                         lane_idx, sched->staged_bitset ));
         }
         sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
-        sched->staged_head_block_idx[ lane_idx ] = block-sched->block_pool;
+        sched->staged_head_block_idx[ lane_idx ] = fec->block_idx;
         block->in_rdisp     = 1;
         block->staged       = 1;
         block->staging_lane = (ulong)lane_idx;
@@ -784,16 +784,17 @@ fd_sched_root_advance( fd_sched_t * sched, ulong root_idx ) {
   fd_sched_block_t * tail = head;
 
   while( head ) {
-    fd_sched_block_t * child = sched->block_pool+head->child_idx;
-    while( child ) {
+    ulong child_idx = head->child_idx;
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = sched->block_pool+child_idx;
       /* Add children to be visited.  We abuse the parent_idx field to
          link up the next block to visit. */
       if( child!=new_root ) {
-        tail->parent_idx = child-sched->block_pool;
-        tail             = tail->parent_idx;
+        tail->parent_idx = child_idx;
+        tail             = child;
         tail->parent_idx = ULONG_MAX;
       }
-      child = sched->block_pool+child->sibling_idx;
+      child_idx = child->sibling_idx;
     }
 
     /* Prune the current block.  We will never publish halfway into a
@@ -1085,7 +1086,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     } FD_SPAD_FRAME_END;
   }
 
-  ulong txn_idx = fd_rdisp_add_txn( sched->rdisp, block->block_idx, txn, block->fec_buf+block->fec_buf_soff, serializing ? NULL : block->aluts, serializing );
+  ulong block_idx = (ulong)(block-sched->block_pool);
+  ulong txn_idx   = fd_rdisp_add_txn( sched->rdisp, block_idx, txn, block->fec_buf+block->fec_buf_soff, serializing ? NULL : block->aluts, serializing );
   FD_TEST( txn_idx!=0UL );
   sched->metrics->txn_parsed_cnt++;
   sched->metrics->alut_serializing_cnt += (uint)serializing;
@@ -1094,7 +1096,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_p->payload_sz  = pay_sz;
   fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
-  sched->txn_to_block_idx[ txn_idx ] = block-sched->block_pool;
+  sched->txn_to_block_idx[ txn_idx ] = block_idx;
 
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
@@ -1225,7 +1227,7 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
 
     if( abandon ) {
       block->in_rdisp = 0;
-      fd_rdisp_abandon_block( sched->rdisp, block-sched->block_pool );
+      fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
       sched->metrics->block_abandoned_cnt++;
       sched->metrics->txn_abandoned_parsed_cnt += block->txn_parsed_cnt;

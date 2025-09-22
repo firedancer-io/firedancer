@@ -1576,7 +1576,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   funk_publish( ctx, publishable_root_slot );
 
-  fd_sched_root_publish( ctx->sched, &ele->eslot );
+  fd_sched_root_advance( ctx->sched, &ele->eslot );
 
   fd_eslot_mgr_publish( ctx->eslot_mgr, ctx->published_root_slot, publishable_root_slot );
 
