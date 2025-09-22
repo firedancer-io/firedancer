@@ -125,11 +125,6 @@ FD_STATIC_ASSERT( FD_PACK_MAX_BANK_TILES<=64UL, exec_bitset );
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
-  /* Inputs to plugin/gui */
-  fd_replay_out_link_t plugin_out[1];
-  fd_replay_out_link_t votes_plugin_out[1];
-  long                 last_plugin_push_time;
-
   /* tx_metadata_storage enables the log collector if enabled */
   int tx_metadata_storage;
 
@@ -361,8 +356,6 @@ struct fd_replay_tile {
   fd_replay_out_link_t replay_out[1];
 
   fd_replay_out_link_t stake_out[1];
-  fd_replay_out_link_t shredcap_out[1];
-  fd_replay_out_link_t pack_out[1];
 
   struct {
     fd_histf_t store_read_wait[ 1 ];
@@ -762,33 +755,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      which will be published in after_credit. */
   buffer_vote_towers( ctx, ctx->slot_ctx->funk_txn, ctx->slot_ctx->bank );
 
-  /* TODO: Don't think we want to reset pack/poh here? Should probably
-     be deleted. */
-  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
-    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
-
-    reset->completed_slot   = fd_eslot_slot( eslot );
-    reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
-    reset->ticks_per_slot   = fd_bank_ticks_per_slot_get( bank );
-    reset->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)reset->ticks_per_slot);
-    fd_memcpy( reset->completed_blockhash, block_hash->uc, sizeof(fd_hash_t) );
-    fd_memcpy( reset->completed_block_id, block_id->uc, sizeof(fd_hash_t) );
-
-    ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
-    if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
-      /* Low power producer, maximum of one microblock per tick in the slot */
-      reset->max_microblocks_in_slot = ticks_per_slot;
-    } else {
-      /* See the long comment in after_credit for this limit */
-      reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
-    }
-    reset->next_leader_slot = ctx->next_leader_slot;
-
-    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
-    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
-  }
-
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
@@ -796,17 +762,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
   fd_bank_hash_cmp_insert( bank_hash_cmp, fd_eslot_slot( eslot ), bank_hash, 1, 0 );
-
-  if( FD_UNLIKELY( ctx->shredcap_out->idx!=ULONG_MAX ) ) {
-    /* TODO: We need some way to define common headers. */
-    uchar *           chunk_laddr = fd_chunk_to_laddr( ctx->shredcap_out->mem, ctx->shredcap_out->chunk );
-    fd_hash_t const * bank_hash   = fd_bank_bank_hash_query( bank );
-    ulong             slot        = fd_bank_slot_get( bank );
-    memcpy( chunk_laddr, bank_hash, sizeof(fd_hash_t) );
-    memcpy( chunk_laddr+sizeof(fd_hash_t), &slot, sizeof(ulong) );
-    fd_stem_publish( stem, ctx->shredcap_out->idx, 0UL, ctx->shredcap_out->chunk, sizeof(fd_hash_t) + sizeof(ulong), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->shredcap_out->chunk = fd_dcache_compact_next( ctx->shredcap_out->chunk, sizeof(fd_hash_t) + sizeof(ulong), ctx->shredcap_out->chunk0, ctx->shredcap_out->wmark );
-  }
 
   /* Try to move the bank hash comparison watermark forward */
   for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < fd_eslot_slot( eslot ); cmp_slot++ ) {
@@ -1051,7 +1006,7 @@ static int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_UNLIKELY( ctx->pack_out->idx==ULONG_MAX ) ) return 0;
+  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return 0;
   if( FD_UNLIKELY( ctx->is_leader || ctx->next_leader_slot==ULONG_MAX ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
@@ -1094,7 +1049,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   /* Acquires bank, sets up initial state, and refcnts it. */
   fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, &ctx->reset_block_id, stem );
 
-  fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+  fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot = ctx->next_leader_slot;
   msg->slot_start_ns = now;
   msg->slot_end_ns   = now+(long)ctx->slot_duration_nanos;
@@ -1130,9 +1085,8 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "too many skipped ticks %lu for slot %lu, chain must halt", msg->ticks_per_slot+msg->total_skipped_ticks, ctx->next_leader_slot ));
   }
 
-  ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
-  fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
-  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_became_leader_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->next_leader_slot = ULONG_MAX;
 
@@ -1165,12 +1119,12 @@ static void
 publish_reset( fd_replay_tile_t *  ctx,
                fd_stem_context_t * stem,
                fd_bank_t const *   bank ) {
-  if( FD_LIKELY( ctx->pack_out->idx==ULONG_MAX ) ) return;
+  if( FD_LIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
 
   fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
   FD_TEST( block_hash );
 
-  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+  fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
   reset->completed_slot = fd_bank_slot_get( ctx->slot_ctx->bank );
   reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
@@ -1188,9 +1142,8 @@ publish_reset( fd_replay_tile_t *  ctx,
   }
   reset->next_leader_slot = ctx->next_leader_slot;
 
-  ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
-  fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
 static void
@@ -1577,8 +1530,8 @@ process_tower_update( fd_replay_tile_t *           ctx,
   if( FD_UNLIKELY( !bank ) ) FD_LOG_ERR(( "error looking for bank with slot %lu", (ulong)ele->eslot.slot ));
   FD_TEST( bank );
 
-  if( FD_LIKELY( ctx->pack_out->idx!=ULONG_MAX ) ) {
-    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->pack_out->mem, ctx->pack_out->chunk );
+  if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
+    fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
     reset->completed_slot = ctx->reset_slot;
     reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
@@ -1602,9 +1555,8 @@ process_tower_update( fd_replay_tile_t *           ctx,
     }
     reset->next_leader_slot = ctx->next_leader_slot;
 
-    ulong sig = fd_disco_poh_sig( ctx->next_leader_slot, POH_PKT_TYPE_FEAT_ACT_SLOT /* Rubbish .. but threads the needle correctly for now */, 0UL );
-    fd_stem_publish( stem, ctx->pack_out->idx, sig, ctx->pack_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-    ctx->pack_out->chunk = fd_dcache_compact_next( ctx->pack_out->chunk, sizeof(fd_poh_reset_t), ctx->pack_out->chunk0, ctx->pack_out->wmark );
+    fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
   FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, new_root=%d, root_slot=%lu, root_block_id=%s", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->new_root, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
@@ -1996,12 +1948,8 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
-  *ctx->shredcap_out     = out1( topo, tile, "replay_scap" );
-  *ctx->plugin_out       = out1( topo, tile, "replay_plugi" );
-  *ctx->votes_plugin_out = out1( topo, tile, "votes_plugin" ); /* TODO: Delete this */
-  *ctx->stake_out        = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
-  *ctx->replay_out       = out1( topo, tile, "replay_out" );
-  *ctx->pack_out         = out1( topo, tile, "replay_pack" );
+  *ctx->stake_out  = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
+  *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
   for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
