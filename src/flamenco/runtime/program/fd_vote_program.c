@@ -1492,7 +1492,7 @@ authorize( fd_borrowed_account_t *       vote_account,
 
   // failing exhaustive check is fatal
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L890
@@ -2512,7 +2512,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     } else if( instruction->discriminant == fd_vote_instruction_enum_vote_switch ) {
       vote = &instruction->inner.vote_switch.vote;
     } else {
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L155
@@ -2570,7 +2570,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
       vote_state_update = &instruction->inner.update_vote_state_switch.vote_state_update;
       break;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L171

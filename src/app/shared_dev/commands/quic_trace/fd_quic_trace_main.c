@@ -375,7 +375,7 @@ quic_trace_cmd_fn( args_t *   args,
     fd_quic_trace_log_tile( trace_ctx, log_rx->mcache );
     break;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   fd_quic_log_rx_leave( log_rx );

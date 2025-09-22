@@ -5,6 +5,7 @@
 
 #include "../fd_quic_common.h"
 #include "../../../util/bits/fd_bits.h"
+#include "../../../util/log/fd_log.h"
 
 static inline uint
 fd_quic_varint_min_sz_unsafe( ulong val ) {
@@ -138,7 +139,7 @@ fd_quic_varint_decode( uchar const * buf,
   case 0:
     return buf[0] & 0x3f;
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 }
 

@@ -221,7 +221,7 @@ transaction_cost_sum( fd_transaction_cost_t const * txn_cost ) {
       return cost;
     }
     default: {
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
   }
 }
@@ -234,7 +234,7 @@ get_allocated_accounts_data_size( fd_transaction_cost_t const * txn_cost ) {
     case fd_transaction_cost_enum_transaction:
       return txn_cost->inner.transaction.allocated_accounts_data_size;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
   }
 }
 

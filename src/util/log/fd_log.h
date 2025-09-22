@@ -311,6 +311,33 @@
 
 #define FD_LOG_NAME_MAX (40UL)
 
+/* FD_UNREACHABLE can be used in location that are certain to never be
+executed.  In production it will expand to __builtin_unreachable()
+which provides an optimization hint to the compiler.  At test time
+FD_USE_HANDHOLDING can be enabled, which will exit the
+program with a non-zero exit code when FD_UNREACHABLE is hit.  Usage:
+  switch( tag ) {
+    case FOO: ...; break;
+    case BAR: ...; break;
+    default:
+      FD_UNREACHABLE();  // default should never be hit
+  } */
+
+#ifdef FD_USE_HANDHOLDING
+
+  /* FD_LOG_CRIT is assumed noreturn */
+  #define FD_UNREACHABLE()                                                    \
+    do {                                                                      \
+      FD_LOG_CRIT(( "UNREACHABLE reached at %s:%d in %s()",                    \
+                   __FILE__, __LINE__, __func__ ));                           \
+    } while (0)
+
+#else
+
+  #define FD_UNREACHABLE() __builtin_unreachable()
+
+#endif /* FD_USE_HANDHOLDING */
+
 FD_PROTOTYPES_BEGIN
 
 /* APPLICATION LOGICAL IDENTIFIERS ************************************/

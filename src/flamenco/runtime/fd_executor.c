@@ -183,12 +183,12 @@ fd_executor_rent_transition_allowed( fd_rent_state_t const * pre_rent_state,
                  post_rent_state->inner.rent_paying.lamports<=pre_rent_state->inner.rent_paying.lamports;
         }
         default: {
-          __builtin_unreachable();
+          FD_UNREACHABLE();
         }
       }
     }
     default: {
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
   }
 }
