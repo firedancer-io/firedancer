@@ -2681,7 +2681,7 @@ MAP_(reset)( MAP_(t) * join ) {
 
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     ulong ver_cnt = chain[ chain_idx ].ver_cnt;
-    ulong version = MAP_(private_vcnt_ver)( ver_cnt );
+    ulong version = ( MAP_(private_vcnt_ver)( ver_cnt ) ) & ( (1UL<<MAP_VER_WIDTH)-1UL ) & ~1UL;
     chain[ chain_idx ].ver_cnt   = MAP_(private_vcnt)( version+2UL, 0UL );
     chain[ chain_idx ].head_cidx = MAP_(private_cidx)( MAP_(private_idx_null)() );
   }
