@@ -272,7 +272,7 @@
   shadow[ frame_cnt ].r10 = reg[10];                                                                         \
   shadow[ frame_cnt ].pc  = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) ) reg[10] += vm->stack_frame_size;
+  if( !fd_sbpf_dynamic_stack_frames( sbpf_version ) ) reg[10] += vm->stack_frame_size;
 
   /* We subtract the heap cost in the BPF loader */
 
@@ -799,7 +799,7 @@ interp_exec:
 
     FD_VM_INTERP_STACK_PUSH;
 
-    ulong vaddr = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? reg_src : reg[ imm & 15U ];
+    ulong vaddr = fd_sbpf_callx_uses_src_reg( sbpf_version ) ? reg_src : reg[ imm & 15U ];
 
     /* Notes: Agave checks region and target_pc before updating the pc.
        To match their state, we do the same, even though we could simply

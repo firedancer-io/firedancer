@@ -77,8 +77,7 @@ typedef struct fd_vm_vec fd_vm_vec_t;
 FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch );
 
 /* SBPF version and features
-   https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
-
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L28
    Note: SIMDs enable or disable features, e.g. BPF instructions.
    If we have macros with names ENABLE vs DISABLE, we have the advantage that
    the condition is always pretty clear: sbpf_version <= activation_version,
@@ -111,8 +110,6 @@ FD_STATIC_ASSERT( sizeof(fd_vm_vec_t)==FD_VM_VEC_SIZE, fd_vm_vec size mismatch )
 /* enable_strict_elf_headers is defined in fd_sbpf_loader.h because it's needed
    by the ELF loader, not really by the VM
    #define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 ) */
-
-#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
 
 #define FD_VM_OFFSET_MASK (0xffffffffUL)
 
@@ -246,7 +243,7 @@ fd_vm_generate_access_violation( ulong vaddr, ulong sbpf_version ) {
      stack access violation. */
   long rel_offset = fd_long_sat_sub( (long)vaddr, (long)FD_VM_MEM_MAP_STACK_REGION_START );
   long stack_frame = rel_offset / (long)FD_VM_STACK_FRAME_SZ;
-  if( !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version ) &&
+  if( !fd_sbpf_dynamic_stack_frames( sbpf_version ) &&
       stack_frame>=-1L && stack_frame<=(long)FD_VM_MAX_CALL_DEPTH ) {
     return FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION;
   }
@@ -381,7 +378,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
     */
   if( FD_UNLIKELY( region==FD_VM_STACK_REGION &&
                    !vm->direct_mapping &&
-                   !FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ) ) {
+                   !fd_sbpf_dynamic_stack_frames( vm->sbpf_version ) ) ) {
     /* If an access starts in a gap region, that is an access violation */
     if( FD_UNLIKELY( !!(vaddr & 0x1000) ) ) {
       return sentinel;

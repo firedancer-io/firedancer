@@ -123,8 +123,7 @@ test_sbpf_elf_peek_strict_hex( void ) {
   FD_TEST( info.text_sz ==8UL );
   FD_TEST( info.text_cnt==1U );
   FD_TEST( info.entry_pc==0U );
-  FD_TEST( info.rodata_sz==0U );
-  FD_TEST( info.rodata_footprint==(uint)bin_sz );
+  FD_TEST( info.bin_sz==bin_sz );
 }
 
 int

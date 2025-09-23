@@ -87,7 +87,7 @@ typedef struct fd_elf64_rela_ fd_elf64_rela;
 /* fd_elf64_dyn: Dynamic section entry */
 
 struct __attribute__((packed)) fd_elf64_dyn_ {
-  long d_tag;
+  ulong d_tag;
   union {
     ulong d_val;
     ulong d_ptr;
@@ -96,4 +96,3 @@ struct __attribute__((packed)) fd_elf64_dyn_ {
 typedef struct fd_elf64_dyn_ fd_elf64_dyn;
 
 #endif /* HEADER_fd_src_ballet_elf_fd_elf64_h */
-
