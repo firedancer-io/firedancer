@@ -67,12 +67,13 @@ main( int     argc,
   config.elf_deploy_checks = 1;
   config.sbpf_min_version = FD_SBPF_V0;
   config.sbpf_max_version = FD_SBPF_V3;
-  if( FD_UNLIKELY( fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, &config )<0 ) )
-    FD_LOG_ERR(( "FAIL: %s", fd_sbpf_strerror() ));
+  int err = fd_sbpf_elf_peek( &elf_info, bin_buf, bin_sz, &config );
+  if( FD_UNLIKELY( err<0 ) )
+    FD_LOG_ERR(( "FAIL: %d", err ));
 
   /* Allocate rodata segment */
 
-  void * rodata = malloc( elf_info.rodata_footprint );
+  void * rodata = malloc( elf_info.bin_sz );
   FD_TEST( rodata );
 
   /* Allocate objects */
@@ -95,7 +96,7 @@ main( int     argc,
   for( uint const * x = _syscalls; *x; x++ )
     fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
-  int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config );
+  int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config, NULL );
 
   FD_LOG_HEXDUMP_NOTICE(( "Output rodata segment", prog->rodata, prog->rodata_sz ));
 
@@ -112,7 +113,7 @@ main( int     argc,
   /* Yield result */
 
   if( FD_UNLIKELY( load_err!=0 ) )
-    FD_LOG_ERR(( "FAIL: %s", fd_sbpf_strerror() ));
+    FD_LOG_ERR(( "FAIL: %d", load_err ));
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

@@ -159,7 +159,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 # define FD_CHECK_SYSCALL       ((uchar)12) /* Check call against syscalls registry */
 # define FD_CHECK_JMP_V0        ((uchar)13) /* Validation should check that the instruction is a valid jump (v0..v2) */
 
-  uchar FD_CHECK_JMP = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_JMP_V3 : FD_CHECK_JMP_V0;
+  uchar FD_CHECK_JMP = fd_sbpf_static_syscalls( sbpf_version ) ? FD_CHECK_JMP_V3 : FD_CHECK_JMP_V0;
 
   uchar validation_map[ 256 ] = {
     /* 0x00 */ FD_INVALID,    /* 0x01 */ FD_INVALID,    /* 0x02 */ FD_INVALID,    /* 0x03 */ FD_INVALID,
@@ -229,87 +229,87 @@ fd_vm_validate( fd_vm_t const * vm ) {
   };
 
   /* SIMD-0173: LDDW */
-  validation_map[ 0x18 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_CHECK_LDQ : FD_INVALID;
-  validation_map[ 0xf7 ] = FD_VM_SBPF_ENABLE_LDDW(sbpf_version) ? FD_INVALID   : FD_VALID; /* HOR64 */
+  validation_map[ 0x18 ] = fd_sbpf_enable_lddw( sbpf_version ) ? FD_CHECK_LDQ : FD_INVALID;
+  validation_map[ 0xf7 ] = fd_sbpf_enable_lddw( sbpf_version ) ? FD_INVALID   : FD_VALID; /* HOR64 */
 
   /* SIMD-0173: LE */
-  validation_map[ 0xd4 ] = FD_VM_SBPF_ENABLE_LE  (sbpf_version) ? FD_CHECK_END : FD_INVALID;
+  validation_map[ 0xd4 ] = fd_sbpf_enable_le( sbpf_version ) ? FD_CHECK_END : FD_INVALID;
 
   /* SIMD-0173: LDXW, STW, STXW */
-  validation_map[ 0x61 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
-  validation_map[ 0x62 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x63 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x8c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x87 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID; /* VALID because it's NEG64 */
-  validation_map[ 0x8f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_INVALID;
+  validation_map[ 0x61 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x62 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x63 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x8c ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x87 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_VALID; /* VALID because it's NEG64 */
+  validation_map[ 0x8f ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_INVALID;
 
   /* SIMD-0173: LDXH, STH, STXH */
-  validation_map[ 0x69 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
-  validation_map[ 0x6a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x6b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x3c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_VALID;
-  validation_map[ 0x37 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_CHECK_DIV;
-  validation_map[ 0x3f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+  validation_map[ 0x69 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x6a ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x6b ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x3c ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_VALID     : FD_VALID;
+  validation_map[ 0x37 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_CHECK_DIV;
+  validation_map[ 0x3f ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_VALID;
 
   /* SIMD-0173: LDXB, STB, STXB */
-  validation_map[ 0x71 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
-  validation_map[ 0x72 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x73 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x2c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_VALID;
-  validation_map[ 0x27 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
-  validation_map[ 0x2f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+  validation_map[ 0x71 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x72 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x73 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x2c ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_VALID     : FD_VALID;
+  validation_map[ 0x27 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_VALID;
+  validation_map[ 0x2f ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_VALID;
 
   /* SIMD-0173: LDXDW, STDW, STXDW */
-  validation_map[ 0x79 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_VALID;
-  validation_map[ 0x7a ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x7b ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_INVALID   : FD_CHECK_ST;
-  validation_map[ 0x9c ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_VALID     : FD_VALID;
-  validation_map[ 0x97 ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_CHECK_DIV;
-  validation_map[ 0x9f ] = FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(sbpf_version) ? FD_CHECK_ST  : FD_VALID;
+  validation_map[ 0x79 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_VALID;
+  validation_map[ 0x7a ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x7b ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_INVALID   : FD_CHECK_ST;
+  validation_map[ 0x9c ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_VALID     : FD_VALID;
+  validation_map[ 0x97 ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_CHECK_DIV;
+  validation_map[ 0x9f ] = fd_sbpf_move_memory_ix_classes( sbpf_version ) ? FD_CHECK_ST  : FD_VALID;
 
   /* SIMD-0173: CALLX */
-  validation_map[ 0x8d ] = FD_VM_SBPF_CALLX_USES_SRC_REG(sbpf_version) ? FD_CHECK_CALL_REG : FD_CHECK_CALL_REG_DEPR;
+  validation_map[ 0x8d ] = fd_sbpf_callx_uses_src_reg( sbpf_version ) ? FD_CHECK_CALL_REG : FD_CHECK_CALL_REG_DEPR;
 
   /* SIMD-0174: MUL, DIV, MOD */
-  validation_map[ 0x24 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_VALID;
-  validation_map[ 0x34 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_CHECK_DIV;
-  validation_map[ 0x94 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_INVALID : FD_CHECK_DIV;
+  validation_map[ 0x24 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_INVALID : FD_VALID;
+  validation_map[ 0x34 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_INVALID : FD_CHECK_DIV;
+  validation_map[ 0x94 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_INVALID : FD_CHECK_DIV;
   /* note: 0x?c, 0x?7, 0x?f should not be overwritten because they're now load/store ix */
 
   /* SIMD-0174: NEG */
-  validation_map[ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (sbpf_version) ? FD_VALID : FD_INVALID;
+  validation_map[ 0x84 ] = fd_sbpf_enable_neg( sbpf_version ) ? FD_VALID : FD_INVALID;
   /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
 
   /* SIMD-0174: MUL, DIV, MOD */
-  validation_map[ 0x36 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* UHMUL64 */
-  validation_map[ 0x3e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x46 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UDIV32 */
-  validation_map[ 0x4e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x56 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UDIV64 */
-  validation_map[ 0x5e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x66 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UREM32 */
-  validation_map[ 0x6e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x76 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* UREM64 */
-  validation_map[ 0x7e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x86 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* LMUL32 */
-  validation_map[ 0x8e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0x96 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* LMUL64 */
-  validation_map[ 0x9e ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0xb6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID; /* SHMUL64 */
-  validation_map[ 0xbe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0xc6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SDIV32 */
-  validation_map[ 0xce ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0xd6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SDIV64 */
-  validation_map[ 0xde ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0xe6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM32 */
-  validation_map[ 0xee ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
-  validation_map[ 0xf6 ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_CHECK_DIV : FD_INVALID; /* SREM64 */
-  validation_map[ 0xfe ] = FD_VM_SBPF_ENABLE_PQR (sbpf_version) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x36 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID; /* UHMUL64 */
+  validation_map[ 0x3e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x46 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* UDIV32 */
+  validation_map[ 0x4e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x56 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* UDIV64 */
+  validation_map[ 0x5e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x66 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* UREM32 */
+  validation_map[ 0x6e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x76 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* UREM64 */
+  validation_map[ 0x7e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x86 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID; /* LMUL32 */
+  validation_map[ 0x8e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0x96 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID; /* LMUL64 */
+  validation_map[ 0x9e ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xb6 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID; /* SHMUL64 */
+  validation_map[ 0xbe ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xc6 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* SDIV32 */
+  validation_map[ 0xce ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xd6 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* SDIV64 */
+  validation_map[ 0xde ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xe6 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* SREM32 */
+  validation_map[ 0xee ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
+  validation_map[ 0xf6 ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_CHECK_DIV : FD_INVALID; /* SREM64 */
+  validation_map[ 0xfe ] = fd_sbpf_enable_pqr( sbpf_version ) ? FD_VALID     : FD_INVALID;
 
   /* SIMD-0178: static syscalls */
-  validation_map[ 0x85 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_CALL_IMM : FD_VALID;
-  validation_map[ 0x95 ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_CHECK_SYSCALL : FD_VALID;
-  validation_map[ 0x9d ] = FD_VM_SBPF_STATIC_SYSCALLS (sbpf_version) ? FD_VALID : FD_INVALID;
+  validation_map[ 0x85 ] = fd_sbpf_static_syscalls( sbpf_version ) ? FD_CHECK_CALL_IMM : FD_VALID;
+  validation_map[ 0x95 ] = fd_sbpf_static_syscalls( sbpf_version ) ? FD_CHECK_SYSCALL : FD_VALID;
+  validation_map[ 0x9d ] = fd_sbpf_static_syscalls( sbpf_version ) ? FD_VALID : FD_INVALID;
 
   /* FIXME: These checks are not necessary assuming fd_vm_t is populated by metadata
      generated in fd_sbpf_elf_peek (which performs these checks). But there is no guarantee, and
@@ -467,7 +467,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
 
     /* Special R10 register allowed for ADD64_IMM */
     if( instr.dst_reg==10U
-        && FD_VM_SBPF_DYNAMIC_STACK_FRAMES( sbpf_version )
+        && fd_sbpf_dynamic_stack_frames( sbpf_version )
         && instr.opcode.raw == 0x07
         && ( instr.imm % FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN )==0 )
         continue;
@@ -674,7 +674,7 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) {
   vm->reg[ 1] = FD_VM_MEM_MAP_INPUT_REGION_START;
   /* https://github.com/solana-labs/rbpf/blob/4ad935be45e5663be23b30cfc750b1ae1ad03c44/src/vm.rs#L326-L333 */
   vm->reg[10] = FD_VM_MEM_MAP_STACK_REGION_START +
-    ( FD_VM_SBPF_DYNAMIC_STACK_FRAMES( vm->sbpf_version ) ? FD_VM_STACK_MAX : FD_VM_STACK_FRAME_SZ );
+    ( fd_sbpf_dynamic_stack_frames( vm->sbpf_version ) ? FD_VM_STACK_MAX : FD_VM_STACK_FRAME_SZ );
   /* Note: Agave uses r11 as pc, we don't */
 
   /* Set execution state */

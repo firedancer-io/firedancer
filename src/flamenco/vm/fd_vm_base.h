@@ -681,8 +681,7 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    compile time map size needs to be adjusted).  If slot_ctx is NULL,
    will register all fd_vm syscall implementations (whether or not that
    makes sense ... may change between Firedancer versions without
-   warning).  FIXME: probably better to pass the features for a slot
-   than pass the whole slot_ctx.
+   warning).
 
    is_deploy should be 1 if the set of syscalls registered should be that
    used to verify programs before they are deployed, and 0 if it
