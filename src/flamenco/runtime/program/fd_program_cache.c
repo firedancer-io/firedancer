@@ -31,7 +31,7 @@ fd_program_cache_entry_new( void *                     mem,
   cache_entry->calldests_shmem_off = l;
 
   /* rodata backing memory */
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->text_cnt) );
   cache_entry->rodata_off = l;
 
   /* SBPF version */
@@ -63,8 +63,8 @@ ulong
 fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
-  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( elf_info->text_cnt ) );
+  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->bin_sz );
   l = FD_LAYOUT_FINI( l, alignof(fd_program_cache_entry_t) );
   return l;
 }
@@ -110,7 +110,7 @@ fd_program_cache_parse_elf_info( fd_bank_t *          bank,
   config.sbpf_max_version = max_sbpf_version;
 
   if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, program_data, program_data_len, &config )<0 ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed" ));
     return -1;
   }
   return 0;
@@ -284,7 +284,7 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
 
   fd_sbpf_loader_config_t config = { 0 };
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config ) ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed" ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );
     return -1;
@@ -336,7 +336,7 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
   }
 
   /* FIXME: Super expensive memcpy. */
-  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
+  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->text_cnt ) );
 
   cache_entry->entry_pc            = prog->entry_pc;
   cache_entry->text_off            = prog->text_off;

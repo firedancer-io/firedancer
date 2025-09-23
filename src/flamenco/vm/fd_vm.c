@@ -331,7 +331,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/verifier.rs#L233-L235 */
   ulong function_start = 0UL;
   ulong function_next  = 0UL;
-  if( fd_sbpf_enable_stricter_elf_headers(sbpf_version) ) {
+  if( fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) {
     if( FD_UNLIKELY( !fd_sbpf_is_function_start( fd_sbpf_instr( text[0] ) ) ) ) {
       return FD_VM_INVALID_FUNCTION;
     }
@@ -347,7 +347,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
        used to validate jumps.
        Note that the first function always starts at 0, and similarly the last function
        always ends at text_cnt-1. */
-    if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers(sbpf_version) && fd_sbpf_is_function_start( instr ) ) ) {
+    if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) && fd_sbpf_is_function_start( instr ) ) ) {
       function_start = i;
       function_next  = i+1;
       while( function_next<text_cnt && !fd_sbpf_is_function_start( fd_sbpf_instr( text[function_next] ) ) ) {
@@ -616,7 +616,7 @@ fd_vm_init(
      program execution, e.g. just testing some interpreter functionality
      or syscalls.
      SBPF v3+ no longer needs calldests, so we enforce it to be NULL. */
-  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers(sbpf_version) ) ) {
+  if( FD_UNLIKELY( calldests && fd_sbpf_enable_stricter_elf_headers_enabled( sbpf_version ) ) ) {
     return NULL;
   }
 
