@@ -27,6 +27,14 @@ struct fd_replay_slot_completed {
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
 
   ulong transaction_count;
+  ulong nonvote_txn_count;
+  ulong failed_txn_count;
+  ulong nonvote_failed_txn_count;
+  ulong max_compute_units;
+  ulong total_compute_units_used;
+  ulong execution_fees;
+  ulong priority_fees;
+  ulong tips;
   ulong shred_count;
 };
 
