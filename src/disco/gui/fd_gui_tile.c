@@ -29,6 +29,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../flamenco/gossip/fd_gossip_private.h"
+#include "../../discof/replay/fd_replay_tile.h"
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -52,6 +53,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
 #define IN_KIND_SNAPRD       ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
+#define IN_KIND_REPLAY_OUT   (11UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -258,6 +260,31 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_PLUGIN: {
       FD_TEST( !ctx->is_full_client );
       fd_gui_plugin_message( ctx->gui, sig, ctx->buf, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_REPLAY_OUT: {
+      switch ( sig ) {
+        case REPLAY_SIG_SLOT_COMPLETED: {
+          fd_replay_slot_completed_t const * replay_out =  (fd_replay_slot_completed_t const *)ctx->buf;
+          fd_gui_handle_completed_slot( ctx->gui,
+                                        replay_out->slot,
+                                        replay_out->transaction_count,
+                                        replay_out->nonvote_txn_count,
+                                        replay_out->failed_txn_count,
+                                        replay_out->nonvote_failed_txn_count,
+                                        replay_out->total_compute_units_used,
+                                        replay_out->execution_fees,
+                                        replay_out->priority_fees,
+                                        replay_out->tips,
+                                        replay_out->parent_slot,
+                                        /* UINT_MAX is the designated sentinel max_compute_units */
+                                        fd_ulong_if( replay_out->max_compute_units==ULONG_MAX, UINT_MAX, replay_out->max_compute_units ),
+                                        replay_out->shred_count,
+                                        replay_out->completion_time_nanos );
+          break;
+        }
+        default: ;
+      }
       break;
     }
     case IN_KIND_SHRED_OUT: {
@@ -624,6 +651,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snaprd_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "repair_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
