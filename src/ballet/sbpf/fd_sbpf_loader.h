@@ -19,6 +19,7 @@
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L17 */
+#define FD_SBPF_ELF_PARSER_SUCCESS                           ( 0)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER           (-1)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER        (-2)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER        (-3)
@@ -37,6 +38,7 @@
 
 /* Map Rust ElfError (elf.rs v0.12.2) to C error codes */
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L40-L66 */
+#define FD_SBPF_ELF_SUCCESS                                  (  0)
 #define FD_SBPF_ELF_ERR_FAILED_TO_PARSE                      ( -1)
 #define FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS             ( -2)
 #define FD_SBPF_ELF_ERR_INVALID_ENTRYPOINT                   ( -3)
@@ -320,6 +322,8 @@ fd_sbpf_strerror( void );
 
 /* SIMD-0189 */
 static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
+/* SIMD-0178 */
+static inline int fd_sbpf_static_syscalls            ( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
 static inline int fd_sbpf_enable_elf_vaddr           ( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
 static inline int fd_sbpf_reject_rodata_stack_overlap( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
 
