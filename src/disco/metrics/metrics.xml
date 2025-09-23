@@ -744,6 +744,7 @@ metric introduced.
   <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
     <summary>Time in seconds spent on publishing a new FEC set</summary>
   </histogram>
+  <counter name="MaxReplayedSlot"  summary="The largest slot that we have replayed" />
 </tile>
 
 <tile name="storei">
@@ -768,16 +769,10 @@ metric introduced.
 
 
 <tile name="repair">
-    <counter name="RecvClntPkt"               clickhouse_exclude="true"                                 summary="Now many client packets have we received" />
-    <counter name="RecvServPkt"               clickhouse_exclude="true"                                 summary="How many server packets have we received" />
-    <counter name="RecvServCorruptPkt"        clickhouse_exclude="true"                                 summary="How many corrupt server packets have we received" />
-    <counter name="RecvServInvalidSignature"  clickhouse_exclude="true"                                 summary="How many invalid signatures have we received" />
-    <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
-    <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
-    <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
-    <counter name="ShredRepairReq"            clickhouse_exclude="true"                                 summary="How many repair requests have we sent" />
+    <counter name="TotalPktCount"             clickhouse_exclude="true"                                 summary="How many network packets we have sent, including reqs, pings, pongs, etc." />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
     <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
+    <counter name="CurrentSlot"                                                                         summary="Our view of the current cluster slot, max slot received" />
     <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
     <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">

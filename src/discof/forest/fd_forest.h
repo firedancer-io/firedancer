@@ -80,6 +80,7 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   long first_req_ts;   /* timestamp of first request received in slot != complete_idx */
   uint turbine_cnt;    /* number of shreds received from turbine */
   uint repair_cnt;     /* number of data shreds received from repair */
+  uint recovered_cnt;  /* number of shreds recovered from reedsol recovery */
 };
 typedef struct fd_forest_blk fd_forest_blk_t;
 

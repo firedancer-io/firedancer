@@ -458,11 +458,14 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
   fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
 
-  fd_forest_blk_idxs_null( blk->code ); /* FIXME expensive */
+  /* Metrics tracking */
+
+  fd_forest_blk_idxs_null( blk->code ); /* expensive */
   blk->first_shred_ts = 0;
   blk->first_req_ts   = 0;
   blk->turbine_cnt    = 0;
   blk->repair_cnt     = 0;
+  blk->recovered_cnt  = 0;
 
   return blk;
 }
@@ -475,6 +478,10 @@ fd_forest_query( fd_forest_t * forest, ulong slot ) {
 fd_forest_blk_t *
 fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
 # if FD_FOREST_USE_HANDHOLDING
+  if( FD_UNLIKELY( slot <= fd_forest_root_slot( forest ) ) ) {
+    FD_LOG_WARNING(( "fd_forest: fd_forest_blk_insert: slot %lu is <= root slot %lu", slot, fd_forest_root_slot( forest ) ));
+    __asm__("int $3");
+  }
   FD_TEST( slot > fd_forest_root_slot( forest ) ); /* caller error - inval */
 # endif
   fd_forest_blk_t * ele = query( forest, slot );
@@ -583,8 +590,9 @@ fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot
   ele->complete_idx = fd_uint_if( slot_complete, shred_idx, ele->complete_idx );
 
   if( !fd_forest_blk_idxs_test( ele->idxs, shred_idx ) ) { /* newly seen shred */
-    ele->turbine_cnt += (src==SHRED_SRC_TURBINE);
-    ele->repair_cnt  += (src==SHRED_SRC_REPAIR);
+    ele->turbine_cnt   += (src==SHRED_SRC_TURBINE);
+    ele->repair_cnt    += (src==SHRED_SRC_REPAIR);
+    ele->recovered_cnt += (src==SHRED_SRC_RECOVERED);
   }
   if( FD_UNLIKELY( ele->first_shred_ts == 0 ) ) ele->first_shred_ts = fd_tickcount();
 
@@ -746,7 +754,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
         child = fd_forest_pool_ele( pool, child->sibling );
       }
     }
-
   }
 
   /* If there is nothing on the consumed, we have hit an edge case
@@ -762,7 +769,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     fd_forest_blk_idxs_full( new_root_ele->fecs );
     advance_consumed_frontier( forest, new_root_ele->slot, 0 );
   }
-
 
   /* Lastly, cleanup orphans if there orphan heads < new_root_slot.
      First, add any relevant orphans to the prune queue. */

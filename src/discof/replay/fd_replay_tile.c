@@ -70,6 +70,7 @@
 #define IN_KIND_WRITER  (6)
 #define IN_KIND_CAPTURE (7)
 
+#define DEBUG_LOGGING 0
 
 struct fd_replay_in_link {
   fd_wksp_t * mem;
@@ -357,12 +358,15 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t stake_out[1];
 
+  long tsprint; /* timestamp for interval printing */
   struct {
     fd_histf_t store_read_wait[ 1 ];
     fd_histf_t store_read_work[ 1 ];
     fd_histf_t store_publish_wait[ 1 ];
     fd_histf_t store_publish_work[ 1 ];
-  } metrics;
+
+    ulong max_replayed_slot;
+  } diagnostics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
@@ -389,10 +393,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
-  FD_MHIST_COPY( REPLAY, STORE_READ_WAIT,    ctx->metrics.store_read_wait );
-  FD_MHIST_COPY( REPLAY, STORE_READ_WORK,    ctx->metrics.store_read_work );
-  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WAIT, ctx->metrics.store_publish_wait );
-  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WORK, ctx->metrics.store_publish_work );
+  FD_MHIST_COPY( REPLAY, STORE_READ_WAIT,    ctx->diagnostics.store_read_wait );
+  FD_MHIST_COPY( REPLAY, STORE_READ_WORK,    ctx->diagnostics.store_read_work );
+  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WAIT, ctx->diagnostics.store_publish_wait );
+  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WORK, ctx->diagnostics.store_publish_work );
+  FD_MCNT_SET  ( REPLAY, MAX_REPLAYED_SLOT,  ctx->diagnostics.max_replayed_slot );
 }
 
 static void
@@ -632,6 +637,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
 
+  ctx->diagnostics.max_replayed_slot = fd_ulong_max( ctx->diagnostics.max_replayed_slot, eslot.slot );
   return bank;
 }
 
@@ -1370,7 +1376,6 @@ after_credit( fd_replay_tile_t *  ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->is_booted ) ) return;
-
   /* Send any outstanding vote states to tower.  TODO: Not sure why this
      is here?  Should happen when the slot completes instead? */
   if( FD_UNLIKELY( ctx->vote_tower_out_idx<ctx->vote_tower_out_len ) ) {
@@ -1497,8 +1502,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     fd_store_publish( ctx->store, &publishable_root_ele->merkle_root );
   } FD_STORE_EXCLUSIVE_LOCK_END;
 
-  fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
-  fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
+  fd_histf_sample( ctx->diagnostics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
+  fd_histf_sample( ctx->diagnostics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
 
   ulong publishable_root_slot = fd_bank_slot_get( bank );
 
@@ -1625,6 +1630,10 @@ process_fec_set( fd_replay_tile_t *  ctx,
      forks is arbitrary */
   fd_sched_fec_t sched_fec[ 1 ];
 
+# if DEBUG_LOGGING
+  FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ) ));
+# endif
+
   /* Read FEC set from the store.  This should happen before we try to
      ingest the FEC set.  This allows us to filter out frags that were
      in-flight when we published away minority forks that the frags land
@@ -1649,8 +1658,8 @@ process_fec_set( fd_replay_tile_t *  ctx,
     sched_fec->shred_cnt = reasm_fec->data_cnt;
   } FD_STORE_SHARED_LOCK_END;
 
-  fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
-  fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
+  fd_histf_sample( ctx->diagnostics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
+  fd_histf_sample( ctx->diagnostics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
 
   /* Update the eslot_mgr with the incoming FEC.  This will detect any
      equivocation that may have occurred and return the corresponding
@@ -1964,16 +1973,16 @@ unprivileged_init( fd_topo_t *      topo,
     exec_out->chunk  = exec_out->chunk0;
   }
 
-  fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+  fd_memset( &ctx->diagnostics, 0, sizeof(ctx->diagnostics) );
 
-  fd_histf_join( fd_histf_new( ctx->metrics.store_read_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WAIT ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.store_read_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WORK ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WORK ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.store_publish_wait, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WAIT ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->metrics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
-                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->diagnostics.store_read_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WAIT ),
+                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->diagnostics.store_read_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WORK ),
+                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->diagnostics.store_publish_wait, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WAIT ),
+                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->diagnostics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
+                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -2004,6 +2013,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
+
+#undef DEBUG_LOGGING
 
 /* TODO: This needs to get sized out correctly. */
 #define STEM_BURST (128UL)

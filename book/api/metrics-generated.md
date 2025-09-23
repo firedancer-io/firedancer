@@ -488,6 +488,7 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
+| <span class="metrics-name">replay_&#8203;max_&#8203;replayed_&#8203;slot</span> | counter | The largest slot that we have replayed |
 
 </div>
 
@@ -678,23 +679,13 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">repair_&#8203;recv_&#8203;clnt_&#8203;pkt</span> | counter | Now many client packets have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt</span> | counter | How many server packets have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;corrupt_&#8203;pkt</span> | counter | How many corrupt server packets have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;invalid_&#8203;signature</span> | counter | How many invalid signatures have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;full_&#8203;ping_&#8203;table</span> | counter | Is our ping table full and causing packet drops |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | Server messages received (Pong) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">window</span>"} | counter | Server messages received (Window) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">highest_&#8203;window</span>"} | counter | Server messages received (Highest Window) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | Server messages received (Orphan) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">unknown</span>"} | counter | Server messages received (Unknown) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;pkt_&#8203;corrupted_&#8203;msg</span> | counter | How many corrupt messages have we received |
-| <span class="metrics-name">repair_&#8203;shred_&#8203;repair_&#8203;req</span> | counter | How many repair requests have we sent |
+| <span class="metrics-name">repair_&#8203;total_&#8203;pkt_&#8203;count</span> | counter | How many network packets we have sent, including reqs, pings, pongs, etc. |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Highest Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | What types of client messages are we sending (Need Orphans) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | What types of client messages are we sending (Pong) |
 | <span class="metrics-name">repair_&#8203;repaired_&#8203;slots</span> | counter | Until which slots have we fully repaired |
+| <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
 | <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;tile_&#8203;unavail</span> | counter | How many times no sign tiles were available to send request |
 | <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |

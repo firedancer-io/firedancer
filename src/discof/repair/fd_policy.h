@@ -197,7 +197,7 @@ fd_policy_delete( void * policy );
    Currently implements the default round-robin DFS strategy. */
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair );
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now );
 
 fd_policy_peer_t const *
 fd_policy_add_peer( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );

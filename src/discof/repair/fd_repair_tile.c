@@ -208,6 +208,7 @@ typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct ctx {
+  long tsdebug; /* timestamp for debug printing */
   long tsprint; /* timestamp for printing */
 
   ulong repair_seed;
@@ -277,24 +278,19 @@ struct ctx {
   fd_keyguard_client_t keyguard_client[1];
 
   ulong manifest_slot;
-  ulong turbine_slot;
-
   struct {
-    ulong recv_clnt_pkt;
-    ulong recv_serv_pkt;
-    ulong recv_serv_corrupt_pkt;
-    ulong recv_serv_invalid_signature;
-    ulong recv_serv_full_ping_table;
-    ulong recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_CNT];
-    ulong recv_pkt_corrupted_msg;
     ulong send_pkt_cnt;
     ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
     ulong repaired_slots;
+    ulong current_slot;
     ulong sign_tile_unavail;
     fd_histf_t store_link_wait[ 1 ];
     fd_histf_t store_link_work[ 1 ];
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
+
+    /* diagnostics */
+    volatile ulong * last_replayed_slot;
   } metrics[ 1 ];
 
   /* Catchup metrics */
@@ -410,7 +406,7 @@ send_packet( ctx_t * ctx,
              uchar const *          payload,
              ulong                  payload_sz,
              ulong                  tsorig ) {
-
+  ctx->metrics->send_pkt_cnt++;
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *(is_intake ? ctx->intake_hdr : ctx->serve_hdr);
@@ -630,7 +626,6 @@ after_sign( ctx_t             * ctx,
   if( FD_LIKELY( pending ) ) {
     fd_memcpy( pending->buf + 4, ctx->buffer, 64UL );
     uint  src_ip4 = 0U;
-    ctx->metrics->send_pkt_cnt++;
 
     fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
     fd_inflights_request_insert( ctx->inflight, pending->nonce,  &pending->msg.shred.to );
@@ -708,7 +703,7 @@ after_fec( ctx_t      * ctx,
     long start_ts = ele->first_req_ts == 0 || ele->slot > ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
     fd_histf_sample( ctx->metrics->slot_compl_time, (ulong)(now - start_ts) );
     fd_catchup_add_slot( ctx->catchup, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
-    FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt ));
+    FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt ));
   }
 }
 
@@ -787,6 +782,7 @@ after_frag( ctx_t * ctx,
       after_contact( ctx, msg );
     } else {
       /* TODO: this needs to be implemented */
+      //FD_LOG_ERR(( "unhandled gossip update message %lu", sig ));
       handle_contact_info_remove( ctx, msg );
     }
     return;
@@ -829,7 +825,7 @@ after_frag( ctx_t * ctx,
       return;
     };
 #   if LOGGING
-    if( FD_UNLIKELY( shred->slot > ctx->turbine_slot ) ) {
+    if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
       FD_LOG_INFO(( "\n\n[Turbine]\n"
                     "slot:             %lu\n"
                     "root:             %lu\n",
@@ -837,7 +833,7 @@ after_frag( ctx_t * ctx,
                     fd_forest_root_slot( ctx->forest ) ));
     }
 #   endif
-    ctx->turbine_slot  = fd_ulong_max( shred->slot, ctx->turbine_slot );
+    ctx->metrics->current_slot  = fd_ulong_max( shred->slot, ctx->metrics->current_slot );
     if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
       ctx->turbine_slot0 = shred->slot;
       fd_catchup_set_turbine_slot0( ctx->catchup, shred->slot );
@@ -882,6 +878,19 @@ after_frag( ctx_t * ctx,
         }
       }
     }
+
+    ulong max_repaired_slot = 0;
+    fd_forest_consumed_t const * consumed = fd_forest_consumed_const( ctx->forest );
+    fd_forest_cns_t const *      conspool = fd_forest_conspool_const( ctx->forest );
+    fd_forest_blk_t const *      pool     = fd_forest_pool_const( ctx->forest );
+    for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( consumed, conspool );
+         !fd_forest_consumed_iter_done( iter, consumed, conspool );
+         iter = fd_forest_consumed_iter_next( iter, consumed, conspool ) ) {
+      fd_forest_cns_t const * ele = fd_forest_consumed_iter_ele_const( iter, consumed, conspool );
+      fd_forest_blk_t const * ele_ = fd_forest_pool_ele_const( pool, ele->forest_pool_idx );
+      if( ele_->slot > max_repaired_slot ) max_repaired_slot = ele_->slot;
+    }
+    ctx->metrics->repaired_slots = max_repaired_slot;
     return;
   }
 
@@ -906,6 +915,21 @@ after_credit( ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in,
               int *                  charge_busy ) {
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( ctx->forest->root != ULONG_MAX && now - ctx->tsprint > (long)1e9 ) ) {
+    ulong replay_slot  = *ctx->metrics->last_replayed_slot;
+    ulong replay_diff  = ctx->metrics->repaired_slots - replay_slot;
+    ulong turbine_diff = ctx->metrics->current_slot - ctx->metrics->repaired_slots;
+    FD_LOG_NOTICE(( "\n\n[Firedancer]\n"
+                    "Replay slot:  %lu (-%lu)\n"
+                    "Repair slot:  %lu (-%lu)\n"
+                    "Shred  slot:  %lu\n",
+                    replay_slot, replay_diff,
+                    ctx->metrics->repaired_slots, turbine_diff,
+                    ctx->metrics->current_slot ));
+    ctx->tsprint = now;
+  }
+
   fd_reasm_fec_t * rfec = fd_reasm_next( ctx->reasm );
   if( FD_LIKELY( rfec ) ) {
 
@@ -928,6 +952,9 @@ after_credit( ctx_t * ctx,
     fd_stem_publish( stem, ctx->replay_out_idx, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, 0, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
+#  if DEBUG_LOGGING
+   FD_LOG_INFO(( "repair sending FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", rfec->slot, rfec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &rfec->key ), FD_BASE58_ENC_32_ALLOCA( &rfec->cmr ) ));
+#  endif
     /* We might have more reassembled FEC sets to deliver to the
        downstream consumer, so prioritize that over sending out repairs
        (which will only increase the number of buffered to send.) */
@@ -949,7 +976,7 @@ after_credit( ctx_t * ctx,
     return;
   }
 
-  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol );
+  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now );
   if( FD_UNLIKELY( !cout ) ) return;
 
   fd_repair_send_request_async( ctx, sign_out, cout );
@@ -961,10 +988,10 @@ during_housekeeping( ctx_t * ctx ) {
   (void)ctx;
 # if DEBUG_LOGGING
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now - ctx->tsprint > (long)10e9 ) ) {
+  if( FD_UNLIKELY( now - ctx->tsdebug > (long)10e9 ) ) {
     fd_forest_print( ctx->forest );
     fd_reasm_print( ctx->reasm );
-    ctx->tsprint = fd_log_wallclock();
+    ctx->tsdebug = fd_log_wallclock();
   }
 # endif
 }
@@ -1160,12 +1187,15 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Repair set up */
 
-  ctx->turbine_slot  = 0;
   ctx->turbine_slot0 = ULONG_MAX;
-
   FD_LOG_INFO(( "repair my addr - intake addr: " FD_IP4_ADDR_FMT ":%u, serve_addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_intake_addr.addr ), fd_ushort_bswap( ctx->repair_intake_addr.port ),
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
+
+  memset( ctx->metrics, 0, sizeof(ctx->metrics) );
+  fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
+  ulong volatile * const replay_metrics = fd_metrics_tile( replay_tile->metrics );
+  ctx->metrics->last_replayed_slot      = replay_metrics+MIDX( COUNTER, REPLAY, MAX_REPLAYED_SLOT );
 
   fd_histf_join( fd_histf_new( ctx->metrics->store_link_wait, FD_MHIST_SECONDS_MIN( REPAIR, STORE_LINK_WAIT ),
                                                               FD_MHIST_SECONDS_MAX( REPAIR, STORE_LINK_WAIT ) ) );
@@ -1176,7 +1206,8 @@ unprivileged_init( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->metrics->response_latency, FD_MHIST_MIN( REPAIR, RESPONSE_LATENCY ),
                                                                FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY ) ) );
 
-  ctx->tsprint  = fd_log_wallclock();
+  ctx->tsdebug = fd_log_wallclock();
+  ctx->tsprint = fd_log_wallclock();
 }
 
 static ulong
@@ -1205,38 +1236,21 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
-  /* Repair-protocol-specific metrics */
-  FD_MCNT_SET( REPAIR, RECV_CLNT_PKT,               ctx->metrics->recv_clnt_pkt );
-  FD_MCNT_SET( REPAIR, RECV_SERV_PKT,               ctx->metrics->recv_serv_pkt );
-  FD_MCNT_SET( REPAIR, RECV_SERV_CORRUPT_PKT,       ctx->metrics->recv_serv_corrupt_pkt );
-  FD_MCNT_SET( REPAIR, RECV_SERV_INVALID_SIGNATURE, ctx->metrics->recv_serv_invalid_signature );
-  FD_MCNT_SET( REPAIR, RECV_SERV_FULL_PING_TABLE,   ctx->metrics->recv_serv_full_ping_table );
-  FD_MCNT_SET( REPAIR, RECV_PKT_CORRUPTED_MSG,      ctx->metrics->recv_pkt_corrupted_msg );
-  FD_MCNT_SET( REPAIR, REQUEST_PEERS,               ctx->policy->peers.cnt );
-  FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL,           ctx->metrics->sign_tile_unavail );
+  FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
+  FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
+  FD_MCNT_SET( REPAIR, REQUEST_PEERS,     ctx->policy->peers.cnt );
+  FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
 
-  FD_MCNT_SET      ( REPAIR, SHRED_REPAIR_REQ,    ctx->metrics->send_pkt_cnt );
-  FD_MCNT_ENUM_COPY( REPAIR, RECV_SERV_PKT_TYPES, ctx->metrics->recv_serv_pkt_types );
-  FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES,      ctx->metrics->sent_pkt_types );
+  FD_MCNT_SET      ( REPAIR, TOTAL_PKT_COUNT, ctx->metrics->send_pkt_cnt   );
+  FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES,  ctx->metrics->sent_pkt_types );
 
   FD_MHIST_COPY( REPAIR, STORE_LINK_WAIT,    ctx->metrics->store_link_wait );
   FD_MHIST_COPY( REPAIR, STORE_LINK_WORK,    ctx->metrics->store_link_work );
   FD_MHIST_COPY( REPAIR, SLOT_COMPLETE_TIME, ctx->metrics->slot_compl_time );
   FD_MHIST_COPY( REPAIR, RESPONSE_LATENCY,   ctx->metrics->response_latency );
-
-  ulong max_repaired_slot = 0;
-  fd_forest_consumed_t const * consumed = fd_forest_consumed_const( ctx->forest );
-  fd_forest_cns_t const *      conspool = fd_forest_conspool_const( ctx->forest );
-  fd_forest_blk_t const *      pool     = fd_forest_pool_const( ctx->forest );
-  for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( consumed, conspool );
-       !fd_forest_consumed_iter_done( iter, consumed, conspool );
-       iter = fd_forest_consumed_iter_next( iter, consumed, conspool ) ) {
-    fd_forest_cns_t const * ele = fd_forest_consumed_iter_ele_const( iter, consumed, conspool );
-    fd_forest_blk_t const * ele_ = fd_forest_pool_ele_const( pool, ele->forest_pool_idx );
-    if( ele_->slot > max_repaired_slot ) max_repaired_slot = ele_->slot;
-  }
-  FD_MCNT_SET( REPAIR, REPAIRED_SLOTS, max_repaired_slot );
 }
+
+#undef DEBUG_LOGGING
 
 /* TODO: This is not correct, but is temporary and will be fixed
    when fixed FEC 32 goes in, and we can finally get rid of force
