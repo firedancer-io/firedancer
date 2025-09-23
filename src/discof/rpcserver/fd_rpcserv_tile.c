@@ -8,9 +8,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define IN_KIND_REPLAY_OUT    (0)
-#define IN_KIND_STAKE_OUT     (1)
-#define IN_KIND_REPAIR_REPLAY (2)
+#define IN_KIND_REPLAY_OUT (0)
+#define IN_KIND_STAKE_OUT  (1)
+#define IN_KIND_SHRED_OUT  (2)
 
 struct fd_rpcserv_in {
   fd_wksp_t * mem;
@@ -111,7 +111,7 @@ returnable_frag( fd_rpcserv_tile_t * ctx,
       fd_rpc_stake_after_frag( ctx->ctx );
       break;
     }
-    case IN_KIND_REPAIR_REPLAY: {
+    case IN_KIND_SHRED_OUT: {
       fd_rpc_repair_during_frag( ctx->ctx, fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ), sz );
       fd_rpc_repair_after_frag( ctx->ctx );
       break;
@@ -187,7 +187,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_LIKELY( !strcmp( link->name, "replay_out"        ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPLAY_OUT;
     else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_STAKE_OUT;
-    else if( FD_LIKELY( !strcmp( link->name, "repair_repla" ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_REPAIR_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED_OUT;
     else FD_LOG_ERR(( "rpcserv tile has unexpected input link %s", link->name ));
 
     ctx->in[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
