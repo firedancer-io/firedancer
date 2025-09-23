@@ -19,6 +19,7 @@
 #define FD_SBPF_PROG_RODATA_ALIGN 8UL
 
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L17 */
+#define FD_SBPF_ELF_PARSER_SUCCESS                           ( 0)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER           (-1)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER        (-2)
 #define FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER        (-3)
@@ -37,6 +38,7 @@
 
 /* Map Rust ElfError (elf.rs v0.12.2) to C error codes */
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L40-L66 */
+#define FD_SBPF_ELF_SUCCESS                                  (  0)
 #define FD_SBPF_ELF_ERR_FAILED_TO_PARSE                      ( -1)
 #define FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS             ( -2)
 #define FD_SBPF_ELF_ERR_INVALID_ENTRYPOINT                   ( -3)
@@ -69,6 +71,12 @@
 #define FD_SBPF_V3            (3U)
 #define FD_SBPF_V4            (4U)
 #define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT)
+
+/* Hardcoded constant for the murmur3_32 hash of the entrypoint. */
+#define FD_SBPF_ENTRYPOINT_PC   (0xb00c380U)
+#define FD_SBPF_ENTRYPOINT_HASH (0x71e3cf81U) /* fd_pchash( FD_SBPF_ENTRYPOINT_PC ) */
+
+#define E_FLAGS_SBPF_V2         (0x20U)
 
 /* Program struct *****************************************************/
 
@@ -137,15 +145,11 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
    to fully load the program. */
 
 struct fd_sbpf_elf_info {
-  uint text_off;    /* File offset of .text section (overlaps rodata segment) */
-  uint text_cnt;    /* Instruction count */
-  ulong text_sz;    /* Length of text segment */
+  ulong bin_sz;   /* size of ELF binary */
 
-  uint dynstr_off;  /* File offset of .dynstr section (0=missing) */
-  uint dynstr_sz;   /* Dynstr char count */
-
-  uint rodata_sz;         /* size of rodata segment */
-  uint rodata_footprint;  /* size of ELF binary */
+  uint  text_off; /* File offset of .text section (overlaps rodata segment) */
+  uint  text_cnt; /* Instruction count */
+  ulong text_sz;  /* Length of text segment */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
@@ -154,21 +158,14 @@ struct fd_sbpf_elf_info {
   int shndx_strtab;
   int shndx_dyn;
   int shndx_dynstr;
+  int shndx_dynsymtab; /* Section header index of the dynamic symbol table */
 
   /* Known program header indices (like shndx_*) */
   int phndx_dyn;
 
-  /* Dynamic table entries */
-  int dt_rel;
-  int dt_relent;
-  int dt_relsz;
-  int dt_symtab;
-
-  uint entry_pc;  /* Program counter of entry point
-                     NOTE: MIGHT BE OUT OF BOUNDS! */
-
-  /* Bitmap of sections to be loaded (LSB => MSB) */
-  ulong loaded_sections[ 1024UL ];
+  /* Dynamic relocation table entries */
+  uint dt_rel_off; /* File offset of dynamic relocation table */
+  uint dt_rel_sz;  /* Number of dynamic relocation table entries */
 
   /* SBPF version, SIMD-0161 */
   ulong sbpf_version;
@@ -177,31 +174,51 @@ typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
 /* fd_sbpf_program_t describes a loaded program in memory.
 
-   [rodata,rodata+rodata_sz) is an externally allocated buffer holding
+   [rodata,rodata+bin_sz) is an externally allocated buffer holding
    the read-only segment to be loaded into the VM.  WARNING: The rodata
-   area required doing load (rodata_footprint) is larger than the area
-   mapped into the VM (rodata_sz).
+   area required doing load (bin_sz) is larger than the area mapped into
+   the VM (rodata_sz).
 
    [text,text+8*text_cnt) is a sub-region of the read-only segment
-   containing executable code. */
+   containing executable code.
+
+   We need to maintain a separate value tracking the entrypoint calldest
+   because we lay out our calldests in a set instead of a map (like
+   Agave does), which is more performant but comes with a few footguns.
+   Since we only store the target PC and not a keypair of <hash, target
+   PC>, we need to make sure we unregister the correct target PC from
+   the map. For all other cases besides the b"entrypoint" string, we can
+   simply check for membership within the calldests set because the
+   32-bit murmur3 hash function is bijective, implying key collision iff
+   value collision. However, the b"entrypoint" string is a special case
+   because the key is the hardcoded hash of the b"entrypoint" string,
+   but the value can correspond to any target PC. This means that
+   someone could register several different target PCs with the same
+   entrypoint PC, and we cannot figure out which target PC we must
+   unregister. Additionally, we would not be able to check for
+   collisions for multiple registered b"entrypoint" strings with
+   different target PCs.
+
+   Once entry_pc is set, any future calls to set the entry_pc within the
+   loader will error out with FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION. */
 
 struct __attribute__((aligned(32UL))) fd_sbpf_program {
   fd_sbpf_elf_info_t info;
 
   /* rodata segment to be mapped into VM memory */
   void * rodata;     /* rodata segment data */
-  ulong  rodata_sz;  /* size of data */
+  ulong  rodata_sz;  /* size of read-only data */
 
   /* text section within rodata segment */
   ulong * text;
   ulong   text_cnt;  /* instruction count */
   ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
-  ulong   text_sz;   /* size of text segment */
-  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) ... FIXME: HMMMM ... CODE SEEMS TO USE TEXT[ ENTRY_PC ] */
+  ulong   text_sz;   /* size of text segment. Guaranteed to be <= bin_sz. */
+  ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc ]). ULONG_MAX if not set. */
 
-  /* Bit vector of valid call destinations (bit count is rodata_sz) */
+  /* Bit vector of valid call destinations (bit count is text_cnt). */
   void * calldests_shmem;
-  /* Local join to bit vector of valid call destinations */
+  /* Local join to bit vector of valid call destinations (target PCs) */
   fd_sbpf_calldests_t * calldests;
 };
 typedef struct fd_sbpf_program fd_sbpf_program_t;
@@ -213,8 +230,6 @@ struct fd_sbpf_loader_config {
   };
   uint sbpf_min_version;
   uint sbpf_max_version;
-  int  enable_symbol_and_section_labels;
-  int  optimize_rodata;
 };
 typedef struct fd_sbpf_loader_config fd_sbpf_loader_config_t;
 
@@ -271,29 +286,22 @@ fd_sbpf_program_new( void *                     prog_mem,
 
    Initializes and populates the program struct with information about
    the program and prepares the read-only segment provided in
-   fd_sbpf_program_new.
+   fd_sbpf_program_new. This includes performing relocations in the
+   ELF file and zeroing gaps between rodata sections.
 
    Memory region [bin,bin+bin_sz) contains the ELF file to be loaded.
 
+   syscalls should be a pointer to a map of registered syscalls and
+   will be checked against when registering calldests for potential
+   symbol collisions.
+
    On success, returns 0.
-   On error, returns FD_SBPF_ERR_* and leaves prog in an undefined
-   state.
+   On error, returns FD_SBPF_ERR_*.
 
    ### Compliance
 
-   This loader does not yet adhere to Solana protocol specs.
-   It is mostly compatible with solana-labs/rbpf v0.3.0 with the
-   following config:
-
-     new_elf_parser:     true
-     enable_elf_vaddr:   false
-     reject_broken_elfs: elf_deploy_checks
-
-   For documentation on these config params, see:
-   https://github.com/anza-xyz/sbpf/blob/v0.3.0/src/vm.rs#L198
-
-   Solana/Agave equivalent:
-   https://github.com/anza-xyz/sbpf/blob/v0.8.0/src/elf.rs#L361
+   As of writing, this loader is conformant with Solana SBPF v0.12.2,
+   SBPF versions V0, V1, and V2.
    */
 
 int
@@ -309,19 +317,36 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
 void *
 fd_sbpf_program_delete( fd_sbpf_program_t * program );
 
-/* fd_csv_strerror: Returns a cstr describing the source line and error
-   kind after the last call to `fd_sbpf_program_load` from the same
-   thread returned non-zero.
-   Always returns a valid cstr, though the content is undefined in case
-   the last call to `fd_sbpf_program_load` returned zero (success). */
+/* SBPF versions and features. This should stay in sync with the macro
+   definitions in fd_vm_private.h until they are removed (once Agave
+   cleans up the jump table).
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L28 */
 
-char const *
-fd_sbpf_strerror( void );
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN (64U)
+
+/* SIMD-0166 */
+static inline int fd_sbpf_dynamic_stack_frames_enabled       ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V1; }
+
+/* SIMD-0173 */
+static inline int fd_sbpf_callx_uses_src_reg_enabled         ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+static inline int fd_sbpf_enable_lddw_enabled                ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
+static inline int fd_sbpf_enable_le_enabled                  ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
+static inline int fd_sbpf_move_memory_ix_classes_enabled     ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+
+/* SIMD-0174 */
+static inline int fd_sbpf_enable_neg_enabled                 ( ulong sbpf_version ) { return sbpf_version<FD_SBPF_V2; }
+static inline int fd_sbpf_swap_sub_reg_imm_operands_enabled  ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+static inline int fd_sbpf_explicit_sign_ext_enabled          ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+static inline int fd_sbpf_enable_pqr_enabled                 ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V2; }
+
+/* SIMD-0178 */
+static inline int fd_sbpf_static_syscalls_enabled            ( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
+static inline int fd_sbpf_enable_elf_vaddr_enabled           ( ulong sbpf_version ) { return sbpf_version!=FD_SBPF_V0; }
+static inline int fd_sbpf_reject_rodata_stack_overlap_enabled( ulong sbpf_version ) { return sbpf_version!=FD_SBPF_V0; }
 
 /* SIMD-0189 */
-static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
-static inline int fd_sbpf_enable_elf_vaddr           ( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
-static inline int fd_sbpf_reject_rodata_stack_overlap( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
+static inline int fd_sbpf_enable_stricter_elf_headers_enabled( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
+static inline int fd_sbpf_enable_lower_bytecode_vaddr_enabled( ulong sbpf_version ) { return sbpf_version>=FD_SBPF_V3; }
 
 FD_PROTOTYPES_END
 

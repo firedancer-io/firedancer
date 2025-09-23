@@ -56,7 +56,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
 
   /* Allocate rodata segment */
 
-  void * rodata = malloc( elf_info.rodata_footprint );
+  void * rodata = malloc( elf_info.bin_sz );
   FD_TEST( rodata );
 
   /* Allocate program buffer */
@@ -75,7 +75,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
 
   /* Load program */
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config ) ) )
-    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_ERR(( "fd_sbpf_program_load() failed" ));
 
   tool_prog->bin_buf  = bin_buf;
   tool_prog->prog     = prog;

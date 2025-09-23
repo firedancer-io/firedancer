@@ -177,7 +177,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Allocate rodata segment */
-  void * rodata = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, elf_info->rodata_footprint );
+  void * rodata = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, elf_info->bin_sz );
   if( FD_UNLIKELY( !rodata ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -187,7 +187,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong  prog_footprint    = fd_sbpf_program_footprint( elf_info );
   fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc( spad, prog_align, prog_footprint ), elf_info, rodata );
   if( FD_UNLIKELY( !prog ) ) {
-    FD_LOG_ERR(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
   /* Load program */
