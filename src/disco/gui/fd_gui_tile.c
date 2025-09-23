@@ -307,8 +307,8 @@ after_frag( fd_gui_ctx_t *      ctx,
           case FD_REPAIR_KIND_PING:
           case FD_REPAIR_KIND_PONG:
           case FD_REPAIR_KIND_ORPHAN: break;
-          case FD_REPAIR_KIND_SHRED: fd_gui_handle_repair_slot( ctx->gui, msg->shred.slot, tsorig_ns ); break;
-          case FD_REPAIR_KIND_HIGHEST_SHRED: fd_gui_handle_repair_slot( ctx->gui, msg->highest_shred.slot, tsorig_ns ); break;
+          case FD_REPAIR_KIND_SHRED: { if( FD_UNLIKELY( msg->shred.slot==0 ) ) { break; } fd_gui_handle_repair_slot( ctx->gui, msg->shred.slot, tsorig_ns ); break; }
+          case FD_REPAIR_KIND_HIGHEST_SHRED: { if( FD_UNLIKELY( msg->highest_shred.slot==0 ) ) { break; } fd_gui_handle_repair_slot( ctx->gui, msg->highest_shred.slot, tsorig_ns ); break; }
           default: FD_LOG_ERR(( "unexpected repair msg kind %u", msg->kind ));
         }
       }

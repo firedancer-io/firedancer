@@ -318,6 +318,31 @@ errors.
 NOTE: this message is only supported on the Firedancer client, the
 Frankendancer client will always publish `null` for this message
 
+#### `summary.catch_up_history`
+| frequency | type             | example   |
+|-----------|------------------|-----------|
+| *Once*    | `CatchUpHistory` | see below |
+
+This validator records a history of all slots that were received from
+turbine as well as slots for which a repair request was made while it is
+catching up.  After catching up, slots are no longer recorded in this
+history.
+
+::: details Example
+
+```json
+{
+	"topic": "summary",
+	"key": "catch_up_history",
+	"value": {
+        "repair": [11, 12, 13, ...],
+        "turbine": [21, 22, 23, ...]
+	}
+}
+```
+
+:::
+
 #### `summary.startup_time_nanos`
 | frequency | type     | example             |
 |-----------|----------|---------------------|
@@ -1514,6 +1539,7 @@ initially replay one but the cluster votes on the other one.
 | failed_vote_transactions     | `number\|null` | Total number of failed vote transactions in the block.  This should be near-zero in a healthy cluster |
 | max_compute_units            | `number\|null` | The maximum number of compute units that can be packed into the slot.  This limit is one of many consensus-critical limits defined by the solana protocol, and helps keeps blocks small enough for validators consume them quickly.  It may grow occasionally via on-chain feature activations |
 | compute_units                | `number\|null` | Total number of compute units used by the slot.  Compute units are a synthetic metric that attempt to capture, based on the content of the block, the various costs that go into processing that block (i.e. cpu, memory, and disk utilization).  They are based on certain transaction features, like the number of included signatures, the number of included signature verfication programs, the number of included writeable accounts, the size of the instruction data, the size of the on-chain loaded account data, and the number of computation steps.  NOTE: "compute units" is an overloaded term that is often used in misleading contexts to refer to only a single part of the whole consensus-critical cost formula. For example, the getBlock RPC call includes a "computeUnitsConsumed" which actually only refers only the execution compute units associated with a transaction, but excludes other costs like signature costs, data costs, etc.  This API will always use compute units in a way that includes ALL consensus-relevant costs, unless otherwise specified |
+| shreds                       | `number\|null` | Total number of shreds in the successfully replayed block. Note value is only available in the Firedancer client and will be 0 or null in the Frankendancer client |
 | transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
@@ -1543,6 +1569,90 @@ A list of all of the leader slots which were skipped in the current and
 immediately prior epoch.  Recent non-rooted slots may be included, and
 included skipped slots will not become unskipped as a later slot has
 rooted.
+
+#### `slot.live_shreds`
+| frequency   | type          | example |
+|-------------|---------------|---------|
+| *10ms*      | `SlotShred[]` | below   |
+
+The validator sends a continous stream of update messages with detailed
+information about the time and duration of different shred state
+transitions (i.e. shred events). A given event is only ever sent once
+and is broadcast to all WebSocket clients.
+
+:::details Example
+
+```json
+{
+	"topic": "slot",
+	"key": "shreds",
+	"value": {
+        "reference_slot": 289245044,
+        "reference_ts": "1739657041588242791",
+        "slot_delta": [0, 0],
+        "shred_idx": [1234, null],
+        "event": [0, 1],
+        "event_ts_delta": ["1000000", "2000000"]
+    }
+}
+```
+
+:::
+
+**`SlotShred`**
+| Field           | Type               | Description |
+|-----------------|--------------------|-------------|
+| reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
+| reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
+| slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
+| shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
+| events          | `string[]`         | `events[i]` is the name of shred event `i`. Possible values are `repair_request`, `shred_received`, `shred_replayed`, and `slot_complete` |
+| events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occured |
+
+#### `slot.query_shreds`
+| frequency   | type          | example |
+|-------------|---------------|---------|
+| *Request*   | `SlotShred[]\null` | below   |
+
+| param | type     | description |
+|-------|----------|-------------|
+| slot  | `number` | The requested slot for which the reponse will provide shred timing data |
+
+WebSocket clients may request historical shred metadata on a per-slot
+basis. For slots that are too old (i.e. they've been expired from an
+in-memory store) or too new (i.e. they haven't been finalized yet), the
+response value will be `null`.
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query_shreds",
+    "id": 32,
+    "params": {
+        "slot": 289245044
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_shreds",
+    "id": 32,
+    "value": {
+        "reference_slot": 289245044,
+        "reference_ts": "1739657041588242791",
+        "slot_delta": [0, 0],
+        "shred_idx": [1234, null],
+        "event": [0, 1],
+        "event_ts_delta": ["1000000", "2000000"]
+    }
+}
+```
+
+:::
 
 #### `slot.update`
 | frequency   | type          | example |
@@ -1675,7 +1785,8 @@ explicitly mentioned, skipped slots are not included.
             "vote_transactions": 6746,
             "failed_transactions": 3703,
             "max_compute_units": 48000000,
-            "compute_units": 0
+            "compute_units": 0,
+            "shreds": 123
         }
     }
 }
@@ -1720,7 +1831,8 @@ explicitly mentioned, skipped slots are not included.
             "vote_transactions": 6746,
             "failed_transactions": 3703,
             "max_compute_units": 48000000,
-            "compute_units": 0
+            "compute_units": 0,
+            "shreds": 123
         },
         "waterfall": {
             "in": {
@@ -1855,7 +1967,8 @@ explicitly mentioned, skipped slots are not included.
             "vote_transactions": 6746,
             "failed_transactions": 3703,
             "max_compute_units": 48000000,
-            "compute_units": 0
+            "compute_units": 0,
+            "shreds": 123
         },
         "transactions": {
             "start_timestamp_nanos": "1739657041688346791",

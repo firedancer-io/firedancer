@@ -172,8 +172,22 @@ struct fd_gui_validator_info {
    caught up. This would require the chain having perpetually malicious
    leaders with adjacent rotations.  If this happens, Solana has bigger
    problems. */
-#define FD_GUI_TURBINE_SLOT_HISTORY_SZ ( 12UL )
-#define FD_GUI_REPAIR_SLOT_HISTORY_SZ  ( 12UL )
+#define FD_GUI_TURBINE_SLOT_HISTORY_SZ (  12UL )
+
+/* Like the turbine slot, the latest repair slot can also swing to
+   arbitrarily large values due to a malicious fork switch.  The gui
+   provides the same guarantees for freshness and accuracy.  This
+   history is somewhat larger to handle the increased repair bandwidth
+   during catch up. */
+#define FD_GUI_REPAIR_SLOT_HISTORY_SZ  ( 512UL )
+
+/* FD_GUI_*_CATCH_UP_HISTORY_SZ is the capacity of the record of slots
+   seen from repair or turbine during the catch up stage at startup.
+   These buffers are run-length encoded, so they will typically be very
+   small.  The worst-case scenario is unbounded, so bounds here are
+   determined heuristically. */
+#define FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ  (4096UL)
+#define FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ (4096UL)
 
 /* FD_GUI_SHREDS_STAGING_SZ is number of shred events we'll retain in
    in a small staging area.  The lifecycle of a shred looks something
@@ -219,6 +233,47 @@ struct fd_gui_validator_info {
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
+
+/* FD_GUI_SHREDS_STAGING_SZ is number of shred events we'll retain in
+   in a small staging area.  The lifecycle of a shred looks something
+   like the following
+
+   states] turbine -> repairing (optional) ->  processing                   -> waiting_for_siblings -> slot_complete
+   events]         ^-repair_requested      ^-shred_received/shred_repaired  ^-shred_replayed        ^-max(shred_replayed)
+
+   We're interested in recording timestamps for state transitions (which
+   these docs call "shred events").  Unfortunately, due to forking,
+   duplicate packets, etc we can't make any guarantees about ordering or
+   uniqueness for these event timestamps.  Instead the GUI just records
+   timestamps for all events as they occur and put them into an array.
+   Newly recorded event timestamps are also broadcast live to WebSocket
+   consumers.
+
+   The amount of shred events for non-finalized blocks can't really be
+   bounded, so we use generous estimates here to set a memory bound. */
+#define FD_GUI_MAX_SHREDS_PER_BLOCK  (32UL*1024UL)
+#define FD_GUI_MAX_EVENTS_PER_SHRED  (       32UL)
+#define FD_GUI_SHREDS_STAGING_SZ     (32UL * FD_GUI_MAX_SHREDS_PER_BLOCK * FD_GUI_MAX_EVENTS_PER_SHRED)
+
+/* FD_GUI_SHREDS_HISTORY_SZ the number of shred events in our historical
+   shred store.  Shred events here belong to finalized slots which means
+   we won't record any additional shred updates for these slots.
+
+   All shred events for a given slot will be places in a contiguous
+   chunk in the array, and the bounding indicies are stored in the
+   fd_gui_slot_t slot history.  Within a slot chunk, shred events are
+   ordered in the ordered they were recorded by the gui tile.
+
+   Ideally, we have enough space to store an epoch's worth of events,
+   but we are limited by realistic memory consumption.  Instead, we pick
+   bound heuristically. */
+#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
+
+#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (1UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (2UL)
+#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (3UL)
+#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (4UL)
 
 struct fd_gui_tile_timers {
   ulong caughtup_housekeeping_ticks;
@@ -461,6 +516,7 @@ struct fd_gui_slot {
   ulong transaction_fee;
   ulong priority_fee;
   ulong tips;
+  uint  shred_cnt;
 
   /* Some slot info is only tracked for our own leader slots. These
      slots are kept in a separate buffer. */
@@ -471,6 +527,13 @@ struct fd_gui_slot {
 
   fd_gui_tile_stats_t tile_stats_begin[ 1 ];
   fd_gui_tile_stats_t tile_stats_end[ 1 ];
+
+  struct {
+    ulong start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
+                           contiguous chunk of events in the shred history corresponding to this slot. */
+    ulong end_offset;   /* gui->shreds.history[ end_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the last shred event in
+                           contiguous chunk of events in the shred history corresponding to this slot. */
+  } shreds;
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
@@ -576,9 +639,19 @@ struct fd_gui {
     ulong slot_completed;
     ulong slot_estimated;
     ulong slot_caught_up;
+    ulong slot_repair;
+    ulong slot_turbine;
 
     fd_gui_ephemeral_slot_t slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL ];
     fd_gui_ephemeral_slot_t slots_max_repair [ FD_GUI_REPAIR_SLOT_HISTORY_SZ +1UL ];
+
+    /* catchup_* is run-length encoded. i.e. adjacent pairs represent
+      contiguous runs */
+    ulong catch_up_turbine[ FD_GUI_TURBINE_CATCH_UP_HISTORY_SZ ];
+    ulong catch_up_turbine_sz;
+
+    ulong catch_up_repair[ FD_GUI_REPAIR_CATCH_UP_HISTORY_SZ ];
+    ulong catch_up_repair_sz;
 
     ulong estimated_tps_history_idx;
     ulong estimated_tps_history[ FD_GUI_TPS_HISTORY_SAMPLE_CNT ][ 3UL ];
@@ -650,7 +723,19 @@ struct fd_gui {
     struct fd_gui_validator_info info[ FD_GUI_MAX_PEER_CNT ];
   } validator_info;
 
-  fd_gui_peers_ctx_t * peers;
+  fd_gui_peers_ctx_t * peers; /* full-client */
+
+  struct {
+    ulong staged_next_broadcast; /* staged[ staged_next_broadcast % FD_GUI_SHREDS_STAGING_SZ ] is the first shred event
+                                    that hasn't yet been broadcast to WebSocket clients */
+    ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the valid event in staged */
+    ulong staged_tail;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the last valid event in staged */
+    fd_gui_slot_staged_shred_event_t  staged [ FD_GUI_SHREDS_STAGING_SZ ];
+
+    ulong history_slot;          /* the largest slot store in history */
+    ulong history_tail;          /* history_tail % FD_GUI_SHREDS_STAGING_SZ is the last valid event in history +1 */
+    fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
+  } shreds; /* full client */
 };
 
 typedef struct fd_gui fd_gui_t;
