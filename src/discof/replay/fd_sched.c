@@ -287,6 +287,9 @@ fd_sched_join( void * mem, ulong block_cnt_max ) {
   sched->rdisp      = fd_rdisp_join( _rdisp );
   sched->block_pool = _bpool;
 
+  fd_sched_block_t * block = sched->block_pool+0UL;
+  FD_LOG_WARNING(("SCHED BLOCK %d", block->in_sched));
+
   return sched;
 }
 
@@ -748,7 +751,7 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong block_idx, ulong parent_block
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( block_idx<sched->block_cnt_max );
 
-  fd_sched_block_t * block        = sched->block_pool+block_idx;
+  fd_sched_block_t * block = sched->block_pool+block_idx;
   add_block( sched, block_idx, parent_block_idx );
   block->txn_done_cnt = block->txn_parsed_cnt = UINT_MAX;
   block->fec_eos = 1;
@@ -762,7 +765,7 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong block_idx, ulong parent_block
 }
 
 void
-fd_sched_root_advance( fd_sched_t * sched, ulong root_idx ) {
+fd_sched_advance_root( fd_sched_t * sched, ulong root_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( root_idx<sched->block_cnt_max );
   FD_TEST( sched->root_idx<sched->block_cnt_max );
@@ -827,7 +830,7 @@ fd_sched_root_advance( fd_sched_t * sched, ulong root_idx ) {
 }
 
 void
-fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
+fd_sched_notify_root( fd_sched_t * sched, ulong root_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( root_idx<sched->block_cnt_max );
   FD_TEST( sched->root_idx<sched->block_cnt_max );

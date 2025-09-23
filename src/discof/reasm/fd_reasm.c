@@ -278,6 +278,7 @@ fd_reasm_next( fd_reasm_t * reasm ) {
     fec->fork_idx        = fd_reasm_get_new_fork_idx( reasm );
     fec->parent_fork_idx = parent_fec->parent_fork_idx;
   }
+  FD_LOG_WARNING(("REASM FEC NEXT %lu", fec->fork_idx));
 
   return fec;
 }

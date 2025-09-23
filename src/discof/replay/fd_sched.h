@@ -203,7 +203,7 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong block_idx, ulong parent_block
    should be called after root_notify() and the caller is responsible
    for figuring out the new root to safely prune to. */
 void
-fd_sched_root_advance( fd_sched_t * sched, ulong root_idx );
+fd_sched_advance_root( fd_sched_t * sched, ulong root_idx );
 
 /* Notify the scheduler of a new root.  This has the effect of calling
    abandon() on all minority forks that do not descend from the new
@@ -211,7 +211,7 @@ fd_sched_root_advance( fd_sched_t * sched, ulong root_idx );
    from these abandoned blocks should retire from the execution
    pipeline, and the new root will be safe for pruning. */
 void
-fd_sched_root_notify( fd_sched_t * sched, ulong root_idx );
+fd_sched_notify_root( fd_sched_t * sched, ulong root_idx );
 
 fd_txn_p_t *
 fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx );

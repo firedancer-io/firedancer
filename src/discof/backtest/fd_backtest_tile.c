@@ -46,6 +46,10 @@ typedef struct {
 
   fd_valloc_t valloc;
 
+  /* Fork idx tracking */
+  ulong curr_fork_idx;
+  ulong prev_fork_idx;
+
   /* RocksDB-related ctx for iterating shreds in RocksDB and checking
      bank hash */
 
@@ -276,15 +280,22 @@ after_credit( ctx_t *             ctx,
   fd_store_exrel( ctx->store );
 
   fd_reasm_fec_t out = {
-    .key           = mr,
-    .cmr           = cmr,
-    .slot          = prev->slot,
-    .parent_off    = prev->data.parent_off,
-    .fec_set_idx   = prev->fec_set_idx,
-    .data_cnt      = (ushort)( prev->idx + 1 - prev->fec_set_idx ),
-    .data_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ),
-    .slot_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE )
+    .key             = mr,
+    .cmr             = cmr,
+    .slot            = prev->slot,
+    .parent_off      = prev->data.parent_off,
+    .fec_set_idx     = prev->fec_set_idx,
+    .data_cnt        = (ushort)( prev->idx + 1 - prev->fec_set_idx ),
+    .data_complete   = !!(prev->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE),
+    .slot_complete   = !!(prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE),
+    .fork_idx        = ctx->curr_fork_idx,
+    .parent_fork_idx = ctx->prev_fork_idx,
   };
+
+  if( !!out.slot_complete ) {
+    ctx->prev_fork_idx = ctx->curr_fork_idx;
+    ctx->curr_fork_idx = (ctx->curr_fork_idx + 1UL) % 4UL;
+  }
 
   ulong sig = out.slot << 32 | out.fec_set_idx;
   memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_reasm_fec_t) );
@@ -326,6 +337,8 @@ returnable_frag( ctx_t *             ctx,
       ctx->start_slot  = manifest->slot;
       ctx->replay_time = -fd_log_wallclock();
 
+      FD_LOG_NOTICE(("BACKTEST SNAP INITIALIZED %lu", manifest->slot));
+
       fd_rocksdb_root_iter_new( &ctx->rocksdb_root_iter );
       if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &ctx->rocksdb_root_iter, &ctx->rocksdb, ctx->root, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) {
         FD_LOG_CRIT(( "Failed at seeking rocksdb root iter for slot=%lu", ctx->root ));
@@ -366,6 +379,7 @@ returnable_frag( ctx_t *             ctx,
       } else {
         /* Delay publishing by 1 slot otherwise there is a replay tile
            race when it tries to query the parent. */
+        FD_LOG_NOTICE(("ASDF ASDF"));
 
         fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
         dst->root_slot      = ctx->staged_root;
@@ -373,7 +387,8 @@ returnable_frag( ctx_t *             ctx,
         dst->new_root       = 1;
         dst->reset_block_id = msg->block_id;
 
-        if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX ) ) {
+        if( FD_UNLIKELY( ctx->staged_root!=ULONG_MAX && ctx->staged_root!=ctx->start_slot ) ) {
+          FD_LOG_NOTICE(( "STAGED ROOT %lu %s", ctx->staged_root, FD_BASE58_ENC_32_ALLOCA( &ctx->staged_root_block_id ) ));
           fd_stem_publish( stem, ctx->tower_out_idx, 0UL, ctx->tower_out_chunk, sizeof(fd_hash_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
         }
         ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
@@ -405,7 +420,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->root        = ULONG_MAX;
   ctx->staged_root = ULONG_MAX;
-  ctx->start_slot  = ULONG_MAX;
+  ctx->start_slot  = 0UL;
   ctx->end_slot    = tile->archiver.end_slot;
   ctx->replay_time = LONG_MAX;
   ctx->slot_cnt    = 0UL;
@@ -413,6 +428,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, 1 ), 1 );
   FD_TEST( alloc );
   ctx->valloc = fd_alloc_virtual( alloc );
+
+  ctx->curr_fork_idx = 1UL;
+  ctx->prev_fork_idx = 0UL; /* 0 will be the fork idx of the snapshot/genesis slot. */
 
   ctx->rocksdb_curr_idx = 0;
   ctx->rocksdb_end_idx  = 0;
