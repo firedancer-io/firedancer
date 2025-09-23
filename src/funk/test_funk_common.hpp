@@ -106,8 +106,10 @@ struct fake_funk {
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
 
 #ifdef FUNK_RECONNECT_TEST
+      char shm_path[256];
+      snprintf(shm_path, sizeof(shm_path), "%s/.gigantic/reconnect_test", fd_shmem_private_base);
       struct stat x;
-      if( stat("/mnt/.fd/.gigantic/reconnect_test", &x) == 0) {
+      if( stat(shm_path, &x) == 0) {
         void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 ); /* logs details */
         FD_TEST( shmem != NULL );
         _wksp = fd_wksp_join( shmem );

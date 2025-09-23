@@ -1,9 +1,19 @@
+// sudo build/native/gcc/bin/fd_shmem_cfg init 0700 asiegel ""
+
 #define FUNK_RECONNECT_TEST 1
 
-#include "test_funk_common.hpp"
 #include <stdio.h>
+#include <errno.h>
+#include <string.h>
+extern "C" {
+#include "../util/fd_util.h"
+#include "../util/shmem/fd_shmem_private.h"
+}
+#include "test_funk_common.hpp"
 
 int main(int argc, char** argv) {
+  fd_boot( &argc, &argv );
+
   srand(1234);
 
   fake_funk ff(&argc, &argv);
