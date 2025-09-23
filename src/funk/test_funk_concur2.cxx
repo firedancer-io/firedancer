@@ -6,24 +6,25 @@
 
 #define NUM_THREADS 16
 #define MAX_TXN_CNT 512
-#define NUM_KEYS    2
+#define NUM_KEYS    64
 
 static volatile uint exp_val[NUM_KEYS] = {0};
 
-struct test_funk_txn_pair {
+struct test_funk_thread_arg {
   fd_funk_t     * funk;
   fd_funk_txn_t * txn;
+  uint            first_key;
+  uint            last_key;
 };
-typedef struct test_funk_txn_pair test_funk_txn_pair_t;
+typedef struct test_funk_thread_arg test_funk_thread_arg_t;
 
-
-static void * work_thread( void * arg ) {
-  test_funk_txn_pair_t * pair = (test_funk_txn_pair_t *)arg;
-  fd_funk_t * funk = pair->funk;
-  fd_funk_txn_t * txn = pair->txn;
+static void * work_thread( void * _arg ) {
+  test_funk_thread_arg_t * arg = (test_funk_thread_arg_t *)_arg;
+  fd_funk_t * funk = arg->funk;
+  fd_funk_txn_t * txn = arg->txn;
 
   for( ulong i=0UL; i<1024UL; i++ ) {
-    uint key_idx = (uint)lrand48() % NUM_KEYS;
+    uint key_idx = ((uint)lrand48() % (arg->last_key - arg->first_key)) + arg->first_key;
     fd_funk_rec_key_t key = {};
     key.ul[0] = key_idx;
 
@@ -47,7 +48,6 @@ static void * work_thread( void * arg ) {
 
     /* Increment the value. */
     FD_ATOMIC_FETCH_AND_ADD( &exp_val[key_idx], 1 );
-
   }
   return NULL;
 
@@ -118,11 +118,14 @@ int main( int argc, char ** argv ) {
       continue;
     }
 
-    test_funk_txn_pair_t pair = { funk, txn };
-
+    test_funk_thread_arg_t args[NUM_THREADS];
     pthread_t thread[NUM_THREADS];
     for( uint i = 0; i < NUM_THREADS; ++i ) {
-      pthread_create( &thread[i], NULL, work_thread, (void *)&pair );
+      args[i].funk = funk;
+      args[i].txn = txn;
+      args[i].first_key = (i * NUM_KEYS) / NUM_THREADS;
+      args[i].last_key = ((i + 1) * NUM_KEYS) / NUM_THREADS;
+      pthread_create( &thread[i], NULL, work_thread, (void *)&args[i] );
     }
 
     for( uint i = 0; i < NUM_THREADS; ++i ) {
