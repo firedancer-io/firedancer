@@ -162,6 +162,10 @@ fd_gui_new( void *                shmem,
   for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
   gui->pack_txn_idx = 0UL;
 
+  gui->shreds.staged_next_broadcast = 0UL;
+  gui->shreds.staged_cnt = 0UL;
+  gui->shreds.history_cnt = 0UL;
+
   return gui;
 }
 
@@ -665,6 +669,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
     default: FD_LOG_ERR(( "unknown boot progress phase: %d", gui->summary.boot_progress.phase ));
   }
 }
+
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   int did_work = 0;
@@ -706,6 +711,10 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     fd_gui_printf_live_tile_timers( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_printf_shred_updates( gui );
+    fd_http_server_ws_broadcast( gui->http );
+    gui->shreds.staged_next_broadcast = gui->shreds.staged_cnt;
 
     gui->next_sample_10millis += 10L*1000L*1000L;
     did_work = 1;
@@ -1178,6 +1187,30 @@ fd_gui_request_slot_rankings( fd_gui_t *    gui,
 }
 
 int
+fd_gui_request_slot_shreds( fd_gui_t *    gui,
+                            ulong         ws_conn_id,
+                            ulong         request_id,
+                            cJSON const * params ) {
+  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
+  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong slot = slot_param->valueulong;
+
+  ulong _start_offset = gui->slots[ slot % FD_GUI_SLOTS_CNT ]->shreds.start_offset;
+  ulong _end_offset   = gui->slots[ slot % FD_GUI_SLOTS_CNT ]->shreds.end_offset;
+  ulong _slot         = gui->slots[ slot % FD_GUI_SLOTS_CNT ]->slot;
+  if( FD_UNLIKELY( _slot==ULONG_MAX || _start_offset==UINT_MAX || _end_offset==UINT_MAX || gui->shreds.history_cnt > _end_offset + FD_GUI_SHREDS_HISTORY_SZ ) ) {
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_rankings", request_id );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    return 0;
+  }
+
+  fd_gui_printf_slot_shred_updates( gui, _slot, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
                    uchar const * data,
@@ -1249,6 +1282,16 @@ fd_gui_ws_message( fd_gui_t *    gui,
     int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
     cJSON_Delete( json );
     return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_slot_shreds( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -1296,6 +1339,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->tips                   = ULONG_MAX;
   slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
   slot->completed_time         = LONG_MAX;
+  slot->shred_cnt              = UINT_MAX;
 
   slot->txs.leader_start_time  = LONG_MAX;
   slot->txs.leader_end_time    = LONG_MAX;
@@ -1305,6 +1349,9 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->txs.reference_nanos    = LONG_MAX;
   slot->txs.start_offset       = ULONG_MAX;
   slot->txs.end_offset         = ULONG_MAX;
+
+  slot->shreds.start_offset    = UINT_MAX;
+  slot->shreds.end_offset      = UINT_MAX;
 
   if( FD_LIKELY( slot->mine ) ) {
     /* All slots start off not skipped, until we see it get off the reset
@@ -1474,10 +1521,14 @@ fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      fec_idx,
                      int        is_turbine,
                      long       tsorig ) {
-  (void)shred_idx;
-  (void)fec_idx;
-
   if( FD_LIKELY( is_turbine ) ) fd_gui_try_insert_slot_max_known( gui, slot, tsorig );
+
+  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_cnt++ ];
+  recv_event->timestamp = tsorig;
+  recv_event->shred_idx = (ushort)shred_idx;
+  recv_event->fec_idx   = (ushort)fec_idx;
+  recv_event->slot      = slot;
+  recv_event->event     = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
 }
 
 void
@@ -1644,27 +1695,26 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   }
 }
 
-static void
+void
 fd_gui_handle_completed_slot( fd_gui_t * gui,
-                              ulong *    msg,
-                              long       now ) {
-  ulong _slot                    = msg[ 0 ];
-  uint  total_txn_count          = (uint)msg[ 1 ];
-  uint  nonvote_txn_count        = (uint)msg[ 2 ];
-  uint  failed_txn_count         = (uint)msg[ 3 ];
-  uint  nonvote_failed_txn_count = (uint)msg[ 4 ];
-  uint  compute_units            = (uint)msg[ 5 ];
-  ulong transaction_fee          = msg[ 6 ];
-  ulong priority_fee             = msg[ 7 ];
-  ulong tips                     = msg[ 8 ];
-  ulong _parent_slot             = msg[ 9 ];
-  ulong max_compute_units        = msg[ 10 ];
+                              ulong      completed_slot,
+                              ulong      total_txn_count,
+                              ulong      nonvote_txn_count,
+                              ulong      failed_txn_count,
+                              ulong      nonvote_failed_txn_count,
+                              ulong      compute_units,
+                              ulong      transaction_fee,
+                              ulong      priority_fee,
+                              ulong      tips,
+                              ulong      parent_slot,
+                              ulong      max_compute_units,
+                              ulong      shred_count,
+                              long       replay_time ) {
+  fd_gui_slot_t * slot = gui->slots[ completed_slot % FD_GUI_SLOTS_CNT ];
+  if( FD_UNLIKELY( slot->slot!=completed_slot ) ) fd_gui_clear_slot( gui, completed_slot, parent_slot );
 
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
-
-  slot->completed_time = now;
-  slot->parent_slot = _parent_slot;
+  slot->completed_time    = replay_time;
+  slot->parent_slot       = parent_slot;
   slot->max_compute_units = (uint)max_compute_units;
   if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
     /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
@@ -1672,7 +1722,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
        optimistically confirm a higher slot that skips this one, but
        then later we replay this one anyway to track the bank fork. */
 
-    if( FD_LIKELY( _slot<gui->summary.slot_optimistically_confirmed ) ) {
+    if( FD_LIKELY( completed_slot<gui->summary.slot_optimistically_confirmed ) ) {
       /* Cluster might have already optimistically confirmed by the time
          we finish replaying it. */
       slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
@@ -1680,30 +1730,41 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
       slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
     }
   }
-  slot->total_txn_cnt          = total_txn_count;
-  slot->vote_txn_cnt           = total_txn_count - nonvote_txn_count;
-  slot->failed_txn_cnt         = failed_txn_count;
-  slot->nonvote_failed_txn_cnt = nonvote_failed_txn_count;
+  slot->total_txn_cnt          = (uint)total_txn_count;
+  slot->vote_txn_cnt           = (uint)(total_txn_count - nonvote_txn_count);
+  slot->failed_txn_cnt         = (uint)failed_txn_count;
+  slot->nonvote_failed_txn_cnt = (uint)nonvote_failed_txn_count;
   slot->transaction_fee        = transaction_fee;
   slot->priority_fee           = priority_fee;
   slot->tips                   = tips;
+  slot->shred_cnt              = (uint)shred_count;
+
+  /* Add a "slot complete" event for all of the shreds in this slot */
+  if( FD_UNLIKELY( slot->shred_cnt > FD_GUI_MAX_SHREDS_PER_BLOCK ) ) FD_LOG_ERR(( "unexpected shred_cnt=%lu", shred_count ));
+  fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_cnt++ ];
+  slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
+  slot_complete_event->timestamp = replay_time;
+  slot_complete_event->shred_idx = USHORT_MAX;
+  slot_complete_event->fec_idx   = USHORT_MAX;
+  slot_complete_event->slot      = completed_slot;
+
   if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_UNSTARTED ) ) {
     /* If we were already leader for this slot, then the poh component
        calculated the CUs used and sent them there, rather than the
        replay component which is sending this completed slot. */
-    slot->compute_units   = compute_units;
+    slot->compute_units   = (uint)compute_units;
   }
 
-  if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
+  if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && completed_slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
-  } else if( FD_UNLIKELY( gui->epoch.has_epoch[ 1 ] && _slot==gui->epoch.epochs[ 1 ].end_slot ) ) {
+  } else if( FD_UNLIKELY( gui->epoch.has_epoch[ 1 ] && completed_slot==gui->epoch.epochs[ 1 ].end_slot ) ) {
     gui->epoch.epochs[ 1 ].end_time = slot->completed_time;
   }
 
   /* Broadcast new skip rate if one of our slots got completed. */
   if( FD_LIKELY( slot->mine ) ) {
     for( ulong i=0UL; i<2UL; i++ ) {
-      if( FD_LIKELY( _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+      if( FD_LIKELY( completed_slot>=gui->epoch.epochs[ i ].start_slot && completed_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
         fd_gui_printf_skip_rate( gui, i );
         fd_http_server_ws_broadcast( gui->http );
         break;
@@ -1988,9 +2049,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
       fd_gui_handle_optimistically_confirmed_slot( gui, (ulong *)msg );
       break;
-    case FD_PLUGIN_MSG_SLOT_COMPLETED:
-      fd_gui_handle_completed_slot( gui, (ulong *)msg, now );
+    case FD_PLUGIN_MSG_SLOT_COMPLETED: {
+      fd_gui_handle_completed_slot( gui, msg[ 0 ], msg[ 1 ], msg[ 2 ], msg[ 3 ], msg[ 4 ], msg[ 5 ], msg[ 6 ], msg[ 7 ], msg[ 8 ], msg[ 9 ], msg[ 10 ], 0UL, now );
       break;
+    }
     case FD_PLUGIN_MSG_SLOT_ESTIMATED:
       gui->summary.slot_estimated = *(ulong const *)msg;
       fd_gui_printf_estimated_slot( gui );
