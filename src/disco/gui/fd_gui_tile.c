@@ -252,8 +252,8 @@ after_frag( fd_gui_ctx_t *      ctx,
   (void)stem;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_REPAIR && sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) {
-    fd_gui_handle_shred_slot( ctx->gui, fd_disco_shred_repair_fec_sig_slot( sig ), fd_log_wallclock() );
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_REPAIR ) ) {
+    if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) fd_gui_handle_shred_slot( ctx->gui, fd_disco_shred_repair_fec_sig_slot( sig ), fd_log_wallclock() );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
     FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
