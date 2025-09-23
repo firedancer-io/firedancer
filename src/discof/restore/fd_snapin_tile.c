@@ -17,8 +17,8 @@
 
 #define FD_SNAPIN_STATE_LOADING   (0) /* We are inserting accounts from a snapshot */
 #define FD_SNAPIN_STATE_DONE      (1) /* We are done inserting accounts from a snapshot */
-#define FD_SNAPIN_STATE_MALFORMED (1) /* The snapshot is malformed, we are waiting for a reset notification */
-#define FD_SNAPIN_STATE_SHUTDOWN  (2) /* The tile is done, been told to shut down, and has likely already exited */
+#define FD_SNAPIN_STATE_MALFORMED (2) /* The snapshot is malformed, we are waiting for a reset notification */
+#define FD_SNAPIN_STATE_SHUTDOWN  (3) /* The tile is done, been told to shut down, and has likely already exited */
 
 struct fd_snapin_tile {
   int full;
