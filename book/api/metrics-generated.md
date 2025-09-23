@@ -441,7 +441,7 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
-| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv</span> | counter | The number of times we received a repair shred |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;out_&#8203;rcv</span> | counter | The number of times we received a repair shred |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
@@ -484,6 +484,8 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
@@ -688,8 +690,6 @@
 | <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
 | <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;tile_&#8203;unavail</span> | counter | How many times no sign tiles were available to send request |
-| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
-| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |

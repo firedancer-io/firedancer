@@ -2,7 +2,7 @@
    rocksdb (or other sources TBD) and reproduce the behavior of replay tile.
 
    The smaller topology is:
-           repair_repla         replay_exec       exec_writer
+           shred_out             replay_exec       exec_writer
    backtest-------------->replay------------->exec------------->writer
      ^                    |^ | |                                   ^
      |____________________|| | |___________________________________|
@@ -108,7 +108,7 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup backtest->replay link (repair_repla) in topo                 */
+  /* Setup backtest->replay link (shred_out) in topo                 */
   /**********************************************************************/
 
   /* The repair tile is replaced by the backtest tile for the repair to
@@ -116,10 +116,10 @@ backtest_topo( config_t * config ) {
      which is provided by the backtest tile, which reads in the entry
      batches from the CLI-specified source (eg. RocksDB). */
 
-  fd_topob_wksp( topo, "repair_repla" );
-  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(fd_reasm_fec_t), 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
+  fd_topob_wksp( topo, "shred_out" );
+  fd_topob_link( topo, "shred_out", "shred_out", 65536UL, FD_SHRED_OUT_MTU, 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "shred_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "back", 0UL, "shred_out", 0UL );
 
   /**********************************************************************/
   /* Setup snapshot links in topo                                       */

@@ -30,7 +30,7 @@
 
 /* This tile currently has two functionalities.
 
-   The first is spying on the net_shred, repair_net, and shred_repair
+   The first is spying on the net_shred, repair_net, and shred_out
    links and currently outputs to a csv that can analyze repair
    performance in post.
 
@@ -46,7 +46,7 @@
 
 #define NET_SHRED        (0UL)
 #define REPAIR_NET       (1UL)
-#define SHRED_REPAIR     (2UL)
+#define SHRED_OUT        (2UL)
 #define GOSSIP_OUT       (3UL)
 #define REPAIR_SHREDCAP  (4UL)
 #define REPLAY_OUT       (5UL)
@@ -305,7 +305,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   sz,
              ulong                   ctl ) {
   ctx->skip_frag = 0;
-  if( ctx->in_kind[ in_idx ]==SHRED_REPAIR ) {
+  if( ctx->in_kind[ in_idx ]==SHRED_OUT ) {
     if( !is_fec_completes_msg( sz ) ) {
       ctx->skip_frag = 1;
       return;
@@ -475,12 +475,12 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
-  if( ctx->in_kind[ in_idx ] == SHRED_REPAIR ) {
+  if( ctx->in_kind[ in_idx ] == SHRED_OUT ) {
     /* This is a fec completes message! we can use it to check how long
        it takes to complete a fec */
 
     fd_shred_t const * shred = (fd_shred_t *)fd_type_pun( ctx->shred_buffer );
-    uint data_cnt = fd_disco_shred_repair_fec_sig_data_cnt( sig );
+    uint data_cnt = fd_disco_shred_out_fec_sig_data_cnt( sig );
     uint ref_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),
@@ -708,8 +708,8 @@ unprivileged_init( fd_topo_t *      topo,
       continue;
     } else if( 0==strcmp( link->name, "repair_net" ) ) {
       ctx->in_kind[ i ] = REPAIR_NET;
-    } else if( 0==strcmp( link->name, "shred_repair" ) ) {
-      ctx->in_kind[ i ] = SHRED_REPAIR;
+    } else if( 0==strcmp( link->name, "shred_out" ) ) {
+      ctx->in_kind[ i ] = SHRED_OUT;
     } else if( 0==strcmp( link->name, "gossip_out" ) ) {
       ctx->in_kind[ i ] = GOSSIP_OUT;
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {

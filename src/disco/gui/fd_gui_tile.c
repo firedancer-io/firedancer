@@ -45,12 +45,12 @@ extern uint  const fdctl_commit_ref;
 #include <zstd.h>
 #endif
 
-#define IN_KIND_PLUGIN       (0UL)
-#define IN_KIND_POH_PACK     (1UL)
-#define IN_KIND_PACK_BANK    (2UL)
-#define IN_KIND_PACK_POH     (3UL)
-#define IN_KIND_BANK_POH     (4UL)
-#define IN_KIND_SHRED_REPAIR (5UL) /* firedancer only */
+#define IN_KIND_PLUGIN    (0UL)
+#define IN_KIND_POH_PACK  (1UL)
+#define IN_KIND_PACK_BANK (2UL)
+#define IN_KIND_PACK_POH  (3UL)
+#define IN_KIND_BANK_POH  (4UL)
+#define IN_KIND_SHRED_OUT (5UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -205,7 +205,7 @@ during_frag( fd_gui_ctx_t * ctx,
   /* There are two frags types sent on this link, the currently the only
      way to distinguish them is to check sz. We dont actually read from
      the dcache  */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_REPAIR ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
     return;
   }
 
@@ -252,8 +252,8 @@ after_frag( fd_gui_ctx_t *      ctx,
   (void)stem;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_REPAIR ) ) {
-    if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) fd_gui_handle_shred_slot( ctx->gui, fd_disco_shred_repair_fec_sig_slot( sig ), fd_log_wallclock() );
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
+    if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) fd_gui_handle_shred_slot( ctx->gui, fd_disco_shred_out_fec_sig_slot( sig ), fd_log_wallclock() );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
     FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
@@ -574,7 +574,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "pack_bank" ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh" ) ) )  ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "shred_repair" ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_REPAIR;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {

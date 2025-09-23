@@ -63,12 +63,12 @@
 
 #define IN_KIND_SNAP    (0)
 #define IN_KIND_GENESIS (1)
-#define IN_KIND_REPAIR  (2)
-#define IN_KIND_TOWER   (3)
-#define IN_KIND_RESOLV  (4)
-#define IN_KIND_POH     (5)
-#define IN_KIND_WRITER  (6)
-#define IN_KIND_CAPTURE (7)
+#define IN_KIND_TOWER   (2)
+#define IN_KIND_RESOLV  (3)
+#define IN_KIND_POH     (4)
+#define IN_KIND_WRITER  (5)
+#define IN_KIND_CAPTURE (6)
+#define IN_KIND_SHRED   (7)
 
 #define DEBUG_LOGGING 0
 
@@ -150,6 +150,8 @@ struct fd_replay_tile {
      set.  This parallels the Agave 'has_new_vote_been_rooted'.
      TODO: Add documentation for this flag more in depth. */
   int has_identity_vote_rooted;
+
+  fd_reasm_t * reasm;
 
   /* Replay state machine. */
   fd_sched_t *          sched;
@@ -364,6 +366,8 @@ struct fd_replay_tile {
     fd_histf_t store_read_work[ 1 ];
     fd_histf_t store_publish_wait[ 1 ];
     fd_histf_t store_publish_work[ 1 ];
+    fd_histf_t store_link_wait[ 1 ];
+    fd_histf_t store_link_work[ 1 ];
 
     ulong max_replayed_slot;
   } diagnostics;
@@ -382,6 +386,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
+  l = FD_LAYOUT_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 1 << 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
@@ -393,6 +398,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
+  FD_MHIST_COPY( REPLAY, STORE_LINK_WAIT,    ctx->diagnostics.store_link_wait );
+  FD_MHIST_COPY( REPLAY, STORE_LINK_WORK,    ctx->diagnostics.store_link_work );
   FD_MHIST_COPY( REPLAY, STORE_READ_WAIT,    ctx->diagnostics.store_read_wait );
   FD_MHIST_COPY( REPLAY, STORE_READ_WORK,    ctx->diagnostics.store_read_work );
   FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WAIT, ctx->diagnostics.store_publish_wait );
@@ -1204,6 +1211,9 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   ctx->is_booted = 1;
   maybe_become_leader( ctx, stem );
+
+  fd_hash_t initial_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
+  fd_reasm_init( ctx->reasm, &initial_block_id, 0UL );
 }
 
 static void
@@ -1259,6 +1269,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, ctx->slot_ctx->bank, 1 );
     publish_root_advanced( ctx, stem );
 
+    fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
     return;
   }
 
@@ -1371,11 +1382,147 @@ replay( fd_replay_tile_t *  ctx,
 }
 
 static void
+process_fec_set( fd_replay_tile_t *  ctx,
+                 fd_stem_context_t * stem,
+                 fd_reasm_fec_t *    reasm_fec ) {
+  if( !reasm_fec ) return;
+
+  /* Linking only requires a shared lock because the fields that are
+     modified are only read on publish which uses exclusive lock. */
+
+  long shacq_start, shacq_end, shrel_end;
+
+  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+    if( FD_UNLIKELY( !fd_store_link( ctx->store, &reasm_fec->key, &reasm_fec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ), reasm_fec->slot, reasm_fec->fec_set_idx ));
+  } FD_STORE_SHARED_LOCK_END;
+  fd_histf_sample( ctx->diagnostics.store_link_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0L ) );
+  fd_histf_sample( ctx->diagnostics.store_link_work, (ulong)fd_long_max( shrel_end - shacq_end,   0L ) );
+
+  /* If the incoming reasm_fec's slot is a slot that we were leader for,
+     then we need to do some special handling.  If we were the leader
+     this means that we have already finished executing and packing the
+     block: the accounts database and bank is already updated.  We are
+     now receiving the FEC sets for the block from the repair tile now
+     that the packed block has been shredded.
+
+     The only thing left to do is to populate the block-id in the bank
+     and send a message to the tower tile so that we can correctly vote
+     on our leader block.  We are also now free to remove a refcnt from
+     the bank. */
+
+  if( fd_eslot_mgr_is_leader( ctx->eslot_mgr, reasm_fec->slot ) ) {
+    if( !!reasm_fec->slot_complete ) {
+      /* The block id for the slot is the merkle root for the last FEC
+         set.  We need to update the fd_eslot_mgr_t entry and the
+         corresponding fd_bank_t with the new merkle root. */
+      fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_eslot( reasm_fec->slot, 0UL ) );
+      if( FD_UNLIKELY( !ele ) ) {
+        FD_LOG_CRIT(( "eslot_mgr entry for leader slot %lu not found", reasm_fec->slot ));
+      }
+      fd_eslot_mgr_rekey_merkle_root( ctx->eslot_mgr, ele, &reasm_fec->key );
+
+      fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( reasm_fec->slot, 0UL ) );
+      if( FD_UNLIKELY( !bank ) ) {
+        FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
+      }
+      fini_leader_bank( ctx, bank, stem );
+
+      fd_eslot_t          eslot        = fd_eslot( reasm_fec->slot, 0UL );
+      fd_funk_txn_xid_t   xid          = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
+      fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
+      fd_funk_txn_t *     funk_txn     = fd_funk_txn_query( &xid, txn_map );
+      ctx->slot_ctx->funk_txn = funk_txn;
+
+      bank->refcnt--;
+    }
+    /* We don't want to replay the block again, so we will not add any
+       of the FEC sets for a leader block to the scheduler. */
+    return;
+  }
+
+  /* Forks form a partial ordering over FEC sets. The Repair tile
+     delivers FEC sets in-order per fork, but FEC set ordering across
+     forks is arbitrary */
+  fd_sched_fec_t sched_fec[ 1 ];
+
+# if DEBUG_LOGGING
+  FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ) ));
+# endif
+
+  /* Read FEC set from the store.  This should happen before we try to
+     ingest the FEC set.  This allows us to filter out frags that were
+     in-flight when we published away minority forks that the frags land
+     on.  These frags would have no bank to execute against, because
+     their corresponding banks, or parent banks, have also been pruned
+     during publishing.  A query against store will rightfully tell us
+     that the underlying data is not found, implying that this is for a
+     minority fork that we can safely ignore. */
+  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+    fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
+    if( FD_UNLIKELY( !store_fec ) ) {
+      /* The only case in which a FEC is not found in the store after
+         repair has notified is if the FEC was on a minority fork that
+         has already been published away.  In this case we abandon the
+         entire slice because it is no longer relevant.  */
+      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ) ));
+      return;
+    }
+    FD_TEST( store_fec );
+    sched_fec->fec       = store_fec;
+    sched_fec->shred_cnt = reasm_fec->data_cnt;
+  } FD_STORE_SHARED_LOCK_END;
+
+  fd_histf_sample( ctx->diagnostics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
+  fd_histf_sample( ctx->diagnostics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
+
+  /* Update the eslot_mgr with the incoming FEC.  This will detect any
+     equivocation that may have occurred and return the corresponding
+     eslot that the scheduler should use. */
+  int              is_equiv = 0;
+  fd_eslot_ele_t * ele      = fd_eslot_mgr_ele_insert_fec( ctx->eslot_mgr,
+                                                           reasm_fec->slot,
+                                                           &reasm_fec->key,
+                                                           &reasm_fec->cmr,
+                                                           reasm_fec->fec_set_idx,
+                                                           &is_equiv );
+  if( FD_UNLIKELY( is_equiv ) ) {
+    /* FIXME: There are two places where equivocation is still not
+       supported.
+       1. The Accounts DB does not support equivocation yet.  This is
+          a relatively simple fix and just involves keying the funk xid
+          by (slot, prime count) very similar to how the fd_eslot_t is
+          keyed.
+       2. Mid-block equivocation is not yet supported.  This is a little
+          tricky because it involves inserting all FEC sets up to the
+          FEC where mid-block equivocation was detected again into the
+          scheduler with the equivocated eslot.  Another blocker for
+          this is that reasm fecs do not include the parent block id. */
+    FD_LOG_ERR(( "equivocation detected for slot %lu.  This behavior is not yet fully supported.", reasm_fec->slot ));
+  }
+
+  ulong parent_slot = reasm_fec->slot-reasm_fec->parent_off;
+  if( FD_UNLIKELY( ele->parent_eslot.slot!=parent_slot ) ) {
+    FD_LOG_ERR(( "parent_slot %lu != %lu", parent_slot, (ulong)ele->parent_eslot.slot ));
+  }
+
+  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
+  sched_fec->block_id               = ele->eslot;
+  sched_fec->parent_block_id        = ele->parent_eslot;
+  sched_fec->alut_ctx->funk_txn     = NULL; /* Corresponds to the root txn. */
+  sched_fec->alut_ctx->funk         = ctx->funk;
+  sched_fec->alut_ctx->els          = ctx->published_root_slot;
+  sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
+  fd_sched_fec_ingest( ctx->sched, sched_fec );
+}
+
+static void
 after_credit( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+
   /* Send any outstanding vote states to tower.  TODO: Not sure why this
      is here?  Should happen when the slot completes instead? */
   if( FD_UNLIKELY( ctx->vote_tower_out_idx<ctx->vote_tower_out_len ) ) {
@@ -1397,6 +1544,8 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
+  process_fec_set( ctx, stem, fd_reasm_next( ctx->reasm ) );
+
   *charge_busy = replay( ctx, stem );
 }
 
@@ -1408,7 +1557,7 @@ before_frag( fd_replay_tile_t * ctx,
   (void)seq;
   (void)sig;
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
     /* If the transaction scheduler is full, there is nowhere for the
        fragment to go and we cannot pull it off the incoming queue yet.
        This will cause backpressure to the repair system. */
@@ -1515,6 +1664,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_banks_publish( ctx->banks, publishable_root );
 
+  fd_reasm_publish( ctx->reasm, &publishable_root_ele->merkle_root );
+
   ctx->published_root_slot = publishable_root_slot;
 }
 
@@ -1578,128 +1729,22 @@ process_tower_update( fd_replay_tile_t *           ctx,
   }
 }
 
-static void
-process_fec_set( fd_replay_tile_t *  ctx,
-                 fd_stem_context_t * stem,
-                 fd_reasm_fec_t *    reasm_fec ) {
+static void FD_FN_UNUSED
+process_fec_complete( fd_replay_tile_t * ctx,
+                      uchar const *      shred_buf ) {
+  fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
 
-  /* If the incoming reasm_fec's slot is a slot that we were leader for,
-     then we need to do some special handling.  If we were the leader
-     this means that we have already finished executing and packing the
-     block: the accounts database and bank is already updated.  We are
-     now receiving the FEC sets for the block from the repair tile now
-     that the packed block has been shredded.
+  fd_hash_t const * mr  = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ );
+  fd_hash_t const * cmr = (fd_hash_t const *)fd_type_pun_const( shred_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) );
 
-     The only thing left to do is to populate the block-id in the bank
-     and send a message to the tower tile so that we can correctly vote
-     on our leader block.  We are also now free to remove a refcnt from
-     the bank. */
+  int data_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
+  int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
 
-  if( fd_eslot_mgr_is_leader( ctx->eslot_mgr, reasm_fec->slot ) ) {
-    if( !!reasm_fec->slot_complete ) {
-      /* The block id for the slot is the merkle root for the last FEC
-         set.  We need to update the fd_eslot_mgr_t entry and the
-         corresponding fd_bank_t with the new merkle root. */
-      fd_eslot_ele_t * ele = fd_eslot_mgr_ele_query_eslot( ctx->eslot_mgr, fd_eslot( reasm_fec->slot, 0UL ) );
-      if( FD_UNLIKELY( !ele ) ) {
-        FD_LOG_CRIT(( "eslot_mgr entry for leader slot %lu not found", reasm_fec->slot ));
-      }
-      fd_eslot_mgr_rekey_merkle_root( ctx->eslot_mgr, ele, &reasm_fec->key );
-
-      fd_bank_t * bank = fd_banks_get_bank( ctx->banks, fd_eslot( reasm_fec->slot, 0UL ) );
-      if( FD_UNLIKELY( !bank ) ) {
-        FD_LOG_CRIT(( "bank for leader slot %lu not found", reasm_fec->slot ));
-      }
-      fini_leader_bank( ctx, bank, stem );
-
-      fd_eslot_t          eslot        = fd_eslot( reasm_fec->slot, 0UL );
-      fd_funk_txn_xid_t   xid          = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
-      fd_funk_txn_map_t * txn_map      = fd_funk_txn_map( ctx->funk );
-      fd_funk_txn_t *     funk_txn     = fd_funk_txn_query( &xid, txn_map );
-      ctx->slot_ctx->funk_txn = funk_txn;
-
-      bank->refcnt--;
-    }
-    /* We don't want to replay the block again, so we will not add any
-       of the FEC sets for a leader block to the scheduler. */
-    return;
+  FD_TEST( !fd_reasm_query( ctx->reasm, mr ) );
+  if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
+    cmr = &fd_reasm_root( ctx->reasm )->key;
   }
-
-  /* Forks form a partial ordering over FEC sets. The Repair tile
-     delivers FEC sets in-order per fork, but FEC set ordering across
-     forks is arbitrary */
-  fd_sched_fec_t sched_fec[ 1 ];
-
-# if DEBUG_LOGGING
-  FD_LOG_INFO(( "replay processing FEC set for slot %lu fec_set_idx %u, mr %s cmr %s", reasm_fec->slot, reasm_fec->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ) ));
-# endif
-
-  /* Read FEC set from the store.  This should happen before we try to
-     ingest the FEC set.  This allows us to filter out frags that were
-     in-flight when we published away minority forks that the frags land
-     on.  These frags would have no bank to execute against, because
-     their corresponding banks, or parent banks, have also been pruned
-     during publishing.  A query against store will rightfully tell us
-     that the underlying data is not found, implying that this is for a
-     minority fork that we can safely ignore. */
-  long shacq_start, shacq_end, shrel_end;
-  FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
-    fd_store_fec_t * store_fec = fd_store_query( ctx->store, &reasm_fec->key );
-    if( FD_UNLIKELY( !store_fec ) ) {
-      /* The only case in which a FEC is not found in the store after
-         repair has notified is if the FEC was on a minority fork that
-         has already been published away.  In this case we abandon the
-         entire slice because it is no longer relevant.  */
-      FD_LOG_WARNING(( "store fec for slot: %lu is on minority fork already pruned by publish. abandoning slice. root: %lu. pruned merkle: %s", reasm_fec->slot, ctx->consensus_root_slot, FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ) ));
-      return;
-    }
-    FD_TEST( store_fec );
-    sched_fec->fec       = store_fec;
-    sched_fec->shred_cnt = reasm_fec->data_cnt;
-  } FD_STORE_SHARED_LOCK_END;
-
-  fd_histf_sample( ctx->diagnostics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
-  fd_histf_sample( ctx->diagnostics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
-
-  /* Update the eslot_mgr with the incoming FEC.  This will detect any
-     equivocation that may have occurred and return the corresponding
-     eslot that the scheduler should use. */
-  int              is_equiv = 0;
-  fd_eslot_ele_t * ele      = fd_eslot_mgr_ele_insert_fec( ctx->eslot_mgr,
-                                                           reasm_fec->slot,
-                                                           &reasm_fec->key,
-                                                           &reasm_fec->cmr,
-                                                           reasm_fec->fec_set_idx,
-                                                           &is_equiv );
-  if( FD_UNLIKELY( is_equiv ) ) {
-    /* FIXME: There are two places where equivocation is still not
-       supported.
-       1. The Accounts DB does not support equivocation yet.  This is
-          a relatively simple fix and just involves keying the funk xid
-          by (slot, prime count) very similar to how the fd_eslot_t is
-          keyed.
-       2. Mid-block equivocation is not yet supported.  This is a little
-          tricky because it involves inserting all FEC sets up to the
-          FEC where mid-block equivocation was detected again into the
-          scheduler with the equivocated eslot.  Another blocker for
-          this is that reasm fecs do not include the parent block id. */
-    FD_LOG_ERR(( "equivocation detected for slot %lu.  This behavior is not yet fully supported.", reasm_fec->slot ));
-  }
-
-  ulong parent_slot = reasm_fec->slot-reasm_fec->parent_off;
-  if( FD_UNLIKELY( ele->parent_eslot.slot!=parent_slot ) ) {
-    FD_LOG_ERR(( "parent_slot %lu != %lu", parent_slot, (ulong)ele->parent_eslot.slot ));
-  }
-
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->block_id               = ele->eslot;
-  sched_fec->parent_block_id        = ele->parent_eslot;
-  sched_fec->alut_ctx->funk_txn     = NULL; /* Corresponds to the root txn. */
-  sched_fec->alut_ctx->funk         = ctx->funk;
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
-  sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
-  fd_sched_fec_ingest( ctx->sched, sched_fec );
+  FD_TEST( fd_reasm_insert( ctx->reasm, mr, cmr, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete ) );
 }
 
 static void
@@ -1757,9 +1802,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
       process_tower_update( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
-    case IN_KIND_REPAIR: {
-      FD_TEST( sz==sizeof(fd_reasm_fec_t) );
-      process_fec_set( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+    case IN_KIND_SHRED: {
+      if( sz==FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) {
+        /* If receive a FEC complete message. */
+        process_fec_complete( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      }
       break;
     }
     default:
@@ -1812,6 +1859,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
+  void * reasm_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 1 << 20 ) );
   void * sched_mem        = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint() );
   void * eslot_mgr_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_eslot_mgr_align(),        fd_eslot_mgr_footprint( FD_BLOCK_MAX ) );
   void * slot_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
@@ -1884,6 +1932,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->exec_ready_bitset = 0UL;
   ctx->is_booted = 0;
 
+  ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, 0 ) );
+  FD_TEST( ctx->reasm );
+
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem ) );
   FD_TEST( ctx->sched );
 
@@ -1947,13 +1998,13 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
     if(      !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
-    else if( !strcmp( link->name, "repair_repla" ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( !strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "writ_repl"    ) ) ctx->in_kind[ i ] = IN_KIND_WRITER;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( !strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -1975,6 +2026,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_memset( &ctx->diagnostics, 0, sizeof(ctx->diagnostics) );
 
+  fd_histf_join( fd_histf_new( ctx->diagnostics.store_link_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_LINK_WAIT ),
+                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_LINK_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->diagnostics.store_link_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_LINK_WORK ),
+                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_LINK_WORK ) ) );
   fd_histf_join( fd_histf_new( ctx->diagnostics.store_read_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WAIT ),
                                                                     FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WAIT ) ) );
   fd_histf_join( fd_histf_new( ctx->diagnostics.store_read_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WORK ),

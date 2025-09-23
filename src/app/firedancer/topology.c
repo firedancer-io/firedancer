@@ -258,8 +258,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_gossv" );
   fd_topob_wksp( topo, "gossip_out"   );
 
-  fd_topob_wksp( topo, "shred_repair" );
-  fd_topob_wksp( topo, "repair_repla" );
+  fd_topob_wksp( topo, "shred_out"    );
   fd_topob_wksp( topo, "replay_stake" );
   fd_topob_wksp( topo, "replay_exec"  );
   fd_topob_wksp( topo, "replay_out"   );
@@ -371,9 +370,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "send_sign",    "send_sign",    128UL,                                    FD_TXN_MTU,                    1UL ); /* TODO: Depth probably doesn't need to be 128 */
   /**/                 fd_topob_link( topo, "sign_send",    "sign_send",    128UL,                                    sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Depth probably doesn't need to be 128 */
 
-  /**/                 fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL,                                  sizeof(fd_reasm_fec_t),        1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_repair", "shred_repair", pending_fec_shreds_depth,                 FD_SHRED_REPAIR_MTU,           3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_repair", pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Also pending_fec_shreds_depth? Seems wrong */
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Also pending_fec_shreds_depth? Seems wrong */
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_slot_done_t),  1UL );
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TPU_RAW_MTU,                1UL ); /* TODO: Horribly named. Rename to indicate tile and where its going */
 
@@ -509,11 +507,10 @@ fd_topo_initialize( config_t * config ) {
   if( snapshots_enabled ) {
                        fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
-  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "shred_repair", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_repla", 0UL                                                );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "shred_out",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "shred_out",    i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "repair",  0UL,                       "repair_shred", i                                                  );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "repair_repla", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",   0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_stake", 0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "executed_txn", 0UL                                                );
@@ -573,7 +570,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "poh",     0UL,                       "poh_replay",   0UL                                                );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "shred",   i,                         "shred_repair", i                                                  );
+  FOR(shred_tile_cnt)  fd_topob_tile_out(   topo, "shred",   i,                         "shred_out",    i                                                  );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "repair_shred", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "ipecho_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "shred",   i,            "metric_in", "poh_shred",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -643,7 +640,7 @@ fd_topo_initialize( config_t * config ) {
       fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "net_shred", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
     for( ulong j=0UL; j<shred_tile_cnt; j++ ) {
-      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "shred_repair", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+      fd_topob_tile_in(  topo, "scap", 0UL, "metric_in", "shred_out", j, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
@@ -661,7 +658,6 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
     fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   fd_topob_wksp( topo, "writ_repl" );
