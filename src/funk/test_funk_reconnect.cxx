@@ -12,8 +12,6 @@ extern "C" {
 #include "test_funk_common.hpp"
 
 int main(int argc, char** argv) {
-  fd_boot( &argc, &argv );
-
   srand(1234);
 
   fake_funk ff(&argc, &argv);
