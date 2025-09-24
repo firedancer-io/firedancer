@@ -339,8 +339,10 @@ handle_new_cluster_contact_info( fd_shred_ctx_t * ctx,
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
     dests[i].is_secure = (in_dests[i].version_minor == FDCTL_MINOR_VERSION) ? 1U : 0U;
-    // FD_LOG_NOTICE(( "%u.%u.%u.%u:%u is_secure? %x",
-    //   (dests[i].ip4>>24)&0xff, (dests[i].ip4>>16)&0xff, (dests[i].ip4>>8)&0xff, (dests[i].ip4>>0)&0xff, dests[i].port, dests[i].is_secure ));
+    if( FD_UNLIKELY( dests[i].is_secure ) ) {
+      FD_LOG_NOTICE(( "%u.%u.%u.%u:%u is_secure? %x",
+        (dests[i].ip4>>0)&0xff, (dests[i].ip4>>8)&0xff, (dests[i].ip4>>16)&0xff, (dests[i].ip4>>24)&0xff, dests[i].port, dests[i].is_secure ));
+    }
   }
 }
 
