@@ -9,7 +9,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyguard_client.h"
 #include "../../disco/shred/fd_stake_ci.h"
-#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/fd_txn_m.h"
 
 #define IN_KIND_GOSSVF        (0)
 #define IN_KIND_SHRED_VERSION (1)
