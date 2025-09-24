@@ -276,7 +276,7 @@ version_parse( fd_contact_info_t * ci,
    contact_info->sockets array:
    - Address must be ipv4
    - Socket tag must fall within range of tags defined in
-     fd_gossip_types.c (bounded by FD_CONTACT_INFO_SOCKET_LAST)
+     fd_gossip_types.c (bounded by FD_CONTACT_INFO_SOCKET_CNT)
 
   Note that these additional checks are not parser failure conditions.
   These sockets are simply skipped when populating
@@ -369,7 +369,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
   READ_CHECKED_COMPACT_U16( decode_sz, sockets_len, CUR_OFFSET )                                           ; INC( decode_sz );
   CHECK( sockets_len<=FD_GOSSIP_CONTACT_INFO_MAX_SOCKETS );
 
-  fd_memset( ci->sockets, 0, (FD_CONTACT_INFO_SOCKET_LAST+1UL)*sizeof(fd_ip4_port_t) );
+  fd_memset( ci->sockets, 0, FD_CONTACT_INFO_SOCKET_CNT*sizeof(fd_ip4_port_t) );
   crds_val->ci_view->unrecognized_socket_tag_cnt = 0UL;
 
   ushort cur_port = 0U;
@@ -386,7 +386,7 @@ fd_gossip_msg_crds_contact_info_parse( fd_gossip_view_crds_value_t * crds_val,
     CHECK( addr_idx<addrs_len );
     addr_idx_set_insert( ip_addr_hits, addr_idx );
 
-    if( FD_LIKELY( tag<=FD_CONTACT_INFO_SOCKET_LAST ) ) {
+    if( FD_LIKELY( tag<FD_CONTACT_INFO_SOCKET_CNT ) ) {
       if( FD_UNLIKELY( !!ip4_addrs[ addr_idx ] ) ) {
         ci->sockets[ tag ].addr = ip4_addrs[ addr_idx ];
         ci->sockets[ tag ].port = fd_ushort_bswap( cur_port ); /* TODO: change this to host order */
