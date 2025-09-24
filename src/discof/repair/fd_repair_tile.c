@@ -891,12 +891,12 @@ after_credit( ctx_t *             ctx,
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( ctx->forest->root != ULONG_MAX && now - ctx->tsprint > (long)1e9 ) ) {
     ulong replay_slot  = *ctx->metrics->last_replayed_slot;
-    ulong replay_diff  = ctx->metrics->repaired_slots - replay_slot;
+    ulong replay_diff  = ctx->metrics->current_slot - replay_slot;
     ulong turbine_diff = ctx->metrics->current_slot - ctx->metrics->repaired_slots;
     FD_LOG_NOTICE(( "\n\n[Firedancer]\n"
-                    "Replay slot:  %lu (-%lu)\n"
-                    "Repair slot:  %lu (-%lu)\n"
-                    "Shred  slot:  %lu\n",
+                    "Replay:  %lu (-%lu)\n"
+                    "Repair:  %lu (-%lu)\n"
+                    "Shred:   %lu\n",
                     replay_slot, replay_diff,
                     ctx->metrics->repaired_slots, turbine_diff,
                     ctx->metrics->current_slot ));
