@@ -141,6 +141,7 @@ typedef struct {
   ulong  leader_slot;
   void const * leader_bank;
   ulong        leader_bank_idx;
+  ulong  leader_txn_rem;
 
   fd_became_leader_t _became_leader[1];
 
@@ -677,7 +678,7 @@ after_credit( fd_pack_ctx_t *     ctx,
   }
 
   /* Try to schedule the next microblock. */
-  if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
+  if( FD_LIKELY( ctx->bank_idle_bitset && ctx->leader_txn_rem>0UL ) ) { /* Optimize for schedule */
     any_ready = 1;
 
     int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
@@ -708,6 +709,7 @@ after_credit( fd_pack_ctx_t *     ctx,
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->bank_out_mem, ctx->bank_out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, flags, microblock_dst );
+    ctx->leader_txn_rem -= schedule_cnt;
     schedule_duration      += fd_tickcount();
     fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
@@ -1010,6 +1012,7 @@ after_frag( fd_pack_ctx_t *     ctx,
 
     ctx->leader_bank          = ctx->_became_leader->bank;
     ctx->leader_bank_idx      = ctx->_became_leader->bank_idx;
+    ctx->leader_txn_rem       = 1UL;
     ctx->slot_max_microblocks = ctx->_became_leader->max_microblocks_in_slot;
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
@@ -1256,6 +1259,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
   ctx->leader_bank_idx               = ULONG_MAX;
+  ctx->leader_txn_rem                = 0UL;
   ctx->pack_idx                      = 0UL;
   ctx->slot_microblock_cnt           = 0UL;
   ctx->pack_txn_cnt                  = 0UL;

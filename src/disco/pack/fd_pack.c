@@ -1792,6 +1792,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
                        ulong              * use_by_bank_txn,
                        fd_txn_p_t         * out ) {
 
+  txn_limit = 1UL;
   fd_pack_ord_txn_t  * pool         = pack->pool;
   fd_pack_addr_use_t * acct_in_use  = pack->acct_in_use;
   fd_pack_addr_use_t * writer_costs = pack->writer_costs;
@@ -1833,16 +1834,16 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     return to_return;
   }
 
-  treap_rev_iter_t prev = treap_idx_null();
-  for( treap_rev_iter_t _cur=treap_rev_iter_init( sched_from, pool ); !treap_rev_iter_done( _cur ); _cur=prev ) {
+  treap_fwd_iter_t prev = treap_idx_null();
+  for( treap_fwd_iter_t _cur=treap_fwd_iter_init( sched_from, pool ); !treap_fwd_iter_done( _cur ); _cur=prev ) {
     /* Capture next so that we can delete while we iterate. */
-    prev = treap_rev_iter_next( _cur, pool );
+    prev = treap_fwd_iter_next( _cur, pool );
 
 #   if FD_HAS_X86
     _mm_prefetch( &(pool[ prev ].prev),      _MM_HINT_T0 );
 #   endif
 
-    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+    fd_pack_ord_txn_t * cur = treap_fwd_iter_ele( _cur, pool );
 
     min_cus   = fd_ulong_min( min_cus,   cur->compute_est     );
     min_bytes = fd_ulong_min( min_bytes, cur->txn->payload_sz );
@@ -2078,7 +2079,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
   /* If we scanned the whole treap and didn't break early, we now have a
      better estimate of the smallest. */
-  if( FD_UNLIKELY( treap_rev_iter_done( prev ) ) ) {
+  if( FD_UNLIKELY( treap_fwd_iter_done( prev ) ) ) {
     smallest_in_treap->cus   = min_cus;
     smallest_in_treap->bytes = min_bytes;
   }
@@ -2506,7 +2507,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   ulong * use_by_bank_txn = pack->use_by_bank_txn[ bank_tile ];
 
   ulong cu_limit  = total_cus - vote_cus;
-  ulong txn_limit = pack->lim->max_txn_per_microblock - vote_reserved_txns;
+  ulong txn_limit = 1UL;
   ulong scheduled = 0UL;
   ulong byte_limit = pack->lim->max_data_bytes_per_block - pack->data_bytes_consumed - MICROBLOCK_DATA_OVERHEAD;
 
@@ -2523,7 +2524,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
     byte_limit                  -= status1.bytes_scheduled;
     use_by_bank_txn             += status1.txns_scheduled;
     /* Add any remaining CUs/txns to the non-vote limits */
-    txn_limit += vote_reserved_txns - status1.txns_scheduled;
+    txn_limit += 1UL - status1.txns_scheduled;
     cu_limit  += vote_cus - status1.cus_scheduled;
   }
 
