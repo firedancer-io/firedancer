@@ -694,6 +694,7 @@ fd_crds_acquire( fd_crds_t *         crds,
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
+    evict_treap_ele_remove( crds->evict_treap, evict, crds->pool );
     if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, evict, now, stem );
 
     crds->metrics->evicted_cnt++;
