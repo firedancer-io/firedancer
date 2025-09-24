@@ -175,12 +175,10 @@ fd_runtime_funk_txn_get( fd_funk_t * funk,
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_read( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", slot ));
   }
-  fd_funk_txn_end_read( funk );
   return funk_txn;
 }
 

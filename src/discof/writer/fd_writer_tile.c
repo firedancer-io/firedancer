@@ -335,12 +335,10 @@ after_frag( fd_writer_tile_ctx_t * ctx,
           FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
         }
         fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
-        fd_funk_txn_start_read( ctx->funk );
         ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
         if( FD_UNLIKELY( !ctx->funk_txn ) ) {
           FD_LOG_CRIT(( "Could not find valid funk transaction" ));
         }
-        fd_funk_txn_end_read( ctx->funk );
       }
 
       txn_ctx->spad      = ctx->exec_spad[ in_idx ];

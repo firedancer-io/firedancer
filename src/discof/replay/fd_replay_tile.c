@@ -583,24 +583,17 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   /* Create a new funk txn for the block. */
 
-  fd_funk_txn_start_write( ctx->funk );
-
   fd_funk_txn_xid_t xid        = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
   fd_funk_txn_xid_t parent_xid = { .ul = { fd_eslot_slot( parent_eslot ), fd_eslot_slot( parent_eslot ) } };
-
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn_map is NULL" ));
+  if( FD_UNLIKELY( !fd_funk_txn_query( &parent_xid, fd_funk_txn_map( ctx->funk ) ) ) ) {
+    /* HACKY: If the parent transaction doesn't exist, assume we are
+              restoring from a snapshot or genesis. */
+    fd_funk_txn_xid_set_root( &parent_xid );
   }
-
-  fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
-
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_CRIT(( "invariant violation: can't prepare funk_txn for (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
   }
-
-  fd_funk_txn_end_write( ctx->funk );
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -664,9 +657,7 @@ replay_ctx_switch( fd_replay_tile_t * ctx,
 
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
   fd_funk_txn_xid_t   xid     = { .ul = { slot, slot } };
-  fd_funk_txn_start_read( ctx->funk );
   ctx->slot_ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
-  fd_funk_txn_end_read( ctx->funk );
   if( FD_UNLIKELY( !ctx->slot_ctx->funk_txn ) ) {
     FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
   }
@@ -831,24 +822,12 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   }
 
   /* prepare the funk transaction for the leader bank */
-  fd_funk_txn_start_write( ctx->funk );
-
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  if( FD_UNLIKELY( !txn_map ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn_map is NULL for slot %lu", slot ));
-  }
-
-  fd_funk_txn_t * parent_txn = fd_funk_txn_query( &parent_xid, txn_map );
-
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, parent_txn, &xid, 1 );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
   }
-
-  fd_funk_txn_end_write( ctx->funk );
 
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
@@ -912,9 +891,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
-  fd_funk_txn_start_read( ctx->funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  fd_funk_txn_end_read( ctx->funk );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", curr_slot ));
   }
@@ -1603,22 +1580,13 @@ process_solcap_account_update( fd_replay_tile_t *                         ctx,
 static void
 funk_publish( fd_replay_tile_t * ctx,
               ulong              slot ) {
-  fd_funk_txn_start_write( ctx->funk );
-
-  fd_funk_txn_xid_t   xid         = { .ul[0] = slot, .ul[1] = slot };
-  fd_funk_txn_map_t * txn_map     = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_t *     to_root_txn = fd_funk_txn_query( &xid, txn_map );
-
-  if( FD_UNLIKELY( xid.ul[0]!=slot ) ) FD_LOG_CRIT(( "Invariant violation: xid.ul[0] != slot %lu %lu", xid.ul[0], slot ));
-
-  FD_LOG_DEBUG(( "publishing slot=%lu xid=%lu", slot, xid.ul[0] ));
+  fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = slot };
+  FD_LOG_DEBUG(( "publishing slot=%lu", slot ));
 
   /* This is the standard case.  Publish all transactions up to and
      including the watermark.  This will publish any in-prep ancestors
      of root_txn as well. */
-  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) FD_LOG_CRIT(( "failed to funk publish slot %lu", slot ));
-
-  fd_funk_txn_end_write( ctx->funk );
+  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to funk publish slot %lu", slot ));
 }
 
 static void

@@ -21,6 +21,7 @@ static void * work_thread( void * arg ) {
   test_funk_txn_pair_t * pair = (test_funk_txn_pair_t *)arg;
   fd_funk_t * funk = pair->funk;
   fd_funk_txn_t * txn = pair->txn;
+  fd_funk_txn_xid_t const * xid = txn ? &txn->xid : NULL;
 
   for( ulong i=0UL; i<1024UL; i++ ) {
     uint key_idx = (uint)lrand48() % NUM_KEYS;
@@ -32,7 +33,7 @@ static void * work_thread( void * arg ) {
 
     /* Ensure that the record exists for the current txn. */
     fd_funk_rec_query_t query_check[1];
-    fd_funk_rec_t const * rec_check = fd_funk_rec_query_try( funk, txn, &key, query_check );
+    fd_funk_rec_t const * rec_check = fd_funk_rec_query_try( funk, xid, &key, query_check );
     FD_TEST( rec_check );
 
     /* Now modify the record. */
@@ -58,15 +59,15 @@ int main( int argc, char ** argv ) {
 
   fd_boot( &argc, &argv );
 
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+
   ulong       txn_max  = MAX_TXN_CNT;
   uint        rec_max  = 1<<20;
-  ulong       numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp     = fd_wksp_new_anonymous(
-      FD_SHMEM_GIGANTIC_PAGE_SZ,
-      1U,
-      fd_shmem_cpu_idx( numa_idx ),
-      "wksp",
-      0UL );
+  fd_wksp_t * wksp     = fd_wksp_new_anonymous( page_sz, page_cnt, near_cpu, "wksp", 0UL );
   FD_TEST( wksp );
   void * mem = fd_wksp_alloc_laddr(
       wksp,
@@ -108,7 +109,7 @@ int main( int argc, char ** argv ) {
   /* Number of iterations to run. */
   for( ulong i=0UL; i<MAX_TXN_CNT; i++ ) {
     xid.ul[0]++;
-    fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent_txn, &xid, 1 );
+    fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent_txn ? &parent_txn->xid : NULL, &xid, 1 );
     FD_TEST( txn );
     parent_txn = txn;
 
@@ -136,10 +137,12 @@ int main( int argc, char ** argv ) {
       fd_funk_rec_key_t key = {};
       key.ul[0] = i;
       fd_funk_rec_query_t query = {};
-      fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, txn, &key, &query );
+      fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, &xid, &key, &query );
       FD_TEST( rec );
       ulong * val_ul = (ulong *)fd_funk_val( rec, fd_funk_wksp( funk ) );
-      FD_TEST( *val_ul == exp_val[i] );
+      if( FD_UNLIKELY( *val_ul != exp_val[i] ) ) {
+        FD_LOG_ERR(( "val_ul=%lu exp_val=%u", *val_ul, (uint)exp_val[i] ));
+      }
     }
   }
 
