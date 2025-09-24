@@ -846,8 +846,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gossip.max_entries         = config->tiles.gossip.max_entries;
     tile->gossip.boot_timestamp_nanos = config->boot_timestamp_nanos;
 
-    tile->gossip.ip_addr = config->net.ip_addr;
-
     tile->gossip.ports.gossip           = config->gossip.port;
     tile->gossip.ports.tvu              = config->tiles.shred.shred_listen_port;
     tile->gossip.ports.tpu              = config->tiles.quic.regular_transaction_listen_port;
