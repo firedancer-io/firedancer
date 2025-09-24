@@ -19,6 +19,12 @@ union fdctl_args {
     int drain_output_fd;
     int with_bench;
     int with_sankey;
+    const char* cap_src;
+    const char* cap_dst;
+    const char* cap_pcp;
+    ulong cap_sz;
+    int cap_fd;
+    void* cap_map;
   } monitor;
 
   struct {
