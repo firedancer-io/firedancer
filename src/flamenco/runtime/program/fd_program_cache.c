@@ -585,11 +585,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* Insert a new funk record, replacing the existing one if needed.
      min_sz==0 since the actual allocation happens below. */
-  fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->funk_txn, &id );
-
-  /* Modify the record within the current funk txn */
-  fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->funk_txn, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->funk_txn, &id );
   if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never
        happen as this function is called in a single-threaded context. */
@@ -611,7 +607,6 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      record. */
   if( FD_UNLIKELY( failed_elf_parsing ) ) {
     fd_program_cache_entry_set_failed_verification( writable_entry, current_slot );
-    fd_funk_rec_modify_publish( query );
     return;
   }
 
@@ -623,9 +618,6 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   if( FD_UNLIKELY( res ) ) {
     FD_LOG_DEBUG(( "fd_program_cache_validate_sbpf_program() failed" ));
   }
-
-  /* Finish modifying and release lock */
-  fd_funk_rec_modify_publish( query );
 
 } FD_SPAD_FRAME_END;
 }

@@ -333,7 +333,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
    More specifically, first this function will query the transaction
    stack to identify what the youngest transaction with the key is. If
-   a record is found in the current transaction then it will exit.
+   a record is found in the current transaction then it will return that record.
    In the case where a record is found in some ancestor txn or if the
    record doesn't exist, the function will then acquire a lock on the
    keypair of the youngest ancestor account (if it exists) and the
@@ -346,11 +346,10 @@ fd_funk_rec_clone( fd_funk_t *               funk,
    that we were attempting to acquire the lock. If a keypair is found,
    we will free the lock and exit the function.
 
-   Otherwise, we will allocate a new account record. Now we will add
-   this into the record map. At this point, we can now free the lock on
-   the hash chain. */
+   Otherwise, we will allocate a new account record and add it to the
+   record map. */
 
-void
+fd_funk_rec_t *
 fd_funk_rec_insert_para( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
                          fd_funk_rec_key_t const * key );

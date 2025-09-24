@@ -356,129 +356,74 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
   fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
 }
 
-static void
-fd_funk_rec_txn_publish( fd_funk_t *             funk,
-                         fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_rec_t * rec = prepare->rec;
-  uint * rec_head_idx = prepare->rec_head_idx;
-  uint * rec_tail_idx = prepare->rec_tail_idx;
-
-  uint rec_prev_idx;
-  uint rec_idx  = (uint)( rec - funk->rec_pool->ele );
-  rec_prev_idx  = *rec_tail_idx;
-  *rec_tail_idx = rec_idx;
-  rec->prev_idx = rec_prev_idx;
-  rec->next_idx = FD_FUNK_REC_IDX_NULL;
-  if( fd_funk_rec_idx_is_null( rec_prev_idx ) ) {
-    *rec_head_idx = rec_idx;
-  } else {
-    funk->rec_pool->ele[ rec_prev_idx ].next_idx = rec_idx;
-  }
-
-  if( FD_UNLIKELY( fd_funk_rec_map_txn_insert( funk->rec_map, rec ) ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_insert failed" ));
-  }
-}
-
-void
+fd_funk_rec_t *
 fd_funk_rec_insert_para( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
                          fd_funk_rec_key_t const * key ) {
-
-  /* TODO: There is probably a cleaner way to allocate the txn memory. */
-
-  /* See the header comment for why the max is 2. */
-  #define MAX_TXN_KEY_CNT (2UL)
-  uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__((aligned(alignof(fd_funk_rec_map_txn_t))));
-
-  /* First, we will do a global query to find a version of the record
-     from either the current transaction or one of its ancestors. */
-
-  fd_funk_rec_t const * rec_glob = NULL;
-  fd_funk_txn_t const * txn_glob = NULL;
-
-  for(;;) {
-    fd_funk_rec_query_t query_glob[1];
-    txn_glob = NULL;
-    rec_glob = fd_funk_rec_query_try_global(
-        funk, txn,key, &txn_glob, query_glob );
-
-    /* If the record exists and already exists in the specified funk
-       txn, we can return successfully.
-
-       TODO: This should probably also check that the record has a large
-       enough size, i.e. rec_glob >= min_sz. */
-    if( rec_glob && txn==txn_glob ) {
-      return;
-    }
-
-    if( rec_glob && fd_funk_rec_query_test( query_glob )==FD_FUNK_SUCCESS ) {
-      break;
-    }
+#ifdef FD_FUNK_HANDHOLDING
+  if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
+    return NULL;
   }
-
-  /* At this point, we need to atomically clone the record and copy
-     in the contents of the global record. We at most will be trying to
-     create a txn with two record keys. If the key exists in some
-     ancestor txn, than we need to add the ancestor key to the txn. We
-     will always need to add the current key to the txn. */
-  /* TODO: Turn key_max into a const. */
-
-  fd_funk_rec_map_txn_t * map_txn = fd_funk_rec_map_txn_init( txn_mem, funk->rec_map, MAX_TXN_KEY_CNT );
+  if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
+    return NULL;
+  }
+#endif
 
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_rec_key_set_pair( pair, txn, key );
 
-  fd_funk_rec_map_txn_add( map_txn, pair, 1 );
-
-  fd_funk_xid_key_pair_t pair_glob[1];
-  if( rec_glob ) {
-    fd_funk_rec_key_set_pair( pair_glob, txn_glob, key );
-    fd_funk_rec_map_txn_add( map_txn, pair_glob, 1 );
-  }
-
-  /* Now that the keys are in the txn, we can try to start the
-     transaction on the record_map. */
-
-  int err = fd_funk_rec_map_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
-  if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_txn_try returned err %d", err ));
-  }
-
-  /* We are now in a txn try with a lock on both record keys. */
-
-  /* First we need to make sure that the record hasn't been created yet. */
-  fd_funk_rec_map_query_t query[1];
-  err = fd_funk_rec_map_txn_query( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
-  if( FD_UNLIKELY( err==FD_MAP_SUCCESS ) ) {
-    /* The key has been inserted. We need to gracefully exit the txn. */
-    err = fd_funk_rec_map_txn_test( map_txn );
-    if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
-      FD_LOG_CRIT(( "fd_funk_rec_map_txn_test returned err %d", err ));
+  fd_funk_rec_query_t query[1];
+  for(;;) {
+    /* See the header comment for why the max is 2. */
+#define MAX_TXN_KEY_CNT (2UL)
+    uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__((aligned(alignof(fd_funk_rec_map_txn_t))));
+    fd_funk_rec_map_txn_t * map_txn = fd_funk_rec_map_txn_init( txn_mem, funk->rec_map, MAX_TXN_KEY_CNT );
+    fd_funk_rec_map_txn_add( map_txn, pair, 1 );
+    int err = fd_funk_rec_map_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
+    if( err == FD_MAP_ERR_AGAIN ) {
+      fd_funk_rec_map_txn_fini( map_txn );
+      continue;
     }
+    if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
+      FD_LOG_CRIT(( "fd_funk_rec_map_txn_try returned err %d", err ));
+      fd_funk_rec_map_txn_fini( map_txn );
+      return NULL;
+    }
+
+    /* See if the record already exists. */
+    err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
+    if( err == FD_MAP_SUCCESS ) {
+      fd_funk_rec_map_txn_test( map_txn );
+      fd_funk_rec_map_txn_fini( map_txn );
+      return fd_funk_rec_map_query_ele( query );
+    }
+    if( err == FD_MAP_ERR_AGAIN ) {
+      fd_funk_rec_map_txn_test( map_txn );
+      fd_funk_rec_map_txn_fini( map_txn );
+      continue;
+    }
+    if( err != FD_MAP_ERR_KEY ) {
+      FD_LOG_CRIT(( "query returned err %d", err ));
+      fd_funk_rec_map_txn_test( map_txn );
+      fd_funk_rec_map_txn_fini( map_txn );
+      return NULL;
+    }
+
+    fd_funk_rec_prepare_t prepare[1];
+    err = 0;
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, key, prepare, &err );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
+      fd_funk_rec_map_txn_test( map_txn );
+      fd_funk_rec_map_txn_fini( map_txn );
+      return NULL;
+    }
+    fd_funk_rec_publish( funk, prepare );
+    fd_funk_rec_map_txn_test( map_txn );
     fd_funk_rec_map_txn_fini( map_txn );
-    return;
+    return rec;
   }
-
-  /* If we are at this point, we know for certain that the record hasn't
-     been created yet. We will copy in the record from the global txn
-     (if one exists). */
-
-  fd_funk_rec_prepare_t prepare[1];
-  fd_funk_rec_prepare( funk, txn, key, prepare, &err );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
-  }
-  fd_funk_rec_txn_publish( funk, prepare );
-
-  err = fd_funk_rec_map_txn_test( map_txn );
-  if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_txn_test returned err %d", err ));
-  }
-
-  fd_funk_rec_map_txn_fini( map_txn );
-
-  #undef MAX_TXN_KEY_CNT
+#undef MAX_TXN_KEY_CNT
 }
 
 fd_funk_rec_t *
