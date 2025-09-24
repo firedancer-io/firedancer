@@ -161,10 +161,12 @@ struct fd_sbpf_elf_info {
   int phndx_dyn;
 
   /* Dynamic table entries */
-  int dt_rel;
-  int dt_relent;
-  int dt_relsz;
+  uint dt_reloff;
+  uint dt_relsz;
   int dt_symtab;
+
+  uint dyn_off;  /* File offset of dynamic table (UINT_MAX=missing) */
+  uint dyn_cnt;  /* Number of dynamic table entries */
 
   uint entry_pc;  /* Program counter of entry point
                      NOTE: MIGHT BE OUT OF BOUNDS! */

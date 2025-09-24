@@ -191,6 +191,28 @@ shdr_get_loaded_size( fd_elf64_shdr const * shdr, uchar * is_some ) {
   }
 }
 
+/* Mimics Elf64Shdr::file_range(). Returns 1 (Some) if the section
+   header type is not SHT_NOBITS, and sets (lo, hi) to the section
+   header offset and offset + size respectively. Returns 0 (None)
+   otherwise, and sets both (lo, hi) to 0.
+
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L87-L93 */
+
+static uchar
+fd_shdr_get_file_range( fd_elf64_shdr const * shdr,
+                        ulong *               lo,
+                        ulong *               hi ) {
+  if( shdr->sh_type==FD_ELF_SHT_NOBITS ) {
+    *lo = 0UL;
+    *hi = 0UL;
+    return 0;
+  } else {
+    *lo = shdr->sh_offset;
+    *hi = fd_ulong_sat_add( shdr->sh_offset, shdr->sh_size );
+    return 1;
+  }
+}
+
 /* check_cstr verifies a string in a string table.  Returns non-NULL if
    the string is null terminated and contains at most max non-NULL
    characters.  Returns NULL if the off is out of bounds, or if the max
@@ -868,12 +890,26 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_loader_t   const * loader,
                      ulong                      elf_sz,
                      uchar                    * rodata,
                      fd_sbpf_elf_info_t const * info,
-                     fd_elf64_rel       const * rel ) {
+                     fd_elf64_rel       const * rel,
+                     fd_elf64_shdr const *      sh_text,
+                     ulong                      r_offset ) {
 
-  (void)info;
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1070-L1080 */
+  ulong imm_offset = r_offset;
+  {
+    ulong text_section_lo, text_section_hi;
+    if( info->sbpf_version==FD_SBPF_V0 ||
+        ( fd_shdr_get_file_range( sh_text, &text_section_lo, &text_section_hi ) &&
+          r_offset>=text_section_lo &&
+          r_offset<text_section_hi ) ) {
+      imm_offset = fd_ulong_sat_add( r_offset, 4UL /* BYTE_OFFSET_IMMEDIATE */ );
+    }
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1084-L1086 */
+
 
   uint  r_sym    = FD_ELF64_R_SYM( rel->r_info );
-  ulong r_offset = rel->r_offset;
 
   /* Bounds check */
   REQUIRE( ( r_offset+16UL> r_offset )
@@ -1292,11 +1328,11 @@ fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
   fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
 
   /* Copy rodata segment */
-  fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
+  // fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
 
-  /* Convert calls with PC relative immediate to hashes */
-  if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
-    return err;
+  // /* Convert calls with PC relative immediate to hashes */
+  // if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
+  //   return err;
 
   /* Apply relocations */
   if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
@@ -1871,6 +1907,10 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
                        | ( offset + size > bin_sz ) ) ) {
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
+
+      /* Save the dynamic relocation table info */
+      info->dt_reloff = (uint)offset;
+      info->dt_relsz  = (uint)size;
     } while( 0 ); /* so we can break out */
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L410 */
@@ -2113,6 +2153,8 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
     .dt_relent        = -1,
     .dt_relsz         = -1,
     .dt_symtab        = -1,
+    .dyn_off          = UINT_MAX,
+    .dyn_cnt          = 0U,
     .entry_pc         = 0U,
     .sbpf_version     = (uint)maybe_sbpf_version,
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
@@ -2134,32 +2176,30 @@ static int
 fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
                           void const *                    bin,
                           ulong                           bin_sz,
-                          fd_sbpf_syscalls_t *            syscalls,
                           fd_sbpf_loader_config_t const * config,
                           fd_sbpf_loader_t *              loader ) {
-  fd_sbpf_elf_info_t const * elf_info = &prog->info;
-  fd_sbpf_elf_t const *      elf      = fd_type_pun_const( bin );
+  fd_sbpf_elf_info_t const * elf_info  = &prog->info;
+  fd_sbpf_elf_t const *      elf       = fd_type_pun_const( bin );
+  uchar *                    rodata    = prog->rodata;
+  fd_elf64_shdr const *      shdrs     = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const *      shtext    = &shdrs[ elf_info->shndx_text ];
+  fd_sbpf_calldests_t *      calldests = loader->calldests;
 
   /* Copy rodata segment */
-  fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_sz );
+  fd_memcpy( rodata, elf->bin, prog->info.rodata_sz );
 
   /* Fixup all program counter relative call instructions
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1005-L1041 */
   {
-    fd_elf64_shdr const * shdrs  = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-    fd_sbpf_elf_info_t *  info   = &prog->info;
-    uchar *               rodata = prog->rodata;
-
-    fd_elf64_shdr const * shtext    = &shdrs[ info->shndx_text ];
-    fd_sbpf_calldests_t * calldests = loader->calldests;
-
     /* Validate the bytes range of the text section.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1006-L1008 */
-    uchar is_some;
-    ulong insn_cnt = shdr_get_loaded_size( shtext, &is_some ) / 8UL;
+    ulong lo, hi;
+    uchar is_some = fd_shdr_get_file_range( shtext, &lo, &hi );
     if( FD_UNLIKELY( !is_some ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
+
+    ulong insn_cnt = (lo - hi) / 8UL;
     if( FD_UNLIKELY( shtext->sh_size+shtext->sh_offset>bin_sz ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
@@ -2211,6 +2251,62 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
     }
   }
 
+  /* Fixup all the relocations in the relocation section if exists
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1046-L1304 */
+  {
+    fd_elf64_phdr const * phdr           = (fd_elf64_phdr const *)( elf->bin + elf->ehdr.e_phoff );
+    ushort                pht_cnt        = elf->ehdr.e_phnum;
+    fd_elf64_phdr const * program_header = NULL;
+    fd_elf64_rel const *  dt_rel         = (fd_elf64_rel const *)( elf->bin + elf_info->dt_reloff );
+    uint                  dt_rel_cnt     = elf_info->dt_relsz / sizeof(fd_elf64_rel);
+
+    for( uint i=0U; i<dt_rel_cnt; i++ ) {
+      fd_elf64_rel const * rel      = &dt_rel[ i ];
+      ulong                r_offset = rel->r_offset;
+
+      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1052-L1066 */
+      if( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) {
+
+        /* Inverting this condition for readability...
+           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1053-L1061 */
+        if( !( program_header &&
+               program_header->p_vaddr<=r_offset &&
+               r_offset<fd_ulong_sat_add( program_header->p_vaddr, program_header->p_memsz ) ) ) {
+
+          /* Iterate through the program header table to find the header
+             https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1056-L1059 */
+          for( ushort j=0; j<pht_cnt; j++ ) {
+            fd_elf64_phdr const * header = &phdr[ j ];
+            if( header->p_vaddr<=r_offset &&
+                r_offset<fd_ulong_sat_add( header->p_vaddr, header->p_memsz ) ) {
+              program_header = header;
+              break;
+            }
+          }
+        }
+
+        /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1062-L1065 */
+        if( FD_UNLIKELY( !program_header ) ) {
+          return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+        }
+        r_offset = fd_ulong_sat_add( fd_ulong_sat_sub( r_offset, program_header->p_vaddr ),
+                                     program_header->p_offset );
+      }
+
+      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1068-L1303 */
+      switch( FD_ELF64_R_TYPE( rel->r_info ) ) {
+        case FD_ELF_R_BPF_64_64:
+          return fd_sbpf_r_bpf_64_64      ( loader, elf, bin_sz, rodata, elf_info, rel );
+        case FD_ELF_R_BPF_64_RELATIVE:
+          return fd_sbpf_r_bpf_64_relative(         elf, bin_sz, rodata, elf_info, rel );
+        case FD_ELF_R_BPF_64_32:
+          return fd_sbpf_r_bpf_64_32      ( loader, elf, bin_sz, rodata, elf_info, rel );
+        default:
+          ERR( FD_SBPF_ERR_INVALID_ELF );
+      }
+    }
+  }
+
   return FD_SBPF_ELF_SUCCESS;
 }
 
@@ -2226,7 +2322,6 @@ static int
 fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
                               void const *                    bin,
                               ulong                           bin_sz,
-                              fd_sbpf_syscalls_t *            syscalls,
                               fd_sbpf_loader_t *              loader,
                               fd_sbpf_loader_config_t const * config ) {
   /* Load (vs peek) starts here
@@ -2235,7 +2330,7 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   return fd_sbpf_program_load_old( prog, bin, bin_sz, syscalls, config->elf_deploy_checks );
 #else
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L642-L647 */
-  int err = fd_sbpf_program_relocate( prog, bin, bin_sz, syscalls, config, loader );
+  int err = fd_sbpf_program_relocate( prog, bin, bin_sz, config, loader );
   if( FD_UNLIKELY( err ) ) return err;
 
   return FD_SBPF_ELF_SUCCESS;
@@ -2248,6 +2343,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
                       fd_sbpf_loader_config_t const * config ) {
+  /* TODO: a lot of these fields seem redundant... */
   fd_sbpf_loader_t loader = {
     .calldests         = prog->calldests,
     .syscalls          = syscalls,
@@ -2272,7 +2368,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
     /* There is nothing else to do in the strict case*/
     return FD_SBPF_ELF_SUCCESS;
   }
-  return fd_sbpf_program_load_lenient( prog, bin, bin_sz, syscalls, &loader, config );
+  return fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config );
 }
 
 #undef ERR
