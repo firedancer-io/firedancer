@@ -724,6 +724,11 @@ fdctl_check_configure( config_t const * config ) {
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
                  "to configure hyperthreading correctly.", check.message ));
+
+  check = fd_cfg_stage_irq_affinity.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "IRQ affinity is not configured correctly: %s. You can run `fdctl configure init irq-affinity` "
+                 "to configure IRQ affinity correctly.", check.message ));
 }
 
 void

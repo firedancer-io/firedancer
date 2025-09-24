@@ -45,6 +45,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
   &fd_cfg_stage_ethtool_loopback,
+  &fd_cfg_stage_irq_affinity,
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
   &fd_cfg_stage_blockstore,

@@ -23,7 +23,7 @@ union fdctl_args {
 
   struct {
     int                      command;
-    struct configure_stage * stages[ CONFIGURE_STAGE_COUNT ];
+    struct configure_stage * stages[ 64UL ];
   } configure;
 
   struct {
