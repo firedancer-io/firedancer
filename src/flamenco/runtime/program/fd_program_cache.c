@@ -646,7 +646,7 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
   /* Ensure the record is in the current funk transaction */
   fd_funk_rec_key_t id = fd_program_cache_key( program_key );
   fd_funk_rec_t * rec = fd_funk_rec_insert_para( funk, funk_txn, &id );
-if( FD_UNLIKELY( !rec ) ) {
+  if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never
        happen since this function is called in a single-threaded
        context. */
