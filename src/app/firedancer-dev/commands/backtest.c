@@ -292,7 +292,6 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "bank_busy"   );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
-      config->firedancer.runtime.max_rooted_slots,
       config->firedancer.runtime.max_live_slots,
       fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

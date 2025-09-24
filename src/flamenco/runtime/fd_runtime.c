@@ -1201,6 +1201,10 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
+  // TODO: Implement txncache
+  // TODO: ONLY DO THIS INSERT IF IT IS NOT A NONCE TRANSACTION
+  // fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+  // fd_txncache_insert( txn_ctx->status_cache, bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
 }
 
 int

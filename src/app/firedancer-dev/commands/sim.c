@@ -125,7 +125,6 @@ sim_topo( config_t * config ) {
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
-      config->firedancer.runtime.max_rooted_slots,
       config->firedancer.runtime.max_live_slots,
       fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
