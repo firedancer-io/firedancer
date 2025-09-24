@@ -644,13 +644,14 @@ after_shred( ctx_t      * ctx,
     }
 
     int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+    int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-    fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, src );
+    fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src );
 
     /* Check if there are FECs to force complete. Algorithm: window
-        through the idxs in interval [i, j). If j = next fec_set_idx
-        then we know we can force complete the FEC set interval [i, j)
-        (assuming it wasn't already completed based on `cmpl`). */
+       through the idxs in interval [i, j). If j = next fec_set_idx
+       then we know we can force complete the FEC set interval [i, j)
+       (assuming it wasn't already completed based on `cmpl`). */
 
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
@@ -666,10 +667,11 @@ after_fec( ctx_t      * ctx,
      into the forest are idempotent so it is fine to insert the same
      shred multiple times. */
 
-  int slot_complete = !!(shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+  int slot_complete = !!( shred->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+  int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
 
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
-  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete );
+  fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick );
   FD_TEST( ele ); /* must be non-empty */
 
   /* metrics for completed slots */
@@ -677,9 +679,10 @@ after_fec( ctx_t      * ctx,
                    0==memcmp( ele->cmpl, ele->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
     long now = fd_tickcount();
     long start_ts = ele->first_req_ts == 0 || ele->slot > ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
-    fd_histf_sample( ctx->metrics->slot_compl_time, (ulong)(now - start_ts) );
+    ulong duration_ticks = (ulong)(now - start_ts);
+    fd_histf_sample( ctx->metrics->slot_compl_time, duration_ticks );
     fd_catchup_add_slot( ctx->catchup, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
-    FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt ));
+    FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
   }
 }
 
@@ -747,6 +750,7 @@ after_frag( ctx_t * ctx,
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
     fd_forest_init( ctx->forest, 0 );
+    fd_policy_reset( ctx->policy, ctx->forest );
     return;
   }
 
@@ -810,6 +814,7 @@ after_frag( ctx_t * ctx,
     if( FD_UNLIKELY( ctx->turbine_slot0 == ULONG_MAX ) ) {
       ctx->turbine_slot0 = shred->slot;
       fd_catchup_set_turbine_slot0( ctx->catchup, shred->slot );
+      fd_policy_set_turbine_slot0( ctx->policy, shred->slot );
     }
 
     if( FD_UNLIKELY( fec_completes ) ) {
@@ -853,13 +858,13 @@ after_frag( ctx_t * ctx,
     }
 
     ulong max_repaired_slot = 0;
-    fd_forest_consumed_t const * consumed = fd_forest_consumed_const( ctx->forest );
+    fd_forest_conslist_t const * conslist = fd_forest_conslist_const( ctx->forest );
     fd_forest_cns_t const *      conspool = fd_forest_conspool_const( ctx->forest );
     fd_forest_blk_t const *      pool     = fd_forest_pool_const( ctx->forest );
-    for( fd_forest_consumed_iter_t iter = fd_forest_consumed_iter_init( consumed, conspool );
-         !fd_forest_consumed_iter_done( iter, consumed, conspool );
-         iter = fd_forest_consumed_iter_next( iter, consumed, conspool ) ) {
-      fd_forest_cns_t const * ele = fd_forest_consumed_iter_ele_const( iter, consumed, conspool );
+    for( fd_forest_conslist_iter_t iter = fd_forest_conslist_iter_fwd_init( conslist, conspool );
+         !fd_forest_conslist_iter_done( iter, conslist, conspool );
+         iter = fd_forest_conslist_iter_fwd_next( iter, conslist, conspool ) ) {
+      fd_forest_cns_t const * ele = fd_forest_conslist_iter_ele_const( iter, conslist, conspool );
       fd_forest_blk_t const * ele_ = fd_forest_pool_ele_const( pool, ele->forest_pool_idx );
       if( ele_->slot > max_repaired_slot ) max_repaired_slot = ele_->slot;
     }
@@ -913,7 +918,7 @@ after_credit( ctx_t *             ctx,
     return;
   }
 
-  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now );
+  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot );
   if( FD_UNLIKELY( !cout ) ) return;
 
   fd_repair_send_request_async( ctx, sign_out, cout );
@@ -1120,8 +1125,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  ulong volatile * const replay_metrics = fd_metrics_tile( replay_tile->metrics );
-  ctx->metrics->last_replayed_slot      = replay_metrics+MIDX( COUNTER, REPLAY, MAX_REPLAYED_SLOT );
+  if( FD_UNLIKELY( replay_tile == NULL || replay_tile->metrics == NULL ) ) {
+    ctx->metrics->last_replayed_slot = &ctx->metrics->repaired_slots;
+  } else {
+    ulong volatile * const replay_metrics = fd_metrics_tile( replay_tile->metrics );
+    ctx->metrics->last_replayed_slot = replay_metrics+MIDX( COUNTER, REPLAY, MAX_REPLAYED_SLOT );
+  }
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),
                                                               FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_TIME ) ) );

@@ -18,13 +18,13 @@
 fd_forest_blk_t *
 fd_forest_blk_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int data_complete FD_PARAM_UNUSED, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, SHRED_SRC_REPAIR );
+  return fd_forest_data_shred_insert( forest, slot, parent_slot, shred_idx, fec_set_idx, slot_complete, 0, SHRED_SRC_REPAIR );
 }
 
 fd_forest_blk_t *
 fd_forest_blk_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete ) {
   fd_forest_blk_insert( forest, slot, parent_slot );
-  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete );
+  return fd_forest_fec_insert( forest, slot, parent_slot, last_shred_idx, fec_set_idx, slot_complete, 0 );
 }
 
 fd_forest_t *
@@ -531,7 +531,7 @@ test_linear_forest_iterator( fd_wksp_t * wksp ) {
 
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
   ulong i = 0;
-  for( fd_forest_iter_t iter = fd_forest_iter_init( forest ); !fd_forest_iter_done( iter, forest ); iter = fd_forest_iter_next( iter, forest ) ) {
+  for( fd_forest_iter_t iter = fd_forest_iter_init( forest ); !fd_forest_iter_done( iter, forest ); iter = fd_forest_iter_next_shred( iter, forest ) ) {
     fd_forest_blk_t const * ele = fd_forest_pool_ele_const( pool, iter.ele_idx );
     FD_LOG_DEBUG(( "iter: slot %lu, idx %u", ele->slot, iter.shred_idx ));
     FD_TEST( ele->slot == expected[i].slot );
