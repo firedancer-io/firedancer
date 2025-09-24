@@ -5,7 +5,8 @@
 #define OPT_CONF (2./3) /* optimistically confirmed */
 
 void *
-fd_notar_new( void * shmem, ulong blk_max ) {
+fd_notar_new( void * shmem,
+              ulong  blk_max ) {
 
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -94,12 +95,28 @@ fd_notar_delete( void * notar ) {
   return notar;
 }
 
-void
-fd_notar_vote( fd_notar_t *        notar,
+fd_notar_blk_t *
+fd_notar_insert( fd_notar_t *      notar,
+                 ulong             slot,
+                 fd_hash_t const * bank_hash,
+                 fd_hash_t const * block_id ) {
+  fd_notar_blk_t * blk = fd_notar_blk_insert( notar->blks, slot );
+  blk->parent_slot     = slot - 1;
+  blk->bank_hash       = *bank_hash;
+  blk->block_id        = *block_id;
+  blk->stake           = 0;
+  blk->pro_conf        = 0;
+  blk->dup_conf        = 0;
+  blk->opt_conf        = 0;
+  return blk;
+}
+
+fd_notar_vtr_t *
+fd_notar_vote( fd_notar_t        * notar,
                fd_pubkey_t const * pubkey,
-               ulong               stake,
-               fd_tower_t const *  vote_tower,
-               fd_hash_t const *   vote_hash ) {
+               fd_tower_t  const * tower,
+               fd_hash_t   const * bank_hash,
+               fd_hash_t   const * block_id ) {
 
   /* Return early if the pubkey is not part of the set of voters we know
      from this epoch. Because these votes can come from gossip (and
@@ -107,13 +124,13 @@ fd_notar_vote( fd_notar_t *        notar,
      vote program), it's possible the vote itself is just invalid. */
 
   fd_notar_vtr_t const * vtr = fd_notar_vtr_query( notar->vtrs, *pubkey, NULL );
-  if( FD_UNLIKELY( !vtr ) ) { FD_LOG_WARNING(( "unknown voter" )); return; };
+  if( FD_UNLIKELY( !vtr ) ) { FD_LOG_WARNING(( "unknown voter" )); return NULL; };
 
   /* Return early if the tower is empty. As above, the vote could simply
      be invalid. */
 
-  fd_tower_vote_t const * last_vote = fd_tower_votes_peek_tail_const( vote_tower );
-  if( FD_UNLIKELY( !last_vote ) ) { FD_LOG_WARNING(( "empty tower" )); return; }
+  fd_tower_vote_t const * last_vote = fd_tower_votes_peek_tail_const( tower );
+  if( FD_UNLIKELY( !last_vote ) ) { FD_LOG_WARNING(( "empty tower" )); return NULL; }
 
   /* It's possible we haven't yet replayed this slot being voted on.
      Even though votes can come from gossip (and therefore can be for
@@ -138,30 +155,30 @@ fd_notar_vote( fd_notar_t *        notar,
 
   if( FD_LIKELY( last_blk->vtrs[ vtr->bit ] ) ) return; /* already counted */
   fd_notar_blk_vtrs_insert( last_blk->vtrs, vtr->bit ); /* count the voter */
-  last_blk->stake += stake;
+  last_blk->stake += vtr->stake;
 
   /* Don't count remaining votes in tower if bank hash doesn't match. */
 
-  if( FD_UNLIKELY( memcmp( &last_blk->bank_hash, vote_hash, sizeof(fd_hash_t) ) ) ) return;
+  if( FD_UNLIKELY( memcmp( &last_blk->bank_hash, bank_hash, sizeof(fd_hash_t) ) ) ) return;
 
   /* The voter's bank hash matches our own so we expect that all the
      slots in their tower towards the propagation threshold for that slot. */
 
   int skip = 1;
-  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( vote_tower       );
-                                   !fd_tower_votes_iter_done_rev( vote_tower, iter );
-                             iter = fd_tower_votes_iter_prev    ( vote_tower, iter ) ) {
+  for( fd_tower_votes_iter_t iter = fd_tower_votes_iter_init_rev( tower       );
+                                   !fd_tower_votes_iter_done_rev( tower, iter );
+                             iter = fd_tower_votes_iter_prev    ( tower, iter ) ) {
 
     if( FD_UNLIKELY( skip ) ) { skip = 0; continue; } /* skip the last vote (iter rev), we've already counted it */
 
-    fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( vote_tower, iter );
+    fd_tower_vote_t const * vote = fd_tower_votes_iter_ele_const( tower, iter );
     if( FD_UNLIKELY( !vote                    ) ) continue;
     if( FD_UNLIKELY( vote->slot < notar->root ) ) continue;
 
     /* By definition every vote slot in the tower is an ancestor of the
        next vote slot. */
 
-    fd_notar_blk_t * vote_blk = fd_notar_blk_query( notar->blks, vote->slot, NULL );
+    fd_notar_blk_t * blk = fd_notar_blk_query( notar->blks, vote->slot, NULL );
 
     /* Check this tower vote slot is in notar. If it's not, then the
        vote txn is invalid. We silently skip the vote the same way Agave
@@ -169,23 +186,29 @@ fd_notar_vote( fd_notar_t *        notar,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L513-L518 */
 
-    if( FD_UNLIKELY( !vote_blk ) ) continue;
+    if( FD_UNLIKELY( !blk ) ) continue;
 
     /* Check if we've already counted this voter's stake. */
 
-    if( FD_LIKELY( vote_blk->vtrs[ vtr->bit ] ) ) continue;
+    if( FD_LIKELY( blk->vtrs[ vtr->bit ] ) ) continue;
 
     /* Count this voter's stake towards the confirmation thresholds. */
 
-    fd_notar_blk_vtrs_insert( vote_blk->vtrs, vtr->bit );
-    vote_blk->stake += stake;
+    fd_notar_blk_vtrs_insert( blk->vtrs, vtr->bit );
+    blk->stake += vtr->stake;
 
     /* If a slot reaches propagation conf, then it's implied its
        ancestors are confirmed too because they're on the same fork. */
 
-    double r = (double)vote_blk->stake / (double)notar->stake;
-    if( FD_UNLIKELY( !vote_blk->pro_conf && r >= PRO_CONF ) ) for( fd_notar_blk_t * anc_blk = vote_blk; FD_LIKELY( anc_blk ); anc_blk = fd_notar_blk_query( notar->blks, anc_blk->parent_slot, NULL ) ) anc_blk->pro_conf = 1;
+    double r = (double)blk->stake / (double)notar->stake;
+    if( FD_UNLIKELY( !blk->pro_conf && r >= PRO_CONF ) ) {
+      while( FD_LIKELY( blk ) ) {
+        blk->pro_conf = 1;
+        blk = fd_notar_blk_query( notar->blks, blk->parent_slot, NULL );
+      }
+    }
   }
+  (void)block_id;
 }
 
 void

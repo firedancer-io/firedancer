@@ -194,9 +194,9 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root_slot, fd_hash_t * hash ) {
 
   /* Sanity checks. */
 
-  FD_TEST( fd_ghost_root( ghost )                                      );
+  FD_TEST( fd_ghost_root( ghost )                                   );
   FD_TEST( fd_ghost_root( ghost ) == fd_ghost_query( ghost, hash  ) );
-  FD_TEST( fd_ghost_root( ghost )->slot == root_slot                   );
+  FD_TEST( fd_ghost_root( ghost )->slot == root_slot                );
 
   return;
 }
@@ -366,7 +366,7 @@ fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_ele_t const * root ) {
 }
 
 void
-fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * hash ) {
+fd_ghost_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * hash ) {
   fd_ghost_ele_t *       pool = fd_ghost_pool( ghost );
   fd_vote_record_t       vote = voter->replay_vote;
   fd_ghost_ele_t const * root = fd_ghost_root( ghost );
@@ -570,7 +570,7 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
 }
 
 int
-fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) {
+fd_ghost_valid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) {
   fd_ghost_ele_t const * anc = ele;
   while( FD_LIKELY( anc ) ) {
     if( FD_UNLIKELY( ( !anc->valid ) ) ) return 1;

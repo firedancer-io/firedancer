@@ -85,7 +85,7 @@ test_insert( fd_wksp_t * wksp ) {
       f3_64->key,
   };
   fd_reasm_fec_t * fec = NULL; ulong i = 0;
-  while( FD_LIKELY( fec = fd_reasm_next( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
+  while( FD_LIKELY( fec = fd_reasm_out( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
   FD_TEST( i==sizeof(order) / sizeof(fd_hash_t) );
 
   /* Equivocating last FEC set for slot 3 (mr3_64a), child (3, 64) of
@@ -154,7 +154,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * fec = NULL;
   while( FD_LIKELY( fec ) ) {
-    fec = fd_reasm_next( reasm );
+    fec = fd_reasm_out( reasm );
     FD_TEST( 0==memcmp( &fec->key, &mr0, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr1, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr2, sizeof(fd_hash_t) ) );

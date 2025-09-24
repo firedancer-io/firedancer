@@ -84,11 +84,11 @@ test_ghost_simple( fd_wksp_t * wksp ) {
 # if PRINT
   fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
 # endif
-  fd_ghost_replay_vote( ghost, voter, &hash_2 );
+  fd_ghost_vote( ghost, voter, &hash_2 );
 # if PRINT
   fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
 # endif
-  fd_ghost_replay_vote( ghost, voter, &hash_3 );
+  fd_ghost_vote( ghost, voter, &hash_3 );
 # if PRINT
   fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
 # endif
@@ -150,13 +150,13 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
   fd_epoch_t * epoch = mock_epoch( wksp, 2, 1, pk1, 1 );
   fd_voter_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_2 );
+  fd_ghost_vote( ghost, v1, &hash_2 );
 # if PRINT
   fd_ghost_print( ghost, 2, fd_ghost_root( ghost ) );
 # endif
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_3 );
+  fd_ghost_vote( ghost, v1, &hash_3 );
   fd_ghost_ele_t const * node2 = fd_ghost_query( ghost, &hash_2 );
   FD_TEST( node2 );
   FD_TEST( !fd_ghost_verify( ghost ) );
@@ -232,10 +232,10 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   fd_epoch_t * epoch = mock_epoch( wksp, total, 1, pk1, 1 );
   fd_voter_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_2 );
+  fd_ghost_vote( ghost, v1, &hash_2 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_3 );
+  fd_ghost_vote( ghost, v1, &hash_3 );
   FD_TEST( !fd_ghost_verify( ghost ) );
   fd_ghost_ele_t const * node3 = fd_ghost_query( ghost, &hash_3 );
   FD_TEST( node3 );
@@ -411,16 +411,16 @@ test_ghost_head( fd_wksp_t * wksp ){
   INSERT( 12, 10 );
   INSERT( 13, 11 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_11 );
+  fd_ghost_vote( ghost, v1, &hash_11 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v2, &hash_12 );
+  fd_ghost_vote( ghost, v2, &hash_12 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_ghost_ele_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head->slot == 12 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_13 );
+  fd_ghost_vote( ghost, v1, &hash_13 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_ghost_ele_t const * head2 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
@@ -471,7 +471,7 @@ test_ghost_vote_leaves( fd_wksp_t * wksp ) {
   ulong first_leaf = fd_ulong_pow2(d-1) - 1;
   fd_voter_t v = { .key = { { 0 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
   for( ulong i = first_leaf; i < node_max - 1; i++){
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    fd_ghost_vote( ghost, &v, &hash_arr[i] );
   }
   FD_TEST( !fd_ghost_verify( ghost ) );
 
@@ -507,7 +507,7 @@ test_ghost_vote_leaves( fd_wksp_t * wksp ) {
   /* have other validators vote for rest of leaves */
   for ( ulong i = first_leaf; i < node_max - 2; i++){
     fd_voter_t v = { .key = { .key = { (uchar)i }  }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    fd_ghost_vote( ghost, &v, &hash_arr[i] );
     FD_TEST( !fd_ghost_verify( ghost ) );
   }
 
@@ -550,7 +550,7 @@ test_ghost_old_vote_pruned( fd_wksp_t * wksp ){
   for ( ulong i = 1; i < node_max - 1; i++ ) {
     fd_ghost_insert( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
     fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    fd_ghost_vote( ghost, &v, &hash_arr[i] );
   }
 
   fd_ghost_publish( ghost, &hash_arr[1]);
@@ -561,7 +561,7 @@ test_ghost_old_vote_pruned( fd_wksp_t * wksp ){
 # endif
 
   fd_voter_t switch_voter = { .key = { { 5 } }, .stake = 5, .replay_vote = { .slot = 5 } };
-  fd_ghost_replay_vote( ghost, &switch_voter, &hash_arr[9] );
+  fd_ghost_vote( ghost, &switch_voter, &hash_arr[9] );
   /* switching to vote 9, from voting 5, that is > than the root */
 # if PRINT
   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
@@ -577,7 +577,7 @@ test_ghost_old_vote_pruned( fd_wksp_t * wksp ){
   fd_ghost_publish( ghost, &hash_arr[3] ); /* cut down to nodes 3,7,8 */
   /* now previously voted 2 ( < the root ) votes for 7 */
   fd_voter_t switch_voter2 = { .key = { { 2 } }, .stake = 2, .replay_vote = { .slot = 2 } };
-  fd_ghost_replay_vote( ghost, &switch_voter2, &hash_arr[7] );
+  fd_ghost_vote( ghost, &switch_voter2, &hash_arr[7] );
 
 # if PRINT
   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
@@ -611,7 +611,7 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
   for ( ulong i = 1; i < node_max - 1; i++ ) {
     fd_ghost_insert( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
     fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    fd_ghost_vote( ghost, &v, &hash_arr[i] );
   }
 
   for ( ulong i = 0; i < node_max - 1; i++ ) {
@@ -634,7 +634,7 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
 
   fd_ghost_insert( ghost, &hash_arr[(node_max-2)/2], node_max - 1, &hash_arr[node_max - 1], total_stake );
   fd_voter_t v = { .key = { { (uchar)( node_max - 1 ) } }, .stake = node_max - 1, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v, &hash_arr[node_max - 1]);
+  fd_ghost_vote( ghost, &v, &hash_arr[node_max - 1]);
 
   FD_TEST( !fd_ghost_verify( ghost ) );
   head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
@@ -666,7 +666,7 @@ test_rooted_vote( fd_wksp_t * wksp ){
   fd_ghost_init( ghost, 0, &hash_0 );
 
   fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
-  fd_ghost_replay_vote( ghost, v1, &hash_1 );
+  fd_ghost_vote( ghost, v1, &hash_1 );
 
   fd_ghost_rooted_vote( ghost, v2, 1 );
 
@@ -710,16 +710,16 @@ test_ghost_head_valid( fd_wksp_t * wksp ) {
   INSERT( 12, 10 );
   INSERT( 13, 11 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_11 );
+  fd_ghost_vote( ghost, v1, &hash_11 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v2, &hash_12 );
+  fd_ghost_vote( ghost, v2, &hash_12 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   // fd_ghost_node_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   // FD_TEST( head->slot == 12 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_13 );
+  fd_ghost_vote( ghost, v1, &hash_13 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   // fd_ghost_node_t const * head2 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
@@ -729,7 +729,7 @@ test_ghost_head_valid( fd_wksp_t * wksp ) {
   // fd_ghost_node_t const * head3 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   // FD_TEST( head3->slot == 13 );
 
-  fd_ghost_replay_vote( ghost, v2, &hash_13 );
+  fd_ghost_vote( ghost, v2, &hash_13 );
   query_mut( ghost, 11 )->valid = 0; // mark 11 as invalid
   // fd_ghost_node_t const * head4 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   // FD_TEST( head4->slot == 10 );
@@ -862,7 +862,7 @@ test_many_duplicates( fd_wksp_t * wksp ){
 
   /* Vote down the left branch */
   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v1, &hash_4 );
+  fd_ghost_vote( ghost, &v1, &hash_4 );
 }
 
 /* Key differences between Agave and Firedancer:  Agave inserts to their
@@ -970,7 +970,7 @@ test_state_ancestor_duplicate_descendant_confirmed( fd_wksp_t * wksp ){
   FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 1 );
 
   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v1, &hash_3 );
+  fd_ghost_vote( ghost, &v1, &hash_3 );
 
   FD_TEST( is_duplicate_confirmed( ghost, &hash_3, total_stake ) );
 
@@ -1008,7 +1008,7 @@ test_state_descendant_confirmed_ancestor_duplicate( fd_wksp_t * wksp ){
 
   FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v1, &hash_3 );
+  fd_ghost_vote( ghost, &v1, &hash_3 );
 
   FD_TEST( is_duplicate_confirmed( ghost, &hash_3, total_stake ) );
 

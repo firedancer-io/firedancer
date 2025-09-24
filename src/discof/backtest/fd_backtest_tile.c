@@ -101,7 +101,7 @@ shred_merkle_root( fd_shred_t const * shred ) {
 
 static fd_shred_t const *
 rocksdb_next_shred( ctx_t * ctx,
-                   ulong * out_sz ) {
+                    ulong * out_sz ) {
   if( ctx->rocksdb_curr_idx==ctx->rocksdb_end_idx ) {
     if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &ctx->rocksdb_root_iter, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;
     if( FD_UNLIKELY( fd_rocksdb_get_meta( &ctx->rocksdb, ctx->rocksdb_slot_meta.slot, &ctx->rocksdb_slot_meta, ctx->valloc ) ) ) return NULL;

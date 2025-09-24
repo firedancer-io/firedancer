@@ -29,7 +29,7 @@
      commitment status of blocks (queryable via RPC) to determine that
      their transaction has landed on a block that will not rollback. */
 
-/* TODO duplicate confirmed / optimistc confirmed currently not
+/* TODO duplicate confirmed / optimistic confirmed currently not
    implemented through this API */
 
 /* FD_NOTAR_PARANOID:  Define this to non-zero at compile time
@@ -40,11 +40,14 @@
 #endif
 
 struct fd_notar_vtr {
-  fd_pubkey_t pubkey; /* map key */
-  uint        memo;   /* reserved for fd_map_dynamic */
-  ulong       bit;    /* bit position in fd_notar_blk_vtrs (fd_set) */
-  ulong       vote;   /* the most recent slot the validator voted for */
-  fd_hash_t   hash;   /* the most recent hash the validator voted for */
+  fd_pubkey_t pubkey;      /* map key */
+  uint        memo;        /* reserved for fd_map_dynamic */
+  ulong       bit;         /* bit position in fd_notar_blk_vtrs (fd_set) */
+  ulong       stake;       /* stake in the current epoch */
+  ulong       replay_vote; /* the most recent slot the validator voted for */
+  fd_hash_t   replay_hash; /* the most recent hash the validator voted for */
+  ulong       gossip_vote; /* the most recent slot the validator voted for */
+  fd_hash_t   gossip_hash; /* the most recent hash the validator voted for */
 };
 typedef struct fd_notar_vtr fd_notar_vtr_t;
 
@@ -70,6 +73,7 @@ struct fd_notar_blk {
   ulong                 slot;
   ulong                 parent_slot;
   fd_hash_t             bank_hash;
+  fd_hash_t             block_id;
   ulong                 stake;
   int                   pro_conf;
   int                   dup_conf; /* TODO unimplemented */
@@ -121,7 +125,8 @@ fd_notar_footprint( ulong blk_max ) {
    the required footprint and alignment. */
 
 void *
-fd_notar_new( void * mem, ulong blk_max );
+fd_notar_new( void * mem,
+              ulong  blk_max );
 
 /* fd_notar_join joins the caller to the notar.  notar points to the
    first byte of the memory region backing the notar in the caller's
@@ -156,11 +161,11 @@ fd_notar_delete( void * notar );
    in the tower. */
 
 void
-fd_notar_vote( fd_notar_t *        notar,
+fd_notar_vote( fd_notar_t        * notar,
                fd_pubkey_t const * pubkey,
-               ulong               stake,
-               fd_tower_t const *  vote_tower,
-               fd_hash_t const *   vote_hash );
+               fd_tower_t  const * tower,
+               fd_hash_t   const * bank_hash,
+               fd_hash_t   const * block_id );
 
 /* fd_notar_publish publishes root as the new notar root slot, removing
    all blocks with slot numbers < the old notar root slot.  Some slots

@@ -113,8 +113,6 @@
    not prerequisite reading for understanding this implementation. */
 
 #include "../fd_choreo_base.h"
-#include "../epoch/fd_epoch.h"
-#include "../../tango/fseq/fd_fseq.h"
 
 /* FD_GHOST_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks. */
@@ -200,9 +198,6 @@ typedef struct fd_dup_seen fd_dup_seen_t;
 #define FD_GHOST_MAGIC (0xf17eda2ce7940570UL) /* firedancer ghost version 0 */
 
 struct __attribute__((aligned(128UL))) fd_ghost {
-
-  /* Metadata */
-
   ulong magic;          /* ==FD_GHOST_MAGIC */
   ulong ghost_gaddr;    /* wksp gaddr of this in the backing wksp, non-zero gaddr */
   ulong seed;           /* seed for various hashing function used under the hood, arbitrary */
@@ -387,7 +382,7 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
 /* fd_ghost_anc_eqvoc. */
 
 int
-fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele );
+fd_ghost_valid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele );
 
 /* Operations */
 
@@ -403,7 +398,7 @@ fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele );
    to update*/
 
 fd_ghost_ele_t *
-fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, fd_hash_t const * hash_id, ulong total_stake );
+fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, fd_hash_t const * block_id, ulong total_stake );
 
 /* fd_ghost_replay_vote votes for hash_id, adding pubkey's stake to the
    `stake` field for slot and to the `weight` field for both slot and
@@ -419,33 +414,7 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
    bounded to O(h), where h is the height of ghost. */
 
 void
-fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * hash_id );
-
-/* fd_ghost_gossip_vote adds stake amount to the gossip_stake field of
-   slot.
-
-   Assumes slot is present in ghost (if handholding is enabled,
-   explicitly checks and errors).  Returns the ghost ele keyed by slot.
-
-   Unlike fd_ghost_replay_vote, this stake is not propagated to
-   the weight field for slot and slot's ancestors.  It is only counted
-   towards slot itself, as gossip votes are only used for optimistic
-   confirmation and not fork choice. */
-
-void
-fd_ghost_gossip_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot );
-
-/* fd_ghost_rooted_vote adds stake amount to the rooted_stake field of
-   slot.
-
-   Assumes slot is present in ghost (if handholding is enabled,
-   explicitly checks and errors).  Returns the ghost ele keyed by slot.
-
-   Note rooting a slot implies rooting its ancestor, but ghost does not
-   explicitly track this. */
-
-void
-fd_ghost_rooted_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong root );
+fd_ghost_vote( fd_ghost_t * ghost, fd_pubkey_t * pubkey, ulong stake, fd_hash_t const * block_id );
 
 /* fd_ghost_publish publishes slot as the new ghost root, setting the
    subtree beginning from slot as the new ghost tree (ie. slot and all
