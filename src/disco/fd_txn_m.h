@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_fd_txn_m_t_h
-#define HEADER_fd_src_disco_fd_txn_m_t_h
+#ifndef HEADER_fd_src_disco_fd_txn_m_h
+#define HEADER_fd_src_disco_fd_txn_m_h
 
 /* A fd_txn_m_t is a parsed meta transaction, containing not just the
    payload */
@@ -157,4 +157,4 @@ fd_txn_m_realized_footprint( fd_txn_m_t const * txnm,
                               +256UL*sizeof(fd_acct_addr_t),       \
                               alignof(fd_txn_m_t) )
 
-#endif /* HEADER_fd_src_disco_fd_txn_m_t_h */
+#endif /* HEADER_fd_src_disco_fd_txn_m_h */

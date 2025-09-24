@@ -1,5 +1,5 @@
 #include "fd_resolv_tile.h"
-#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../bank/fd_bank_err.h"
 #include "../replay/fd_replay_tile.h"

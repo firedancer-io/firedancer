@@ -4,6 +4,7 @@
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/replay/fd_replay_tile.h" // layering violation
+#include "../fd_txn_m.h"
 #include "../keyguard/fd_keyload.h"
 #include "../keyguard/fd_keyswitch.h"
 #include "../keyguard/fd_keyguard.h"

@@ -1,11 +1,8 @@
-#include <ctype.h>
-#include <stdio.h>
-
 #include "fd_gui_printf.h"
 
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
-#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/fd_txn_m.h"
 
 #ifdef __has_include
 #if __has_include("../../app/fdctl/version.h")
