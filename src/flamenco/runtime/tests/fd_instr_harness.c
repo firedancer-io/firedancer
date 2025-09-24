@@ -13,7 +13,6 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../fd_system_ids.h"
-#include "../fd_cost_tracker.h"
 #include <assert.h>
 
 int
@@ -33,10 +32,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
-  fd_funk_txn_end_write( funk );
 
   /* Allocate contexts */
   uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad,FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
@@ -347,7 +345,7 @@ void
 fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_funk_txn_cancel_all( runner->funk, 1 );
+  fd_funk_txn_cancel_all( runner->funk );
 }
 
 

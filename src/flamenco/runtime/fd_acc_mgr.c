@@ -55,7 +55,8 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
   fd_funk_rec_key_t id   = fd_funk_acc_key( pubkey );
 
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, txn, &id, query );
+  fd_funk_txn_xid_t txn_xid = txn ? txn->xid : (fd_funk_txn_xid_t){ .ul={ ULONG_MAX, ULONG_MAX } };
+  fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query_try( funk, &txn_xid, &id, query );
 
   int funk_err = 0;
 

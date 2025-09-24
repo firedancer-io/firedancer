@@ -209,7 +209,7 @@ fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                       fd_funk_txn_t const *     txn,
+                       fd_funk_txn_xid_t const * txn,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query );
 

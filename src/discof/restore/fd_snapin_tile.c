@@ -106,7 +106,10 @@ account_cb( void *                          _ctx,
 
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t*)hdr->meta.pubkey );
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->funk_txn, &id, query );
+  fd_funk_txn_xid_t txn_xid;
+  if( ctx->funk_txn ) txn_xid = ctx->funk_txn->xid;
+  else                fd_funk_txn_xid_set_root( &txn_xid );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, &txn_xid, &id, query );
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
@@ -218,7 +221,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->full = 0;
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
       if( FD_UNLIKELY( !ctx->funk_txn ) ) fd_funk_txn_cancel_root( ctx->funk );
-      else                                fd_funk_txn_cancel( ctx->funk, ctx->funk_txn, 0 );
+      else                                fd_funk_txn_cancel( ctx->funk, &ctx->funk_txn->xid );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
@@ -232,7 +235,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
-      ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, ctx->funk_txn, &incremental_xid, 0 );
+      fd_funk_txn_xid_t parent_xid;
+      if( ctx->funk_txn )  parent_xid = ctx->funk_txn->xid;
+      else                 fd_funk_txn_xid_set_root( &parent_xid );
+      ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &incremental_xid, 0 );
       FD_TEST( ctx->funk_txn );
 
       ctx->full     = 0;
@@ -245,7 +251,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
-      if( FD_LIKELY( ctx->funk_txn ) ) fd_funk_txn_publish_into_parent( ctx->funk, ctx->funk_txn, 0 );
+      if( FD_LIKELY( ctx->funk_txn ) ) fd_funk_txn_publish_into_parent( ctx->funk, &ctx->funk_txn->xid );
       fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:

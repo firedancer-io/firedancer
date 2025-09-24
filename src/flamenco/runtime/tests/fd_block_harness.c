@@ -160,7 +160,7 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_funk_txn_cancel_all( runner->funk, 1 );
+  fd_funk_txn_cancel_all( runner->funk );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
@@ -180,9 +180,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and slot / epoch contexts */
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, xid, 1 );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -351,9 +350,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &fork_xid, 1 );
-  fd_funk_txn_end_write( funk );
+  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, &slot_ctx->funk_txn->xid, &fork_xid, 1 );
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
   fd_lthash_value_t lthash = {0};
