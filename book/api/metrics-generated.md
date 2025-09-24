@@ -690,6 +690,7 @@
 | <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
 | <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;tile_&#8203;unavail</span> | counter | How many times no sign tiles were available to send request |
+| <span class="metrics-name">repair_&#8203;eager_&#8203;repair_&#8203;aggresses</span> | counter | How many times we pass eager repair threshold |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |

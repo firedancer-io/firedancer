@@ -50,7 +50,7 @@ void
 fd_catchup_set_turbine_slot0( fd_catchup_t * catchup, ulong turbine_slot0 );
 
 void
-fd_catchup_print( fd_catchup_t * catchup );
+fd_catchup_print( fd_catchup_t * catchup, int verbose );
 
 void
 fd_catchup_add_slot( fd_catchup_t * catchup, ulong slot, long first_ts, long slot_complete_ts, uint repair_cnt, uint turbine_cnt );
