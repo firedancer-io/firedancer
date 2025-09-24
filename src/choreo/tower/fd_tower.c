@@ -787,13 +787,18 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
 
 int
 fd_tower_verify( fd_tower_t const * tower ) {
+  if( FD_UNLIKELY( fd_tower_cnt( tower )>=FD_TOWER_VOTE_MAX ) ) {
+    FD_LOG_WARNING(( "[%s] invariant violation: cnt %lu >= FD_TOWER_VOTE_MAX %lu", __func__, fd_tower_cnt( tower ), (ulong)FD_TOWER_VOTE_MAX ));
+    return -1;
+  }
+
   fd_tower_t const * prev = NULL;
   for( fd_tower_iter_t iter = fd_tower_iter_init( tower       );
-                             !fd_tower_iter_done( tower, iter );
-                       iter = fd_tower_iter_next( tower, iter ) ) {
+                                   !fd_tower_iter_done( tower, iter );
+                             iter = fd_tower_iter_next( tower, iter ) ) {
     fd_tower_t const * vote = fd_tower_iter_ele_const( tower, iter );
-    if( FD_LIKELY( prev && !( vote->slot < prev->slot && vote->conf < prev->conf ) ) ) {
-      FD_LOG_WARNING(( "[%s] invariant violation: vote %lu %lu. prev %lu %lu", __func__, vote->slot, vote->conf, prev->slot, prev->conf ));
+    if( FD_UNLIKELY( prev && ( vote->slot < prev->slot || vote->conf < prev->conf ) ) ) {
+      FD_LOG_WARNING(( "[%s] invariant violation: vote (slot:%lu conf:%lu) prev (slot:%lu conf:%lu)", __func__, vote->slot, vote->conf, prev->slot, prev->conf ));
       return -1;
     }
     prev = vote;
