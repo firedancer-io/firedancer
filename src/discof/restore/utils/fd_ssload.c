@@ -109,7 +109,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   rent->burn_percent            = manifest->rent_params.burn_percent;
 
   if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( slot_ctx->bank, manifest->hashes_per_tick );
-  else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, 0UL );
+  else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, DEFAULT_HASHES_PER_TICK );
 
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
     fd_lthash_value_t lthash;
