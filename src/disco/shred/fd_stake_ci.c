@@ -254,6 +254,7 @@ fd_stake_ci_dest_add_fini_impl( fd_stake_ci_t       * info,
     if( FD_LIKELY( idx!=FD_SHRED_DEST_NO_DEST ) ) {
       dest->ip4  = info->shred_dest[ i ].ip4;
       dest->port = info->shred_dest[ i ].port;
+      dest->is_secure = info->shred_dest[ i ].is_secure;
     }
 
     any_new_unstaked   |= (idx==FD_SHRED_DEST_NO_DEST);
