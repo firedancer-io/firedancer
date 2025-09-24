@@ -149,7 +149,7 @@ fd_snapshot_parser_accv_prepare( fd_snapshot_parser_t * const self,
   self->processing_accv = 1;
 
   /* Prepare read of account header */
-  FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
+  // FD_LOG_DEBUG(( "Loading account vec %s", meta->name ));
   return fd_snapshot_parser_expect_account_hdr( self );
 }
 
