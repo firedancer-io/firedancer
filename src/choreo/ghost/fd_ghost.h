@@ -200,9 +200,6 @@ typedef struct fd_dup_seen fd_dup_seen_t;
 #define FD_GHOST_MAGIC (0xf17eda2ce7940570UL) /* firedancer ghost version 0 */
 
 struct __attribute__((aligned(128UL))) fd_ghost {
-
-  /* Metadata */
-
   ulong magic;          /* ==FD_GHOST_MAGIC */
   ulong ghost_gaddr;    /* wksp gaddr of this in the backing wksp, non-zero gaddr */
   ulong seed;           /* seed for various hashing function used under the hood, arbitrary */
@@ -387,7 +384,7 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
 /* fd_ghost_anc_eqvoc. */
 
 int
-fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele );
+fd_ghost_is_valid_fork( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele );
 
 /* Operations */
 

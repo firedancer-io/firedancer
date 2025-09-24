@@ -570,7 +570,7 @@ fd_ghost_is_ancestor( fd_ghost_t const * ghost, fd_hash_t const * ancestor, fd_h
 }
 
 int
-fd_ghost_invalid( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) {
+fd_ghost_is_valid_fork( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele ) {
   fd_ghost_ele_t const * anc = ele;
   while( FD_LIKELY( anc ) ) {
     if( FD_UNLIKELY( ( !anc->valid ) ) ) return 1;

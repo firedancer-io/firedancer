@@ -1582,7 +1582,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
     for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
       fd_replay_tower_t const * w = &glob->replay_towers[i];
       if( filter_arg != NULL ) {
-        if( !fd_hash_eq( &w->key, &filter_key ) ) continue;
+        if( !fd_hash_eq( &w->pubkey, &filter_key ) ) continue;
       }
       if( needcomma ) fd_web_reply_sprintf(ws, ",");
 
@@ -1668,7 +1668,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
 
       char vote_account_s[50];
-      fd_base58_encode_32(w->key.uc, 0, vote_account_s);
+      fd_base58_encode_32(w->pubkey.uc, 0, vote_account_s);
       char node_account_s[50];
       fd_base58_encode_32(node_account.uc, 0, node_account_s);
       fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[",
