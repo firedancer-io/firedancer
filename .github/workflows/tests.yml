@@ -125,7 +125,7 @@ jobs:
         with:
           repository: firedancer-io/test-vectors
           path: dump/test-vectors
-          fetch-depth: 20
+          fetch-depth: 5
 
       - name: run test-vector tests
         if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
