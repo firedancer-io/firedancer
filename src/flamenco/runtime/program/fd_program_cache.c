@@ -645,12 +645,8 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
 
   /* Ensure the record is in the current funk transaction */
   fd_funk_rec_key_t id = fd_program_cache_key( program_key );
-  fd_funk_rec_insert_para( funk, funk_txn, &id );
-
-  /* Modify the record within the current funk txn */
-  fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, funk_txn, &id, query );
-  if( FD_UNLIKELY( !rec ) ) {
+  fd_funk_rec_t * rec = fd_funk_rec_insert_para( funk, funk_txn, &id );
+if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never
        happen since this function is called in a single-threaded
        context. */
@@ -673,7 +669,4 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
     .magic              = FD_PROGRAM_CACHE_ENTRY_MAGIC,
     .last_slot_modified = current_slot
   };
-
-  /* Finish modifying and release lock */
-  fd_funk_rec_modify_publish( query );
 }
