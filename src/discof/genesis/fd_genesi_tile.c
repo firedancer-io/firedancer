@@ -53,6 +53,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline int
 should_shutdown( fd_genesi_tile_t * ctx ) {
+  if( ctx->shutdown ) FD_LOG_WARNING(("ASDF ASDF "));
   return ctx->shutdown;
 }
 

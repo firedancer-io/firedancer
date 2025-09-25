@@ -425,6 +425,7 @@ main_pid_namespace( void * _args ) {
         }
 
         if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+          FD_LOG_NOTICE(("ASDF ASDF %s %s", child_names[ i+1], child_names[ i-1]));
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
           fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
         } else {

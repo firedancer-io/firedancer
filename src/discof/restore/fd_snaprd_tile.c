@@ -172,6 +172,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline int
 should_shutdown( fd_snaprd_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPRD_STATE_SHUTDOWN ) ) {
+    FD_LOG_NOTICE(("ASDF "));
+  }
   return ctx->state==FD_SNAPRD_STATE_SHUTDOWN;
 }
 

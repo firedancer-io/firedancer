@@ -77,6 +77,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline int
 should_shutdown( fd_snapdc_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_SHUTDOWN ) ) {
+    FD_LOG_NOTICE(("ASDF "));
+  }
   return ctx->state==FD_SNAPDC_STATE_SHUTDOWN;
 }
 
@@ -107,6 +110,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, 0UL, 0UL, 0UL, 0UL );
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
+  FD_LOG_NOTICE(("CONTROL FRAG DC"));
 
   /* 2. Check if the control message is actually valid given the state
         machine, and if not, return a malformed message to the sender. */
