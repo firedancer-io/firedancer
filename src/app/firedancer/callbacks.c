@@ -14,7 +14,7 @@
 static ulong
 banks_footprint( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  return fd_banks_footprint( VAL("max_total_banks"), VAL("max_fork_width") );
+  return fd_banks_footprint( VAL("max_live_slots"), VAL("max_fork_width") );
 }
 
 static ulong
@@ -26,7 +26,7 @@ banks_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 banks_new( fd_topo_t const *     topo,
            fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_total_banks"), VAL("max_fork_width") ) );
+  FD_TEST( fd_banks_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_fork_width") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_banks = {

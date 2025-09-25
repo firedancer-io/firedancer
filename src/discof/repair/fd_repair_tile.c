@@ -785,7 +785,7 @@ after_frag( ctx_t * ctx,
         Msgs 2 and 3 have a shred header in ctx->buffer.
      */
     int resolver_evicted = sz == 0;
-    int fec_completes    = sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t);
+    int fec_completes    = sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
     if( FD_UNLIKELY( resolver_evicted ) ) {
       after_evict( ctx, sig );
       return;

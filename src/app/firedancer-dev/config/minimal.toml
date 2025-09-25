@@ -12,7 +12,6 @@ heap_size_gib = 4
 [runtime.limits]
 max_live_slots = 512
 max_vote_accounts = 32
-max_total_banks = 64
 max_fork_width = 16
 
 [layout]

@@ -366,14 +366,16 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case REPLAY_SIG_ROOT_ADVANCED: {
         fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
+        ulong null_idx = fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) );
+
         /* Replace current bank with new bank */
-        ulong prev_bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->bank );
-        ctx->bank = fd_banks_get_bank_idx( ctx->banks, msg->bank_idx );
+        ulong prev_bank_idx = ctx->bank ? ctx->bank->idx : null_idx;
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
 
         /* Send slot completed message back to replay, so it can decrement
            the refcount of the previous bank. */
-        if( FD_UNLIKELY( prev_bank_idx!=fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) ) ) ) {
+        if( FD_UNLIKELY( prev_bank_idx!=null_idx ) ) {
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           fd_resolv_slot_exchanged_t * slot_exchanged =
             fd_type_pun( fd_chunk_to_laddr( ctx->out_replay->mem, ctx->out_replay->chunk ) );

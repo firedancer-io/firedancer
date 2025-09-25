@@ -1216,7 +1216,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   FD_SPAD_FRAME_BEGIN( exec_spad ) {
   int exec_res = 0;
 
-  fd_bank_t * bank = fd_banks_get_bank_idx( banks, bank_idx );
+  fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "Could not get bank at pool idx %lu", bank_idx ));
   }

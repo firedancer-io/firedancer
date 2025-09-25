@@ -112,7 +112,6 @@ struct fd_configf {
   struct {
     ulong max_live_slots;
     ulong max_vote_accounts;
-    ulong max_total_banks;
     ulong max_fork_width;
   } runtime;
 

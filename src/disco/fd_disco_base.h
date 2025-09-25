@@ -81,8 +81,8 @@ fd_eslot_prime( fd_eslot_t eslot ) {
    link.  This is the size of a data shred header + merkle root
    + chained merkle root. */
 
-#define FD_SHRED_OUT_MTU (FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ)
-FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 152UL , update FD_SHRED_OUT_MTU );
+#define FD_SHRED_OUT_MTU (FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ + sizeof(int))
+FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 156UL , update FD_SHRED_OUT_MTU );
 
 /* Maximum size of frags going into the writer tile. */
 #define FD_REPLAY_WRITER_MTU (128UL)

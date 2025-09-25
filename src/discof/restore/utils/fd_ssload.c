@@ -64,9 +64,8 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
 
   /* Slot */
 
-  fd_eslot_t old_eslot = fd_bank_eslot_get( slot_ctx->bank );
-  fd_eslot_t eslot     = fd_eslot( manifest->slot, 0UL );
-  fd_banks_rekey_bank( slot_ctx->banks, old_eslot, eslot );
+  fd_bank_slot_set( slot_ctx->bank, manifest->slot );
+  fd_bank_parent_slot_set( slot_ctx->bank, manifest->parent_slot );
 
   /* Bank Hash */
 
@@ -140,7 +139,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_genesis_creation_time_set( slot_ctx->bank, manifest->creation_time_millis );
   fd_bank_slots_per_year_set( slot_ctx->bank, manifest->slots_per_year );
   fd_bank_block_height_set( slot_ctx->bank, manifest->block_height );
-  fd_bank_parent_eslot_set( slot_ctx->bank, fd_eslot( manifest->parent_slot, 0UL ) );
   fd_bank_execution_fees_set( slot_ctx->bank, manifest->collector_fees );
   fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
 

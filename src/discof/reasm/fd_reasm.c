@@ -160,6 +160,9 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
   fec->data_cnt        = 0;
   fec->data_complete   = 0;
   fec->slot_complete   = 1;
+  fec->bank_idx        = 0UL;
+  fec->parent_bank_idx = null;
+  fec->leader          = 0;
 
   slot_mr_t * slot_mr = slot_mr_insert( reasm->slot_mr, slot );
   slot_mr->block_id   = fec->key;
@@ -176,7 +179,19 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
 fd_reasm_fec_t *
 fd_reasm_next( fd_reasm_t * reasm ) {
   if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
+  /* We assign the parent_fork_index for the outgoing FEC set becaue
+     the parent FEC's current bank index is populated by the downstream
+     consumer of fd_reasm_next. */
   return pool_ele( reasm->pool, out_pop_head( reasm->out ) );
+}
+
+ulong
+fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec ) {
+  fd_reasm_fec_t * parent = pool_ele( reasm->pool, fec->parent );
+  if( FD_UNLIKELY( !parent ) ) {
+    FD_LOG_CRIT(( "invariant violation: fec has invalid parent (%lu)", fec->parent ));
+  }
+  return parent->bank_idx;
 }
 
 fd_reasm_fec_t *
@@ -225,6 +240,7 @@ link( fd_reasm_t     * reasm,
     fd_reasm_fec_t * curr = pool_ele( reasm->pool, parent->child );
     while( curr->sibling != pool_idx_null( reasm->pool ) ) curr = pool_ele( reasm->pool, curr->sibling );
     curr->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
+    if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* set to equivocating */
   }
 }
 
@@ -237,7 +253,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            parent_off,
                  ushort            data_cnt,
                  int               data_complete,
-                 int               slot_complete ) {
+                 int               slot_complete,
+                 int               leader ) {
   // FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ), data_cnt, data_complete, slot_complete ));
 
 # if FD_REASM_USE_HANDHOLDING
@@ -269,6 +286,10 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->data_cnt        = data_cnt;
   fec->data_complete   = data_complete;
   fec->slot_complete   = slot_complete;
+  fec->leader          = leader;
+  fec->eqvoc           = 0;
+  fec->bank_idx        = ULONG_MAX;
+  fec->parent_bank_idx = ULONG_MAX;
 
   /* This is a gross case reasm needs to handle because Agave currently
      does not validate chained merkle roots across slots ie. if a leader
@@ -391,7 +412,7 @@ maps_remove( fd_reasm_t * reasm,
 }
 
 fd_reasm_fec_t *
-fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
+fd_reasm_advance_root( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 # if FD_REASM_USE_HANDHOLDING
   if( FD_UNLIKELY( !pool_ele( reasm->pool, reasm->root ) ) ) { FD_LOG_WARNING(( "missing root"                                                     )); return NULL; }
   if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
