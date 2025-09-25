@@ -576,10 +576,10 @@ start incorporating skips for the new identity key.
 |-----------|--------------|---------|
 | *Once*    | `number[][]` | `[[5492.2,4578.841,914.24,0],[6134.44419,5149.23,985,0]]` |
 
-A list of the last 150 TPS samples taken by the validator. Currently the
+A list of the last 9000 TPS samples taken by the validator. Currently the
 spacing between samples is poorly defined, but it's roughly one sample
 per slot. Each element in the outer array represents a sample, and the
-outer array will have up to 150 samples. Each sample will have 4
+outer array will have up to 9000 samples. Each sample will have 4
 elements, which are `total_tps`, `vote_tps`, `nonvote_success_tps`, and
 `nonvote_failed_tps` as defined below. Samples are listed from oldest
 first.
@@ -591,8 +591,8 @@ first.
 
 The estimated number of transactions per second the network is running
 at. This includes total, vote, non-vote successful, and non-vote failed
-transactions. This is a moving average from the prior 150 slots, or
-around one minute. For a more precise view of transactions per second,
+transactions. This is a moving average from the prior 25 slots, or
+around 10 seconds. For a more precise view of transactions per second,
 the client can calculate it from the stream of new slot data.
 
 The sum of the non-vote successful and the non-vote failed transactions
