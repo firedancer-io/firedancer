@@ -142,10 +142,13 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
     node_path = os.path.join(cluster_path, 'nodes', bootstrap_validator_name)
     node_keys_path = os.path.join(cluster_path, 'keys', bootstrap_validator_name)
+    stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
 
     id_key = os.path.join(node_keys_path, 'id.json')
     vote_key = os.path.join(node_keys_path, 'vote.json')
-    stake_key = os.path.join(node_keys_path, 'stake.json')
+
+    stake_accounts_count = len(os.listdir(stake_accounts_path))
+    stake_key = os.path.join(stake_accounts_path, f"stake-account-{stake_accounts_count}.json")
 
     create_key(id_key)
     create_key(vote_key)
@@ -285,9 +288,12 @@ def add_node(ctx, validator_name):
     node_path = os.path.join(cluster_path, 'nodes', validator_name)
     node_keys_path = os.path.join(cluster_path, 'keys', validator_name)
 
+    stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
+    stake_accounts_count = len(os.listdir(stake_accounts_path))
+    stake_key = os.path.join(stake_accounts_path, f"stake-account-{stake_accounts_count}.json")
+
     id_key = os.path.join(node_keys_path, 'id.json')
     vote_key = os.path.join(node_keys_path, 'vote.json')
-    stake_key = os.path.join(node_keys_path, 'stake.json')
 
     create_key(id_key)
     create_key(vote_key)
@@ -787,7 +793,7 @@ def set_ledger_directory(ctx, ledger_path):
 
 @main.command('validators')
 @click.pass_context
-def show_validators(ctx):
+def validators(ctx):
     """Show validators and their keys."""
     verbose = ctx.obj['verbose']
 
@@ -799,6 +805,10 @@ def show_validators(ctx):
             pass  # AGAVE_RELEASE_PATH not needed for showing validators
 
     solana = solana_binary('solana')
+
+    epoch_in_output = subprocess.run([solana, "epoch-info", "-u", f"http://{ip()}:8899"], capture_output=True, text=True)
+    click.echo(epoch_in_output.stdout)
+
     validators_output = subprocess.run([solana, "validators", "-u", f"http://{ip()}:8899", "--keep-unstaked-delinquents"], capture_output=True, text=True)
     click.echo(validators_output.stdout)
 
@@ -823,10 +833,18 @@ def show_validators(ctx):
                     pid = int(pid_value)
                     pids_to_check[node_name] = pid
 
+    # Create a mapping of vote accounts to validators
+    vote_account_to_validator = {}
     for validator_name in os.listdir(keys_path):
         id_key = os.path.join(keys_path, validator_name, 'id.json')
         vote_key = os.path.join(keys_path, validator_name, 'vote.json')
+        vote_pubkey = get_pubkey(vote_key)
+        vote_account_to_validator[vote_pubkey] = validator_name
 
+    # Iterate over validators and print their information along with associated stake accounts
+    for validator_name in os.listdir(keys_path):
+        id_key = os.path.join(keys_path, validator_name, 'id.json')
+        vote_key = os.path.join(keys_path, validator_name, 'vote.json')
         id_pubkey = get_pubkey(id_key)
         vote_pubkey = get_pubkey(vote_key)
 
@@ -839,12 +857,41 @@ def show_validators(ctx):
             except (ProcessLookupError, PermissionError):
                 pass
 
-        status_emoji = "✅" if running else "❌"
+        firedancer = False
+        if running == False:
+            # Check if any row in validators_output does not contain the ⚠️ symbol
+            validator_line = [line for line in validators_output.stdout.splitlines() if id_pubkey in line]
+            if '⚠' != validator_line[0][0]:
+                firedancer = True
+
+        status_emoji = "✅" if running else "🔥" if firedancer else "❌"
 
         click.echo(f"Validator: {validator_name} {status_emoji}")
         click.echo(f"  Identity Key: {id_pubkey}")
         click.echo(f"  Vote Key: {vote_pubkey}")
-        click.echo("-")
+        click.echo(f"  Stake Info:")
+        # Print associated stake accounts
+        stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
+        for file in os.listdir(stake_accounts_path):
+            stake_account_key = os.path.join(stake_accounts_path, file)
+            stake_account_pubkey = get_pubkey(stake_account_key)
+            # Execute solana command to get stake account details
+            result = subprocess.run([solana, '-u', f'http://{ip()}:8899', 'stake-account', stake_account_pubkey], capture_output=True, text=True)
+            output = result.stdout
+            # Parse the output
+            if 'Stake account is undelegated' not in output:
+                vote_account_line = next(line for line in output.splitlines() if line.startswith('Delegated Vote Account Address:'))
+                vote_account = vote_account_line.split(':')[1].strip()
+                if vote_account == vote_pubkey:
+                    balance_line = next(line for line in output.splitlines() if line.startswith('Balance:'))
+                    active_stake_line = next(line for line in output.splitlines() if line.startswith('Active Stake:'))
+                    delegated_stake_line = next(line for line in output.splitlines() if line.startswith('Delegated Stake:'))
+                    balance = balance_line.split(':')[1].strip()
+                    active_stake = active_stake_line.split(':')[1].strip()
+                    delegated_stake = delegated_stake_line.split(':')[1].strip()
+
+                    click.echo(f"    {stake_account_pubkey}: Balance: {balance}, Active Stake: {active_stake}, Delegated Stake: {delegated_stake}")
+        click.echo("")
 
 
 if __name__ == '__main__':
