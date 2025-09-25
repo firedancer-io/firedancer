@@ -3,7 +3,6 @@
 
 #include "../replay/fd_replay_tile.h"
 #include "../../choreo/ghost/fd_ghost.h"
-#include "../../choreo/tower/fd_tower.h"
 #include "../../choreo/voter/fd_voter.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_topo.h"
@@ -226,6 +225,17 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   msg->reset_slot     = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
   msg->reset_block_id = *fd_ghost_hash( ctx->ghost, msg->reset_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
+
+  /* 5. Include this fork's slot history */
+
+  fd_ghost_ele_t const * iter = fd_ghost_query( ctx->ghost, &msg->reset_block_id );
+  msg->fork_history_sz = 0UL;
+  for( ulong i=0UL; i<FD_TOWER_VOTE_MAX+1UL; i++ ) {
+    msg->fork_history[ i ] = iter->slot;
+    msg->fork_history_sz++;
+    iter = fd_ghost_parent_const( ctx->ghost, iter );
+    if( FD_UNLIKELY( !iter || iter->slot==fd_ghost_root( ctx->ghost )->slot ) ) break;
+  }
 
   /* Publish the frag */
 

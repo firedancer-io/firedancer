@@ -1487,23 +1487,19 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
 }
 
 static void
-fd_gui_handle_reset_slot( fd_gui_t * gui,
-                          ulong *    msg,
-                          long       now ) {
-  ulong last_landed_vote = msg[ 0 ];
+fd_gui_handle_reset_slot( fd_gui_t *    gui,
+                          ulong         last_landed_vote,
+                          ulong         fork_history_sz,
+                          ulong const * fork_history,
+                          long          now ) {
+  ulong _slot = fork_history[ 0UL ];
 
-  ulong parent_cnt = msg[ 1 ];
-  FD_TEST( parent_cnt<4096UL );
-
-  ulong _slot = msg[ 2 ];
-
-  for( ulong i=0UL; i<parent_cnt; i++ ) {
-    ulong parent_slot = msg[2UL+i];
+  for( ulong i=0UL; i<fork_history_sz; i++ ) {
+    ulong parent_slot = fork_history[ i ];
     fd_gui_slot_t * slot = gui->slots[ parent_slot % FD_GUI_SLOTS_CNT ];
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
-      ulong parent_parent_slot = ULONG_MAX;
-      if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = msg[ 3UL+i ];
-      fd_gui_clear_slot( gui, parent_slot, parent_parent_slot );
+      ulong grandparent_slot = fd_ulong_if( i!=fork_history_sz-1UL, fork_history[ i+1UL ], ULONG_MAX );
+      fd_gui_clear_slot( gui, parent_slot, grandparent_slot );
     }
   }
 
@@ -1550,7 +1546,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     int should_republish = slot->must_republish;
     slot->must_republish = 0;
 
-    if( FD_UNLIKELY( parent_slot!=msg[2UL+parent_slot_idx] ) ) {
+    if( FD_UNLIKELY( parent_slot!=fork_history[ parent_slot_idx ] ) ) {
       /* We are between two parents in the rooted chain, which means
          we were skipped. */
       if( FD_UNLIKELY( !slot->skipped ) ) {
@@ -1592,7 +1588,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     /* We reached the last parent in the chain, everything above this
        must have already been rooted, so we can exit. */
 
-    if( FD_UNLIKELY( parent_slot_idx>=parent_cnt ) ) break;
+    if( FD_UNLIKELY( parent_slot_idx>=fork_history_sz ) ) break;
   }
 
   ulong duration_sum = 0UL;
@@ -1714,22 +1710,20 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
 
 static void
 fd_gui_handle_rooted_slot( fd_gui_t * gui,
-                           ulong *    msg ) {
-  ulong _slot = msg[ 0 ];
-
-  // FD_LOG_WARNING(( "Got rooted slot %lu", _slot ));
+                           ulong      root_slot ) {
+  // FD_LOG_WARNING(( "Got rooted slot %lu", root_slot ));
 
   /* Slot 0 is always rooted.  No need to iterate all the way back to
-     i==_slot */
-  for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
-    ulong parent_slot = _slot - i;
+     i==root_slot */
+  for( ulong i=0UL; i<fd_ulong_min( root_slot, FD_GUI_SLOTS_CNT ); i++ ) {
+    ulong parent_slot = root_slot - i;
     ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
     fd_gui_slot_t * slot = gui->slots[ parent_idx ];
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
 
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
-      FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
+      FD_LOG_ERR(( "root_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", root_slot, i, parent_slot, slot->slot ));
     }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
@@ -1738,7 +1732,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  gui->summary.slot_rooted = _slot;
+  gui->summary.slot_rooted = root_slot;
   fd_gui_printf_root_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
 }
@@ -1801,6 +1795,17 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
   gui->summary.slot_optimistically_confirmed = _slot;
   fd_gui_printf_optimistically_confirmed_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+void
+fd_gui_handle_tower_update( fd_gui_t *    gui,
+                            ulong         opt_root_slot,
+                            ulong         last_landed_vote,
+                            ulong         fork_history_sz,
+                            ulong const * fork_history,
+                            long          now ) {
+  fd_gui_handle_reset_slot( gui, last_landed_vote, fork_history_sz, fork_history, now );
+  if( FD_UNLIKELY( opt_root_slot!=ULONG_MAX ) ) fd_gui_handle_rooted_slot( gui, opt_root_slot );
 }
 
 static void
@@ -1983,7 +1988,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
-      fd_gui_handle_rooted_slot( gui, (ulong *)msg );
+      fd_gui_handle_rooted_slot( gui, ((ulong *)msg)[ 0 ] );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
       fd_gui_handle_optimistically_confirmed_slot( gui, (ulong *)msg );
@@ -2021,7 +2026,11 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_SLOT_RESET: {
-      fd_gui_handle_reset_slot( gui, (ulong *)msg, now );
+      ulong last_landed_vote = ((ulong *)msg)[ 0 ];
+      ulong fork_history_sz = ((ulong *)msg)[ 1 ] + 1UL;
+      ulong const * fork_history =&((ulong *)msg)[ 2 ];
+      FD_TEST( fork_history_sz <= 4097 );
+      fd_gui_handle_reset_slot( gui, last_landed_vote, fork_history_sz, fork_history, now );
       break;
     }
     case FD_PLUGIN_MSG_BALANCE: {
