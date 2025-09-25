@@ -418,7 +418,7 @@ fd_funk_rec_insert_para( fd_funk_t *               funk,
       FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
       fd_funk_rec_map_txn_test( map_txn );
       fd_funk_rec_map_txn_fini( map_txn );
-      return NULL;
+      return err;
     }
     /* Set the value of the record */
     if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
