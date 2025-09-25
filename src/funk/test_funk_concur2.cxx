@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <pthread.h>
 
-#define NUM_THREADS 1
+#define NUM_THREADS 16
 #define MAX_TXN_CNT 512
 #define NUM_KEYS    64
 
@@ -31,7 +31,7 @@ static void * work_thread( void * _arg ) {
 
     fd_funk_rec_key_t key = {};
     key.ul[0] = key_idx;
-    int err = fd_funk_rec_insert_para( funk, txn, &key, alignof(ulong), sizeof(ulong), (void*)&exp_val[key_idx] );
+    int err = fd_funk_rec_insert_para( funk, txn, &key, alignof(uint), sizeof(uint), (void*)&exp_val[key_idx] );
     FD_TEST( err == FD_FUNK_SUCCESS );
   }
 
@@ -75,14 +75,14 @@ int main( int argc, char ** argv ) {
         rec,
         fd_funk_alloc( funk ),
         fd_funk_wksp( funk ),
-        alignof(ulong),
-        sizeof(ulong),
+        alignof(uint),
+        sizeof(uint),
         NULL
     );
     FD_TEST( val );
 
     /* Set the value to 0. */
-    ulong * val_ul = (ulong *)val;
+    uint * val_ul = (uint *)val;
     *val_ul = 0UL;
     fd_funk_rec_publish( funk, prepare );
   }
@@ -128,9 +128,9 @@ int main( int argc, char ** argv ) {
       fd_funk_rec_query_t query = {};
       fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, &xid, &key, &query );
       FD_TEST( rec );
-      ulong * val_ul = (ulong *)fd_funk_val( rec, fd_funk_wksp( funk ) );
+      uint * val_ul = (uint *)fd_funk_val( rec, fd_funk_wksp( funk ) );
       if( FD_UNLIKELY( *val_ul != exp_val[i] ) ) {
-        FD_LOG_ERR(( "val_ul=%lu exp_val=%u", *val_ul, (uint)exp_val[i] ));
+        FD_LOG_ERR(( "val_ul=%u exp_val=%u", *val_ul, (uint)exp_val[i] ));
       }
     }
   }
