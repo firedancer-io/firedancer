@@ -364,7 +364,7 @@ main( int     argc,
         tparent = (fd_funk_txn_xid_t){ .ul={ rparent->xid, rparent->xid } };
       } else { /* Branch off last published */
         rparent = NULL;
-        fd_funk_txn_xid_set_root( &tparent );
+        fd_funk_txn_xid_copy( &tparent, fd_funk_last_publish( tst ) );
       }
 
       ulong rxid = xid_unique();

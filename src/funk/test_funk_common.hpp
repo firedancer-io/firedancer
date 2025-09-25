@@ -227,7 +227,7 @@ struct fake_funk {
       auto xid = txn->real_id();
       fd_funk_txn_xid_t parent_xid;
       if( parent2 ) parent_xid = parent2->xid;
-      else          fd_funk_txn_xid_set_root( &parent_xid );
+      else          fd_funk_txn_xid_copy( &parent_xid, fd_funk_last_publish( _real ) );
       assert(fd_funk_txn_prepare(_real, &parent_xid, &xid, 1) != NULL);
     }
 

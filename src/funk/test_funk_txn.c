@@ -125,8 +125,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       int is_full = fd_funk_txn_is_full( funk );
       if( FD_UNLIKELY( fd_funk_txn_xid_eq( &recent_xid[idx], last_publish ) ) ) break;
-      fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, &root, &recent_xid[idx], verbose );
+      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, fd_funk_last_publish( funk ), &recent_xid[idx], verbose );
       if( is_full ) FD_TEST( !txn );
       else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );
       break;
@@ -137,8 +136,7 @@ main( int     argc,
       *xid = fd_funk_generate_xid();
       recent_cursor = (recent_cursor+1UL) & 63UL;
       int is_full = fd_funk_txn_is_full( funk );
-      fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, &root, xid, verbose );
+      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, fd_funk_last_publish( funk ), xid, verbose );
       if( is_full ) FD_TEST( !txn );
       else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), xid ) );
       break;
@@ -216,7 +214,7 @@ main( int     argc,
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );
       FD_TEST( fd_funk_txn_publish( funk, &recent_xid[idx] )>0UL );
-      FD_TEST( txn->state==FD_FUNK_TXN_STATE_INVALID );
+      FD_TEST( txn->state==FD_FUNK_TXN_STATE_FREE );
       FD_TEST( fd_funk_txn_xid_eq( last_publish, &recent_xid[idx] ) );
       break;
     }

@@ -83,7 +83,7 @@ typedef struct fd_funk_txn_private fd_funk_txn_t;
 
 /* Funk transaction states */
 
-#define FD_FUNK_TXN_STATE_INVALID (0U)
+#define FD_FUNK_TXN_STATE_FREE    (0U)
 #define FD_FUNK_TXN_STATE_ACTIVE  (1U)
 #define FD_FUNK_TXN_STATE_CANCEL  (2U)
 #define FD_FUNK_TXN_STATE_PUBLISH (3U)
@@ -92,8 +92,8 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_funk_txn_{cidx,idx} convert between an index and a compressed index. */
 
-static inline uint  fd_funk_txn_cidx( ulong idx ) { return (uint) idx; }
-static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
+static inline uint  fd_funk_txn_cidx( ulong idx  ) { return (uint)  idx; }
+static inline ulong fd_funk_txn_idx ( uint  cidx ) { return (ulong)cidx; }
 
 /* fd_funk_txn_idx_is_null returns 1 if idx is FD_FUNK_TXN_IDX_NULL and
    0 otherwise. */
@@ -366,13 +366,6 @@ ulong
 fd_funk_txn_cancel( fd_funk_t *               funk,
                     fd_funk_txn_xid_t const * txn );
 
-/* fd_funk_txn_cancel_root cancels all transactions, including the
-   root transaction.  Funk is guaranteed to be empty after calling
-   this function. */
-
-ulong
-fd_funk_txn_cancel_root( fd_funk_t * funk );
-
 /* fd_funk_txn_cancel_all cancels all in-preparation
    transactions. Only the last published transaction remains. */
 
@@ -403,6 +396,14 @@ fd_funk_txn_publish( fd_funk_t *               funk,
 int
 fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * txn );
+
+/* fd_funk_txn_remove_published removes all published transactions.
+   Funk instance must not have any funk transactions in preparation.
+   On return, all records are freed, and the last published transaction
+   is the root XID. */
+
+void
+fd_funk_txn_remove_published( fd_funk_t * funk );
 
 /* fd_funk_txn_all_iter_t iterators over all funk transaction objects.
    Usage is:
@@ -451,8 +452,8 @@ fd_funk_txn_valid( fd_funk_t const * funk, fd_funk_txn_t const * txn );
 FD_FN_UNUSED static char const *
 fd_funk_txn_state_str( uint state ) {
   switch( state ) {
-  case FD_FUNK_TXN_STATE_INVALID: return "invalid";
-  case FD_FUNK_TXN_STATE_ACTIVE:   return "alive";
+  case FD_FUNK_TXN_STATE_FREE:    return "free";
+  case FD_FUNK_TXN_STATE_ACTIVE:  return "alive";
   case FD_FUNK_TXN_STATE_CANCEL:  return "cancel";
   case FD_FUNK_TXN_STATE_PUBLISH: return "publish";
   default:                        return "unknown";
