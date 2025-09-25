@@ -156,17 +156,14 @@ struct fd_sbpf_elf_info {
   int shndx_strtab;
   int shndx_dyn;
   int shndx_dynstr;
+  int shndx_dynsymtab; /* Section header index of the dynamic symbol table */
 
   /* Known program header indices (like shndx_*) */
   int phndx_dyn;
 
-  /* Dynamic table entries */
-  uint dt_reloff;
-  uint dt_relsz;
-  int dt_symtab;
-
-  uint dyn_off;  /* File offset of dynamic table (UINT_MAX=missing) */
-  uint dyn_cnt;  /* Number of dynamic table entries */
+  /* Dynamic relocation table entries */
+  uint dt_reloff; /* File offset of dynamic relocation table */
+  uint dt_relsz;  /* Number of dynamic relocation table entries */
 
   uint entry_pc;  /* Program counter of entry point
                      NOTE: MIGHT BE OUT OF BOUNDS! */
