@@ -44,6 +44,16 @@
                 (after),  fd_funk_txn_state_str( after  ) ));             \
 } while(0)
 
+#define fd_funk_last_publish_transition(funk_shmem, after) do {           \
+    fd_funk_shmem_t *   _shmem    = (funk_shmem);                         \
+    fd_funk_txn_xid_t * _last_pub = _shmem->last_publish;                 \
+    fd_funk_txn_xid_t   _prev_pub[1]; fd_funk_txn_xid_copy( _prev_pub, _last_pub ); \
+    fd_funk_txn_xid_copy( _last_pub, (after) );                           \
+    FD_LOG_DEBUG(( "funk last_publish (%lu:%lu) -> (%lu:%lu)",            \
+                   _prev_pub->ul[0], _prev_pub->ul[1],                    \
+                   _last_pub->ul[0], _last_pub->ul[1] ));                 \
+  } while(0)
+
 fd_funk_txn_t *
 fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * parent_xid,
@@ -70,7 +80,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   uint * _child_head_cidx;
   uint * _child_tail_cidx;
 
-  if( FD_LIKELY( fd_funk_txn_xid_eq_root( parent_xid ) ) ) { /* opt for incr pub */
+  if( FD_UNLIKELY( fd_funk_txn_xid_eq( parent_xid, funk->shmem->last_publish ) ) ) {
 
     parent_idx = FD_FUNK_TXN_IDX_NULL;
 
@@ -119,7 +129,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   txn->stack_cidx        = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   txn->tag               = 0UL;
 
-  fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_INVALID, FD_FUNK_TXN_STATE_ACTIVE );
+  fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_FREE, FD_FUNK_TXN_STATE_ACTIVE );
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
 
@@ -225,7 +235,7 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
 
   fd_funk_txn_map_query_t query[1];
   if( fd_funk_txn_map_remove( txn_map, fd_funk_txn_xid( txn ), NULL, query, FD_MAP_FLAG_BLOCKING ) == FD_MAP_SUCCESS ) {
-    fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_CANCEL, FD_FUNK_TXN_STATE_INVALID );
+    fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_CANCEL, FD_FUNK_TXN_STATE_FREE );
     fd_funk_txn_pool_release( txn_pool, txn, 1 );
   }
 }
@@ -400,10 +410,18 @@ fd_funk_txn_cancel_children( fd_funk_t *               funk,
   return res;
 }
 
-ulong
-fd_funk_txn_cancel_root( fd_funk_t * funk ) {
-  fd_funk_rec_map_t * rec_map = funk->rec_map;
+void
+fd_funk_txn_remove_published( fd_funk_t * funk ) {
+  if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
+    FD_LOG_ERR(( "Failed to remove published txns: there are still txns in preparation" ));
+  }
+
+  fd_wksp_t *          wksp     = funk->wksp;
+  fd_alloc_t *         alloc    = funk->alloc;
+  fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
+
+  /* Iterate over all funk records and remove them */
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
@@ -411,20 +429,28 @@ fd_funk_txn_cancel_root( fd_funk_t * funk ) {
         !fd_funk_rec_map_iter_done( iter );
         iter = fd_funk_rec_map_iter_next( iter )
     ) {
-      for (;;) {
-        fd_funk_rec_map_query_t rec_query[1];
-        int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( iter.ele ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-        if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-        if( err == FD_MAP_ERR_KEY ) break;
-        if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
-        if( iter.ele != fd_funk_rec_map_query_ele( rec_query ) ) break;
-        fd_funk_val_flush( fd_funk_rec_map_iter_ele( iter ), fd_funk_alloc( funk ), fd_funk_wksp( funk ) );
-        fd_funk_rec_pool_release( rec_pool, fd_funk_rec_map_query_ele( rec_query ), 1 );
+      /* Get handle to rec object */
+      fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( iter );
+
+      /* Sanity check: Record belongs to last published XID */
+      if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) ) {
+        FD_LOG_ERR(( "Failed to remove published txns: concurrent in-prep record detected" ));
       }
+
+      /* Remove rec object from map */
+      fd_funk_rec_map_query_t rec_query[1];
+      int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( iter.ele ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
+
+      /* Free rec resources */
+      fd_funk_val_flush( fd_funk_rec_map_iter_ele( iter ), alloc, wksp );
+      fd_funk_rec_pool_release( rec_pool, rec, 1 );
     }
   }
 
-  return 0UL;
+  /* Reset 'last published' XID to 'root' XID */
+  fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
+  fd_funk_last_publish_transition( funk->shmem, &root_xid );
 }
 
 /* Cancel all outstanding transactions */
@@ -589,7 +615,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t * const funk,
   funk->shmem->child_head_cidx = fd_funk_txn_cidx( child_head_idx );
   funk->shmem->child_tail_cidx = fd_funk_txn_cidx( child_tail_idx );
 
-  fd_funk_txn_xid_copy( funk->shmem->last_publish, fd_funk_txn_xid( txn ) );
+  fd_funk_last_publish_transition( funk->shmem, fd_funk_txn_xid( txn ) );
 
   /* Remove the mapping */
 
@@ -600,7 +626,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t * const funk,
                  funk->shmem->last_publish->ul[0], funk->shmem->last_publish->ul[1],
                  remove_err ));
   }
-  fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_PUBLISH, FD_FUNK_TXN_STATE_INVALID );
+  fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_PUBLISH, FD_FUNK_TXN_STATE_FREE );
   fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
 
   return FD_FUNK_SUCCESS;
@@ -715,12 +741,16 @@ fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
     child_idx = fd_funk_txn_idx( txn_pool->ele[ child_idx ].sibling_next_cidx );
   }
 
+  if( fd_funk_txn_idx_is_null( parent_idx ) ) {
+    fd_funk_last_publish_transition( funk->shmem, xid );
+  }
+
   if( fd_funk_txn_map_remove( txn_map, xid, NULL, query, FD_MAP_FLAG_BLOCKING )!=FD_MAP_SUCCESS ) {
     FD_LOG_ERR(( "Failed to remove published txn %lu:%lu from map: error %i",
                  xid->ul[0], xid->ul[1],
                  map_err ));
   }
-  fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_PUBLISH, FD_FUNK_TXN_STATE_INVALID );
+  fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_PUBLISH, FD_FUNK_TXN_STATE_FREE );
   fd_funk_txn_pool_release( txn_pool, txn, 1 );
 
   return FD_FUNK_SUCCESS;

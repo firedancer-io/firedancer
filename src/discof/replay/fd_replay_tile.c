@@ -585,11 +585,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   fd_funk_txn_xid_t xid        = { .ul = { fd_eslot_slot( eslot ), fd_eslot_slot( eslot ) } };
   fd_funk_txn_xid_t parent_xid = { .ul = { fd_eslot_slot( parent_eslot ), fd_eslot_slot( parent_eslot ) } };
-  if( FD_UNLIKELY( !fd_funk_txn_query( &parent_xid, fd_funk_txn_map( ctx->funk ) ) ) ) {
-    /* HACKY: If the parent transaction doesn't exist, assume we are
-              restoring from a snapshot or genesis. */
-    fd_funk_txn_xid_set_root( &parent_xid );
-  }
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_CRIT(( "invariant violation: can't prepare funk_txn for (slot %lu, prime %u)", fd_eslot_slot( eslot ), fd_eslot_prime( eslot ) ));
@@ -824,11 +819,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  if( FD_UNLIKELY( !fd_funk_txn_query( &parent_xid, fd_funk_txn_map( ctx->funk ) ) ) ) {
-    /* HACKY: If the parent transaction doesn't exist, assume we are
-              restoring from a snapshot or genesis. */
-    fd_funk_txn_xid_set_root( &parent_xid );
-  }
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
