@@ -36,6 +36,9 @@ struct fd_poh_tile {
      implement for now. */
   uint expect_pack_idx;
 
+  ulong in_cnt;
+  ulong idle_cnt;
+
   int in_kind[ 64 ];
   fd_poh_in_t in[ 64 ];
 
@@ -63,7 +66,11 @@ after_credit( fd_poh_tile_t *     ctx,
               fd_stem_context_t * stem,
               int *               opt_poll_in,
               int *               charge_busy ) {
-  fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
+  ctx->idle_cnt++;
+  if( FD_UNLIKELY( ctx->idle_cnt>ctx->in_cnt ) ) {
+    fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
+    ctx->idle_cnt = 0UL;
+  }
 }
 
 /* ....
@@ -94,7 +101,10 @@ returnable_frag( fd_poh_tile_t *     ctx,
   /* TODO: Pack has a workaround for Frankendancer that sequences bank
      release to manage lifetimes, but it's not needed in Firedancer so
      we just drop it.  We shouldn't send it at all in future. */
-  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) return 0;
+  if( FD_UNLIKELY( sig==ULONG_MAX && ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
+    ctx->idle_cnt = 0UL;
+    return 0;
+  }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -137,6 +147,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
     }
   }
 
+  ctx->idle_cnt = 0UL;
   return 0;
 }
 
@@ -172,6 +183,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_poh_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_poh_tile_t ), sizeof( fd_poh_tile_t ) );
 
   ctx->expect_pack_idx = 0UL;
+
+  ctx->in_cnt   = tile->in_cnt;
+  ctx->idle_cnt = 0UL;
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

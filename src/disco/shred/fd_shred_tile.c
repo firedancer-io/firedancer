@@ -954,7 +954,7 @@ after_frag( fd_shred_ctx_t *    ctx,
         } while( 0 );
       }
 
-      if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* Only send to repair in full Firedancer */
+      if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* Only send to repair/replay in full Firedancer */
 
         /* Construct the sig from the shred. */
 
@@ -1073,32 +1073,36 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     if( FD_LIKELY( ctx->shred_out_idx!=ULONG_MAX ) ) { /* firedancer-only */
 
-      /* Additionally, publish a frag to notify repair that the FEC set
-         is complete. Note the ordering wrt store shred insertion above
-         is intentional: shreds are inserted into the store before
-         notifying repair. This is because the replay tile is downstream
-         of repair, and replay assumes the shreds are already in the
-         store when repair notifies it that the FEC set is complete, and
-         we don't know whether shred will finish inserting into store
-         first or repair will finish validating the FEC set first. The
-         header and merkle root of the last shred in the FEC set are
-         sent as part of this frag.
+      /* Additionally, publish a frag to notify repair and replay that
+         the FEC set is complete.  Note the ordering wrt store shred
+         insertion above is intentional: shreds are inserted into the
+         store before notifying repair and replay.  This is because the
+         replay tile assumes the shreds are already in the store when
+         replay gets a notification from the shred tile that the FEC is
+         complete.  We we don't know whether shred will finish inserting
+         into store first or repair will finish validating the FEC set
+         first.  The header and merkle root of the last shred in the FEC
+         set are sent as part of this frag.
 
          This message, the shred msg, and the FEC evict msg constitute
-         the max 3 possible messages to repair per after_frag.  In
-         reality, it is only possible to publish all 3 in the case where
-         we receive a coding shred first for a FEC set where (N=1,K=18),
-         which allows for the FEC set to be instantly completed by the
-         singular coding shred, and that also happens to evict a FEC set
-         from the curr_map. When fix-32 arrives, the link burst value
-         can be lowered to 2. */
+         the max 3 possible messages to repair/replay per after_frag.
+         In reality, it is only possible to publish all 3 in the case
+         where we receive a coding shred first for a FEC set where
+         (N=1,K=18), which allows for the FEC set to be instantly
+         completed by the singular coding shred, and that also happens
+         to evict a FEC set from the curr_map.  When fix-32 arrives, the
+         link burst value can be lowered to 2. */
+
+      int is_leader_fec = ctx->in_kind[ in_idx ]==IN_KIND_POH;
 
       ulong   sig   = fd_disco_shred_out_fec_sig( last->slot, last->fec_set_idx, (uint)set->data_shred_cnt, last->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE, last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
       uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
-      memcpy( chunk,                                                   last,                                                FD_SHRED_DATA_HEADER_SZ );
-      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                           ctx->out_merkle_roots[fset_k].hash,                  FD_SHRED_MERKLE_ROOT_SZ );
-      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ, (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
-      ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2;
+      memcpy( chunk,                                                         last,                                                FD_SHRED_DATA_HEADER_SZ );
+      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ,                                 ctx->out_merkle_roots[fset_k].hash,                  FD_SHRED_MERKLE_ROOT_SZ );
+      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ +  FD_SHRED_MERKLE_ROOT_SZ,      (uchar *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+      memcpy( chunk+FD_SHRED_DATA_HEADER_SZ + (FD_SHRED_MERKLE_ROOT_SZ*2UL), &is_leader_fec,                                      sizeof(int));
+
+      ulong sz    = FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int);
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, ctx->shred_out_idx, sig, ctx->shred_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );

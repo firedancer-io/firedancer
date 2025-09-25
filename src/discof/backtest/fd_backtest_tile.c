@@ -273,11 +273,14 @@ after_credit( ctx_t *             ctx,
      of the shred tile.  This involves copying the data shred header and
      appending the merkle root and chained merkle root. */
 
+  int is_leader = 0;
+
   uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
   memcpy( out_buf, prev, FD_SHRED_DATA_HEADER_SZ );
   memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ, &mr, sizeof(fd_hash_t) );
   memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t), &cmr, sizeof(fd_hash_t) );
-  ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t);
+  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t), &is_leader, sizeof(int) );
+  ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
 
   fd_stem_publish( stem, ctx->replay_out_idx, ULONG_MAX, ctx->replay_out_chunk, fec_complete_sz, 0, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, fec_complete_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );

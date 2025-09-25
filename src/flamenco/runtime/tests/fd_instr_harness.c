@@ -239,7 +239,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
   FD_TEST( clock );
-  slot_ctx->bank->eslot_ = fd_eslot( clock->slot, 0UL );
+  fd_bank_slot_set( slot_ctx->bank, clock->slot );
 
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
