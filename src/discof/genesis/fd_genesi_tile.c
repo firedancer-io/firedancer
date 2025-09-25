@@ -267,7 +267,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->fd;
+  if( ctx->fd!=-1 ) out_fds[ out_cnt++ ] = ctx->fd;
   return out_cnt;
 }
 
