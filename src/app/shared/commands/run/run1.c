@@ -61,6 +61,7 @@ tile_main( void * _args ) {
   /* If we get here, the tile run loop has requested to exit the tile,
      so it is cleanly shutting down. */
   FD_TEST( args->tile->allow_shutdown );
+  FD_LOG_WARNING(( "EXITING TILE" ));
   return 0;
 }
 
