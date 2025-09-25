@@ -72,6 +72,9 @@
 #define FD_SBPF_V4            (4U)
 #define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT)
 
+/* Hardcoded constant for the murmur3_32 hash of the entrypoint. */
+#define FD_SBPF_ENTRYPOINT_HASH (0x71e3cf81U)
+
 /* Program struct *****************************************************/
 
 /* fd_sbpf_calldests is a bit vector of valid call destinations.
@@ -202,7 +205,7 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 
   /* Bit vector of valid call destinations (bit count is rodata_sz) */
   void * calldests_shmem;
-  /* Local join to bit vector of valid call destinations */
+  /* Local join to bit vector of valid call destinations (target PCs) */
   fd_sbpf_calldests_t * calldests;
 };
 typedef struct fd_sbpf_program fd_sbpf_program_t;

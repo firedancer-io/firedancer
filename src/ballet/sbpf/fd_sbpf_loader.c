@@ -826,6 +826,7 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
   return 0;
 }
 
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L467-L496 */
 int
 fd_sbpf_lenient_get_string_in_section( char *                string,
                                        fd_elf64_shdr const * section_header,
@@ -872,6 +873,61 @@ fd_sbpf_lenient_get_string_in_section( char *                string,
     return FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG;
   }
   return 0;
+}
+
+/* Registers a target PC into the calldests function registry. Returns
+   0 on success, inserts the target PC into the calldests, and sets
+   *opt_out_pc_hash to murmur3_32(target_pc) (if opt_out_pc_hash is
+   non-NULL). Returns FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION on failure
+   if the target PC is already in the calldests or syscalls registry,
+   and leaves out_pc_hash in an undefined state.
+
+   An important note is that Agave's implementation uses a map to store
+   key-value pairs of (murmur3_32(target_pc), target_pc) within the
+   calldests. We optimize this by using a set containing
+   murmur3_32(target_pc) (this is our calldests map), and then deriving
+   the target PC on the fly in the VM by computing the inverse hash
+   (since murmur3_32 is bijective for uints).
+
+   TODO: this function will have to be adapted to hash the target PC
+   depending on the SBPF version (>= V3). That has not been implemented
+   yet.
+
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L142-L178 */
+static int
+fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t * loader,
+                                         char const *       name,
+                                         ulong              target_pc,
+                                         uint *             opt_out_pc_hash ) {
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L156-L160 */
+  uint pc_hash;
+  if( FD_UNLIKELY( strcmp( name, "entrypoint" )==0 ) ) {
+    /* Optimization for this constant value */
+    pc_hash = FD_SBPF_ENTRYPOINT_HASH;
+  } else {
+    pc_hash = fd_pchash( (uint)target_pc );
+  }
+
+  /* loader.get_function_registry() is their equivalent of our syscalls
+     registry. Fail if the target PC is present there.
+
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L161-L163 */
+  if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) ) ) {
+    return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+  }
+
+  /* self.register_function() fails if there is an existing entry in the
+     calldests set.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L168-L176 */
+  if( FD_UNLIKELY( fd_sbpf_calldests_test( loader->calldests, target_pc ) ) ) {
+    return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+  }
+
+  /* Insert the target PC into the calldests set. */
+  fd_sbpf_calldests_insert( loader->calldests, target_pc );
+  if( opt_out_pc_hash ) *opt_out_pc_hash = pc_hash;
+
+  return FD_SBPF_ELF_SUCCESS;
 }
 
 /* ELF Dynamic Relocations *********************************************
@@ -1163,12 +1219,12 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
 
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1248-L1301 */
 static int
-fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const *      loader,
-                     fd_sbpf_elf_t      const *      elf,
+fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
+                     fd_sbpf_elf_t const *           elf,
                      ulong                           elf_sz,
-                     uchar                    *      rodata,
+                     uchar *                         rodata,
                      fd_sbpf_elf_info_t const *      info,
-                     fd_elf64_rel       const *      dt_rel,
+                     fd_elf64_rel const *            dt_rel,
                      ulong                           r_offset,
                      fd_sbpf_loader_config_t const * config ) {
 
@@ -1226,22 +1282,10 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const *      loader,
 
       /* https://github.com/anza-xyz/sbpf/blob/0.12.2/src/elf.rs#L1270-L1279 */
       ulong target_pc = fd_ulong_sat_sub( symbol->st_value, sh_text->sh_addr ) / 8UL;
-
-      /* strcmp is safe because name is non-NULL and null-terminated. */
-      if( strcmp( name, "entrypoint" )==0 ) {
-        /* Until static syscalls are enabled, Agave will unregister the
-           entrypoint after the relocations are done, so we don't have
-           to register the function here. */
-        key = 0x71e3cf81U;
-      } else {
-        key = fd_pchash( (uint)target_pc );
-        fd_sbpf_calldests_insert( loader->calldests, target_pc );
+      int err = fd_sbpf_register_function_hashed_legacy( loader, name, target_pc, &key );
+      if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
+        return err;
       }
-
-      /* Ensure no collisions with syscalls. */
-      if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, key, NULL ) ) ) {
-          return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
-        }
     } else {
       /* Else, it's a syscall. Ensure that the syscall can be resolved.
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1281-L1294 */
@@ -1493,7 +1537,7 @@ fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
   //   return err;
 
   /* Register entrypoint to calldests. */
-  fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
+  // fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
 
   /* Copy rodata segment */
   // fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
@@ -2343,30 +2387,24 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
         return FD_SBPF_ELF_ERR_RELATIVE_JUMP_OUT_OF_BOUNDS;
       }
 
-      /* register_function_hashed_legacy() */
-      {
-        /* Update the calldests
-           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1027-L1032 */
-        fd_sbpf_calldests_insert( calldests, (ulong)target_pc );
+      /* Update the calldests
+         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1027-L1032 */
+      uint pc_hash;
+      int err = fd_sbpf_register_function_hashed_legacy( loader, "", (ulong)target_pc, &pc_hash );
+      if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
+        return err;
+      }
 
-        /* Check for collision with syscall ID
-           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L161-L163 */
-        uint pc_hash = fd_pchash( (uint)target_pc );
-        if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, (ulong)pc_hash, NULL ) ) ) {
-          return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+      if( !fd_sbpf_static_syscalls( elf_info->sbpf_version ) ) {
+        /* Store PC hash in text section. Check for writes outside the
+           text section.
+           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1034-L1038 */
+        ulong offset = fd_ulong_sat_add( fd_ulong_sat_mul( i, 8UL ), 4UL ); // offset in text section
+        if( FD_UNLIKELY( offset+4UL>shtext->sh_size ) ) {
+          return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
         }
 
-        if( !fd_sbpf_static_syscalls( elf_info->sbpf_version ) ) {
-          /* Store PC hash in text section. Check for writes outside the
-             text section.
-             https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1034-L1038 */
-          ulong offset = fd_ulong_sat_add( fd_ulong_sat_mul( i, 8UL ), 4UL ); // offset in text section
-          if( FD_UNLIKELY( offset+4UL>shtext->sh_size ) ) {
-            return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-          }
-
-          FD_STORE( uint, ptr+4UL, pc_hash );
-        }
+        FD_STORE( uint, ptr+4UL, pc_hash );
       }
     }
   }
@@ -2459,9 +2497,50 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
 #if 0
   return fd_sbpf_program_load_old( prog, bin, bin_sz, syscalls, config->elf_deploy_checks );
 #else
+  fd_sbpf_elf_t const * elf      = fd_type_pun_const( bin );
+  fd_sbpf_elf_info_t *  elf_info = &prog->info;
+  fd_elf64_shdr const * shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * sh_text  = &shdrs[ elf_info->shndx_text ];
+
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L642-L647 */
   int err = fd_sbpf_program_relocate( prog, bin, bin_sz, config, loader );
   if( FD_UNLIKELY( err ) ) return err;
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L649-L653 */
+  ulong offset = fd_ulong_sat_sub( elf->ehdr.e_entry, sh_text->sh_addr );
+  if( FD_UNLIKELY( offset&0x7UL ) ) { /* offset % 8 != 0 */
+    return FD_SBPF_ELF_ERR_INVALID_ENTRYPOINT;
+  }
+
+  /* Unregister the entrypoint from the calldests, and register the
+     entry_pc. Our behavior slightly diverges from Agave's because we
+     rely on an explicit entry_pc field within the elf_info struct
+     to handle the b"entrypoint" symbol, and rely on PC hash inverses
+     for any other CALL_IMM targets.
+
+     Note that even though we won't use the calldests value for the
+     entry pc, we still need to "register" it to check for any potential
+     symbol collisions and report errors accordingly.
+
+     TODO: Add special casing for static syscalls enabled. For now, it
+     is not implemented.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L654-L667 */
+  ulong entry_pc = offset / 8UL;
+  fd_sbpf_calldests_remove( loader->calldests, FD_SBPF_ENTRYPOINT_HASH );
+  err = fd_sbpf_register_function_hashed_legacy(
+      loader,
+      "entrypoint",
+      entry_pc,
+      NULL );
+  if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
+    return err;
+  }
+
+  /* Parse the ro sections.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L669-L676 */
+  {
+
+  }
 
   return FD_SBPF_ELF_SUCCESS;
 #endif
