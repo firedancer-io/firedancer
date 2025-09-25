@@ -77,15 +77,14 @@ main( int     argc,
     rec_t * rrec = ref->rec_map_head;
     while( rrec ) {
 
-      ulong rxid = rrec->txn ? rrec->txn->xid : 0UL;
+      ulong rxid = rrec->txn ? rrec->txn->xid : ULONG_MAX;
       ulong rkey = rrec->key;
 
       xid_set( txid, rxid );
       key_set( tkey, rkey );
 
       fd_funk_rec_query_t rec_query[1];
-      fd_funk_txn_t const * ttxn = rxid ? fd_funk_txn_query( txid, txn_map ) : NULL;
-      fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, ttxn, tkey, rec_query );
+      fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, txid, tkey, rec_query );
 
       void const * _val = (void const *)fd_funk_val( trec, wksp );
 
@@ -179,21 +178,21 @@ main( int     argc,
 
       if( FD_UNLIKELY( fd_funk_txn_is_full( tst ) ) ) continue;
 
-      txn_t *         rparent;
-      fd_funk_txn_t * tparent;
+      txn_t *           rparent;
+      fd_funk_txn_xid_t tparent;
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt+1UL );
       if( idx<ref->txn_cnt ) { /* Branch off in-prep */
         rparent = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rparent = rparent->map_next;
-        tparent = fd_funk_txn_query( xid_set( txid, rparent->xid ), txn_map );
+        tparent = (fd_funk_txn_xid_t){ .ul={ rparent->xid, rparent->xid } };
       } else { /* Branch off last published */
         rparent = NULL;
-        tparent = NULL;
+        fd_funk_txn_xid_copy( &tparent, fd_funk_last_publish( tst ) );
       }
 
       ulong rxid = xid_unique();
       txn_prepare( ref, rparent, rxid );
-      FD_TEST( fd_funk_txn_prepare( tst, tparent, xid_set( txid, rxid ), verbose ) );
+      FD_TEST( fd_funk_txn_prepare( tst, &tparent, xid_set( txid, rxid ), verbose ) );
 
     } else if( op>=1UL ) { /* Cancel (same rate as publish) */
 
@@ -201,11 +200,11 @@ main( int     argc,
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
 
-      txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
+      txn_t * rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
+      xid_set( txid, rtxn->xid );
 
       ulong cnt = ref->txn_cnt; txn_cancel( ref, rtxn ); cnt -= ref->txn_cnt;
-      FD_TEST( fd_funk_txn_cancel( tst, ttxn, verbose )==cnt );
+      FD_TEST( fd_funk_txn_cancel( tst, txid )==cnt );
 
     } else { /* Publish (same rate as cancel) */
 
@@ -213,11 +212,11 @@ main( int     argc,
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
 
-      txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
+      txn_t * rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
+      xid_set( txid, rtxn->xid );
 
       ulong cnt = txn_publish( ref, rtxn, 0UL );
-      FD_TEST( fd_funk_txn_publish( tst, ttxn, verbose )==cnt );
+      FD_TEST( fd_funk_txn_publish( tst, txid )==cnt );
 
     }
   }

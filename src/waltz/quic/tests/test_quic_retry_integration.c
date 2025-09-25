@@ -54,16 +54,13 @@ my_handshake_complete( fd_quic_conn_t * conn,
 
 
 /* global "clock" */
-ulong now = 123;
+long now = 123;
 
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
-
-/* Test that server responds with Retry packet when receiving Initial with 46-byte token */
+/* Test that server responds with Retry packet when receiving Initial
+   with a token that has a size that we couldn't have possibly emitted. */
 void
-test_initial_with_46_byte_token( fd_quic_t * server_quic, fd_quic_t * client_quic ) {
+test_initial_token_odd_sz( fd_quic_t * server_quic,
+                           fd_quic_t * client_quic ) {
   FD_LOG_NOTICE(( "Testing Initial packet with 46-byte token" ));
 
   /* Create an arbitrary 46-byte token */
@@ -78,7 +75,7 @@ test_initial_with_46_byte_token( fd_quic_t * server_quic, fd_quic_t * client_qui
   ulong conn_created_count = server_quic->metrics.conn_created_cnt;
 
   /* Create a new connection with 46-byte token */
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* Override the token in the connection state to be our 46-byte token */
@@ -87,8 +84,8 @@ test_initial_with_46_byte_token( fd_quic_t * server_quic, fd_quic_t * client_qui
 
   /* Process packets - should trigger retry response */
   for( ulong j = 0; j < 5; j++ ) {
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
   }
 
   /* Verify server sent a retry packet (difference-based check) */
@@ -105,17 +102,18 @@ test_initial_with_46_byte_token( fd_quic_t * server_quic, fd_quic_t * client_qui
 }
 
 void
-test_retry_integration( fd_quic_t * server_quic, fd_quic_t * client_quic ) {
+test_retry_integration( fd_quic_t * server_quic,
+                        fd_quic_t * client_quic ) {
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -159,8 +157,8 @@ test_retry_integration( fd_quic_t * server_quic, fd_quic_t * client_quic ) {
   for( unsigned j = 0; j < 16; ++j ) {
     FD_LOG_INFO(( "running services" ));
 
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     buf[12] = ' ';
     //buf[15] = (char)( ( j / 10 ) + '0' );
@@ -184,8 +182,8 @@ test_retry_integration( fd_quic_t * server_quic, fd_quic_t * client_quic ) {
 
   for( uint j=0; j<10U; ++j ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
   }
 
   FD_TEST( client_quic->metrics.conn_created_cnt== 1 );
@@ -236,12 +234,10 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
   server_quic->cb.stream_rx        = my_stream_rx_cb;
   server_quic->config.retry = 1;
 
-  client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
 
   server_quic->config.initial_rx_max_stream_data = 1<<16;
@@ -259,7 +255,7 @@ main( int argc, char ** argv ) {
   test_retry_integration( server_quic, client_quic );
 
   /* Run the 46-byte token test */
-  test_initial_with_46_byte_token( server_quic, client_quic );
+  test_initial_token_odd_sz( server_quic, client_quic );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );

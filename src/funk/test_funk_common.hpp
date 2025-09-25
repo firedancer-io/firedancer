@@ -225,7 +225,10 @@ struct fake_funk {
 
       fd_funk_txn_t * parent2 = get_real_txn(parent);
       auto xid = txn->real_id();
-      assert(fd_funk_txn_prepare(_real, parent2, &xid, 1) != NULL);
+      fd_funk_txn_xid_t parent_xid;
+      if( parent2 ) parent_xid = parent2->xid;
+      else          fd_funk_txn_xid_copy( &parent_xid, fd_funk_last_publish( _real ) );
+      assert(fd_funk_txn_prepare(_real, &parent_xid, &xid, 1) != NULL);
     }
 
     void fake_cancel_family(fake_txn* txn) {
@@ -297,7 +300,7 @@ struct fake_funk {
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
-      assert(fd_funk_txn_publish(_real, txn2, 1) > 0);
+      assert(fd_funk_txn_publish(_real, txn2 ? &txn2->xid : NULL) > 0);
 
       // Simulate publication
       fake_publish(txn);
@@ -315,7 +318,7 @@ struct fake_funk {
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
-      assert(fd_funk_txn_publish_into_parent(_real, txn2, 1) == FD_FUNK_SUCCESS);
+      assert(fd_funk_txn_publish_into_parent(_real, txn2 ? &txn2->xid : NULL) == FD_FUNK_SUCCESS);
 
       // Simulate publication
       fake_publish_to_parent(txn);
@@ -331,7 +334,7 @@ struct fake_funk {
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
-      assert(fd_funk_txn_cancel(_real, txn2, 1) > 0);
+      assert(fd_funk_txn_cancel(_real, txn2 ? &txn2->xid : NULL) > 0);
 
       // Simulate cancel
       fake_cancel_family(txn);

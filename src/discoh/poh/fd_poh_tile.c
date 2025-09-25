@@ -307,8 +307,10 @@
         will always be 420,000. */
 
 #include "../../disco/tiles.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/sha256/fd_sha256.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/pod/fd_pod.h"
@@ -1763,7 +1765,7 @@ after_credit( fd_poh_ctx_t *      ctx,
     ctx->expect_sequential_leader_slot = ctx->slot;
 
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
+    fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)*tick_per_ns) );
     ctx->next_leader_slot = next_leader_slot( ctx );
 
     if( FD_UNLIKELY( ctx->slot>=ctx->next_leader_slot ) ) {

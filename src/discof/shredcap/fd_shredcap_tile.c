@@ -7,9 +7,9 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
-#include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -30,7 +30,7 @@
 
 /* This tile currently has two functionalities.
 
-   The first is spying on the net_shred, repair_net, and shred_repair
+   The first is spying on the net_shred, repair_net, and shred_out
    links and currently outputs to a csv that can analyze repair
    performance in post.
 
@@ -46,10 +46,10 @@
 
 #define NET_SHRED        (0UL)
 #define REPAIR_NET       (1UL)
-#define SHRED_REPAIR     (2UL)
+#define SHRED_OUT        (2UL)
 #define GOSSIP_OUT       (3UL)
-#define REPAIR_SHREDCAP (4UL)
-#define REPLAY_SHREDCAP (5UL)
+#define REPAIR_SHREDCAP  (4UL)
+#define REPLAY_OUT       (5UL)
 
 typedef union {
   struct {
@@ -305,7 +305,7 @@ during_frag( fd_capture_tile_ctx_t * ctx,
              ulong                   sz,
              ulong                   ctl ) {
   ctx->skip_frag = 0;
-  if( ctx->in_kind[ in_idx ]==SHRED_REPAIR ) {
+  if( ctx->in_kind[ in_idx ]==SHRED_OUT ) {
     if( !is_fec_completes_msg( sz ) ) {
       ctx->skip_frag = 1;
       return;
@@ -379,17 +379,18 @@ during_frag( fd_capture_tile_ctx_t * ctx,
       FD_LOG_CRIT(( "failed to write slice trailer %d", err ));
     }
 
-  } else if( ctx->in_kind[ in_idx ] == REPLAY_SHREDCAP ) {
+  } else if( ctx->in_kind[ in_idx ] == REPLAY_OUT ) {
+    if( FD_UNLIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED ) ) return;
 
     /* FIXME this should all be happening in after_frag */
 
-   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
+   fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in_links[ in_idx ].mem, chunk );
    fd_shredcap_bank_hash_msg_t bank_hash_msg = {
      .magic   = FD_SHREDCAP_BANK_HASH_MAGIC,
      .version = FD_SHREDCAP_BANK_HASH_V1
    };
-   fd_memcpy( &bank_hash_msg.bank_hash, dcache_entry, sizeof(fd_hash_t) );
-   fd_memcpy( &bank_hash_msg.slot, dcache_entry+sizeof(fd_hash_t), sizeof(ulong) );
+   fd_memcpy( &bank_hash_msg.bank_hash, msg->bank_hash.uc, sizeof(fd_hash_t) );
+   bank_hash_msg.slot = msg->slot;
 
    fd_io_buffered_ostream_write( &ctx->bank_hashes_ostream, &bank_hash_msg, FD_SHREDCAP_BANK_HASH_FOOTPRINT );
 
@@ -474,12 +475,12 @@ after_frag( fd_capture_tile_ctx_t * ctx,
             fd_stem_context_t *     stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
-  if( ctx->in_kind[ in_idx ] == SHRED_REPAIR ) {
+  if( ctx->in_kind[ in_idx ] == SHRED_OUT ) {
     /* This is a fec completes message! we can use it to check how long
        it takes to complete a fec */
 
     fd_shred_t const * shred = (fd_shred_t *)fd_type_pun( ctx->shred_buffer );
-    uint data_cnt = fd_disco_shred_repair_fec_sig_data_cnt( sig );
+    uint data_cnt = fd_disco_shred_out_fec_sig_data_cnt( sig );
     uint ref_tick = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     char fec_complete[1024];
     snprintf( fec_complete, sizeof(fec_complete),
@@ -707,14 +708,14 @@ unprivileged_init( fd_topo_t *      topo,
       continue;
     } else if( 0==strcmp( link->name, "repair_net" ) ) {
       ctx->in_kind[ i ] = REPAIR_NET;
-    } else if( 0==strcmp( link->name, "shred_repair" ) ) {
-      ctx->in_kind[ i ] = SHRED_REPAIR;
+    } else if( 0==strcmp( link->name, "shred_out" ) ) {
+      ctx->in_kind[ i ] = SHRED_OUT;
     } else if( 0==strcmp( link->name, "gossip_out" ) ) {
       ctx->in_kind[ i ] = GOSSIP_OUT;
     } else if( 0==strcmp( link->name, "repair_scap" ) ) {
       ctx->in_kind[ i ] = REPAIR_SHREDCAP;
-    } else if( 0==strcmp( link->name, "replay_scap" ) ) {
-      ctx->in_kind[ i ] = REPLAY_SHREDCAP;
+    } else if( 0==strcmp( link->name, "replay_out" ) ) {
+      ctx->in_kind[ i ] = REPLAY_OUT;
     } else {
       FD_LOG_ERR(( "scap tile has unexpected input link %s", link->name ));
     }
@@ -777,8 +778,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->manifest_exec_slot_ctx );
   ctx->manifest_exec_slot_ctx->banks = fd_banks_join( fd_banks_new( ctx->manifest_bank_mem, MANIFEST_MAX_TOTAL_BANKS, MANIFEST_MAX_FORK_WIDTH ) );
   FD_TEST( ctx->manifest_exec_slot_ctx->banks );
-  fd_hash_t init_hash = { .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
-  ctx->manifest_exec_slot_ctx->bank  = fd_banks_init_bank( ctx->manifest_exec_slot_ctx->banks, &init_hash );
+  ctx->manifest_exec_slot_ctx->bank  = fd_banks_init_bank( ctx->manifest_exec_slot_ctx->banks, fd_eslot( 0UL, 0UL ) );
   FD_TEST( ctx->manifest_exec_slot_ctx->bank );
 
   strncpy( ctx->manifest_path, tile->shredcap.manifest_path, PATH_MAX );

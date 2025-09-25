@@ -6,7 +6,7 @@
 #include "proto/block_engine.pb.h"
 #include "proto/bundle.pb.h"
 #include "proto/packet.pb.h"
-#include "../fd_txn_m_t.h"
+#include "../fd_txn_m.h"
 #include "../plugin/fd_plugin.h"
 #include "../../waltz/h2/fd_h2_conn.h"
 #include "../../waltz/http/fd_url.h" /* fd_url_unescape */

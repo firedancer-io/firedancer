@@ -3,7 +3,12 @@
 
 /* This provides APIs for managing forks (preparing, publishing and
    cancelling funk transactions).  It is generally not meant to be
-   included directly.  Use fd_funk.h instead. */
+   included directly.  Use fd_funk.h instead.
+
+   Funk transaction-level operations are not thread-safe.  External
+   synchronization (e.g. mutex) is required when doing txn operations
+   when other txn or rec operations may be concurrently running on other
+   threads. */
 
 #include "fd_funk_base.h"
 
@@ -46,9 +51,10 @@ struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
   uint   stack_cidx;        /* Internal use by funk */
   ulong  tag;               /* Internal use by funk */
 
-  uint  rec_head_idx;      /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
-  uint  rec_tail_idx;      /* "                       last          " */
-  uchar lock;              /* Internal use by funk for sychronizing modifications to txn object */
+  uint  rec_head_idx;       /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
+  uint  rec_tail_idx;       /* "                       last          " */
+
+  uint  state;              /* one of FD_FUNK_TXN_STATE_* */
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;
@@ -75,12 +81,19 @@ typedef struct fd_funk_txn_private fd_funk_txn_t;
 #include "../util/tmpl/fd_map_chain_para.c"
 #undef  MAP_HASH
 
+/* Funk transaction states */
+
+#define FD_FUNK_TXN_STATE_FREE    (0U)
+#define FD_FUNK_TXN_STATE_ACTIVE  (1U)
+#define FD_FUNK_TXN_STATE_CANCEL  (2U)
+#define FD_FUNK_TXN_STATE_PUBLISH (3U)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_funk_txn_{cidx,idx} convert between an index and a compressed index. */
 
-static inline uint  fd_funk_txn_cidx( ulong idx ) { return (uint) idx; }
-static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
+static inline uint  fd_funk_txn_cidx( ulong idx  ) { return (uint)  idx; }
+static inline ulong fd_funk_txn_idx ( uint  cidx ) { return (ulong)cidx; }
 
 /* fd_funk_txn_idx_is_null returns 1 if idx is FD_FUNK_TXN_IDX_NULL and
    0 otherwise. */
@@ -89,41 +102,6 @@ static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN
 
 /* Generate a globally unique pseudo-random xid */
 fd_funk_txn_xid_t fd_funk_generate_xid(void);
-
-/* Concurrency control */
-
-/* APIs for marking the start and end of operations that read or write to
-   the Funk transactions.
-
-   IMPORTANT SAFETY TIP
-
-   The following APIs need the write lock:
-   - fd_funk_txn_prepare
-   - fd_funk_txn_publish
-   - fd_funk_txn_publish_into_parent
-   - fd_funk_txn_cancel
-   - fd_funk_txn_cancel_siblings
-   - fd_funk_txn_cancel_children
-
-   The following APIs need the read lock:
-   - fd_funk_txn_ancestor
-   - fd_funk_txn_descendant
-   - fd_funk_txn_all_iter
-
-   TODO: in future we may be able to make these lock-free, but they are called
-   infrequently so not sure how much of a gain this would be.
-   */
-void
-fd_funk_txn_start_read( fd_funk_t * funk );
-
-void
-fd_funk_txn_end_read( fd_funk_t * funk );
-
-void
-fd_funk_txn_start_write( fd_funk_t * funk );
-
-void
-fd_funk_txn_end_write( fd_funk_t * funk );
 
 /* Accessors */
 
@@ -358,7 +336,7 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
 
 fd_funk_txn_t *
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * parent,
                      fd_funk_txn_xid_t const * xid,
                      int                       verbose );
 
@@ -369,9 +347,6 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
    hood are available for reuse.  If this makes the txn's parent
    childless, this will unfreeze the parent.
 
-   fd_funk_txn_cancel_siblings cancels txn's siblings and their
-   descendants.
-
    fd_funk_txn_cancel_children cancels txn's children and their
    descendants.  If txn is NULL, all children of funk will be cancelled
    (such that the number of transactions in preparation afterward will
@@ -379,11 +354,6 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
    Cancellations proceed from youngest to oldest in a tree depth first
    sense.
-
-   Assumes funk is a current local join.  Reasons for failure include
-   NULL funk or txn does not point to an in-preparation funk
-   transaction.  If verbose is non-zero, these will FD_LOG_WARNING level
-   details about the reason for failure.
 
    These are a reasonably fast O(number of cancelled transactions) time
    (the theoretical minimum), reasonably small O(1) space (the
@@ -393,43 +363,19 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
    the funk. */
 
 ulong
-fd_funk_txn_cancel( fd_funk_t *     funk,
-                    fd_funk_txn_t * txn,
-                    int             verbose );
-
-ulong
-fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
-                             fd_funk_txn_t * txn,
-                             int             verbose );
-
-ulong
-fd_funk_txn_cancel_children( fd_funk_t *     funk,
-                             fd_funk_txn_t * txn,
-                             int             verbose );
-
-/* fd_funk_txn_cancel_root cancels all transactions, including the
-   root transaction.  Funk is guaranteed to be empty after calling
-   this function. */
-
-ulong
-fd_funk_txn_cancel_root( fd_funk_t * funk );
+fd_funk_txn_cancel( fd_funk_t *               funk,
+                    fd_funk_txn_xid_t const * txn );
 
 /* fd_funk_txn_cancel_all cancels all in-preparation
    transactions. Only the last published transaction remains. */
 
 ulong
-fd_funk_txn_cancel_all( fd_funk_t *     funk,
-                        int             verbose );
+fd_funk_txn_cancel_all( fd_funk_t * funk );
 
 /* fd_funk_txn_publish publishes in-preparation transaction txn and any
    of txn's in-preparation ancestors.  Returns the number of
    transactions published.  Any competing histories to this chain will
    be cancelled.
-
-   Assumes funk is a current local join.  Reasons for failure include
-   NULL funk, txn does not point to an in-preparation funk transaction.
-   If verbose is non-zero, these will FD_LOG_WARNING the details about
-   the reason for failure.
 
    This is a reasonably fast O(number of published transactions) +
    O(number of cancelled transactions) time (theoretical minimum),
@@ -439,9 +385,8 @@ fd_funk_txn_cancel_all( fd_funk_t *     funk,
    out of resources allocated to the funk. */
 
 ulong
-fd_funk_txn_publish( fd_funk_t *     funk,
-                     fd_funk_txn_t * txn,
-                     int             verbose );
+fd_funk_txn_publish( fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * txn );
 
 /* This version of publish just combines the transaction with its
    immediate parent. Ancestors will remain unpublished. Any competing
@@ -449,9 +394,16 @@ fd_funk_txn_publish( fd_funk_t *     funk,
 
    Returns FD_FUNK_SUCCESS on success or an error code on failure. */
 int
-fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
-                                 fd_funk_txn_t * txn,
-                                 int             verbose );
+fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
+                                 fd_funk_txn_xid_t const * txn );
+
+/* fd_funk_txn_remove_published removes all published transactions.
+   Funk instance must not have any funk transactions in preparation.
+   On return, all records are freed, and the last published transaction
+   is the root XID. */
+
+void
+fd_funk_txn_remove_published( fd_funk_t * funk );
 
 /* fd_funk_txn_all_iter_t iterators over all funk transaction objects.
    Usage is:
@@ -496,6 +448,53 @@ fd_funk_txn_verify( fd_funk_t * funk );
 
 int
 fd_funk_txn_valid( fd_funk_t const * funk, fd_funk_txn_t const * txn );
+
+FD_FN_UNUSED static char const *
+fd_funk_txn_state_str( uint state ) {
+  switch( state ) {
+  case FD_FUNK_TXN_STATE_FREE:    return "free";
+  case FD_FUNK_TXN_STATE_ACTIVE:  return "alive";
+  case FD_FUNK_TXN_STATE_CANCEL:  return "cancel";
+  case FD_FUNK_TXN_STATE_PUBLISH: return "publish";
+  default:                        return "unknown";
+  }
+}
+
+#ifndef __cplusplus
+
+FD_FN_UNUSED static void
+fd_funk_txn_state_assert( fd_funk_txn_t const * txn,
+                          uint                  want ) {
+  uint have = FD_VOLATILE_CONST( txn->state );
+  if( FD_UNLIKELY( want!=have ) ) {
+    FD_LOG_CRIT(( "Invariant violation detected on funk txn: expected state %u-%s, found state %u-%s",
+                  want, fd_funk_txn_state_str( want ),
+                  have, fd_funk_txn_state_str( have ) ));
+  }
+}
+
+FD_FN_UNUSED static void
+fd_funk_txn_xid_assert( fd_funk_txn_t const *     txn,
+                        fd_funk_txn_xid_t const * xid ) {
+  uint              found_state = FD_VOLATILE_CONST( txn->state );
+  fd_funk_txn_xid_t found_xid   = FD_VOLATILE_CONST( txn->xid   );
+  int               xid_ok      = fd_funk_txn_xid_eq( &found_xid, xid );
+  int               state_ok    = found_state==FD_FUNK_TXN_STATE_ACTIVE;
+  if( FD_UNLIKELY( !xid_ok || !state_ok ) ) {
+    if( !xid_ok ) {
+      FD_LOG_CRIT(( "Data race detected: funk txn %p %lu:%lu use-after-free",
+                    (void *)txn,
+                    xid->ul[0], xid->ul[1] ));
+    } else {
+      FD_LOG_CRIT(( "Data race detected: funk txn %p %lu:%lu in invalid state %u-%s",
+                    (void *)txn,
+                    xid->ul[0], xid->ul[1],
+                    found_state, fd_funk_txn_state_str( found_state ) ));
+    }
+  }
+}
+
+#endif /* !__cplusplus */
 
 FD_PROTOTYPES_END
 

@@ -16,30 +16,6 @@
 
 #define FD_PACK_MAX_BANK_TILES 62UL
 
-/* NOTE: THE FOLLOWING CONSTANTS ARE CONSENSUS CRITICAL AND CANNOT BE
-   CHANGED WITHOUT COORDINATING WITH ANZA. */
-
-/* These are bounds on known limits. Upper bound values are used to
-   calculate memory footprints while lower bounds are used for
-   initializing consensus-dependent logic and invariant checking.  As a
-   leader, it is OK to produce blocks using limits smaller than the
-   active on-chain limits. Replay should always use the correct
-   chain-derived limits.
-
-   The actual limits used by pack may be updated dynamically to some
-   in-bounds value. If there is an anticipated feature activation that
-   changes these limits, the upper bound should be the largest
-   anticipated value while the lower bound should be the current active
-   limit. For Frankendancer, the actual value used for consensus will be
-   retrieved from Agave at runtime. */
-#define FD_PACK_MAX_COST_PER_BLOCK_LOWER_BOUND      (48000000UL)
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_LOWER_BOUND (36000000UL)
-#define FD_PACK_MAX_WRITE_COST_PER_ACCT_LOWER_BOUND (12000000UL)
-
-#define FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND      (100000000UL) /* simd 0286 */
-#define FD_PACK_MAX_VOTE_COST_PER_BLOCK_UPPER_BOUND ( 36000000UL)
-#define FD_PACK_MAX_WRITE_COST_PER_ACCT_UPPER_BOUND ( FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND * 4UL / 10UL ) /* simd 0306 */
-
 #define FD_PACK_FEE_PER_SIGNATURE           (5000UL) /* In lamports */
 
 /* Each block is limited to 32k parity shreds.  We don't want pack to

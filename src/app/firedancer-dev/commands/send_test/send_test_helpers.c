@@ -47,7 +47,7 @@ struct send_test_ctx {
   fd_pubkey_t   identity_key  [ 1 ];
   fd_pubkey_t   vote_acct_addr[ 1 ];
 
-  fd_txn_p_t    txn_buf[ 1 ];
+  fd_tower_slot_done_t twr_buf[ 1 ];
 
   long last_evt[ MOCK_CNT ];
   long delay   [ MOCK_CNT ];
@@ -183,11 +183,11 @@ send_test_stake( send_test_ctx_t * ctx, send_test_out_t * out ) {
 static inline void
 send_test_trigger( send_test_ctx_t * ctx, send_test_out_t * out ) {
   fd_tower_slot_done_t * slot_done = fd_chunk_to_laddr( out->mem, out->chunk );
-  fd_memcpy( slot_done->vote_txn, ctx->txn_buf->payload, ctx->txn_buf->payload_sz );
+  fd_memcpy( slot_done, ctx->twr_buf, sizeof(fd_tower_slot_done_t) );
 
-  fd_mcache_publish( out->mcache, out->depth, out->seq, 0UL, out->chunk, ctx->txn_buf->payload_sz, 0UL, 0UL, 0UL );
+  fd_mcache_publish( out->mcache, out->depth, out->seq, 0UL, out->chunk, sizeof(fd_tower_slot_done_t), 0UL, 0UL, 0UL );
   out->seq   = fd_seq_inc( out->seq, 1UL );
-  out->chunk = fd_dcache_compact_next( out->chunk, ctx->txn_buf->payload_sz, out->chunk0, out->wmark );
+  out->chunk = fd_dcache_compact_next( out->chunk, sizeof(fd_tower_slot_done_t), out->chunk0, out->wmark );
 }
 
 static inline send_test_out_t
@@ -208,22 +208,30 @@ setup_test_out_link( fd_topo_t const * topo, char const * name ) {
 }
 
 static inline void
-encode_vote( send_test_ctx_t * ctx, fd_txn_p_t * txn ) {
+encode_vote( send_test_ctx_t * ctx, fd_tower_slot_done_t * slot_done ) {
   ulong const root = 350284672UL;
+  ulong const vote_slot = root+30;
 
   /* Create minimal mock tower with one vote */
   uchar tower_mem[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
   fd_tower_t * tower = fd_tower_join( fd_tower_new( tower_mem ) );
-  fd_tower_votes_push_tail( tower, (fd_tower_vote_t){ .slot = root+1, .conf = 1 } );
+  fd_tower_votes_push_tail( tower, (fd_tower_vote_t){ .slot = vote_slot, .conf = 1 } );
 
   /* Mock values */
   fd_lockout_offset_t lockouts_scratch[1];
   fd_hash_t test_hash;
+  fd_txn_p_t txn[1];
 
   /* Use fd_tower_to_vote_txn to generate the transaction */
   fd_tower_to_vote_txn( tower, root, lockouts_scratch, &test_hash,
                         &test_hash, ctx->identity_key,
                         ctx->identity_key, ctx->vote_acct_addr, txn );
+  FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
+  fd_memcpy( slot_done->vote_txn, txn->payload, txn->payload_sz );
+  slot_done->vote_txn_sz = txn->payload_sz;
+
+  uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+  FD_TEST( fd_txn_parse( slot_done->vote_txn, slot_done->vote_txn_sz, txn_mem, NULL ) );
 }
 
 #endif /* FD_SRC_APP_FIREDANCER_DEV_COMMANDS_SEND_TEST_HELPERS_C */

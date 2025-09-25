@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include "fd_funk_txn.h"
 
 /* TODO: more extensive testing of fd_funk_txn_cancel_siblings,
    fd_funk_txn_cancel_children (implicitly tested under the hood but the
@@ -114,7 +115,8 @@ main( int     argc,
     case 3: { /* prepare from most recent published with an live xid (always fail) */
       if( FD_UNLIKELY( !live_pmap ) ) break;
       uint idx; RANDOM_SET_BIT_IDX( live_pmap );
-      FD_TEST( !fd_funk_txn_prepare( funk, NULL, &recent_xid[idx], verbose ) );
+      fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
+      FD_TEST( !fd_funk_txn_prepare( funk, &root, &recent_xid[idx], verbose ) );
       break;
     }
 
@@ -123,7 +125,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       int is_full = fd_funk_txn_is_full( funk );
       if( FD_UNLIKELY( fd_funk_txn_xid_eq( &recent_xid[idx], last_publish ) ) ) break;
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, NULL, &recent_xid[idx], verbose );
+      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, fd_funk_last_publish( funk ), &recent_xid[idx], verbose );
       if( is_full ) FD_TEST( !txn );
       else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );
       break;
@@ -134,7 +136,7 @@ main( int     argc,
       *xid = fd_funk_generate_xid();
       recent_cursor = (recent_cursor+1UL) & 63UL;
       int is_full = fd_funk_txn_is_full( funk );
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, NULL, xid, verbose );
+      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, fd_funk_last_publish( funk ), xid, verbose );
       if( is_full ) FD_TEST( !txn );
       else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), xid ) );
       break;
@@ -145,7 +147,7 @@ main( int     argc,
       uint idx; uint idx1; RANDOM_SET_BIT_IDX( live_pmap ); idx1 = idx; RANDOM_SET_BIT_IDX( live_pmap );
       fd_funk_txn_t * parent = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( parent && fd_funk_txn_xid_eq( fd_funk_txn_xid( parent ), &recent_xid[idx] ) );
-      FD_TEST( !fd_funk_txn_prepare( funk, parent, &recent_xid[idx1], verbose ) );
+      FD_TEST( !fd_funk_txn_prepare( funk, &recent_xid[idx], &recent_xid[idx1], verbose ) );
       break;
     }
 
@@ -156,7 +158,7 @@ main( int     argc,
       fd_funk_txn_t * parent = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( parent && fd_funk_txn_xid_eq( fd_funk_txn_xid( parent ), &recent_xid[idx] ) );
       int is_full = fd_funk_txn_is_full( funk );
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent, &recent_xid[idx1], verbose );
+      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, &recent_xid[idx], &recent_xid[idx1], verbose );
       if( is_full ) FD_TEST( !txn );
       else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx1] ) );
       break;
@@ -171,9 +173,11 @@ main( int     argc,
       *xid = fd_funk_generate_xid();
       recent_cursor = (recent_cursor+1UL) & 63UL;
       int is_full = fd_funk_txn_is_full( funk );
-      fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent, xid, verbose );
-      if( is_full ) FD_TEST( !txn );
-      else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), xid ) );
+      if( parent ) {
+        fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, &parent->xid, xid, verbose );
+        if( is_full ) FD_TEST( !txn );
+        else          FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), xid ) );
+      }
       break;
     }
 
@@ -182,7 +186,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );
-      FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )>0UL );
+      FD_TEST( fd_funk_txn_cancel( funk, &recent_xid[idx] )>0UL );
       break;
     }
 
@@ -191,7 +195,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( !txn );
-      // FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
+      // FD_TEST( fd_funk_txn_cancel( funk, txn )==0UL );
       break;
     }
 
@@ -200,7 +204,7 @@ main( int     argc,
       xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
-      // FD_TEST( fd_funk_txn_cancel( funk, txn, verbose )==0UL );
+      // FD_TEST( fd_funk_txn_cancel( funk, txn )==0UL );
       break;
     }
 
@@ -209,7 +213,8 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( txn && fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );
-      FD_TEST( fd_funk_txn_publish( funk, txn, verbose )>0UL );
+      FD_TEST( fd_funk_txn_publish( funk, &recent_xid[idx] )>0UL );
+      FD_TEST( txn->state==FD_FUNK_TXN_STATE_FREE );
       FD_TEST( fd_funk_txn_xid_eq( last_publish, &recent_xid[idx] ) );
       break;
     }
@@ -219,9 +224,7 @@ main( int     argc,
       uint idx; RANDOM_SET_BIT_IDX( ~live_pmap );
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_txn_publish( funk, txn, verbose )==0UL );
-#endif
+      // FD_TEST( fd_funk_txn_publish( funk, &recent_xid[idx] )==0UL );
       break;
     }
 
@@ -230,43 +233,39 @@ main( int     argc,
       xid[0] = fd_funk_generate_xid();
       fd_funk_txn_t * txn = fd_funk_txn_query( xid, map );
       FD_TEST( !txn );
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_txn_publish( funk, txn, verbose )==0UL );
-#endif
+      // FD_TEST( fd_funk_txn_publish( funk, xid )==0UL );
       break;
     }
 
     default: { /* various sanity checks */
       uint idx = r & 63U; r >>= 6;
       fd_funk_txn_t * txn = fd_funk_txn_query( &recent_xid[idx], map );
-#ifdef FD_FUNK_HANDHOLDING
-      fd_funk_txn_xid_t xid[1];
-      xid[0] = fd_funk_generate_xid();
+//       fd_funk_txn_xid_t xid[1];
+//       xid[0] = fd_funk_generate_xid();
 
-      fd_funk_txn_t * dead = NULL;
-      if( txn_max && !fd_funk_txn_query( fd_funk_txn_xid( &pool->ele[0] ), map ) ) dead = &pool->ele[0];
+//       fd_funk_txn_t * dead = NULL;
+//       if( txn_max && !fd_funk_txn_query( fd_funk_txn_xid( &pool->ele[0] ), map ) ) dead = &pool->ele[0];
 
-      fd_funk_txn_t bad[1]; fd_funk_txn_xid_copy( &bad->xid, xid );
+//       fd_funk_txn_t bad[1]; fd_funk_txn_xid_copy( &bad->xid, xid );
 
       /* Too many in-prep already tested */
       /* Live xid cases already tested */
 
-      // FD_TEST( !fd_funk_txn_prepare( NULL, txn, xid,             verbose ) ); /* NULL funk */
-      // FD_TEST( !fd_funk_txn_prepare( funk, txn, NULL,            verbose ) ); /* NULL xid */
-      // FD_TEST( !fd_funk_txn_prepare( funk, txn, last_publish,    verbose ) ); /* last published xid */
-      FD_TEST( !fd_funk_txn_prepare( funk, bad, xid,             verbose ) ); /* Parent not in map */
-      if( dead ) FD_TEST( !fd_funk_txn_prepare( funk, dead, xid, verbose ) ); /* Parent not in prep */
+      // FD_TEST( !fd_funk_txn_prepare( NULL, &txn->xid, xid,          verbose ) ); /* NULL funk */
+      // FD_TEST( !fd_funk_txn_prepare( funk, &txn->xid, NULL,         verbose ) ); /* NULL xid */
+      // FD_TEST( !fd_funk_txn_prepare( funk, &txn->xid, last_publish, verbose ) ); /* last published xid */
+      // FD_TEST( !fd_funk_txn_prepare( funk, &bad->xid, xid,          verbose ) ); /* Parent not in map */
+      // if( dead ) FD_TEST( !fd_funk_txn_prepare( funk, &dead->xid, xid, verbose ) ); /* Parent not in prep */
 
-      // FD_TEST( !fd_funk_txn_cancel( NULL, txn,  verbose ) );                  /* NULL funk (and maybe NULL txn) */
-      // FD_TEST( !fd_funk_txn_cancel( funk, NULL, verbose ) );                  /* NULL txn */
-      FD_TEST( !fd_funk_txn_cancel( funk, bad,  verbose ) );                  /* tx not in map */
-      if( dead ) FD_TEST( !fd_funk_txn_cancel( funk, dead, verbose ) );       /* tx not in prep */
+      // FD_TEST( !fd_funk_txn_cancel( NULL, &txn->xid ) );          /* NULL funk (and maybe NULL txn) */
+      // FD_TEST( !fd_funk_txn_cancel( funk, NULL      ) );          /* NULL txn */
+      // FD_TEST( !fd_funk_txn_cancel( funk, &bad->xid ) );          /* tx not in map */
+      // if( dead ) FD_TEST( !fd_funk_txn_cancel( funk, &dead->xid ) ); /* tx not in prep */
 
-      FD_TEST( !fd_funk_txn_publish( NULL, txn,  verbose ) );                 /* NULL funk (and maybe NULL txn) */
-      FD_TEST( !fd_funk_txn_publish( funk, NULL, verbose ) );                 /* NULL txn */
-      FD_TEST( !fd_funk_txn_publish( funk, bad,  verbose ) );                 /* tx not in map */
-      if( dead ) FD_TEST( !fd_funk_txn_publish( funk, dead, verbose ) );      /* tx not in prep */
-#endif
+      // FD_TEST( !fd_funk_txn_publish( NULL, &txn->xid ) );          /* NULL funk (and maybe NULL txn) */
+      // FD_TEST( !fd_funk_txn_publish( funk, NULL      ) );          /* NULL txn */
+      // FD_TEST( !fd_funk_txn_publish( funk, &bad->xid ) );          /* tx not in map */
+      // if( dead ) FD_TEST( !fd_funk_txn_publish( funk, &dead->xid ) ); /* tx not in prep */
 
       if( txn ) {
         FD_TEST( fd_funk_txn_xid_eq( fd_funk_txn_xid( txn ), &recent_xid[idx] ) );

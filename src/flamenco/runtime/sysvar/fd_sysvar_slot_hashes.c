@@ -108,7 +108,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
          !deq_fd_slot_hash_t_iter_done( hashes, iter );
          iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
       fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-      if( ele->slot == fd_bank_slot_get( slot_ctx->bank ) ) {
+      if( ele->slot == fd_bank_parent_slot_get( slot_ctx->bank ) ) {
         fd_hash_t const * bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
         memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
         found = 1;

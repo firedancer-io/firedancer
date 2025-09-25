@@ -242,7 +242,7 @@ struct fd_topo_tile {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       ushort quic_transaction_listen_port;
-      ulong  idle_timeout_millis;
+      long   idle_timeout_millis;
       uint   ack_delay_millis;
       int    retry;
       char   key_log_path[ PATH_MAX ];
@@ -338,6 +338,7 @@ struct fd_topo_tile {
       int    schedule_strategy;
 
       int websocket_compression;
+      int frontend_release_channel;
     } gui;
 
     struct {
@@ -352,19 +353,12 @@ struct fd_topo_tile {
       int   tx_metadata_storage;
       ulong funk_obj_id;
 
-      int   bootstrap;
-      char  genesis_path[ PATH_MAX ];
-
       char  shred_cap[ PATH_MAX ];
       char  cluster_version[ 32 ];
-      char  tower_checkpt[ PATH_MAX ];
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
-
-      char  blockstore_file[ PATH_MAX ];
-      char  blockstore_checkpt[ PATH_MAX ];
 
       /* not specified in TOML */
 
@@ -377,8 +371,6 @@ struct fd_topo_tile {
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
-
-      ulong manifest_dcache_obj_id;
 
       ulong heap_size_gib;
     } replay;
@@ -422,12 +414,14 @@ struct fd_topo_tile {
     struct {
       ushort  repair_intake_listen_port;
       ushort  repair_serve_listen_port;
-
-      /* non-config */
-
       char    identity_key_path[ PATH_MAX ];
       ulong   max_pending_shred_sets;
       ulong   slot_max;
+
+      /* non-config */
+
+      ulong   repair_sign_depth;
+      ulong   repair_sign_cnt;
     } repair;
 
     struct {
@@ -525,6 +519,7 @@ struct fd_topo_tile {
 
     struct {
       ulong funk_obj_id;
+      ulong txncache_obj_id;
     } snapin;
 
     struct {

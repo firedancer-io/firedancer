@@ -74,12 +74,12 @@ FD_STATIC_ASSERT( FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL==25UL,
                  "FD_GOSSIP_SNAPSHOT_HASHES_MAX_INCREMENTAL must be 25" );
 
 
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (49UL + sizeof(ulong) + sizeof(fd_contact_info_t))
-#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (49UL + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (49UL + sizeof(ulong))
-#define FD_GOSSIP_UPDATE_SZ_VOTE                (49UL + sizeof(fd_gossip_vote_t))
-#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (49UL + sizeof(fd_gossip_duplicate_shred_t))
-#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (49UL + sizeof(fd_gossip_snapshot_hashes_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO        (__builtin_offsetof(fd_gossip_update_message_t, contact_info)        + sizeof(ulong) + sizeof(fd_contact_info_t))
+#define FD_GOSSIP_UPDATE_SZ_CONTACT_INFO_REMOVE (__builtin_offsetof(fd_gossip_update_message_t, contact_info_remove) + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_LOWEST_SLOT         (__builtin_offsetof(fd_gossip_update_message_t, lowest_slot)         + sizeof(ulong))
+#define FD_GOSSIP_UPDATE_SZ_VOTE                (__builtin_offsetof(fd_gossip_update_message_t, vote)                + sizeof(fd_gossip_vote_t))
+#define FD_GOSSIP_UPDATE_SZ_DUPLICATE_SHRED     (__builtin_offsetof(fd_gossip_update_message_t, duplicate_shred)     + sizeof(fd_gossip_duplicate_shred_t))
+#define FD_GOSSIP_UPDATE_SZ_SNAPSHOT_HASHES     (__builtin_offsetof(fd_gossip_update_message_t, snapshot_hashes)     + sizeof(fd_gossip_snapshot_hashes_t))
 
 struct fd_gossip_view_ipaddr {
   uchar   is_ip6;
@@ -316,7 +316,7 @@ typedef struct fd_gossip_view fd_gossip_view_t;
 static inline fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
                             uchar                     tag ) {
-  if( FD_UNLIKELY( tag>FD_CONTACT_INFO_SOCKET_LAST ) ) {
+  if( FD_UNLIKELY( tag>=FD_CONTACT_INFO_SOCKET_CNT ) ) {
     FD_LOG_ERR(( "Invalid socket tag %u", tag ));
   }
   return ci->sockets[ tag ];

@@ -1191,7 +1191,7 @@ fd_log_private_boot( int  *   pargc,
     if( cstr && !strcmp( cstr, "truecolor" ) ) { colorize = 1; break; }
 
     cstr = fd_env_strip_cmdline_cstr( NULL, NULL, NULL, "TERM", NULL );
-    if( cstr && !strcmp( cstr, "xterm-256color" ) ) { colorize = 1; break; }
+    if( cstr && strstr( cstr, "256color" ) ) { colorize = 1; break; }
 
   } while(0);
   fd_log_colorize_set( colorize );

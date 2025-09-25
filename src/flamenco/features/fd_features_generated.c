@@ -1476,7 +1476,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x4f\x6e\x58\xf2\xa5\x04\x0c\xd3\x86\x2c\xea\xf5\xe7\x5e\x1a\xc4\x52\x52\xca\xea\xdf\x75\x06\xd3\x0e\xef\x5e\x33\x25\x16\xaf\xcf"},
                                  /* 6M4oQ6eXneVhtLoiAr4yRYQY43eVLjrKbiDZDJc892yk */
     .name                      = "migrate_stake_program_to_core_bpf",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
     .id                        = {"\xd4\xca\x06\xb3\x6d\xa7\x8e\xef\xd9\x92\x66\x67\x6d\xe3\x92\xab\x4e\x56\x31\x5b\xd3\x9e\x97\x15\xd2\xf6\x0d\x3d\x02\x29\xf8\x10"},
@@ -1623,8 +1624,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, reenable_zk_elgamal_proof_program)>>3,
-    .id                        = {"\x0e\xcb\x76\x6d\x26\x21\xec\xbb\xf2\xbc\x2e\x97\x6c\x5b\xa0\x50\x3c\xcc\xe4\xb5\x24\xba\x7b\x74\x4e\xf8\x46\x28\x79\xe1\x8d\x2c"},
-                                 /* zkemPXcuM3G4wpMDZ36Cpw34EjUpvm1nuioiSGbGZPR */
+    .id                        = {"\x0e\xcb\x76\xec\x8b\xf8\x21\x83\x19\x07\xc3\xb3\x5e\xc2\xd0\x13\xcb\xb4\x95\x7e\x6c\x5d\xcb\xcf\xb4\x84\xe3\xc6\xf5\x50\x7f\xbd"},
+                                 /* zkesAyFB19sTkX8i9ReoKaMNDA4YNTPYJpZKPDt7FMW */
     .name                      = "reenable_zk_elgamal_proof_program",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1657,6 +1658,12 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0c\xe8\xe3\x0a\x1b\x9d\x30\xc1\x5d\x98\x93\xa3\x19\x40\xb4\xc8\x7f\x92\x5b\x24\x5e\x7a\xe6\xec\x6b\xe8\x87\xd5\xaa\x22\xb2\x6d"},
                                  /* sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ */
     .name                      = "enshrine_slashing_program",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index                     = offsetof(fd_features_t, raise_account_cu_limit)>>3,
+    .id                        = {"\x0a\x79\xe3\x9b\x1a\xcc\x64\x5c\x8c\xdf\x47\xad\x61\x25\x63\x73\xdd\xf4\xc7\x34\x54\x57\x6d\x36\x90\xbe\xfd\xd7\x75\x72\x01\x7f"},
+                                 /* htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8 */
+    .name                      = "raise_account_cu_limit",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
@@ -1901,12 +1908,13 @@ fd_feature_id_query( ulong prefix ) {
   case 0x494f963ae12b5106: return &ids[ 233 ];
   case 0x210aba8db8103506: return &ids[ 234 ];
   case 0xec3a4c069e71cb0e: return &ids[ 235 ];
-  case 0xbbec21266d76cb0e: return &ids[ 236 ];
+  case 0x8321f88bec76cb0e: return &ids[ 236 ];
   case 0xe72f76507222e3bb: return &ids[ 237 ];
   case 0x7170cf84367fbb1a: return &ids[ 238 ];
   case 0xa9e3bfbaf8d67260: return &ids[ 239 ];
   case 0x3711b30f40730240: return &ids[ 240 ];
   case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
+  case 0x5c64cc1a9be3790a: return &ids[ 242 ];
   default: break;
   }
   return NULL;
@@ -2154,4 +2162,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked        
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==239UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

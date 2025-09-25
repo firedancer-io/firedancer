@@ -123,7 +123,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
   quic->cb.stream_notify    = fd_quic_test_cb_stream_notify;
   quic->cb.stream_rx        = fd_quic_test_cb_stream_rx;
   quic->cb.tls_keylog       = fd_quic_test_cb_tls_keylog;
-  quic->cb.now_ctx          = NULL;
 }
 
 void
@@ -147,6 +146,7 @@ fd_quic_new_anonymous( fd_wksp_t *              wksp,
   FD_TEST( quic );
 
   fd_quic_config_anonymous( quic, role );
+  fd_quic_get_state( quic )->now = 1L;
 
   fd_tls_test_sign_ctx_t * sign_ctx = fd_wksp_alloc_laddr( wksp, alignof(fd_tls_test_sign_ctx_t), sizeof(fd_tls_test_sign_ctx_t), 1UL );
   fd_tls_test_sign_ctx( sign_ctx, rng );

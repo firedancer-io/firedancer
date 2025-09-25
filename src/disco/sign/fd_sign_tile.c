@@ -314,7 +314,7 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       } else {
         FD_TEST( !strcmp( out_link->name, "sign_repair" ) );
       }
-      FD_TEST( in_link->mtu==2048UL );
+      FD_TEST( in_link->mtu==96 ); // FD_REPAIR_MAX_PREIMAGE_SZ
       FD_TEST( out_link->mtu==64UL );
     } else if ( !strcmp(in_link->name, "send_sign"  ) ) {
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_SEND;

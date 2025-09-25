@@ -96,16 +96,6 @@ typedef struct fd_configh fd_configh_t;
 
 struct fd_configf {
   struct {
-    ulong shred_max;
-    ulong block_max;
-    ulong idx_max;
-    ulong alloc_max;
-    char  file[PATH_MAX];
-    char  checkpt[PATH_MAX];
-    char  restore[PATH_MAX];
-  } blockstore;
-
-  struct {
     ulong max_account_records;
     ulong heap_size_gib;
     ulong max_database_transactions;
@@ -120,10 +110,7 @@ struct fd_configf {
   } layout;
 
   struct {
-    ulong max_rooted_slots;
     ulong max_live_slots;
-    ulong max_transactions_per_slot;
-    ulong snapshot_grace_period_seconds;
     ulong max_vote_accounts;
     ulong max_total_banks;
     ulong max_fork_width;
@@ -355,6 +342,8 @@ struct fd_config {
 
     struct {
       int websocket_compression;
+      char frontend_release_channel[ 16 ];
+      int  frontend_release_channel_enum;
     } gui;
   } development;
 
@@ -451,10 +440,7 @@ struct fd_config {
     } repair;
 
     struct {
-      char  funk_checkpt[ PATH_MAX ];
-      char  status_cache[ PATH_MAX ];
       char  cluster_version[ 32 ];
-      char  tower_checkpt[ PATH_MAX ];
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
       ulong heap_size_gib;

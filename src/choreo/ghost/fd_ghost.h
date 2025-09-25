@@ -132,19 +132,19 @@
    operations from processes with separate local ghost joins. */
 
 struct __attribute__((aligned(128UL))) fd_ghost_ele {
-  fd_hash_t         key;          /* hash_id (merkle root of the last FEC set in the slot) */
-  ulong             slot;         /* slot this ele is tracking */
-  ulong             next;         /* reserved for internal use by fd_pool, hash_map fd_map_chain and fd_ghost_publish */
-  ulong             nexts;        /* reserved for internal use by slot_map fd_map_chain */
-  ulong             eqvoc;        /* pool idx of a duplicate of this slot */
-  ulong             parent;       /* pool idx of the parent */
-  ulong             child;        /* pool idx of the left-child */
-  ulong             sibling;      /* pool idx of the right-sibling */
-  ulong             weight;       /* total stake from replay votes for this slot or any of its descendants */
-  ulong             replay_stake; /* total stake from replay votes for this slot */
-  ulong             gossip_stake; /* total stake from gossip votes for this slot */
-  ulong             rooted_stake; /* replay stake that has rooted this slot */
-  int               valid;        /* whether this ele is valid for fork choice */
+  fd_hash_t key;          /* hash_id (merkle root of the last FEC set in the slot) */
+  ulong     slot;         /* slot this ele is tracking */
+  ulong     next;         /* reserved for internal use by fd_pool, hash_map fd_map_chain and fd_ghost_publish */
+  ulong     nexts;        /* reserved for internal use by slot_map fd_map_chain */
+  ulong     eqvoc;        /* pool idx of a duplicate of this slot */
+  ulong     parent;       /* pool idx of the parent */
+  ulong     child;        /* pool idx of the left-child */
+  ulong     sibling;      /* pool idx of the right-sibling */
+  ulong     weight;       /* total stake from replay votes for this slot or any of its descendants */
+  ulong     replay_stake; /* total stake from replay votes for this slot */
+  ulong     gossip_stake; /* total stake from gossip votes for this slot */
+  ulong     rooted_stake; /* replay stake that has rooted this slot */
+  int       valid;        /* whether this ele is valid for fork choice */
 };
 typedef struct fd_ghost_ele fd_ghost_ele_t;
 
@@ -160,10 +160,10 @@ typedef struct fd_ghost_ele fd_ghost_ele_t;
 #define MAP_NEXT               next
 #include "../../util/tmpl/fd_map_chain.c"
 
-#define MAP_NAME           fd_ghost_slot_map
-#define MAP_ELE_T          fd_ghost_ele_t
-#define MAP_KEY            slot
-#define MAP_NEXT           nexts
+#define MAP_NAME  fd_ghost_slot_map
+#define MAP_ELE_T fd_ghost_ele_t
+#define MAP_KEY   slot
+#define MAP_NEXT  nexts
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_dup_seen {

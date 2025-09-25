@@ -2,7 +2,7 @@
    rocksdb (or other sources TBD) and reproduce the behavior of replay tile.
 
    The smaller topology is:
-           repair_repla         replay_exec       exec_writer
+           shred_out             replay_exec       exec_writer
    backtest-------------->replay------------->exec------------->writer
      ^                    |^ | |                                   ^
      |____________________|| | |___________________________________|
@@ -25,7 +25,6 @@
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
-#include "../../../discof/reasm/fd_reasm.h"
 #include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
 
 #include "../main.h"
@@ -107,7 +106,7 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup backtest->replay link (repair_repla) in topo                 */
+  /* Setup backtest->replay link (shred_out) in topo                 */
   /**********************************************************************/
 
   /* The repair tile is replaced by the backtest tile for the repair to
@@ -115,10 +114,10 @@ backtest_topo( config_t * config ) {
      which is provided by the backtest tile, which reads in the entry
      batches from the CLI-specified source (eg. RocksDB). */
 
-  fd_topob_wksp( topo, "repair_repla" );
-  fd_topob_link( topo, "repair_repla", "repair_repla", 65536UL, sizeof(fd_reasm_fec_t), 1UL );
-  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "repair_repla", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "back", 0UL, "repair_repla", 0UL );
+  fd_topob_wksp( topo, "shred_out" );
+  fd_topob_link( topo, "shred_out", "shred_out", 65536UL, FD_SHRED_OUT_MTU, 1UL );
+  fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "shred_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "back", 0UL, "shred_out", 0UL );
 
   /**********************************************************************/
   /* Setup snapshot links in topo                                       */
@@ -291,9 +290,8 @@ backtest_topo( config_t * config ) {
   fd_topob_wksp( topo, "tcache"      );
   fd_topob_wksp( topo, "bank_busy"   );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
-      config->firedancer.runtime.max_rooted_slots,
       config->firedancer.runtime.max_live_slots,
-      config->firedancer.runtime.max_transactions_per_slot );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
@@ -319,8 +317,6 @@ backtest_topo( config_t * config ) {
 
     /* Override */
     if( !strcmp( tile->name, "replay" ) ) {
-      tile->replay.bootstrap = !config->gossip.entrypoints_cnt;
-
       tile->replay.enable_bank_hash_cmp = 0;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
       for( ulong i = 0; i < tile->replay.enable_features_cnt; i++ ) {

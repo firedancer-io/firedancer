@@ -434,13 +434,6 @@ user = ""
     # in the historical transaction info stored.
     extended_tx_metadata_storage = false
 
-# TODO: Relocate and document.
-[blockstore]
-    shred_max = 16_777_216
-    block_max = 4096
-    idx_max = 512
-    alloc_max = 107_374_182_400
-
 [consensus]
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
@@ -508,10 +501,7 @@ user = ""
     lock_pages = true
 
 [runtime]
-    max_rooted_slots = 300
     max_live_slots = 2048
-    max_transactions_per_slot = 65536
-    snapshot_grace_period_seconds = 409
     max_vote_accounts = 2000000
 
     # max_total_banks and max_fork_width are parameters used to size
@@ -1394,6 +1384,7 @@ user = ""
         slot_max = 4096
 
     [tiles.replay]
+        # TODO: What is this ... needs to be deleted
         cluster_version =  "1.18.0"
 
         # Specifies the size in gigibytes of the replay heap allocator.

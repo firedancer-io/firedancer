@@ -118,7 +118,6 @@ struct _fd_funk_rec_prepare {
   fd_funk_rec_t * rec;
   uint *          rec_head_idx;
   uint *          rec_tail_idx;
-  uchar *         txn_lock;
 };
 
 typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;
@@ -210,7 +209,7 @@ fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                       fd_funk_txn_t const *     txn,
+                       fd_funk_txn_xid_t const * txn,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query );
 
@@ -279,11 +278,14 @@ FD_FN_CONST static inline fd_funk_xid_key_pair_t const * fd_funk_rec_pair( fd_fu
 FD_FN_CONST static inline fd_funk_txn_xid_t const *      fd_funk_rec_xid ( fd_funk_rec_t const * rec ) { return rec->pair.xid; }
 FD_FN_CONST static inline fd_funk_rec_key_t const *      fd_funk_rec_key ( fd_funk_rec_t const * rec ) { return rec->pair.key; }
 
-/* fd_funk_rec_prepare prepares to insert a new record. This call just
-   allocates a record from the pool and initializes it.
-   The application should then fill in the new
-   value. fd_funk_rec_publish actually does the map insert and
-   should be called once the value is correct. */
+/* fd_funk_rec_prepare creates an unpublished funk record entry.  This
+   is the first step to adding a funk record to a transaction.  Record
+   entry acquisition may fail if the record object pool is exhausted
+   (FD_FUNK_ERR_REC) or the transaction is not writable
+   (FD_FUNK_ERR_FROZEN).  The returned record entry (located in funk
+   shared memory) is then either be cancelled or published by the
+   caller.  This record is invisible to funk query or record-iteration
+   operations until published.  Concurrent record preparation is fine. */
 
 fd_funk_rec_t *
 fd_funk_rec_prepare( fd_funk_t *               funk,
@@ -292,14 +294,20 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
                      fd_funk_rec_prepare_t *   prepare,
                      int *                     opt_err );
 
-/* fd_funk_rec_publish inserts a prepared record into the record map. */
+/* fd_funk_rec_publish makes a prepared record globally visible.  First,
+   registers a record with the txn's record list, then inserts it into
+   the record map.  Concurrent record publishing is fine, even to the
+   same transaction.  Crashes the application with FD_LOG_CRIT if the
+   caller attempts to publish the same (txn,xid) key twice. */
 
 void
 fd_funk_rec_publish( fd_funk_t *             funk,
                      fd_funk_rec_prepare_t * prepare );
 
-/* fd_funk_rec_cancel returns a prepared record to the pool without
-   inserting it. */
+/* fd_funk_rec_cancel returns an unpublished funk record entry back to
+   the record object pool, invalidating the prepare struct.  The caller
+   cleans up any resources associated with the record (e.g. funk_val)
+   before calling this function. */
 
 void
 fd_funk_rec_cancel( fd_funk_t *             funk,

@@ -68,8 +68,8 @@ following stages to each configure command:
  - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
  - `ethtool-channels` Configures the number of channels on the network
     device.
- - `ethtool-gro` Disables generic receive offload (GRO) on the network
-    device.
+ - `ethtool-offloads` Disables generic receive offload (GRO) and GRE
+    segmentation offload on the network device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
 
 | Arguments         | Description |
@@ -101,7 +101,7 @@ and configure the number of combined channels on the network device.
 |-----------------|--------|
 | `root`          | increase `/proc/sys/vm/nr_hugepages` and mount hugetlbfs filesystems. Only applies for the `hugetlbfs` stage |
 | `root`          | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
-| `root`          | disable network device generic-receive-offload (gro) with `ethtool --offload IFACE generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
+| `root`          | disable network device offloads with `ethtool --offload IFACE FEATURE off`. Only applies for the `ethtool-offloads` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 

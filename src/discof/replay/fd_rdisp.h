@@ -384,8 +384,15 @@ ulong
 fd_rdisp_staging_lane_info( fd_rdisp_t           const * disp,
                             fd_rdisp_staging_lane_info_t out_sched[ static 4 ] );
 
+/* fd_rdisp_verify does some light verification and internal consistency
+   checks of some internal data structures.  Aborts with an error
+   message if anything fails verification.  disp is a pointer to a valid
+   local join, and scratch is a pointer to a region of scratch memory
+   with at least depth+1 elements that will be clobbered (its contents
+   at the time of the function call are ignored). */
 void
-fd_rdisp_verify( fd_rdisp_t const * disp );
+fd_rdisp_verify( fd_rdisp_t const * disp,
+                 uint             * scratch );
 
 void *
 fd_rdisp_leave( fd_rdisp_t * disp );

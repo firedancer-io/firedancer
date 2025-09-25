@@ -160,7 +160,7 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_funk_txn_cancel_all( runner->funk, 1 );
+  fd_funk_txn_cancel_all( runner->funk );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
@@ -180,9 +180,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and slot / epoch contexts */
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, xid, 1 );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -203,11 +202,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* All bank mgr stuff here. */
 
-  fd_bank_slot_set( slot_ctx->bank, slot );
+  slot_ctx->bank->eslot_ = fd_eslot( slot, 0UL );
 
   fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
-  fd_bank_parent_slot_set( slot_ctx->bank, test_ctx->slot_ctx.prev_slot );
+  fd_bank_parent_eslot_set( slot_ctx->bank, fd_eslot( test_ctx->slot_ctx.prev_slot, 0UL ) );
 
   fd_bank_capitalization_set( slot_ctx->bank, test_ctx->slot_ctx.prev_epoch_capitalization );
 
@@ -294,9 +293,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  FD_TEST( rent );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
   fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL ) );
@@ -349,9 +350,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &fork_xid, 1 );
-  fd_funk_txn_end_write( funk );
+  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, &slot_ctx->funk_txn->xid, &fork_xid, 1 );
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
   fd_lthash_value_t lthash = {0};
@@ -448,18 +447,16 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     fd_capture_ctx_t * capture_ctx = NULL;
-    fd_capture_ctx_t capture_ctx_[1];
     if( runner->solcap ) {
-      capture_ctx_[0] = (fd_capture_ctx_t) {
-        .capture            = runner->solcap,
-        .capture_txns       = 1,
-        .dump_instr_to_pb   = 1,
-        .dump_txn_to_pb     = 1,
-        .dump_block_to_pb   = 1,
-        .dump_syscall_to_pb = 1,
-        .dump_elf_to_pb     = 1
-      };
-      capture_ctx = capture_ctx_;
+      void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
+      capture_ctx            = fd_capture_ctx_new( capture_ctx_mem );
+      if( FD_UNLIKELY( capture_ctx==NULL ) ) {
+        FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
+      }
+      capture_ctx->capture   = runner->solcap;
+      capture_ctx->solcap_start_slot = fd_bank_slot_get( slot_ctx->bank );
+      slot_ctx->capture_ctx = capture_ctx;
+      fd_solcap_writer_set_slot( slot_ctx->capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
     }
 
     fd_rewards_recalculate_partitioned_rewards( slot_ctx, capture_ctx, runner->spad );

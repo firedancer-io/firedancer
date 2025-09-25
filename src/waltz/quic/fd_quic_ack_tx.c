@@ -24,7 +24,7 @@ int
 fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
                  ulong               pkt_number,
                  uint                enc_level,
-                 ulong               now ) {
+                 long                now ) {
 
   if( pkt_number == FD_QUIC_PKT_NUM_UNUSED ) return FD_QUIC_ACK_TX_NOOP;
 
@@ -93,8 +93,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
                         uchar *             payload_ptr,
                         uchar *             payload_end,
                         uint                enc_level,
-                        ulong               now,
-                        float               tick_per_us ) {
+                        long                now ) {
 
   FD_ACK_DEBUG( FD_LOG_DEBUG(( "[ACK gen] elicited=%d", gen->is_elicited )); )
   /* Never generate an ACK frame if no ACK-eliciting packet is pending.
@@ -110,14 +109,14 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
       break;
     }
 
-    ulong ack_delay_ticks = fd_ulong_sat_sub( now, ack->ts );
-    ulong ack_delay_us    = (ulong)( (float)ack_delay_ticks / tick_per_us );
+    long ack_delay_ns = fd_long_sat_sub( now, ack->ts );
+    long ack_delay_us = ack_delay_ns / (long)1e3;
 
     if( FD_UNLIKELY( ack->pkt_number.offset_lo == ack->pkt_number.offset_hi ) ) continue;
     fd_quic_ack_frame_t ack_frame = {
       .type            = 0x02, /* type 0x02 is the base ack, 0x03 indicates ECN */
       .largest_ack     = ack->pkt_number.offset_hi - 1U,
-      .ack_delay       = ack_delay_us,
+      .ack_delay       = (ulong)ack_delay_us,
       .ack_range_count = 0, /* no fragments */
       .first_ack_range = ack->pkt_number.offset_hi - ack->pkt_number.offset_lo - 1U,
     };

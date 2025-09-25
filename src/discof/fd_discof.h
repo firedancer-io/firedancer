@@ -61,9 +61,6 @@ fd_shredcap_slice_header_validate( fd_shredcap_slice_header_msg_t const * header
   if( FD_UNLIKELY( header->version != FD_SHREDCAP_SLICE_HEADER_V1 ) ) {
     FD_LOG_CRIT(( "Invalid version in shredcap slice header: %lu", header->version ));
   }
-  if( FD_UNLIKELY( header->payload_sz>FD_SLICE_MAX_WITH_HEADERS ) ) {
-    FD_LOG_CRIT(( "Invalid payload size in shredcap slice header: %lu", header->payload_sz ));
-  }
 }
 
 /* fd_shredcap_slice_trailer_validate will crash the program if the

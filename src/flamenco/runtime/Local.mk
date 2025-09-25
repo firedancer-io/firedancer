@@ -51,6 +51,7 @@ $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_txn_rw_conflicts,test_txn_rw_conflicts,fd_flamenco fd_funk fd_ballet fd_util, $(SECP256K1_LIBS))
+$(call run-unit-test,test_txn_rw_conflicts)
 endif
 
 ifdef FD_HAS_ATOMIC

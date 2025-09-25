@@ -1,6 +1,7 @@
 #include "fd_poh.h"
 #include "generated/fd_poh_tile_seccomp.h"
 #include "fd_poh_tile.h"
+#include "../replay/fd_replay_tile.h"
 #include "../../disco/tiles.h"
 
 #define IN_KIND_REPLAY (0)
@@ -113,12 +114,12 @@ returnable_frag( fd_poh_tile_t *     ctx,
       break;
     }
     case IN_KIND_REPLAY: {
-      if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER ) {
+      if( FD_LIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
         fd_became_leader_t const * became_leader = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
         fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot );
-      } else {
+      } else if( sig==REPLAY_SIG_RESET ) {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        fd_poh_reset( ctx->poh, stem, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot );
+        fd_poh_reset( ctx->poh, stem, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
       }
       break;
     }
@@ -181,9 +182,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if(      !strcmp( link->name, "replay_pack"  ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( !strcmp( link->name, "pack_poh"     ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
-    else if( !strcmp( link->name, "bank_poh"     ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "pack_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_PACK;
+    else if( !strcmp( link->name, "bank_poh"   ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 

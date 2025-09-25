@@ -44,7 +44,6 @@ setup_topo_store( fd_topo_t *  topo,
 fd_topo_obj_t *
 setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
-                     ulong        max_rooted_slots,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot );
 

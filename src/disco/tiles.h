@@ -8,7 +8,6 @@
 #include "pack/fd_pack.h"
 #include "topo/fd_topo.h"
 #include "bundle/fd_bundle_crank.h"
-#include "fd_txn_m_t.h"
 
 #include <linux/filter.h>
 

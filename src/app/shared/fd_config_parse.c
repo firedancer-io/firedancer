@@ -83,23 +83,12 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
 
-  CFG_POP      ( ulong,  blockstore.shred_max                                );
-  CFG_POP      ( ulong,  blockstore.block_max                                );
-  CFG_POP      ( ulong,  blockstore.idx_max                                  );
-  CFG_POP      ( ulong,  blockstore.alloc_max                                );
-  CFG_POP      ( cstr,   blockstore.file                                     );
-  CFG_POP      ( cstr,   blockstore.checkpt                                  );
-  CFG_POP      ( cstr,   blockstore.restore                                  ); /* TODO delete blockstore fields */
-
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
   CFG_POP      ( bool,   funk.lock_pages                                     );
 
-  CFG_POP      ( ulong,  runtime.max_rooted_slots                            );
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
-  CFG_POP      ( ulong,  runtime.max_transactions_per_slot                   );
-  CFG_POP      ( ulong,  runtime.snapshot_grace_period_seconds               );
   CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
   CFG_POP      ( ulong,  runtime.max_total_banks                             );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
@@ -256,10 +245,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
-  CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
-  CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
-  CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
   CFG_POP      ( ulong,  tiles.replay.heap_size_gib                       );
 
@@ -325,6 +311,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
 
   CFG_POP      ( bool,   development.gui.websocket_compression            );
+  CFG_POP      ( cstr,   development.gui.frontend_release_channel         );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     if( FD_UNLIKELY( !fd_config_extract_podf( pod, &config->firedancer ) ) ) return NULL;

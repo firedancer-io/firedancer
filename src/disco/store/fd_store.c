@@ -198,8 +198,8 @@ fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_
 }
 
 fd_store_fec_t *
-fd_store_publish( fd_store_t  * store,
-                  fd_hash_t   * merkle_root ) {
+fd_store_publish( fd_store_t *      store,
+                  fd_hash_t const * merkle_root ) {
 
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_store_query( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
@@ -305,7 +305,7 @@ fd_store_verify( fd_store_t * store ) {
       return -1;
     }
   }
-  fd_store_pool_t pool = fd_store_pool_const( store );
+  fd_store_pool_t pool = fd_store_pool( store );
   if( FD_UNLIKELY( fd_store_pool_verify( &pool )==-1 ) ) return -1;
   return fd_store_map_verify( map, store->fec_max, fec0 );
 }
@@ -320,7 +320,7 @@ print( fd_store_t const * store, fd_store_fec_t const * fec, int space, const ch
   for( int i = 0; i < space; i++ ) printf( " " );
   printf( "%s%s", prefix, FD_BASE58_ENC_32_ALLOCA( &fec->key.mr ) );
 
-  fd_store_pool_t pool = fd_store_pool_const( store );
+  fd_store_pool_t pool = fd_store_pool( store );
   fd_store_fec_t const * curr = fd_store_pool_ele_const( &pool, fec->child );
   char new_prefix[1024]; /* FIXME size this correctly */
   while( curr ) {

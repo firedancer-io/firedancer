@@ -2,6 +2,50 @@
 #define HEADER_fd_src_discof_gossip_fd_gossip_tile_h
 
 #include "../../disco/topo/fd_topo.h"
+#include "../../flamenco/gossip/fd_gossip.h"
+#include "../../disco/keyguard/fd_keyguard_client.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
+
+typedef struct {
+  int         kind;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       mtu;
+} fd_gossip_in_ctx_t;
+
+struct fd_gossip_tile_ctx {
+  fd_gossip_t * gossip;
+
+  fd_contact_info_t my_contact_info[1];
+
+  fd_stem_context_t * stem;
+
+  uint  rng_seed;
+  ulong rng_idx;
+
+  double ticks_per_ns;
+  long   last_wallclock;
+  long   last_tickcount;
+
+  fd_stake_weight_t * stake_weights_converted;
+
+  fd_gossip_in_ctx_t in[ 128UL ];
+
+  fd_gossip_out_ctx_t net_out[ 1 ];
+  fd_gossip_out_ctx_t gossip_out[ 1 ];
+  fd_gossip_out_ctx_t gossvf_out[ 1 ];
+  fd_gossip_out_ctx_t sign_out[ 1 ];
+
+  fd_keyguard_client_t keyguard_client[ 1 ];
+  fd_keyswitch_t * keyswitch;
+
+  ushort            net_id;
+  fd_ip4_udp_hdrs_t net_out_hdr[ 1 ];
+  fd_rng_t          rng[ 1 ];
+};
+
+typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
 static inline ulong
 fd_gossvf_sig( uint   addr,

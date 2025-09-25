@@ -10,6 +10,7 @@
 #include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
 #include "../../../tango/tempo/fd_tempo.h"
+#include <string.h>
 
 int
 main( int     argc,
@@ -20,6 +21,10 @@ main( int     argc,
 
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+
+  fd_clock_t clock[1];
+  fd_clock_shmem_t clock_shmem[1];
+  fd_clock_default_init( clock, clock_shmem );
 
   char const * _page_sz   = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",  NULL, "gigantic"                   );
   ulong        page_cnt   = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt", NULL, 2UL                          );
@@ -69,7 +74,7 @@ main( int     argc,
   fd_quic_t * const quic = sandbox->quic;
   quic->config.idle_timeout = (ulong)100000e9;
   fd_quic_state_t * state = fd_quic_get_state( quic );
-  state->now = fd_quic_now( quic );
+  state->now = fd_clock_now( clock );
 
   /* Create table of server-side conn objects to inject traffic into. */
 
@@ -80,7 +85,7 @@ main( int     argc,
     fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
     conn->srx->rx_sup_stream_id = (1UL<<62)-1;
     conn->last_activity         = state->now;
-    conn->idle_timeout_ticks    = (ulong)100000e9;
+    conn->idle_timeout_ns       = (ulong)100000e9;
     conn_list[ j ] = conn;
   }
 
@@ -88,17 +93,17 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Test start (--conn-cnt %lu --duration %g s --conn-burst %lu)", conn_cnt, (double)duration, conn_burst ));
 
-  long test_finish = fd_log_wallclock() + (long)( (double)duration * 1e9 );
+  long test_finish = fd_clock_now( clock ) + (long)( duration * 1e9f );
 
   long  lazy        = 1e6; /* 1 ms */
   float tick_per_ns = (float)fd_tempo_tick_per_ns( NULL );
   ulong async_min   = fd_tempo_async_min( lazy, 1UL /*event_cnt*/, tick_per_ns );
 
-  long now  = fd_tickcount();
+  long now  = fd_clock_now( clock );
   long then = now;
 
   uchar frame_buf[ 1024 ];
-  long  last_stat = fd_log_wallclock();
+  long  last_stat = now;
 
   ulong frame_cnt = 0UL;
   ulong burst_idx = 0UL;
@@ -106,8 +111,8 @@ main( int     argc,
   for(;;) {
 
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
-      long ts = fd_log_wallclock();
-      if( fd_log_wallclock() > test_finish ) break;
+      long ts = fd_clock_now( clock );
+      if( ts > test_finish ) break;
 
       if( ts-last_stat >= (long)1e9 ) {
         ulong frame_cnt = quic->metrics.stream_rx_event_cnt;
@@ -119,7 +124,7 @@ main( int     argc,
       then = now + (long)fd_tempo_async_reload( rng, async_min );
     }
 
-    fd_quic_service( quic );
+    fd_quic_service( quic, fd_clock_now( clock ) );
 
     if( burst_idx==0UL ) {
       conn_idx  = fd_rng_ulong_roll( rng, conn_cnt );
@@ -138,7 +143,7 @@ main( int     argc,
     fd_quic_sandbox_send_lone_frame( sandbox, conn, frame_buf, sz );
     FD_TEST( conn->state==FD_QUIC_CONN_STATE_ACTIVE );
 
-    now = fd_tickcount();
+    now = fd_clock_now( clock );
     frame_cnt++;
 
   }
@@ -157,6 +162,8 @@ main( int     argc,
 
   fd_wksp_free_laddr( conn_list );
   fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );
+  fd_clock_leave( clock );
+  fd_clock_delete( clock_shmem );
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

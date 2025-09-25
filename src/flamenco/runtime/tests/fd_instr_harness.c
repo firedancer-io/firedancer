@@ -10,10 +10,9 @@
 #include "../sysvar/fd_sysvar_clock.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
-#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../sysvar/fd_sysvar_rent.h"
+#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../fd_system_ids.h"
-#include "../fd_cost_tracker.h"
 #include <assert.h>
 
 int
@@ -33,10 +32,9 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
-  fd_funk_txn_end_write( funk );
 
   /* Allocate contexts */
   uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad,FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
@@ -77,13 +75,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   if( FD_UNLIKELY( !vote_states_prev_prev ) ) FD_LOG_ERR(( "fd_vote_staets_new for prev2 failed" ));
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
-
-  /* Set up epoch context. Defaults obtained from GenesisConfig::Default() */
-
-  fd_rent_t * rent_bm = fd_bank_rent_modify( slot_ctx->bank );
-  rent_bm->lamports_per_uint8_year = 3480;
-  rent_bm->exemption_threshold = 2;
-  rent_bm->burn_percent = 50;
 
   /* Blockhash queue init */
 
@@ -241,78 +232,29 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  /* Fill missing sysvar accounts with defaults */
-  /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
-  /* We use Agave sysvar defaults for data field values */
-
-  /* Clock */
-  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L466-L474
-  fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
-  if( !clock ) {
-    fd_sol_sysvar_clock_t sysvar_clock = {
-      .slot                  = 10UL,
-      .epoch_start_timestamp = 0L,
-      .epoch                 = 0UL,
-      .leader_schedule_epoch = 0UL,
-      .unix_timestamp        = 0L
-    };
-    fd_sysvar_clock_write( slot_ctx, &sysvar_clock );
-  }
-
-  /* Epoch schedule */
-  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L476-L483
-  fd_epoch_schedule_t epoch_schedule[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) ) {
-    fd_epoch_schedule_t sysvar_epoch_schedule = {
-      .slots_per_epoch             = 432000UL,
-      .leader_schedule_slot_offset = 432000UL,
-      .warmup                      = 1,
-      .first_normal_epoch          = 14UL,
-      .first_normal_slot           = 524256UL
-    };
-    fd_sysvar_epoch_schedule_write( slot_ctx, &sysvar_epoch_schedule );
-  }
-
-  /* Rent */
-  // https://github.com/firedancer-io/solfuzz-agave/blob/agave-v2.0/src/lib.rs#L487-L500
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( !rent ) {
-    fd_rent_t sysvar_rent = {
-      .lamports_per_uint8_year = 3480UL,
-      .exemption_threshold     = 2.0,
-      .burn_percent            = 50
-    };
-    fd_sysvar_rent_write( slot_ctx, &sysvar_rent );
-  }
-
+  /* Set slot bank variables and ensure all relevant sysvars are present */
   fd_sol_sysvar_last_restart_slot_t last_restart_slot_[1];
-  fd_sol_sysvar_last_restart_slot_t const * last_restart_slot = fd_sysvar_last_restart_slot_read( funk, funk_txn, last_restart_slot_ );
-  if( !last_restart_slot ) {
-    fd_sol_sysvar_last_restart_slot_t restart = { .slot = 5000UL };
-    fd_sysvar_account_update( slot_ctx, &fd_sysvar_last_restart_slot_id, &restart.slot, sizeof(ulong) );
-  }
+  FD_TEST( fd_sysvar_last_restart_slot_read( funk, funk_txn, last_restart_slot_ ) );
 
-  /* Set slot bank variables */
-  clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  FD_TEST( clock );
+  slot_ctx->bank->eslot_ = fd_eslot( clock->slot, 0UL );
 
-  fd_bank_slot_set( slot_ctx->bank, clock->slot );
-
-  /* Handle undefined behavior if sysvars are malicious (!!!) */
-
-  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
-    fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
-  }
+  fd_epoch_schedule_t epoch_schedule_[1];
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  FD_TEST( epoch_schedule );
+  fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
   /* Override epoch bank rent setting */
-  rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( rent ) {
-    fd_bank_rent_set( slot_ctx->bank, *rent );
-  }
+  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  FD_TEST( rent );
+  fd_bank_rent_set( slot_ctx->bank, *rent );
 
   /* Override most recent blockhash if given */
   fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
-  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+  FD_TEST( rbh );
+  if( !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
       fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( slot_ctx->bank );
@@ -403,7 +345,7 @@ void
 fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_funk_txn_cancel_all( runner->funk, 1 );
+  fd_funk_txn_cancel_all( runner->funk );
 }
 
 

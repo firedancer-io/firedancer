@@ -286,29 +286,20 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-
-  fd_txncache_query_t curr_query;
-  curr_query.blockhash = blockhash->uc;
-  fd_blake3_t b3[1];
-
   /* Compute the blake3 hash of the transaction message
      https://github.com/anza-xyz/agave/blob/v2.1.7/sdk/program/src/message/versions/mod.rs#L159-L167 */
+  fd_blake3_t b3[1];
   fd_blake3_init( b3 );
   fd_blake3_append( b3, "solana-tx-message-v1", 20UL );
   fd_blake3_append( b3, ((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->message_off),(ulong)( txn_ctx->txn.payload_sz - TXN( &txn_ctx->txn )->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
-  curr_query.txnhash = txn_ctx->blake_txn_msg_hash.uc;
 
-  // FIXME: Commenting out until txncache is fixed
-  (void)curr_query;
-  // int err;
-  // fd_txncache_query_batch( txn_ctx->status_cache,
-  //                          &curr_query,
-  //                          1UL,
-  //                          (void *)txn_ctx,
-  //                          status_check_tower, &err );
-  return 0;
+  // TODO: ONLY DO THIS CHECK IF IT IS NOT A NONCE TRANSACTION
+  // fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+  // int found = fd_txncache_query( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+  // if( FD_UNLIKELY( !found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L77-L141 */

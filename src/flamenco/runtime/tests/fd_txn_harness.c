@@ -40,9 +40,7 @@ static void
 fd_runtime_fuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_slot_ctx_t *  slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_txn_cancel( runner->funk, &slot_ctx->funk_txn->xid );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -58,9 +56,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, &xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, &xid, 1 );
 
   /* Set up slot context */
   slot_ctx->funk_txn = funk_txn;
@@ -78,7 +75,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  fd_bank_slot_set( slot_ctx->bank, slot );
+  slot_ctx->bank->eslot_ = fd_eslot( slot, 0UL );
 
   /* Initialize builtin accounts */
   fd_builtin_programs_init( slot_ctx );
@@ -95,7 +92,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Setup Bank manager */
 
-  fd_bank_parent_slot_set( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ) - 1UL );
+  fd_bank_parent_eslot_set( slot_ctx->bank, fd_eslot( fd_bank_slot_get( slot_ctx->bank ) - 1UL, 0UL ) );
 
   fd_bank_lamports_per_signature_set( slot_ctx->bank, 5000UL );
 
@@ -110,70 +107,27 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   fd_bank_ticks_per_slot_set( slot_ctx->bank, 64 );
 
-  /* Set epoch bank variables if not present (defaults obtained from GenesisConfig::default() in Agave) */
-  fd_epoch_schedule_t default_epoch_schedule = {
-    .slots_per_epoch             = 432000,
-    .leader_schedule_slot_offset = 432000,
-    .warmup                      = 1,
-    .first_normal_epoch          = 14,
-    .first_normal_slot           = 524256
-  };
-  fd_rent_t default_rent = {
-    .lamports_per_uint8_year = 3480,
-    .exemption_threshold     = 2.0,
-    .burn_percent            = 50
-  };
-  fd_bank_epoch_schedule_set( slot_ctx->bank, default_epoch_schedule );
-
-  fd_bank_rent_set( slot_ctx->bank, default_rent );
-
   fd_bank_slots_per_year_set( slot_ctx->bank, SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)(fd_bank_ticks_per_slot_get( slot_ctx->bank )) );
 
-  // Override default values if provided
-  fd_epoch_schedule_t epoch_schedule[1];
-  if( fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule ) ) {
-    fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
-  }
+  /* Ensure the presence of */
+  fd_epoch_schedule_t epoch_schedule_[1];
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  FD_TEST( epoch_schedule );
+  fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
   fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
-  if( rent ) {
-    fd_bank_rent_set( slot_ctx->bank, *rent );
-  }
+  FD_TEST( rent );
+  fd_bank_rent_set( slot_ctx->bank, *rent );
 
-  /* Provide default slot hashes of size 1 if not provided */
   fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, funk_txn, runner->spad );
-  if( !slot_hashes ) {
-    FD_SPAD_FRAME_BEGIN( runner->spad ) {
-      /* The offseted gaddr aware types need the memory for the entire
-         struct to be allocated out of a contiguous memory region. */
-      fd_slot_hash_t * slot_hashes                          = NULL;
-      void * mem                                            = fd_spad_alloc( runner->spad, FD_SYSVAR_SLOT_HASHES_ALIGN, fd_sysvar_slot_hashes_footprint( 1UL ) );
-      fd_slot_hashes_global_t * default_slot_hashes_global  = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, 1UL ), &slot_hashes );
+  FD_TEST( slot_hashes );
 
-      fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
-      memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
-
-      fd_sysvar_slot_hashes_write( slot_ctx, default_slot_hashes_global );
-
-      fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( default_slot_hashes_global, slot_hashes ) );
-    } FD_SPAD_FRAME_END;
-  }
-
-  /* Provide default stake history if not provided */
   fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, funk_txn, runner->spad );
-  if( !stake_history ) {
-    // Provide a 0-set default entry
-    fd_epoch_stake_history_entry_pair_t entry = {0};
-    fd_sysvar_stake_history_init( slot_ctx );
-    fd_sysvar_stake_history_update( slot_ctx, &entry, runner->spad );
-  }
+  FD_TEST( stake_history );
 
-  /* Provide default last restart slot sysvar if not provided */
-  FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
-  if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-    fd_sysvar_last_restart_slot_init( slot_ctx );
-  }
+  fd_sol_sysvar_clock_t clock_[1];
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  FD_TEST( clock );
 
   /* Setup vote states dummy account */
   fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
@@ -199,34 +153,9 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
-  /* Provide a default clock if not present */
-  fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
-  if( !clock ) {
-    /* solfuzz-agave uses a parent epoch of 0 as well */
-    ulong parent_epoch = 0UL;
-    fd_sysvar_clock_init( slot_ctx );
-    fd_sysvar_clock_update( slot_ctx, runner->spad, &parent_epoch );
-  }
-
   /* Epoch schedule and rent get set from the epoch bank */
   fd_sysvar_epoch_schedule_init( slot_ctx );
   fd_sysvar_rent_init( slot_ctx );
-
-  /* Set the epoch rewards sysvar if partition epoch rewards feature is enabled
-
-     TODO: The init parameters are not exactly conformant with Agave's epoch rewards sysvar. We should
-     be calling `fd_begin_partitioned_rewards` with the same parameters as Agave. However,
-     we just need the `active` field to be conformant due to a single Stake program check.
-     THIS MAY CHANGE IN THE FUTURE. If there are other parts of transaction execution that use
-     the epoch rewards sysvar, we may need to update this.
-  */
-  fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( !fd_sysvar_epoch_rewards_read( funk, funk_txn, epoch_rewards ) ) {
-    fd_hash_t last_hash = {0};
-    if( test_ctx->blockhash_queue_count > 0 ) last_hash = FD_LOAD( fd_hash_t, test_ctx->blockhash_queue[0]->bytes );
-    fd_sysvar_epoch_rewards_init( slot_ctx, 0UL, 2UL, 1UL, 0UL, 0UL, &last_hash );
-  }
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - block_hash_queue
