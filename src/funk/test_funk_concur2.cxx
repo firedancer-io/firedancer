@@ -22,7 +22,6 @@ static void * work_thread( void * _arg ) {
   test_funk_thread_arg_t * arg = (test_funk_thread_arg_t *)_arg;
   fd_funk_t * funk = arg->funk;
   fd_funk_txn_t * txn = arg->txn;
-  fd_funk_txn_xid_t const * xid = txn ? &txn->xid : NULL;
 
   for( ulong i=0UL; i<1024UL; i++ ) {
     uint key_idx = ((uint)lrand48() % (arg->last_key - arg->first_key)) + arg->first_key;
@@ -32,11 +31,11 @@ static void * work_thread( void * _arg ) {
 
     fd_funk_rec_key_t key = {};
     key.ul[0] = key_idx;
-    int err = fd_funk_rec_insert_para( funk, txn, &key, alignof(ulong), sizeof(ulong), &exp_val[key_idx] );
+    int err = fd_funk_rec_insert_para( funk, txn, &key, alignof(ulong), sizeof(ulong), (void*)&exp_val[key_idx] );
     FD_TEST( err == FD_FUNK_SUCCESS );
   }
-  return NULL;
 
+  return NULL;
 }
 
 int main( int argc, char ** argv ) {
