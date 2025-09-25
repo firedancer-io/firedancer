@@ -191,6 +191,13 @@ shdr_get_loaded_size( fd_elf64_shdr const * shdr, uchar * is_some ) {
   }
 }
 
+/* fd_sbpf_range_contains returns 1 if x is in the range [lo, hi) and 0
+   otherwise. */
+static inline int
+fd_sbpf_range_contains( ulong lo, ulong hi, ulong x ) {
+  return !!(( lo<=x ) & ( x<hi ));
+}
+
 /* Mimics Elf64Shdr::file_range(). Returns 1 (Some) if the section
    header type is not SHT_NOBITS, and sets (lo, hi) to the section
    header offset and offset + size respectively. Returns 0 (None)
@@ -681,21 +688,21 @@ struct fd_sbpf_loader {
   ulong *              calldests;  /* owned by program */
   fd_sbpf_syscalls_t * syscalls;   /* owned by caller */
 
-  /* Dynamic table */
-  uint dyn_off;  /* File offset of dynamic table (UINT_MAX=missing) */
-  uint dyn_cnt;  /* Number of dynamic table entries */
+  // /* Dynamic table */
+  // uint dyn_off;  /* File offset of dynamic table (UINT_MAX=missing) */
+  // uint dyn_cnt;  /* Number of dynamic table entries */
 
-  /* Dynamic table entries */
-  ulong dt_rel;
-  ulong dt_relent;
-  ulong dt_relsz;
-  ulong dt_symtab;
+  // /* Dynamic table entries */
+  // ulong dt_rel;
+  // ulong dt_relent;
+  // ulong dt_relsz;
+  // ulong dt_symtab;
 
-  /* Dynamic symbols */
-  uint dynsym_off;  /* File offset of .dynsym section (0=missing) */
-  uint dynsym_cnt;  /* Symbol count */
+  // /* Dynamic symbols */
+  // uint dynsym_off;  /* File offset of .dynsym section (0=missing) */
+  // uint dynsym_cnt;  /* Symbol count */
 
-  int elf_deploy_checks;
+  // int elf_deploy_checks;
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
@@ -1012,8 +1019,7 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
        the text section offset ranges will always be set to a defined
        value. */
     if( ( fd_shdr_get_file_range( sh_text, &text_section_lo, &text_section_hi ) &&
-          r_offset>=text_section_lo &&
-          r_offset<text_section_hi ) ||
+          fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ) ||
         info->sbpf_version==FD_SBPF_V0 ) {
       imm_offset = fd_ulong_sat_add( r_offset, 4UL /* BYTE_OFFSET_IMMEDIATE */ );
     }
@@ -1066,7 +1072,7 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
 
   /* Same check as above...
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1106-L1140 */
-  if( ( r_offset>=text_section_lo && r_offset<text_section_hi ) ||
+  if( fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ||
       info->sbpf_version==FD_SBPF_V0 ) {
     ulong imm_low_offset  = imm_offset;
     ulong imm_high_offset = fd_ulong_sat_add( imm_low_offset, 8UL /* INSN_SIZE */ );
@@ -1131,8 +1137,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1150-L1246 */
   if( fd_shdr_get_file_range( sh_text, &text_section_lo, &text_section_hi ) &&
-      r_offset>=text_section_lo &&
-      r_offset<text_section_hi ) {
+      fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ) {
 
     /* We are relocating a lddw (load double word) instruction which
        spans two instruction slots. The address top be relocated is
@@ -1275,8 +1280,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
     if( symbol_is_function && symbol->st_value!=0UL ) {
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1267-L1269 */
       if( FD_UNLIKELY( !( fd_shdr_get_file_range( sh_text, &text_section_lo, &text_section_hi ) &&
-                          symbol->st_value>=text_section_lo &&
-                          symbol->st_value<text_section_hi ) ) ) {
+                          fd_sbpf_range_contains( text_section_lo, text_section_hi, symbol->st_value ) ) ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
@@ -1515,17 +1519,17 @@ fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
     .calldests = prog->calldests,
     .syscalls  = syscalls,
 
-    .dyn_off   = 0U,
-    .dyn_cnt   = 0U,
+    // .dyn_off   = 0U,
+    // .dyn_cnt   = 0U,
 
-    .dt_rel    = 0UL,
-    .dt_relent = 0UL,
-    .dt_relsz  = 0UL,
-    .dt_symtab = 0UL,
+    // .dt_rel    = 0UL,
+    // .dt_relent = 0UL,
+    // .dt_relsz  = 0UL,
+    // .dt_symtab = 0UL,
 
-    .dynsym_off = 0U,
-    .dynsym_cnt = 0U,
-    .elf_deploy_checks = elf_deploy_checks
+    // .dynsym_off = 0U,
+    // .dynsym_cnt = 0U,
+    // .elf_deploy_checks = elf_deploy_checks
   };
 
   // /* Find dynamic section */
@@ -1547,45 +1551,14 @@ fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
   //   return err;
 
   /* Apply relocations */
-  if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
-    return err;
+  // if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
+  //   return err;
 
   /* Create read-only segment */
   if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
     return err;
 
   return 0;
-}
-
-int
-fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
-                                         ulong                           bin_sz,
-                                         fd_sbpf_loader_config_t const * config ) {
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L376-L381 */
-  const ulong E_FLAGS_OFFSET = 48UL;
-  const uint  E_FLAGS_SBPF_V2 = 0x20;
-
-  if( FD_UNLIKELY( bin_sz < E_FLAGS_OFFSET+sizeof(uint) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-  }
-  uint e_flags = fd_uint_load_4( (uchar const *)bin + E_FLAGS_OFFSET );
-
-  uint sbpf_version = 0U;
-  if( FD_UNLIKELY( config->sbpf_max_version==FD_SBPF_V0 ) ) {
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L384-L388 */
-    sbpf_version = e_flags==E_FLAGS_SBPF_V2 ? FD_SBPF_RESERVED : FD_SBPF_V0;
-  } else {
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L390-L396 */
-    sbpf_version = e_flags < FD_SBPF_VERSION_COUNT ? e_flags : FD_SBPF_RESERVED;
-  }
-
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L399-L401 */
-  if( FD_UNLIKELY( !( config->sbpf_min_version <= sbpf_version && sbpf_version <= config->sbpf_max_version ) ) ) {
-    return FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION;
-  }
-
-  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
-  return (int)sbpf_version;
 }
 
 static int
@@ -2284,6 +2257,37 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
 
   return 0;
 #endif
+}
+
+static int
+fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
+                                         ulong                           bin_sz,
+                                         fd_sbpf_loader_config_t const * config ) {
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L376-L381 */
+  const ulong E_FLAGS_OFFSET = 48UL;
+  const uint  E_FLAGS_SBPF_V2 = 0x20;
+
+  if( FD_UNLIKELY( bin_sz < E_FLAGS_OFFSET+sizeof(uint) ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+  uint e_flags = fd_uint_load_4( (uchar const *)bin + E_FLAGS_OFFSET );
+
+  uint sbpf_version = 0U;
+  if( FD_UNLIKELY( config->sbpf_max_version==FD_SBPF_V0 ) ) {
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L384-L388 */
+    sbpf_version = e_flags==E_FLAGS_SBPF_V2 ? FD_SBPF_RESERVED : FD_SBPF_V0;
+  } else {
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L390-L396 */
+    sbpf_version = e_flags < FD_SBPF_VERSION_COUNT ? e_flags : FD_SBPF_RESERVED;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L399-L401 */
+  if( FD_UNLIKELY( !( config->sbpf_min_version <= sbpf_version && sbpf_version <= config->sbpf_max_version ) ) ) {
+    return FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
+  return (int)sbpf_version;
 }
 
 int
