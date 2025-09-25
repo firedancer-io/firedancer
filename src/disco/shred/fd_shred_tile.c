@@ -916,9 +916,9 @@ after_frag( fd_shred_ctx_t *    ctx,
           fd_shred_dest_idx_t * dests = fd_shred_dest_compute_children( sdest, &shred, 1UL, ctx->scratchpad_dests, 1UL, fanout, fanout, max_dest_cnt );
           if( FD_UNLIKELY( !dests ) ) break;
 
-          for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, fd_ulong_if( !i, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
-          for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++, cnt++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j ] ); if( !!sdest_j->is_secure ) { send_shred( ctx, stem, *out_shred, sdest_j, fd_ulong_if( !cnt, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ ); } }
-          for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++, cnt++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j ] ); if(  !sdest_j->is_secure ) { send_shred( ctx, stem, *out_shred, sdest_j, fd_ulong_if( !cnt, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ ); } }
+          for( ulong i=0UL; i<ctx->adtl_dests_retransmit_cnt; i++ ) send_shred( ctx, stem, *out_shred, ctx->adtl_dests_retransmit+i, fd_ulong_if( !i, 0UL, 1UL )/*reuse_prev_pkt*/ );
+          for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j ] ); if( !!sdest_j->is_secure ) { send_shred( ctx, stem, *out_shred, sdest_j, fd_ulong_if( !cnt, 0UL, 1UL )/*reuse_prev_pkt*/ ); cnt++; } }
+          for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j ] ); if(  !sdest_j->is_secure ) { send_shred( ctx, stem, *out_shred, sdest_j, fd_ulong_if( !cnt, 0UL, 1UL )/*reuse_prev_pkt*/ ); cnt++; } }
         } while( 0 );
       }
 
@@ -1056,7 +1056,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_shred_dest_idx_t * dests;
     if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNP ) ) {
       for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, fd_ulong_if( !j, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
+        for( ulong j=0UL; j<ctx->adtl_dests_retransmit_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_retransmit+j, fd_ulong_if( !j, 0UL, 1UL )/*reuse_prev_pkt*/ );
       }
       out_stride = k;
       /* In the case of feature activation, the fanout used below is
@@ -1064,9 +1064,8 @@ after_frag( fd_shred_ctx_t *    ctx,
           beginning of after_frag() for IN_KIND_NET in this slot. */
       dests = fd_shred_dest_compute_children( sdest, new_shreds, k, ctx->scratchpad_dests, k, fanout, fanout, max_dest_cnt );
     } else {
-      ctx->shred_from_multicast = 0UL;
       for( ulong i=0UL; i<k; i++ ) {
-        for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, fd_ulong_if( !j, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ );
+        for( ulong j=0UL; j<ctx->adtl_dests_leader_cnt; j++ ) send_shred( ctx, stem, new_shreds[ i ], ctx->adtl_dests_leader+j, fd_ulong_if( !j, 0UL, 1UL )/*reuse_prev_pkt*/ );
       }
       out_stride = 1UL;
       *max_dest_cnt = 1UL;
@@ -1076,10 +1075,10 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     /* Send only the ones we didn't receive. */
     for( ulong i=0UL; i<k; i++ ) {
-      for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++, cnt++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]); if( !!sdest_j->is_secure ) { send_shred( ctx, stem, new_shreds[ i ], sdest_j, fd_ulong_if( !cnt, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ ); } }
+      for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]); if( !!sdest_j->is_secure ) { send_shred( ctx, stem, new_shreds[ i ], sdest_j, fd_ulong_if( !cnt, 0UL, 1UL )/*reuse_prev_pkt*/ ); cnt++; } }
     }
     for( ulong i=0UL; i<k; i++ ) {
-      for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++, cnt++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]); if(  !sdest_j->is_secure ) { send_shred( ctx, stem, new_shreds[ i ], sdest_j, fd_ulong_if( !cnt, ctx->shred_from_multicast, 1UL )/*reuse_prev_pkt*/ ); } }
+      for( ulong j=0UL, cnt=0UL; j<*max_dest_cnt; j++ ) { fd_shred_dest_weighted_t * sdest_j = fd_shred_dest_idx_to_dest( sdest, dests[ j*out_stride+i ]); if(  !sdest_j->is_secure ) { send_shred( ctx, stem, new_shreds[ i ], sdest_j, fd_ulong_if( !cnt, 0UL, 1UL )/*reuse_prev_pkt*/ ); cnt++; } }
     }
   }
 }
