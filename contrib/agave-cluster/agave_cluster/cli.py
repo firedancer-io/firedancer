@@ -167,7 +167,7 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
         return genesis_hash, shred_version
 
-    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "1000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "5000000000000000", "--slots-per-epoch", "256"], cwd=cluster_path, capture_output=True, text=True)
+    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "5000000000000000", "--slots-per-epoch", "256"], cwd=cluster_path, capture_output=True, text=True)
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -405,9 +405,7 @@ def stake_node(ctx, vote_key, amount):
     solana = solana_binary('solana')
 
     subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key, f"{amount}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    click.echo(f"Staked from stake account {stake_key} to vote account {vote_key} with amount {amount} SOL")
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key])
 
 
 @main.command('stop-node')
