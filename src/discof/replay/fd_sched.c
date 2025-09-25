@@ -6,7 +6,6 @@
 
 // TODO can the bounds be tighter?
 #define FD_SCHED_MAX_TXN_PER_BLOCK         (FD_TXN_MAX_PER_SLOT)
-#define FD_SCHED_MAX_BLOCK_DEPTH           (1024UL)
 #define FD_SCHED_MAX_NON_EMPTY_BLOCK_DEPTH (32UL)
 #define FD_SCHED_MAX_DEPTH                 (FD_RDISP_MAX_DEPTH>>2)
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
@@ -30,11 +29,11 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 /* Structs. */
 
 struct fd_sched_block {
-  fd_sched_block_id_t block_id;
-  ulong               next;        /* reserved for internal use by fd_pool, fd_map_chain */
-  ulong               parent_idx;  /* index of the parent in the pool */
-  ulong               child_idx;   /* index of the left-child in the pool */
-  ulong               sibling_idx; /* index of the right-sibling in the pool */
+  ulong               slot;
+  ulong               parent_slot;
+  ulong               parent_idx;  /* Index of the parent in the pool. */
+  ulong               child_idx;   /* Index of the left-child in the pool. */
+  ulong               sibling_idx; /* Index of the right-sibling in the pool. */
 
   /* Counters. */
   uint                txn_parsed_cnt;
@@ -45,52 +44,40 @@ struct fd_sched_block {
 
   /* Parser state. */
   uchar               txn[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-  fd_hash_t           poh;          /* latest PoH hash we've seen from the ingested FEC sets */
-  ulong               mblks_rem;    /* number of microblocks remaining in the current batch */
-  ulong               txns_rem;     /* number of transactions remaining in the current microblock */
-  fd_acct_addr_t      aluts[ 256 ]; /* resolve ALUT accounts into this buffer for more parallelism */
-  uint                fec_buf_sz;   /* size of the fec_buf in bytes */
-  uint                fec_buf_soff; /* starting offset into fec_buf for unparsed transactions */
+  fd_hash_t           poh;          /* Latest PoH hash we've seen from the ingested FEC sets. */
+  ulong               mblks_rem;    /* Number of microblocks remaining in the current batch. */
+  ulong               txns_rem;     /* Number of transactions remaining in the current microblock. */
+  fd_acct_addr_t      aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
+  uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
+  uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
   uint                fec_eob:1;    /* FEC end-of-batch: set if the last FEC set in the batch is being
-                                       ingested */
+                                       ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be receiving a new
-                                       batch */
+                                       batch. */
 
   /* Block state. */
   uint                fec_eos:1;                          /* FEC end-of-stream: set if the last FEC set in the block has been
-                                                             ingested */
-  uint                rooted:1;                           /* set if the block is rooted */
-  uint                dying:1;                            /* set if the block has been abandoned and no transactions should be
-                                                             scheduled from it */
-  uint                in_rdisp:1;                         /* set if the block is being tracked by the dispatcher, either as staged
-                                                             or unstaged */
-  uint                block_start_signaled:1;             /* set if the start-of-block sentinel has been dispatched */
-  uint                block_end_signaled:1;               /* set if the end-of-block sentinel has been dispatched */
-  uint                staged:1;                           /* set if the block is in a dispatcher staging lane; a staged block is
-                                                             tracked by the dispatcher */
-  ulong               staging_lane;                       /* ignored if staged==0 */
-  ulong               luf_depth;                          /* depth of longest unstaged fork starting from this node; only
-                                                             stageable unstaged descendants are counted */
-  uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* the previous FEC set could have some residual data that only becomes
-                                                             parseable after the next FEC set is ingested */
+                                                             ingested. */
+  uint                rooted:1;                           /* Set if the block is rooted. */
+  uint                dying:1;                            /* Set if the block has been abandoned and no transactions should be
+                                                             scheduled from it. */
+  uint                in_sched:1;                         /* Set if the block is being tracked by the scheduler. */
+  uint                in_rdisp:1;                         /* Set if the block is being tracked by the dispatcher, either as staged
+                                                             or unstaged. */
+  uint                block_start_signaled:1;             /* Set if the start-of-block sentinel has been dispatched. */
+  uint                block_end_signaled:1;               /* Set if the end-of-block sentinel has been dispatched. */
+  uint                staged:1;                           /* Set if the block is in a dispatcher staging lane; a staged block is
+                                                             tracked by the dispatcher. */
+  ulong               staging_lane;                       /* Ignored if staged==0. */
+  ulong               luf_depth;                          /* Depth of longest unstaged fork starting from this node; only
+                                                             stageable unstaged descendants are counted. */
+  uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
+                                                             parseable after the next FEC set is ingested. */
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
 FD_STATIC_ASSERT( sizeof(fd_hash_t)==sizeof(((fd_microblock_hdr_t *)0)->hash), unexpected poh hash size );
 
-#define POOL_NAME  block_pool
-#define POOL_T     fd_sched_block_t
-#define POOL_NEXT  next
-#include "../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME               block_map
-#define MAP_ELE_T              fd_sched_block_t
-#define MAP_KEY_T              fd_sched_block_id_t
-#define MAP_KEY                block_id
-#define MAP_KEY_EQ(k0,k1)      (!memcmp((k0),(k1), sizeof(fd_sched_block_id_t)))
-#define MAP_KEY_HASH(key,seed) (fd_ulong_hash((key)->id^seed))
-#define MAP_NEXT               next
-#include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_sched_metrics {
   uint  block_added_cnt;
@@ -127,21 +114,22 @@ typedef struct fd_sched_metrics fd_sched_metrics_t;
 
 struct fd_sched {
   fd_sched_metrics_t  metrics[ 1 ];
+  ulong               canary; /* == FD_SCHED_MAGIC */
+  ulong               block_cnt_max; /* Immutable. */
   long                txn_in_flight_last_tick;
   ulong               root_idx;
   fd_rdisp_t *        rdisp;
-  ulong               active_block_idx; /* index of the actively replayed block, or null_idx if no block is
-                                           actively replayed; has to have a transaction to dispatch; staged
-                                           blocks that have no transactions to dispatch are not eligible for
-                                           being active. */
-  ulong               staged_bitset;    /* bit i set if staging lane i is occupied */
-  ulong               staged_head_block_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* head of the linear chain in each staging lane, ignored if bit i is
-                                                                              not set in the bitset */
+  ulong               active_bank_idx; /* Index of the actively replayed block, or ULONG_MAX if no block is
+                                          actively replayed; has to have a transaction to dispatch; staged
+                                          blocks that have no transactions to dispatch are not eligible for
+                                          being active. */
+  ulong               staged_bitset;    /* Bit i set if staging lane i is occupied. */
+  ulong               staged_head_bank_idx[ FD_SCHED_MAX_STAGING_LANES ]; /* Head of the linear chain in each staging lane, ignored if bit i is
+                                                                             not set in the bitset. */
   ulong               txn_pool_free_cnt;
   fd_txn_p_t          txn_pool[ FD_SCHED_MAX_DEPTH ];
-  ulong               txn_to_block_idx[ FD_SCHED_MAX_DEPTH ]; /* index of the block that the txn belongs to */
-  fd_sched_block_t *  block_pool; /* fd_pool of max_block_depth elements */
-  block_map_t *       block_map;  /* map_chain */
+  ulong               txn_to_bank_idx[ FD_SCHED_MAX_DEPTH ]; /* Index of the bank that the txn belongs to. */
+  fd_sched_block_t *  block_pool; /* Just a flat array. */
 };
 typedef struct fd_sched fd_sched_t;
 
@@ -149,11 +137,9 @@ typedef struct fd_sched fd_sched_t;
 /* Internal helpers. */
 
 static void
-add_block( fd_sched_t *          sched,
-           fd_sched_block_id_t * block_id,
-           fd_sched_block_id_t * parent_block_id,
-           fd_sched_block_t * *  out_block,
-           fd_sched_block_t * *  out_parent_block );
+add_block( fd_sched_t * sched,
+           ulong        bank_idx,
+           ulong        parent_bank_idx );
 
 static void
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
@@ -171,10 +157,16 @@ FD_FN_UNUSED static ulong
 find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx );
 
 static ulong
-compute_longest_unstaged_fork( fd_sched_t * sched, ulong block_idx );
+compute_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx );
 
 static ulong
-stage_longest_unstaged_fork( fd_sched_t * sched, ulong block_idx, int lane_idx );
+stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx );
+
+static inline fd_sched_block_t *
+block_pool_ele( fd_sched_t * sched, ulong idx ) {
+  FD_TEST( idx<sched->block_cnt_max || idx==ULONG_MAX );
+  return idx==ULONG_MAX ? NULL : sched->block_pool+idx;
+}
 
 FD_FN_UNUSED static inline int
 block_is_void( fd_sched_block_t * block ) {
@@ -210,8 +202,8 @@ block_is_stageable( fd_sched_block_t * block ) {
        transitions to DONE, it will be immediately removed from the
        dispatcher.  When a block transitions to DYING, it will be
        eventually abandoned from the dispatcher. */
-    FD_LOG_CRIT(( "invariant violation: stageable block->in_rdisp==0, slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: stageable block->in_rdisp==0, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
   return rv;
 }
@@ -228,8 +220,8 @@ block_is_activatable( fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 debug_print_block( fd_sched_block_t * block ) {
-  FD_LOG_INFO(( "block slot %lu, prime %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, txn_parsed_cnt %u, txn_in_flight_cnt %u, txn_done_cnt %u, shred_cnt %u",
-                (ulong)block->block_id.slot, (ulong)block->block_id.prime, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->txn_parsed_cnt, block->txn_in_flight_cnt, block->txn_done_cnt, block->shred_cnt ));
+  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, txn_parsed_cnt %u, txn_in_flight_cnt %u, txn_done_cnt %u, shred_cnt %u",
+                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->txn_parsed_cnt, block->txn_in_flight_cnt, block->txn_done_cnt, block->shred_cnt ));
 }
 
 FD_FN_UNUSED static void
@@ -243,47 +235,41 @@ debug_print_metrics( fd_sched_t * sched ) {
 ulong fd_sched_align( void ) {
   return fd_ulong_max( alignof(fd_sched_t),
          fd_ulong_max( fd_rdisp_align(),
-         fd_ulong_max( block_map_align(),
-         fd_ulong_max( block_pool_align(), 64UL )))); /* Minimally cache line aligned. */
+         fd_ulong_max( alignof(fd_sched_block_t), 64UL ))); /* Minimally cache line aligned. */
 }
 
 ulong
-fd_sched_footprint( void ) {
-  ulong chain_cnt = block_map_chain_cnt_est( FD_SCHED_MAX_BLOCK_DEPTH );
-
+fd_sched_footprint( ulong block_cnt_max ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, fd_sched_align(),   sizeof(fd_sched_t)                                                   );
-  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),   fd_rdisp_footprint  ( FD_SCHED_MAX_DEPTH, FD_SCHED_MAX_BLOCK_DEPTH ) ); /* dispatcher */
-  l = FD_LAYOUT_APPEND( l, block_map_align(),  block_map_footprint ( chain_cnt                                    ) ); /* block map  */
-  l = FD_LAYOUT_APPEND( l, block_pool_align(), block_pool_footprint( FD_SCHED_MAX_BLOCK_DEPTH                     ) ); /* block pool */
+  l = FD_LAYOUT_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
+  l = FD_LAYOUT_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) ); /* dispatcher */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  ); /* block pool */
   return FD_LAYOUT_FINI( l, fd_sched_align() );
 }
 
 void *
-fd_sched_new( void * mem ) {
-  ulong chain_cnt = block_map_chain_cnt_est( FD_SCHED_MAX_BLOCK_DEPTH );
-
+fd_sched_new( void * mem, ulong block_cnt_max ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_sched_t * sched = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),   sizeof(fd_sched_t)                                                   );
-  void * _rdisp      = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),   fd_rdisp_footprint  ( FD_SCHED_MAX_DEPTH, FD_SCHED_MAX_BLOCK_DEPTH ) );
-  void * _bmap       = FD_SCRATCH_ALLOC_APPEND( l, block_map_align(),  block_map_footprint ( chain_cnt                                    ) );
-  void * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, block_pool_align(), block_pool_footprint( FD_SCHED_MAX_BLOCK_DEPTH                     ) );
+  fd_sched_t * sched = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
+  void * _rdisp      = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
+  void * _bpool      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   ulong seed = ((ulong)fd_tickcount()) ^ FD_SCHED_MAGIC;
-  fd_rdisp_new  ( _rdisp, FD_SCHED_MAX_DEPTH, FD_SCHED_MAX_BLOCK_DEPTH, seed );
-  block_map_new ( _bmap, chain_cnt, seed+1UL                                 );
-  block_pool_new( _bpool, FD_SCHED_MAX_BLOCK_DEPTH                           );
+  fd_rdisp_new( _rdisp, FD_SCHED_MAX_DEPTH, block_cnt_max, seed );
 
-  fd_sched_block_t * _bpool_join = block_pool_join( _bpool );
-  ulong null_idx = block_pool_idx_null( _bpool_join );
-  block_pool_leave( _bpool_join );
+  fd_sched_block_t * bpool = (fd_sched_block_t *)_bpool;
+  for( ulong i=0; i<block_cnt_max; i++ ) {
+    bpool[ i ].in_sched = 0;
+  }
 
   fd_memset( sched->metrics, 0, sizeof(fd_sched_metrics_t) );
   sched->txn_in_flight_last_tick = LONG_MAX;
 
-  sched->root_idx         = null_idx;
-  sched->active_block_idx = null_idx;
+  sched->canary           = FD_SCHED_MAGIC;
+  sched->block_cnt_max    = block_cnt_max;
+  sched->root_idx         = ULONG_MAX;
+  sched->active_bank_idx   = ULONG_MAX;
   sched->staged_bitset    = 0UL;
 
   sched->txn_pool_free_cnt = FD_SCHED_MAX_DEPTH-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
@@ -292,41 +278,41 @@ fd_sched_new( void * mem ) {
 }
 
 fd_sched_t *
-fd_sched_join( void * mem ) {
+fd_sched_join( void * mem, ulong block_cnt_max ) {
   fd_sched_t * sched = (fd_sched_t *)mem;
 
-  ulong chain_cnt = block_map_chain_cnt_est( FD_SCHED_MAX_BLOCK_DEPTH );
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( sched->block_cnt_max==block_cnt_max );
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  /*                */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),   sizeof(fd_sched_t)                                                   );
-  void  * _rdisp     = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),   fd_rdisp_footprint  ( FD_SCHED_MAX_DEPTH, FD_SCHED_MAX_BLOCK_DEPTH ) );
-  void  * _bmap      = FD_SCRATCH_ALLOC_APPEND( l, block_map_align(),  block_map_footprint ( chain_cnt                                    ) );
-  void  * _bpool     = FD_SCRATCH_ALLOC_APPEND( l, block_pool_align(), block_pool_footprint( FD_SCHED_MAX_BLOCK_DEPTH                     ) );
+  /*           */ FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
+  void * _rdisp = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
+  void * _bpool = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sched_block_t), block_cnt_max*sizeof(fd_sched_block_t)                  );
   FD_SCRATCH_ALLOC_FINI( l, fd_sched_align() );
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
-  sched->block_map  = block_map_join( _bmap );
-  sched->block_pool = block_pool_join( _bpool );
+  sched->block_pool = _bpool;
 
   return sched;
 }
 
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( fec->bank_idx<sched->block_cnt_max );
+  FD_TEST( fec->parent_bank_idx<sched->block_cnt_max );
+
   if( FD_UNLIKELY( fec->fec->data_sz>FD_SCHED_MAX_PAYLOAD_PER_FEC ) ) {
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, fec->mr %s, slot %lu, prime %lu, parent slot %lu, parent prime %lu",
-                  fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), (ulong)fec->block_id.slot, (ulong)fec->block_id.prime, (ulong)fec->parent_block_id.slot, (ulong)fec->parent_block_id.prime ));
+    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
+                  fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
   }
 
   ulong fec_buf_sz = 0UL;
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, &fec->block_id, NULL, sched->block_pool );
-  if( FD_LIKELY( block ) ) {
+  fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
+  if( FD_LIKELY( !fec->is_first_in_block ) ) {
     fec_buf_sz += block->fec_buf_sz-block->fec_buf_soff;
   } else {
-    /* This FEC set will need to allocate a new block from the pool. */
-    if( FD_UNLIKELY( !block_pool_free( sched->block_pool ) ) ) {
-      return 0;
-    }
+    /* No residual data as this is a fresh new block. */
   }
   /* Addition is safe and won't overflow because we checked the FEC set
      size above. */
@@ -339,12 +325,7 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
 int
 fd_sched_can_ingest( fd_sched_t * sched ) {
-  /* Assume worst case we will need to allocate a new block from the
-     pool. */
-  if( FD_UNLIKELY( !block_pool_free( sched->block_pool ) ) ) {
-    return 0;
-  }
-
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
   /* Worst case, we need one byte from the incoming data to extract a
      transaction out of the residual data, and the rest of the incoming
      data contributes toward min sized transactions. */
@@ -354,18 +335,21 @@ fd_sched_can_ingest( fd_sched_t * sched ) {
 
 void
 fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( fec->bank_idx<sched->block_cnt_max );
+  FD_TEST( fec->parent_bank_idx<sched->block_cnt_max );
+
   if( FD_UNLIKELY( fec->fec->data_sz>FD_SCHED_MAX_PAYLOAD_PER_FEC ) ) {
-    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, fec->mr %s, slot %lu, prime %lu, parent slot %lu, parent prime %lu",
-                  fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), (ulong)fec->block_id.slot, (ulong)fec->block_id.prime, (ulong)fec->parent_block_id.slot, (ulong)fec->parent_block_id.prime ));
+    FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
+                  fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->bank_idx, fec->parent_bank_idx ));
   }
 
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
-
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, &fec->block_id, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !block ) ) {
+  fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
+  if( FD_UNLIKELY( fec->is_first_in_block ) ) {
     /* This is a new block. */
-    fd_sched_block_t * parent_block = NULL;
-    add_block( sched, &fec->block_id, &fec->parent_block_id, &block, &parent_block );
+    add_block( sched, fec->bank_idx, fec->parent_bank_idx );
+    block->slot        = fec->slot;
+    block->parent_slot = fec->parent_slot;
 
     if( FD_UNLIKELY( block->dying ) ) {
       /* The child of a dead block is also dead.  We added it to our
@@ -384,13 +368,14 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
     /* Try to find a staging lane for this block. */
     int alloc_lane = 0;
+    fd_sched_block_t * parent_block = block_pool_ele( sched, fec->parent_bank_idx );
     if( FD_LIKELY( parent_block->staged ) ) {
       /* Parent is staged.  So see if we can continue down the same
          staging lane. */
       ulong staging_lane = parent_block->staging_lane;
       ulong child_idx    = parent_block->child_idx;
-      while( child_idx != null_idx ) {
-        fd_sched_block_t * child = block_pool_ele( sched->block_pool, child_idx );
+      while( child_idx!=ULONG_MAX ) {
+        fd_sched_block_t * child = block_pool_ele( sched, child_idx );
         if( child->staged && child->staging_lane==staging_lane ) {
           /* Found a child on the same lane.  So we're done. */
           staging_lane = FD_RDISP_UNSTAGED;
@@ -404,7 +389,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
         block->in_rdisp     = 1;
         block->staged       = 1;
         block->staging_lane = staging_lane;
-        fd_rdisp_add_block( sched->rdisp, block->block_id.id, staging_lane );
+        fd_rdisp_add_block( sched->rdisp, fec->bank_idx, staging_lane );
         sched->metrics->block_added_cnt++;
         sched->metrics->block_added_staged_cnt++;
       } else {
@@ -417,7 +402,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
            at the moment. */
         block->in_rdisp = 1;
         block->staged   = 0;
-        fd_rdisp_add_block( sched->rdisp, block->block_id.id, FD_RDISP_UNSTAGED );
+        fd_rdisp_add_block( sched->rdisp, fec->bank_idx, FD_RDISP_UNSTAGED );
         sched->metrics->block_added_cnt++;
         sched->metrics->block_added_unstaged_cnt++;
       } else {
@@ -434,18 +419,18 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
                         lane_idx, sched->staged_bitset ));
         }
         sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
-        sched->staged_head_block_idx[ lane_idx ] = block_pool_idx( sched->block_pool, block );
+        sched->staged_head_bank_idx[ lane_idx ] = fec->bank_idx;
         block->in_rdisp     = 1;
         block->staged       = 1;
         block->staging_lane = (ulong)lane_idx;
-        fd_rdisp_add_block( sched->rdisp, block->block_id.id, block->staging_lane );
+        fd_rdisp_add_block( sched->rdisp, fec->bank_idx, block->staging_lane );
         sched->metrics->block_added_cnt++;
         sched->metrics->block_added_staged_cnt++;
       } else {
         /* No lanes available. */
         block->in_rdisp = 1;
         block->staged   = 0;
-        fd_rdisp_add_block( sched->rdisp, block->block_id.id, FD_RDISP_UNSTAGED );
+        fd_rdisp_add_block( sched->rdisp, fec->bank_idx, FD_RDISP_UNSTAGED );
         sched->metrics->block_added_cnt++;
         sched->metrics->block_added_unstaged_cnt++;
       }
@@ -460,29 +445,29 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
   if( FD_UNLIKELY( !block->in_rdisp ) ) {
     /* Invariant: block must be in the dispatcher at this point. */
-    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
 
   if( FD_UNLIKELY( block->fec_eos ) ) {
     /* This means something is wrong upstream. */
-    FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets fec->mr %s, slot %lu, prime %lu, parent slot %lu, parent prime %lu",
-                  FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), (ulong)fec->block_id.slot, (ulong)fec->block_id.prime, (ulong)fec->parent_block_id.slot, (ulong)fec->parent_block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: block->fec_eos set but getting more FEC sets fec->mr %s, slot %lu, parent slot %lu",
+                  FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
   }
   if( FD_UNLIKELY( block->fec_eob && fec->is_last_in_batch ) ) {
     /* This means the previous batch didn't parse properly.  So this is
        a bad block.  We should refuse to replay down the fork. */
-    FD_LOG_WARNING(( "invariant violation: block->fec_eob set but getting another FEC set that is last in batch fec->mr %s, slot %lu, prime %lu, parent slot %lu, parent prime %lu",
-                     FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), (ulong)fec->block_id.slot, (ulong)fec->block_id.prime, (ulong)fec->parent_block_id.slot, (ulong)fec->parent_block_id.prime ));
+    FD_LOG_INFO(( "bad block: block->fec_eob set but getting another FEC set that is last in batch fec->mr %s, slot %lu, parent slot %lu",
+                  FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
     block->dying = 1;//FIXME inform replay/banks that it's dead?
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
     return;
   }
-  if( FD_UNLIKELY( block->child_idx!=null_idx ) ) {
+  if( FD_UNLIKELY( block->child_idx!=ULONG_MAX ) ) {
     /* This means something is wrong upstream.  FEC sets are not being
        delivered in replay order. */
-    FD_LOG_CRIT(( "invariant violation: block->child_idx %lu, fec->mr %s, slot %lu, prime %lu, parent slot %lu, parent prime %lu",
-                  block->child_idx, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), (ulong)fec->block_id.slot, (ulong)fec->block_id.prime, (ulong)fec->parent_block_id.slot, (ulong)fec->parent_block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: block->child_idx %lu, fec->mr %s, slot %lu, parent slot %lu",
+                  block->child_idx, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
   }
 
   FD_TEST( block->fec_buf_sz>=block->fec_buf_soff );
@@ -502,8 +487,8 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
        FEC set within the same batch.  So if this condition doesn't
        hold, it's a bad block.  Instead of crashing, we should refuse to
        replay down the fork. */
-    FD_LOG_WARNING(( "bad block: fec_buf_sz %u, fec_buf_soff %u, fec->data_sz %lu, fec->mr %s, slot %lu, prime %lu, parent slot %lu, parent prime %lu",
-                     block->fec_buf_sz, block->fec_buf_soff, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), (ulong)fec->block_id.slot, (ulong)fec->block_id.prime, (ulong)fec->parent_block_id.slot, (ulong)fec->parent_block_id.prime ));
+    FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec_buf_soff %u, fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
+                  block->fec_buf_sz, block->fec_buf_soff, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
     block->dying = 1;//FIXME inform replay/banks that it's dead?
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
     return;
@@ -523,13 +508,13 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   fd_sched_parse( sched, block, fec->alut_ctx );
 
   /* Check if we need to set the active block. */
-  if( FD_UNLIKELY( sched->active_block_idx==null_idx ) ) {
+  if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
     try_activate_block( sched );
   } else {
-    fd_sched_block_t * active_block = block_pool_ele( sched->block_pool, sched->active_block_idx );
+    fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
     if( FD_UNLIKELY( !block_is_activatable( active_block ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: active_block_idx %lu is not activatable, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, dying %u, slot %lu, prime %lu",
-                    sched->active_block_idx, active_block->txn_parsed_cnt, active_block->txn_done_cnt, (uint)active_block->fec_eos, (uint)active_block->dying, (ulong)active_block->block_id.slot, (ulong)active_block->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, dying %u, slot %lu, parent slot %lu",
+                    sched->active_bank_idx, active_block->txn_parsed_cnt, active_block->txn_done_cnt, (uint)active_block->fec_eos, (uint)active_block->dying, active_block->slot, active_block->parent_slot ));
     }
   }
 
@@ -538,15 +523,16 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
 ulong
 fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
-  if( FD_UNLIKELY( sched->active_block_idx==null_idx ) ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+
+  if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
     /* No need to try activating a block.  If we're in this state,
        there's truly nothing to execute.  We will activate something
        when we ingest a FEC set with transactions. */
     return 0UL;
   }
 
-  out_txn->txn_id      = FD_SCHED_TXN_ID_NULL;
+  out_txn->txn_idx     = FD_SCHED_TXN_IDX_NULL;
   out_txn->block_start = 0;
   out_txn->block_end   = 0;
 
@@ -554,17 +540,19 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
      promotion/demotion as needed.  It's a policy decision to minimize
      fork churn for now and just execute down the same active fork. */
 
-  fd_sched_block_t * block = block_pool_ele( sched->block_pool, sched->active_block_idx );
+  ulong bank_idx = sched->active_bank_idx;
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( !block_is_activatable( block ) ) ) {
-    FD_LOG_CRIT(( "invariant violation: active_block_idx %lu is not activatable, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, dying %u, slot %lu, prime %lu",
-                  sched->active_block_idx, block->txn_parsed_cnt, block->txn_done_cnt, (uint)block->fec_eos, (uint)block->dying, (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, dying %u, slot %lu, parent slot %lu",
+                  sched->active_bank_idx, block->txn_parsed_cnt, block->txn_done_cnt, (uint)block->fec_eos, (uint)block->dying, block->slot, block->parent_slot ));
   }
 
   if( FD_UNLIKELY( !block->block_start_signaled ) ) {
-    out_txn->txn_id           = FD_SCHED_TXN_ID_BLOCK_START;
-    out_txn->block_id         = block->block_id;
-    out_txn->parent_block_id  = block_pool_ele( sched->block_pool, block->parent_idx )->block_id;
-    out_txn->block_start      = 1;
+    out_txn->txn_idx         = FD_SCHED_TXN_IDX_BLOCK_START;
+    out_txn->bank_idx        = bank_idx;
+    out_txn->parent_bank_idx = block->parent_idx;
+    out_txn->slot            = block->slot;
+    out_txn->block_start     = 1;
 
     block->block_start_signaled = 1;
     return 1UL;
@@ -572,8 +560,8 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
 
   ulong txn_queued_cnt = block->txn_parsed_cnt-block->txn_in_flight_cnt-block->txn_done_cnt;
   if( FD_LIKELY( txn_queued_cnt>0 ) ) { /* Optimize for no fork switching. */
-    out_txn->txn_id          = fd_rdisp_get_next_ready( sched->rdisp, block->block_id.id );
-    if( FD_UNLIKELY( out_txn->txn_id==0UL ) ) {
+    out_txn->txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+    if( FD_UNLIKELY( out_txn->txn_idx==0UL ) ) {
       /* There are transactions queued but none ready for execution.
          This implies that there must be in-flight transactions on whose
          completion the queued transactions depend. So we return and
@@ -581,13 +569,14 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
          policy decision to execute as much as we can down the current
          fork. */
       if( FD_UNLIKELY( !block->txn_in_flight_cnt ) ) {
-        FD_LOG_CRIT(( "invariant violation: no ready transaction found but block->txn_in_flight_cnt==0, txn_parsed_cnt %u, txn_queued_cnt %lu, fec_eos %u, slot %lu, prime %lu",
-                      block->txn_parsed_cnt, txn_queued_cnt, (uint)block->fec_eos, (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+        FD_LOG_CRIT(( "invariant violation: no ready transaction found but block->txn_in_flight_cnt==0, txn_parsed_cnt %u, txn_queued_cnt %lu, fec_eos %u, slot %lu, parent slot %lu",
+                      block->txn_parsed_cnt, txn_queued_cnt, (uint)block->fec_eos, block->slot, block->parent_slot ));
       }
       return 0UL;
     }
-    out_txn->block_id         = block->block_id;
-    out_txn->parent_block_id  = block_pool_ele( sched->block_pool, block->parent_idx )->block_id;
+    out_txn->bank_idx        = bank_idx;
+    out_txn->parent_bank_idx = block->parent_idx;
+    out_txn->slot            = block->slot;
 
     long now = fd_tickcount();
     ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
@@ -604,10 +593,11 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
 
   if( FD_UNLIKELY( block_should_signal_end( block ) ) ) {
     FD_TEST( block->block_start_signaled );
-    out_txn->txn_id           = FD_SCHED_TXN_ID_BLOCK_END;
-    out_txn->block_id         = block->block_id;
-    out_txn->parent_block_id  = block_pool_ele( sched->block_pool, block->parent_idx )->block_id;
-    out_txn->block_end        = 1;
+    out_txn->txn_idx         = FD_SCHED_TXN_IDX_BLOCK_END;
+    out_txn->bank_idx        = bank_idx;
+    out_txn->parent_bank_idx = block->parent_idx;
+    out_txn->slot            = block->slot;
+    out_txn->block_end       = 1;
 
     block->block_end_signaled = 1;
     return 1UL;
@@ -624,34 +614,34 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
      Either way, there should be in-flight transactions.  We deactivate
      the active block the moment we exhausted transactions from it. */
   if( FD_UNLIKELY( !block->txn_in_flight_cnt ) ) {
-    FD_LOG_CRIT(( "invariant violation: expected in-flight transactions but none, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, slot %lu, prime %lu",
-                  block->txn_parsed_cnt, block->txn_done_cnt, (uint)block->fec_eos, (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: expected in-flight transactions but none, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, slot %lu, parent slot %lu",
+                  block->txn_parsed_cnt, block->txn_done_cnt, (uint)block->fec_eos, block->slot, block->parent_slot ));
   }
 
   return 0UL;
 }
 
 void
-fd_sched_txn_done( fd_sched_t * sched, ulong txn_id ) {
-  FD_TEST( txn_id!=FD_SCHED_TXN_ID_NULL );
+fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( txn_idx!=FD_SCHED_TXN_IDX_NULL );
 
-  ulong              null_idx  = block_pool_idx_null( sched->block_pool );
-  ulong              block_idx = fd_ulong_if( txn_id==FD_SCHED_TXN_ID_BLOCK_START||txn_id==FD_SCHED_TXN_ID_BLOCK_END, sched->active_block_idx, sched->txn_to_block_idx[ txn_id ] );
-  fd_sched_block_t * block     = block_pool_ele( sched->block_pool, block_idx );
+  ulong              bank_idx = fd_ulong_if( txn_idx==FD_SCHED_TXN_IDX_BLOCK_START||txn_idx==FD_SCHED_TXN_IDX_BLOCK_END, sched->active_bank_idx, sched->txn_to_bank_idx[ txn_idx ] );
+  fd_sched_block_t * block    = block_pool_ele( sched, bank_idx );
 
   if( FD_UNLIKELY( !block->staged ) ) {
     /* Invariant: only staged blocks can have in-flight transactions. */
-    FD_LOG_CRIT(( "invariant violation: block->staged==0, slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: block->staged==0, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
   if( FD_UNLIKELY( !block->in_rdisp ) ) {
     /* Invariant: staged blocks must be in the dispatcher. */
-    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
 
-  if( FD_LIKELY( txn_id!=FD_SCHED_TXN_ID_BLOCK_START && txn_id!=FD_SCHED_TXN_ID_BLOCK_END ) ) {
-    FD_TEST( txn_id<FD_SCHED_MAX_DEPTH );
+  if( FD_LIKELY( txn_idx!=FD_SCHED_TXN_IDX_BLOCK_START && txn_idx!=FD_SCHED_TXN_IDX_BLOCK_END ) ) {
+    FD_TEST( txn_idx<FD_SCHED_MAX_DEPTH );
     long now = fd_tickcount();
     ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
     sched->metrics->txn_weighted_in_flight_tickcount += delta;
@@ -660,32 +650,32 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_id ) {
 
     block->txn_done_cnt++;
     block->txn_in_flight_cnt--;
-    fd_rdisp_complete_txn( sched->rdisp, txn_id );
+    fd_rdisp_complete_txn( sched->rdisp, txn_idx );
     sched->txn_pool_free_cnt++;
     sched->metrics->txn_done_cnt++;
   }
 
   if( FD_UNLIKELY( block->dying && block->txn_in_flight_cnt==0U ) ) {
-    if( FD_UNLIKELY( sched->active_block_idx==block_idx ) ) {
-      FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, block_idx %lu, slot %lu, prime %lu",
-                    block_idx, (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    if( FD_UNLIKELY( sched->active_bank_idx==bank_idx ) ) {
+      FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
+                    bank_idx, block->slot, block->parent_slot ));
     }
     subtree_abandon( sched, block );
     return;
   }
 
-  if( FD_UNLIKELY( !block->dying && sched->active_block_idx!=block_idx ) ) {
+  if( FD_UNLIKELY( !block->dying && sched->active_bank_idx!=bank_idx ) ) {
     /* Block is not dead.  So we should be actively replaying it. */
-    fd_sched_block_t * active_block = block_pool_ele( sched->block_pool, sched->active_block_idx );
-    FD_LOG_CRIT(( "invariant violation: sched->active_block_idx %lu, slot %lu, prime %lu, block_idx %lu, slot %lu, prime %lu",
-                  sched->active_block_idx, (ulong)active_block->block_id.slot, (ulong)active_block->block_id.prime,
-                  block_idx, (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
+    FD_LOG_CRIT(( "invariant violation: sched->active_bank_idx %lu, slot %lu, parent slot %lu, bank_idx %lu, slot %lu, parent slot %lu",
+                  sched->active_bank_idx, active_block->slot, active_block->parent_slot,
+                  bank_idx, block->slot, block->parent_slot ));
   }
 
   if( FD_UNLIKELY( block_is_done( block ) ) ) {
     block->in_rdisp = 0;
     block->staged   = 0;
-    fd_rdisp_remove_block( sched->rdisp, block->block_id.id );
+    fd_rdisp_remove_block( sched->rdisp, bank_idx );
     sched->metrics->block_removed_cnt++;
 
     /* See if there is a child block down the same staging lane.  This
@@ -693,17 +683,17 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_id ) {
        reevaluate staging lane allocation here and do promotion/demotion
        as needed. */
     ulong child_idx = block->child_idx;
-    while( child_idx != null_idx ) {
-      fd_sched_block_t * child = block_pool_ele( sched->block_pool, child_idx );
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
       if( FD_LIKELY( child->staged && child->staging_lane==block->staging_lane ) ) {
         /* There is a child block down the same staging lane.  So switch
            the active block to it, and have the child inherit the head
            status of the lane.  This is the common case. */
-        sched->active_block_idx = child_idx;
-        sched->staged_head_block_idx[ block->staging_lane ] = child_idx;
+        sched->active_bank_idx = child_idx;
+        sched->staged_head_bank_idx[ block->staging_lane ] = child_idx;
         if( FD_UNLIKELY( !fd_ulong_extract_bit( sched->staged_bitset, (int)block->staging_lane ) ) ) {
-          FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, prime %lu, child slot %lu, prime %lu",
-                        sched->staged_bitset, block->staging_lane, (ulong)block->block_id.slot, (ulong)block->block_id.prime, (ulong)child->block_id.slot, (ulong)child->block_id.prime ));
+          FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
+                        sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
         }
         return;
       }
@@ -712,10 +702,10 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_id ) {
     /* There isn't a child block down the same staging lane.  This is
        the last block in the staging lane.  Release the staging lane. */
     sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
-    sched->staged_head_block_idx[ block->staging_lane ] = null_idx;
+    sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
 
     /* Reset the active block. */
-    sched->active_block_idx = null_idx;
+    sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );
   } else if( !block_is_activatable( block ) ) {
@@ -723,105 +713,99 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_id ) {
        are just not getting FEC sets for it fast enough.  This could
        happen when the network path is congested, or when the leader
        simply went down.  Reset the active block. */
-    sched->active_block_idx = null_idx;
+    sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
   }
 }
 
 void
-fd_sched_block_abandon( fd_sched_t * sched, fd_sched_block_id_t * block_id ) {
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, block_id, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_CRIT(( "invariant violation: block not found slot %lu, prime %lu",
-                  (ulong)block_id->slot, (ulong)block_id->prime ));
-  }
-  ulong block_idx = block_pool_idx( sched->block_pool, block );
-  if( FD_UNLIKELY( block_idx!=sched->active_block_idx ) ) {
+fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) {
     /* Invariant: abandoning should only be performed on actively
        replayed blocks.  We impose this requirement on the caller
        because the dispatcher expects blocks to be abandoned in the same
        order that they were added, and having this requirement makes it
        easier to please the dispatcher. */
-    FD_LOG_CRIT(( "invariant violation: active_block_idx %lu, block_idx %lu, slot %lu, prime %lu",
-                  sched->active_block_idx, block_idx, (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu, bank_idx %lu, slot %lu, parent slot %lu",
+                  sched->active_bank_idx, bank_idx, block->slot, block->parent_slot ));
   }
 
   subtree_abandon( sched, block );
 
   /* Reset the active block. */
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
-  sched->active_block_idx = null_idx;
+  sched->active_bank_idx = ULONG_MAX;
   sched->metrics->deactivate_abandoned_cnt++;
   try_activate_block( sched );
 }
 
 int
-fd_sched_block_is_done( fd_sched_t * sched, fd_sched_block_id_t * block_id ) {
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, block_id, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_CRIT(( "invariant violation: block not found slot %lu, prime %lu",
-                  (ulong)block_id->slot, (ulong)block_id->prime ));
-  }
-  return block_is_done( block );
+fd_sched_block_is_done( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  return block_is_done( block_pool_ele( sched, bank_idx ) );
 }
 
 void
-fd_sched_block_add_done( fd_sched_t * sched, fd_sched_block_id_t * block_id, fd_sched_block_id_t * parent_block_id ) {
-  fd_sched_block_t * block        = NULL;
-  fd_sched_block_t * parent_block = NULL;
-  add_block( sched, block_id, parent_block_id, &block, &parent_block );
+fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  add_block( sched, bank_idx, parent_bank_idx );
   block->txn_done_cnt = block->txn_parsed_cnt = UINT_MAX;
   block->fec_eos = 1;
   block->block_start_signaled = 1;
   block->block_end_signaled   = 1;
-  if( FD_UNLIKELY( !parent_block_id ) ) {
+  if( FD_UNLIKELY( parent_bank_idx==ULONG_MAX ) ) {
     /* Assumes that a NULL parent implies the snapshot slot. */
-    sched->root_idx = block_pool_idx( sched->block_pool, block );
-    block->rooted = 1;
+    sched->root_idx = bank_idx;
+    block->rooted   = 1;
   }
 }
 
 void
-fd_sched_root_publish( fd_sched_t * sched, fd_sched_block_id_t * root ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
+fd_sched_advance_root( fd_sched_t * sched, ulong root_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( root_idx<sched->block_cnt_max );
+  FD_TEST( sched->root_idx<sched->block_cnt_max );
 
-  fd_sched_block_t * new_root = block_map_ele_query( sched->block_map, root, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !new_root ) ) {
-    FD_LOG_CRIT(( "invariant violation: new_root not found slot %lu, prime %lu",
-                  (ulong)root->slot, (ulong)root->prime ));
-  }
-
-  fd_sched_block_t * old_root = block_pool_ele( sched->block_pool, sched->root_idx );
-  if( FD_UNLIKELY( !old_root ) ) {
-    FD_LOG_CRIT(( "invariant violation: old_root not found" ));
-  }
+  fd_sched_block_t * new_root = block_pool_ele( sched, root_idx );
+  fd_sched_block_t * old_root = block_pool_ele( sched, sched->root_idx );
   if( FD_UNLIKELY( !old_root->rooted ) ) {
-    FD_LOG_CRIT(( "invariant violation: old_root is not rooted, slot %lu, prime %lu",
-                  (ulong)old_root->block_id.slot, (ulong)old_root->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: old_root is not rooted, slot %lu, parent slot %lu",
+                  old_root->slot, old_root->parent_slot ));
   }
 
   /* Early exit if the new root is the same as the old root. */
-  if( FD_UNLIKELY( old_root->block_id.id==new_root->block_id.id ) ) {
-    FD_LOG_WARNING(( "new root is the same as the old root, slot %lu, prime %lu",
-                     (ulong)new_root->block_id.slot, (ulong)new_root->block_id.prime ));
+  if( FD_UNLIKELY( root_idx==sched->root_idx ) ) {
+    FD_LOG_INFO(( "new root is the same as the old root, slot %lu, parent slot %lu",
+                  new_root->slot, new_root->parent_slot ));
     return;
   }
 
-  fd_sched_block_t * head = block_map_ele_remove( sched->block_map, &old_root->block_id, NULL, sched->block_pool );
-  head->next              = null_idx;
+  fd_sched_block_t * head = old_root;
+  head->parent_idx        = ULONG_MAX;
   fd_sched_block_t * tail = head;
 
   while( head ) {
-    fd_sched_block_t * child = block_pool_ele( sched->block_pool, head->child_idx );
-    while( child ) {
-      /* Add children to be pruned. */
+    FD_TEST( head->in_sched );
+    head->in_sched = 0;
+    ulong child_idx = head->child_idx;
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      /* Add children to be visited.  We abuse the parent_idx field to
+         link up the next block to visit. */
       if( child!=new_root ) {
-        tail->next = block_map_idx_remove( sched->block_map, &child->block_id, null_idx, sched->block_pool );
-        tail       = block_pool_ele( sched->block_pool, tail->next );
-        tail->next = null_idx;
+        tail->parent_idx = child_idx;
+        tail             = child;
+        tail->parent_idx = ULONG_MAX;
       }
-      child = block_pool_ele( sched->block_pool, child->sibling_idx );
+      child_idx = child->sibling_idx;
     }
 
     /* Prune the current block.  We will never publish halfway into a
@@ -831,48 +815,41 @@ fd_sched_root_publish( fd_sched_t * sched, fd_sched_block_id_t * root ) {
        dispatcher at this point.  And there should be no more in-flight
        transactions. */
     if( FD_UNLIKELY( head->txn_in_flight_cnt ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has transactions in flight, slot %lu, prime %lu",
-                    (ulong)head->block_id.slot, (ulong)head->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: block has transactions in flight, slot %lu, parent slot %lu",
+                    head->slot, head->parent_slot ));
     }
     if( FD_UNLIKELY( head->in_rdisp ) ) {
       /* We should have removed it from the dispatcher when we were
          notified of the new root, or when in-flight transactions were
          drained. */
-      FD_LOG_CRIT(( "invariant violation: block is in the dispatcher, slot %lu, prime %lu",
-                    (ulong)head->block_id.slot, (ulong)head->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: block is in the dispatcher, slot %lu, parent slot %lu",
+                    head->slot, head->parent_slot ));
     }
-    fd_sched_block_t * next = block_pool_ele( sched->block_pool, head->next );
-    block_pool_ele_release( sched->block_pool, head );
+    fd_sched_block_t * next = block_pool_ele( sched, head->parent_idx );
     head = next;
   }
 
-  new_root->parent_idx = null_idx;
-  sched->root_idx = block_pool_idx( sched->block_pool, new_root );
+  new_root->parent_idx = ULONG_MAX;
+  sched->root_idx = root_idx;
 }
 
 void
-fd_sched_root_notify( fd_sched_t * sched, fd_sched_block_id_t * root ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
+fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( root_idx<sched->block_cnt_max );
+  FD_TEST( sched->root_idx<sched->block_cnt_max );
 
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, root, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_CRIT(( "invariant violation: block not found slot %lu, prime %lu",
-                  (ulong)root->slot, (ulong)root->prime ));
-  }
-
-  fd_sched_block_t * old_root = block_pool_ele( sched->block_pool, sched->root_idx );
-  if( FD_UNLIKELY( !old_root ) ) {
-    FD_LOG_CRIT(( "invariant violation: old_root not found" ));
-  }
+  fd_sched_block_t * block    = block_pool_ele( sched, root_idx );
+  fd_sched_block_t * old_root = block_pool_ele( sched, sched->root_idx );
   if( FD_UNLIKELY( !old_root->rooted ) ) {
-    FD_LOG_CRIT(( "invariant violation: old_root is not rooted, slot %lu, prime %lu",
-                  (ulong)old_root->block_id.slot, (ulong)old_root->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: old_root is not rooted, slot %lu, parent slot %lu",
+                  old_root->slot, old_root->parent_slot ));
   }
 
   /* Early exit if the new root is the same as the old root. */
-  if( FD_UNLIKELY( old_root->block_id.id==block->block_id.id ) ) {
-    FD_LOG_WARNING(( "new root is the same as the old root, slot %lu, prime %lu",
-                     (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+  if( FD_UNLIKELY( root_idx==sched->root_idx ) ) {
+    FD_LOG_INFO(( "new root is the same as the old root, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
     return;
   }
 
@@ -882,33 +859,33 @@ fd_sched_root_notify( fd_sched_t * sched, fd_sched_block_id_t * root ) {
   fd_sched_block_t * prev = NULL;
   while( curr ) {
     if( FD_UNLIKELY( !block_is_done( curr ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: rooting a block that is not done, slot %lu, prime %lu",
-                    (ulong)curr->block_id.slot, (ulong)curr->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: rooting a block that is not done, slot %lu, parent slot %lu",
+                    curr->slot, curr->parent_slot ));
     }
     if( FD_UNLIKELY( curr->dying ) ) {
-      FD_LOG_CRIT(( "invariant violation: rooting a block that is dying, slot %lu, prime %lu",
-                    (ulong)curr->block_id.slot, (ulong)curr->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: rooting a block that is dying, slot %lu, parent slot %lu",
+                    curr->slot, curr->parent_slot ));
     }
     if( FD_UNLIKELY( curr->staged ) ) {
-      FD_LOG_CRIT(( "invariant violation: rooting a block that is staged, slot %lu, prime %lu",
-                    (ulong)curr->block_id.slot, (ulong)curr->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: rooting a block that is staged, slot %lu, parent slot %lu",
+                    curr->slot, curr->parent_slot ));
     }
     if( FD_UNLIKELY( curr->in_rdisp ) ) {
-      FD_LOG_CRIT(( "invariant violation: rooting a block that is in the dispatcher, slot %lu, prime %lu",
-                    (ulong)curr->block_id.slot, (ulong)curr->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: rooting a block that is in the dispatcher, slot %lu, parent slot %lu",
+                    curr->slot, curr->parent_slot ));
     }
     curr->rooted = 1;
     prev = curr;
-    curr = block_pool_ele( sched->block_pool, curr->parent_idx );
+    curr = block_pool_ele( sched, curr->parent_idx );
   }
 
   /* If we didn't reach the old root, the new root is not a descendant. */
   if( FD_UNLIKELY( prev!=old_root ) ) {
-    FD_LOG_CRIT(( "invariant violation: new root is not a descendant of old root, new root slot %lu, prime %lu, old root slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime, (ulong)old_root->block_id.slot, (ulong)old_root->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: new root is not a descendant of old root, new root slot %lu, parent slot %lu, old root slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot, old_root->slot, old_root->parent_slot ));
   }
 
-  ulong old_active_block_idx = sched->active_block_idx;
+  ulong old_active_bank_idx = sched->active_bank_idx;
 
   /* Now traverse from old root towards new root, and abandon all
      minority forks. */
@@ -916,8 +893,8 @@ fd_sched_root_notify( fd_sched_t * sched, fd_sched_block_id_t * root ) {
   while( curr && curr->rooted && curr!=block ) { /* curr!=block to avoid abandoning good forks. */
     fd_sched_block_t * rooted_child_block = NULL;
     ulong              child_idx          = curr->child_idx;
-    while( child_idx!=null_idx ) {
-      fd_sched_block_t * child = block_pool_ele( sched->block_pool, child_idx );
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
       if( child->rooted ) {
         rooted_child_block = child;
       } else {
@@ -930,37 +907,34 @@ fd_sched_root_notify( fd_sched_t * sched, fd_sched_block_id_t * root ) {
   }
 
   /* If the active block got abandoned, we need to reset it. */
-  if( sched->active_block_idx==null_idx ) {
-    sched->metrics->deactivate_pruned_cnt += fd_uint_if( old_active_block_idx!=null_idx, 1U, 0U );
+  if( sched->active_bank_idx==ULONG_MAX ) {
+    sched->metrics->deactivate_pruned_cnt += fd_uint_if( old_active_bank_idx!=ULONG_MAX, 1U, 0U );
     try_activate_block( sched );
   }
 }
 
 fd_txn_p_t *
-fd_sched_get_txn( fd_sched_t * sched, ulong txn_id ) {
-  if( FD_UNLIKELY( txn_id>=FD_SCHED_MAX_DEPTH ) ) {
+fd_sched_get_txn( fd_sched_t * sched, ulong txn_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  if( FD_UNLIKELY( txn_idx>=FD_SCHED_MAX_DEPTH ) ) {
     return NULL;
   }
-  return sched->txn_pool + txn_id;
+  return sched->txn_pool+txn_idx;
 }
 
 fd_hash_t *
-fd_sched_get_poh( fd_sched_t * sched, fd_sched_block_id_t * block_id ) {
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, block_id, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_CRIT(( "invariant violation: block not found slot %lu, prime %lu",
-                  (ulong)block_id->slot, (ulong)block_id->prime ));
-  }
+fd_sched_get_poh( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   return &block->poh;
 }
 
 uint
-fd_sched_get_shred_cnt( fd_sched_t * sched, fd_sched_block_id_t * block_id ) {
-  fd_sched_block_t * block = block_map_ele_query( sched->block_map, block_id, NULL, sched->block_pool );
-  if( FD_UNLIKELY( !block ) ) {
-    FD_LOG_CRIT(( "invariant violation: block not found slot %lu, prime %lu",
-                  (ulong)block_id->slot, (ulong)block_id->prime ));
-  }
+fd_sched_get_shred_cnt( fd_sched_t * sched, ulong bank_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
+  FD_TEST( bank_idx<sched->block_cnt_max );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   return block->shred_cnt;
 }
 
@@ -971,18 +945,11 @@ void * fd_sched_delete( void * mem         ) { return   mem; }
 /* Internal helpers. */
 
 static void
-add_block( fd_sched_t *          sched,
-           fd_sched_block_id_t * block_id,
-           fd_sched_block_id_t * parent_block_id,
-           fd_sched_block_t * *  out_block,
-           fd_sched_block_t * *  out_parent_block ) {
-  if( FD_UNLIKELY( !block_pool_free( sched->block_pool ) ) ) {
-    FD_LOG_CRIT(( "block_pool is full" ));
-  }
-  fd_sched_block_t * block = block_pool_ele_acquire( sched->block_pool );
-  block->block_id = *block_id;
-  block_map_ele_insert( sched->block_map, block, sched->block_pool );
-  *out_block = block;
+add_block( fd_sched_t * sched,
+           ulong        bank_idx,
+           ulong        parent_bank_idx ) {
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  FD_TEST( !block->in_sched );
 
   block->txn_parsed_cnt    = 0U;
   block->txn_in_flight_cnt = 0U;
@@ -999,6 +966,7 @@ add_block( fd_sched_t *          sched,
   block->fec_eos              = 0;
   block->rooted               = 0;
   block->dying                = 0;
+  block->in_sched             = 1;
   block->in_rdisp             = 0;
   block->block_start_signaled = 0;
   block->block_end_signaled   = 0;
@@ -1007,36 +975,32 @@ add_block( fd_sched_t *          sched,
   block->luf_depth = 0UL;
 
   /* New leaf node, no child, no sibling. */
-  ulong null_idx     = block_pool_idx_null( sched->block_pool );
-  block->child_idx   = null_idx;
-  block->sibling_idx = null_idx;
-  block->parent_idx  = null_idx;
+  block->child_idx   = ULONG_MAX;
+  block->sibling_idx = ULONG_MAX;
+  block->parent_idx  = ULONG_MAX;
+
+  if( FD_UNLIKELY( parent_bank_idx==ULONG_MAX ) ) {
+    return;
+  }
 
   /* node->parent link */
-  if( FD_LIKELY( parent_block_id ) ) {
-    fd_sched_block_t * parent_block = block_map_ele_query( sched->block_map, parent_block_id, NULL, sched->block_pool );
-    if( FD_UNLIKELY( !parent_block ) ) {
-      FD_LOG_CRIT(( "invariant violation: parent block not found slot %lu, prime %lu",
-                    (ulong)parent_block_id->slot, (ulong)parent_block_id->prime ));
-    }
-    block->parent_idx = block_pool_idx( sched->block_pool, parent_block );
-    *out_parent_block = parent_block;
+  fd_sched_block_t * parent_block = block_pool_ele( sched, parent_bank_idx );
+  block->parent_idx = parent_bank_idx;
 
-    /* parent->node and sibling->node links */
-    ulong child_idx = block_pool_idx( sched->block_pool, block );
-    if( FD_LIKELY( parent_block->child_idx == null_idx ) ) { /* Optimize for no forking. */
-      parent_block->child_idx = child_idx;
-    } else {
-      fd_sched_block_t * curr_block = block_pool_ele( sched->block_pool, parent_block->child_idx );
-      while( curr_block->sibling_idx != null_idx ) {
-        curr_block = block_pool_ele( sched->block_pool, curr_block->sibling_idx );
-      }
-      curr_block->sibling_idx = child_idx;
+  /* parent->node and sibling->node links */
+  ulong child_idx = bank_idx;
+  if( FD_LIKELY( parent_block->child_idx==ULONG_MAX ) ) { /* Optimize for no forking. */
+    parent_block->child_idx = child_idx;
+  } else {
+    fd_sched_block_t * curr_block = block_pool_ele( sched, parent_block->child_idx );
+    while( curr_block->sibling_idx!=ULONG_MAX ) {
+      curr_block = block_pool_ele( sched, curr_block->sibling_idx );
     }
+    curr_block->sibling_idx = child_idx;
+  }
 
-    if( FD_UNLIKELY( parent_block->dying ) ) {
-      block->dying = 1;
-    }
+  if( FD_UNLIKELY( parent_block->dying ) ) {
+    block->dying = 1;
   }
 }
 
@@ -1131,7 +1095,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     } FD_SPAD_FRAME_END;
   }
 
-  ulong txn_idx = fd_rdisp_add_txn( sched->rdisp, block->block_id.id, txn, block->fec_buf+block->fec_buf_soff, serializing ? NULL : block->aluts, serializing );
+  ulong bank_idx = (ulong)(block-sched->block_pool);
+  ulong txn_idx   = fd_rdisp_add_txn( sched->rdisp, bank_idx, txn, block->fec_buf+block->fec_buf_soff, serializing ? NULL : block->aluts, serializing );
   FD_TEST( txn_idx!=0UL );
   sched->metrics->txn_parsed_cnt++;
   sched->metrics->alut_serializing_cnt += (uint)serializing;
@@ -1140,7 +1105,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   txn_p->payload_sz  = pay_sz;
   fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
-  sched->txn_to_block_idx[ txn_idx ] = block_pool_idx( sched->block_pool, block );
+  sched->txn_to_bank_idx[ txn_idx ] = bank_idx;
 
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
@@ -1153,7 +1118,6 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
 static void
 try_activate_block( fd_sched_t * sched ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
 
   /* See if there are any allocated staging lanes that we can activate
      for scheduling ... */
@@ -1162,24 +1126,24 @@ try_activate_block( fd_sched_t * sched ) {
     int lane_idx  = fd_ulong_find_lsb( staged_bitset );
     staged_bitset = fd_ulong_pop_lsb( staged_bitset );
 
-    ulong              head_idx     = sched->staged_head_block_idx[ lane_idx ];
-    fd_sched_block_t * head_block   = block_pool_ele( sched->block_pool, head_idx );
-    fd_sched_block_t * parent_block = block_pool_ele( sched->block_pool, head_block->parent_idx );
+    ulong              head_idx     = sched->staged_head_bank_idx[ lane_idx ];
+    fd_sched_block_t * head_block   = block_pool_ele( sched, head_idx );
+    fd_sched_block_t * parent_block = block_pool_ele( sched, head_block->parent_idx );
     if( FD_UNLIKELY( parent_block->dying ) ) {
       /* Invariant: no child of a dying block should be staged. */
-      FD_LOG_CRIT(( "invariant violation: staged_head_block_idx %lu, slot %lu, prime %lu on lane %d has parent_block->dying set, slot %lu, prime %lu",
-                    head_idx, (ulong)head_block->block_id.slot, (ulong)head_block->block_id.prime, lane_idx, (ulong)parent_block->block_id.slot, (ulong)parent_block->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, parent slot %lu on lane %d has parent_block->dying set, slot %lu, parent slot %lu",
+                    head_idx, head_block->slot, head_block->parent_slot, lane_idx, parent_block->slot, parent_block->parent_slot ));
     }
     //FIXME: restore this invariant check when we have immediate demotion of dying blocks
     // if( FD_UNLIKELY( head_block->dying ) ) {
     //   /* Invariant: no dying block should be staged. */
-    //   FD_LOG_CRIT(( "invariant violation: staged_head_block_idx %lu, slot %lu, prime %lu on lane %u has head_block->dying set",
+    //   FD_LOG_CRIT(( "invariant violation: staged_head_bank_idx %lu, slot %lu, prime %lu on lane %u has head_block->dying set",
     //                 head_idx, (ulong)head_block->block_id.slot, (ulong)head_block->block_id.prime, lane_idx ));
     // }
     if( block_is_done( parent_block ) && block_is_activatable( head_block ) ) {
       /* ... Yes, on this staging lane the parent block is done.  So we
          can switch to the staged child. */
-      sched->active_block_idx = head_idx;
+      sched->active_bank_idx = head_idx;
       sched->metrics->lane_switch_cnt++;
       return;
     }
@@ -1187,8 +1151,8 @@ try_activate_block( fd_sched_t * sched ) {
 
   /* ... No, promote unstaged blocks. */
   ulong root_idx = sched->root_idx;
-  if( FD_UNLIKELY( root_idx==null_idx ) ) {
-    FD_LOG_CRIT(( "invariant violation: root_idx==null_idx indicating fd_sched is unintialized" ));
+  if( FD_UNLIKELY( root_idx==ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: root_idx==ULONG_MAX indicating fd_sched is unintialized" ));
   }
   /* Find and stage the longest stageable unstaged fork.  This is a
      policy decision. */
@@ -1208,12 +1172,13 @@ try_activate_block( fd_sched_t * sched ) {
       FD_LOG_CRIT(( "invariant violation: lane_idx %d, sched->staged_bitset %lx",
                     lane_idx, sched->staged_bitset ));
     }
-    ulong head_block_idx = stage_longest_unstaged_fork( sched, root_idx, lane_idx );
-    if( FD_UNLIKELY( head_block_idx==null_idx ) ) {
+    ulong head_bank_idx = stage_longest_unstaged_fork( sched, root_idx, lane_idx );
+    if( FD_UNLIKELY( head_bank_idx==ULONG_MAX ) ) {
       /* We found a promotable fork depth>0.  This should not happen. */
-      FD_LOG_CRIT(( "invariant violation: head_block_idx==null_idx" ));
+      FD_LOG_CRIT(( "invariant violation: head_bank_idx==ULONG_MAX" ));
     }
-    sched->active_block_idx = head_block_idx;
+    //FIXME this isn't right, what we just staged may not be activatable
+    sched->active_bank_idx = head_bank_idx;
     return;
   }
   /* No unstaged blocks to promote.  So we're done.  Yay. */
@@ -1223,31 +1188,29 @@ try_activate_block( fd_sched_t * sched ) {
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
   if( FD_UNLIKELY( block->rooted ) ) {
-    FD_LOG_CRIT(( "invariant violation: rooted block should not be abandoned, slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: rooted block should not be abandoned, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
   /* All minority fork nodes pass through this function eventually.  So
      this is a good point to check per-node invariants for minority
      forks. */
   if( FD_UNLIKELY( block->staged && !block->in_rdisp ) ) {
-    FD_LOG_CRIT(( "invariant violation: staged block is not in the dispatcher, slot %lu, prime %lu",
-                  (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+    FD_LOG_CRIT(( "invariant violation: staged block is not in the dispatcher, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
-
-  ulong null_idx  = block_pool_idx_null( sched->block_pool );
 
   /* Setting the flag is non-optional and can happen more than once. */
   block->dying = 1;
 
   /* Removal from dispatcher should only happen once. */
   if( block->in_rdisp ) {
-    fd_sched_block_t * parent = block_pool_ele( sched->block_pool, block->parent_idx );
+    fd_sched_block_t * parent = block_pool_ele( sched, block->parent_idx );
     if( FD_UNLIKELY( !parent ) ) {
       /* Only the root has no parent.  Abandon should never be called on
          the root.  So any block we are trying to abandon should have a
          parent. */
-      FD_LOG_CRIT(( "invariant violation: parent not found slot %lu, prime %lu",
-                    (ulong)block->block_id.slot, (ulong)block->block_id.prime ));
+      FD_LOG_CRIT(( "invariant violation: parent not found slot %lu, parent slot %lu",
+                    block->slot, block->parent_slot ));
     }
 
     /* The dispatcher expects blocks to be abandoned in the same order
@@ -1268,13 +1231,13 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
        recycles the same txn_id that was just abandoned, and we receive
        completion of an in-flight transaction whose txn_id was just
        recycled, we would basically be aliasing the same txn_id and end
-       up indexing into txn_to_block_idx[] that is already overwritten
+       up indexing into txn_to_bank_idx[] that is already overwritten
        with new blocks. */
     abandon = abandon && block->txn_in_flight_cnt==0;
 
     if( abandon ) {
       block->in_rdisp = 0;
-      fd_rdisp_abandon_block( sched->rdisp, block->block_id.id );
+      fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
       sched->metrics->block_abandoned_cnt++;
       sched->metrics->txn_abandoned_parsed_cnt += block->txn_parsed_cnt;
@@ -1289,20 +1252,20 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
       if( FD_LIKELY( block->staged ) ) {
         block->staged = 0;
         sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
-        sched->staged_head_block_idx[ block->staging_lane ] = null_idx;
+        sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
       }
     }
 
-    if( FD_UNLIKELY( block->staged && sched->active_block_idx==sched->staged_head_block_idx[ block->staging_lane ] ) ) {
+    if( FD_UNLIKELY( block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] ) ) {
       /* Dying blocks should not be active. */
-      sched->active_block_idx = null_idx;
+      sched->active_bank_idx = ULONG_MAX;
     }
   }
 
   /* Abandon the entire fork chaining off of this block. */
   ulong child_idx = block->child_idx;
-  while( child_idx != null_idx ) {
-    fd_sched_block_t * child = block_pool_ele( sched->block_pool, child_idx );
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child = block_pool_ele( sched, child_idx );
     subtree_abandon( sched, child );
     child_idx = child->sibling_idx;
   }
@@ -1310,11 +1273,10 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static ulong
 find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
   ulong root_idx = sched->root_idx;
 
-  if( FD_UNLIKELY( root_idx==null_idx ) ) {
-    FD_LOG_CRIT(( "invariant violation: root_idx==null_idx indicating fd_sched is unintialized" ));
+  if( FD_UNLIKELY( root_idx==ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: root_idx==ULONG_MAX indicating fd_sched is unintialized" ));
   }
 
   /* First pass: compute the longest unstaged fork depth for each node
@@ -1322,35 +1284,34 @@ find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx ) {
   ulong depth = compute_longest_unstaged_fork( sched, root_idx );
 
   /* Second pass: stage blocks on the longest unstaged fork. */
-  ulong head_block_idx = stage_longest_unstaged_fork( sched, root_idx, lane_idx );
+  ulong head_bank_idx = stage_longest_unstaged_fork( sched, root_idx, lane_idx );
 
-  if( FD_UNLIKELY( (depth>0UL && head_block_idx==null_idx) || (depth==0UL && head_block_idx!=null_idx) ) ) {
-    FD_LOG_CRIT(( "invariant violation: depth %lu, head_block_idx %lu",
-                  depth, head_block_idx ));
+  if( FD_UNLIKELY( (depth>0UL && head_bank_idx==ULONG_MAX) || (depth==0UL && head_bank_idx!=ULONG_MAX) ) ) {
+    FD_LOG_CRIT(( "invariant violation: depth %lu, head_bank_idx %lu",
+                  depth, head_bank_idx ));
   }
 
-  return head_block_idx;
+  return head_bank_idx;
 }
 
 /* Returns length of the longest stageable unstaged fork, if there is
    one, and 0 otherwise. */
 static ulong
-compute_longest_unstaged_fork( fd_sched_t * sched, ulong block_idx ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
-  if( FD_UNLIKELY( block_idx==null_idx ) ) {
-    FD_LOG_CRIT(( "invariant violation: block_idx==null_idx" ));
+compute_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx ) {
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank_idx==ULONG_MAX" ));
   }
 
-  fd_sched_block_t * block = block_pool_ele( sched->block_pool, block_idx );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
 
   ulong max_child_depth = 0UL;
   ulong child_idx       = block->child_idx;
-  while( child_idx!=null_idx ) {
+  while( child_idx!=ULONG_MAX ) {
     ulong child_depth = compute_longest_unstaged_fork( sched, child_idx );
     if( child_depth > max_child_depth ) {
       max_child_depth = child_depth;
     }
-    fd_sched_block_t * child = block_pool_ele( sched->block_pool, child_idx );
+    fd_sched_block_t * child = block_pool_ele( sched, child_idx );
     child_idx = child->sibling_idx;
   }
 
@@ -1359,31 +1320,30 @@ compute_longest_unstaged_fork( fd_sched_t * sched, ulong block_idx ) {
 }
 
 static ulong
-stage_longest_unstaged_fork_helper( fd_sched_t * sched, ulong block_idx, int lane_idx ) {
-  ulong null_idx = block_pool_idx_null( sched->block_pool );
-  if( FD_UNLIKELY( block_idx==null_idx ) ) {
-    FD_LOG_CRIT(( "invariant violation: block_idx==null_idx" ));
+stage_longest_unstaged_fork_helper( fd_sched_t * sched, ulong bank_idx, int lane_idx ) {
+  if( FD_UNLIKELY( bank_idx==ULONG_MAX ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank_idx==ULONG_MAX" ));
   }
 
-  fd_sched_block_t * block = block_pool_ele( sched->block_pool, block_idx );
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
 
   int   stage_it = fd_int_if( block_is_promotable( block ), 1, 0 );
-  ulong rv       = fd_ulong_if( stage_it, block_idx, null_idx );
+  ulong rv       = fd_ulong_if( stage_it, bank_idx, ULONG_MAX );
   if( FD_LIKELY( stage_it ) ) {
     block->staged = 1;
     block->staging_lane = (ulong)lane_idx;
-    fd_rdisp_promote_block( sched->rdisp, block->block_id.id, block->staging_lane );
+    fd_rdisp_promote_block( sched->rdisp, bank_idx, block->staging_lane );
     sched->metrics->block_promoted_cnt++;
   }
 
   /* Base case: leaf node. */
-  if( block->child_idx==null_idx ) return rv;
+  if( block->child_idx==ULONG_MAX ) return rv;
 
   ulong max_depth      = 0UL;
-  ulong best_child_idx = null_idx;
+  ulong best_child_idx = ULONG_MAX;
   ulong child_idx      = block->child_idx;
-  while( child_idx!=null_idx ) {
-    fd_sched_block_t * child = block_pool_ele( sched->block_pool, child_idx );
+  while( child_idx!=ULONG_MAX ) {
+    fd_sched_block_t * child = block_pool_ele( sched, child_idx );
     if( child->luf_depth>max_depth ) {
       max_depth      = child->luf_depth;
       best_child_idx = child_idx;
@@ -1392,9 +1352,9 @@ stage_longest_unstaged_fork_helper( fd_sched_t * sched, ulong block_idx, int lan
   }
 
   /* Recursively stage descendants. */
-  if( best_child_idx!=null_idx ) {
-    ulong head_block_idx = stage_longest_unstaged_fork_helper( sched, best_child_idx, lane_idx );
-    rv = fd_ulong_if( rv!=null_idx, rv, head_block_idx );
+  if( best_child_idx!=ULONG_MAX ) {
+    ulong head_bank_idx = stage_longest_unstaged_fork_helper( sched, best_child_idx, lane_idx );
+    rv = fd_ulong_if( rv!=ULONG_MAX, rv, head_bank_idx );
   }
 
   return rv;
@@ -1403,12 +1363,12 @@ stage_longest_unstaged_fork_helper( fd_sched_t * sched, ulong block_idx, int lan
 /* Returns idx of head block of staged lane on success, idx_null
    otherwise. */
 static ulong
-stage_longest_unstaged_fork( fd_sched_t * sched, ulong block_idx, int lane_idx ) {
-  ulong head_block_idx = stage_longest_unstaged_fork_helper( sched, block_idx, lane_idx );
-  if( FD_LIKELY( head_block_idx!=block_pool_idx_null( sched->block_pool ) ) ) {
+stage_longest_unstaged_fork( fd_sched_t * sched, ulong bank_idx, int lane_idx ) {
+  ulong head_bank_idx = stage_longest_unstaged_fork_helper( sched, bank_idx, lane_idx );
+  if( FD_LIKELY( head_bank_idx!=ULONG_MAX ) ) {
     sched->metrics->lane_promoted_cnt++;
     sched->staged_bitset = fd_ulong_set_bit( sched->staged_bitset, lane_idx );
-    sched->staged_head_block_idx[ lane_idx ] = head_block_idx;
+    sched->staged_head_bank_idx[ lane_idx ] = head_bank_idx;
   }
-  return head_block_idx;
+  return head_bank_idx;
 }

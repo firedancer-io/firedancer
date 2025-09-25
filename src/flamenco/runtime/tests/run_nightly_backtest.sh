@@ -105,7 +105,7 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
 [runtime]
-    max_total_banks = 128
+    max_love_slots = 128
     max_fork_width = 32
 [consensus]
     vote = false

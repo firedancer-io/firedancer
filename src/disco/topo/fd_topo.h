@@ -360,6 +360,9 @@ struct fd_topo_tile {
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
+      ulong heap_size_gib;
+      ulong max_live_slots;
+
       /* not specified in TOML */
 
       ulong enable_features_cnt;
@@ -372,7 +375,6 @@ struct fd_topo_tile {
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
 
-      ulong heap_size_gib;
     } replay;
 
     struct {

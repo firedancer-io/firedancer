@@ -19,7 +19,7 @@ setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name );
 fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
-                  ulong        max_total_banks,
+                  ulong        max_live_slots,
                   ulong        max_fork_width );
 
 fd_topo_obj_t *

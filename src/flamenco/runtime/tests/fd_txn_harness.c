@@ -74,8 +74,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     return NULL;
   }
 
-  /* Set slot bank variables (defaults obtained from GenesisConfig::default() in Agave) */
-  slot_ctx->bank->eslot_ = fd_eslot( slot, 0UL );
+  /* Set bank variables (defaults obtained from GenesisConfig::default() in Agave) */
+
+  fd_bank_slot_set( slot_ctx->bank, slot );
+  fd_bank_parent_slot_set( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ) - 1UL );
 
   /* Initialize builtin accounts */
   fd_builtin_programs_init( slot_ctx );
@@ -91,8 +93,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Setup Bank manager */
-
-  fd_bank_parent_eslot_set( slot_ctx->bank, fd_eslot( fd_bank_slot_get( slot_ctx->bank ) - 1UL, 0UL ) );
 
   fd_bank_lamports_per_signature_set( slot_ctx->bank, 5000UL );
 

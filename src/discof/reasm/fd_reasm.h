@@ -140,7 +140,21 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ushort parent_off;    /* The offset for the parent slot of the FEC set */
   ushort data_cnt;      /* The number of data shreds in the FEC set */
   int    data_complete; /* Whether the FEC set completes an entry batch */
-  int    slot_complete; /* Whether this FEC set completes the slot */
+  int    slot_complete; /* Whether the FEC set completes the slot */
+  int    leader;        /* Whether the FEC set corresponds to FECs produced during a leader slot */
+  int    eqvoc;         /* Whether the FEC set is equivocating.  Note,
+                           this doesn't track all types of equivocations
+                           (i.e. equivocations not on a slot boundary
+                           and malformed FEC indices).
+                           TODO: this will change with fix-32. */
+
+  /* Metadata (set by caller)
+
+     parent_bank_idx and bank_idx are used to track downstream
+     consumers of the reasm_fecs from reasm_next().  parent_bank_idx and
+     bank_idx is set externally in the replay tile. */
+  ulong parent_bank_idx;
+  ulong bank_idx;
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
@@ -226,6 +240,13 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot );
 fd_reasm_fec_t *
 fd_reasm_next( fd_reasm_t * reasm );
 
+/* fd_reasm_parent_bank_idx returns the bank index of the parent of the
+   FEC set.  Returns ULONG_MAX if the parent FEC's bank index has not
+   been set.  This function always assumes that the FEC has a parent. */
+
+ulong
+fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
+
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
    make one or more FEC sets available for in-order delivery.  Caller
@@ -242,14 +263,15 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  ushort            parent_off,
                  ushort            data_cnt,
                  int               data_complete,
-                 int               slot_complete );
+                 int               slot_complete,
+                 int               leader );
 
-/* fd_reasm_publish publishes merkle_root as the new reasm root, pruning
-   (ie. map remove and release) any FEC sets that do not descend from
-   this new root. */
+/* fd_reasm_advances advances the reasm root to merkle_root root,
+   pruning (ie. map remove and release) any FEC sets that do not descend
+   from this new root. */
 
 fd_reasm_fec_t *
-fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
+fd_reasm_advance_root( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

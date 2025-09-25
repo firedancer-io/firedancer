@@ -54,10 +54,10 @@ setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name ) {
 fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
-                  ulong        max_total_banks,
+                  ulong        max_live_slots,
                   ulong        max_fork_width ) {
   fd_topo_obj_t * obj = fd_topob_obj( topo, "banks", wksp_name );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, max_total_banks, "obj.%lu.max_total_banks", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_live_slots, "obj.%lu.max_live_slots", obj->id ) );
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_fork_width, "obj.%lu.max_fork_width", obj->id ) );
   return obj;
 }
@@ -715,7 +715,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], funk_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
 
-  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_total_banks, config->firedancer.runtime.max_fork_width );
+  fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE ); /* TODO: Should be readonly? */
   FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -915,7 +915,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
 
-    tile->replay.heap_size_gib = config->tiles.replay.heap_size_gib;
+    tile->replay.heap_size_gib  = config->tiles.replay.heap_size_gib;
+    tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     /* not specified by [tiles.replay] */
 
