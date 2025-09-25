@@ -356,10 +356,13 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
   fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
 }
 
-fd_funk_rec_t *
+int
 fd_funk_rec_insert_para( fd_funk_t *               funk,
                          fd_funk_txn_t *           txn,
-                         fd_funk_rec_key_t const * key ) {
+                         fd_funk_rec_key_t const * key,
+                         ulong                     val_align,
+                         ulong                     val_sz,
+                         void *                    val ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
@@ -378,6 +381,7 @@ fd_funk_rec_insert_para( fd_funk_t *               funk,
 #define MAX_TXN_KEY_CNT (2UL)
     uchar txn_mem[ fd_funk_rec_map_txn_footprint( MAX_TXN_KEY_CNT ) ] __attribute__((aligned(alignof(fd_funk_rec_map_txn_t))));
     fd_funk_rec_map_txn_t * map_txn = fd_funk_rec_map_txn_init( txn_mem, funk->rec_map, MAX_TXN_KEY_CNT );
+    /* Lock the record key */
     fd_funk_rec_map_txn_add( map_txn, pair, 1 );
     int err = fd_funk_rec_map_txn_try( map_txn, FD_MAP_FLAG_BLOCKING );
     if( err == FD_MAP_ERR_AGAIN ) {
@@ -387,41 +391,47 @@ fd_funk_rec_insert_para( fd_funk_t *               funk,
     if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) {
       FD_LOG_CRIT(( "fd_funk_rec_map_txn_try returned err %d", err ));
       fd_funk_rec_map_txn_fini( map_txn );
-      return NULL;
+      return err;
     }
 
     /* See if the record already exists. */
     err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
     if( err == FD_MAP_SUCCESS ) {
+      fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
+      /* Set the value of the record */
+      if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
+        FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
+        fd_funk_rec_map_txn_test( map_txn );
+        fd_funk_rec_map_txn_fini( map_txn );
+        return err;
+      }
+      memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), val, val_sz );
       fd_funk_rec_map_txn_test( map_txn );
       fd_funk_rec_map_txn_fini( map_txn );
-      return fd_funk_rec_map_query_ele( query );
-    }
-    if( err == FD_MAP_ERR_AGAIN ) {
-      fd_funk_rec_map_txn_test( map_txn );
-      fd_funk_rec_map_txn_fini( map_txn );
-      continue;
-    }
-    if( err != FD_MAP_ERR_KEY ) {
-      FD_LOG_CRIT(( "query returned err %d", err ));
-      fd_funk_rec_map_txn_test( map_txn );
-      fd_funk_rec_map_txn_fini( map_txn );
-      return NULL;
+      return FD_FUNK_SUCCESS;
     }
 
+    /* The record doesn't exist. Create it. */
     fd_funk_rec_prepare_t prepare[1];
-    err = 0;
     fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, txn, key, prepare, &err );
-    if( FD_UNLIKELY( err ) ) {
+    if( FD_UNLIKELY( !rec ) ) {
       FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
       fd_funk_rec_map_txn_test( map_txn );
       fd_funk_rec_map_txn_fini( map_txn );
       return NULL;
     }
+    /* Set the value of the record */
+    if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
+      fd_funk_rec_map_txn_test( map_txn );
+      fd_funk_rec_map_txn_fini( map_txn );
+      return err;
+    }
+    memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), val, val_sz );
     fd_funk_rec_publish( funk, prepare );
     fd_funk_rec_map_txn_test( map_txn );
     fd_funk_rec_map_txn_fini( map_txn );
-    return rec;
+    return FD_FUNK_SUCCESS;
   }
 #undef MAX_TXN_KEY_CNT
 }
