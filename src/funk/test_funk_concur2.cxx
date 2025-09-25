@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <pthread.h>
 
-#define NUM_THREADS 16
+#define NUM_THREADS 1
 #define MAX_TXN_CNT 512
 #define NUM_KEYS    64
 
@@ -89,11 +89,13 @@ int main( int argc, char ** argv ) {
 
   fd_funk_txn_t *   parent_txn = NULL;
   fd_funk_txn_xid_t xid = {};
+  fd_funk_txn_xid_t root_xid = {};
+  fd_funk_txn_xid_set_root( &root_xid );
 
   /* Number of iterations to run. */
   for( ulong i=0UL; i<MAX_TXN_CNT; i++ ) {
     xid.ul[0]++;
-    fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent_txn ? &parent_txn->xid : NULL, &xid, 1 );
+    fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent_txn ? &parent_txn->xid : &root_xid, &xid, 1 );
     FD_TEST( txn );
     parent_txn = txn;
 
