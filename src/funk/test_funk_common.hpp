@@ -105,44 +105,9 @@ struct fake_funk {
       ulong numa_idx = fd_shmem_numa_idx( 0 );
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
 
-#ifdef FUNK_RECONNECT_TEST
-      struct stat x;
-      if( stat("/mnt/.fd/.gigantic/reconnect_test", &x) == 0) {
-        void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 ); /* logs details */
-        FD_TEST( shmem != NULL );
-        _wksp = fd_wksp_join( shmem );
-        FD_TEST( _wksp != NULL );
-        FD_TEST( fd_wksp_owner( _wksp ) == ULONG_MAX );
-        ulong tag = FD_FUNK_MAGIC;
-        fd_wksp_tag_query_info_t info;
-        FD_TEST( fd_wksp_tag_query( _wksp, &tag, 1, &info, 1 ) > 0 );
-        assert(info.tag == tag);
-        FD_TEST( fd_funk_purify( (uchar*)shmem + info.gaddr_lo ) == FD_FUNK_SUCCESS );
-        FD_TEST( fd_funk_join( _real, (uchar*)shmem + info.gaddr_lo ) );
-        fd_funk_all_iter_t iter[1];
-        for( fd_funk_all_iter_new( _real, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
-          fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
-          void * val = fd_funk_val( rec, _wksp );
-          ulong sz = fd_funk_val_sz( rec );
-          fake_rec * rec2 = new fake_rec( fd_funk_rec_key( rec )->ul[0] );
-          rec2->_data.resize( sz/8UL );
-          memcpy( rec2->_data.data(), val, sz );
-          _txns[ROOT_KEY]->_recs.push_back( rec2 );
-        }
-
-      } else {
-        FD_TEST( !fd_shmem_create( "reconnect_test", FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), 0600 ) );
-        void * shmem = fd_shmem_join( "reconnect_test", FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 1 ); /* logs details */
-        void * wkspmem = fd_wksp_new( shmem, "reconect_test", 0U, 1024, FD_SHMEM_GIGANTIC_PAGE_SZ ); /* logs details */
-        _wksp = fd_wksp_join( wkspmem );
-        void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
-        FD_TEST( fd_funk_join( _real, fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) ) );
-      }
-#else
       _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
       void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
       FD_TEST( fd_funk_join( _real, fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) ) );
-#endif
     }
     ~fake_funk() {
       for (auto i : _txns)
