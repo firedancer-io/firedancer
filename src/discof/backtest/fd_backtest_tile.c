@@ -246,7 +246,6 @@ after_credit( ctx_t *             ctx,
     cmr.ul[1] = ctx->prev->fec_set_idx;
     cmr.ul[2] = FD_BACKTEST_BLOCK_ID_FLAG;
   }
-
   fd_store_shacq ( ctx->store );
   fd_store_insert( ctx->store, 0, &mr );
   fd_store_shrel ( ctx->store );
@@ -268,31 +267,23 @@ after_credit( ctx_t *             ctx,
   }
   ctx->prev = prev;
 
-  /* We're guaranteed to iterate slots in order from RocksDB (linear
-     chain) so link the merkle roots to the previous one. */
+  int slot_complete = !!(prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
 
-  fd_store_exacq ( ctx->store );
-  fd_store_link( ctx->store, &mr, &cmr );
-  fd_store_exrel( ctx->store );
+  /* We need to simulate the FEC set completion message that is sent out
+     of the shred tile.  This involves copying the data shred header and
+     appending the merkle root and chained merkle root. */
 
-  fd_reasm_fec_t out = {
-    .key           = mr,
-    .cmr           = cmr,
-    .slot          = prev->slot,
-    .parent_off    = prev->data.parent_off,
-    .fec_set_idx   = prev->fec_set_idx,
-    .data_cnt      = (ushort)( prev->idx + 1 - prev->fec_set_idx ),
-    .data_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ),
-    .slot_complete = !!( prev->data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE )
-  };
+  uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+  memcpy( out_buf, prev, FD_SHRED_DATA_HEADER_SZ );
+  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ, &mr, sizeof(fd_hash_t) );
+  memcpy( out_buf + FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t), &cmr, sizeof(fd_hash_t) );
+  ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t);
 
-  ulong sig = out.slot << 32 | out.fec_set_idx;
-  memcpy( fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk ), &out, sizeof(fd_reasm_fec_t) );
-  fd_stem_publish( stem, ctx->replay_out_idx, sig, ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), 0, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sizeof(fd_reasm_fec_t), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  fd_stem_publish( stem, ctx->replay_out_idx, ULONG_MAX, ctx->replay_out_chunk, fec_complete_sz, 0, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, fec_complete_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
 
   ctx->curr = curr;
-  if( out.slot_complete ) ctx->credit = 0;
+  if( slot_complete ) ctx->credit = 0;
 
   *charge_busy = 1;
   return; /* yield after publish one FEC set */
@@ -451,7 +442,7 @@ unprivileged_init( fd_topo_t *      topo,
     in->mtu       = link->mtu;
   }
 
-  ctx->replay_out_idx    = fd_topo_find_tile_out_link( topo, tile, "repair_repla", 0 );
+  ctx->replay_out_idx    = fd_topo_find_tile_out_link( topo, tile, "shred_out", 0 );
   FD_TEST( ctx->replay_out_idx!=ULONG_MAX );
   fd_topo_link_t * link  = &topo->links[ tile->out_link_id[ ctx->replay_out_idx ] ];
   ctx->replay_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;

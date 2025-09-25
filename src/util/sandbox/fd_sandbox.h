@@ -52,7 +52,7 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
    The security of the sandbox is more important than the security of
    code which runs before sandboxing.  It is strongly preferred to do
    privileged operations before sandboxing, rather than allowing the
-   privileged operations to occur inside the sanbox.
+   privileged operations to occur inside the sandbox.
 
    The specific list of things that happen when entering the sandbox
    are:
@@ -197,7 +197,7 @@ fd_sandbox_switch_uid_gid( uint desired_uid,   /* User ID to switch the process 
 ulong
 fd_sandbox_getpid( void );
 
-/* fd_sandbox_getpid returns the true TID of the current process as it
+/* fd_sandbox_gettid returns the true TID of the current process as it
    appears in the root PID namespace of the system.
 
    Calling `gettid(2)` from a process inside a PID namespace will

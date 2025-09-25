@@ -141,9 +141,6 @@ tango.fields = {
 }
 
 local link_hashes = {
-  [0xc67c71] = "net_netmux",
-  [0x641266] = "quic_netmux",
-  [0xbbbcde] = "shred_netmux",
   [0x18a945] = "shred_net",
   [0x2aabab] = "quic_verify",
   [0x1efba0] = "verify_dedup",
@@ -179,7 +176,9 @@ local link_hashes = {
   [0x06c577] = "pack_sign",
   [0x6a974e] = "sign_pack",
   [0x2080d6] = "bank_pack",
-  [0x534f91] = "pack_poh"
+  [0x534f91] = "pack_poh",
+  [0xd5cc48] = "net_repair",
+  [0xf005bb] = "repair_net"
 }
 
 
@@ -217,7 +216,7 @@ function tango.dissector (tvb, pinfo, tree)
   local dcache_contents = tvb:range(32, packet_len-36):tvb()
   local dcache_tree = subtree:add(tango_contents, tvb(32, packet_len-36))
 
-  if link_name == "net_netmux" or link_name == "quic_netmux" or link_name == "shred_netmux" or link_name == "net_quic" or link_name == "quic_net" or link_name == "shred_net" or link_name == "net_shred" then
+  if link_name:match("^net_") or link_name:match("_net$") then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "send_txns" or link_name == "gossip_dedup" then

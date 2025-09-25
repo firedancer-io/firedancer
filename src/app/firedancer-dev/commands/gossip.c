@@ -165,7 +165,7 @@ configure_args( void ) {
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_sysctl;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_channels;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_gro;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_offloads;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_ethtool_loopback;
   args.configure.stages[ stage_idx++ ] = NULL;
 

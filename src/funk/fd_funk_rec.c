@@ -54,20 +54,17 @@ fd_funk_rec_key_set_pair( fd_funk_xid_key_pair_t *  key_pair,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                       fd_funk_txn_t const *     txn,
+                       fd_funk_txn_xid_t const * txn_xid,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query ) {
-#ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
-    return NULL;
-  }
-  if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
-    return NULL;
-  }
-#endif
+  if( FD_UNLIKELY( !funk    ) ) FD_LOG_CRIT(( "NULL funk"    ));
+  if( FD_UNLIKELY( !txn_xid ) ) FD_LOG_CRIT(( "NULL txn_xid" ));
+  if( FD_UNLIKELY( !key     ) ) FD_LOG_CRIT(( "NULL key"     ));
+  if( FD_UNLIKELY( !query   ) ) FD_LOG_CRIT(( "NULL query"   ));
 
   fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, txn, key );
+  fd_funk_txn_xid_copy( pair->xid, txn_xid );
+  fd_funk_rec_key_copy( pair->key, key );
 
   for(;;) {
     int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
@@ -108,10 +105,10 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_rec_key_t const * key,
                               fd_funk_txn_t const **    txn_out,
                               fd_funk_rec_query_t *     query ) {
+  if( FD_UNLIKELY( !funk  ) ) FD_LOG_CRIT(( "NULL funk"  ));
+  if( FD_UNLIKELY( !key   ) ) FD_LOG_CRIT(( "NULL key"   ));
+  if( FD_UNLIKELY( !query ) ) FD_LOG_CRIT(( "NULL query" ));
 #ifdef FD_FUNK_HANDHOLDING
-  if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
-    return NULL;
-  }
   if( FD_UNLIKELY( txn && !fd_funk_txn_valid( funk, txn ) ) ) {
     return NULL;
   }
@@ -155,6 +152,7 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
           if( txn_out ) *txn_out = cur_txn;
           query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL :
                          (fd_funk_rec_t *)ele );
+          if( FD_LIKELY( txn ) ) fd_funk_txn_xid_assert( txn, pair->xid );
           return query->ele;
         }
 
@@ -162,6 +160,8 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
       }
     }
   }
+
+  if( FD_LIKELY( txn ) ) fd_funk_txn_xid_assert( txn, pair->xid );
   return NULL;
 }
 

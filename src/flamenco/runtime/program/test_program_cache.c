@@ -51,9 +51,8 @@ test_teardown( void ) {
 static fd_funk_txn_t *
 create_test_funk_txn( void ) {
   fd_funk_txn_xid_t xid = fd_funk_generate_xid();
-  fd_funk_txn_start_write( test_funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( test_funk, NULL, &xid, 1 );
-  fd_funk_txn_end_write( test_funk );
+  fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( test_funk, &root, &xid, 1 );
   FD_TEST( funk_txn );
   return funk_txn;
 }
@@ -128,7 +127,7 @@ test_account_does_not_exist( void ) {
   int err = fd_program_cache_load_entry( test_funk, funk_txn, &non_existent_pubkey, &valid_prog );
   FD_TEST( err==-1 ); /* Should not exist */
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 2: Account exists but is not owned by a BPF loader */
@@ -154,7 +153,7 @@ test_account_not_bpf_loader_owner( void ) {
   int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( err==-1 ); /* Should not exist */
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 3: Program is not in cache yet (first time), but program fails validations */
@@ -184,7 +183,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
   FD_TEST( valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_slot_ctx->bank ) );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 4: Program is not in cache yet (first time), but program passes validations */
@@ -214,7 +213,7 @@ test_valid_program_not_in_cache_first_time( void ) {
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_slot_ctx->bank ) );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 5: Program is in cache but needs reverification
@@ -261,7 +260,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_slot_ctx->bank ) );
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 6: Program is in cache and was just modified, so it should be
@@ -328,7 +327,7 @@ test_program_in_cache_queued_for_reverification( void ) {
   FD_TEST( valid_prog->last_slot_modified==future_slot );
   FD_TEST( valid_prog->last_slot_verified==future_slot );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 7: Program queued for reverification but program doesn't exist
@@ -366,7 +365,7 @@ test_program_queued_for_reverification_account_does_not_exist( void ) {
   err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
   FD_TEST( err ); /* Should not exist */
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 8: Program is in cache and was just modified and queued for
@@ -439,7 +438,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_update_slot );
   FD_TEST( valid_prog->last_slot_modified==future_slot );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 9: Genesis program fails verification, and is reverified later */
@@ -489,7 +488,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_slot );
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 10: Genesis program passes verification, and is reverified
@@ -540,7 +539,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_slot );
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 /* Test 11: Program gets upgraded with a larger programdata size */
@@ -622,7 +621,7 @@ test_program_upgraded_with_larger_programdata( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_slot );
   FD_TEST( valid_prog->last_slot_modified==future_slot );
 
-  fd_funk_txn_cancel( test_funk, funk_txn, 0 );
+  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
 }
 
 int

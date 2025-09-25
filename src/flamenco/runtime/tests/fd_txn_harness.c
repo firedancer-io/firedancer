@@ -40,9 +40,7 @@ static void
 fd_runtime_fuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_slot_ctx_t *  slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_txn_cancel( runner->funk, &slot_ctx->funk_txn->xid );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -58,9 +56,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, &xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, &xid, 1 );
 
   /* Set up slot context */
   slot_ctx->funk_txn = funk_txn;

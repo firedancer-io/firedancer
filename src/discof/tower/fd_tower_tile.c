@@ -196,6 +196,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* 1. Determine next slot to vote for, if one exists. */
 
   msg->vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
+  msg->new_root  = 0;
 
   /* 2. Determine new root, if there is one.  A new vote slot can result
         in a new root but not always. */
@@ -207,9 +208,6 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       msg->root_block_id = *root_block_id;
       msg->new_root      = 1;
       fd_ghost_publish( ctx->ghost, &msg->root_block_id );
-    } else {
-      msg->root_block_id = (fd_hash_t){ 0 };
-      msg->new_root      = 0;
     }
   }
 
@@ -364,10 +362,6 @@ returnable_frag( fd_tower_tile_t *   ctx,
       ctx->replay_towers_cnt++;
 
       if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) replay_slot_completed( ctx, &ctx->replay_slot_info, tsorig, stem );
-    } else if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
-      /* Ignore root advanced messages, we don't need them */
-    } else {
-      FD_LOG_ERR(( "unexpected replay message sig %lu", sig ));
     }
   } else {
     FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));

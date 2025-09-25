@@ -1,11 +1,15 @@
 #ifndef HEADER_fd_src_discof_replay_fd_replay_tile_h
 #define HEADER_fd_src_discof_replay_fd_replay_tile_h
 
+#include "../poh/fd_poh_tile.h"
+#include "../../disco/tiles.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_ROOT_ADVANCED  (1)
 #define REPLAY_SIG_VOTE_STATE     (2)
+#define REPLAY_SIG_RESET          (3)
+#define REPLAY_SIG_BECAME_LEADER  (4)
 
 struct fd_replay_slot_completed {
   ulong slot;
@@ -58,6 +62,8 @@ typedef struct fd_replay_tower fd_replay_tower_t;
 union fd_replay_message {
   fd_replay_slot_completed_t slot_completed;
   fd_replay_root_advanced_t  root_advanced;
+  fd_poh_reset_t             reset;
+  fd_became_leader_t         became_leader;
   fd_replay_tower_t          tower;
 };
 

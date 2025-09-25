@@ -20,10 +20,9 @@
 static void
 initialize_logging( char const * tile_name,
                     ulong        tile_kind_id,
-                    ulong        pid,
                     ulong        tid ) {
   fd_log_cpu_set( NULL );
-  fd_log_private_tid_set( pid );
+  fd_log_private_tid_set( tid );
   char thread_name[ 20 ];
   FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile_name, tile_kind_id ) );
   fd_log_thread_set( thread_name );
@@ -83,7 +82,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
   check_wait_debugger( pid, wait, debugger );
-  initialize_logging( tile->name, tile->kind_id, pid, tid );
+  initialize_logging( tile->name, tile->kind_id, tid );
 
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );

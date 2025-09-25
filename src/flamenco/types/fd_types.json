@@ -2286,46 +2286,6 @@
       ]
     },
     {
-      "name": "cache_status",
-      "type": "struct",
-      "fields": [
-        { "name": "key_slice", "type": "array", "element": "uchar", "length": 20 },
-        { "name": "result", "type": "txn_result" }
-      ]
-    },
-    {
-      "name": "status_value",
-      "type": "struct",
-      "fields": [
-        { "name": "txn_idx", "type": "ulong" },
-        { "name": "statuses", "type": "vector", "element": "cache_status"}
-      ]
-    },
-    {
-      "name": "status_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "hash", "type": "hash" },
-        { "name": "value", "type": "status_value" }
-      ]
-    },
-    {
-      "name": "slot_delta",
-      "type": "struct",
-      "fields": [
-        { "name": "slot", "type": "ulong" },
-        { "name": "is_root", "type": "bool" },
-        { "name": "slot_delta_vec", "type": "vector", "element": "status_pair" }
-      ]
-    },
-    {
-      "name": "bank_slot_deltas",
-      "type": "struct",
-      "fields": [
-        { "name": "slot_deltas", "type": "vector", "element": "slot_delta" }
-      ]
-    },
-    {
       "name": "pubkey_rewardinfo_pair",
       "type": "struct",
       "fields": [

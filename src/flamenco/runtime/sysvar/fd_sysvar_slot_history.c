@@ -117,8 +117,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 fd_slot_history_global_t *
 fd_sysvar_slot_history_read( fd_funk_t *     funk,
                              fd_funk_txn_t * funk_txn,
-                             fd_spad_t *     spad ) {
-
+                             uchar           out_mem[ static FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
@@ -137,23 +136,17 @@ fd_sysvar_slot_history_read( fd_funk_t *     funk,
     return NULL;
   }
 
+  ulong data_len = fd_txn_account_get_data_len( rec );
+  if( FD_UNLIKELY( data_len>FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
+    FD_LOG_ERR(( "corrupt slot history sysvar: sysvar data is too large (%lu bytes)", data_len ));
+  }
+
   fd_bincode_decode_ctx_t ctx = {
     .data    = fd_txn_account_get_data( rec ),
-    .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
+    .dataend = fd_txn_account_get_data( rec ) + data_len
   };
 
-  ulong total_sz = 0UL;
-  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
-  if( err ) {
-    FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
-  }
-
-  uchar * mem = fd_spad_alloc( spad, fd_slot_history_align(), total_sz );
-  if( !mem ) {
-    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
-  }
-
-  return fd_slot_history_decode_global( mem, &ctx );
+  return fd_slot_history_decode_global( out_mem, &ctx );
 }
 
 int

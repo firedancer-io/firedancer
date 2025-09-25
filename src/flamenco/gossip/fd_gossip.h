@@ -101,7 +101,7 @@ void *
 fd_gossip_new( void *                    shmem,
                fd_rng_t *                rng,
                ulong                     max_values,
-               ulong                     entrypoints_cnt,
+               ulong                     entrypoints_len,
                fd_ip4_port_t const *     entrypoints,
                fd_contact_info_t const * my_contact_info,
                long                      now,

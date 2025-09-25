@@ -175,12 +175,10 @@ fd_runtime_funk_txn_get( fd_funk_t * funk,
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_read( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", slot ));
   }
-  fd_funk_txn_end_read( funk );
   return funk_txn;
 }
 
@@ -1201,6 +1199,10 @@ fd_runtime_finalize_txn( fd_funk_t *         funk,
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
+  // TODO: Implement txncache
+  // TODO: ONLY DO THIS INSERT IF IT IS NOT A NONCE TRANSACTION
+  // fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+  // fd_txncache_insert( txn_ctx->status_cache, bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
 }
 
 int

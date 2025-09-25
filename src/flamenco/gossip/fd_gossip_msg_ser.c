@@ -99,7 +99,7 @@ typedef struct socket_ctx socket_ctx_t;
 
 #include "../../util/tmpl/fd_sort.c"
 
-#define FD_CONTACT_INFO_SOCKET_MAX (FD_CONTACT_INFO_SOCKET_LAST+1UL)
+#define FD_CONTACT_INFO_SOCKET_MAX FD_CONTACT_INFO_SOCKET_CNT
 
 
 static inline int

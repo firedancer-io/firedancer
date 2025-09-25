@@ -235,7 +235,7 @@
   {"name":"vote_only_retransmitter_signed_fec_sets","pubkey":"RfEcA95xnhuwooVAhUUksEJLZBF7xKCLuqrJoqk4Zph"},
   {"name":"mask_out_rent_epoch_in_vm_serialization","pubkey":"RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx","cleaned_up":[3,1,0],"hardcode_for_fuzzing":1},
   {"name":"disable_zk_elgamal_proof_program","pubkey":"zkdoVwnSFnSLtGJG7irJPEYUpmb4i7sGMGcnN6T9rnC"},
-  {"name":"reenable_zk_elgamal_proof_program","pubkey":"zkemPXcuM3G4wpMDZ36Cpw34EjUpvm1nuioiSGbGZPR"},
+  {"name":"reenable_zk_elgamal_proof_program","pubkey":"zkesAyFB19sTkX8i9ReoKaMNDA4YNTPYJpZKPDt7FMW"},
   {"name":"formalize_loaded_transaction_data_size","pubkey":"DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8","hardcode_for_fuzzing":1},
   {"name":"enable_extend_program_checked","pubkey":"2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz"},
   {"name":"require_static_nonce_account","pubkey":"7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm"},

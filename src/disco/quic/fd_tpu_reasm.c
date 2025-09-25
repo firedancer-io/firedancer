@@ -1,5 +1,7 @@
 #include "fd_tpu.h"
 #include "fd_tpu_reasm_private.h"
+#include "../../tango/dcache/fd_dcache.h"
+#include "../../tango/mcache/fd_mcache.h"
 
 FD_FN_CONST ulong
 fd_tpu_reasm_align( void ) {

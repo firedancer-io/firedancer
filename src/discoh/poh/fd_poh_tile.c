@@ -307,6 +307,7 @@
         will always be 420,000. */
 
 #include "../../disco/tiles.h"
+#include "../../disco/fd_txn_m.h"
 #include "../../disco/bundle/fd_bundle_crank.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"

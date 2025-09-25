@@ -1,11 +1,13 @@
 #define _GNU_SOURCE
-#include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_writer_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../disco/fd_txn_m.h"
+#include "../../disco/stem/fd_stem.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/replay/fd_vote_tracker.h"
 
@@ -335,12 +337,10 @@ after_frag( fd_writer_tile_ctx_t * ctx,
           FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
         }
         fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
-        fd_funk_txn_start_read( ctx->funk );
         ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
         if( FD_UNLIKELY( !ctx->funk_txn ) ) {
           FD_LOG_CRIT(( "Could not find valid funk transaction" ));
         }
-        fd_funk_txn_end_read( ctx->funk );
       }
 
       txn_ctx->spad      = ctx->exec_spad[ in_idx ];

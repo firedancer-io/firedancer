@@ -110,7 +110,6 @@ struct fd_configf {
   } layout;
 
   struct {
-    ulong max_rooted_slots;
     ulong max_live_slots;
     ulong max_vote_accounts;
     ulong max_total_banks;

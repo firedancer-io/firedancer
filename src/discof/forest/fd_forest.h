@@ -30,6 +30,18 @@
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
+/* The below is a non-restrictive estimate on the number of forks at
+   once. In particular this controls the number of chains/buckets in the
+   consumed map and subtrees map, although both maps element count are
+   still bounded by the forest_pool.  This is mainly a performance
+   optimization; repair does a lot of repeated iterator_init and
+   iterator_next calls on the consumed map, and almost always the
+   consumed map is very sparse, which makes the iterator very slow. Thus
+   we can afford to drastically decrease the number of chains in return
+   for a slightly higher chance of collisions. */
+
+#define FD_FOREST_FORK_CNT_EST  128
+
 #define SET_NAME fd_forest_blk_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
@@ -45,10 +57,10 @@
 struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong slot;        /* map key */
   ulong parent_slot; /* map key of the parent. invariant: if parent is populated, parent_slot is populated. the converse is not necessarily true. */
-  ulong next;     /* internal use by fd_pool, fd_map_chain */
-  ulong parent;   /* pool idx of the parent in the tree */
-  ulong child;    /* pool idx of the left-child */
-  ulong sibling;  /* pool idx of the right-sibling */
+  ulong next;        /* internal use by fd_pool, fd_map_chain */
+  ulong parent;      /* pool idx of the parent in the tree */
+  ulong child;       /* pool idx of the left-child */
+  ulong sibling;     /* pool idx of the right-sibling */
 
   uint consumed_idx; /* highest contiguous consumed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
@@ -68,6 +80,7 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   long first_req_ts;   /* timestamp of first request received in slot != complete_idx */
   uint turbine_cnt;    /* number of shreds received from turbine */
   uint repair_cnt;     /* number of data shreds received from repair */
+  uint recovered_cnt;  /* number of shreds recovered from reedsol recovery */
 };
 typedef struct fd_forest_blk fd_forest_blk_t;
 
@@ -158,6 +171,8 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong conspool_gaddr; /* wksp gaddr of fd_forest_consumed_pool */
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
+
+  ulong subtree_cnt;    /* number of subtrees in the forest - particularly useful for iterating */
 };
 typedef struct fd_forest fd_forest_t;
 
@@ -188,16 +203,16 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_forest_t),         sizeof(fd_forest_t)                     ),
-      fd_fseq_align(),              fd_fseq_footprint()                     ),
-      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max ) ),
-      fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
-      fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
-      fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( ele_max ) ),
-      fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
-      fd_forest_consumed_align(),   fd_forest_consumed_footprint( ele_max ) ), /* TODO: we can size this a LOT smaller than ele_max */
-      fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max ) ), /* TODO: we can size this a LOT smaller than ele_max */
-      fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max ) ),
+      alignof(fd_forest_t),         sizeof(fd_forest_t)                                    ),
+      fd_fseq_align(),              fd_fseq_footprint()                                    ),
+      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max                ) ),
+      fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max                ) ),
+      fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max                ) ),
+      fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( FD_FOREST_FORK_CNT_EST ) ),
+      fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max                ) ),
+      fd_forest_consumed_align(),   fd_forest_consumed_footprint( FD_FOREST_FORK_CNT_EST ) ),
+      fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max                ) ),
+      fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max                ) ),
     fd_forest_align() );
 }
 

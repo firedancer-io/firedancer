@@ -1,0 +1,3 @@
+# qltest projects and artifacts
+*.actual
+test/**/*.testproj

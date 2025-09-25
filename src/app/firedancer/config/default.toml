@@ -501,7 +501,6 @@ user = ""
     lock_pages = true
 
 [runtime]
-    max_rooted_slots = 300
     max_live_slots = 2048
     max_vote_accounts = 2000000
 

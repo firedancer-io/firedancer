@@ -1,8 +1,7 @@
-#include "../shared/fd_config.h"
 #include "../../util/pod/fd_pod_format.h"
 
+#include "../../disco/topo/fd_topo.h"
 #include "../../disco/store/fd_store.h"
-#include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_txncache.h"
@@ -155,7 +154,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_store = {
 static ulong
 txncache_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
-  return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") );
+  return fd_txncache_footprint( VAL("max_live_slots"), VAL("max_txn_per_slot") );
 }
 
 static ulong
@@ -167,7 +166,7 @@ txncache_align( fd_topo_t const *     topo FD_FN_UNUSED,
 static void
 txncache_new( fd_topo_t const *     topo,
               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot") ) );
+  FD_TEST( fd_txncache_new( fd_topo_obj_laddr( topo, obj->id ), VAL("max_live_slots"), VAL("max_txn_per_slot") ) );
 }
 
 fd_topo_obj_callbacks_t fd_obj_cb_txncache = {

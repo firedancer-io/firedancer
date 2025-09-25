@@ -39,4 +39,11 @@ struct fd_map_chain_iter {
   ulong ele_idx;
 };
 
+FD_PROTOTYPES_BEGIN
+
+FD_FN_CONST char const *
+fd_map_strerror( int err );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_util_tmpl_fd_map_h */

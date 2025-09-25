@@ -23,15 +23,14 @@ FD_STATIC_ASSERT(FD_VOTER_STATE_V0_23_5 ==fd_vote_state_versioned_enum_v0_23_5, 
 FD_STATIC_ASSERT(FD_VOTER_STATE_V1_14_11==fd_vote_state_versioned_enum_v1_14_11, FD_VOTER_STATE_V1_14_11);
 FD_STATIC_ASSERT(FD_VOTER_STATE_CURRENT ==fd_vote_state_versioned_enum_current,  FD_VOTER_STATE_CURRENT );
 
-
-
-/* Agave VoteAccount https://github.com/anza-xyz/agave/blob/v2.3.7/vote/src/vote_state_view.rs#L182 */
 /* fd_voter_v2_serde defines a serialization / deserialization schema
    for a bincode-encoded vote account v2.  This corresponds exactly with
    the binary layout of a an Agave VoteState1_14_11.
 
    The serde is structured for zero-copy access ie. x-raying individual
-   fields. */
+   fields
+
+   Agave schema: https://github.com/anza-xyz/agave/blob/v2.3.7/vote/src/vote_state_view.rs#L182 */
 
 struct fd_voter_v2_serde {
   fd_pubkey_t const * node_pubkey;

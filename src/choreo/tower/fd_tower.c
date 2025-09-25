@@ -503,7 +503,7 @@ fd_tower_checkpt( fd_tower_t const *      tower,
 
   /* TODO check no invalid ptrs */
 
-  fd_tower_serde_t ser = { 0 };
+  fd_tower_file_serde_t ser = { 0 };
 
   uint   kind            = SERDE_KIND;
   ulong  threshold_depth = THRESHOLD_DEPTH;
@@ -616,7 +616,7 @@ fd_tower_restore( fd_tower_t * tower,
   if( FD_UNLIKELY( *buf_sz!=rsz ) ) { FD_LOG_WARNING(( "%s: read %lu bytes, expected %lu", __func__, rsz, *buf_sz )); return -1; }
   if( FD_UNLIKELY( err>0        ) ) { FD_LOG_WARNING(( "%s: %s", __func__, fd_io_strerror( err )                  )); return -1; }
 
-  fd_tower_serde_t de = { 0 };
+  fd_tower_file_serde_t de = { 0 };
   fd_tower_deserialize( buf, *buf_sz, &de );
 
   uchar *       msg    = (uchar *)de.node_pubkey; /* signed data region begins at this field */
@@ -665,7 +665,7 @@ ser_varint( uchar * dst, ulong src ) {
 }
 
 int
-fd_tower_serialize( fd_tower_serde_t * ser,
+fd_tower_serialize( fd_tower_file_serde_t * ser,
                     uchar *            buf,
                     ulong              buf_max,
                     ulong *            buf_sz ) {
@@ -801,7 +801,7 @@ de_varint( ulong * dst, uchar * src ) {
 int
 fd_tower_deserialize( uchar *            buf,
                       ulong              buf_sz,
-                      fd_tower_serde_t * de ) {
+                      fd_tower_file_serde_t * de ) {
 
   #define DE( T, name ) do {                                                               \
       if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) {                                          \

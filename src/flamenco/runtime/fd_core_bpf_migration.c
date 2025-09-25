@@ -334,9 +334,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
   /* Start a funk write txn */
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t migration_xid = fd_funk_generate_xid();
-  fd_funk_txn_start_write( slot_ctx->funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
-  fd_funk_txn_end_write( slot_ctx->funk );
+  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, &parent_txn->xid, &migration_xid, 0UL );
 
   /* Attempt serialization of program account. If the program is
      stateless, we want to create the account. Otherwise, we want a
@@ -461,16 +459,12 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
      a BPF cache entry here because the program is technically "delayed visibility", so the program
      should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
-  fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_txn_publish_into_parent( slot_ctx->funk, slot_ctx->funk_txn, 1 );
-  fd_funk_txn_end_write( slot_ctx->funk );
+  fd_funk_txn_publish_into_parent( slot_ctx->funk, &slot_ctx->funk_txn->xid );
   slot_ctx->funk_txn = parent_txn;
   return;
 
 fail:
   /* Cancel the in-preparation transaction and discard any in-progress changes. */
-  fd_funk_txn_start_write( slot_ctx->funk );
-  fd_funk_txn_cancel( slot_ctx->funk, slot_ctx->funk_txn, 0UL );
-  fd_funk_txn_end_write( slot_ctx->funk );
+  fd_funk_txn_cancel( slot_ctx->funk, &slot_ctx->funk_txn->xid );
   slot_ctx->funk_txn = parent_txn;
 }

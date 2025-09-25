@@ -316,7 +316,7 @@ typedef struct fd_gossip_view fd_gossip_view_t;
 static inline fd_ip4_port_t
 fd_contact_info_get_socket( fd_contact_info_t const * ci,
                             uchar                     tag ) {
-  if( FD_UNLIKELY( tag>FD_CONTACT_INFO_SOCKET_LAST ) ) {
+  if( FD_UNLIKELY( tag>=FD_CONTACT_INFO_SOCKET_CNT ) ) {
     FD_LOG_ERR(( "Invalid socket tag %u", tag ));
   }
   return ci->sockets[ tag ];

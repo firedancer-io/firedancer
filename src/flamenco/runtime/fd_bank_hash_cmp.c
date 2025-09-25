@@ -212,16 +212,16 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
       }
       return -1;
     } else {
-      FD_LOG_NOTICE(( "\n\n[Bank Hash Comparison]\n"
-                      "slot:   %lu\n"
-                      "ours:   %s\n"
-                      "theirs: %s\n"
-                      "stake:  %.0lf%%\n"
-                      "result: match!\n",
-                      cmp->slot,
-                      FD_BASE58_ENC_32_ALLOCA( cmp->ours.hash ),
-                      FD_BASE58_ENC_32_ALLOCA( theirs->hash ),
-                      pct * 100 ));
+      FD_LOG_INFO(( "\n\n[Bank Hash Comparison]\n"
+                    "slot:   %lu\n"
+                    "ours:   %s\n"
+                    "theirs: %s\n"
+                    "stake:  %.0lf%%\n"
+                    "result: match!\n",
+                    cmp->slot,
+                    FD_BASE58_ENC_32_ALLOCA( cmp->ours.hash ),
+                    FD_BASE58_ENC_32_ALLOCA( theirs->hash ),
+                    pct * 100 ));
     }
     fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
     bank_hash_cmp->cnt--;

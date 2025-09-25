@@ -1,5 +1,7 @@
 #include "fd_tpu.h"
 #include "fd_tpu_reasm_private.h"
+#include "../../tango/mcache/fd_mcache.h"
+#include "../../tango/dcache/fd_dcache.h"
 
 /* An arbitrary valid transaction */
 FD_IMPORT_BINARY( transaction4, "src/ballet/txn/fixtures/transaction4.bin" );
