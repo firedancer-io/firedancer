@@ -10,6 +10,7 @@ import click
 from pathlib import Path
 import time
 from . import __version__
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def ip():
@@ -806,11 +807,30 @@ def validators(ctx):
 
     solana = solana_binary('solana')
 
-    epoch_in_output = subprocess.run([solana, "epoch-info", "-u", f"http://{ip()}:8899"], capture_output=True, text=True)
-    click.echo(epoch_in_output.stdout)
+    # Function to execute solana command
+    def execute_solana_command(command):
+        return subprocess.run(command, capture_output=True, text=True).stdout
 
-    validators_output = subprocess.run([solana, "validators", "-u", f"http://{ip()}:8899", "--keep-unstaked-delinquents"], capture_output=True, text=True)
-    click.echo(validators_output.stdout)
+    # Use ThreadPoolExecutor to parallelize independent solana command executions
+    with ThreadPoolExecutor() as executor:
+        # Define solana commands
+        solana_commands = [
+            [solana, "epoch-info", "-u", f"http://{ip()}:8899"],
+            [solana, "validators", "-u", f"http://{ip()}:8899", "--keep-unstaked-delinquents"]
+        ]
+        # Submit solana commands to executor
+        futures = {executor.submit(execute_solana_command, command): command for command in solana_commands}
+        results = {}
+        for future in as_completed(futures):
+            command = futures[future]
+            results[tuple(command)] = future.result()
+
+    # Process results
+    epoch_in_output = results[tuple(solana_commands[0])]
+    validators_output = results[tuple(solana_commands[1])]
+
+    click.echo(epoch_in_output)
+    click.echo(validators_output)
 
     cluster_path = str(get_ledger_directory())
     keys_path = os.path.join(cluster_path, 'keys')
@@ -860,7 +880,7 @@ def validators(ctx):
         firedancer = False
         if running == False:
             # Check if any row in validators_output does not contain the ⚠️ symbol
-            validator_line = [line for line in validators_output.stdout.splitlines() if id_pubkey in line]
+            validator_line = [line for line in validators_output.splitlines() if id_pubkey in line]
             if '⚠' != validator_line[0][0]:
                 firedancer = True
 
@@ -872,25 +892,37 @@ def validators(ctx):
         click.echo(f"  Stake Info:")
         # Print associated stake accounts
         stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
-        for file in os.listdir(stake_accounts_path):
-            stake_account_key = os.path.join(stake_accounts_path, file)
-            stake_account_pubkey = get_pubkey(stake_account_key)
-            # Execute solana command to get stake account details
+        # Function to get stake account details
+        def get_stake_account_details(stake_account_pubkey):
             result = subprocess.run([solana, '-u', f'http://{ip()}:8899', 'stake-account', stake_account_pubkey], capture_output=True, text=True)
-            output = result.stdout
-            # Parse the output
-            if 'Stake account is undelegated' not in output:
-                vote_account_line = next(line for line in output.splitlines() if line.startswith('Delegated Vote Account Address:'))
-                vote_account = vote_account_line.split(':')[1].strip()
-                if vote_account == vote_pubkey:
-                    balance_line = next(line for line in output.splitlines() if line.startswith('Balance:'))
-                    active_stake_line = next(line for line in output.splitlines() if line.startswith('Active Stake:'))
-                    delegated_stake_line = next(line for line in output.splitlines() if line.startswith('Delegated Stake:'))
-                    balance = balance_line.split(':')[1].strip()
-                    active_stake = active_stake_line.split(':')[1].strip()
-                    delegated_stake = delegated_stake_line.split(':')[1].strip()
+            return stake_account_pubkey, result.stdout
 
-                    click.echo(f"    {stake_account_pubkey}: Balance: {balance}, Active Stake: {active_stake}, Delegated Stake: {delegated_stake}")
+        # Collect stake account details
+        stake_account_details = []
+        with ThreadPoolExecutor() as executor:
+            futures = {executor.submit(get_stake_account_details, get_pubkey(os.path.join(stake_accounts_path, file))): file for file in os.listdir(stake_accounts_path)}
+            for future in as_completed(futures):
+                stake_account_pubkey, output = future.result()
+                # Parse the output
+                if 'Stake account is undelegated' not in output:
+                    vote_account_line = next(line for line in output.splitlines() if line.startswith('Delegated Vote Account Address:'))
+                    vote_account = vote_account_line.split(':')[1].strip()
+                    if vote_account == vote_pubkey:
+                        balance_line = next(line for line in output.splitlines() if line.startswith('Balance:'))
+                        active_stake_line = next(line for line in output.splitlines() if line.startswith('Active Stake:'))
+                        delegated_stake_line = next(line for line in output.splitlines() if line.startswith('Delegated Stake:'))
+                        balance = balance_line.split(':')[1].strip()
+                        active_stake = active_stake_line.split(':')[1].strip()
+                        delegated_stake = delegated_stake_line.split(':')[1].strip()
+
+                        stake_account_details.append((stake_account_pubkey, balance, active_stake, delegated_stake))
+
+        # Sort stake accounts by pubkey
+        stake_account_details.sort(key=lambda x: x[0])
+
+        # Print sorted stake account details
+        for stake_account_pubkey, balance, active_stake, delegated_stake in stake_account_details:
+            click.echo(f"    {stake_account_pubkey}: Balance: {balance}, Active Stake: {active_stake}, Delegated Stake: {delegated_stake}")
         click.echo("")
 
 
