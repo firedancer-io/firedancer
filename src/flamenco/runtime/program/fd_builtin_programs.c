@@ -185,13 +185,8 @@ static fd_core_bpf_migration_config_t const * migrating_builtins[] = {
 static int
 fd_builtin_is_bpf( fd_exec_slot_ctx_t * slot_ctx,
                    fd_pubkey_t const  * pubkey ) {
-
-
-  fd_funk_t *     funk = slot_ctx->funk;
-  fd_funk_txn_t * txn  = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
-
-  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, slot_ctx->funk, slot_ctx->xid );
   if( !!err ) {
     return 0;
   }
@@ -214,12 +209,12 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           char const *         data,
                           ulong                sz ) {
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
+  fd_funk_t *               funk = slot_ctx->funk;
+  fd_funk_txn_xid_t const * xid  = slot_ctx->xid;
   FD_TXN_ACCOUNT_DECL( rec );
   fd_funk_rec_prepare_t prepare = {0};
 
-  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, txn, 1, sz, &prepare );
+  int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, xid, 1, sz, &prepare );
   FD_TEST( !err );
 
   fd_lthash_value_t prev_hash[1];
@@ -236,7 +231,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
 
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
+  fd_txn_account_mutable_fini( rec, funk, &prepare );
 
   fd_bank_capitalization_set( slot_ctx->bank, fd_bank_capitalization_get( slot_ctx->bank ) + 1UL );
 
@@ -255,8 +250,6 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
   }
 
-  fd_funk_t *         funk = slot_ctx->funk;
-  fd_funk_txn_t *     txn  = slot_ctx->funk_txn;
   fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
   FD_TXN_ACCOUNT_DECL( rec );
 
@@ -267,7 +260,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, key, funk, txn, 1, sizeof(data), &prepare );
+  int err = fd_txn_account_init_from_funk_mutable( rec, key, slot_ctx->funk, slot_ctx->xid, 1, sizeof(data), &prepare );
   FD_TEST( !err );
 
   fd_txn_account_set_lamports( rec, 1000000000UL );
@@ -275,7 +268,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_txn_account_set_owner( rec, &fd_solana_spl_token_id );
   fd_txn_account_set_data( rec, data, sizeof(data) );
 
-  fd_txn_account_mutable_fini( rec, funk, txn, &prepare );
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, &prepare );
 
   FD_TEST( !err );
 }

@@ -51,12 +51,12 @@ fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
 }
 
 fd_epoch_schedule_t *
-fd_sysvar_epoch_schedule_read( fd_funk_t *           funk,
-                               fd_funk_txn_t *       funk_txn,
-                               fd_epoch_schedule_t * out ) {
+fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_epoch_schedule_t *     out ) {
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }

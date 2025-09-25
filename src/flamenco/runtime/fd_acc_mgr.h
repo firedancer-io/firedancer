@@ -152,12 +152,12 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    is guaranteed there are no other modifying accesses to the account. */
 
 fd_account_meta_t const *
-fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
-                               fd_funk_txn_t const *  txn,
-                               fd_pubkey_t const *    pubkey,
-                               fd_funk_rec_t const ** opt_out_rec,
-                               int *                  opt_err,
-                               fd_funk_txn_t const ** txn_out );
+fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_pubkey_t const *       pubkey,
+                               fd_funk_rec_t const **    orec,
+                               int *                     opt_err,
+                               fd_funk_txn_t const **    txn_out ) ;
 
 /* fd_funk_get_acc_meta_mutable requests a writable handle to an account.
    Follows interface of fd_funk_get_account_meta_readonly with the following
@@ -196,14 +196,14 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *      funk,
    that account. */
 
 fd_account_meta_t *
-fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
-                              fd_funk_txn_t *         txn,
-                              fd_pubkey_t const *     pubkey,
-                              int                     do_create,
-                              ulong                   min_data_sz,
-                              fd_funk_rec_t **        opt_out_rec,
-                              fd_funk_rec_prepare_t * out_prepare,
-                              int *                   opt_err );
+fd_funk_get_acc_meta_mutable( fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_pubkey_t const *       pubkey,
+                              int                       do_create,
+                              ulong                     min_data_sz,
+                              fd_funk_rec_t **          opt_out_rec,
+                              fd_funk_rec_prepare_t *   out_prepare,
+                              int *                     opt_err );
 
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and

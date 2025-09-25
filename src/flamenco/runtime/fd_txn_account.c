@@ -148,15 +148,15 @@ fd_txn_account_delete( void * mem ) {
 /* Factory constructors from funk */
 
 int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
-                                        fd_pubkey_t const *   pubkey,
-                                        fd_funk_t const *     funk,
-                                        fd_funk_txn_t const * funk_txn ) {
+fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
+                                        fd_pubkey_t const *       pubkey,
+                                        fd_funk_t const *         funk,
+                                        fd_funk_txn_xid_t const * xid ) {
 
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
       funk,
-      funk_txn,
+      xid,
       pubkey,
       NULL,
       &err,
@@ -178,18 +178,18 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
 }
 
 int
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
-                                       fd_pubkey_t const *     pubkey,
-                                       fd_funk_t *             funk,
-                                       fd_funk_txn_t *         funk_txn,
-                                       int                     do_create,
-                                       ulong                   min_data_sz,
-                                       fd_funk_rec_prepare_t * prepare_out ) {
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
+                                       fd_pubkey_t const *       pubkey,
+                                       fd_funk_t *               funk,
+                                       fd_funk_txn_xid_t const * xid,
+                                       int                       do_create,
+                                       ulong                     min_data_sz,
+                                       fd_funk_rec_prepare_t *   prepare_out ) {
   memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t * meta = fd_funk_get_acc_meta_mutable(
       funk,
-      funk_txn,
+      xid,
       pubkey,
       do_create,
       min_data_sz,
@@ -218,11 +218,9 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
 }
 
 void
-fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
-                             fd_funk_t *             funk,
-                             fd_funk_txn_t *         txn,
-                             fd_funk_rec_prepare_t * prepare ) {
-  (void)txn;
+fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
+                             fd_funk_t *               funk,
+                             fd_funk_rec_prepare_t *   prepare ) {
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
   /* Check that the prepared record is still valid -

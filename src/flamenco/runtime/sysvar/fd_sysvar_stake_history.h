@@ -25,9 +25,9 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
    lamports, this function returns NULL. */
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn,
-                              fd_spad_t *     spad );
+fd_sysvar_stake_history_read( fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_spad_t *               spad );
 
 /* Update the stake history sysvar account - called during epoch boundary */
 void

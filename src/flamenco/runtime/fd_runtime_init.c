@@ -21,7 +21,7 @@ fd_feature_restore( fd_features_t *         features,
   int err = fd_txn_account_init_from_funk_readonly( acct_rec,
                                                     addr,
                                                     slot_ctx->funk,
-                                                    slot_ctx->funk_txn );
+                                                    slot_ctx->xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
   }

@@ -940,7 +940,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_ctx->account_keys[ nonce_idx ],
                                                     txn_ctx->funk,
-                                                    txn_ctx->funk_txn );
+                                                    txn_ctx->xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
@@ -993,7 +993,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
          */
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             txn_ctx->funk,
-            txn_ctx->funk_txn,
+            txn_ctx->xid,
             &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,

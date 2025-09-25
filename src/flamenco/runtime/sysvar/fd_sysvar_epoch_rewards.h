@@ -12,7 +12,7 @@ FD_PROTOTYPES_BEGIN
 
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
-                              fd_funk_txn_t *             funk_txn,
+                              fd_funk_txn_xid_t const *   xid,
                               fd_sysvar_epoch_rewards_t * out );
 
 /* Update EpochRewards sysvar with distributed rewards

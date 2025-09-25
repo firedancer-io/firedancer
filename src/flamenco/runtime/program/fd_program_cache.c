@@ -151,10 +151,10 @@ fd_get_executable_program_content_for_v4_loader( fd_txn_account_t const * progra
    - The program account data cannot be decoded or is not in the `program` state.
    - The programdata account is not large enough to hold at least `PROGRAMDATA_METADATA_SIZE` bytes. */
 static uchar const *
-fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *        funk,
-                                                          fd_funk_txn_t const *    funk_txn,
-                                                          fd_txn_account_t const * program_acc,
-                                                          ulong *                  program_data_len ) {
+fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *         funk,
+                                                          fd_funk_txn_xid_t const * xid,
+                                                          fd_txn_account_t const *  program_acc,
+                                                          ulong *                   program_data_len ) {
   fd_bpf_upgradeable_loader_state_t program_account_state[1];
   if( FD_UNLIKELY( !fd_bincode_decode_static(
       bpf_upgradeable_loader_state,
@@ -170,7 +170,7 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
 
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
   FD_TXN_ACCOUNT_DECL( programdata_acc );
-  if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, funk, funk_txn )!=FD_ACC_MGR_SUCCESS ) {
+  if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, funk, xid )!=FD_ACC_MGR_SUCCESS ) {
     return NULL;
   }
 
@@ -208,10 +208,10 @@ fd_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t const * pr
 }
 
 uchar const *
-fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
-                                          fd_funk_txn_t const *    funk_txn,
-                                          fd_txn_account_t const * program_acc,
-                                          ulong *                  out_program_data_len ) {
+fd_program_cache_get_account_programdata( fd_funk_t const *         funk,
+                                          fd_funk_txn_xid_t const * xid,
+                                          fd_txn_account_t const *  program_acc,
+                                          ulong *                   out_program_data_len ) {
   /* v1/v2 loaders: Programdata is just the account data.
      v3 loader: Programdata lives in a separate account. Deserialize the
                 program account and lookup the programdata account.
@@ -219,7 +219,7 @@ fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
      v4 loader: Programdata lives in the program account, offset by
                 LOADER_V4_PROGRAM_DATA_OFFSET. */
   if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return fd_get_executable_program_content_for_upgradeable_loader( funk, funk_txn, program_acc, out_program_data_len );
+    return fd_get_executable_program_content_for_upgradeable_loader( funk, xid, program_acc, out_program_data_len );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
     return fd_get_executable_program_content_for_v4_loader( program_acc, out_program_data_len );
   } else if( !memcmp( fd_txn_account_get_owner( program_acc ), fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) ||
@@ -383,21 +383,21 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
     ulong current_slot = fd_bank_slot_get( slot_ctx->bank );
 
     /* Prepare the funk record for the program cache. */
-    fd_pubkey_t const * program_pubkey = program_acc->pubkey;
-    fd_funk_t *       funk             = slot_ctx->funk;
-    fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
-    fd_funk_rec_key_t id               = fd_program_cache_key( program_pubkey );
+    fd_pubkey_t const *       program_pubkey = program_acc->pubkey;
+    fd_funk_t *               funk           = slot_ctx->funk;
+    fd_funk_txn_xid_t const * xid            = slot_ctx->xid;
+    fd_funk_rec_key_t         id             = fd_program_cache_key( program_pubkey );
 
     /* Try to get the programdata for the account. If it doesn't exist,
        simply return without publishing anything. The program could have
        been closed, but we do not want to touch the cache in this case. */
     ulong         program_data_len = 0UL;
-    uchar const * program_data     = fd_program_cache_get_account_programdata( funk, funk_txn, program_acc, &program_data_len );
+    uchar const * program_data     = fd_program_cache_get_account_programdata( funk, xid, program_acc, &program_data_len );
 
     /* This prepare should never fail. */
     int funk_err = FD_FUNK_SUCCESS;
     fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &id, prepare, &funk_err );
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, xid, &id, prepare, &funk_err );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       FD_LOG_CRIT(( "fd_funk_rec_prepare() failed: %i-%s", funk_err, fd_funk_strerror( funk_err ) ));
     }
@@ -451,14 +451,14 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
 
 int
 fd_program_cache_load_entry( fd_funk_t const *                 funk,
-                             fd_funk_txn_t const *             funk_txn,
+                             fd_funk_txn_xid_t const *         xid,
                              fd_pubkey_t const *               program_pubkey,
                              fd_program_cache_entry_t const ** cache_entry ) {
   fd_funk_rec_key_t id = fd_program_cache_key( program_pubkey );
 
   for(;;) {
     fd_funk_rec_query_t query[1];
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global(funk, funk_txn, &id, NULL, query);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global(funk, xid, &id, NULL, query);
 
     if( FD_UNLIKELY( !rec ) ) {
       /* If rec is NULL, we shouldn't inspect query below because it
@@ -504,7 +504,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec,
                                                            program_key,
                                                            slot_ctx->funk,
-                                                           slot_ctx->funk_txn ) ) ) {
+                                                           slot_ctx->xid ) ) ) {
     return;
   }
 
@@ -519,7 +519,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      into the cache and update the entry's flags accordingly if it fails
      verification. */
   fd_program_cache_entry_t const * existing_entry = NULL;
-  int err = fd_program_cache_load_entry( slot_ctx->funk, slot_ctx->funk_txn, program_key, &existing_entry );
+  int err = fd_program_cache_load_entry( slot_ctx->funk, slot_ctx->xid, program_key, &existing_entry );
   if( FD_UNLIKELY( err ) ) {
     fd_program_cache_create_cache_entry( slot_ctx, exec_rec, runtime_spad );
     return;
@@ -554,7 +554,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      invoke this program, account loading checks will fail. */
   ulong         program_data_len = 0UL;
   uchar const * program_data     = fd_program_cache_get_account_programdata( slot_ctx->funk,
-                                                                             slot_ctx->funk_txn,
+                                                                             slot_ctx->xid,
                                                                              exec_rec,
                                                                              &program_data_len );
   if( FD_UNLIKELY( program_data==NULL ) ) {
@@ -585,11 +585,11 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* Insert a new funk record, replacing the existing one if needed.
      min_sz==0 since the actual allocation happens below. */
-  fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->funk_txn, &id );
+  fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->xid, &id );
 
   /* Modify the record within the current funk txn */
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->funk_txn, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->xid, &id, query );
   if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never
        happen as this function is called in a single-threaded context. */
@@ -631,10 +631,10 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 }
 
 void
-fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
-                                                   fd_funk_txn_t *     funk_txn,
-                                                   fd_pubkey_t const * program_key,
-                                                   ulong               current_slot ) {
+fd_program_cache_queue_program_for_reverification( fd_funk_t *               funk,
+                                                   fd_funk_txn_xid_t const * xid,
+                                                   fd_pubkey_t const *       program_key,
+                                                   ulong                     current_slot ) {
 
   /* We want to access the program cache entry for this pubkey and
      queue it for reverification. If it exists, clone it down to the
@@ -646,18 +646,18 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
      the dispatcher will not attempt to execute transaction B until
      transaction A is finalized. */
   fd_program_cache_entry_t const * existing_entry = NULL;
-  int err = fd_program_cache_load_entry( funk, funk_txn, program_key, &existing_entry );
+  int err = fd_program_cache_load_entry( funk, xid, program_key, &existing_entry );
   if( FD_UNLIKELY( err ) ) {
     return;
   }
 
   /* Ensure the record is in the current funk transaction */
   fd_funk_rec_key_t id = fd_program_cache_key( program_key );
-  fd_funk_rec_insert_para( funk, funk_txn, &id );
+  fd_funk_rec_insert_para( funk, xid, &id );
 
   /* Modify the record within the current funk txn */
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, funk_txn, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, xid, &id, query );
   if( FD_UNLIKELY( !rec ) ) {
     /* The record does not exist (somehow). Ideally this should never
        happen since this function is called in a single-threaded

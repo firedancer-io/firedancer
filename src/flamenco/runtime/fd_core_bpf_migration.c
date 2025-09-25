@@ -150,7 +150,7 @@ fd_source_buffer_account_new( fd_exec_slot_ctx_t * slot_ctx,
                               fd_funk_rec_prepare_t * prepare ) {
   /* The buffer account should exist.
      https://github.com/anza-xyz/agave/blob/v2.3.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L27-L29 */
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( buffer_account, buffer_address, slot_ctx->funk, slot_ctx->funk_txn, 0, 0UL, prepare )!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( buffer_account, buffer_address, slot_ctx->funk, slot_ctx->xid, 0, 0UL, prepare )!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_DEBUG(( "Buffer account %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( buffer_address ) ));
     return 1;
   }
@@ -255,7 +255,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
      will no longer be the native loader.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L23-L50 */
   FD_TXN_ACCOUNT_DECL( target_program_account );
-  uchar program_exists = ( fd_txn_account_init_from_funk_readonly( target_program_account, builtin_program_id, slot_ctx->funk, slot_ctx->funk_txn )==FD_ACC_MGR_SUCCESS );
+  uchar program_exists = ( fd_txn_account_init_from_funk_readonly( target_program_account, builtin_program_id, slot_ctx->funk, slot_ctx->xid )==FD_ACC_MGR_SUCCESS );
   if( !stateless ) {
     /* The program account should exist.
        https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L30-L33 */
@@ -294,7 +294,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
     return;
   }
   FD_TXN_ACCOUNT_DECL( program_data_account );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( program_data_account, target_program_data_address, slot_ctx->funk, slot_ctx->funk_txn )==FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( program_data_account, target_program_data_address, slot_ctx->funk, slot_ctx->xid )==FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "Program data account %s already exists, skipping migration...", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     return;
   }
@@ -332,9 +332,10 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
   ulong lamports_to_burn = ( stateless ? 0UL : fd_txn_account_get_lamports( target_program_account ) ) + fd_txn_account_get_lamports( source_buffer_account );
 
   /* Start a funk write txn */
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funk_txn_xid_t parent_xid = slot_ctx->xid[0];
   fd_funk_txn_xid_t migration_xid = fd_funk_generate_xid();
-  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, &parent_txn->xid, &migration_xid, 0UL );
+  fd_funk_txn_prepare( slot_ctx->funk, slot_ctx->xid, &migration_xid );
+  slot_ctx->xid[0] = migration_xid;
 
   /* Attempt serialization of program account. If the program is
      stateless, we want to create the account. Otherwise, we want a
@@ -346,7 +347,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
       new_target_program_account,
       builtin_program_id,
       slot_ctx->funk,
-      slot_ctx->funk_txn,
+      slot_ctx->xid,
       stateless,
       SIZE_OF_PROGRAM,
       &new_target_program_prepare );
@@ -375,7 +376,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
     prev_new_target_program_account_hash,
     slot_ctx->bank,
     slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( new_target_program_account, slot_ctx->funk, slot_ctx->funk_txn, &new_target_program_prepare );
+  fd_txn_account_mutable_fini( new_target_program_account, slot_ctx->funk, &new_target_program_prepare );
 
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + fd_txn_account_get_data_len( source_buffer_account );
@@ -385,7 +386,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
       new_target_program_data_account,
       target_program_data_address,
       slot_ctx->funk,
-      slot_ctx->funk_txn,
+      slot_ctx->xid,
       1,
       new_target_program_data_account_sz,
       &new_target_program_data_prepare );
@@ -417,7 +418,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
     prev_new_target_program_data_account_hash,
     slot_ctx->bank,
     slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( new_target_program_data_account, slot_ctx->funk, slot_ctx->funk_txn, &new_target_program_data_prepare );
+  fd_txn_account_mutable_fini( new_target_program_data_account, slot_ctx->funk, &new_target_program_data_prepare );
 
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
@@ -453,18 +454,18 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t *                   slot_ctx,
     prev_source_buffer_hash,
     slot_ctx->bank,
     slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( source_buffer_account, slot_ctx->funk, slot_ctx->funk_txn, &source_buffer_prepare );
+  fd_txn_account_mutable_fini( source_buffer_account, slot_ctx->funk, &source_buffer_prepare );
 
   /* Publish the in-preparation transaction into the parent. We should not have to create
      a BPF cache entry here because the program is technically "delayed visibility", so the program
      should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
-  fd_funk_txn_publish_into_parent( slot_ctx->funk, &slot_ctx->funk_txn->xid );
-  slot_ctx->funk_txn = parent_txn;
+  fd_funk_txn_publish_into_parent( slot_ctx->funk, slot_ctx->xid );
+  slot_ctx->xid[0] = parent_xid;
   return;
 
 fail:
   /* Cancel the in-preparation transaction and discard any in-progress changes. */
-  fd_funk_txn_cancel( slot_ctx->funk, &slot_ctx->funk_txn->xid );
-  slot_ctx->funk_txn = parent_txn;
+  fd_funk_txn_cancel( slot_ctx->funk, slot_ctx->xid );
+  slot_ctx->xid[0] = parent_xid;
 }

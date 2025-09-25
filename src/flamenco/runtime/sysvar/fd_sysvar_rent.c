@@ -32,11 +32,11 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 fd_rent_t const *
-fd_sysvar_rent_read( fd_funk_t *     funk,
-                     fd_funk_txn_t * funk_txn,
-                     fd_spad_t *     spad ) {
+fd_sysvar_rent_read( fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * xid,
+                     fd_spad_t *               spad ) {
   FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, funk_txn );
+  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, xid );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }

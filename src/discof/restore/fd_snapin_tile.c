@@ -73,8 +73,7 @@ struct fd_snapin_tile {
   fd_txncache_t * txncache;
   uchar *         acc_data;
 
-  fd_funk_txn_xid_t xid;
-  fd_funk_txn_t *   funk_txn;  /* tracks xid, may be NULL */
+  fd_funk_txn_xid_t xid[1]; /* txn XID */
 
   fd_stem_context_t *    stem;
   fd_snapshot_parser_t * ssparse;
@@ -244,19 +243,13 @@ account_cb( void *                          _ctx,
 
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t*)hdr->meta.pubkey );
   fd_funk_rec_query_t query[1];
-
-  /* Published records are indexed with the 'root' XID, even though they
-     might have been published in a newer XID. */
-  fd_funk_txn_xid_t xid;
-  if( ctx->funk_txn ) xid = ctx->funk_txn->xid;
-  else                fd_funk_txn_xid_set_root( &xid );
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, &xid, &id, query );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
     should_publish = 1;
-    rec = fd_funk_rec_prepare( ctx->funk, ctx->funk_txn, &id, prepare, NULL );
+    rec = fd_funk_rec_prepare( ctx->funk, ctx->xid, &id, prepare, NULL );
     FD_TEST( rec );
   }
 
@@ -354,7 +347,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
     case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
       ctx->full = 0;
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
-      fd_funk_txn_cancel( ctx->funk, &ctx->xid );
+      fd_funk_txn_cancel( ctx->funk, ctx->xid );
+      fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
@@ -368,9 +362,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_snapshot_parser_reset( ctx->ssparse, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ), ctx->manifest_out.mtu );
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
-      ctx->funk_txn = fd_funk_txn_prepare( ctx->funk, &ctx->xid, &incremental_xid, 0 );
-      FD_TEST( ctx->funk_txn );
-      ctx->xid = incremental_xid;
+      fd_funk_txn_prepare( ctx->funk, ctx->xid, &incremental_xid );
+      fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
 
       ctx->full     = 0;
       ctx->state    = FD_SNAPIN_STATE_LOADING;
@@ -383,7 +376,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       uchar slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk, ctx->funk_txn, slot_history_mem );
+      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk, ctx->xid, slot_history_mem );
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx, slot_history ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed" ));
         transition_malformed( ctx, stem );
@@ -391,16 +384,16 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Publish any remaining funk txn */
-      if( FD_LIKELY( ctx->funk_txn ) ) {
-        fd_funk_txn_publish_into_parent( ctx->funk, &ctx->xid );
-        ctx->funk_txn = NULL;
+      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
+        fd_funk_txn_publish_into_parent( ctx->funk, ctx->xid );
       }
+      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, ctx->bank_slot } };
-      fd_funk_txn_prepare( ctx->funk, &ctx->xid, &target_xid, 0 );
+      fd_funk_txn_prepare( ctx->funk, ctx->xid, &target_xid );
       fd_funk_txn_publish_into_parent( ctx->funk, &target_xid );
-      ctx->xid = target_xid;
+      fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
       fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
@@ -476,8 +469,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->boot_timestamp = fd_log_wallclock();
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  ctx->funk_txn = NULL;
-  fd_funk_txn_xid_set_root( &ctx->xid );
+  fd_funk_txn_xid_set_root( ctx->xid );
 
   if( FD_LIKELY( tile->snapin.txncache_obj_id!=ULONG_MAX ) ) {
     ctx->txncache = fd_txncache_join( fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id ) );
