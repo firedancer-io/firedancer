@@ -54,8 +54,8 @@ struct fd_exec_txn_ctx {
   fd_txncache_t *                      status_cache;
   int                                  enable_exec_recording;
   fd_bank_hash_cmp_t *                 bank_hash_cmp;
-  fd_funk_txn_t *                      funk_txn;
   fd_funk_t                            funk[1];
+  fd_funk_txn_xid_t                    xid[1];
   ulong                                slot;
   ulong                                bank_idx;
   fd_txn_p_t                           txn;

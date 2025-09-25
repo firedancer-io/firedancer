@@ -236,7 +236,7 @@ fd_program_cache_key( fd_pubkey_t const * pubkey );
    to the program cache entry. */
 int
 fd_program_cache_load_entry( fd_funk_t const *                 funk,
-                             fd_funk_txn_t const *             funk_txn,
+                             fd_funk_txn_xid_t const *         xid,
                              fd_pubkey_t const *               program_pubkey,
                              fd_program_cache_entry_t const ** cache_entry );
 
@@ -250,10 +250,10 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
    This is essentially load_program_with_pubkey(), sans the ELF parsing
    and whatnot which is done in load_program_from_bytes(). */
 uchar const *
-fd_program_cache_get_account_programdata( fd_funk_t const *        funk,
-                                          fd_funk_txn_t const *    funk_txn,
-                                          fd_txn_account_t const * program_acc,
-                                          ulong *                  out_program_data_len );
+fd_program_cache_get_account_programdata( fd_funk_t const *         funk,
+                                          fd_funk_txn_xid_t const * xid,
+                                          fd_txn_account_t const *  program_acc,
+                                          ulong *                   out_program_data_len );
 
 /* Updates the program cache for a single program. This function is
    called for every program that is referenced in a transaction, plus
@@ -296,10 +296,10 @@ fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
    If the record exists in the program cache, this function will
    acquire a write-lock on the program cache entry. */
 void
-fd_program_cache_queue_program_for_reverification( fd_funk_t *         funk,
-                                                   fd_funk_txn_t *     funk_txn,
-                                                   fd_pubkey_t const * program_key,
-                                                   ulong               current_slot );
+fd_program_cache_queue_program_for_reverification( fd_funk_t *               funk,
+                                                   fd_funk_txn_xid_t const * xid,
+                                                   fd_pubkey_t const *       program_key,
+                                                   ulong                     current_slot );
 
 FD_PROTOTYPES_END
 

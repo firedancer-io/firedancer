@@ -33,8 +33,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed" ));
+  fd_funk_txn_prepare( funk, &parent_xid, xid );
 
   /* Allocate contexts */
   uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad,FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
@@ -49,8 +48,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Set up slot context */
 
-  slot_ctx->funk_txn = funk_txn;
-  slot_ctx->funk     = funk;
+  slot_ctx->xid[0] = xid[0];
+  slot_ctx->funk   = funk;
 
   /* Bank manager */
   slot_ctx->banks = runner->banks;
@@ -84,9 +83,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Set up txn context */
 
-  fd_wksp_t * funk_wksp      = fd_funk_wksp( funk );
-  ulong       funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, funk_txn );
-  ulong       funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_wksp_t * funk_wksp  = fd_funk_wksp( funk );
+  ulong       funk_gaddr = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   /* Set up mock txn descriptor */
   fd_txn_p_t * txn                    = fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
@@ -97,7 +95,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
                                       funk_wksp,
-                                      funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
@@ -141,7 +138,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
     memcpy(  &(txn_ctx->account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !fd_runtime_fuzz_load_account( &accts[j], funk, funk_txn, &test_ctx->accounts[j], 0 ) ) {
+    if( !fd_runtime_fuzz_load_account( &accts[j], funk, xid, &test_ctx->accounts[j], 0 ) ) {
       return 0;
     }
 
@@ -225,7 +222,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[txn_ctx->executable_cnt],
                                                                programdata_acc,
                                                                txn_ctx->funk,
-                                                               txn_ctx->funk_txn ) ) ) {
+                                                               txn_ctx->xid ) ) ) {
         continue;
       }
       txn_ctx->executable_cnt++;
@@ -234,25 +231,25 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Set slot bank variables and ensure all relevant sysvars are present */
   fd_sol_sysvar_last_restart_slot_t last_restart_slot_[1];
-  FD_TEST( fd_sysvar_last_restart_slot_read( funk, funk_txn, last_restart_slot_ ) );
+  FD_TEST( fd_sysvar_last_restart_slot_read( funk, xid, last_restart_slot_ ) );
 
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
   FD_TEST( clock );
   fd_bank_slot_set( slot_ctx->bank, clock->slot );
 
   fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, xid, epoch_schedule_ );
   FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
   /* Override epoch bank rent setting */
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  fd_rent_t const * rent = fd_sysvar_rent_read( funk, xid, runner->spad );
   FD_TEST( rent );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
   /* Override most recent blockhash if given */
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, runner->spad );
   FD_TEST( rbh );
   if( !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
@@ -329,7 +326,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
                                       funk_wksp,
-                                      funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
 

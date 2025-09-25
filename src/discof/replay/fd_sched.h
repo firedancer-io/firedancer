@@ -55,10 +55,10 @@ typedef struct fd_sched fd_sched_t;
 
 
 struct fd_sched_alut_ctx {
-  fd_funk_t *     funk;
-  fd_funk_txn_t * funk_txn;
-  ulong           els; /* Effective lookup slot. */
-  fd_spad_t *     runtime_spad;
+  fd_funk_t *       funk;
+  fd_funk_txn_xid_t xid[1];
+  ulong             els; /* Effective lookup slot. */
+  fd_spad_t *       runtime_spad;
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 

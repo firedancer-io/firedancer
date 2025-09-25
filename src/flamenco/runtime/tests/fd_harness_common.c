@@ -5,7 +5,7 @@
 int
 fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
                               fd_funk_t *                       funk,
-                              fd_funk_txn_t *                   funk_txn,
+                              fd_funk_txn_xid_t const *         xid,
                               fd_exec_test_acct_state_t const * state,
                               uchar                             reject_zero_lamports ) {
   if( reject_zero_lamports && state->lamports==0UL ) {
@@ -18,7 +18,7 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, funk_txn, pubkey, NULL, NULL, NULL) ) ) {
+  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( funk, xid, pubkey, NULL, NULL, NULL) ) ) {
     return 0;
   }
 
@@ -28,7 +28,7 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ funk,
-                                                   /* txn         */ funk_txn,
+                                                   /* xid         */ xid,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ size,
                                                    /* prepare     */ &prepare );
@@ -47,7 +47,7 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
   /* make the account read-only by default */
   fd_txn_account_set_readonly( acc );
 
-  fd_txn_account_mutable_fini( acc, funk, funk_txn, &prepare );
+  fd_txn_account_mutable_fini( acc, funk, &prepare );
 
   return 1;
 }

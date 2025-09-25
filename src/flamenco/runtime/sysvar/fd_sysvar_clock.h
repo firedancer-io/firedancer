@@ -47,9 +47,9 @@ fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
    has zero lamports, this function returns NULL. */
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_funk_t *             funk,
-                      fd_funk_txn_t *         funk_txn,
-                      fd_sol_sysvar_clock_t * clock );
+fd_sysvar_clock_read( fd_funk_t *               funk,
+                      fd_funk_txn_xid_t const * xid,
+                      fd_sol_sysvar_clock_t *   clock );
 
 FD_PROTOTYPES_END
 

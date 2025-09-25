@@ -2565,7 +2565,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
        stricter. */
     fd_program_cache_entry_t const * cache_entry = NULL;
     if( FD_UNLIKELY( fd_program_cache_load_entry( ctx->txn_ctx->funk,
-                                                  ctx->txn_ctx->funk_txn,
+                                                  ctx->txn_ctx->xid,
                                                   program_id,
                                                   &cache_entry )!=0 ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
@@ -2603,16 +2603,14 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                      ulong                elf_sz,
                                      fd_spad_t *          runtime_spad ) {
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx        = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
-  fd_funk_t *         funk           = slot_ctx->funk;
-  fd_wksp_t *         funk_wksp      = fd_funk_wksp( funk );
-  ulong               funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong               funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_exec_txn_ctx_t * txn_ctx    = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
+  fd_funk_t *         funk       = slot_ctx->funk;
+  fd_wksp_t *         funk_wksp  = fd_funk_wksp( funk );
+  ulong               funk_gaddr = fd_wksp_gaddr( funk_wksp, funk->shmem );
 
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
                                       funk_wksp,
-                                      funk_txn_gaddr,
                                       funk_gaddr,
                                       NULL );
 

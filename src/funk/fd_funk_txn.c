@@ -54,11 +54,10 @@
                    _last_pub->ul[0], _last_pub->ul[1] ));                 \
   } while(0)
 
-fd_funk_txn_t *
+void
 fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * parent_xid,
-                     fd_funk_txn_xid_t const * xid,
-                     int                       verbose ) {
+                     fd_funk_txn_xid_t const * xid ) {
 
   if( FD_UNLIKELY( !funk       ) ) FD_LOG_CRIT(( "NULL funk"       ));
   if( FD_UNLIKELY( !parent_xid ) ) FD_LOG_CRIT(( "NULL parent_xid" ));
@@ -66,14 +65,14 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   if( FD_UNLIKELY( fd_funk_txn_xid_eq_root( xid ) ) ) FD_LOG_CRIT(( "xid is root" ));
 
   if( FD_UNLIKELY( fd_funk_txn_xid_eq( xid, funk->shmem->last_publish ) ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid is the last published" ));
-    return NULL;
+    FD_LOG_ERR(( "fd_funk_txn_prepare failed: xid %lu:%lu is the last published",
+                 xid->ul[0], xid->ul[1] ));
   }
 
   fd_funk_txn_map_query_t query[1];
   if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 ) != FD_MAP_ERR_KEY ) ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "xid in use" ));
-    return NULL;
+    FD_LOG_ERR(( "fd_funk_txn_prepare failed: xid %lu:%lu already in use",
+                 xid->ul[0], xid->ul[1] ));
   }
 
   ulong  parent_idx;
@@ -108,10 +107,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   /* Get a new transaction from the map */
 
   fd_funk_txn_t * txn = fd_funk_txn_pool_acquire( funk->txn_pool, NULL, 1, NULL );
-  if( txn == NULL ) {
-    if( FD_UNLIKELY( verbose ) ) FD_LOG_WARNING(( "transaction pool is exhuasted" ));
-    return NULL;
-  }
+  if( FD_UNLIKELY( !txn ) ) FD_LOG_ERR(( "fd_funk_txn_prepare failed: transaction object pool out of memory" ));
   fd_funk_txn_xid_copy( &txn->xid, xid );
   ulong txn_idx = (ulong)(txn - funk->txn_pool->ele);
 
@@ -146,8 +142,6 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
   }
 
   fd_funk_txn_map_insert( funk->txn_map, txn, FD_MAP_FLAG_BLOCKING );
-
-  return txn;
 }
 
 /* fd_funk_txn_cancel_childless cancels a transaction that is known
@@ -695,7 +689,7 @@ fd_funk_txn_publish( fd_funk_t *               funk,
   return publish_cnt;
 }
 
-int
+void
 fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid ) {
   if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
@@ -752,8 +746,6 @@ fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
   }
   fd_funk_txn_state_transition( txn, FD_FUNK_TXN_STATE_PUBLISH, FD_FUNK_TXN_STATE_FREE );
   fd_funk_txn_pool_release( txn_pool, txn, 1 );
-
-  return FD_FUNK_SUCCESS;
 }
 
 fd_funk_rec_t const *

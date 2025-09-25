@@ -53,7 +53,7 @@ struct fd_writer_tile_ctx {
 
   /* Local join of Funk.  R/W. */
   fd_funk_t                   funk[1];
-  fd_funk_txn_t *             funk_txn;
+  fd_funk_txn_xid_t           xid[1];
 
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
@@ -331,17 +331,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
         FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
       }
 
-      if( !ctx->funk_txn || txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
-        fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-        if( FD_UNLIKELY( !txn_map->map ) ) {
-          FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
-        }
-        fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
-        ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
-        if( FD_UNLIKELY( !ctx->funk_txn ) ) {
-          FD_LOG_CRIT(( "Could not find valid funk transaction" ));
-        }
-      }
+      ctx->xid[0] = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
 
       txn_ctx->spad      = ctx->exec_spad[ in_idx ];
       txn_ctx->spad_wksp = ctx->exec_spad_wksp[ in_idx ];
@@ -357,7 +347,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_runtime_finalize_txn(
             ctx->funk,
-            ctx->funk_txn,
+            ctx->xid,
             txn_ctx,
             ctx->bank,
             ctx->capture_ctx );

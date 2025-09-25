@@ -21,6 +21,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->slot_ctx->magic  = FD_EXEC_SLOT_CTX_MAGIC;
   env->slot_ctx->bank   = bank;
   env->slot_ctx->funk   = funk;
+  env->slot_ctx->xid[0] = *fd_funk_last_publish( funk );
   env->sysvar_cache     = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->sysvar_cache ) );
   return env;
 }

@@ -48,13 +48,12 @@ test_teardown( void ) {
 }
 
 /* Helper to create a funk transaction */
-static fd_funk_txn_t *
+static fd_funk_txn_xid_t
 create_test_funk_txn( void ) {
   fd_funk_txn_xid_t xid = fd_funk_generate_xid();
   fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( test_funk, &root, &xid, 1 );
-  FD_TEST( funk_txn );
-  return funk_txn;
+  fd_funk_txn_prepare( test_funk, &root, &xid );
+  return xid;
 }
 
 /* Helper to create a test account */
@@ -69,7 +68,7 @@ create_test_account( fd_pubkey_t const * pubkey,
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ test_funk,
-                                                   /* txn         */ test_slot_ctx->funk_txn,
+                                                   /* xid         */ test_slot_ctx->xid,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ data_len,
                                                    /* prepare     */ &prepare );
@@ -85,7 +84,7 @@ create_test_account( fd_pubkey_t const * pubkey,
   fd_txn_account_set_executable( acc, executable );
   fd_txn_account_set_owner( acc, owner );
 
-  fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn, &prepare );
+  fd_txn_account_mutable_fini( acc, test_funk, &prepare );
 }
 
 static void
@@ -97,7 +96,7 @@ update_account_data( fd_pubkey_t const * pubkey,
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
                                                    /* funk        */ test_funk,
-                                                   /* txn         */ test_slot_ctx->funk_txn,
+                                                   /* xid         */ test_slot_ctx->xid,
                                                    /* do_create   */ 0,
                                                    /* min_data_sz */ data_len,
                                                    /* prepare     */ &prepare );
@@ -105,7 +104,7 @@ update_account_data( fd_pubkey_t const * pubkey,
   FD_TEST( data );
 
   fd_txn_account_set_data( acc, data, data_len );
-  fd_txn_account_mutable_fini( acc, test_funk, test_slot_ctx->funk_txn, &prepare );
+  fd_txn_account_mutable_fini( acc, test_funk, &prepare );
 }
 
 /* Test 1: Account doesn't exist */
@@ -113,8 +112,7 @@ static void
 test_account_does_not_exist( void ) {
   FD_LOG_NOTICE(( "Testing: Account doesn't exist" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Call with a non-existent pubkey */
   fd_pubkey_t const non_existent_pubkey = {0};
@@ -124,10 +122,10 @@ test_account_does_not_exist( void ) {
 
   /* Verify no cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &non_existent_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &non_existent_pubkey, &valid_prog );
   FD_TEST( err==-1 ); /* Should not exist */
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 2: Account exists but is not owned by a BPF loader */
@@ -135,8 +133,7 @@ static void
 test_account_not_bpf_loader_owner( void ) {
   FD_LOG_NOTICE(( "Testing: Account exists but is not owned by a BPF loader" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create an account owned by a non-BPF loader */
   create_test_account( &test_program_pubkey,
@@ -150,10 +147,10 @@ test_account_not_bpf_loader_owner( void ) {
 
   /* Verify no cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( err==-1 ); /* Should not exist */
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 3: Program is not in cache yet (first time), but program fails validations */
@@ -161,8 +158,7 @@ static void
 test_invalid_program_not_in_cache_first_time( void ) {
   FD_LOG_NOTICE(( "Testing: Program is not in cache yet (first time), but program fails validations" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -176,14 +172,14 @@ test_invalid_program_not_in_cache_first_time( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err ); /* Should exist */
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_slot_ctx->bank ) );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 4: Program is not in cache yet (first time), but program passes validations */
@@ -191,8 +187,7 @@ static void
 test_valid_program_not_in_cache_first_time( void ) {
   FD_LOG_NOTICE(( "Testing: Program is not in cache yet (first time), but program passes validations" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -206,14 +201,14 @@ test_valid_program_not_in_cache_first_time( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err ); /* Should exist */
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
   FD_TEST( !valid_prog->failed_verification );
   FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_slot_ctx->bank ) );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 5: Program is in cache but needs reverification
@@ -222,8 +217,7 @@ static void
 test_program_in_cache_needs_reverification( void ) {
   FD_LOG_NOTICE(( "Testing: Program is in cache but needs reverification (different epoch)" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -237,7 +231,7 @@ test_program_in_cache_needs_reverification( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -252,7 +246,7 @@ test_program_in_cache_needs_reverification( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -260,7 +254,7 @@ test_program_in_cache_needs_reverification( void ) {
   FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_slot_ctx->bank ) );
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 6: Program is in cache and was just modified, so it should be
@@ -269,8 +263,7 @@ static void
 test_program_in_cache_queued_for_reverification( void ) {
   FD_LOG_NOTICE(( "Testing: Program is in cache and was just modified, so it should be queued for reverification" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -284,7 +277,7 @@ test_program_in_cache_queued_for_reverification( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -299,14 +292,14 @@ test_program_in_cache_queued_for_reverification( void ) {
 
   /* Get the program account to pass to the queue function */
   FD_TXN_ACCOUNT_DECL( program_acc );
-  err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, funk_txn );
+  err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, test_slot_ctx->xid );
   FD_TEST( !err );
 
   /* Queue the program for reverification */
-  fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, &test_program_pubkey, future_slot );
+  fd_program_cache_queue_program_for_reverification( test_funk, test_slot_ctx->xid, &test_program_pubkey, future_slot );
 
   /* Verify the cache entry was updated with the future slot as last_slot_modified */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -319,7 +312,7 @@ test_program_in_cache_queued_for_reverification( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -327,7 +320,7 @@ test_program_in_cache_queued_for_reverification( void ) {
   FD_TEST( valid_prog->last_slot_modified==future_slot );
   FD_TEST( valid_prog->last_slot_verified==future_slot );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 7: Program queued for reverification but program doesn't exist
@@ -336,8 +329,7 @@ static void
 test_program_queued_for_reverification_account_does_not_exist( void ) {
   FD_LOG_NOTICE(( "Testing: Program queued for reverification but account doesn't exist" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create a BPF loader account but don't add it to the cache */
   create_test_account( &test_program_pubkey,
@@ -354,18 +346,18 @@ test_program_queued_for_reverification_account_does_not_exist( void ) {
 
   /* Get the program account to pass to the queue function */
   FD_TXN_ACCOUNT_DECL( program_acc );
-  int err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, test_slot_ctx->xid );
   FD_TEST( !err );
 
   /* Try to queue the program for reverification - this should return early since it's not in cache */
-  fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, &test_program_pubkey, future_slot );
+  fd_program_cache_queue_program_for_reverification( test_funk, test_slot_ctx->xid, &test_program_pubkey, future_slot );
 
   /* Verify no cache entry was created since the program wasn't in the cache */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( err ); /* Should not exist */
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 8: Program is in cache and was just modified and queued for
@@ -375,8 +367,7 @@ static void
 test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_LOG_NOTICE(( "Testing: Program is in cache and was just modified and queued for reverification, so the last slot reverification ran should be set to the current slot" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
 
   /* Create a BPF loader account */
   create_test_account( &test_program_pubkey,
@@ -390,7 +381,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -405,14 +396,14 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
 
   /* Get the program account to pass to the queue function */
   FD_TXN_ACCOUNT_DECL( program_acc );
-  err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, funk_txn );
+  err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, test_slot_ctx->xid );
   FD_TEST( !err );
 
   /* Queue the program for reverification */
-  fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, &test_program_pubkey, future_slot );
+  fd_program_cache_queue_program_for_reverification( test_funk, test_slot_ctx->xid, &test_program_pubkey, future_slot );
 
   /* Verify the cache entry was updated with the future slot as last_slot_modified */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -430,7 +421,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -438,7 +429,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_update_slot );
   FD_TEST( valid_prog->last_slot_modified==future_slot );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 9: Genesis program fails verification, and is reverified later */
@@ -446,8 +437,7 @@ static void
 test_invalid_genesis_program_reverified_after_genesis( void ) {
   FD_LOG_NOTICE(( "Testing: Program fails verification in genesis, and is reverified later" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
   fd_bank_slot_set( test_slot_ctx->bank, 0UL );
 
   /* Create a BPF loader account */
@@ -462,7 +452,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -480,7 +470,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -488,7 +478,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_slot );
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 10: Genesis program passes verification, and is reverified
@@ -497,8 +487,7 @@ static void
 test_valid_genesis_program_reverified_after_genesis( void ) {
   FD_LOG_NOTICE(( "Testing: Program passes verification in genesis, and is reverified later" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
   fd_bank_slot_set( test_slot_ctx->bank, 0UL );
 
   /* Create a BPF loader account */
@@ -513,7 +502,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -531,7 +520,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
   fd_program_cache_update_program( test_slot_ctx, &test_program_pubkey, test_spad );
 
   /* Verify the cache entry was updated */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -539,7 +528,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_slot );
   FD_TEST( valid_prog->last_slot_modified==0UL );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 /* Test 11: Program gets upgraded with a larger programdata size */
@@ -547,8 +536,7 @@ static void
 test_program_upgraded_with_larger_programdata( void ) {
   FD_LOG_NOTICE(( "Testing: Program gets upgraded with a larger programdata size" ));
 
-  fd_funk_txn_t * funk_txn = create_test_funk_txn();
-  test_slot_ctx->funk_txn = funk_txn;
+  test_slot_ctx->xid[0] = create_test_funk_txn();
   fd_bank_slot_set( test_slot_ctx->bank, 0UL );
 
   /* Create a BPF loader account */
@@ -563,7 +551,7 @@ test_program_upgraded_with_larger_programdata( void ) {
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
-  int err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  int err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -581,10 +569,10 @@ test_program_upgraded_with_larger_programdata( void ) {
   update_account_data( &test_program_pubkey, bigger_valid_program_data, bigger_valid_program_data_sz );
 
   /* Queue the program for reverification */
-  fd_program_cache_queue_program_for_reverification( test_funk, funk_txn, &test_program_pubkey, future_slot );
+  fd_program_cache_queue_program_for_reverification( test_funk, test_slot_ctx->xid, &test_program_pubkey, future_slot );
 
   /* Verify the cache entry was updated with the future slot as last_slot_modified */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -596,7 +584,7 @@ test_program_upgraded_with_larger_programdata( void ) {
   /* Store the old program cache funk record size */
   fd_funk_rec_key_t id = fd_program_cache_key( &test_program_pubkey );
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t const * prev_rec = fd_funk_rec_query_try_global( test_funk, funk_txn, &id, NULL, query );
+  fd_funk_rec_t const * prev_rec = fd_funk_rec_query_try_global( test_funk, test_slot_ctx->xid, &id, NULL, query );
   FD_TEST( prev_rec );
   ulong prev_rec_sz = prev_rec->val_sz;
   FD_TEST( !fd_funk_rec_query_test( query ) );
@@ -606,14 +594,14 @@ test_program_upgraded_with_larger_programdata( void ) {
 
   /* Get the new program cache funk record size, and make sure it's
      larger */
-  fd_funk_rec_t const * new_rec = fd_funk_rec_query_try_global( test_funk, funk_txn, &id, NULL, query );
+  fd_funk_rec_t const * new_rec = fd_funk_rec_query_try_global( test_funk, test_slot_ctx->xid, &id, NULL, query );
   FD_TEST( new_rec );
   ulong new_rec_sz = new_rec->val_sz;
   FD_TEST( new_rec_sz>prev_rec_sz );
   FD_TEST( !fd_funk_rec_query_test( query ) );
 
   /* Verify the cache entry was updated */
-  err = fd_program_cache_load_entry( test_funk, funk_txn, &test_program_pubkey, &valid_prog );
+  err = fd_program_cache_load_entry( test_funk, test_slot_ctx->xid, &test_program_pubkey, &valid_prog );
   FD_TEST( !err );
   FD_TEST( valid_prog );
   FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
@@ -621,7 +609,7 @@ test_program_upgraded_with_larger_programdata( void ) {
   FD_TEST( valid_prog->last_slot_verified==future_slot );
   FD_TEST( valid_prog->last_slot_modified==future_slot );
 
-  fd_funk_txn_cancel( test_funk, &funk_txn->xid );
+  fd_funk_txn_cancel( test_funk, test_slot_ctx->xid );
 }
 
 int
