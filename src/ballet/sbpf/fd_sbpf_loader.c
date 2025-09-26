@@ -191,12 +191,29 @@ fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
   return (void *)mem;
 }
 
-/* fd_sbpf_loader_t contains various temporary state during loading */
+/* fd_sbpf_loader_t contains various temporary state during loading.
+   We need to maintain a separate value tracking the entrypoint calldest
+   because we lay out our calldests in a set instead of a map (like
+   Agave does), which is more performant but comes with a few footguns.
+   Since we only store the target PC and not a keypair of <hash, target
+   PC>, we need to make sure we unregister the correct target PC from
+   the map. For all other cases besides the b"entrypoint" string, we can
+   simply check for membership within the calldests set because the
+   32-bit murmur3 hash function is bijective, implying key collision iff
+   value collision. However, the b"entrypoint" string is a special case
+   because the key is the hardcoded hash of the b"entrypoint" string,
+   but the value can correspond to any target PC. This means that
+   someone could register several different target PCs with the same
+   entrypoint PC, and we cannot figure out which target PC we must
+   unregister. Additionally, we would not be able to check for
+   collisions for multiple registered b"entrypoint" strings with
+   different target PCs. */
 
 struct fd_sbpf_loader {
   /* External objects */
-  ulong *              calldests;  /* owned by program */
-  fd_sbpf_syscalls_t * syscalls;   /* owned by caller */
+  ulong *              calldests;             /* owned by program */
+  fd_sbpf_syscalls_t * syscalls;              /* owned by caller */
+  uchar                registered_entrypoint; /* 0=no, 1=yes */
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
@@ -275,11 +292,27 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t * loader,
                                          uint *             opt_out_pc_hash ) {
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L156-L160 */
   uint pc_hash;
-  if( FD_UNLIKELY( strcmp( name, "entrypoint" )==0 ) ) {
+  uchar is_entrypoint = strcmp( name, "entrypoint" )==0 ||
+                        target_pc==FD_SBPF_ENTRYPOINT_PC;
+  if( FD_UNLIKELY( is_entrypoint ) ) {
+    if( FD_UNLIKELY( loader->registered_entrypoint ) ) {
+      /* We already registered the entrypoint, so we cannot register it
+         again. */
+      return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+    }
+    loader->registered_entrypoint = 1;
+
     /* Optimization for this constant value */
     pc_hash = FD_SBPF_ENTRYPOINT_HASH;
   } else {
     pc_hash = fd_pchash( (uint)target_pc );
+  }
+
+  /* self.register_function() fails if there is an existing entry in the
+     calldests set.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L168-L176 */
+  if( FD_UNLIKELY( fd_sbpf_calldests_test( loader->calldests, target_pc ) ) ) {
+    return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
   }
 
   /* loader.get_function_registry() is their equivalent of our syscalls
@@ -290,17 +323,12 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t * loader,
     return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
   }
 
-  /* self.register_function() fails if there is an existing entry in the
-     calldests set.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L16
-     8-L176 */
-  if( FD_UNLIKELY( fd_sbpf_calldests_test( loader->calldests, target_pc ) ) ) {
-    return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+  /* Insert the target PC into the calldests set if it's not the
+     entrypoint. */
+  if( FD_LIKELY( !is_entrypoint ) ) {
+    fd_sbpf_calldests_insert( loader->calldests, target_pc );
+    if( opt_out_pc_hash ) *opt_out_pc_hash = pc_hash;
   }
-
-  /* Insert the target PC into the calldests set. */
-  fd_sbpf_calldests_insert( loader->calldests, target_pc );
-  if( opt_out_pc_hash ) *opt_out_pc_hash = pc_hash;
 
   return FD_SBPF_ELF_SUCCESS;
 }
@@ -1463,6 +1491,7 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
   fd_sbpf_elf_t const *      elf      = (fd_sbpf_elf_t const *)bin;
   fd_sbpf_elf_info_t const * elf_info = &prog->info;
   fd_elf64_shdr const *      shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  uchar *                    rodata   = prog->rodata;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L818-L834 */
   ulong lowest_addr          = ULONG_MAX; /* Lowest section address */
@@ -1566,7 +1595,7 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L899-L908 */
     ulong section_header_lo, section_header_hi;
     if( FD_UNLIKELY( !fd_shdr_get_file_range( section_header, &section_header_lo, &section_header_hi ) ||
-                     section_header_hi>elf_sz ) ) {
+                     section_header_hi>bin_sz ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
     ulong section_data_len = section_header_hi - section_header_lo;
@@ -1604,20 +1633,18 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     /* The linker may have already put sections within the VM's rodata
        address range, so we must normalize accordingly.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L935-L946  */
-    ulong addr_offset = lowest_addr;
     if( lowest_addr<FD_SBPF_MM_RODATA_ADDR ) {
       if( FD_UNLIKELY( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
-      addr_offset = fd_ulong_sat_add( lowest_addr, FD_SBPF_MM_RODATA_ADDR );
     }
 
     /* Set the rodata accordingly, and zero out the rest.
        TODO: This should be optimized to avoid memcpys and set pointers
        instead, like Agave does.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L948 */
-    memmove( prog->rodata, prog->rodata + buf_offset_start, buf_offset_end - buf_offset_start );
-    fd_memset( prog->rodata + buf_offset_end, 0, prog->rodata_sz - buf_offset_end );
+    memmove( rodata, rodata+buf_offset_start, buf_offset_end-buf_offset_start );
+    fd_memset( rodata+buf_offset_end, 0, prog->rodata_sz-buf_offset_end );
   } else {
     /* Readonly / non-readonly sections are mixed, so non-readonly
        sections must be zeroed and the readonly sections must be copied
@@ -1654,11 +1681,11 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
-      memcpy( prog->rodata+buf_offset_start, elf->bin+slice_lo, slice_len );
+      memcpy( rodata+buf_offset_start, elf->bin+slice_lo, slice_len );
     }
 
     /* Zero out the rest of the rodata segment. */
-    fd_memset( prog->rodata+buf_len, 0, fd_ulong_sat_sub( prog->rodata_sz, buf_len ) );
+    fd_memset( rodata+buf_len, 0, fd_ulong_sat_sub( prog->rodata_sz, buf_len ) );
   }
 
   return FD_SBPF_ELF_SUCCESS;
@@ -1788,10 +1815,13 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
       switch( FD_ELF64_R_TYPE( dt_rel->r_info ) ) {
         case FD_ELF_R_BPF_64_64:
           err = fd_sbpf_r_bpf_64_64( elf, bin_sz, rodata, elf_info, dt_rel, r_offset );
+          break;
         case FD_ELF_R_BPF_64_RELATIVE:
           err = fd_sbpf_r_bpf_64_relative(elf, bin_sz, rodata, elf_info, r_offset );
+          break;
         case FD_ELF_R_BPF_64_32:
           err = fd_sbpf_r_bpf_64_32( loader, elf, bin_sz, rodata, elf_info, dt_rel, r_offset, config );
+          break;
         default:
           return FD_SBPF_ELF_ERR_UNKNOWN_RELOCATION;
       }
@@ -1855,7 +1885,6 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
      is not implemented.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L654-L667 */
   ulong entry_pc = offset / 8UL;
-  fd_sbpf_calldests_remove( loader->calldests, FD_SBPF_ENTRYPOINT_HASH );
   err = fd_sbpf_register_function_hashed_legacy(
       loader,
       "entrypoint",
@@ -1882,15 +1911,16 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       fd_sbpf_syscalls_t *            syscalls,
                       fd_sbpf_loader_config_t const * config ) {
   fd_sbpf_loader_t loader = {
-    .calldests = prog->calldests,
-    .syscalls  = syscalls,
+    .calldests             = prog->calldests,
+    .syscalls              = syscalls,
+    .registered_entrypoint = 0,
   };
 
   /* Invoke strict vs lenient loader
      Note: info.sbpf_version is already set by fd_sbpf_program_parse()
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L409 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( prog->info.sbpf_version ) ) ) {
-    /* There is nothing else to do in the strict case*/
+    /* There is nothing else to do in the strict case */
     return FD_SBPF_ELF_SUCCESS;
   }
   return fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config );
