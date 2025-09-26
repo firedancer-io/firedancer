@@ -126,7 +126,7 @@ main( int     argc,
       } else { /* insert into last published */
         if( funk_is_frozen( ref ) ) continue;
         rtxn = NULL;
-        rxid = 0UL;
+        rxid = ref->last_publish;
       }
 
       ulong rkey = (ulong)(r & 63U); r >>= 6;
@@ -163,7 +163,7 @@ main( int     argc,
         rxid = rrec->txn->xid;
       } else {
         if( funk_is_frozen( ref ) ) continue;
-        rxid = 0UL;
+        rxid = ref->last_publish;
       }
       ulong rkey = rrec->key;
 
