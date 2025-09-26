@@ -22,7 +22,7 @@
 #define FD_SNAPIN_STATE_MALFORMED (2) /* The snapshot is malformed, we are waiting for a reset notification */
 #define FD_SNAPIN_STATE_SHUTDOWN  (3) /* The tile is done, been told to shut down, and has likely already exited */
 
-#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXN_PER_SLOT)
+#define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_MAX_TXN_PER_SLOT)
 
 struct fd_blockhash_wrapper {
   uchar const * bh;
