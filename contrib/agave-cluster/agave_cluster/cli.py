@@ -123,7 +123,7 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
     # Implementation will be added here
     click.echo("🚀 Starting Agave cluster...")
-    # TODO: Implement cluster startup logic
+
     click.echo(f"Using solana-genesis binary: {solana_binary('solana-genesis')}")
     if os.path.exists(cluster_path):
         shutil.rmtree(cluster_path)
@@ -269,12 +269,7 @@ def add_node(ctx, validator_name):
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
-    # TODO: change this to be based on the number of folders in nodes directory
-    current_node_count = 0
-    with open(info_path, 'r') as f:
-        for line in f:
-            if '_pid=' in line:
-                current_node_count += 1
+    current_node_count = len(os.listdir(os.path.join(cluster_path, 'nodes')))
 
     if not validator_name:
         validator_name = f"node-ledger-{current_node_count}"
@@ -347,12 +342,7 @@ def create_unstaked_keys(ctx, validator_name):
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
-    # TODO: change this to be based on the number of folders in nodes directory
-    current_node_count = 0
-    with open(info_path, 'r') as f:
-        for line in f:
-            if '_pid=' in line:
-                current_node_count += 1
+    current_node_count = len(os.listdir(os.path.join(cluster_path, 'nodes')))
 
     if not validator_name:
         validator_name = f"fd-node-ledger-{current_node_count}"
@@ -400,12 +390,7 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
-    # TODO: change this to be based on the number of folders in nodes directory
-    current_node_count = 0
-    with open(info_path, 'r') as f:
-        for line in f:
-            if '_pid=' in line:
-                current_node_count += 1
+    current_node_count = len(os.listdir(os.path.join(cluster_path, 'nodes')))
 
     if not validator_name:
         validator_name = f"fd-node-ledger-{current_node_count}"
