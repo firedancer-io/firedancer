@@ -133,11 +133,11 @@
       tiles. Furthermore, we are not allowed to insert / reverify a
       program cache entry more than once within a single slot. This
       guarantees that any read / write accesses for a particular program
-      in the program cache by the exec / writer tiles will occur after
-      the cache entries have been processed by the replay tile in any
-      given slot. Furthermore, if the program was upgraded, the writer
-      tile simply updates a single header in the existing program cache
-      entry `last_slot_modified`, which is behind a blocking write lock.
+      in the program cache by the exec tiles will occur after the cache
+      entries have been processed by the replay tile in any given slot.
+      Furthermore, if the program was upgraded, the exec tile simply
+      updates a single header in the existing program cache entry
+      `last_slot_modified`, which is behind a blocking write lock.
       Note that if there is read-write or write-write-contention
       between two transactions for any accounts, the scheduler will
       ensure that those two transactions are scheduled and finalized
