@@ -269,6 +269,7 @@ def add_node(ctx, validator_name):
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
+    # TODO: change this to be based on the number of folders in nodes directory
     current_node_count = 0
     with open(info_path, 'r') as f:
         for line in f:
@@ -337,14 +338,16 @@ def add_node(ctx, validator_name):
     click.echo(f"Log file: {node_path}/validator.log")
 
 
-@main.command('create-fd-keys')
+@main.command('create-unstaked-keys')
 @click.option('--validator-name', '-n', type=str, help='Name of the node to add')
 @click.pass_context
-def create_fd_keys(ctx, validator_name):
-    """Create Firedancer keys."""
+def create_unstaked_keys(ctx, validator_name):
+    import pdb; pdb.set_trace()
+    """Create Unstaked keys."""
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
 
+    # TODO: change this to be based on the number of folders in nodes directory
     current_node_count = 0
     with open(info_path, 'r') as f:
         for line in f:
@@ -387,6 +390,89 @@ def create_fd_keys(ctx, validator_name):
 
     with open(info_path, 'a') as f:
         f.write(f"{validator_name}_pid=NA\n")
+
+@main.command('create-staked-keys')
+@click.option('--validator-name', '-n', type=str, help='Name of the node to add')
+@click.option('--sol', type=float, help='Amount of SOL to stake')
+@click.option('--percentage', type=int, help='Percentage of the validator to stake')
+@click.pass_context
+def create_staked_keys(ctx, validator_name, sol, percentage):
+    cluster_path = str(get_ledger_directory())
+    info_path = os.path.join(cluster_path, 'cluster-info.txt')
+
+    # TODO: change this to be based on the number of folders in nodes directory
+    current_node_count = 0
+    with open(info_path, 'r') as f:
+        for line in f:
+            if '_pid=' in line:
+                current_node_count += 1
+
+    if not validator_name:
+        validator_name = f"fd-node-ledger-{current_node_count}"
+
+    if os.path.exists(os.path.join(cluster_path, 'keys', validator_name)):
+        shutil.rmtree(os.path.join(cluster_path, 'keys', validator_name))
+    os.makedirs(os.path.join(cluster_path, 'keys', validator_name))
+
+    if os.path.exists(os.path.join(cluster_path, 'nodes', validator_name)):
+        shutil.rmtree(os.path.join(cluster_path, 'nodes', validator_name))
+    os.makedirs(os.path.join(cluster_path, 'nodes', validator_name))
+
+    node_keys_path = os.path.join(cluster_path, 'keys', validator_name)
+
+    id_key = os.path.join(node_keys_path, 'id.json')
+    vote_key = os.path.join(node_keys_path, 'vote.json')
+
+    create_key(id_key)
+    create_key(vote_key)
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    solana = solana_binary('solana')
+
+    # Send some SOL to the identity account for transaction fees
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "transfer", "-k", faucet_key, "--allow-unfunded-recipient", id_key, "100"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    # Create vote account for the new validator
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-vote-account", "-k", id_key, "--allow-unsafe-authorized-withdrawer", vote_key, id_key, id_key], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    click.echo(f"Keys for validator {validator_name} created successfully!")
+    # cat the id_key
+    click.echo(f"Identity key content:")
+    click.echo(f"Identity key at: {id_key} with content: {open(id_key, 'r').read()}")
+    click.echo(f"Vote key at: {vote_key} with content: {open(vote_key, 'r').read()}")
+
+    with open(info_path, 'a') as f:
+        f.write(f"{validator_name}_pid=NA\n")
+
+    if (not sol and not percentage) or (sol and percentage):
+        click.echo("Error: Either --sol or --percentage must be provided")
+        return
+
+    # Execute solana command to get stake history
+    stake_history_output = subprocess.run([solana_binary('solana'), '-u', f'http://{ip()}:8899', 'stake-history'], capture_output=True, text=True).stdout
+    # Parse the first entry in the stake history table
+    first_entry = stake_history_output.splitlines()[3]  # Assuming the first entry is on the fourth line
+    epoch, effective_stake, activating_stake, deactivating_stake, _ = first_entry.split()
+    # Print the stake information
+    total_stake = float(effective_stake) + float(activating_stake) - float(deactivating_stake)
+    if percentage:
+        staked_sol_amount = int(total_stake / (1 - float(percentage)/100.0) * float(percentage)/100.0)
+    else:
+        staked_sol_amount = int(sol)
+
+    stake_accounts_path = os.path.join(cluster_path, 'stake-accounts')
+    stake_accounts_count = len(os.listdir(stake_accounts_path))
+
+    stake_key = os.path.join(stake_accounts_path, f"stake-account-{stake_accounts_count}.json")
+    create_key(stake_key)
+
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    authority_key = os.path.join(cluster_path, 'authority.jsond')
+
+    solana = solana_binary('solana')
+
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key, f"{staked_sol_amount}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key])
 
 
 @main.command('stake-node')
@@ -791,6 +877,8 @@ def set_ledger_directory(ctx, ledger_path):
     except Exception as e:
         click.echo(f"Error saving ledger directory config: {e}", err=True)
         sys.exit(1)
+
+    os.environ['AGAVE_LEDGER_PATH'] = ledger_path
 
 @main.command('validators')
 @click.pass_context
