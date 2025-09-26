@@ -509,7 +509,7 @@ user = ""
     # is not stored as an account. Examples of members of the bank
     # are the total capitalization of the chain and the vote account
     # states for previous epochs.
-    max_live_slots = 1024
+    max_live_slots = 128
 
     # max_fork_width specifies the maximum number of forks that will
     # play through the same slot. Specifically, the maximum number

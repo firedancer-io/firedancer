@@ -461,6 +461,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_txncache_t *           txncache,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
                          fd_bank_t *               bank,

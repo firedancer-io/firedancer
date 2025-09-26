@@ -12,7 +12,6 @@
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../../rewards/fd_rewards.h"
-#include "../../stakes/fd_stakes.h"
 #include "../../types/fd_types.h"
 #include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
@@ -494,6 +493,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       /* Finalize the transaction */
       fd_runtime_finalize_txn(
           slot_ctx->funk,
+          txn_ctx->status_cache,
           slot_ctx->xid,
           txn_ctx,
           slot_ctx->bank,
