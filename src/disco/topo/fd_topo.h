@@ -516,6 +516,11 @@ struct fd_topo_tile {
         fd_ip4_port_t peers[ 16UL ];
       } http;
 
+      struct {
+        ulong         entrypts_cnt;
+        fd_ip4_port_t entrypts[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
+      } gossip;
+
       int diagnostics;
     } snaprd;
 
