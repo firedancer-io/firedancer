@@ -537,7 +537,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
       We must reverify the program for the current epoch if it has not
       been reverified yet. Additionally, we cannot break the invariant
       that a program cache entry will get reverified more than once
-      per slot, otherwise the replay, exec, and writer tiles may race. */
+      per slot, otherwise the replay and exec tiles may race. */
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong current_slot                         = fd_bank_slot_get( slot_ctx->bank );
   ulong current_epoch                        = fd_bank_epoch_get( slot_ctx->bank );
