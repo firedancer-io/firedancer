@@ -1313,67 +1313,64 @@ replay( fd_replay_tile_t *  ctx,
   int charge_busy = 0;
   while( ctx->exec_ready_bitset ) {
     fd_sched_txn_ready_t ready_txn[ 1 ];
-    if( FD_LIKELY( fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
-      FD_TEST( ready_txn->txn_idx!=FD_SCHED_TXN_IDX_NULL );
-      charge_busy = 1;
+    if( FD_UNLIKELY( !fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
+      break; /* Nothing to execute or do. */
+    }
 
-      /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
-         that FD_TXN_MAX_PER_SLOT is respected here, and we do not
-         schedule above it (must end block with failure now if we would
-         go over), otherwise a malicious block could exceed the CU limit
-         and overflow the status cache or scheduler. */
+    /* Context switch if the ready_txn is on a different bank. */
+    if( FD_UNLIKELY( ctx->slot_ctx->bank->idx!=ready_txn->bank_idx ) ) {
+      replay_ctx_switch( ctx, ready_txn->bank_idx );
+    }
 
-      if( FD_UNLIKELY( ready_txn->block_start ) ) {
-        replay_block_start( ctx,
-                            stem,
-                            ready_txn->bank_idx,
-                            ready_txn->parent_bank_idx,
-                            ready_txn->slot );
-        fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
-        replay_ctx_switch( ctx, ready_txn->bank_idx );
-        continue;
-      }
+    FD_TEST( ready_txn->txn_idx!=FD_SCHED_TXN_IDX_NULL );
+    charge_busy = 1;
 
-      if( FD_UNLIKELY( ready_txn->block_end ) ) {
-        ctx->block_draining = 1;
-        fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
-        break;
-      }
+    /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
+        that FD_TXN_MAX_PER_SLOT is respected here, and we do not
+        schedule above it (must end block with failure now if we would
+        go over), otherwise a malicious block could exceed the CU limit
+        and overflow the status cache or scheduler. */
 
-      /* We got a real transaction.  See if we need to context switch. */
-      if( FD_UNLIKELY( ctx->slot_ctx->bank->idx!=ready_txn->bank_idx ) ) {
-        /* Context switch. */
-        replay_ctx_switch( ctx, ready_txn->bank_idx );
-      }
+    if( FD_UNLIKELY( ready_txn->block_start ) ) {
+      replay_block_start( ctx,
+                          stem,
+                          ready_txn->bank_idx,
+                          ready_txn->parent_bank_idx,
+                          ready_txn->slot );
+      fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
+      continue;
+    }
 
-      /* Find an exec tile and mark it busy. */
-      int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
-      ctx->exec_ready_bitset = fd_ulong_pop_lsb( ctx->exec_ready_bitset );
-      ctx->exec_txn_id[ exec_idx ] = ready_txn->txn_idx;
-
-      fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, ready_txn->txn_idx );
-
-      /* FIXME: this should be done during txn parsing so that we don't
-         have to loop over all accounts a second time. */
-      /* Insert or reverify invoked programs for this epoch, if needed. */
-      fd_runtime_update_program_cache( ctx->slot_ctx, txn_p, ctx->runtime_spad );
-
-      /* At this point, we are going to send the txn down the execution
-         pipeline.  Increment the refcnt so we don't prematurely prune a
-         bank that's needed by an in-flight txn. */
-      ctx->slot_ctx->bank->refcnt++;
-
-      /* Send. */
-      fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
-      fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
-      exec_msg->bank_idx = ctx->slot_ctx->bank->idx;
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
-    } else {
-      /* Nothing more the scheduler can offer. */
+    if( FD_UNLIKELY( ready_txn->block_end ) ) {
+      ctx->block_draining = 1;
+      fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
       break;
     }
+
+    /* Find an exec tile and mark it busy. */
+    int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
+    ctx->exec_ready_bitset = fd_ulong_pop_lsb( ctx->exec_ready_bitset );
+    ctx->exec_txn_id[ exec_idx ] = ready_txn->txn_idx;
+
+    fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, ready_txn->txn_idx );
+
+    /* FIXME: this should be done during txn parsing so that we don't
+        have to loop over all accounts a second time. */
+    /* Insert or reverify invoked programs for this epoch, if needed. */
+    fd_runtime_update_program_cache( ctx->slot_ctx, txn_p, ctx->runtime_spad );
+
+    /* At this point, we are going to send the txn down the execution
+        pipeline.  Increment the refcnt so we don't prematurely prune a
+        bank that's needed by an in-flight txn. */
+    ctx->slot_ctx->bank->refcnt++;
+
+    /* Send. */
+    fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
+    fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+    exec_msg->bank_idx = ctx->slot_ctx->bank->idx;
+    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 
   return charge_busy;
