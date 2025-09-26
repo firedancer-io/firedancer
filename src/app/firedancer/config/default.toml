@@ -1508,7 +1508,7 @@ user = ""
     # This option can be enabled in production if a crash cannot be
     # easily reproduced, but it decreases security and should not be
     # enabled during routine running of the validator.
-    core_dump = true
+    core_dump = false
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
