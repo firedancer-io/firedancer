@@ -30,6 +30,9 @@
 #include "../main.h"
 
 #include <unistd.h> /* pause */
+#include <signal.h> /* sigaction */
+#include <errno.h> /* errno */
+
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
@@ -78,13 +81,19 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "exec" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0 );
+  FOR(exec_tile_cnt) {
+    fd_topo_tile_t * exec_tile = fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0 );
+    fd_topob_tile_uses( topo, exec_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 
   /**********************************************************************/
   /* Add the writer tiles to topo                                       */
   /**********************************************************************/
   fd_topob_wksp( topo, "writer" );
-  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
+  FOR(writer_tile_cnt) {
+    fd_topo_tile_t * writer_tile = fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
+    fd_topob_tile_uses( topo, writer_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
@@ -272,7 +281,8 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     for( ulong j=0UL; j<writer_tile_cnt; j++ ) {
       /* For txn_ctx. */
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", j ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+      fd_topo_tile_t * writer_tile = &topo->tiles[ fd_topo_find_tile( topo, "writer", j ) ];
+      fd_topob_tile_uses( topo, writer_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     }
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
   }
@@ -307,6 +317,7 @@ backtest_topo( config_t * config ) {
     fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
 
     fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
@@ -368,17 +379,19 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
-  run_firedancer_init( config, 1, 0 );
-
-  fd_log_private_shared_lock[ 1 ] = 0;
-  fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topo_fill( &config->topo );
-
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   double ns_per_tick = 1.0/tick_per_ns;
+  long   start       = fd_log_wallclock();
 
-  long start = fd_log_wallclock();
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  if( FD_LIKELY( !config->development.no_clone ) ) {
+    run_firedancer( config, -1, !args->dev.no_init_workspaces );
+  } else {
+    run_firedancer_init( config, 1, 0 );
+    fd_log_private_shared_lock[ 1 ] = 0;
+    fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topo_fill( &config->topo );
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  }
 
   fd_topo_t * topo = &config->topo;
   int disable_snap_loader = !config->gossip.entrypoints_cnt;
