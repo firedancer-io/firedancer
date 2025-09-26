@@ -8,43 +8,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-/* Error handling *****************************************************/
-
-/* Thread local storage last error value */
-
-static FD_TL int ldr_errno     =  0;
-static FD_TL int ldr_err_srcln = -1;
-#define FD_SBPF_ERRBUF_SZ (128UL)
-static FD_TL char fd_sbpf_errbuf[ FD_SBPF_ERRBUF_SZ ] = {0};
-
-/* fd_sbpf_loader_seterr remembers the error ID and line number of the
-   current file at which the last error occurred. */
-
-__attribute__((cold,noinline)) static int
-fd_sbpf_loader_seterr( int err,
-                       int srcln ) {
-  ldr_errno     = err;
-  ldr_err_srcln = srcln;
-  return err;
-}
-
-/* Macros for returning an error from the current function while also
-   remembering the error code. */
-
-#define ERR( err ) return fd_sbpf_loader_seterr( (err), __LINE__ )
-#define FAIL()  ERR( FD_SBPF_ERR_INVALID_ELF )
-#define REQUIRE(x) do { if ( FD_UNLIKELY( !(x) ) ) FAIL(); } while (0)
-
-char const *
-fd_sbpf_strerror( void ) {
-  if( FD_UNLIKELY( ldr_errno==0 ) )
-    strcpy( fd_sbpf_errbuf, "ok" );
-  else
-    snprintf( fd_sbpf_errbuf, FD_SBPF_ERRBUF_SZ,
-              "code %d at %s(%d)", ldr_errno, __FILE__, ldr_err_srcln );
-  return fd_sbpf_errbuf;
-}
-
 /* ELF loader, part 1 **************************************************
 
    Start with a static piece of scratch memory and do basic validation
@@ -89,108 +52,6 @@ typedef union fd_sbpf_elf fd_sbpf_elf_t;
 
 #define EXPECTED_PHDR_CNT (4U)
 
-/* _fd_int_store_if_negative stores x to *p if *p is negative (branchless) */
-
-static inline int
-_fd_int_store_if_negative( int * p,
-                      int   x ) {
-  return (*p = fd_int_if( (*p)<0, x, *p ));
-}
-
-/* fd_sbpf_check_ehdr verifies the ELF file header. */
-
-static int
-fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
-                    ulong                 elf_sz,
-                    uint                  min_version,
-                    uint                  max_version ) {
-
-  /* Validate ELF magic */
-  REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU          )
-  /* Validate file type/target identification
-     Solana/Agave performs header checks across two places:
-      - Elf64::parse https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L108
-      - Executable::validate https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L518
-     These two sections are executed in close proximity, with no modifications to the header in between.
-     We can therefore consolidate the checks in one place.
-  */
-         & ( ehdr->e_ident[ FD_ELF_EI_CLASS   ]==FD_ELF_CLASS_64   )
-         & ( ehdr->e_ident[ FD_ELF_EI_DATA    ]==FD_ELF_DATA_LE    )
-         & ( ehdr->e_ident[ FD_ELF_EI_VERSION ]==1                 )
-         & ( ehdr->e_ident[ FD_ELF_EI_OSABI   ]==FD_ELF_OSABI_NONE )
-         & ( ehdr->e_type                      ==FD_ELF_ET_DYN     )
-         & ( ( ehdr->e_machine                 ==FD_ELF_EM_BPF   )
-           | ( ehdr->e_machine                 ==FD_ELF_EM_SBPF  ) )
-         & ( ehdr->e_version                   ==1                 )
-  /* Coherence checks */
-         & ( ehdr->e_ehsize   ==sizeof(fd_elf64_ehdr)              )
-         & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
-         & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
-         & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
-         & ( ehdr->e_flags >= min_version                          )
-         & ( max_version
-             ? ( ehdr->e_flags <= max_version )
-             : ( ehdr->e_flags != FD_ELF_EF_SBPF_V2 )
-           )
-  );
-
-  /* Bounds check program header table */
-
-  ulong const phoff = ehdr->e_phoff;
-  ulong const phnum = ehdr->e_phnum;
-  REQUIRE( ( fd_ulong_is_aligned( phoff, 8UL ) )
-         & ( phoff<=elf_sz ) ); /* out of bounds */
-
-  REQUIRE( phnum<=(ULONG_MAX/sizeof(fd_elf64_phdr)) ); /* overflow */
-  ulong const phsz = phnum*sizeof(fd_elf64_phdr);
-
-  ulong const phoff_end = phoff+phsz;
-  REQUIRE( ( phoff_end>=phoff  )    /* overflow */
-         & ( phoff_end<=elf_sz )    /* out of bounds */
-         & ( (phoff_end==0UL)       /* overlaps file header */
-           | (phoff>=sizeof(fd_elf64_ehdr)) ) );
-
-  /* Bounds check section header table */
-
-  ulong const shoff = ehdr->e_shoff;
-  ulong const shnum = ehdr->e_shnum;
-  REQUIRE( ( fd_ulong_is_aligned( shoff, 8UL ) )
-         & ( shoff>=sizeof(fd_elf64_ehdr)      )    /* overlaps file header */
-         & ( shoff< elf_sz                     )    /* out of bounds */
-         & ( shnum> 0UL                        ) ); /* not enough sections */
-
-  REQUIRE( shoff<=(ULONG_MAX/sizeof(fd_elf64_shdr)) ); /* overflow */
-  ulong const shsz = shnum*sizeof(fd_elf64_shdr);
-
-  ulong const shoff_end = shoff+shsz;
-  REQUIRE( ( shoff_end>=shoff  )    /* overflow */
-         & ( shoff_end<=elf_sz ) ); /* out of bounds */
-
-  /* Overlap checks */
-
-  REQUIRE( (phoff>=shoff_end) | (shoff>=phoff_end) ); /* overlap shdrs<>phdrs */
-
-  return 0;
-}
-
-/* shdr_get_loaded_size returns the loaded size of a section, i.e. the
-   number of bytes loaded into the rodata segment.  sBPF ELFs grossly
-   misuse the sh_size parameter.  When SHT_NOBITS is set, the actual
-   section size is zero, and the section size is ignored. Sets *is_some
-   to 0 and returns 0 if SHT_NOBITS is set. Otherwise, sets *is_some to
-   1 and returns the section size. */
-
-static ulong
-shdr_get_loaded_size( fd_elf64_shdr const * shdr, uchar * is_some ) {
-  if( shdr->sh_type==FD_ELF_SHT_NOBITS ) {
-    *is_some = 0;
-    return 0UL;
-  } else {
-    *is_some = 1;
-    return shdr->sh_size;
-  }
-}
-
 /* fd_sbpf_range_contains returns 1 if x is in the range [lo, hi) and 0
    otherwise. */
 static inline int
@@ -220,361 +81,10 @@ fd_shdr_get_file_range( fd_elf64_shdr const * shdr,
   }
 }
 
-/* check_cstr verifies a string in a string table.  Returns non-NULL if
-   the string is null terminated and contains at most max non-NULL
-   characters.  Returns NULL if the off is out of bounds, or if the max
-   or EOF are reached before the null terminator. */
-
-static char const *
-check_cstr( uchar const * bin,
-            ulong         bin_sz,
-            ulong         off,
-            ulong         max,
-            ulong *       opt_sz ) {
-  if( FD_UNLIKELY( off>=bin_sz ) ) return NULL;
-  max += 1UL;                              /* include NULL terminator */
-  max  = fd_ulong_min( max, bin_sz-off );  /* truncate to available size */
-  char const * cstr = (char const *)( bin+off );
-  ulong len = strnlen( cstr, max );
-  if( opt_sz ) *opt_sz = len;
-  return len<max ? cstr : NULL;
-}
-
-/* fd_sbpf_load_phdrs walks the program header table.  Remembers info
-   along the way, and performs various validations.
-
-   Assumes that ...
-   - table does not overlap with file header or section header table and
-     is within bounds
-   - offset of program header table is 8 byte aligned */
-
-static int
-fd_sbpf_load_phdrs( fd_sbpf_elf_info_t *  info,
-                    fd_sbpf_elf_t const * elf,
-                    ulong                 elf_sz ) {
-
-  ulong const pht_offset = elf->ehdr.e_phoff;
-  ulong const pht_cnt    = elf->ehdr.e_phnum;
-
-  /* Virtual address of last seen program header */
-  ulong p_load_vaddr = 0UL;
-
-  /* Read program header table */
-  fd_elf64_phdr const * phdr = (fd_elf64_phdr const *)( elf->bin + pht_offset );
-  for( ulong i=0; i<pht_cnt; i++ ) {
-    switch( phdr[i].p_type ) {
-    case FD_ELF_PT_DYNAMIC:
-      /* Remember first PT_DYNAMIC segment */
-      _fd_int_store_if_negative( &info->phndx_dyn, (int)i );
-      break;
-    case FD_ELF_PT_LOAD:
-      /* LOAD segments must be ordered */
-      REQUIRE( phdr[ i ].p_vaddr >= p_load_vaddr );
-      p_load_vaddr = phdr[ i ].p_vaddr;
-      /* Segment must be within bounds */
-      REQUIRE( ( phdr[ i ].p_offset + phdr[ i ].p_filesz >= phdr[ i ].p_offset )
-             & ( phdr[ i ].p_offset + phdr[ i ].p_filesz <= elf_sz             ) );
-      /* No overlap checks */
-      break;
-    default:
-      /* Ignore other segment types */
-      break;
-    }
-  }
-
-  return 0;
-}
-
 /* FD_SBPF_SECTION_NAME_SZ_MAX is the maximum length of a symbol name cstr
    including zero terminator.
    https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L12 */
 #define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
-
-/* fd_sbpf_load_shdrs walks the section header table.  Remembers info
-   along the way, and performs various validations.
-
-   Assumes that ...
-   - table does not overlap with file header or program header table and
-     is within bounds
-   - offset of section header table is 8 byte aligned
-   - section header table has at least one entry */
-
-static int
-fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
-                    fd_sbpf_elf_t const * elf,
-                    ulong                 elf_sz,
-                    int                   elf_deploy_checks ) {
-
-  /* File Header */
-  ulong const eh_offset = 0UL;
-  ulong const eh_offend = sizeof(fd_elf64_ehdr);
-
-  /* Section Header Table */
-  ulong const sht_offset = elf->ehdr.e_shoff;
-  ulong const sht_cnt    = elf->ehdr.e_shnum;
-  ulong const sht_sz     = sht_cnt*sizeof(fd_elf64_shdr);
-  ulong const sht_offend = sht_offset + sht_sz;
-
-  fd_elf64_shdr const * shdr = (fd_elf64_shdr const *)( elf->bin + sht_offset );
-
-  /* Program Header Table */
-  ulong const pht_offset = elf->ehdr.e_phoff;
-  ulong const pht_cnt    = elf->ehdr.e_phnum;
-  ulong const pht_offend = pht_offset + (pht_cnt*sizeof(fd_elf64_phdr));
-
-  /* Overlap checks */
-  REQUIRE( (sht_offset>=eh_offend ) | (sht_offend<=eh_offset ) ); /* overlaps ELF file header */
-  REQUIRE( (sht_offset>=pht_offend) | (sht_offend<=pht_offset) ); /* overlaps program header table */
-
-  /* Require SHT_STRTAB for section name table */
-
-  REQUIRE( elf->ehdr.e_shstrndx < sht_cnt ); /* out of bounds */
-  REQUIRE( shdr[ elf->ehdr.e_shstrndx ].sh_type==FD_ELF_SHT_STRTAB );
-
-  ulong shstr_off = shdr[ elf->ehdr.e_shstrndx ].sh_offset;
-  ulong shstr_sz  = shdr[ elf->ehdr.e_shstrndx ].sh_size;
-  REQUIRE( shstr_off<elf_sz );
-  shstr_sz = fd_ulong_min( shstr_sz, elf_sz-shstr_off );
-
-  /* Clear the "loaded sections" bitmap */
-
-  fd_memset( info->loaded_sections, 0, sizeof(info->loaded_sections) );
-
-  /* Validate section header table.
-     Check that all sections are in bounds, ordered, and don't overlap. */
-
-  ulong min_sh_offset = 0UL;  /* lowest permitted section offset */
-
-  /* Keep track of the physical (file address) end of all relevant
-     sections to determine rodata_sz */
-  ulong psegment_end          = 0UL;     /* Upper bound of physical (file) addressing  */
-
-  /* While validating section header table, also figure out size
-     of the rodata segment.  This is the minimal virtual address range
-     that spans all sections. */
-  ulong vsegment_start  = FD_SBPF_MM_PROGRAM_ADDR;  /* Lower bound of segment virtual address */
-  ulong vsegment_end    = 0UL;  /* Upper bound of segment virtual address */
-
-  ulong tot_section_sz = 0UL;  /* Size of all sections */
-  ulong lowest_addr    = 0UL;
-  ulong highest_addr   = 0UL;
-
-  for( ulong i=0UL; i<sht_cnt; i++ ) {
-    uint  sh_type   = shdr[ i ].sh_type;
-    uint  sh_name   = shdr[ i ].sh_name;
-    ulong sh_addr   = shdr[ i ].sh_addr;
-    ulong sh_offset = shdr[ i ].sh_offset;
-    ulong sh_size   = shdr[ i ].sh_size;
-    ulong sh_offend = sh_offset + sh_size;
-
-    /* First section must be SHT_NULL */
-    REQUIRE( i>0UL || sh_type==FD_ELF_SHT_NULL );
-
-    /* check that physical range has no overflow and is within bounds */
-    REQUIRE( sh_offend >= sh_offset );
-    REQUIRE( sh_offend <= elf_sz    ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L180
-
-    if( sh_type!=FD_ELF_SHT_NOBITS ) {
-      /* Overlap checks */
-      REQUIRE( (sh_offset>=eh_offend ) | (sh_offend<=eh_offset ) ); /* overlaps ELF file header */
-      REQUIRE( (sh_offset>=pht_offend) | (sh_offend<=pht_offset) ); /* overlaps program header table */
-      REQUIRE( (sh_offset>=sht_offend) | (sh_offend<=sht_offset) ); /* overlaps section header table */
-
-      /* Ordering and overlap check
-         https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf_parser/mod.rs#L177
-      */
-      REQUIRE( sh_offset >= min_sh_offset );
-      min_sh_offset = sh_offend;
-    }
-
-    if( sh_type==FD_ELF_SHT_DYNAMIC ) {
-      /* Remember first SHT_DYNAMIC segment */
-      _fd_int_store_if_negative( &info->shndx_dyn, (int)i );
-    }
-
-    ulong name_off = shstr_off + (ulong)sh_name;
-    REQUIRE( ( name_off<elf_sz   ) /* out of bounds */
-           & ( sh_name <shstr_sz ) );
-
-    /* Create name cstr */
-
-    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, FD_SBPF_SECTION_NAME_SZ_MAX-1UL, NULL );
-    REQUIRE( name_ptr );
-    char __attribute__((aligned(16UL))) name[ FD_SBPF_SECTION_NAME_SZ_MAX ] = {0};
-    strncpy( name, name_ptr, FD_SBPF_SECTION_NAME_SZ_MAX-1UL );
-
-    /* Check name */
-    /* TODO switch table for this? */
-    /* TODO reject duplicate sections */
-
-    /* https://github.com/firedancer-io/sbpf/blob/sbpf-v0.11.1-patches/src/elf.rs#L855 */
-    if( FD_LIKELY( strncmp( name, ".text", sizeof(".text") )==0 ||
-                   strncmp( name, ".rodata", sizeof(".rodata") )==0 ||
-                   strncmp( name, ".data.rel.ro", sizeof(".data.rel.ro") )==0 ||
-                   strncmp( name, ".eh_frame", sizeof(".eh_frame") )==0 ) ) {
-      lowest_addr  = fd_ulong_min( lowest_addr, sh_addr );
-      highest_addr = fd_ulong_max( highest_addr, fd_ulong_sat_add( sh_addr, sh_size ) );
-    }
-
-    int load = 0;  /* should section be loaded? */
-
-    /**/ if( 0==memcmp( name, ".text", 6UL /* equals */ ) ) {
-      REQUIRE( (info->shndx_text)<0 ); /* check for duplicate */
-      info->shndx_text = (int)i;
-      load = 1;
-    }
-    else if( (0==memcmp( name, ".rodata",       8UL /* equals */ ) )
-           | (0==memcmp( name, ".data.rel.ro", 13UL /* equals */ ) )
-           | (0==memcmp( name, ".eh_frame",    10UL /* equals */ ) ) ) {
-      load = 1;
-    }
-    else if( 0==memcmp( name, ".symtab",   8UL /* equals     */ ) ) {
-      REQUIRE( (info->shndx_symtab)<0 );
-      info->shndx_symtab = (int)i;
-    }
-    else if( 0==memcmp( name, ".strtab",   8UL /* equals     */ ) ) {
-      REQUIRE( (info->shndx_strtab)<0 );
-      info->shndx_strtab = (int)i;
-    }
-    else if( 0==memcmp( name, ".dynstr",   8UL /* equals     */ ) ) {
-      REQUIRE( (info->shndx_dynstr)<0 );
-      info->shndx_dynstr = (int)i;
-    }
-    else if( 0==memcmp( name, ".bss",      4UL /* has prefix */ ) ) {
-      FAIL();
-    }
-    else if( 0==memcmp( name, ".data.rel", 9UL  /* has prefix */ ) ) {} /* ignore */
-    else if( (0==memcmp( name, ".data",    5UL  /* has prefix */ ) )
-           & ( ( shdr[ i ].sh_flags & (FD_ELF_SHF_ALLOC|FD_ELF_SHF_WRITE) )
-                                    ==(FD_ELF_SHF_ALLOC|FD_ELF_SHF_WRITE)   ) ) {
-      FAIL();
-    }
-    else                                            {} /* ignore */
-    /* else ignore */
-
-    if( load ) {
-      /* Remember that section should be loaded */
-
-      info->loaded_sections[ i>>6UL ] |= (1UL)<<(i&63UL);
-
-      /* Check that virtual address range is in MM_PROGRAM bounds */
-
-      ulong sh_actual_size = shdr_get_loaded_size( &shdr[ i ] );
-      ulong sh_virtual_end = sh_addr + sh_actual_size;
-
-      /* https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L426 */
-      if ( FD_UNLIKELY( elf_deploy_checks ) ){
-        REQUIRE( sh_addr == sh_offset );
-      }
-      REQUIRE( sh_addr        <  FD_SBPF_MM_PROGRAM_ADDR ); /* overflow check */
-      REQUIRE( sh_actual_size <  FD_SBPF_MM_PROGRAM_ADDR ); /* overflow check */
-      REQUIRE( sh_virtual_end <= FD_SBPF_MM_STACK_ADDR-FD_SBPF_MM_PROGRAM_ADDR ); /* check overlap with stack */
-
-      /* Check that physical address range is in bounds
-        (Seems redundant?) */
-      ulong paddr_end = sh_offset + sh_actual_size;
-      REQUIRE( paddr_end >= sh_offset );
-      REQUIRE( paddr_end <= elf_sz    );
-
-      vsegment_start = fd_ulong_min( vsegment_start, sh_addr );
-      /* Expand range to fit section */
-      psegment_end = fd_ulong_max( psegment_end, paddr_end );
-      vsegment_end = fd_ulong_max( vsegment_end, sh_virtual_end );
-
-      /* Coherence check sum of section sizes */
-      REQUIRE( tot_section_sz + sh_actual_size >= tot_section_sz ); /* overflow check */
-      tot_section_sz += sh_actual_size;
-    }
-  }
-
-  /* https://github.com/firedancer-io/sbpf/blob/sbpf-v0.11.1-patches/src/elf.rs#L982 */
-  REQUIRE( fd_ulong_sat_sub( highest_addr, lowest_addr ) <= elf_sz ); /* addr out of bounds */
-
-  /* More coherence checks */
-  REQUIRE( psegment_end <= elf_sz ); // https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L782
-
-
-  /* Check that the rodata segment is within bounds
-     https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L725 */
-  if ( FD_UNLIKELY( elf_deploy_checks ) ){
-    REQUIRE( fd_ulong_sat_add( vsegment_start, tot_section_sz) <= vsegment_end );
-  }
-
-  /* Require .text section */
-
-  REQUIRE( (info->shndx_text)>=0 );
-  fd_elf64_shdr const * shdr_text = &shdr[ info->shndx_text ];
-  REQUIRE( (shdr_text->sh_addr <= elf->ehdr.e_entry)
-           /* check that entrypoint is in text VM range */
-         & (elf->ehdr.e_entry  <  fd_ulong_sat_add( shdr_text->sh_addr, shdr_text->sh_size ) ) );
-  /* NOTE: Does NOT check that the entrypoint is in text section file
-           range (which may be 0 sz if SHT_NOBITS).  This check is
-           separately done in the sBPF verifier. */
-
-  info->text_off = (uint)shdr_text->sh_offset;
-  ulong text_size = shdr_get_loaded_size( shdr_text );
-  info->text_sz = text_size;
-  info->text_cnt = (uint) text_size / 8U;
-
-
-  /* Convert entrypoint offset to program counter */
-
-  info->rodata_sz        = (uint)psegment_end;
-  info->rodata_footprint = (uint)elf_sz;
-
-  ulong entry_off = fd_ulong_sat_sub( elf->ehdr.e_entry, shdr_text->sh_addr );
-  ulong entry_pc = entry_off / 8UL;
-
-  /* Follows https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L443 */
-  REQUIRE( fd_ulong_is_aligned( entry_off, 8UL ) );
-  REQUIRE( entry_pc < ( info->rodata_sz / 8UL ) );
-  info->entry_pc = (uint)entry_pc;
-
-  if( (info->shndx_dynstr)>=0 ) {
-    fd_elf64_shdr const * shdr_dynstr = &shdr[ info->shndx_dynstr ];
-    ulong sh_offset = shdr_dynstr->sh_offset;
-    ulong sh_size   = shdr_dynstr->sh_size;
-    REQUIRE( (sh_offset+sh_size>=sh_offset) & (sh_offset+sh_size<=info->rodata_footprint) );
-    info->dynstr_off = (uint)sh_offset;
-    info->dynstr_sz  = (uint)sh_size;
-  }
-
-  return 0;
-}
-
-fd_sbpf_elf_info_t *
-fd_sbpf_elf_peek_old( fd_sbpf_elf_info_t * info,
-                      void const *         bin,
-                      ulong                elf_sz,
-                      int                  elf_deploy_checks,
-                      uint                 sbpf_min_version,
-                      uint                 sbpf_max_version ) {
-
-  /* Reject overlong ELFs (using uint addressing internally).
-     This is well beyond Solana's max account size of 10 MB. */
-  if( FD_UNLIKELY( elf_sz>UINT_MAX ) )
-    return NULL;
-
-  fd_sbpf_elf_t const * elf = (fd_sbpf_elf_t const *)bin;
-  int err;
-
-  /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_min_version, sbpf_max_version ))!=0 ) )
-    return NULL;
-
-  /* Program headers */
-  if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) )
-    return NULL;
-
-  /* Section headers */
-  if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz, elf_deploy_checks ))!=0 ) )
-    return NULL;
-
-  /* Set SBPF version from ELF e_flags */
-  info->sbpf_version = sbpf_max_version ? elf->ehdr.e_flags : 0UL;
-
-  return info;
-}
 
 /* ELF loader, part 2 **************************************************
 
@@ -687,151 +197,8 @@ struct fd_sbpf_loader {
   /* External objects */
   ulong *              calldests;  /* owned by program */
   fd_sbpf_syscalls_t * syscalls;   /* owned by caller */
-
-  // /* Dynamic table */
-  // uint dyn_off;  /* File offset of dynamic table (UINT_MAX=missing) */
-  // uint dyn_cnt;  /* Number of dynamic table entries */
-
-  // /* Dynamic table entries */
-  // ulong dt_rel;
-  // ulong dt_relent;
-  // ulong dt_relsz;
-  // ulong dt_symtab;
-
-  // /* Dynamic symbols */
-  // uint dynsym_off;  /* File offset of .dynsym section (0=missing) */
-  // uint dynsym_cnt;  /* Symbol count */
-
-  // int elf_deploy_checks;
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
-
-/* FD_SBPF_SYM_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator.
-   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L13 */
-#define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
-
-
-static int
-fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
-                      fd_sbpf_elf_t const *      elf,
-                      ulong                      elf_sz,
-                      fd_sbpf_elf_info_t const * info ) {
-
-  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_phdr const * phdrs = (fd_elf64_phdr const *)( elf->bin + elf->ehdr.e_phoff );
-
-  /* Try first PT_DYNAMIC in program header table */
-
-  if( (info->phndx_dyn)>=0 ) {
-    ulong dyn_off = phdrs[ info->phndx_dyn ].p_offset;
-    ulong dyn_sz  = phdrs[ info->phndx_dyn ].p_filesz;
-    ulong dyn_end = dyn_off+dyn_sz;
-
-    /* Fall through to SHT_DYNAMIC if invalid */
-
-    if( FD_LIKELY(   ( dyn_end>=dyn_off )                /* overflow      */
-                   & ( dyn_end<=elf_sz  )                /* out of bounds */
-                   & fd_ulong_is_aligned( dyn_off, 8UL ) /* misaligned    */
-                   & fd_ulong_is_aligned( dyn_sz, sizeof(fd_elf64_dyn) ) /* misaligned sz */ ) ) {
-      loader->dyn_off = (uint)dyn_off;
-      loader->dyn_cnt = (uint)(dyn_sz / sizeof(fd_elf64_dyn));
-      return 0;
-    }
-  }
-
-  /* Try first SHT_DYNAMIC in section header table */
-
-  if( (info->shndx_dyn)>0 ) {
-    ulong dyn_off = shdrs[ info->shndx_dyn ].sh_offset;
-    ulong dyn_sz  = shdrs[ info->shndx_dyn ].sh_size;
-    ulong dyn_end = dyn_off+dyn_sz;
-
-    /* This time, don't tolerate errors */
-
-    REQUIRE( ( dyn_end>=dyn_off )                /* overflow      */
-           & ( dyn_end<=elf_sz  )                /* out of bounds */
-           & fd_ulong_is_aligned( dyn_off, 8UL ) /* misaligned    */
-           & fd_ulong_is_aligned( dyn_sz, sizeof(fd_elf64_dyn) ) /* misaligned sz */ );
-
-    loader->dyn_off = (uint)dyn_off;
-    loader->dyn_cnt = (uint)(dyn_sz / sizeof(fd_elf64_dyn));
-    return 0;
-  }
-
-  /* Missing or invalid PT_DYNAMIC and missing SHT_DYNAMIC, skip. */
-  return 0;
-}
-
-static int
-fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
-                      fd_sbpf_elf_t const *      elf,
-                      ulong                      elf_sz ) {
-
-  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-
-  /* Skip if no dynamic table was found */
-
-  if( !loader->dyn_cnt ) return 0;
-
-  /* Walk dynamic table */
-
-  fd_elf64_dyn const * dyn     = (fd_elf64_dyn const *)( elf->bin + loader->dyn_off );
-  ulong const          dyn_cnt = loader->dyn_cnt;
-
-  for( ulong i=0; i<dyn_cnt; i++ ) {
-    if( FD_UNLIKELY( dyn[i].d_tag==FD_ELF_DT_NULL ) ) break;
-
-    ulong d_val = dyn[i].d_un.d_val;
-    switch( dyn[i].d_tag ) {
-    case FD_ELF_DT_REL:    loader->dt_rel   =d_val; break;
-    case FD_ELF_DT_RELENT: loader->dt_relent=d_val; break;
-    case FD_ELF_DT_RELSZ:  loader->dt_relsz =d_val; break;
-    case FD_ELF_DT_SYMTAB: loader->dt_symtab=d_val; break;
-    }
-  }
-
-  /* Load dynamic symbol table */
-
-  if( loader->dt_symtab ) {
-    /* Search for dynamic symbol table
-      FIXME unfortunate bounded O(n^2) -- could convert to binary search */
-
-    /* FIXME this could be clobbered by relocations, causing strict
-             aliasing violations */
-
-    fd_elf64_shdr const * shdr_dynsym = NULL;
-
-    for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
-      if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
-        /* TODO: verify this ... */
-        /* Check section type */
-        uint sh_type = shdrs[ i ].sh_type;
-        // https://github.com/solana-labs/rbpf/blob/v0.8.5/src/elf_parser/mod.rs#L500
-        REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
-
-        shdr_dynsym = &shdrs[ i ];
-        break;
-      }
-    }
-    REQUIRE( shdr_dynsym );
-
-    /* Check if out of bounds or misaligned */
-
-    ulong sh_offset = shdr_dynsym->sh_offset;
-    ulong sh_size   = shdr_dynsym->sh_size;
-
-    REQUIRE( ( sh_offset+sh_size>=sh_offset           )
-           & ( sh_offset+sh_size<=elf_sz              )
-           & ( fd_ulong_is_aligned( sh_offset, 8UL )  )
-           & ( sh_size % sizeof (fd_elf64_sym) == 0UL ) );
-
-    loader->dynsym_off = (uint)sh_offset;
-    loader->dynsym_cnt = (uint)(sh_size/sizeof(fd_elf64_sym));
-  }
-
-  return 0;
-}
 
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L467-L496 */
 int
@@ -925,7 +292,8 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t * loader,
 
   /* self.register_function() fails if there is an existing entry in the
      calldests set.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L168-L176 */
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L16
+     8-L176 */
   if( FD_UNLIKELY( fd_sbpf_calldests_test( loader->calldests, target_pc ) ) ) {
     return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
   }
@@ -1284,7 +652,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
-      /* https://github.com/anza-xyz/sbpf/blob/0.12.2/src/elf.rs#L1270-L1279 */
+      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1270-L1279 */
       ulong target_pc = fd_ulong_sat_sub( symbol->st_value, sh_text->sh_addr ) / 8UL;
       int err = fd_sbpf_register_function_hashed_legacy( loader, name, target_pc, &key );
       if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
@@ -1293,7 +661,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
     } else {
       /* Else, it's a syscall. Ensure that the syscall can be resolved.
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1281-L1294 */
-      key = fd_murmur3_32( name, strlen( name ), 0UL );
+      key = fd_murmur3_32(name, strlen( name ), 0UL );
       if( FD_UNLIKELY( config->reject_broken_elfs &&
                        fd_sbpf_syscalls_query( loader->syscalls, key, NULL )==NULL ) ) {
         return FD_SBPF_ELF_ERR_UNRESOLVED_SYMBOL;
@@ -1309,256 +677,6 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   FD_STORE( uint, rodata+imm_offset, key );
 
   return FD_SBPF_ELF_SUCCESS;
-}
-
-static int
-fd_sbpf_apply_reloc( fd_sbpf_loader_t   const * loader,
-                     fd_sbpf_elf_t      const * elf,
-                     ulong                      elf_sz,
-                     uchar                    * rodata,
-                     fd_sbpf_elf_info_t const * info,
-                     fd_elf64_rel       const * rel ) {
-  switch( FD_ELF64_R_TYPE( rel->r_info ) ) {
-  case FD_ELF_R_BPF_64_64:
-    return fd_sbpf_r_bpf_64_64      ( loader, elf, elf_sz, rodata, info, rel );
-  case FD_ELF_R_BPF_64_RELATIVE:
-    return fd_sbpf_r_bpf_64_relative(         elf, elf_sz, rodata, info, rel );
-  case FD_ELF_R_BPF_64_32:
-    return fd_sbpf_r_bpf_64_32      ( loader, elf, elf_sz, rodata, info, rel );
-  default:
-    ERR( FD_SBPF_ERR_INVALID_ELF );
-  }
-}
-
-/* fd_sbpf_hash_calls converts local call instructions in the "LLVM
-   form" (immediate is a program counter offset) to eBPF form (immediate
-   is a hash of the target program counter).  Corresponds to
-   fixup_relative calls in solana-labs/rbpf.
-
-   Assumes that the text section range exists, is within bounds, and
-   does not overlap with the ELF file header, program header table, or
-   section header table. */
-
-static int
-fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
-                    fd_sbpf_program_t *   prog,
-                    fd_sbpf_elf_t const * elf ) {
-
-  fd_elf64_shdr const * shdrs  = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_sbpf_elf_info_t *  info   = &prog->info;
-  uchar *               rodata = prog->rodata;
-
-  fd_elf64_shdr const * shtext    = &shdrs[ info->shndx_text ];
-  fd_sbpf_calldests_t * calldests = loader->calldests;
-
-  uchar * ptr      = rodata + shtext->sh_offset;
-  ulong   insn_cnt = shdr_get_loaded_size( shtext ) / 8UL;
-
-  for( ulong i=0; i<insn_cnt; i++, ptr+=8UL ) {
-    ulong insn = *((ulong *) ptr);
-
-    /* Check for call instruction.  If immediate is UINT_MAX, assume
-       that compiler generated a relocation instead. */
-    ulong opc  = insn & 0xFF;
-    int   imm  = (int)(insn >> 32UL);
-    if( (opc!=FD_SBPF_OP_CALL_IMM) | (imm==-1) )
-      continue;
-
-    /* Mark function call destination */
-    long target_pc_s;
-    REQUIRE( 0==__builtin_saddl_overflow( (long)i+1L, imm, &target_pc_s ) );
-    ulong target_pc = (ulong)target_pc_s;
-    REQUIRE( target_pc<insn_cnt );  /* bounds check target */
-
-    fd_sbpf_calldests_insert( calldests, target_pc );
-
-    /* Replace immediate with hash */
-    uint pc_hash = fd_pchash( (uint)target_pc );
-    /* Check for collision with syscall ID
-       https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
-    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (ulong)pc_hash, NULL ) );
-
-    FD_STORE( uint, ptr+4UL, pc_hash );
-  }
-
-  return 0;
-}
-
-static int
-fd_sbpf_relocate( fd_sbpf_loader_t   const * loader,
-                  fd_sbpf_elf_t      const * elf,
-                  ulong                      elf_sz,
-                  uchar                    * rodata,
-                  fd_sbpf_elf_info_t const * info ) {
-
-  ulong const dt_rel    = loader->dt_rel;
-  ulong const dt_relent = loader->dt_relent;
-  ulong const dt_relsz  = loader->dt_relsz;
-
-  /* Skip relocation if DT_REL is missing */
-
-  if( dt_rel == 0UL ) return 0;
-
-  /* Validate reloc table params */
-
-  REQUIRE(  dt_relent==sizeof(fd_elf64_rel)       );
-  REQUIRE(  dt_relsz !=0UL                        );
-  REQUIRE( (dt_relsz % sizeof(fd_elf64_rel))==0UL );
-
-  /* Resolve DT_REL virtual address to file offset
-     First, attempt to find segment containing DT_REL */
-
-  ulong rel_off = ULONG_MAX;
-
-  fd_elf64_phdr const * phdrs = (fd_elf64_phdr const *)( elf->bin + elf->ehdr.e_phoff );
-  ulong rel_phnum;
-  for( rel_phnum=0; rel_phnum < elf->ehdr.e_phnum; rel_phnum++ ) {
-    ulong va_lo = phdrs[ rel_phnum ].p_vaddr;
-    ulong va_hi = phdrs[ rel_phnum ].p_memsz + va_lo;
-    REQUIRE( va_hi>=va_lo );
-    if( (dt_rel>=va_lo) & (dt_rel<va_hi) ) {
-      /* Found */
-      ulong va_off = dt_rel - va_lo;
-      ulong pa_lo  = phdrs[ rel_phnum ].p_offset + va_off;
-      /* Overflow checks */
-      REQUIRE( (va_off<=dt_rel)
-             & (pa_lo >=va_off)
-             & (pa_lo < elf_sz) );
-      rel_off = pa_lo;
-      break;
-    }
-  }
-
-  /* DT_REL not contained in any segment.  Fallback to section header
-     table for finding first dynamic reloc section. */
-
-  if( rel_phnum == elf->ehdr.e_phnum ) {
-    fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-    ulong rel_shnum;
-    for( rel_shnum=0; rel_shnum < elf->ehdr.e_shnum; rel_shnum++ )
-      if( shdrs[ rel_shnum ].sh_addr==dt_rel )
-        break;
-    REQUIRE( rel_shnum < elf->ehdr.e_shnum );
-    rel_off = shdrs[ rel_shnum ].sh_offset;
-  }
-
-  REQUIRE( fd_ulong_is_aligned( rel_off, 8UL ) );
-  REQUIRE( (rel_off            <  elf_sz)
-         & (dt_relsz           <= elf_sz)
-         & ((rel_off+dt_relsz) <= elf_sz) );
-
-  /* Load section and reloc tables
-     Assume section header already validated at this point */
-
-  fd_elf64_rel const * rel     = (fd_elf64_rel const *)( elf->bin + rel_off );
-  ulong                rel_cnt = dt_relsz/sizeof(fd_elf64_rel);
-
-  /* Apply each reloc */
-
-  for( ulong i=0; i<rel_cnt; i++ ) {
-    int res = fd_sbpf_apply_reloc( loader, elf, elf_sz, rodata, info, &rel[ i ] );
-    if( res!=0 ) return res;
-  }
-
-  return 0;
-}
-
-static int
-fd_sbpf_zero_rodata( fd_sbpf_elf_t *            elf,
-                     uchar *                    rodata,
-                     fd_sbpf_elf_info_t const * info ) {
-
-  fd_elf64_shdr const * shdrs = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-
-  /* memset gaps between sections to zero.
-      Assume section sh_addrs are monotonically increasing.
-      Assume section virtual address ranges equal physical address ranges.
-      Assume ranges are not overflowing. */
-  /* FIXME match Solana more closely here */
-
-  ulong cursor = 0UL;
-  for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
-    if( !( info->loaded_sections[ i>>6UL ] & (1UL<<(i&63UL)) ) ) continue;
-
-    fd_elf64_shdr const * shdr = &shdrs[ i ];
-
-    /* NOBITS sections are included in rodata, but may have invalid
-       offsets, thus we can't trust the shdr->sh_offset field. */
-    if( FD_UNLIKELY( shdr->sh_type==FD_ELF_SHT_NOBITS ) ) continue;
-
-    ulong off = shdr->sh_offset;
-    ulong sz  = shdr->sh_size;
-    assert( cursor<=off             );  /* Invariant: Monotonically increasing offsets */
-    assert( off+sz>=off             );  /* Invariant: No integer overflow */
-    assert( off+sz<=info->rodata_sz );  /* Invariant: No buffer overflow */
-
-    /* Fill gap with zeros */
-    ulong gap = off - cursor;
-    fd_memset( rodata+cursor, 0, gap );
-
-    cursor = off+sz;
-  }
-
-  fd_memset( rodata+cursor, 0, info->rodata_sz - cursor );
-
-  return 0;
-}
-
-int
-fd_sbpf_program_load_old( fd_sbpf_program_t *  prog,
-                          void const *         _bin,
-                          ulong                elf_sz,
-                          fd_sbpf_syscalls_t * syscalls,
-                          int                  elf_deploy_checks ) {
-  fd_sbpf_loader_seterr( 0, 0 );
-
-  int err;
-  fd_sbpf_elf_t * elf = (fd_sbpf_elf_t *)_bin;
-
-  fd_sbpf_loader_t loader = {
-    .calldests = prog->calldests,
-    .syscalls  = syscalls,
-
-    // .dyn_off   = 0U,
-    // .dyn_cnt   = 0U,
-
-    // .dt_rel    = 0UL,
-    // .dt_relent = 0UL,
-    // .dt_relsz  = 0UL,
-    // .dt_symtab = 0UL,
-
-    // .dynsym_off = 0U,
-    // .dynsym_cnt = 0U,
-    // .elf_deploy_checks = elf_deploy_checks
-  };
-
-  // /* Find dynamic section */
-  // if( FD_UNLIKELY( (err=fd_sbpf_find_dynamic( &loader, elf, elf_sz, &prog->info ))!=0 ) )
-  //   return err;
-
-  // /* Load dynamic section */
-  // if( FD_UNLIKELY( (err=fd_sbpf_load_dynamic( &loader, elf, elf_sz ))!=0 ) )
-  //   return err;
-
-  /* Register entrypoint to calldests. */
-  // fd_sbpf_calldests_insert( prog->calldests, prog->entry_pc );
-
-  /* Copy rodata segment */
-  // fd_memcpy( prog->rodata, elf->bin, prog->info.rodata_footprint );
-
-  // /* Convert calls with PC relative immediate to hashes */
-  // if( FD_UNLIKELY( (err=fd_sbpf_hash_calls  ( &loader, prog, elf ))!=0 ) )
-  //   return err;
-
-  /* Apply relocations */
-  // if( FD_UNLIKELY( (err=fd_sbpf_relocate    ( &loader, elf, elf_sz, prog->rodata, &prog->info ))!=0 ) )
-  //   return err;
-
-  /* Create read-only segment */
-  if( FD_UNLIKELY( (err=fd_sbpf_zero_rodata( elf, prog->rodata, &prog->info ))!=0 ) )
-    return err;
-
-  return 0;
 }
 
 static int
@@ -2318,11 +1436,8 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
     .shndx_dynstr     = -1,
     .shndx_dynsymtab  = -1,
     .phndx_dyn        = -1,
-    .dt_rel           = -1,
-    .dt_relent        = -1,
-    .dt_relsz         = -1,
-    .dyn_off          = UINT_MAX,
-    .dyn_cnt          = 0U,
+    .dt_reloff        = 0UL,
+    .dt_relsz         = 0UL,
     .entry_pc         = 0U,
     .sbpf_version     = (uint)maybe_sbpf_version,
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
@@ -2337,6 +1452,218 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
 
+/* Parses and concatenates the readonly data sections
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L812-L987 */
+static int
+fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
+                           void const *                    bin,
+                           ulong                           bin_sz,
+                           fd_sbpf_loader_config_t const * config ) {
+
+  fd_sbpf_elf_t const *      elf      = (fd_sbpf_elf_t const *)bin;
+  fd_sbpf_elf_info_t const * elf_info = &prog->info;
+  fd_elf64_shdr const *      shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L818-L834 */
+  ulong lowest_addr          = ULONG_MAX; /* Lowest section address */
+  ulong highest_addr         = 0UL;       /* Highest section address */
+  ulong ro_fill_length       = 0UL;       /* Aggregated section length, excluding gaps between sections */
+  uchar invalid_offsets      = 0;         /* Whether the section has invalid offsets */
+
+  /* If ELF vaddrs are enabled, section header offsets and addresses
+     are allowed to be different as long as the differences between them
+     are constant across all sections. */
+  ulong addr_file_offset     = 0UL;
+  uchar has_addr_file_offset = 0;         /* Represents Option<T> for the above value */
+
+  /* Below three variables are used to track where ro sections are so
+     we can see if they are contiguous. */
+  ulong first_ro_section     = 0UL;
+  ulong last_ro_section      = 0UL;
+  ulong n_ro_sections        = 0UL;
+
+  /* Store the section header indices of ro slices to fill later. */
+  ulong ro_slices_shidxs[ elf->ehdr.e_shnum ];
+  ulong ro_slices_cnt = 0UL;
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L837-L909 */
+  for( uint i=0U; i<elf->ehdr.e_shnum; i++ ) {
+    fd_elf64_shdr const * section_header = &shdrs[ i ];
+
+    /* Match the section name.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L838-L845 */
+    char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
+    if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( name, section_header, section_header->sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, elf, bin_sz ) ) ) {
+      continue;
+    }
+
+    if( FD_UNLIKELY( strncmp( name, ".text", sizeof(".text") ) &&
+                     strncmp( name, ".rodata", sizeof(".rodata") ) &&
+                     strncmp( name, ".data.rel.ro", sizeof(".data.rel.ro") ) &&
+                     strncmp( name, ".eh_frame", sizeof(".eh_frame") ) ) ) {
+      continue;
+    }
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L847-L851 */
+    if( n_ro_sections==0UL ) {
+      first_ro_section = i;
+    }
+    last_ro_section = i;
+    n_ro_sections++;
+
+    ulong section_addr = section_header->sh_addr;
+
+    /* Handling for the section header offsets. If ELF vaddrs are
+       enabled, the section header addresses are allowed to be > the
+       section header offsets, as long as address - offset is constant
+       across all sections. Otherwise, the section header addresses
+       and offsets must match.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L865-L884 */
+    if( FD_LIKELY( !invalid_offsets ) ) {
+
+      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L866-L880 */
+      if( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) {
+        if( FD_UNLIKELY( section_addr<section_header->sh_offset ) ) {
+          invalid_offsets = 1;
+        } else {
+          /* The behavior of get_or_insert() sets addr_file_offset if
+             None and returns the existing value if Some.
+             https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L872-L879 */
+          ulong offset = fd_ulong_sat_sub( section_addr, section_header->sh_offset );
+          if( !has_addr_file_offset ) {
+            has_addr_file_offset = 1;
+            addr_file_offset     = offset;
+          }
+          if( FD_UNLIKELY( addr_file_offset!=offset ) ) {
+            invalid_offsets = 1;
+          }
+        }
+      } else if( FD_UNLIKELY( section_addr!=section_header->sh_offset ) ) {
+        invalid_offsets = 1;
+      }
+    }
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L886-L897 */
+    ulong vaddr_end = section_addr;
+    if( !( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) &&
+           section_addr>=FD_SBPF_MM_RODATA_ADDR ) ) {
+      vaddr_end = fd_ulong_sat_add( section_addr, FD_SBPF_MM_RODATA_ADDR );
+    }
+
+    if( fd_sbpf_reject_rodata_stack_overlap( elf_info->sbpf_version ) ) {
+      vaddr_end = fd_ulong_sat_add( section_addr, section_header->sh_size );
+    }
+
+    if( FD_UNLIKELY( ( config->reject_broken_elfs && invalid_offsets ) ||
+                       vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+    }
+
+    /* Append the ro slices vector and update the lowest / highest addr
+       and ro_fill_length variables. Agave stores three fields in the
+       ro slices array that can all be derived from the section header,
+       so we just need to store the indices.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L899-L908 */
+    ulong section_header_lo, section_header_hi;
+    if( FD_UNLIKELY( !fd_shdr_get_file_range( section_header, &section_header_lo, &section_header_hi ) ||
+                     section_header_hi>elf_sz ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+    }
+    ulong section_data_len = section_header_hi - section_header_lo;
+
+    lowest_addr    = fd_ulong_min( lowest_addr, section_addr );
+    highest_addr   = fd_ulong_max( highest_addr, fd_ulong_sat_add( section_addr, section_data_len ) );
+    ro_fill_length = fd_ulong_sat_add( ro_fill_length, section_data_len );
+    ro_slices_shidxs[ ro_slices_cnt++ ] = i;
+  }
+
+  /* This checks that the ro sections are not overlapping. This check
+     is incomplete, however, because it does not account for the
+     existence of gaps between sections in calculations.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L910-L913 */
+  if( FD_UNLIKELY( config->reject_broken_elfs &&
+                   fd_ulong_sat_add( lowest_addr, ro_fill_length )>highest_addr ) ) {
+    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+  }
+
+  /* This checks for contiguity of the ro sections.
+     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L915-L919 */
+  uchar can_borrow =
+      !invalid_offsets &&
+      fd_ulong_sat_sub( fd_ulong_sat_add( last_ro_section, 1UL ), first_ro_section )==n_ro_sections;
+  if( FD_UNLIKELY( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) && !can_borrow ) ) {
+    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L923-L984 */
+  if( FD_UNLIKELY( config->optimize_rodata && can_borrow ) ) {
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L924-L948 */
+    ulong buf_offset_start = fd_ulong_sat_sub( lowest_addr, has_addr_file_offset ? addr_file_offset : 0UL );
+    ulong buf_offset_end   = fd_ulong_sat_sub( highest_addr, has_addr_file_offset ? addr_file_offset : 0UL );
+
+    /* The linker may have already put sections within the VM's rodata
+       address range, so we must normalize accordingly.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L935-L946  */
+    ulong addr_offset = lowest_addr;
+    if( lowest_addr<FD_SBPF_MM_RODATA_ADDR ) {
+      if( FD_UNLIKELY( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) ) {
+        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+      }
+      addr_offset = fd_ulong_sat_add( lowest_addr, FD_SBPF_MM_RODATA_ADDR );
+    }
+
+    /* Set the rodata accordingly, and zero out the rest.
+       TODO: This should be optimized to avoid memcpys and set pointers
+       instead, like Agave does.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L948 */
+    memmove( prog->rodata, prog->rodata + buf_offset_start, buf_offset_end - buf_offset_start );
+    fd_memset( prog->rodata + buf_offset_end, 0, prog->rodata_sz - buf_offset_end );
+  } else {
+    /* Readonly / non-readonly sections are mixed, so non-readonly
+       sections must be zeroed and the readonly sections must be copied
+       at their respective offsets.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L950-L983 */
+    if( FD_UNLIKELY( config->optimize_rodata ) ) {
+      highest_addr = fd_ulong_sat_sub( highest_addr, lowest_addr );
+    } else {
+      lowest_addr = 0UL;
+    }
+
+    /* Bounds check. */
+    ulong buf_len = highest_addr;
+    if( FD_UNLIKELY( buf_len>bin_sz ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+    }
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L971-L976 */
+    for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
+      ulong sh_idx                       = ro_slices_shidxs[ i ];
+      fd_elf64_shdr const * shdr         = &shdrs[ sh_idx ];
+      ulong                 section_addr = shdr->sh_addr;
+
+      /* This was checked above and should never fail. */
+      ulong slice_lo, slice_hi;
+      if( FD_UNLIKELY( !fd_shdr_get_file_range( shdr, &slice_lo, &slice_hi ) ||
+                       slice_lo>bin_sz ) ) {
+        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+      }
+
+      ulong buf_offset_start = fd_ulong_sat_sub( section_addr, lowest_addr );
+      ulong slice_len        = slice_hi - slice_lo;
+      if( FD_UNLIKELY( slice_len>buf_len ) ) {
+        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+      }
+
+      memcpy( prog->rodata+buf_offset_start, elf->bin+slice_lo, slice_len );
+    }
+
+    /* Zero out the rest of the rodata segment. */
+    fd_memset( prog->rodata+buf_len, 0, fd_ulong_sat_sub( prog->rodata_sz, buf_len ) );
+  }
+
+  return FD_SBPF_ELF_SUCCESS;
+}
+
 /* Applies ELF relocations in-place. Returns 0 on success and an
    ElfError error code on failure.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L990-L1331 */
@@ -2346,12 +1673,11 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
                           ulong                           bin_sz,
                           fd_sbpf_loader_config_t const * config,
                           fd_sbpf_loader_t *              loader ) {
-  fd_sbpf_elf_info_t const * elf_info  = &prog->info;
-  fd_sbpf_elf_t const *      elf       = fd_type_pun_const( bin );
-  uchar *                    rodata    = prog->rodata;
-  fd_elf64_shdr const *      shdrs     = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_shdr const *      shtext    = &shdrs[ elf_info->shndx_text ];
-  fd_sbpf_calldests_t *      calldests = loader->calldests;
+  fd_sbpf_elf_info_t const * elf_info = &prog->info;
+  fd_sbpf_elf_t const *      elf      = (fd_sbpf_elf_t const *)bin;
+  uchar *                    rodata   = prog->rodata;
+  fd_elf64_shdr const *      shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const *      shtext   = &shdrs[ elf_info->shndx_text ];
 
   /* Copy rodata segment */
   fd_memcpy( rodata, elf->bin, prog->info.rodata_sz );
@@ -2496,12 +1822,11 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
                               ulong                           bin_sz,
                               fd_sbpf_loader_t *              loader,
                               fd_sbpf_loader_config_t const * config ) {
+
   /* Load (vs peek) starts here
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L641 */
-#if 0
-  return fd_sbpf_program_load_old( prog, bin, bin_sz, syscalls, config->elf_deploy_checks );
-#else
-  fd_sbpf_elf_t const * elf      = fd_type_pun_const( bin );
+
+  fd_sbpf_elf_t const * elf      = (fd_sbpf_elf_t const *)bin;
   fd_sbpf_elf_info_t *  elf_info = &prog->info;
   fd_elf64_shdr const * shdrs    = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
   fd_elf64_shdr const * sh_text  = &shdrs[ elf_info->shndx_text ];
@@ -2542,12 +1867,12 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
 
   /* Parse the ro sections.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L669-L676 */
-  {
-
+  err = fd_sbpf_parse_ro_sections( prog, bin, bin_sz, config );
+  if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
+    return err;
   }
 
   return FD_SBPF_ELF_SUCCESS;
-#endif
 }
 
 int
@@ -2556,22 +1881,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
                       fd_sbpf_loader_config_t const * config ) {
-  /* TODO: a lot of these fields seem redundant... */
   fd_sbpf_loader_t loader = {
-    .calldests         = prog->calldests,
-    .syscalls          = syscalls,
-
-    .dyn_off           = 0U,
-    .dyn_cnt           = 0U,
-
-    .dt_rel            = 0UL,
-    .dt_relent         = 0UL,
-    .dt_relsz          = 0UL,
-    .dt_symtab         = 0UL,
-
-    .dynsym_off        = 0U,
-    .dynsym_cnt        = 0U,
-    .elf_deploy_checks = config->elf_deploy_checks
+    .calldests = prog->calldests,
+    .syscalls  = syscalls,
   };
 
   /* Invoke strict vs lenient loader
