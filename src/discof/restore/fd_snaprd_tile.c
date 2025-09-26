@@ -19,6 +19,8 @@
 
 #include "generated/snaprd_seccomp.h"
 
+#define FD_SSPING_MAX_PEERS (65536UL)
+
 #define NAME "snaprd"
 
 /* The snaprd tile at a high level is a state machine that downloads
@@ -165,7 +167,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
   l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
@@ -512,7 +514,12 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   /* stderr, logfile, dirfd, local out full fd, local out incremental
      fd, local in full fd, local in incremental fd, and one spare for a
      socket(). */
-  return 8UL;
+
+  return 1UL +                 /* stderr */
+         1UL +                 /* logfile */
+         FD_SSPING_MAX_PEERS + /* ssping max peers sockets */
+         4UL +                 /* snapshot file fds*/
+         1UL;                  /* sshttp socket */
 }
 
 static ulong

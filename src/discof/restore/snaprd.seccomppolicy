@@ -24,7 +24,7 @@ read: (or (eq (arg 0) in_full_fd)
           (eq (arg 0) in_inc_fd))
 
 # snapshot: establish connections when initializing client for snapshot
-# download
+# download and for pinging peers
 #
 # arg 0 is the domain of the socket
 #
@@ -39,7 +39,7 @@ socket: (or (and (eq (arg 0) "PF_INET")
                  (eq (arg 2) 0)))
 
 # snapshot: need to be able to connect to a peer to download a snapshot
-# from.
+# from and to peers to ping to.
 #
 # arg 0 is the file descriptor of the socket to connect to.  We will
 # restrict this being called on any of the snapshot file descriptors,
@@ -98,7 +98,16 @@ recvfrom: (not (or (eq (arg 0) 2)
                    (eq (arg 0) in_full_fd)
                    (eq (arg 0) in_inc_fd)))
 
-# snapshot
+# snapshot: we need to be able to configure out socket connection from
+# the peer that we download our snapshot from
+#
+# arg 0 is the file descriptor that corresponds to the socket that we
+# want to connect to.  We know that we don't want to connect to the
+# file descriptors used for logging, stderr, or any of the snapshot fds.
+#
+# arg 1 is the protocol level that we want for our socket
+#
+# arg 2 is the option we want for our socket
 setsockopt: (and (not (or (eq (arg 0) 2)
                           (eq (arg 0) logfile_fd)
                           (eq (arg 0) dir_fd)
