@@ -748,7 +748,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
       config->firedancer.runtime.max_live_slots,
-      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
+      fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
