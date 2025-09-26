@@ -5,7 +5,7 @@
 #include <pthread.h>
 
 #define NUM_THREADS 16
-#define MAX_TXN_CNT 512
+#define MAX_TXN_CNT 10000
 #define NUM_KEYS    64
 
 static volatile uint exp_val[NUM_KEYS] = {0};

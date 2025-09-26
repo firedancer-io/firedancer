@@ -129,6 +129,8 @@ int main(int argc, char** argv) {
 
   fd_funk_txn_xid_t xid;
   memset(&xid, 0, sizeof(xid));
+  fd_funk_txn_xid_t root_xid = {};
+  fd_funk_txn_xid_set_root( &root_xid );
 
   for (uint loop = 0; loop < 10U; ++loop) {
     for( uint i = 0; i < 2; ++i ) {
@@ -139,7 +141,7 @@ int main(int argc, char** argv) {
     for( uint i = 0; i < 20; ++i ) {
       auto * parent = state.pick_txn(false);
       xid.ul[0]++;
-      fd_funk_txn_prepare(funk, parent ? &parent->xid : NULL, &xid, 1);
+      fd_funk_txn_prepare(funk, parent ? &parent->xid : &root_xid, &xid, 1);
     }
 
     runstate = (int)RUN;
