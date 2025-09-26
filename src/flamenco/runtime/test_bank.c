@@ -1,7 +1,7 @@
 #include "fd_bank.h"
 
 static void
-test_bank_publishing( void * mem ) {
+test_bank_advancing( void * mem ) {
   fd_banks_t * banks = fd_banks_join( fd_banks_new( mem, 16UL, 2UL ) );
   /* Create the following fork tree with refcnts:
 
@@ -171,13 +171,29 @@ test_bank_publishing( void * mem ) {
   bank_Q->refcnt--;
   FD_TEST( bank_Q->refcnt == 0UL );
 
-  /* Try to publish again - should now be able to advance to M. */
+  /* Try to publish again - should now be able to advance to A. */
+  result = fd_banks_advance_root_prepare( banks, bank_idx_T, &advanceable_bank_idx );
+  FD_TEST( result == 1 );
+  FD_TEST( advanceable_bank_idx == bank_idx_A ); /* Should be able to publish up to A */
+
+  fd_bank_t const * new_root = fd_banks_advance_root( banks, bank_idx_A );
+  FD_TEST( new_root == bank_A );
+  FD_TEST( new_root->idx == bank_idx_A );
+
+  result = fd_banks_advance_root_prepare( banks, bank_idx_T, &advanceable_bank_idx );
+  FD_TEST( result == 1 );
+  FD_TEST( advanceable_bank_idx == bank_idx_B ); /* Should be able to publish up to B */
+
+  new_root = fd_banks_advance_root( banks, bank_idx_B );
+  FD_TEST( new_root == bank_B );
+  FD_TEST( new_root->idx == bank_idx_B );
+
   result = fd_banks_advance_root_prepare( banks, bank_idx_T, &advanceable_bank_idx );
   FD_TEST( result == 1 );
   FD_TEST( advanceable_bank_idx == bank_idx_M ); /* Should be able to publish up to M */
 
   /* Actually publish up to M. */
-  fd_bank_t const * new_root = fd_banks_advance_root( banks, bank_idx_M );
+  new_root = fd_banks_advance_root( banks, bank_idx_M );
   FD_TEST( new_root == bank_M );
   FD_TEST( new_root->idx == bank_idx_M );
 
@@ -313,6 +329,7 @@ main( int argc, char ** argv ) {
 
   ulong bank_idx2 = fd_banks_new_bank( banks, bank_idx )->idx;
   fd_bank_t * bank2 = fd_banks_clone_from_parent( banks, bank_idx2, bank_idx );
+  fd_bank_slot_set( bank2, 2UL );
   bank2->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( bank2 );
   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
@@ -415,6 +432,7 @@ main( int argc, char ** argv ) {
   bank6->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 1000UL );
   fd_bank_capitalization_set( bank6, 2100UL );
+  fd_bank_slot_set( bank6, 6UL );
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
 
   ulong bank_idx7 = fd_banks_new_bank( banks, bank_idx6 )->idx;
@@ -502,10 +520,24 @@ main( int argc, char ** argv ) {
      Also, verify that the stake delegations have been correctly
      applied to the new root. */
 
-  fd_bank_t const * new_root = fd_banks_advance_root( banks, bank7->idx );
+  fd_bank_t const * new_root = fd_banks_advance_root( banks, bank2->idx );
+  FD_TEST( new_root );
+  FD_TEST( fd_bank_slot_get( new_root ) == 2UL );
+  FD_TEST( new_root == bank2 );
+
+  new_root = fd_banks_advance_root( banks, bank6->idx );
+  FD_TEST( new_root );
+  FD_TEST( fd_bank_slot_get( new_root ) == 6UL );
+  FD_TEST( new_root == bank6 );
+
+  new_root = fd_banks_advance_root( banks, bank7->idx );
   FD_TEST( new_root );
   FD_TEST( fd_bank_slot_get( new_root ) == 7UL );
   FD_TEST( new_root == bank7 );
+
+  /* Verify that direct and competing forks are pruned off */
+  FD_TEST( !fd_banks_bank_query( banks, bank_idx6 ) );
+  FD_TEST( !fd_banks_bank_query( banks, bank_idx3 ) );
 
   stake_delegations = fd_bank_stake_delegations_frontier_query( banks, (fd_bank_t *)new_root );
   FD_TEST( fd_stake_delegations_cnt( stake_delegations ) == 2UL );
@@ -577,10 +609,6 @@ main( int argc, char ** argv ) {
      2. 7 (1234) -> 9 -> 11
      3  7 (1234) -> 10 */
 
-  /* Verify that direct and competing forks are pruned off */
-  FD_TEST( !fd_banks_bank_query( banks, bank6->idx ) );
-  FD_TEST( !fd_banks_bank_query( banks, bank3->idx ) );
-
   /* At this point, bank7 is the root and it has 3 children: bank8, bank9, and bank10 */
 
   /* Verify that children slots are not pruned off */
@@ -634,7 +662,7 @@ main( int argc, char ** argv ) {
   FD_TEST( deleted_banks_mem == mem );
   FD_TEST( fd_banks_join( deleted_banks_mem ) == NULL );
 
-  test_bank_publishing( mem );
+  test_bank_advancing( mem );
 
   FD_LOG_NOTICE(( "pass" ));
 
