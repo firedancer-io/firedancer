@@ -164,7 +164,7 @@ funk_descendant( funk_t * funk ) {
 ulong
 xid_unique( void );
 
-static inline fd_funk_txn_xid_t *
+__attribute__((noinline)) static fd_funk_txn_xid_t *
 xid_set( fd_funk_txn_xid_t * xid,
          ulong               _xid ) {
   xid->ul[0] = _xid; xid->ul[1] = _xid;
@@ -178,7 +178,7 @@ xid_eq( fd_funk_txn_xid_t const * xid,
   return fd_funk_txn_xid_eq( xid, xid_set( tmp, _xid ) );
 }
 
-static inline fd_funk_rec_key_t *
+__attribute__((noinline)) static FD_FN_UNUSED fd_funk_rec_key_t *
 key_set( fd_funk_rec_key_t * key,
          ulong               _key ) {
   key->ul[0] = _key; key->ul[1] = _key+_key; key->ul[2] = _key*_key; key->ul[3] = -_key;

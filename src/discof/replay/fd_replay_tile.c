@@ -452,11 +452,11 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
    - Account metadata has wrong magic (returns -1) */
 static int
 fd_replay_out_vote_tower_from_funk(
-  fd_funk_t const *     funk,
-  fd_funk_txn_t const * funk_txn,
-  fd_pubkey_t const *   pubkey,
-  ulong                 stake,
-  fd_replay_tower_t *   vote_tower_out ) {
+  fd_funk_t const *         funk,
+  fd_funk_txn_xid_t const * xid,
+  fd_pubkey_t const *       pubkey,
+  ulong                     stake,
+  fd_replay_tower_t *       vote_tower_out ) {
 
   fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
   vote_tower_out->key   = *pubkey;
@@ -468,7 +468,7 @@ fd_replay_out_vote_tower_from_funk(
 
     fd_funk_rec_query_t query;
     fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, funk_txn, &funk_key, NULL, &query );
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &funk_key, NULL, &query );
     if( FD_UNLIKELY( !rec ) ) {
       FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
       return -1;
@@ -504,9 +504,9 @@ fd_replay_out_vote_tower_from_funk(
    This function should be called at the end of a slot, before any epoch
    boundary processing. */
 static void
-buffer_vote_towers( fd_replay_tile_t * ctx,
-                    fd_funk_txn_t *    funk_txn,
-                    fd_bank_t *        bank ) {
+buffer_vote_towers( fd_replay_tile_t *        ctx,
+                    fd_funk_txn_xid_t const * xid,
+                    fd_bank_t *               bank ) {
   ctx->vote_tower_out_idx = 0UL;
   ctx->vote_tower_out_len = 0UL;
 
@@ -520,7 +520,7 @@ buffer_vote_towers( fd_replay_tile_t * ctx,
     fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
     if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
     if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk( ctx->funk,
-                                                         funk_txn,
+                                                         xid,
                                                          vote_account_pubkey,
                                                          vote_state->stake,
                                                          &ctx->vote_tower_out[ctx->vote_tower_out_len++] ) ) ) {
@@ -596,10 +596,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: can't prepare funk_txn for (slot %lu)", slot ));
-  }
+  fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid );
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -627,8 +624,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
-  ctx->slot_ctx->funk_txn = funk_txn;
-  ctx->slot_ctx->bank     = bank;
+  ctx->slot_ctx->xid[0] = xid;
+  ctx->slot_ctx->bank   = bank;
 
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
@@ -660,13 +657,7 @@ replay_ctx_switch( fd_replay_tile_t * ctx,
   }
 
   ulong slot = fd_bank_slot_get( ctx->slot_ctx->bank );
-
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-  fd_funk_txn_xid_t   xid     = { .ul = { slot, slot } };
-  ctx->slot_ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !ctx->slot_ctx->funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
-  }
+  ctx->slot_ctx->xid[0] = (fd_funk_txn_xid_t){ .ul = { slot, slot } };
 }
 
 static void
@@ -740,7 +731,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* Copy the vote tower of all the vote accounts into the buffer,
      which will be published in after_credit. */
-  buffer_vote_towers( ctx, ctx->slot_ctx->funk_txn, ctx->slot_ctx->bank );
+  buffer_vote_towers( ctx, ctx->slot_ctx->xid, ctx->slot_ctx->bank );
 
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
@@ -816,10 +807,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid, 1 );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_CRIT(( "invariant violation: funk_txn is NULL for slot %lu", slot ));
-  }
+  fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
@@ -840,10 +828,10 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
   fd_exec_slot_ctx_t slot_ctx = {
-    .bank     = bank,
-    .funk     = ctx->funk,
-    .banks    = ctx->banks,
-    .funk_txn = funk_txn,
+    .bank  = bank,
+    .funk  = ctx->funk,
+    .banks = ctx->banks,
+    .xid   = {xid},
   };
 
   int is_epoch_boundary = 0;
@@ -891,16 +879,11 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
-  if( FD_UNLIKELY( !funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction for slot %lu", curr_slot ));
-  }
-
   fd_exec_slot_ctx_t slot_ctx = {
-    .funk     = ctx->funk,
-    .banks    = ctx->banks,
-    .bank     = bank,
-    .funk_txn = funk_txn,
+    .funk  = ctx->funk,
+    .banks = ctx->banks,
+    .bank  = bank,
+    .xid   = {xid},
   };
 
   fd_runtime_block_execute_finalize( &slot_ctx );
@@ -909,7 +892,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   /* Copy the vote tower of all the vote accounts into the buffer,
       which will be published in after_credit. */
-  buffer_vote_towers( ctx, funk_txn, bank );
+  buffer_vote_towers( ctx, ctx->slot_ctx->xid, bank );
 
   /* The reference on the bank is finally no longer needed. */
   bank->refcnt--;
@@ -951,7 +934,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->slot_ctx->banks );
 
-  fd_stake_delegations_refresh( root_delegations, ctx->funk, ctx->slot_ctx->funk_txn );
+  fd_stake_delegations_refresh( root_delegations, ctx->funk, ctx->slot_ctx->xid );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
@@ -1167,6 +1150,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   // pass an actual owned genesis type.
   fd_genesis_solana_global_t const * genesis = fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t) );
 
+  ctx->slot_ctx->xid[0] = (fd_funk_txn_xid_t){ .ul = { 0UL, 0UL } };
   fd_runtime_read_genesis( ctx->slot_ctx, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
@@ -1246,6 +1230,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_store_insert( ctx->store, 0, &manifest_block_id );
     ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
     fd_store_exrel( ctx->store );
+    ctx->slot_ctx->xid[0] = (fd_funk_txn_xid_t){ .ul = { snapshot_slot, snapshot_slot } };
 
     /* Typically, when we cross an epoch boundary during normal
        operation, we publish the stake weights for the new epoch.  But
@@ -1508,7 +1493,7 @@ process_fec_set( fd_replay_tile_t * ctx,
   sched_fec->slot                   = reasm_fec->slot;
   sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
   sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
-  sched_fec->alut_ctx->funk_txn     = NULL; /* Corresponds to the root txn. */
+  fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->funk ) );
   sched_fec->alut_ctx->funk         = ctx->funk;
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
   sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
@@ -1988,6 +1973,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->slot_ctx->bank );
 
   ctx->slot_ctx->funk         = ctx->funk;
+  fd_funk_txn_xid_set_root( ctx->slot_ctx->xid );
   ctx->slot_ctx->status_cache = NULL; /* TODO: Integrate status cache */
   ctx->slot_ctx->capture_ctx  = ctx->capture_ctx;
 

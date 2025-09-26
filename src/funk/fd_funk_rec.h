@@ -166,7 +166,7 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
 
 fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *               funk,
-                    fd_funk_txn_t const *     txn,
+                    fd_funk_txn_xid_t const * xid,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_query_t *     query );
 
@@ -209,7 +209,7 @@ fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                       fd_funk_txn_xid_t const * txn,
+                       fd_funk_txn_xid_t const * xid,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query );
 
@@ -247,7 +247,7 @@ int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
    fd_funk_rec_query_try_strict. */
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t const *         funk,
-                              fd_funk_txn_t const *     txn,
+                              fd_funk_txn_xid_t const * xid,
                               fd_funk_rec_key_t const * key,
                               fd_funk_txn_t const **    txn_out,
                               fd_funk_rec_query_t *     query );
@@ -262,7 +262,7 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_copy( fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
+                        fd_funk_txn_xid_t const * xid,
                         fd_funk_rec_key_t const * key,
                         fd_valloc_t               valloc,
                         ulong *                   sz_out );
@@ -289,7 +289,7 @@ FD_FN_CONST static inline fd_funk_rec_key_t const *      fd_funk_rec_key ( fd_fu
 
 fd_funk_rec_t *
 fd_funk_rec_prepare( fd_funk_t *               funk,
-                     fd_funk_txn_t *           txn,
+                     fd_funk_txn_xid_t const * xid,
                      fd_funk_rec_key_t const * key,
                      fd_funk_rec_prepare_t *   prepare,
                      int *                     opt_err );
@@ -322,7 +322,7 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
 
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
-                   fd_funk_txn_t *           txn,
+                   fd_funk_txn_xid_t const * xid,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err );
@@ -352,7 +352,7 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 
 void
 fd_funk_rec_insert_para( fd_funk_t *               funk,
-                         fd_funk_txn_t *           txn,
+                         fd_funk_txn_xid_t const * xid,
                          fd_funk_rec_key_t const * key );
 
 /* fd_funk_rec_remove removes the live record with the
@@ -380,7 +380,7 @@ fd_funk_rec_insert_para( fd_funk_t *               funk,
 
 int
 fd_funk_rec_remove( fd_funk_t *               funk,
-                    fd_funk_txn_t *           txn,
+                    fd_funk_txn_xid_t const * xid,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_t **          rec_out );
 

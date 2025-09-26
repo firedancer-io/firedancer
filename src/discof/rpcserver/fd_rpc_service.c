@@ -125,9 +125,7 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
 
 static const void *
 read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->global->funk );
-  fd_funk_txn_t *     txn     = fd_funk_txn_query( xid, txn_map );
-  return fd_funk_rec_query_copy( ctx->global->funk, txn, recid, fd_spad_virtual(ctx->global->spad), result_len );
+  return fd_funk_rec_query_copy( ctx->global->funk, xid, recid, fd_spad_virtual(ctx->global->spad), result_len );
 }
 
 static const void *
@@ -672,12 +670,10 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error(ctx, -1, "unable to find slot info");
       return 0;
     }
-    fd_funk_txn_map_t * map = fd_funk_txn_map( ctx->global->funk );
     fd_funk_txn_xid_t xid;
     xid.ul[0] = xid.ul[1] = slot;
-    fd_funk_txn_t * txn = fd_funk_txn_query( &xid, map );
     fd_epoch_schedule_t epoch_schedule_out[1];
-    fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( ctx->global->funk, txn, epoch_schedule_out );
+    fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( ctx->global->funk, &xid, epoch_schedule_out );
     if( epoch_schedule == NULL ) {
       fd_method_error(ctx, -1, "unable to find epoch schedule");
       return 0;
@@ -701,13 +697,11 @@ static int
 method_getEpochSchedule(struct json_values* values, fd_rpc_ctx_t * ctx) {
   FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     fd_webserver_t * ws = &ctx->global->ws;
-    fd_funk_txn_map_t * map = fd_funk_txn_map( ctx->global->funk );
     ulong slot = get_slot_from_commitment_level( values, ctx );
     fd_funk_txn_xid_t xid;
     xid.ul[0] = xid.ul[1] = slot;
-    fd_funk_txn_t * txn = fd_funk_txn_query( &xid, map );
     fd_epoch_schedule_t epoch_schedule_out[1];
-    fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( ctx->global->funk, txn, epoch_schedule_out );
+    fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( ctx->global->funk, &xid, epoch_schedule_out );
     if( epoch_schedule == NULL ) {
       fd_method_error(ctx, -1, "unable to find epoch schedule");
       return 0;

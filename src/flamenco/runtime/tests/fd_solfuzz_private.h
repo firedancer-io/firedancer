@@ -18,7 +18,7 @@ FD_PROTOTYPES_BEGIN
 int
 fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
                               fd_funk_t *                       funk,
-                              fd_funk_txn_t *                   funk_txn,
+                              fd_funk_txn_xid_t const *         xid,
                               fd_exec_test_acct_state_t const * state,
                               uchar                             reject_zero_lamports );
 

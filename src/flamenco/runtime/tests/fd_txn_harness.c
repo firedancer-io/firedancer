@@ -40,7 +40,7 @@ static void
 fd_runtime_fuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner,
                                  fd_exec_slot_ctx_t *  slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
-  fd_funk_txn_cancel( runner->funk, &slot_ctx->funk_txn->xid );
+  fd_funk_txn_cancel( runner->funk, slot_ctx->xid );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -57,11 +57,11 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, &parent_xid, &xid, 1 );
+  fd_funk_txn_prepare( funk, &parent_xid, &xid );
 
   /* Set up slot context */
-  slot_ctx->funk_txn = funk_txn;
-  slot_ctx->funk     = funk;
+  slot_ctx->xid[0] = xid;
+  slot_ctx->funk   = funk;
 
   slot_ctx->banks = runner->banks;
   slot_ctx->bank  = runner->bank;
@@ -89,7 +89,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
     FD_TXN_ACCOUNT_DECL( acc );
-    fd_runtime_fuzz_load_account( acc, funk, funk_txn, &test_ctx->account_shared_data[i], 1 );
+    fd_runtime_fuzz_load_account( acc, funk, &xid, &test_ctx->account_shared_data[i], 1 );
   }
 
   /* Setup Bank manager */
@@ -111,22 +111,22 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Ensure the presence of */
   fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, &xid, epoch_schedule_ );
   FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  fd_rent_t const * rent = fd_sysvar_rent_read( funk, &xid, runner->spad );
   FD_TEST( rent );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, funk_txn, runner->spad );
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
   FD_TEST( slot_hashes );
 
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, funk_txn, runner->spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, runner->spad );
   FD_TEST( stake_history );
 
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, funk_txn, clock_ );
+  fd_sol_sysvar_clock_t const * clock = fd_sysvar_clock_read( funk, &xid, clock_ );
   FD_TEST( clock );
 
   /* Setup vote states dummy account */
@@ -167,7 +167,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), blockhash_seed );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, &xid, runner->spad );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_sysvar ) {
     rbh->hashes = rbh_sysvar->hashes;

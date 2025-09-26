@@ -59,6 +59,6 @@ int main(int argc, char** argv) {
     if( loop % 100 == 0 ) FD_LOG_NOTICE(( "iter %u", loop ));
   }
 
-  printf("test passed!\n");
+  FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

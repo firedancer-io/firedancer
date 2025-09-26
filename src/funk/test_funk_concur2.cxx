@@ -11,17 +11,16 @@
 static volatile uint exp_val[NUM_KEYS] = {0};
 
 struct test_funk_txn_pair {
-  fd_funk_t     * funk;
-  fd_funk_txn_t * txn;
+  fd_funk_t *       funk;
+  fd_funk_txn_xid_t xid;
 };
 typedef struct test_funk_txn_pair test_funk_txn_pair_t;
 
 
 static void * work_thread( void * arg ) {
-  test_funk_txn_pair_t * pair = (test_funk_txn_pair_t *)arg;
-  fd_funk_t * funk = pair->funk;
-  fd_funk_txn_t * txn = pair->txn;
-  fd_funk_txn_xid_t const * xid = txn ? &txn->xid : NULL;
+  test_funk_txn_pair_t *    pair = (test_funk_txn_pair_t *)arg;
+  fd_funk_t *               funk = pair->funk;
+  fd_funk_txn_xid_t const * xid  = &pair->xid;
 
   for( ulong i=0UL; i<1024UL; i++ ) {
     uint key_idx = (uint)lrand48() % NUM_KEYS;
@@ -29,7 +28,7 @@ static void * work_thread( void * arg ) {
     key.ul[0] = key_idx;
 
     /* First try to clone the record from the ancestor. */
-    fd_funk_rec_insert_para( funk, txn, &key );
+    fd_funk_rec_insert_para( funk, xid, &key );
 
     /* Ensure that the record exists for the current txn. */
     fd_funk_rec_query_t query_check[1];
@@ -38,7 +37,7 @@ static void * work_thread( void * arg ) {
 
     /* Now modify the record. */
     fd_funk_rec_query_t query_modify[1];
-    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, txn, &key, query_modify );
+    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, xid, &key, query_modify );
     FD_TEST( rec );
     FD_TEST( fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), alignof(ulong), sizeof(ulong), NULL ) );
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
@@ -84,7 +83,7 @@ int main( int argc, char ** argv ) {
     fd_funk_rec_key_t key = {};
     key.ul[0] = i;
     fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, NULL, &key, prepare, NULL );
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, fd_funk_last_publish( funk ), &key, prepare, NULL );
     FD_TEST( rec );
 
     void * val = fd_funk_val_truncate(
@@ -103,15 +102,14 @@ int main( int argc, char ** argv ) {
     fd_funk_rec_publish( funk, prepare );
   }
 
-  fd_funk_txn_t *   parent_txn = NULL;
-  fd_funk_txn_xid_t xid = {};
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_xid_t xid = {{0}};
 
   /* Number of iterations to run. */
   for( ulong i=0UL; i<MAX_TXN_CNT; i++ ) {
     xid.ul[0]++;
-    fd_funk_txn_t * txn = fd_funk_txn_prepare( funk, parent_txn ? &parent_txn->xid : NULL, &xid, 1 );
-    FD_TEST( txn );
-    parent_txn = txn;
+    fd_funk_txn_prepare( funk, &parent_xid, &xid );
+    parent_xid = xid;
 
     /* Skip adding a record into the txn once in a while. This lets us
        test whether the global querying logic is working as expected. */
@@ -119,7 +117,7 @@ int main( int argc, char ** argv ) {
       continue;
     }
 
-    test_funk_txn_pair_t pair = { funk, txn };
+    test_funk_txn_pair_t pair = { funk, xid };
 
     pthread_t thread[NUM_THREADS];
     for( uint i = 0; i < NUM_THREADS; ++i ) {
@@ -146,6 +144,6 @@ int main( int argc, char ** argv ) {
     }
   }
 
-  FD_LOG_NOTICE(( "test passed!" ));
-
+  FD_LOG_NOTICE(( "pass" ));
+  return 0;
 }

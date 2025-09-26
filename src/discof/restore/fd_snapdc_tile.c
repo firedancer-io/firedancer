@@ -2,6 +2,7 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+
 #include "generated/snapdc_seccomp.h"
 
 #define ZSTD_STATIC_LINKING_ONLY
@@ -77,9 +78,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline int
 should_shutdown( fd_snapdc_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPDC_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(("ASDF "));
-  }
   return ctx->state==FD_SNAPDC_STATE_SHUTDOWN;
 }
 
@@ -110,7 +108,6 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
   fd_stem_publish( stem, 0UL, sig, ctx->out.chunk, 0UL, 0UL, 0UL, 0UL );
   ulong error = ZSTD_DCtx_reset( ctx->zstd, ZSTD_reset_session_only );
   if( FD_UNLIKELY( ZSTD_isError( error ) ) ) FD_LOG_ERR(( "ZSTD_DCtx_reset failed (%lu-%s)", error, ZSTD_getErrorName( error ) ));
-  FD_LOG_NOTICE(("CONTROL FRAG DC"));
 
   /* 2. Check if the control message is actually valid given the state
         machine, and if not, return a malformed message to the sender. */
@@ -283,13 +280,10 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile,
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
   populate_sock_filter_policy_snapdc( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_snapdc_instr_cnt;
 }

@@ -325,8 +325,7 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
    funk is NULL, the funk's transaction map is full, the parent is
    neither NULL nor points to an in-preparation funk transaction, xid is
    NULL, the requested xid is in use (i.e. the last published or matches
-   another in-preparation transaction).  If verbose is non-zero, these
-   will FD_LOG_WARNING details about the reason for failure.
+   another in-preparation transaction).
 
    This is a reasonably fast O(1) time (theoretical minimum), reasonably
    small O(1) space (theoretical minimum), does no allocation, does no
@@ -334,11 +333,10 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
    least).  That is, we can scalably track forks until we run out of
    resources allocated to the funk. */
 
-fd_funk_txn_t *
+void
 fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * parent,
-                     fd_funk_txn_xid_t const * xid,
-                     int                       verbose );
+                     fd_funk_txn_xid_t const * xid );
 
 /* fd_funk_txn_cancel cancels in-preparation transaction txn and any of
    its in-preparation descendants.  On success, returns the number of
@@ -364,7 +362,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
 ulong
 fd_funk_txn_cancel( fd_funk_t *               funk,
-                    fd_funk_txn_xid_t const * txn );
+                    fd_funk_txn_xid_t const * xid );
 
 /* fd_funk_txn_cancel_all cancels all in-preparation
    transactions. Only the last published transaction remains. */
@@ -386,16 +384,14 @@ fd_funk_txn_cancel_all( fd_funk_t * funk );
 
 ulong
 fd_funk_txn_publish( fd_funk_t *               funk,
-                     fd_funk_txn_xid_t const * txn );
+                     fd_funk_txn_xid_t const * xid );
 
 /* This version of publish just combines the transaction with its
    immediate parent. Ancestors will remain unpublished. Any competing
-   histories (siblings of the given transaction) are still cancelled.
-
-   Returns FD_FUNK_SUCCESS on success or an error code on failure. */
-int
+   histories (siblings of the given transaction) are still cancelled. */
+void
 fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * txn );
+                                 fd_funk_txn_xid_t const * xid );
 
 /* fd_funk_txn_remove_published removes all published transactions.
    Funk instance must not have any funk transactions in preparation.

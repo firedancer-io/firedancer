@@ -62,7 +62,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
   /* Change 'last published' XID to 0 */
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
   fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
-  fd_funk_txn_prepare( ctx->funk, &root_xid, &target_xid, 0 );
+  fd_funk_txn_prepare( ctx->funk, &root_xid, &target_xid );
   fd_funk_txn_publish( ctx->funk, &target_xid );
 
   fd_genesis_solana_global_t * genesis = fd_type_pun( ctx->genesis );
@@ -78,7 +78,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     int err = fd_txn_account_init_from_funk_mutable( rec,
                                                      &account->key,
                                                      ctx->funk,
-                                                     NULL, /* last published XID */
+                                                     &target_xid,
                                                      1, /* do_create */
                                                      account->account.data_len,
                                                      &prepare );
@@ -88,7 +88,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     fd_txn_account_set_lamports( rec, account->account.lamports );
     fd_txn_account_set_executable( rec, account->account.executable );
     fd_txn_account_set_owner( rec, &account->account.owner );
-    fd_txn_account_mutable_fini( rec, ctx->funk, NULL, &prepare );
+    fd_txn_account_mutable_fini( rec, ctx->funk, &prepare );
 
     fd_lthash_value_t new_hash[1];
     fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), new_hash );

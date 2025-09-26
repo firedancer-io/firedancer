@@ -20,7 +20,7 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_TXN_ACCOUNT_DECL( rec );
   fd_funk_rec_prepare_t prepare = {0};
-  fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->funk_txn, 1, sz, &prepare );
+  fd_txn_account_init_from_funk_mutable( rec, address, slot_ctx->funk, slot_ctx->xid, 1, sz, &prepare );
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash( address, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
 
@@ -49,7 +49,7 @@ fd_sysvar_account_update( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   fd_hashes_update_lthash( rec, prev_hash, slot_ctx->bank, slot_ctx->capture_ctx );
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn, &prepare );
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, &prepare );
 
   FD_LOG_DEBUG(( "Updated sysvar: address=%s data_sz=%lu slot=%lu lamports=%lu lamports_minted=%lu",
                  FD_BASE58_ENC_32_ALLOCA( address ), sz, slot, lamports_after, lamports_minted ));

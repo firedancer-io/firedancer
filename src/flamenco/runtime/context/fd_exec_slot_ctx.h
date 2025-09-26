@@ -24,8 +24,8 @@ struct fd_exec_slot_ctx {
   fd_banks_t *    banks; /* TODO: Remove fd_banks_t when fd_ledger is removed */
   fd_bank_t *     bank;
 
-  fd_funk_t *     funk;
-  fd_funk_txn_t * funk_txn;
+  fd_funk_t *       funk;
+  fd_funk_txn_xid_t xid[1];
 
   fd_txncache_t * status_cache;
 
