@@ -857,7 +857,7 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
       fd_program_cache_entry_t const * cache_entry = NULL;
       if( FD_UNLIKELY( fd_program_cache_load_entry( instr_ctx->txn_ctx->funk,
-                                                    instr_ctx->txn_ctx->funk_txn,
+                                                    instr_ctx->txn_ctx->xid,
                                                     program_id,
                                                     &cache_entry )!=0 ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );

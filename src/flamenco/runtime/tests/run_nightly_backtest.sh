@@ -105,14 +105,8 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 1024
 [runtime]
-    max_total_banks = 128
+    max_love_slots = 128
     max_fork_width = 32
-[blockstore]
-    shred_max = 16777216
-    block_max = 8192
-    txn_max = 1048576
-    alloc_max = 10737418240
-    file = \"dump/$LEDGER/backtest.blockstore\"
 [consensus]
     vote = false
 [development]

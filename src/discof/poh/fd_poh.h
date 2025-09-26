@@ -386,6 +386,9 @@ struct __attribute__((aligned(FD_POH_ALIGN))) fd_poh_private {
      each slot. */
   ulong max_microblocks_per_slot;
 
+  /* The block id of the completed block. */
+  uchar completed_block_id[ 32UL ];
+
   /* The slot we were reset on (what we are building on top of). */
   ulong reset_slot;
   long  reset_slot_start_ns;
@@ -470,7 +473,8 @@ fd_poh_reset( fd_poh_t *          poh,
               ulong               completed_slot,
               uchar const *       completed_blockhash,
               ulong               next_leader_slot,
-              ulong               max_microblocks_in_slot );
+              ulong               max_microblocks_in_slot,
+              uchar const *       completed_block_id );
 
 int
 fd_poh_have_leader_bank( fd_poh_t const * poh );

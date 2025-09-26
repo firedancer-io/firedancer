@@ -3,14 +3,16 @@
 
 #include "../../../flamenco/types/fd_types.h"
 #include "fd_ssmanifest_parser.h"
+#include "fd_slot_delta_parser.h"
 #include "fd_ssmsg.h"
 
 #define SNAP_STATE_IGNORE       ((uchar)0)  /* ignore file content */
 #define SNAP_STATE_TAR          ((uchar)1)  /* reading tar header (buffered) */
 #define SNAP_STATE_MANIFEST     ((uchar)2)  /* reading manifest (zero copy) */
-#define SNAP_STATE_ACCOUNT_HDR  ((uchar)3)  /* reading account hdr (buffered) */
-#define SNAP_STATE_ACCOUNT_DATA ((uchar)4)  /* reading account data (zero copy) */
-#define SNAP_STATE_DONE         ((uchar)5)  /* expect no more data */
+#define SNAP_STATE_STATUS_CACHE ((uchar)3)  /* reading status cache (zero copy) */
+#define SNAP_STATE_ACCOUNT_HDR  ((uchar)4)  /* reading account hdr (buffered) */
+#define SNAP_STATE_ACCOUNT_DATA ((uchar)5)  /* reading account data (zero copy) */
+#define SNAP_STATE_DONE         ((uchar)6)  /* expect no more data */
 
 #define SNAP_FLAG_FAILED  1
 #define SNAP_FLAG_DONE    2
@@ -42,6 +44,7 @@ struct fd_snapshot_parser {
   uchar state;
   uchar flags;
   uchar manifest_done;
+  uchar status_cache_done;
   uchar processing_accv;
 
   /* Frame buffer */
@@ -72,11 +75,13 @@ struct fd_snapshot_parser {
 
   /* Account processing callbacks */
   fd_snapshot_parser_process_manifest_fn_t manifest_cb;
+  fd_slot_delta_parser_process_entry_fn_t  status_cache_cb;
   fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb;
   fd_snapshot_process_acc_data_fn_t        acc_data_cb;
   void * cb_arg;
 
   fd_ssmanifest_parser_t * manifest_parser;
+  fd_slot_delta_parser_t * slot_delta_parser;
 
   /* Metrics */
   fd_snapshot_parser_metrics_t metrics;
@@ -113,7 +118,10 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self,
   self->flags = 0UL;
   fd_snapshot_parser_reset_tar( self );
   fd_ssmanifest_parser_init( self->manifest_parser, (fd_snapshot_manifest_t*)manifest_buf );
-  self->manifest_done = 0;
+  fd_slot_delta_parser_init( self->slot_delta_parser, self->status_cache_cb, self->cb_arg );
+
+  self->status_cache_done    = 0;
+  self->manifest_done        = 0;
   self->metrics.accounts_files_processed = 0UL;
   self->metrics.accounts_files_total     = 0UL;
   self->metrics.accounts_processed       = 0UL;
@@ -122,7 +130,7 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self,
   self->accv_slot                        = 0UL;
   self->accv_id                          = 0UL;
 
-  self->manifest_buf = manifest_buf;
+  self->manifest_buf   = manifest_buf;
   self->manifest_bufsz = manifest_bufsz;
 }
 
@@ -132,6 +140,7 @@ fd_snapshot_parser_new( void * mem,
                         ulong  seed,
                         ulong  max_acc_vecs,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
+                        fd_slot_delta_parser_process_entry_fn_t  status_cache_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb );
 

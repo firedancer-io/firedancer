@@ -114,10 +114,10 @@ fd_txn_account_delete( void * mem );
    account, since we are inside a Solana transaction. */
 
 int
-fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
-                                        fd_pubkey_t const *   pubkey,
-                                        fd_funk_t const *     funk,
-                                        fd_funk_txn_t const * funk_txn );
+fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
+                                        fd_pubkey_t const *       pubkey,
+                                        fd_funk_t const *         funk,
+                                        fd_funk_txn_xid_t const * xid );
 
 /* fd_txn_account_init_from_funk_mutable initializes a fd_txn_account_t
    object with a mutable handle into its funk record.
@@ -125,13 +125,13 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
    IMPORTANT: Cannot be called in the executor tile. */
 
 int
-fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
-                                       fd_pubkey_t const *     pubkey,
-                                       fd_funk_t *             funk,
-                                       fd_funk_txn_t *         funk_txn,
-                                       int                     do_create,
-                                       ulong                   min_data_sz,
-                                       fd_funk_rec_prepare_t * prepare_out );
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
+                                       fd_pubkey_t const *       pubkey,
+                                       fd_funk_t *               funk,
+                                       fd_funk_txn_xid_t const * xid,
+                                       int                       do_create,
+                                       ulong                     min_data_sz,
+                                       fd_funk_rec_prepare_t *   prepare_out );
 
 /* Publishes the record contents of a mutable fd_txn_account_t object
    obtained from fd_txn_account_init_from_funk_mutable into funk
@@ -140,10 +140,9 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *      acct,
    by fd_txn_account_init_from_funk_mutable. */
 
 void
-fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
-                             fd_funk_t *             funk,
-                             fd_funk_txn_t *         txn,
-                             fd_funk_rec_prepare_t * prepare );
+fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
+                             fd_funk_t *               funk,
+                             fd_funk_rec_prepare_t *   prepare );
 
 /* Simple accesssors and mutators. */
 

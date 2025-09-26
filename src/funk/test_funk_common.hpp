@@ -161,12 +161,14 @@ struct fake_funk {
       return list[((uint)lrand48())%listlen];
     }
 
-    fd_funk_txn_t * get_real_txn(fake_txn * txn) {
+    fd_funk_txn_xid_t const * get_real_txn(fake_txn * txn) {
       if (txn->_key == ROOT_KEY)
-        return NULL;
+        return fd_funk_last_publish( _real );
       fd_funk_txn_map_t * txn_map = fd_funk_txn_map( _real );
       auto xid = txn->real_id();
-      return fd_funk_txn_query(&xid, txn_map);
+      fd_funk_txn_t * rtxn = fd_funk_txn_query(&xid, txn_map);
+      if( !rtxn ) return fd_funk_last_publish( _real );
+      return &rtxn->xid;
     }
 
     void random_insert() {
@@ -178,10 +180,9 @@ struct fake_funk {
         /* Prevent duplicate keys */
       } while (!txn->insert(rec));
 
-      fd_funk_txn_t * txn2 = get_real_txn(txn);
       auto key = rec->real_id();
       fd_funk_rec_prepare_t prepare[1];
-      fd_funk_rec_t * rec2 = fd_funk_rec_prepare(_real, txn2, &key, prepare, NULL);
+      fd_funk_rec_t * rec2 = fd_funk_rec_prepare(_real, get_real_txn(txn), &key, prepare, NULL);
       void * val = fd_funk_val_truncate(rec2, fd_funk_alloc( _real ), _wksp, 0UL, rec->size(), NULL);
       memcpy(val, rec->data(), rec->size());
       fd_funk_rec_publish( _real, prepare );
@@ -199,9 +200,8 @@ struct fake_funk {
       if (!listlen) return;
       auto* rec = list[((uint)lrand48())%listlen];
 
-      fd_funk_txn_t * txn2 = get_real_txn(txn);
       auto key = rec->real_id();
-      assert(fd_funk_rec_remove(_real, txn2, &key, NULL) == FD_FUNK_SUCCESS);
+      assert(fd_funk_rec_remove(_real, get_real_txn(txn), &key, NULL) == FD_FUNK_SUCCESS);
 
       rec->_erased = true;
       rec->_data.clear();
@@ -223,9 +223,8 @@ struct fake_funk {
       txn->_parent = parent;
       parent->_children[key] = txn;
 
-      fd_funk_txn_t * parent2 = get_real_txn(parent);
       auto xid = txn->real_id();
-      assert(fd_funk_txn_prepare(_real, parent2, &xid, 1) != NULL);
+      fd_funk_txn_prepare(_real, get_real_txn(parent), &xid);
     }
 
     void fake_cancel_family(fake_txn* txn) {
@@ -296,8 +295,7 @@ struct fake_funk {
       if (!listlen) return;
       auto * txn = list[((uint)lrand48())%listlen];
 
-      fd_funk_txn_t * txn2 = get_real_txn(txn);
-      assert(fd_funk_txn_publish(_real, txn2, 1) > 0);
+      assert(fd_funk_txn_publish(_real, get_real_txn(txn)) > 0);
 
       // Simulate publication
       fake_publish(txn);
@@ -314,8 +312,7 @@ struct fake_funk {
       }
       auto * txn = list[((uint)lrand48())%listlen];
 
-      fd_funk_txn_t * txn2 = get_real_txn(txn);
-      assert(fd_funk_txn_publish_into_parent(_real, txn2, 1) == FD_FUNK_SUCCESS);
+      fd_funk_txn_publish_into_parent(_real, get_real_txn(txn));
 
       // Simulate publication
       fake_publish_to_parent(txn);
@@ -330,8 +327,7 @@ struct fake_funk {
       if (!listlen) return;
       auto * txn = list[((uint)lrand48())%listlen];
 
-      fd_funk_txn_t * txn2 = get_real_txn(txn);
-      assert(fd_funk_txn_cancel(_real, txn2, 1) > 0);
+      assert(fd_funk_txn_cancel(_real, get_real_txn(txn)) > 0);
 
       // Simulate cancel
       fake_cancel_family(txn);
@@ -372,8 +368,9 @@ struct fake_funk {
 
         fd_funk_txn_map_t * txn_map = fd_funk_txn_map( _real );
         fd_funk_txn_t * txn = fd_funk_txn_query( xid, txn_map );
+        if( !txn ) xid = fd_funk_last_publish( _real );
         fd_funk_rec_query_t query[1];
-        auto* rec3 = fd_funk_rec_query_try_global(_real, txn, rec->pair.key, NULL, query);
+        auto* rec3 = fd_funk_rec_query_try_global(_real, xid, rec->pair.key, NULL, query);
         if( ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
           assert(rec3 == NULL);
         else

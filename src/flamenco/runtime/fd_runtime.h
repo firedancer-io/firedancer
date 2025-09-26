@@ -39,9 +39,6 @@
 
 #define SECONDS_PER_YEAR ((double)(365.242199 * 24.0 * 60.0 * 60.0))
 
-/* TODO: increase this to default once we have enough memory to support a 95G status cache. */
-#define MAX_CACHE_TXNS_PER_SLOT (FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT / 8)
-
 /*
  * fd_block_entry_batch_t is a microblock/entry batch within a block.
  * The offset is relative to the start of the block's data region,
@@ -199,50 +196,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    TODO: If account lock limits are increased to 128, this macro will need to be updated. */
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0) + FD_SOLFUZZ_MISC_FOOTPRINT
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
-
-/* Footprint here is dominated by vote account decode.  See above for
-   why 72/40. */
-#define FD_RUNTIME_TRANSACTION_FINALIZATION_FOOTPRINT      (FD_RUNTIME_ACC_SZ_MAX*72UL/40UL)
-
-
-/* FD_SLICE_ALIGN specifies the alignment needed for a block slice.
-   ALIGN is double x86 cache line to mitigate various kinds of false
-   sharing (eg. ACLPF adjacent cache line prefetch). */
-
-#define FD_SLICE_ALIGN (128UL)
-
-/* FD_SLICE_MAX specifies the maximum size of an entry batch. This is
-   equivalent to the maximum size of a block (ie. a block with a single
-   entry batch). */
-
-#define FD_SLICE_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
-
-/* FD_SLICE_MAX_WITH_HEADERS specifies the maximum size of all of the
-   shreds that can be in an entry batch. This is equivalent to max
-   number of shreds (including header and payload) that can be in a
-   single slot. */
-
-#define FD_SLICE_MAX_WITH_HEADERS (FD_SHRED_DATA_HEADER_MAX_PER_SLOT + FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
-
-/* 64 ticks per slot, and then one min size transaction per microblock
-   for all the remaining microblocks.
-   This bound should be used along with the transaction parser and tick
-   verifier to enforce the assumptions.
-   This is NOT a standalone conservative bound against malicious
-   validators.
-   A tighter bound could probably be derived if necessary. */
-
-#define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
-/* 64 ticks per slot, and a single gigantic microblock containing min
-   size transactions. */
-#define FD_TXN_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 65UL*sizeof(fd_microblock_hdr_t)) / (FD_TXN_MIN_SERIALIZED_SZ)) /* 272,635 */
-
-// TODO centralize these
-// https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
-#define FD_MS_PER_TICK 6
-
-// https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
-#define FD_REPAIR_TIMEOUT (200 / FD_MS_PER_TICK)
 
 /* Helpers for runtime public frame management. */
 
@@ -462,7 +415,7 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               tx
                                                    fd_conflict_detect_ele_t * acct_map,
                                                    fd_acct_addr_t *           acct_arr,
                                                    fd_funk_t *                funk,
-                                                   fd_funk_txn_t *            funk_txn,
+                                                   fd_funk_txn_xid_t const *  xid,
                                                    ulong                      slot,
                                                    fd_slot_hash_t *           slot_hashes,
                                                    fd_features_t *            features,
@@ -471,13 +424,15 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               tx
 
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
-                                           uchar const *    payload,
-                                           fd_funk_t *      funk,
-                                           fd_funk_txn_t *  funk_txn,
-                                           ulong            slot,
-                                           fd_slot_hash_t const * hashes,
-                                           fd_acct_addr_t * out_accts_alt );
+fd_runtime_load_txn_address_lookup_tables(
+    fd_txn_t const *          txn,
+    uchar const *             payload,
+    fd_funk_t *               funk,
+    fd_funk_txn_xid_t const * xid,
+    ulong                     slot,
+    fd_slot_hash_t const *    hashes, /* deque */
+    fd_acct_addr_t *          out_accts_alt
+);
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
@@ -485,11 +440,6 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 
 void
 fd_runtime_block_execute_finalize( fd_exec_slot_ctx_t * slot_ctx );
-
-/* Look up the funk transaction for the given slot */
-fd_funk_txn_t *
-fd_runtime_funk_txn_get( fd_funk_t * funk,
-                         ulong       slot );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -510,11 +460,11 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     uchar               do_sigverify );
 
 void
-fd_runtime_finalize_txn( fd_funk_t *         funk,
-                         fd_funk_txn_t *     funk_txn,
-                         fd_exec_txn_ctx_t * txn_ctx,
-                         fd_bank_t *         bank,
-                         fd_capture_ctx_t *  capture_ctx );
+fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_exec_txn_ctx_t *       txn_ctx,
+                         fd_bank_t *               bank,
+                         fd_capture_ctx_t *        capture_ctx );
 
 /* Epoch Boundary *************************************************************/
 

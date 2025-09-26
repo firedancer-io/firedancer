@@ -24,11 +24,11 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_funk_t *     funk,
-                              fd_funk_txn_t * funk_txn,
-                              fd_spad_t *     spad ) {
+fd_sysvar_stake_history_read( fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_spad_t *               spad ) {
   FD_TXN_ACCOUNT_DECL( stake_rec );
-  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -62,7 +62,7 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   // Need to make this maybe zero copies of map...
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->xid, runtime_spad );
 
   if( stake_history->fd_stake_history_offset == 0 ) {
     stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;

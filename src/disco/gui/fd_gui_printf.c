@@ -1,11 +1,8 @@
-#include <ctype.h>
-#include <stdio.h>
-
 #include "fd_gui_printf.h"
 
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
-#include "../../disco/fd_txn_m_t.h"
+#include "../../disco/fd_txn_m.h"
 
 #ifdef __has_include
 #if __has_include("../../app/fdctl/version.h")
@@ -233,6 +230,23 @@ void
 fd_gui_printf_vote_distance( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "vote_distance" );
     jsonp_ulong( gui->http, "value", gui->summary.vote_distance );
+  jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_slot_max_known( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "slot_max_known" );
+    int slot_max_known_hist_full = gui->summary.slots_max_known[ FD_GUI_SHRED_SLOT_HISTORY_SZ-1 ].slot!=ULONG_MAX;
+    if( FD_LIKELY( slot_max_known_hist_full  ) ) jsonp_ulong( gui->http, "value", gui->summary.slots_max_known[ 0 ].slot );
+    else                                         jsonp_null ( gui->http, "value" );
+  jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_slot_caught_up( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui->http, "summary", "slot_caught_up" );
+    if( FD_LIKELY( gui->summary.slot_caught_up  ) ) jsonp_ulong( gui->http, "value", gui->summary.slot_caught_up );
+    else                                            jsonp_null ( gui->http, "value" );
   jsonp_close_envelope( gui->http );
 }
 

@@ -10,7 +10,6 @@
 
 struct test_sysvar_cache_env {
   fd_funk_t           funk[1];
-  fd_funk_txn_t *     funk_txn;
   fd_exec_slot_ctx_t  slot_ctx[1];
   fd_sysvar_cache_t * sysvar_cache;
 };

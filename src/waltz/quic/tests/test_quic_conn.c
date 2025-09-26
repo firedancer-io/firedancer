@@ -97,12 +97,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
 }
 
 /* global "clock" */
-ulong now = (ulong)1e18;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+long now = (long)1e18;
 
 int
 main( int argc, char ** argv ) {
@@ -151,14 +146,10 @@ main( int argc, char ** argv ) {
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_rx        = my_stream_rx_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
-  client_quic->cb.now     = test_clock;
-  client_quic->cb.now_ctx = NULL;
 
   server_quic->cb.conn_new       = my_connection_new;
   server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
-  server_quic->cb.now     = test_clock;
-  server_quic->cb.now_ctx = NULL;
 
   server_quic->config.initial_rx_max_stream_data = 1<<14;
   client_quic->config.initial_rx_max_stream_data = 1<<14;
@@ -182,8 +173,8 @@ main( int argc, char ** argv ) {
   while( k < 4000 && !done ) {
     now += 50000;
 
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     buf[12] = ' ';
     buf[15] = (char)( ( k / 10 ) + '0' );
@@ -230,7 +221,7 @@ main( int argc, char ** argv ) {
           client_complete = 0;
 
           /* start new connection */
-          client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+          client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
 
           if( !client_conn ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));
@@ -268,7 +259,7 @@ main( int argc, char ** argv ) {
 
   /* give server connection a chance to close */
   for( int j = 0; j < 1000; ++j ) {
-    fd_quic_service( server_quic );
+    fd_quic_service( server_quic, now );
   }
 
   FD_LOG_INFO(( "client_conn: %p", (void*)client_conn ));

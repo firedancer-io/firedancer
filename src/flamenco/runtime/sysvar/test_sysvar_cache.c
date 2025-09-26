@@ -21,6 +21,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   env->slot_ctx->magic  = FD_EXEC_SLOT_CTX_MAGIC;
   env->slot_ctx->bank   = bank;
   env->slot_ctx->funk   = funk;
+  env->slot_ctx->xid[0] = *fd_funk_last_publish( funk );
   env->sysvar_cache     = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->sysvar_cache ) );
   return env;
 }
@@ -172,7 +173,7 @@ sysvar_inject( fd_sysvar_cache_t * cache,
   fd_memcpy( (uchar *)cache+pos->data_off, data, data_sz );
   desc->data_sz = (uint)data_sz;
   desc->flags   = 0;
-  return fd_sysvar_obj_restore( cache, desc, pos, 1 );
+  return fd_sysvar_obj_restore( cache, desc, pos );
 }
 
 static void

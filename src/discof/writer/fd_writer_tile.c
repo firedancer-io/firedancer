@@ -1,11 +1,13 @@
 #define _GNU_SOURCE
-#include "../../disco/tiles.h"
+#include "../../disco/topo/fd_topo.h"
 #include "generated/fd_writer_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../disco/fd_txn_m.h"
+#include "../../disco/stem/fd_stem.h"
 #include "../../discof/replay/fd_exec.h"
 #include "../../discof/replay/fd_vote_tracker.h"
 
@@ -51,7 +53,7 @@ struct fd_writer_tile_ctx {
 
   /* Local join of Funk.  R/W. */
   fd_funk_t                   funk[1];
-  fd_funk_txn_t *             funk_txn;
+  fd_funk_txn_xid_t           xid[1];
 
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
@@ -97,8 +99,8 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l       = FD_LAYOUT_APPEND( l, alignof(fd_writer_tile_ctx_t),  sizeof(fd_writer_tile_ctx_t) );
-  l       = FD_LAYOUT_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  l       = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(), fd_vote_tracker_footprint() );
+  l       = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),         fd_capture_ctx_footprint() );
+  l       = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),        fd_vote_tracker_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -280,11 +282,12 @@ during_frag( fd_writer_tile_ctx_t * ctx,
 
     fd_txn_m_t * txnm    = fd_type_pun( fd_chunk_to_laddr( in_ctx->mem, chunk ) );
     uchar *      payload = ((uchar *)txnm) + sizeof(fd_txn_m_t);
-    fd_txn_t txn;
-    if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, &txn, NULL ) ) ) {
+    uchar        txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
+    fd_txn_t *   txn = (fd_txn_t *)txn_mem;
+    if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, txn_mem, NULL ) ) ) {
       FD_LOG_CRIT(( "Could not parse txn from send tile" ));
     }
-    uchar * signature = payload + txn.signature_off;
+    uchar * signature = payload + txn->signature_off;
     memcpy( ctx->vote_msg, signature, 64UL );
     return;
   }
@@ -323,24 +326,12 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       }
       fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx[ in_idx ];
 
-      ctx->bank = fd_banks_get_bank_idx( ctx->banks, txn_ctx->bank_idx );
+      ctx->bank = fd_banks_bank_query( ctx->banks, txn_ctx->bank_idx );
       if( FD_UNLIKELY( !ctx->bank ) ) {
         FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
       }
 
-      if( !ctx->funk_txn || txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
-        fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
-        if( FD_UNLIKELY( !txn_map->map ) ) {
-          FD_LOG_CRIT(( "Could not find valid funk transaction map" ));
-        }
-        fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
-        fd_funk_txn_start_read( ctx->funk );
-        ctx->funk_txn = fd_funk_txn_query( &xid, txn_map );
-        if( FD_UNLIKELY( !ctx->funk_txn ) ) {
-          FD_LOG_CRIT(( "Could not find valid funk transaction" ));
-        }
-        fd_funk_txn_end_read( ctx->funk );
-      }
+      ctx->xid[0] = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
 
       txn_ctx->spad      = ctx->exec_spad[ in_idx ];
       txn_ctx->spad_wksp = ctx->exec_spad_wksp[ in_idx ];
@@ -356,7 +347,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_runtime_finalize_txn(
             ctx->funk,
-            ctx->funk_txn,
+            ctx->xid,
             txn_ctx,
             ctx->bank,
             ctx->capture_ctx );
@@ -393,8 +384,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_writer_tile_ctx_t), sizeof(fd_writer_tile_ctx_t) );
-  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
-  void * vote_tracker_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(), fd_vote_tracker_footprint() );
+  void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),        fd_capture_ctx_footprint() );
+  void * vote_tracker_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),       fd_vote_tracker_footprint() );
   ulong scratch_alloc_mem    = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_CRIT( ( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",

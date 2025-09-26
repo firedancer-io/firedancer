@@ -59,8 +59,9 @@ union fdctl_args {
   } txn;
 
   struct {
-    char link_name[ 64UL ];
+    char link_name[ 128UL ];
     char pcap_path[ 256UL ];
+    int  once;
   } dump;
 
   struct {

@@ -56,7 +56,8 @@
 #define FD_CONTACT_INFO_SOCKET_TVU               (10)
 #define FD_CONTACT_INFO_SOCKET_TVU_QUIC          (11)
 #define FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC     (12)
-#define FD_CONTACT_INFO_SOCKET_LAST              (12)
+#define FD_CONTACT_INFO_SOCKET_ALPENGLOW         (13)
+#define FD_CONTACT_INFO_SOCKET_CNT               (14)
 
 /* https://github.com/anza-xyz/agave/blob/540d5bc56cd44e3cc61b179bd52e9a782a2c99e4/version/src/lib.rs#L95-L105 */
 
@@ -100,10 +101,10 @@ struct fd_contact_info {
      indicates the node does not advertise that protocol.  For example,
      sockets[ FD_CONTACT_INFO_SOCKET_RPC ] is the IP address and port
      for the RPC service of the node. */
-  fd_ip4_port_t sockets[ FD_CONTACT_INFO_SOCKET_LAST+1UL ];
+  fd_ip4_port_t sockets[ FD_CONTACT_INFO_SOCKET_CNT ];
 
   struct {
-    uchar  client; /* Any uchar in [0, 255], although typically one of FD_CONTACT_INFO_VERSION_CLIENT_* indicating the self-reported client version */
+    ushort client; /* Any ushort in [0, USHORT_MAX], although typically one of FD_CONTACT_INFO_VERSION_CLIENT_* indicating the self-reported client version */
 
     ushort major;  /* The self-reported major version of the client */
     ushort minor;  /* The self-reported minor version of the client */

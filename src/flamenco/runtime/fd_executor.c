@@ -286,29 +286,20 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
-  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-
-  fd_txncache_query_t curr_query;
-  curr_query.blockhash = blockhash->uc;
-  fd_blake3_t b3[1];
-
   /* Compute the blake3 hash of the transaction message
      https://github.com/anza-xyz/agave/blob/v2.1.7/sdk/program/src/message/versions/mod.rs#L159-L167 */
+  fd_blake3_t b3[1];
   fd_blake3_init( b3 );
   fd_blake3_append( b3, "solana-tx-message-v1", 20UL );
   fd_blake3_append( b3, ((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->message_off),(ulong)( txn_ctx->txn.payload_sz - TXN( &txn_ctx->txn )->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
-  curr_query.txnhash = txn_ctx->blake_txn_msg_hash.uc;
 
-  // FIXME: Commenting out until txncache is fixed
-  (void)curr_query;
-  // int err;
-  // fd_txncache_query_batch( txn_ctx->status_cache,
-  //                          &curr_query,
-  //                          1UL,
-  //                          (void *)txn_ctx,
-  //                          status_check_tower, &err );
-  return 0;
+  // TODO: ONLY DO THIS CHECK IF IT IS NOT A NONCE TRANSACTION
+  // fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+  // int found = fd_txncache_query( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+  // if( FD_UNLIKELY( !found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank/check_transactions.rs#L77-L141 */
@@ -590,7 +581,7 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
     err = fd_txn_account_init_from_funk_readonly( owner_account,
                                                   fd_txn_account_get_owner( program_account ),
                                                   txn_ctx->funk,
-                                                  txn_ctx->funk_txn );
+                                                  txn_ctx->xid );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
@@ -699,7 +690,7 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
   err = fd_txn_account_init_from_funk_readonly( programdata_account,
                                                 &loader_state->inner.program.programdata_address,
                                                 txn_ctx->funk,
-                                                txn_ctx->funk_txn );
+                                                txn_ctx->xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
@@ -945,7 +936,7 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
     int err = FD_ACC_MGR_SUCCESS;
     fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
         txn_ctx->funk,
-        txn_ctx->funk_txn,
+        txn_ctx->xid,
         fee_payer_key,
         NULL,
         &err,
@@ -1055,7 +1046,7 @@ fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
     int err = fd_runtime_load_txn_address_lookup_tables( TXN( &txn_ctx->txn ),
                                                          txn_ctx->txn.payload,
                                                          txn_ctx->funk,
-                                                         txn_ctx->funk_txn,
+                                                         txn_ctx->xid,
                                                          txn_ctx->slot,
                                                          slot_hashes,
                                                          accts_alt );
@@ -1373,13 +1364,9 @@ void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_exec_txn_ctx_t *        ctx,
                                     fd_wksp_t const *          funk_wksp,
-                                    ulong                      funk_txn_gaddr,
                                     ulong                      funk_gaddr,
                                     fd_bank_hash_cmp_t *       bank_hash_cmp ) {
-  ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
-  if( FD_UNLIKELY( !ctx->funk_txn ) ) {
-    FD_LOG_ERR(( "Could not find valid funk transaction" ));
-  }
+  ctx->xid[0] = slot_ctx->xid[0];
 
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
     FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
@@ -1410,7 +1397,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
       txn_ctx->funk,
-      txn_ctx->funk_txn,
+      txn_ctx->xid,
       acc,
       NULL,
       &err,
@@ -1498,7 +1485,7 @@ fd_executor_setup_executable_account( fd_exec_txn_ctx_t *      txn_ctx,
   if( FD_LIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[ *executable_idx ],
                                                             programdata_acc,
                                                             txn_ctx->funk,
-                                                            txn_ctx->funk_txn )==0 ) ) {
+                                                            txn_ctx->xid )==0 ) ) {
     (*executable_idx)++;
   }
 }

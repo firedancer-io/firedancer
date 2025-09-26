@@ -416,12 +416,12 @@ fd_crds_new( void *                    shmem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( !ele_max || !fd_ulong_is_pow2( ele_max ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( ele_max ) ) ) {
     FD_LOG_WARNING(( "ele_max must be a power of 2" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !purged_max || !fd_ulong_is_pow2( purged_max ) ) ) {
+  if( FD_UNLIKELY( !fd_ulong_is_pow2( purged_max ) ) ) {
     FD_LOG_WARNING(( "purged_max must be a power of 2" ));
     return NULL;
   }
@@ -451,6 +451,7 @@ fd_crds_new( void *                    shmem,
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -693,6 +694,7 @@ fd_crds_acquire( fd_crds_t *         crds,
 
     hash_treap_ele_remove( crds->hash_treap, evict, crds->pool );
     lookup_map_ele_remove( crds->lookup_map, &evict->key, NULL, crds->pool );
+    evict_treap_ele_remove( crds->evict_treap, evict, crds->pool );
     if( FD_UNLIKELY( evict->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) remove_contact_info( crds, evict, now, stem );
 
     crds->metrics->evicted_cnt++;
@@ -759,7 +761,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
     out_value->node_instance.token = view->node_instance->token;
   } else if( FD_UNLIKELY( key->tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-    out_value->contact_info.instance_creation_wallclock_nanos = view->contact_info->instance_creation_wallclock_nanos;
+    out_value->contact_info.instance_creation_wallclock_nanos = view->ci_view->contact_info->instance_creation_wallclock_nanos;
     /* Contact Info entry will be added to sampler upon successful insertion */
     out_value->contact_info.sampler_idx = SAMPLE_IDX_SENTINEL;
   }
@@ -809,7 +811,7 @@ overrides_fast( fd_crds_entry_t const *             incumbent,
   long existing_wc        = incumbent->wallclock_nanos;
   long candidate_wc       = candidate->wallclock_nanos;
   long existing_ci_onset  = incumbent->contact_info.instance_creation_wallclock_nanos;
-  long candidate_ci_onset = candidate->contact_info->instance_creation_wallclock_nanos;
+  long candidate_ci_onset = candidate->ci_view->contact_info->instance_creation_wallclock_nanos;
 
   switch( candidate->tag ) {
     case FD_GOSSIP_VALUE_CONTACT_INFO:
@@ -1069,7 +1071,7 @@ fd_crds_insert( fd_crds_t *                         crds,
   lookup_map_ele_insert( crds->lookup_map, candidate, crds->pool );
 
   if( FD_UNLIKELY( candidate->key.tag==FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-    fd_crds_contact_info_init( candidate_view, payload, candidate->contact_info.ci->contact_info );
+    fd_memcpy( candidate->contact_info.ci->contact_info, candidate_view->ci_view->contact_info, sizeof(fd_contact_info_t) );
     /* Default to active, since we filter inactive entries prior to insertion */
     candidate->contact_info.is_active = 1;
 

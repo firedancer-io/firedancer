@@ -65,6 +65,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   /* Slot */
 
   fd_bank_slot_set( slot_ctx->bank, manifest->slot );
+  fd_bank_parent_slot_set( slot_ctx->bank, manifest->parent_slot );
 
   /* Bank Hash */
 
@@ -107,7 +108,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   rent->burn_percent            = manifest->rent_params.burn_percent;
 
   if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( slot_ctx->bank, manifest->hashes_per_tick );
-  else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, 0UL );
+  else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, DEFAULT_HASHES_PER_TICK );
 
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
     fd_lthash_value_t lthash;
@@ -138,7 +139,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_genesis_creation_time_set( slot_ctx->bank, manifest->creation_time_millis );
   fd_bank_slots_per_year_set( slot_ctx->bank, manifest->slots_per_year );
   fd_bank_block_height_set( slot_ctx->bank, manifest->block_height );
-  fd_bank_parent_slot_set( slot_ctx->bank, manifest->parent_slot );
   fd_bank_execution_fees_set( slot_ctx->bank, manifest->collector_fees );
   fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
 

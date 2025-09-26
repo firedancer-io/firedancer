@@ -70,12 +70,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
 
 
 /* global "clock" */
-ulong now = 123;
-
-ulong test_clock( void * ctx ) {
-  (void)ctx;
-  return now;
-}
+long now = 123;
 
 static void
 test_invalid_tx_buf_sz( fd_wksp_t * wksp ) {
@@ -145,11 +140,9 @@ main( int     argc,
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_client_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
   server_quic->cb.stream_rx        = my_stream_rx_cb;
 
-  client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
   client_quic->cb.stream_notify    = fd_quic_stream_spam_notify;
 
@@ -168,16 +161,17 @@ main( int     argc,
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
+  fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = now;
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, now );
   FD_TEST( client_conn );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
 
     if( server_complete && client_complete ) {
       FD_LOG_INFO(( "***** both handshakes complete *****" ));
@@ -197,8 +191,8 @@ main( int     argc,
 
     FD_LOG_DEBUG(( "running services" ));
 
-    fd_quic_service( server_quic );
-    fd_quic_service( client_quic );
+    fd_quic_service( server_quic, now );
+    fd_quic_service( client_quic, now );
   }
 
   FD_LOG_NOTICE(( "received: %lu", recvd ));
@@ -211,8 +205,8 @@ main( int     argc,
 
   for( unsigned j = 0; j < 10; ++j ) {
     FD_LOG_INFO(( "running services" ));
-    fd_quic_service( client_quic );
-    fd_quic_service( server_quic );
+    fd_quic_service( client_quic, now );
+    fd_quic_service( server_quic, now );
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));

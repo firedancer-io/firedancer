@@ -276,7 +276,7 @@ fd_ghost_mark_invalid( fd_ghost_t * ghost, ulong slot, ulong total_stake ) {
 fd_ghost_ele_t *
 fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, fd_hash_t const * hash, ulong total_stake ) {
 # if LOGGING
-  FD_LOG_INFO(( "[%s] slot: %lu, %s. parent: %s.", __func__, slot, FD_BASE58_ENC_32_ALLOCA(hash), FD_BASE58_ENC_32_ALLOCA(parent_hash) ));
+  FD_LOG_NOTICE(( "[%s] slot: %lu, %s. parent: %s.", __func__, slot, FD_BASE58_ENC_32_ALLOCA(hash), FD_BASE58_ENC_32_ALLOCA(parent_hash) ));
 # endif
 
 # if FD_GHOST_USE_HANDHOLDING
@@ -289,10 +289,10 @@ fd_ghost_insert( fd_ghost_t * ghost, fd_hash_t const * parent_hash, ulong slot, 
   fd_ghost_ele_t const * root   = fd_ghost_root( ghost );
 
 # if FD_GHOST_USE_HANDHOLDING
-  if( FD_UNLIKELY( fd_ghost_query( ghost, hash )    ) ) { FD_LOG_WARNING(( "[%s] hash %s already in ghost.",            __func__, FD_BASE58_ENC_32_ALLOCA(hash)                                             )); return NULL; }
-  if( FD_UNLIKELY( !parent                          ) ) { FD_LOG_WARNING(( "[%s] missing `parent_id` %s for (%s, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA(parent_hash), FD_BASE58_ENC_32_ALLOCA(hash), slot )); return NULL; }
-  if( FD_UNLIKELY( !fd_ghost_pool_free( pool )      ) ) { FD_LOG_WARNING(( "[%s] ghost full.",                          __func__                                                                            )); return NULL; }
-  if( FD_UNLIKELY( slot <= root->slot               ) ) { FD_LOG_WARNING(( "[%s] slot %lu <= root %lu",                 __func__, slot, root->slot                                                          )); return NULL; }
+  if( FD_UNLIKELY( fd_ghost_query( ghost, hash ) ) ) { FD_LOG_WARNING(( "[%s] hash %s already in ghost.",            __func__, FD_BASE58_ENC_32_ALLOCA(hash)                                             )); return NULL; }
+  if( FD_UNLIKELY( !parent                       ) ) { FD_LOG_WARNING(( "[%s] missing `parent_id` %s for (%s, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA(parent_hash), FD_BASE58_ENC_32_ALLOCA(hash), slot )); return NULL; }
+  if( FD_UNLIKELY( !fd_ghost_pool_free( pool )   ) ) { FD_LOG_WARNING(( "[%s] ghost full.",                          __func__                                                                            )); return NULL; }
+  if( FD_UNLIKELY( slot <= root->slot            ) ) { FD_LOG_WARNING(( "[%s] slot %lu <= root %lu",                 __func__, slot, root->slot                                                          )); return NULL; }
 # endif
 
   fd_ghost_ele_t * ele = fd_ghost_pool_ele_acquire( pool );

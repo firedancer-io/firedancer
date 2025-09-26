@@ -6,5 +6,5 @@
 [32mNOTICE [0m RUN: `mount -t hugetlbfs none /mnt/.fd/.gigantic -o pagesize=1073741824,min_size=27917287424`
 [32mNOTICE [0m sysctl ... already valid
 [32mNOTICE [0m ethtool-channels ... already valid
-[32mNOTICE [0m ethtool-gro ... already valid
+[32mNOTICE [0m ethtool-offloads ... already valid
 [32mNOTICE [0m ethtool-loopback ... already valid

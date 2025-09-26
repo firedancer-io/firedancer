@@ -16,14 +16,8 @@
     max_account_records = {index_max}
     max_database_transactions = 64
 [runtime]
-    max_total_banks = 4
+    max_live_slots = 4
     max_fork_width = 4
-[blockstore]
-    shred_max = 16777216
-    block_max = 8192
-    txn_max = 1048576
-    alloc_max = 10737418240
-    file = "{ledger}/backtest.blockstore"
 [consensus]
     vote = false
 [development]

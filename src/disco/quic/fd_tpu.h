@@ -12,8 +12,8 @@
    packets.  For more information, see the specification:
    https://github.com/solana-foundation/specs/blob/main/p2p/tpu.md */
 
-#include "../fd_disco_base.h"
-#include "../fd_txn_m_t.h"
+#include "../fd_txn_m.h"
+#include "../../tango/fd_tango_base.h"
 
 /* FD_TPU_REASM_MTU is the max tango frag sz sent by an fd_tpu_reasm_t.
    FD_TPU_REASM_CHUNK_MTU*FD_CHUNK_SZ == FD_TPU_REASM_MTU */

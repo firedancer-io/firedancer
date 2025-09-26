@@ -20,7 +20,7 @@ class TestState {
       }
     }
 
-    fd_funk_txn_t * pick_txn(bool unfrozen) {
+    fd_funk_txn_xid_t const * pick_txn(bool unfrozen) {
       fd_funk_txn_t * txns[MAX_TXN_CNT+1];
       uint txns_cnt = 0;
       if( !unfrozen || !fd_funk_last_publish_is_frozen( _funk )) txns[txns_cnt++] = NULL;
@@ -32,7 +32,8 @@ class TestState {
           txns[txns_cnt++] = txn;
         }
       }
-      return txns[lrand48()%txns_cnt];
+      fd_funk_txn_t * pick = txns[lrand48()%txns_cnt];
+      return pick ? &pick->xid : NULL;
     }
 
     uint count_txns() {
@@ -64,9 +65,10 @@ static void * work_thread(void * arg) {
     FD_ATOMIC_FETCH_AND_ADD( &runcnt, 1 );
 
     while( runstate == (int)RUN) {
-      fd_funk_txn_t * txn = state->pick_txn(true);
+      fd_funk_txn_xid_t const * xid = state->pick_txn(true);
+      if( !xid ) xid = fd_funk_last_publish( funk );
       fd_funk_rec_prepare_t prepare[1];
-      fd_funk_rec_t * rec = fd_funk_rec_prepare(funk, txn, &key, prepare, NULL);
+      fd_funk_rec_t * rec = fd_funk_rec_prepare(funk, xid, &key, prepare, NULL);
       if( rec == NULL ) continue;
       void * val = fd_funk_val_truncate(
           rec,
@@ -82,7 +84,7 @@ static void * work_thread(void * arg) {
 
       for(;;) {
         fd_funk_rec_query_t query[1];
-        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global(funk, txn, &key, NULL, query);
+        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global(funk, xid, &key, NULL, query);
         assert(rec2 && fd_funk_val_sz(rec2) == sizeof(ulong));
         ulong val2;
         memcpy(&val2, fd_funk_val(rec2, wksp), sizeof(ulong));
@@ -105,10 +107,15 @@ int main(int argc, char** argv) {
 
   fd_boot( &argc, &argv );
 
+  char const * _page_sz = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,      "gigantic" );
+  ulong        page_cnt = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL,             1UL );
+  ulong        near_cpu = fd_env_strip_cmdline_ulong( &argc, &argv, "--near-cpu",  NULL, fd_log_cpu_id() );
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+
   ulong txn_max = MAX_TXN_CNT;
   uint  rec_max = 1<<20;
-  ulong  numa_idx = fd_shmem_numa_idx( 0 );
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, near_cpu, "wksp", 0UL );
   void * mem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), FD_FUNK_MAGIC );
   fd_funk_t funk_[1];
   fd_funk_t * funk = fd_funk_join( funk_, fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
@@ -127,14 +134,15 @@ int main(int argc, char** argv) {
 
   for (uint loop = 0; loop < 10U; ++loop) {
     for( uint i = 0; i < 2; ++i ) {
-      auto * txn = state.pick_txn(false);
-      if( txn == NULL ) continue;
-      fd_funk_txn_publish(funk, txn, 1);
+      auto const * xid = state.pick_txn(false);
+      if( !xid ) continue;
+      fd_funk_txn_publish(funk, xid);
     }
     for( uint i = 0; i < 20; ++i ) {
-      auto * parent = state.pick_txn(false);
+      auto const * parent = state.pick_txn(false);
+      if( !parent ) parent = fd_funk_last_publish( funk );
       xid.ul[0]++;
-      fd_funk_txn_prepare(funk, parent, &xid, 1);
+      fd_funk_txn_prepare(funk, parent, &xid);
     }
 
     runstate = (int)RUN;
@@ -158,6 +166,6 @@ int main(int argc, char** argv) {
   fd_funk_leave( funk, NULL );
   fd_funk_delete( mem );
 
-  printf("test passed!\n");
+  FD_LOG_NOTICE(( "pass" ));
   return 0;
 }

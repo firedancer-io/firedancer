@@ -54,7 +54,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_normalpage,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_ethtool_channels,
-  &fd_cfg_stage_ethtool_gro,
+  &fd_cfg_stage_ethtool_offloads,
   &fd_cfg_stage_ethtool_loopback,
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
@@ -188,6 +188,7 @@ extern action_t fd_action_repair;
 extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
+extern action_t fd_action_gossip_dump;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -221,6 +222,7 @@ action_t * ACTIONS[] = {
   &fd_action_shred_version,
   &fd_action_ipecho_server,
   &fd_action_send_test,
+  &fd_action_gossip_dump,
   NULL,
 };
 

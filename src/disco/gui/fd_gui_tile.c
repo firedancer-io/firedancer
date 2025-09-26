@@ -6,7 +6,14 @@
 
    from the repository root. */
 
-#include "generated/http_import_dist.h"
+#include "../../disco/gui/generated/http_import_dist.h"
+
+/* The list of files used to serve the frontend is set here.  This is a
+   global variable since is is populated at boot based on the
+   `development.gui.frontend_release_channel` option and is accessed in
+   the gui_http_request callback. */
+static fd_http_static_file_t * STATIC_FILES;
+
 #define DIST_COMPRESSION_LEVEL (19)
 
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
@@ -43,6 +50,7 @@ extern uint  const fdctl_commit_ref;
 #define IN_KIND_PACK_BANK (2UL)
 #define IN_KIND_PACK_POH  (3UL)
 #define IN_KIND_BANK_POH  (4UL)
+#define IN_KIND_SHRED_OUT (5UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -123,11 +131,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 FD_FN_CONST static ulong
 dist_file_sz( void ) {
-  ulong tot_sz = 0UL;
-  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
-    tot_sz += *(f->data_len);
+  ulong tots_sz = 0UL;
+  for( fd_http_static_file_t const * f = STATIC_FILES_STABLE; f->name; f++ ) {
+    tots_sz += *(f->data_len);
   }
-  return tot_sz;
+  ulong tota_sz = 0UL;
+  for( fd_http_static_file_t const * f = STATIC_FILES_ALPHA; f->name; f++ ) {
+    tota_sz += *(f->data_len);
+  }
+  return fd_ulong_max( tots_sz, tota_sz );
 }
 
 FD_FN_PURE static inline ulong
@@ -190,6 +202,13 @@ during_frag( fd_gui_ctx_t * ctx,
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
+  /* There are two frags types sent on this link, the currently the only
+     way to distinguish them is to check sz. We dont actually read from
+     the dcache  */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
+    return;
+  }
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
     if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
@@ -233,7 +252,9 @@ after_frag( fd_gui_ctx_t *      ctx,
   (void)stem;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
-  else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
+    if( FD_UNLIKELY( sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) fd_gui_handle_shred_slot( ctx->gui, fd_disco_shred_out_fec_sig_slot( sig ), fd_log_wallclock() );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
     FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
     fd_gui_became_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
@@ -306,7 +327,8 @@ gui_http_request( fd_http_server_request_t const * request ) {
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
                      !strncmp( request->path, "/gossip?", strlen("/gossip?") );
 
-  for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
+  FD_TEST( STATIC_FILES );
+  for( fd_http_static_file_t const * f = STATIC_FILES; f->name; f++ ) {
     if( !strcmp( request->path, f->name ) ||
         (!strcmp( f->name, "/index.html" ) && is_vite_page) ) {
       char const * content_type = NULL;
@@ -395,6 +417,8 @@ privileged_init( fd_topo_t *      topo,
   ctx->gui_server = fd_http_server_join( fd_http_server_new( _gui, http_param, gui_callbacks, ctx ) );
   fd_http_server_listen( ctx->gui_server, tile->gui.listen_addr, tile->gui.listen_port );
 
+  FD_LOG_NOTICE(( "gui server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port ));
+
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
     FD_LOG_ERR(( "identity_key_path not set" ));
 
@@ -445,6 +469,7 @@ pre_compress_files( fd_wksp_t * wksp ) {
   fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_wksp_laddr_fast( wksp, glo ), fd_spad_mem_max_max( ghi-glo ) ) );
   fd_spad_push( spad );
 
+  FD_TEST( STATIC_FILES );
   for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
     char const * ext = strrchr( f->name, '.' );
     if( !ext ) continue;
@@ -469,7 +494,8 @@ pre_compress_files( fd_wksp_t * wksp ) {
 
   ulong uncompressed_sz = 0UL;
   ulong compressed_sz   = 0UL;
-  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
+  FD_TEST( STATIC_FILES );
+  for( fd_http_static_file_t const * f=STATIC_FILES; f->name; f++ ) {
     uncompressed_sz += *f->data_len;
     compressed_sz   += fd_ulong_if( !!f->zstd_data_len, f->zstd_data_len, *f->data_len );
   }
@@ -506,6 +532,9 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
+  STATIC_FILES = fd_ptr_if( gui_tile->gui.frontend_release_channel==0UL, (fd_http_static_file_t *)STATIC_FILES_STABLE, (fd_http_static_file_t *)STATIC_FILES_ALPHA );
 
 # if FD_HAS_ZSTD
   pre_compress_files( topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp );
@@ -545,6 +574,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "pack_bank" ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "pack_poh" ) ) )  ctx->in_kind[ i ] = IN_KIND_PACK_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
@@ -561,8 +591,6 @@ unprivileged_init( fd_topo_t *      topo,
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
-
-  FD_LOG_NOTICE(( "gui server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->gui.listen_addr ), tile->gui.listen_port ));
 }
 
 static ulong

@@ -358,7 +358,8 @@ metric introduced.
     <histogram name="ReceiveDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
       <summary>Duration spent processing packets</summary>
     </histogram>
-    <histogram name="SignDurationSeconds" min="0.000001" max="0.1" converter="seconds">
+    <histogram name="SignDurationNanos" min="1000" max="5000000" converter="none">
+      <!-- 1µs to 5ms -->
       <summary>Duration spent waiting for tls_cv signatures</summary>
     </histogram>
 </tile>
@@ -716,7 +717,7 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
-    <counter name="ShredRepairRcv"       summary="The number of times we received a repair shred" />
+    <counter name="ShredOutRcv"          summary="The number of times we received a repair shred" />
     <counter name="ShredTurbineRcv"      summary="The number of times we received a turbine shred" />
     <histogram name="StoreInsertWait" min="0.00000001" max="0.0005" converter="seconds">
         <summary>Time in seconds spent waiting for the store to insert a new FEC set</summary>
@@ -731,6 +732,12 @@ metric introduced.
 </tile>
 
 <tile name="replay">
+  <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
+    <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
+  </histogram>
+  <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
+    <summary>Time in seconds spent on linking a new FEC set</summary>
+  </histogram>
   <histogram name="StoreReadWait" min="0.00000001" max="0.001" converter="seconds">
     <summary>Time in seconds spent waiting for the store to read a FEC set</summary>
   </histogram>
@@ -743,6 +750,7 @@ metric introduced.
   <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
     <summary>Time in seconds spent on publishing a new FEC set</summary>
   </histogram>
+  <counter name="MaxReplayedSlot"  summary="The largest slot that we have replayed" />
 </tile>
 
 <tile name="storei">
@@ -767,23 +775,12 @@ metric introduced.
 
 
 <tile name="repair">
-    <counter name="RecvClntPkt"               clickhouse_exclude="true"                                 summary="Now many client packets have we received" />
-    <counter name="RecvServPkt"               clickhouse_exclude="true"                                 summary="How many server packets have we received" />
-    <counter name="RecvServCorruptPkt"        clickhouse_exclude="true"                                 summary="How many corrupt server packets have we received" />
-    <counter name="RecvServInvalidSignature"  clickhouse_exclude="true"                                 summary="How many invalid signatures have we received" />
-    <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
-    <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
-    <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
-    <counter name="ShredRepairReq"            clickhouse_exclude="true"                                 summary="How many repair requests have we sent" />
+    <counter name="TotalPktCount"             clickhouse_exclude="true"                                 summary="How many network packets we have sent, including reqs, pings, pongs, etc." />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
     <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
+    <counter name="CurrentSlot"                                                                         summary="Our view of the current cluster slot, max slot received" />
     <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
-    <histogram name="StoreLinkWait" min="0.00000001" max="0.0005" converter="seconds">
-      <summary>Time in seconds spent waiting for the store to link a new FEC set</summary>
-    </histogram>
-    <histogram name="StoreLinkWork" min="0.00000001" max="0.0005" converter="seconds">
-      <summary>Time in seconds spent on linking a new FEC set</summary>
-    </histogram>
+    <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>
@@ -871,6 +868,9 @@ metric introduced.
     <gauge name="CrdsPurgedCount" label="The number of purged data store entries" />
     <counter name="CrdsPurgedExpiredCount" label="The number of purged entries expired from the purged list due to age" />
     <counter name="CrdsPurgedEvictedCount" label="The number of purged entries evicted from the data store to make space for new entries" />
+
+    <counter name="ContactInfoUnrecognizedSocketTags" label="The number of unrecognized socket tags seen in Contact Infos" />
+    <counter name="ContactInfoIpv6" label="The number of IPv6 addresses seen in Contact Infos" />
 
     <counter name="CrdsRxCount" label="Outcome of incoming CRDS messages" enum="GossipCrdsOutcome" />
 

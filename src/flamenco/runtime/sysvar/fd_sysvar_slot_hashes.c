@@ -94,7 +94,7 @@ fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
 void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->funk_txn, runtime_spad );
+    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( slot_ctx->funk, slot_ctx->xid, runtime_spad );
     fd_slot_hash_t *          hashes             = NULL;
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
@@ -108,7 +108,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
          !deq_fd_slot_hash_t_iter_done( hashes, iter );
          iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
       fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-      if( ele->slot == fd_bank_slot_get( slot_ctx->bank ) ) {
+      if( ele->slot == fd_bank_parent_slot_get( slot_ctx->bank ) ) {
         fd_hash_t const * bank_hash = fd_bank_bank_hash_query( slot_ctx->bank );
         memcpy( &ele->hash, bank_hash, sizeof(fd_hash_t) );
         found = 1;
@@ -135,11 +135,11 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
 }
 
 fd_slot_hashes_global_t *
-fd_sysvar_slot_hashes_read( fd_funk_t *     funk,
-                            fd_funk_txn_t * funk_txn,
-                            fd_spad_t *     spad ) {
+fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
+                            fd_funk_txn_xid_t const * xid,
+                            fd_spad_t *               spad ) {
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, funk, funk_txn );
+  int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }

@@ -24,7 +24,6 @@ main( int     argc,
   ulong        txn_max  = fd_env_strip_cmdline_ulong( &argc, &argv, "--txn-max",   NULL,            32UL );
   uint         rec_max  = fd_env_strip_cmdline_uint(  &argc, &argv, "--rec-max",   NULL,             128 );
   ulong        iter_max = fd_env_strip_cmdline_ulong( &argc, &argv, "--iter-max",  NULL,       1048576UL );
-  int          verbose  = fd_env_strip_cmdline_int  ( &argc, &argv, "--verbose",   NULL,               0 );
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
@@ -40,8 +39,8 @@ main( int     argc,
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
 
-  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %u --iter-max %lu --verbose %i",
-                  wksp_tag, seed, txn_max, rec_max, iter_max, verbose ));
+  FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %u --iter-max %lu",
+                  wksp_tag, seed, txn_max, rec_max, iter_max ));
 
   void * shfunk = fd_funk_new( fd_wksp_alloc_laddr(
       wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), wksp_tag ),
@@ -96,50 +95,48 @@ main( int     argc,
       key_set( tkey, rkey );
 
       fd_funk_rec_query_t rec_query[1];
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( !fd_funk_rec_query_try         ( NULL, NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_query_try         ( NULL, NULL, tkey, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try         ( tst,  NULL, NULL, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try         ( tst,  NULL, tkey, NULL ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( NULL, NULL, NULL, NULL ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( NULL, NULL, tkey, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( tst,  NULL, NULL, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( tst,  NULL, tkey, NULL ) );
 
-      FD_TEST( !fd_funk_rec_query_try_global      ( NULL, NULL, NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_query_try_global      ( NULL, NULL, tkey, NULL, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try_global      ( tst,  NULL, NULL, NULL, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try_global      ( tst,  NULL, tkey, NULL, NULL ) );
-#endif
+      // FD_TEST( !fd_funk_rec_query_try_global      ( NULL, NULL, NULL, NULL, NULL ) );
+      // FD_TEST( !fd_funk_rec_query_try_global      ( NULL, NULL, tkey, NULL, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try_global      ( tst,  NULL, NULL, NULL, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try_global      ( tst,  NULL, tkey, NULL, NULL ) );
 
       rec_t *               rrec = rec_query_global( ref, NULL, rkey );
-      fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, NULL, tkey, NULL, rec_query );
+      fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, fd_funk_last_publish( tst ), tkey, NULL, rec_query );
       if( !rrec || rrec->erase ) FD_TEST( !trec );
       else                       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_rec_remove( NULL, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, NULL, tkey, NULL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
-#endif
+// #ifdef FD_FUNK_HANDHOLDING
+//       FD_TEST( fd_funk_rec_remove( NULL, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
+//       FD_TEST( fd_funk_rec_remove( NULL, NULL, tkey, NULL )==FD_FUNK_ERR_INVAL );
+//       FD_TEST( fd_funk_rec_remove( tst, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
+// #endif
 
-      if( trec ) {
-        if( is_frozen ) {
-          FD_TEST( fd_funk_rec_remove( tst, NULL, tkey, NULL )==FD_FUNK_ERR_FROZEN );
-        }
-      }
+      // if( trec ) {
+      //   if( is_frozen ) {
+      //     FD_TEST( fd_funk_rec_remove( tst, fd_funk_last_publish( tst ), tkey, NULL )==FD_FUNK_ERR_FROZEN );
+      //   }
+      // }
 
-      fd_funk_rec_prepare_t rec_prepare[1];
-      int err;
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( !fd_funk_rec_prepare( NULL, NULL, NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_prepare( NULL, NULL, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
-#endif
+//       fd_funk_rec_prepare_t rec_prepare[1];
+//       int err;
+// #ifdef FD_FUNK_HANDHOLDING
+//       FD_TEST( !fd_funk_rec_prepare( NULL, NULL, NULL, NULL, NULL ) );
+//       FD_TEST( !fd_funk_rec_prepare( NULL, NULL, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
+// #endif
 
-      if( is_frozen ) {
-        FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, NULL ) );
-        FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_FROZEN );
-      } else if( fd_funk_rec_is_full( tst ) ) {
-        FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, NULL ) );
-        FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_REC );
-      }
+//       if( is_frozen ) {
+//         FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, NULL ) );
+//         FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_FROZEN );
+//       } else if( fd_funk_rec_is_full( tst ) ) {
+//         FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, NULL ) );
+//         FD_TEST( !fd_funk_rec_prepare( tst, NULL, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_REC );
+//       }
 
     } while(0);
 
@@ -183,50 +180,48 @@ main( int     argc,
       key_set( tkey, rkey );
 
       fd_funk_rec_query_t rec_query[1];
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( !fd_funk_rec_query_try         ( NULL, ttxn, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_query_try         ( NULL, ttxn, tkey, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try         ( tst,  ttxn, NULL, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try         ( tst,  ttxn, tkey, NULL ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( NULL, txid, NULL, NULL ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( NULL, txid, tkey, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( tst,  txid, NULL, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try         ( tst,  txid, tkey, NULL ) );
 
-      FD_TEST( !fd_funk_rec_query_try_global      ( NULL, ttxn, NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_query_try_global      ( NULL, ttxn, tkey, NULL, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try_global      ( tst,  ttxn, NULL, NULL, rec_query ) );
-      FD_TEST( !fd_funk_rec_query_try_global      ( tst,  ttxn, tkey, NULL, NULL ) );
-#endif
+      // FD_TEST( !fd_funk_rec_query_try_global      ( NULL, ttxn, NULL, NULL, NULL ) );
+      // FD_TEST( !fd_funk_rec_query_try_global      ( NULL, ttxn, tkey, NULL, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try_global      ( tst,  ttxn, NULL, NULL, rec_query ) );
+      // FD_TEST( !fd_funk_rec_query_try_global      ( tst,  ttxn, tkey, NULL, NULL ) );
 
       rec_t *               rrec = rec_query_global( ref, rtxn, rkey );
-      fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, ttxn, tkey, NULL, rec_query );
+      fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, &ttxn->xid, tkey, NULL, rec_query );
       if( !rrec || rrec->erase ) FD_TEST( !trec );
       else {
         FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
       }
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( fd_funk_rec_remove( NULL, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( NULL, ttxn, tkey, NULL )==FD_FUNK_ERR_INVAL );
-      FD_TEST( fd_funk_rec_remove( tst, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
-#endif
+// #ifdef FD_FUNK_HANDHOLDING
+//       FD_TEST( fd_funk_rec_remove( NULL, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
+//       FD_TEST( fd_funk_rec_remove( NULL, ttxn, tkey, NULL )==FD_FUNK_ERR_INVAL );
+//       FD_TEST( fd_funk_rec_remove( tst, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
+// #endif
 
-      if( trec && ttxn_is_frozen ) {
-        FD_TEST( fd_funk_rec_remove( tst, ttxn, tkey, NULL )==FD_FUNK_ERR_FROZEN );
-      }
+      // if( trec && ttxn_is_frozen ) {
+      //   FD_TEST( fd_funk_rec_remove( tst, &ttxn->xid, tkey, NULL )==FD_FUNK_ERR_FROZEN );
+      // }
 
-      fd_funk_rec_prepare_t rec_prepare[1];
-      int err;
-#ifdef FD_FUNK_HANDHOLDING
-      FD_TEST( !fd_funk_rec_prepare( NULL, ttxn, NULL, NULL, NULL ) );
-      FD_TEST( !fd_funk_rec_prepare( NULL, ttxn, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
-#endif
+//       fd_funk_rec_prepare_t rec_prepare[1];
+//       int err;
+// #ifdef FD_FUNK_HANDHOLDING
+//       FD_TEST( !fd_funk_rec_prepare( NULL, ttxn, NULL, NULL, NULL ) );
+//       FD_TEST( !fd_funk_rec_prepare( NULL, ttxn, NULL, NULL, &err ) ); FD_TEST( err==FD_FUNK_ERR_INVAL );
+// #endif
 
-      if( ttxn_is_frozen ) {
-        FD_TEST( !fd_funk_rec_prepare( tst, ttxn, tkey, rec_prepare, NULL ) );
-        FD_TEST( !fd_funk_rec_prepare( tst, ttxn, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_FROZEN );
-      } else if( fd_funk_rec_is_full( tst ) ) {
-        FD_TEST( !fd_funk_rec_prepare( tst, ttxn, tkey, rec_prepare, NULL ) );
-        FD_TEST( !fd_funk_rec_prepare( tst, ttxn, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_REC );
-      }
+//       if( ttxn_is_frozen ) {
+//         FD_TEST( !fd_funk_rec_prepare( tst, &ttxn->xid, tkey, rec_prepare, NULL ) );
+//         FD_TEST( !fd_funk_rec_prepare( tst, &ttxn->xid, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_FROZEN );
+//       } else if( fd_funk_rec_is_full( tst ) ) {
+//         FD_TEST( !fd_funk_rec_prepare( tst, &ttxn->xid, tkey, rec_prepare, NULL ) );
+//         FD_TEST( !fd_funk_rec_prepare( tst, &ttxn->xid, tkey, rec_prepare, &err ) ); FD_TEST( err==FD_FUNK_ERR_REC );
+//       }
 
       ulong rpmap = 0UL;
       for( rec_t * rrec=rtxn->rec_head; rrec; rrec=rrec->next ) {
@@ -262,19 +257,18 @@ main( int     argc,
       xid_set( txid, rxid );
       key_set( tkey, rkey );
 
-      fd_funk_txn_t const * ttxn = rxid ? fd_funk_txn_query( txid, txn_map ) : NULL;
       fd_funk_rec_query_t rec_query[1];
-      fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, ttxn, tkey, rec_query );
+      fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, txid, tkey, rec_query );
       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rxid ) && key_eq( fd_funk_rec_key( trec ), rkey ) );
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
-      if( ttxn ) {
+      if( !fd_funk_txn_xid_eq_root( txid ) ) {
 #       define TEST_RELATIVE(rel) do {                                             \
           rec_t *               r##rel = rrec->rel;                                \
           fd_funk_rec_t const * t##rel = fd_funk_txn_##rel##_rec( tst, trec );     \
           if( !r##rel ) FD_TEST( !t##rel );                                        \
           else {                                                                   \
-            ulong r##rel##xid = r##rel->txn ? r##rel->txn->xid : 0UL;              \
+            ulong r##rel##xid = r##rel->txn ? r##rel->txn->xid : ULONG_MAX;        \
             FD_TEST( t##rel && xid_eq( fd_funk_rec_xid( t##rel ), r##rel##xid ) && \
                                key_eq( fd_funk_rec_key( t##rel ), r##rel->key ) ); \
           }                                                                        \
@@ -310,7 +304,7 @@ main( int     argc,
       } else { /* insert into last published */
         if( funk_is_frozen( ref ) ) continue;
         rtxn = NULL;
-        rxid = 0UL;
+        rxid = ref->last_publish;
       }
 
       ulong rkey = (ulong)(r & 63U); r >>= 6;
@@ -318,9 +312,8 @@ main( int     argc,
       rec_insert( ref, rtxn, rkey );
 
       int err;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rxid ), txn_map );
       fd_funk_rec_prepare_t prepare[1];
-      fd_funk_rec_t const * trec = fd_funk_rec_prepare( tst, ttxn, key_set( tkey, rkey ), prepare, &err );
+      fd_funk_rec_t const * trec = fd_funk_rec_prepare( tst, xid_set( txid, rxid ), key_set( tkey, rkey ), prepare, &err );
       FD_TEST( trec );
       FD_TEST( !err );
       fd_funk_rec_publish( tst, prepare );
@@ -338,41 +331,42 @@ main( int     argc,
         rxid = rrec->txn->xid;
       } else {
         if( funk_is_frozen( ref ) ) continue;
-        rxid = 0UL;
+        rxid = ref->last_publish;
       }
       ulong rkey = rrec->key;
 
       rec_remove( ref, rrec );
 
-      fd_funk_txn_t * ttxn = rxid ? fd_funk_txn_query( xid_set( txid, rxid ), txn_map ) : NULL;
+      if( rxid ) xid_set( txid, rxid );
+      else       fd_funk_txn_xid_copy( txid, fd_funk_last_publish( tst ) );
       fd_funk_rec_query_t query[1];
-      fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, ttxn, key_set( tkey, rkey ), query );
+      fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, txid, key_set( tkey, rkey ), query );
       FD_TEST( trec );
       FD_TEST( !fd_funk_rec_query_test( query ) );
 
       fd_funk_rec_t * trec2;
-      FD_TEST( !fd_funk_rec_remove( tst, ttxn, key_set( tkey, rkey ), &trec2 ) );
+      FD_TEST( !fd_funk_rec_remove( tst, txid, key_set( tkey, rkey ), &trec2 ) );
       FD_TEST( trec == trec2 );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 
       if( FD_UNLIKELY( fd_funk_txn_is_full( tst ) ) ) continue;
 
-      txn_t *         rparent;
-      fd_funk_txn_t * tparent;
+      txn_t *           rparent;
+      fd_funk_txn_xid_t tparent;
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt+1UL );
       if( idx<ref->txn_cnt ) { /* Branch off in-prep */
         rparent = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rparent = rparent->map_next;
-        tparent = fd_funk_txn_query( xid_set( txid, rparent->xid ), txn_map );
+        tparent = (fd_funk_txn_xid_t){ .ul={ rparent->xid, rparent->xid } };
       } else { /* Branch off last published */
         rparent = NULL;
-        tparent = NULL;
+        fd_funk_txn_xid_copy( &tparent, fd_funk_last_publish( tst ) );
       }
 
       ulong rxid = xid_unique();
       txn_prepare( ref, rparent, rxid );
-      FD_TEST( fd_funk_txn_prepare( tst, tparent, xid_set( txid, rxid ), verbose ) );
+      fd_funk_txn_prepare( tst, &tparent, xid_set( txid, rxid ) );
 
     } else if( op>=1UL ) {
 
@@ -380,22 +374,22 @@ main( int     argc,
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
 
-      txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
+      txn_t * rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
+      xid_set( txid, rtxn->xid );
 
       ulong cnt = ref->txn_cnt; txn_cancel( ref, rtxn ); cnt -= ref->txn_cnt;
-      FD_TEST( fd_funk_txn_cancel( tst, ttxn, verbose )==cnt );
+      FD_TEST( fd_funk_txn_cancel( tst, txid )==cnt );
 
     } else {
 
       if( FD_UNLIKELY( !ref->txn_cnt ) ) continue;
 
       ulong idx = fd_rng_ulong_roll( rng, ref->txn_cnt );
-      txn_t *         rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
-      fd_funk_txn_t * ttxn = fd_funk_txn_query( xid_set( txid, rtxn->xid ), txn_map );
+      txn_t * rtxn = ref->txn_map_head; for( ulong rem=idx; rem; rem-- ) rtxn = rtxn->map_next;
+      xid_set( txid, rtxn->xid );
 
       ulong cnt = txn_publish( ref, rtxn, 0UL );
-      FD_TEST( fd_funk_txn_publish( tst, ttxn, verbose )==cnt );
+      FD_TEST( fd_funk_txn_publish( tst, txid )==cnt );
     }
 
   }

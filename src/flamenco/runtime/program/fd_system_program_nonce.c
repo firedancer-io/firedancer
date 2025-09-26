@@ -39,21 +39,14 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
 }
 
 static int
-require_acct_recent_blockhashes( fd_exec_instr_ctx_t *        ctx,
-                                 ushort                       idx,
-                                 fd_recent_block_hashes_t * * out ) {
+require_acct_recent_blockhashes( fd_exec_instr_ctx_t * ctx,
+                                 ushort                idx ) {
+  int err = require_acct( ctx, idx, &fd_sysvar_recent_block_hashes_id );
+  if( FD_UNLIKELY( err ) ) return err;
 
-  do {
-    int err = require_acct( ctx, idx, &fd_sysvar_recent_block_hashes_id );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
-
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( ctx->txn_ctx->funk, ctx->txn_ctx->funk_txn, ctx->txn_ctx->spad );
-  if( FD_UNLIKELY( !rbh ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_cache_recent_hashes_is_valid( ctx->sysvar_cache ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
-
-  (*out)->hashes = rbh->hashes;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -264,18 +257,19 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
 
-  fd_recent_block_hashes_t   recent_blockhashes_obj;
-  fd_recent_block_hashes_t * recent_blockhashes = &recent_blockhashes_obj;
-  do {
-    err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
-    if( FD_UNLIKELY( err ) ) return err;
-  } while(0);
-
-  fd_block_block_hash_entry_t const * hashes = recent_blockhashes->hashes;
+  err = require_acct_recent_blockhashes( ctx, 1UL );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L433-L439 */
 
-  if( FD_UNLIKELY( deq_fd_block_block_hash_entry_t_empty( hashes ) ) ) {
+  int bhq_empty;
+  do {
+    fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
+    if( FD_UNLIKELY( !hashes ) ) __builtin_unreachable(); /* validated above */
+    bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
+    fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
+  } while(0);
+  if( FD_UNLIKELY( bhq_empty ) ) {
     fd_log_collector_msg_literal( ctx, "Advance nonce account: recent blockhash list is empty" );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -476,10 +470,8 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L445-L449 */
 
-  fd_recent_block_hashes_t   recent_blockhashes_obj;
-  fd_recent_block_hashes_t * recent_blockhashes = &recent_blockhashes_obj;
   do {
-    int err = require_acct_recent_blockhashes( ctx, 2UL, &recent_blockhashes );
+    int err = require_acct_recent_blockhashes( ctx, 2UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
@@ -629,18 +621,21 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
 
-  fd_recent_block_hashes_t   recent_blockhashes_obj;
-  fd_recent_block_hashes_t * recent_blockhashes = &recent_blockhashes_obj;
   do {
-    err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
+    err = require_acct_recent_blockhashes( ctx, 1UL );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_block_block_hash_entry_t const * hashes = recent_blockhashes->hashes;
-
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L472-L478 */
 
-  if( FD_UNLIKELY( deq_fd_block_block_hash_entry_t_empty( hashes ) ) ) {
+  int bhq_empty;
+  do {
+    fd_block_block_hash_entry_t const * hashes = fd_sysvar_cache_recent_hashes_join_const( ctx->sysvar_cache );
+    if( FD_UNLIKELY( !hashes ) ) __builtin_unreachable(); /* validated above */
+    bhq_empty = deq_fd_block_block_hash_entry_t_empty( hashes );
+    fd_sysvar_cache_recent_hashes_leave_const( ctx->sysvar_cache, hashes );
+  } while(0);
+  if( FD_UNLIKELY( bhq_empty ) ) {
     fd_log_collector_msg_literal( ctx, "Initialize nonce account: recent blockhash list is empty" );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
@@ -945,7 +940,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_ctx->account_keys[ nonce_idx ],
                                                     txn_ctx->funk,
-                                                    txn_ctx->funk_txn );
+                                                    txn_ctx->xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
@@ -998,7 +993,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
          */
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             txn_ctx->funk,
-            txn_ctx->funk_txn,
+            txn_ctx->xid,
             &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
             NULL,
             &err,

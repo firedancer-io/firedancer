@@ -1,6 +1,8 @@
 #include "fd_resolv_tile.h"
+#include "../../disco/fd_txn_m.h"
+#include "../../disco/topo/fd_topo.h"
 #include "../bank/fd_bank_err.h"
-#include "../../disco/tiles.h"
+#include "../replay/fd_replay_tile.h"
 #include "generated/fd_resolv_tile_seccomp.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
@@ -12,8 +14,8 @@
 #include "../../util/simd/fd_avx.h"
 #endif
 
-#define FD_RESOLV_IN_KIND_FRAGMENT (0)
-#define FD_RESOLV_IN_KIND_REPLAY   (1)
+#define IN_KIND_DEDUP  (0)
+#define IN_KIND_REPLAY (1)
 
 struct blockhash {
   uchar b[ 32 ];
@@ -155,8 +157,8 @@ typedef struct {
   ulong blockhash_ring_idx;
   blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
-  fd_resolv_rooted_slot_t   _rooted_slot_msg;
-  fd_resov_completed_slot_t _completed_slot_msg;
+  fd_replay_root_advanced_t  _rooted_slot_msg;
+  fd_replay_slot_completed_t _completed_slot_msg;
 
   struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
@@ -202,7 +204,7 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             sig ) {
   (void)sig;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_REPLAY ) ) return 0;
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==IN_KIND_REPLAY ) ) return 0;
 
   return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
@@ -220,19 +222,17 @@ during_frag( fd_resolv_ctx_t * ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   switch( ctx->in[in_idx].kind ) {
-    case FD_RESOLV_IN_KIND_FRAGMENT: {
+    case IN_KIND_DEDUP: {
       uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
       uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_pack->mem, ctx->out_pack->chunk );
       fd_memcpy( dst, src, sz );
       break;
     }
-    case FD_RESOLV_IN_KIND_REPLAY: {
-      if( FD_UNLIKELY( sig==FD_RESOLV_ROOTED_SLOT_SIG ) ) {
-        ctx->_rooted_slot_msg = *(fd_resolv_rooted_slot_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-      } else if( FD_UNLIKELY( sig==FD_RESOLV_COMPLETED_SLOT_SIG ) ) {
-        ctx->_completed_slot_msg = *(fd_resov_completed_slot_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
-      } else {
-        FD_LOG_ERR(( "invariant violation: unknown sig %lu", sig ));
+    case IN_KIND_REPLAY: {
+      if( FD_UNLIKELY( sig==REPLAY_SIG_ROOT_ADVANCED ) ) {
+        ctx->_rooted_slot_msg = *(fd_replay_root_advanced_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+        ctx->_completed_slot_msg = *(fd_replay_slot_completed_t *)fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
       }
       break;
     }
@@ -339,10 +339,10 @@ after_frag( fd_resolv_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
-  if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_REPLAY ) ) {
+  if( FD_UNLIKELY( ctx->in[in_idx].kind==IN_KIND_REPLAY ) ) {
     switch( sig ) {
-      case FD_RESOLV_COMPLETED_SLOT_SIG: {
-        fd_resov_completed_slot_t const * msg = &ctx->_completed_slot_msg;
+      case REPLAY_SIG_SLOT_COMPLETED: {
+        fd_replay_slot_completed_t const * msg = &ctx->_completed_slot_msg;
 
         /* blockhash_ring is initalized to all zeros. blockhash=0 is an illegal map query */
         if( FD_UNLIKELY( memcmp( &ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], (uchar[ 32UL ]){ 0UL }, sizeof(blockhash_t) ) ) ) {
@@ -350,30 +350,32 @@ after_frag( fd_resolv_ctx_t *   ctx,
           if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
         }
 
-        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->blockhash, 32UL );
+        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, msg->block_hash.uc, 32UL );
         ctx->blockhash_ring_idx++;
 
-        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->blockhash );
+        blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)msg->block_hash.uc );
         blockhash->slot = msg->slot;
 
-        blockhash_t * hash = (blockhash_t *)msg->blockhash;
+        blockhash_t * hash = (blockhash_t *)msg->block_hash.uc;
         ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
         ctx->flushing_slot   = msg->slot;
 
         ctx->completed_slot = msg->slot;
         break;
       }
-      case FD_RESOLV_ROOTED_SLOT_SIG: {
-        fd_resolv_rooted_slot_t const * msg = &ctx->_rooted_slot_msg;
+      case REPLAY_SIG_ROOT_ADVANCED: {
+        fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
+
+        ulong null_idx = fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) );
 
         /* Replace current bank with new bank */
-        ulong prev_bank_idx = fd_banks_get_pool_idx( ctx->banks, ctx->bank );
-        ctx->bank = fd_banks_get_bank_idx( ctx->banks, msg->bank_idx );
+        ulong prev_bank_idx = ctx->bank ? ctx->bank->idx : null_idx;
+        ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
 
         /* Send slot completed message back to replay, so it can decrement
            the refcount of the previous bank. */
-        if( FD_UNLIKELY( prev_bank_idx!=fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) ) ) ) {
+        if( FD_UNLIKELY( prev_bank_idx!=null_idx ) ) {
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           fd_resolv_slot_exchanged_t * slot_exchanged =
             fd_type_pun( fd_chunk_to_laddr( ctx->out_replay->mem, ctx->out_replay->chunk ) );
@@ -384,8 +386,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
         break;
       }
-      default:
-        FD_LOG_ERR(( "unknown sig %lu", sig ));
+      default: break;
     }
     return;
   }
@@ -539,8 +540,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in[ i ].kind = FD_RESOLV_IN_KIND_REPLAY;
-    else                                                     ctx->in[ i ].kind = FD_RESOLV_IN_KIND_FRAGMENT;
+    if( FD_LIKELY(      !strcmp( link->name, "replay_out"   ) ) ) ctx->in[ i ].kind = IN_KIND_REPLAY;
+    else if( FD_LIKELY( !strcmp( link->name, "dedup_resolv" ) ) ) ctx->in[ i ].kind = IN_KIND_DEDUP;
+    else FD_LOG_ERR(( "unknown in link name '%s'", link->name ));
 
     ctx->in[i].mem    = link_wksp->wksp;
     ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );

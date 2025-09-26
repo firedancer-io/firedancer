@@ -1,6 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
 
+/* fd_sysvar_recent_hashes.h manages the "recent block hashes" sysvar
+   account (address SysvarRecentB1ockHashes11111111111111111111).  */
+
 #include "../../types/fd_types.h"
 #include "../../fd_flamenco_base.h"
 #include "../../../funk/fd_funk.h"
@@ -31,7 +34,7 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
    lamports, this function returns NULL. */
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_t * funk_txn, fd_spad_t * spad );
+fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_xid_t const * xid, fd_spad_t * spad );
 
 FD_PROTOTYPES_END
 

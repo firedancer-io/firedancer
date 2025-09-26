@@ -441,7 +441,7 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
-| <span class="metrics-name">shred_&#8203;shred_&#8203;repair_&#8203;rcv</span> | counter | The number of times we received a repair shred |
+| <span class="metrics-name">shred_&#8203;shred_&#8203;out_&#8203;rcv</span> | counter | The number of times we received a repair shred |
 | <span class="metrics-name">shred_&#8203;shred_&#8203;turbine_&#8203;rcv</span> | counter | The number of times we received a turbine shred |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to insert a new FEC set |
 | <span class="metrics-name">shred_&#8203;store_&#8203;insert_&#8203;work</span> | histogram | Time in seconds spent on inserting a new FEC set |
@@ -484,10 +484,13 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
+| <span class="metrics-name">replay_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to read a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
+| <span class="metrics-name">replay_&#8203;max_&#8203;replayed_&#8203;slot</span> | counter | The largest slot that we have replayed |
 
 </div>
 
@@ -549,6 +552,8 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;count</span> | gauge |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;expired_&#8203;count</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;purged_&#8203;evicted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;unrecognized_&#8203;socket_&#8203;tags</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;contact_&#8203;info_&#8203;ipv6</span> | counter |  |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;pull_&#8203;response</span>"} | counter |  (Pull Response (upserted)) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">upserted_&#8203;push</span>"} | counter |  (Push (upserted)) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;rx_&#8203;count</span><br/>{gossip_&#8203;crds_&#8203;outcome="<span class="metrics-enum">dropped_&#8203;pull_&#8203;response_&#8203;stale</span>"} | counter |  (Pull Response (newer entry already present in table)) |
@@ -676,26 +681,15 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">repair_&#8203;recv_&#8203;clnt_&#8203;pkt</span> | counter | Now many client packets have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt</span> | counter | How many server packets have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;corrupt_&#8203;pkt</span> | counter | How many corrupt server packets have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;invalid_&#8203;signature</span> | counter | How many invalid signatures have we received |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;full_&#8203;ping_&#8203;table</span> | counter | Is our ping table full and causing packet drops |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | Server messages received (Pong) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">window</span>"} | counter | Server messages received (Window) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">highest_&#8203;window</span>"} | counter | Server messages received (Highest Window) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">orphan</span>"} | counter | Server messages received (Orphan) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;serv_&#8203;pkt_&#8203;types="<span class="metrics-enum">unknown</span>"} | counter | Server messages received (Unknown) |
-| <span class="metrics-name">repair_&#8203;recv_&#8203;pkt_&#8203;corrupted_&#8203;msg</span> | counter | How many corrupt messages have we received |
-| <span class="metrics-name">repair_&#8203;shred_&#8203;repair_&#8203;req</span> | counter | How many repair requests have we sent |
+| <span class="metrics-name">repair_&#8203;total_&#8203;pkt_&#8203;count</span> | counter | How many network packets we have sent, including reqs, pings, pongs, etc. |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;highest_&#8203;window</span>"} | counter | What types of client messages are we sending (Need Highest Window) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">needed_&#8203;orphan</span>"} | counter | What types of client messages are we sending (Need Orphans) |
 | <span class="metrics-name">repair_&#8203;sent_&#8203;pkt_&#8203;types</span><br/>{repair_&#8203;sent_&#8203;request_&#8203;types="<span class="metrics-enum">pong</span>"} | counter | What types of client messages are we sending (Pong) |
 | <span class="metrics-name">repair_&#8203;repaired_&#8203;slots</span> | counter | Until which slots have we fully repaired |
+| <span class="metrics-name">repair_&#8203;current_&#8203;slot</span> | counter | Our view of the current cluster slot, max slot received |
 | <span class="metrics-name">repair_&#8203;request_&#8203;peers</span> | counter | How many peers have we requested |
-| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to link a new FEC set |
-| <span class="metrics-name">repair_&#8203;store_&#8203;link_&#8203;work</span> | histogram | Time in seconds spent on linking a new FEC set |
+| <span class="metrics-name">repair_&#8203;sign_&#8203;tile_&#8203;unavail</span> | counter | How many times no sign tiles were available to send request |
 | <span class="metrics-name">repair_&#8203;slot_&#8203;complete_&#8203;time</span> | histogram | Time in seconds it took to complete a slot |
 | <span class="metrics-name">repair_&#8203;response_&#8203;latency</span> | histogram | Time in nanoseconds it took to receive a repair request response |
 | <span class="metrics-name">repair_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration of signing a message |
@@ -834,7 +828,7 @@
 | <span class="metrics-name">send_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | Total count of ACK frames transmitted (ACK suppressed by handler) |
 | <span class="metrics-name">send_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
 | <span class="metrics-name">send_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent processing packets |
-| <span class="metrics-name">send_&#8203;sign_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent waiting for tls_cv signatures |
+| <span class="metrics-name">send_&#8203;sign_&#8203;duration_&#8203;nanos</span> | histogram | Duration spent waiting for tls_cv signatures |
 
 </div>
 

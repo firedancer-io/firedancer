@@ -51,7 +51,7 @@ fd_runtime_fuzz_block_register_vote_account( fd_exec_slot_ctx_t * slot_ctx,
                                              fd_pubkey_t *        pubkey,
                                              fd_spad_t *          spad ) {
   FD_TXN_ACCOUNT_DECL( acc );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->xid ) ) ) {
     return;
   }
 
@@ -91,7 +91,7 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_exec_slot_ctx_t *     slot_c
                                                  fd_stake_delegations_t * stake_delegations,
                                                  fd_pubkey_t *            pubkey ) {
  FD_TXN_ACCOUNT_DECL( acc );
-  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, slot_ctx->funk, slot_ctx->xid ) ) ) {
     return;
   }
 
@@ -160,7 +160,7 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_funk_txn_cancel_all( runner->funk, 1 );
+  fd_funk_txn_cancel_all( runner->funk );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
@@ -180,9 +180,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   xid[0] = fd_funk_generate_xid();
 
   /* Create temporary funk transaction and slot / epoch contexts */
-  fd_funk_txn_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_prepare( funk, &parent_xid, xid );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -194,9 +193,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Set up slot context */
   ulong slot = test_ctx->slot_ctx.slot;
 
-  slot_ctx->funk_txn = funk_txn;
-  slot_ctx->funk     = funk;
-  slot_ctx->silent   = 1;
+  slot_ctx->xid[0] = xid[0];
+  slot_ctx->funk   = funk;
+  slot_ctx->silent = 1;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( slot_ctx->bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
@@ -205,9 +204,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_slot_set( slot_ctx->bank, slot );
 
-  fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
-
   fd_bank_parent_slot_set( slot_ctx->bank, test_ctx->slot_ctx.prev_slot );
+
+  fd_bank_block_height_set( slot_ctx->bank, test_ctx->slot_ctx.block_height );
 
   fd_bank_capitalization_set( slot_ctx->bank, test_ctx->slot_ctx.prev_epoch_capitalization );
 
@@ -270,7 +269,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   vote_states = fd_bank_vote_states_locking_modify( slot_ctx->bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     FD_TXN_ACCOUNT_DECL(acc);
-    fd_runtime_fuzz_load_account( acc, funk, funk_txn, &test_ctx->acct_states[i], 1 );
+    fd_runtime_fuzz_load_account( acc, funk, xid, &test_ctx->acct_states[i], 1 );
 
     /* Update vote accounts cache for epoch T */
     fd_pubkey_t pubkey;
@@ -293,10 +292,12 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
-  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, funk_txn, epoch_schedule_ );
+  fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, xid, epoch_schedule_ );
+  FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( slot_ctx->bank, *epoch_schedule );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, funk_txn, runner->spad );
+  fd_rent_t const * rent = fd_sysvar_rent_read( funk, xid, runner->spad );
+  FD_TEST( rent );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
   fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL ) );
@@ -338,7 +339,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memset( genesis_hash->hash, 0, sizeof(fd_hash_t) );
 
   // Use the latest lamports per signature
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, funk_txn, runner->spad );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, runner->spad );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
@@ -349,9 +350,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
-  fd_funk_txn_start_write( funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &fork_xid, 1 );
-  fd_funk_txn_end_write( funk );
+  fd_funk_txn_prepare( funk, slot_ctx->xid, &fork_xid );
+  slot_ctx->xid[0] = fork_xid;
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
   fd_lthash_value_t lthash = {0};
@@ -448,18 +448,16 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     fd_capture_ctx_t * capture_ctx = NULL;
-    fd_capture_ctx_t capture_ctx_[1];
     if( runner->solcap ) {
-      capture_ctx_[0] = (fd_capture_ctx_t) {
-        .capture            = runner->solcap,
-        .capture_txns       = 1,
-        .dump_instr_to_pb   = 1,
-        .dump_txn_to_pb     = 1,
-        .dump_block_to_pb   = 1,
-        .dump_syscall_to_pb = 1,
-        .dump_elf_to_pb     = 1
-      };
-      capture_ctx = capture_ctx_;
+      void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
+      capture_ctx            = fd_capture_ctx_new( capture_ctx_mem );
+      if( FD_UNLIKELY( capture_ctx==NULL ) ) {
+        FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
+      }
+      capture_ctx->capture   = runner->solcap;
+      capture_ctx->solcap_start_slot = fd_bank_slot_get( slot_ctx->bank );
+      slot_ctx->capture_ctx = capture_ctx;
+      fd_solcap_writer_set_slot( slot_ctx->capture_ctx->capture, fd_bank_slot_get( slot_ctx->bank ) );
     }
 
     fd_rewards_recalculate_partitioned_rewards( slot_ctx, capture_ctx, runner->spad );
@@ -496,7 +494,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       /* Finalize the transaction */
       fd_runtime_finalize_txn(
           slot_ctx->funk,
-          slot_ctx->funk_txn,
+          slot_ctx->xid,
           txn_ctx,
           slot_ctx->bank,
           capture_ctx );
