@@ -17,7 +17,7 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# genesis
+# genesis: obtain information about the genesis file
 #
 # arg 0 is the file descriptor for the genesis file
 fstat: (eq (arg 0) genesis_fd)
@@ -30,11 +30,9 @@ close: (eq (arg 0) genesis_fd)
 # read: read data in from the genesis file
 #
 # arg 0 is the file descriptor for the genesis file
-read:  (eq (arg 0) genesis_fd)
+read: (eq (arg 0) genesis_fd)
 
 # shutdown: exit is called on shutdown
 #
 # arg 0 is the exit code for close
 exit
-
-exit_group
