@@ -179,7 +179,7 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
 static ulong
 exec_spad_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
                      fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
+  return fd_spad_footprint( FD_EXEC_TXN_CTX_FOOTPRINT + FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
 }
 
 static ulong

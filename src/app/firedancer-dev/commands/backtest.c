@@ -2,11 +2,11 @@
    rocksdb (or other sources TBD) and reproduce the behavior of replay tile.
 
    The smaller topology is:
-           shred_out             replay_exec       exec_writer
-   backtest-------------->replay------------->exec------------->writer
-     ^                    |^ | |                                   ^
-     |____________________|| | |___________________________________|
-          replay_out       | |
+           shred_out             replay_exec
+   backtest-------------->replay------------->exec
+     ^                    |^ | ^                |
+     |____________________|| | |________________|
+          replay_out       | |   exec_replay
                            | |------------------------------>no consumer
     no producer-------------  stake_out, send_out, poh_out
                 store_replay
@@ -37,7 +37,6 @@ fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 static void
 backtest_topo( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
-  ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
   int disable_snap_loader = !config->gossip.entrypoints_cnt;
   int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
@@ -78,13 +77,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "exec" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0 );
-
-  /**********************************************************************/
-  /* Add the writer tiles to topo                                       */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "writer" );
-  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
+  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec", "exec", "metric_in", cpu_idx++, 0, 0 );
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
@@ -214,31 +207,22 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup exec->writer links in topo                                   */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "exec_writer" );
-  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_writer", "exec_writer", 128UL, FD_EXEC_WRITER_MTU, 1UL );
-  FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_writer", i );
-  FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
-    fd_topob_tile_in( topo, "writer", i, "metric_in", "exec_writer", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-  /**********************************************************************/
-  /* Setup writer->replay links in topo, to send solcap account updates
+  /* Setup exec->replay links in topo, to send solcap account updates
      so that they are serialized, and to notify replay tile that a txn
-     has been finalized by the writer tile. */
+     has been finalized by the exec tile. */
   /**********************************************************************/
-  fd_topob_wksp( topo, "writ_repl" );
-  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 16384UL, sizeof(fd_writer_replay_txn_finalized_msg_t), 1UL );
-  FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
-  FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_wksp( topo, "exec_replay" );
+  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_replay_txn_finalized_msg_t), 1UL );
+  FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_replay", i );
+  FOR(exec_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "exec_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   if( FD_UNLIKELY( solcap_enabled ) ) {
     /* Capture account updates, whose updates must be centralized in the replay tile as solcap is currently not thread-safe.
       TODO: remove this when solcap v2 is here. */
     fd_topob_wksp( topo, "capt_replay" );
-    FOR(writer_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
-    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",      i,                               "capt_replay", i );
-    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",      0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(exec_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec",        i,                               "capt_replay", i );
+    FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",      0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/
@@ -251,41 +235,26 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  /* banks_obj shared by replay, exec and writer tiles */
+  /* banks_obj shared by replay and exec tiles */
   fd_topob_wksp( topo, "banks" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
-  /* bank_hash_cmp_obj shared by replay, exec and writer tiles */
+  /* bank_hash_cmp_obj shared by replay and exec tiles */
   fd_topob_wksp( topo, "bh_cmp" );
   fd_topo_obj_t * bank_hash_cmp_obj = setup_topo_bank_hash_cmp( topo, "bh_cmp" );
   fd_topob_tile_uses( topo, replay_tile, bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
 
-  /* exec_spad_obj shared by replay, exec and writer tiles */
+  /* exec_spad_obj used by exec tiles */
   fd_topob_wksp( topo, "exec_spad" );
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    for( ulong j=0UL; j<writer_tile_cnt; j++ ) {
-      /* For txn_ctx. */
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", j ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    }
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-  }
-
-  /* writer_fseq_obj shared by replay and writer tiles */
-  fd_topob_wksp( topo, "writer_fseq" );
-  for( ulong i=0UL; i<writer_tile_cnt; i++ ) {
-    fd_topo_obj_t * writer_fseq_obj = fd_topob_obj( topo, "fseq", "writer_fseq" );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, writer_fseq_obj->id, "writer_fseq.%lu", i ) );
   }
 
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */

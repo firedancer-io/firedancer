@@ -118,7 +118,7 @@ struct fd_capture_tile_ctx {
   int fecs_fd;
   int peers_fd;
   int slices_fd; /* all shreds in slices from repair tile */
-  int bank_hashes_fd; /* bank hashes from writer tile */
+  int bank_hashes_fd; /* bank hashes from replay tile */
 
   ulong write_buf_sz;
 

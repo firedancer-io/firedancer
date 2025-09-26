@@ -959,7 +959,7 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 
 /* fd_runtime_buffer_solcap_account_update buffers an account
    update event message in the capture context, which will be
-   sent to the replay tile via the writer_replay link.
+   sent to the replay tile via the exec_replay link.
    This buffering is done to avoid passing stem down into the runtime.
 
    TODO: remove this when solcap v2 is here. */
@@ -1064,7 +1064,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_hashes_update_lthash( account, prev_hash, bank, NULL );
 
   /* Publish account update to replay tile for solcap writing
-     TODO: write in the writer tile with solcap v2 */
+     TODO: write in the exec tile with solcap v2 */
   fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */

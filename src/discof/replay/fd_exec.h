@@ -149,25 +149,12 @@ fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
   return slice_exec_ctx->last_batch && slice_exec_ctx->mblks_rem == 0 && slice_exec_ctx->txns_rem == 0;
 }
 
-/* Exec tile msg link formatting. The following take a pointer into
-   a dcache region and formats it as a specific message type. */
-
-/* definition of the public/readable workspace */
-#define EXEC_NEW_TXN_SIG         (0x777777UL)
-
-#define FD_WRITER_BOOT_SIG       (0xAABB0011UL)
-#define FD_WRITER_SLOT_SIG       (0xBBBB1122UL)
-#define FD_WRITER_TXN_SIG        (0xBBCC2233UL)
-
-#define FD_EXEC_STATE_NOT_BOOTED (0xFFFFFFFFUL)
-#define FD_EXEC_STATE_BOOTED     (1<<1UL      )
-
-#define FD_EXEC_ID_SENTINEL      (UINT_MAX    )
-
 /**********************************************************************/
 
+#define EXEC_NEW_TXN_SIG (0x777777UL)
+
 /* fd_exec_txn_msg_t is the message that is sent from the replay tile to
-   the exec tile.  This represents all of the information that is needed
+   the exec tiles.  This represents all of the information that is needed
    to identify and execute a transaction against a bank.  An idx to the
    bank in the bank pool must be sent over because the key of the bank
    will change as FEC sets are processed. */
@@ -178,36 +165,16 @@ struct fd_exec_txn_msg {
 };
 typedef struct fd_exec_txn_msg fd_exec_txn_msg_t;
 
-/* fd_exec_writer_boot_msg_t is the message sent from the exec tile to
-   the writer tile on boot.  This message contains the offset of the
-   txn_ctx in the tile's exec spad. */
+/* Exec->Replay message APIs ******************************************/
 
-struct fd_exec_writer_boot_msg {
-  uint txn_ctx_offset;
-};
-typedef struct fd_exec_writer_boot_msg fd_exec_writer_boot_msg_t;
-FD_STATIC_ASSERT( sizeof(fd_exec_writer_boot_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
-
-/* fd_exec_writer_txn_msg is the message sent from the exec tile to the
-   writer tile after a transaction has been executed.  This message
-   contains the id of the exec tile that executed the transaction. */
-
-struct fd_exec_writer_txn_msg {
-  uchar exec_tile_id;
-};
-typedef struct fd_exec_writer_txn_msg fd_exec_writer_txn_msg_t;
-FD_STATIC_ASSERT( sizeof(fd_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_writer_msg_mtu );
-
-/* Writer->Replay message APIs ****************************************/
-
-/* fd_writer_replay_txn_finalized_msg_t is the message sent from
-   writer tile to replay tile, notifying the replay tile that a txn has
+/* fd_exec_replay_txn_finalized_msg_t is the message sent from
+   exec tiles to replay tile, notifying the replay tile that a txn has
    been finalized. */
 
-struct __attribute__((packed)) fd_writer_replay_txn_finalized_msg {
+struct __attribute__((packed)) fd_exec_replay_txn_finalized_msg {
   int   exec_tile_id;
   ulong bank_idx;
 };
-typedef struct fd_writer_replay_txn_finalized_msg fd_writer_replay_txn_finalized_msg_t;
+typedef struct fd_exec_replay_txn_finalized_msg fd_exec_replay_txn_finalized_msg_t;
 
 #endif /* HEADER_fd_src_discof_replay_fd_exec_h */

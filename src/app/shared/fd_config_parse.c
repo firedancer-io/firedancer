@@ -79,7 +79,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( cstr,   gossip.host                                         );
 
   CFG_POP      ( uint,   layout.exec_tile_count                              );
-  CFG_POP      ( uint,   layout.writer_tile_count                            );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
 
