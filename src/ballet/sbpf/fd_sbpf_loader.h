@@ -218,6 +218,11 @@ struct fd_sbpf_loader_config {
   uint sbpf_min_version;
   uint sbpf_max_version;
   int  enable_symbol_and_section_labels;
+
+  /* TODO: The optimize_rodata flag, at the time of writing this
+     comment, seems to be hardcoded to false in Agave and not fully
+     implemented in FD. If this changes, any usages of this flag should
+     be revisited and tested appropriately. */
   int  optimize_rodata;
 };
 typedef struct fd_sbpf_loader_config fd_sbpf_loader_config_t;
@@ -318,9 +323,6 @@ fd_sbpf_program_delete( fd_sbpf_program_t * program );
    thread returned non-zero.
    Always returns a valid cstr, though the content is undefined in case
    the last call to `fd_sbpf_program_load` returned zero (success). */
-
-char const *
-fd_sbpf_strerror( void );
 
 /* SIMD-0189 */
 static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
