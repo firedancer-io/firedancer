@@ -236,8 +236,9 @@ typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
 struct fd_gui_slot {
   ulong slot;
   ulong parent_slot;
-  uint max_compute_units;
+  uint  max_compute_units;
   long  completed_time;
+  long  replay_time_nanos;
   int   mine;
   int   skipped;
   int   must_republish;
@@ -247,6 +248,7 @@ struct fd_gui_slot {
   uint  failed_txn_cnt;
   uint  nonvote_failed_txn_cnt;
   uint  compute_units;
+  uint  shred_cnt;
   ulong transaction_fee;
   ulong priority_fee;
   ulong tips;
@@ -285,9 +287,75 @@ struct fd_gui_slot {
   fd_gui_tile_stats_t tile_stats_end[ 1 ];
 
   ulong tile_timers_history_idx;
+
+  struct {
+    uint start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
+                          contiguous chunk of events in the shred history corresponding to this slot. */
+    uint end_offset;   /* gui->shreds.history[ end_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the last shred event in
+                          contiguous chunk of events in the shred history corresponding to this slot. */
+  } shreds;
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
+
+/* FD_GUI_SHREDS_STAGING_SZ is number of shred events we'll retain in
+   in a small staging area.  The lifecycle of a shred looks something
+   like the following
+
+   states] turbine -> repairing (optional) ->  processing                   -> waiting_for_siblings -> slot_complete
+   events]         ^-repair_requested      ^-shred_received/shred_repaired  ^-shred_replayed        ^-max(shred_replayed)
+
+   We're interested in recording timestamps for state transitions (which
+   these docs call "shred events").  Unfortunately, due to forking,
+   duplicate packets, etc we can't make any guarantees about ordering or
+   uniqueness for these event timestamps.  Instead the GUI just records
+   timestamps for all events as they occur and put them into a small
+   staging area.  Newly recorded event timestamps are also broadcast
+   live to WebSocket consumers.
+
+   The amount of shred events for non-finalized blocks can't really be
+   bounded, so we use generous estimates here to set a memory bound. */
+#define FD_GUI_MAX_SHREDS_PER_BLOCK  (32UL*1024UL)
+#define FD_GUI_MAX_EVENTS_PER_SHRED  (       32UL)
+#define FD_GUI_SHREDS_STAGING_SZ     (32UL * FD_GUI_MAX_SHREDS_PER_BLOCK * FD_GUI_MAX_EVENTS_PER_SHRED)
+
+/* FD_GUI_SHREDS_HISTORY_SZ the number of shred events in our historical
+shred store.  Shred events here belong to finalized slots which means we
+won't record any additional shred updates for these slots.
+
+All shred events for a given slot will be places in a contiguous chunk
+in the array, and the bounding indicies are stored in the fd_gui_slot_t
+slot history.  Within a slot chunk, shred events are ordered in the
+ordered they were recorded by the gui tile.
+
+Ideally, we have enough space to store an epoch's worth of events, but
+we are limited by realistic memory consumption.  Instead, we pick bound
+heuristically. */
+#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
+
+#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (1UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (2UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (3UL)
+#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (4UL)
+#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (5UL)
+
+struct fd_gui_slot_staged_shred_event {
+  long   timestamp;
+  ulong  slot;
+  ushort shred_idx;
+  ushort fec_idx;
+  uchar  event;
+};
+
+typedef struct fd_gui_slot_staged_shred_event fd_gui_slot_staged_shred_event_t;
+
+struct __attribute__((packed)) fd_gui_slot_history_shred_event {
+  long   timestamp;
+  ushort shred_idx;
+  uchar  event;
+};
+
+typedef struct fd_gui_slot_history_shred_event fd_gui_slot_history_shred_event_t;
 
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
@@ -557,6 +625,15 @@ struct fd_gui {
   } validator_info;
 
   fd_gui_peers_ctx_t * peers; /* full-client */
+
+  struct {
+    ulong staged_next_broadcast; /* value of staged_cnt when staged events were last broadcast to WebSocket clients */
+    ulong staged_cnt;            /* the cumulative number of events inserted into staged */
+    fd_gui_slot_staged_shred_event_t  staged [ FD_GUI_SHREDS_STAGING_SZ ];
+
+    ulong history_cnt;           /* the cumulative number of events inserted into history */
+    fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
+  } shreds; /* full client */
 };
 
 typedef struct fd_gui fd_gui_t;
@@ -664,6 +741,21 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snaprd_update_t * msg );
 
 
+void
+fd_gui_handle_completed_slot( fd_gui_t * gui,
+                              ulong      completed_slot,
+                              ulong      total_txn_count,
+                              ulong      nonvote_txn_count,
+                              ulong      failed_txn_count,
+                              ulong      nonvote_failed_txn_count,
+                              ulong      compute_units,
+                              ulong      transaction_fee,
+                              ulong      priority_fee,
+                              ulong      tips,
+                              ulong      parent_slot,
+                              ulong      max_compute_units,
+                              ulong      shred_count,
+                              long       replay_time );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_gui_fd_gui_h */
