@@ -108,7 +108,7 @@ fd_program_cache_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
   config.sbpf_max_version = max_sbpf_version;
 
   if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, program_data, program_data_len, &config )<0 ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed" ));
     return -1;
   }
   return 0;
@@ -282,7 +282,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
 
   fd_sbpf_loader_config_t config = { 0 };
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config ) ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed" ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );
     return -1;

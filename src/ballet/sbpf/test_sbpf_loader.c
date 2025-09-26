@@ -55,6 +55,7 @@ void test_duplicate_entrypoint_entry( void ) {
   fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_scratch_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 

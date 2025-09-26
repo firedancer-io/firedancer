@@ -13,13 +13,15 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
 
   fd_sbpf_elf_info_t info;
+  fd_spad_t * spad = runner->spad;
 
   if( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ) {
     return 0UL;
   }
 
-  void const * elf_bin = input->elf.data->bytes;
   ulong        elf_sz  = input->elf.data->size;
+  void * elf_bin = fd_spad_alloc_check( spad, 8UL, elf_sz );
+  fd_memcpy( elf_bin, input->elf.data->bytes, elf_sz );
 
   // Allocate space for captured effects
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -48,7 +50,6 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
       break;
     }
 
-    fd_spad_t * spad = runner->spad;
     void * rodata = fd_spad_alloc_check( spad, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
 
     fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc_check( spad, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );

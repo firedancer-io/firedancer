@@ -73,7 +73,8 @@
 #define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT)
 
 /* Hardcoded constant for the murmur3_32 hash of the entrypoint. */
-#define FD_SBPF_ENTRYPOINT_HASH (0x71e3cf81U)
+#define FD_SBPF_ENTRYPOINT_PC   (0xb00c380U)
+#define FD_SBPF_ENTRYPOINT_HASH (0x71e3cf81U) /* fd_pchash( FD_SBPF_ENTRYPOINT_PC ) */
 
 /* Program struct *****************************************************/
 
@@ -290,19 +291,7 @@ fd_sbpf_program_new( void *                     prog_mem,
 
    ### Compliance
 
-   This loader does not yet adhere to Solana protocol specs.
-   It is mostly compatible with solana-labs/rbpf v0.3.0 with the
-   following config:
-
-     new_elf_parser:     true
-     enable_elf_vaddr:   false
-     reject_broken_elfs: elf_deploy_checks
-
-   For documentation on these config params, see:
-   https://github.com/anza-xyz/sbpf/blob/v0.3.0/src/vm.rs#L198
-
-   Solana/Agave equivalent:
-   https://github.com/anza-xyz/sbpf/blob/v0.8.0/src/elf.rs#L361
+   As of writing, this loader is conformant with Solana RBPF v0.12.2.
    */
 
 int
