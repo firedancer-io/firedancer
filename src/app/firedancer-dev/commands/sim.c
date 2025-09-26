@@ -102,7 +102,7 @@ sim_topo( config_t * config ) {
   fd_topob_tile_out( topo, "replay",  0UL,          "replay_stake",     0UL );
 
   /**********************************************************************/
-  /* Setup replay<->exec links in topo                                  */
+  /* Setup replay-->exec links in topo                                  */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_exec" );
   fd_topob_link( topo, "replay_exec", "replay_exec", 16384UL, 2240UL, 1UL );
@@ -151,7 +151,6 @@ sim_topo( config_t * config ) {
 
   for( ulong i=0UL; i<config->firedancer.layout.exec_tile_count; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
   }

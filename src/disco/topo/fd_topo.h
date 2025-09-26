@@ -385,20 +385,13 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       ulong capture_start_slot;
+      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
       int   dump_syscall_to_pb;
       int   dump_elf_to_pb;
     } exec;
-
-    struct {
-      ulong max_live_slots;
-      ulong txncache_obj_id;
-      ulong funk_obj_id;
-      char  solcap_capture[ PATH_MAX ];
-      ulong capture_start_slot;
-    } writer;
 
     struct {
       ushort send_to_port;

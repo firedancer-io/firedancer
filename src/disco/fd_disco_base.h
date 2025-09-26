@@ -49,11 +49,6 @@
 #define FD_SHRED_OUT_MTU (FD_SHRED_DATA_HEADER_SZ + 2*FD_SHRED_MERKLE_ROOT_SZ + sizeof(int))
 FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 156UL , update FD_SHRED_OUT_MTU );
 
-/* Maximum size of frags going into the writer tile. */
-#define FD_REPLAY_WRITER_MTU (128UL)
-#define FD_EXEC_WRITER_MTU   (128UL)
-
-
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
 

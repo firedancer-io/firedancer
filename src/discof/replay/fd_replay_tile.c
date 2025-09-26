@@ -64,7 +64,7 @@
 #define IN_KIND_TOWER   (2)
 #define IN_KIND_RESOLV  (3)
 #define IN_KIND_POH     (4)
-#define IN_KIND_WRITER  (5)
+#define IN_KIND_EXEC    (5)
 #define IN_KIND_CAPTURE (6)
 #define IN_KIND_SHRED   (7)
 
@@ -174,8 +174,8 @@ struct fd_replay_tile {
      making sure that there are no more users/consumers of
      soon-to-be-pruned blocks, lest a use-after-free occurs.  This can
      be done by using a reference counter for each block.  Any
-     concurrent activity, such as transaction execution through the
-     exec-writer pipeline, should retain a refcnt on the block for as
+     concurrent activity, such as transaction execution in the exec
+     tiles, should retain a refcnt on the block for as
      long as it needs access to the shared fork-aware structures related
      to that block.  Eventually, refcnt on a given block will drop down
      to 0 as the block either finishes replaying or gets marked as dead,
@@ -1699,8 +1699,8 @@ before_frag( fd_replay_tile_t * ctx,
 }
 
 static void
-process_txn_finalized( fd_replay_tile_t *                           ctx,
-                       fd_writer_replay_txn_finalized_msg_t const * msg ) {
+process_txn_finalized( fd_replay_tile_t *                         ctx,
+                       fd_exec_replay_txn_finalized_msg_t const * msg ) {
   FD_TEST( !fd_ulong_extract_bit( ctx->exec_ready_bitset, msg->exec_tile_id ) );
   ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, msg->exec_tile_id );
 
@@ -1873,7 +1873,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
     case IN_KIND_SNAP:
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       break;
-    case IN_KIND_WRITER: {
+    case IN_KIND_EXEC: {
       process_txn_finalized( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
@@ -2030,7 +2030,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
 
-  FD_TEST( FD_PACK_MAX_BANK_TILES<=UCHAR_MAX ); /* Exec tile id needs to fit in a uchar for the writer tile txn done message. */
+  FD_TEST( FD_PACK_MAX_BANK_TILES<=UCHAR_MAX ); /* Exec tile id needs to fit in a uchar for the exec tile txn done message. */
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
 
   ctx->exec_ready_bitset = 0UL;
@@ -2100,7 +2100,7 @@ unprivileged_init( fd_topo_t *      topo,
 
     if(      !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
     else if( !strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "writ_repl"    ) ) ctx->in_kind[ i ] = IN_KIND_WRITER;
+    else if( !strcmp( link->name, "exec_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
     else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
