@@ -137,8 +137,28 @@ fd_reasm_delete( void * shreasm ) {
   return reasm;
 }
 
+fd_reasm_fec_t *
+fd_reasm_parent( fd_reasm_t *     reasm,
+                 fd_reasm_fec_t * fec ) {
+  return pool_ele( reasm->pool, fec->parent );
+}
+
+fd_reasm_fec_t *
+fd_reasm_child( fd_reasm_t *     reasm,
+                fd_reasm_fec_t * fec ) {
+  return pool_ele( reasm->pool, fec->parent );
+}
+
+fd_reasm_fec_t *
+fd_reasm_sibling( fd_reasm_t *     reasm,
+                  fd_reasm_fec_t * fec ) {
+  return pool_ele( reasm->pool, fec->parent );
+}
+
 fd_reasm_t *
-fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
+fd_reasm_init( fd_reasm_t *      reasm,
+               fd_hash_t const * merkle_root,
+               ulong             slot ) {
 # if FD_REASM_USE_HANDHOLDING
   FD_TEST( pool_free( reasm->pool )==pool_max( reasm->pool ) );
   FD_TEST( reasm->root==pool_idx_null( reasm->pool )         );
@@ -160,9 +180,10 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
   fec->data_cnt        = 0;
   fec->data_complete   = 0;
   fec->slot_complete   = 1;
-  fec->bank_idx        = 0UL;
-  fec->parent_bank_idx = null;
   fec->leader          = 0;
+  fec->eqvoc           = 0;
+  fec->bank_idx        = 0;
+  fec->parent_bank_idx = null;
 
   slot_mr_t * slot_mr = slot_mr_insert( reasm->slot_mr, slot );
   slot_mr->block_id   = fec->key;
@@ -177,21 +198,9 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
 }
 
 fd_reasm_fec_t *
-fd_reasm_next( fd_reasm_t * reasm ) {
+fd_reasm_out( fd_reasm_t * reasm ) {
   if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
-  /* We assign the parent_fork_index for the outgoing FEC set becaue
-     the parent FEC's current bank index is populated by the downstream
-     consumer of fd_reasm_next. */
   return pool_ele( reasm->pool, out_pop_head( reasm->out ) );
-}
-
-ulong
-fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec ) {
-  fd_reasm_fec_t * parent = pool_ele( reasm->pool, fec->parent );
-  if( FD_UNLIKELY( !parent ) ) {
-    FD_LOG_CRIT(( "invariant violation: fec has invalid parent (%lu)", fec->parent ));
-  }
-  return parent->bank_idx;
 }
 
 fd_reasm_fec_t *
@@ -240,7 +249,9 @@ link( fd_reasm_t     * reasm,
     fd_reasm_fec_t * curr = pool_ele( reasm->pool, parent->child );
     while( curr->sibling != pool_idx_null( reasm->pool ) ) curr = pool_ele( reasm->pool, curr->sibling );
     curr->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
-    if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* set to equivocating */
+    if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* only the last FEC set in a slot
+                                                                     can have multiple children and
+                                                                     be non-equivocating */
   }
 }
 
@@ -288,8 +299,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->slot_complete   = slot_complete;
   fec->leader          = leader;
   fec->eqvoc           = 0;
-  fec->bank_idx        = ULONG_MAX;
-  fec->parent_bank_idx = ULONG_MAX;
+  fec->bank_idx        = null;
+  fec->parent_bank_idx = null;
 
   /* This is a gross case reasm needs to handle because Agave currently
      does not validate chained merkle roots across slots ie. if a leader
@@ -349,9 +360,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                        iter = subtrees_iter_next( iter, subtrees, pool ) ) {
     bfs_push_tail( bfs, subtrees_iter_idx( iter, subtrees, pool ) );
   }
-
-  /* connects subtrees to the new FEC */
-  while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
+  while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
     fd_reasm_fec_t * orphan_root = pool_ele( reasm->pool, bfs_pop_head( bfs ) );
     overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
@@ -363,16 +372,16 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   /* At this point we are in a state where:
 
-       ele     < in frontier/subtrees/orphaned >
+       ele     ...in frontier/subtrees/orphaned
         |
-     children  < all in orphaned >
+     children  ...in orphaned
 
-     if ele is in orphaned/subtrees, we are done and this state is
-     correct.
-     if ele is an frontier, then we need to extend the
-     frontier from this ele. (make ele and all its children the ancestry,
-     except the leaf, which needs to be added to the frontier).
-     it's not possible for ele to be in ancestry at this point! */
+     If ele is in orphaned/subtrees, we are done.
+
+     If ele is in frontier, then we need to extend the frontier from
+     this ele.  Move ele and all its children to ancestry, except the
+     leaves, which need to be added to the frontier).  It's not possible
+     for ele to be in ancestry at this point. */
 
   /* Third, we advance the frontier beginning from this FEC, if it was
      connected.  By definition if this FEC was connected then its parent

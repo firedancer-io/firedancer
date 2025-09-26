@@ -29,7 +29,7 @@
      commitment status of blocks (queryable via RPC) to determine that
      their transaction has landed on a block that will not rollback. */
 
-/* TODO duplicate confirmed / optimistc confirmed currently not
+/* TODO duplicate confirmed / optimistic confirmed currently not
    implemented through this API */
 
 /* FD_NOTAR_PARANOID:  Define this to non-zero at compile time
