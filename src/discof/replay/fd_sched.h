@@ -122,8 +122,11 @@ fd_sched_join( void * mem, ulong block_cnt_max );
    ordering across forks.  The fork tree is implied by the stream of
    parent-child relationships delivered in FEC sets.  Also assumes that
    there is enough space in the scheduler to ingest the FEC set.  The
-   caller should generally call fd_sched_fec_can_ingest() first. */
-void
+   caller should generally call fd_sched_fec_can_ingest() first.
+
+   Returns 1 on success, 0 if the block is bad and should be marked
+   dead. */
+FD_WARN_UNUSED int
 fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
 /* Check if there is enough space in the scheduler to ingest the data in

@@ -1,15 +1,17 @@
 #include "fd_sched.h"
+#include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs */
 
 
-// TODO can the bounds be tighter?
-#define FD_SCHED_MAX_TXN_PER_BLOCK         (FD_TXN_MAX_PER_SLOT)
-#define FD_SCHED_MAX_NON_EMPTY_BLOCK_DEPTH (32UL)
 #define FD_SCHED_MAX_DEPTH                 (FD_RDISP_MAX_DEPTH>>2)
 #define FD_SCHED_MAX_STAGING_LANES_LOG     (2)
 #define FD_SCHED_MAX_STAGING_LANES         (1UL<<FD_SCHED_MAX_STAGING_LANES_LOG)
+
+/* 64 ticks per slot, and a single gigantic microblock containing min
+   size transactions. */
+FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT_SHRED==((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT-65UL*sizeof(fd_microblock_hdr_t))/FD_TXN_MIN_SERIALIZED_SZ), max_txn_per_slot_shred );
 
 /* We size the buffer to be able to hold residual data from the previous
    FEC set that only becomes parseable after the next FEC set is
@@ -24,6 +26,10 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(fd_microblock_hdr_t), resize buffer for res
 FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for residual data );
 
 #define FD_SCHED_MAGIC (0xace8a79c181f89b6UL) /* echo -n "fd_sched_v0" | sha512sum | head -c 16 */
+
+#define FD_SCHED_PARSER_OK          (0)
+#define FD_SCHED_PARSER_AGAIN_LATER (1)
+#define FD_SCHED_PARSER_BAD_BLOCK   (2)
 
 
 /* Structs. */
@@ -86,6 +92,7 @@ struct fd_sched_metrics {
   uint  block_added_dead_ood_cnt;
   uint  block_removed_cnt;
   uint  block_abandoned_cnt;
+  uint  block_bad_cnt;
   uint  block_promoted_cnt;
   uint  block_demoted_cnt;
   uint  deactivate_no_child_cnt;
@@ -141,14 +148,17 @@ add_block( fd_sched_t * sched,
            ulong        bank_idx,
            ulong        parent_bank_idx );
 
-static void
+FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
 
-static int
+FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx );
 
 static void
 try_activate_block( fd_sched_t * sched );
+
+static void
+check_or_set_active_block( fd_sched_t * sched );
 
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block );
@@ -333,7 +343,7 @@ fd_sched_can_ingest( fd_sched_t * sched ) {
   return sched->txn_pool_free_cnt>=txn_cnt;
 }
 
-void
+FD_WARN_UNUSED int
 fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( fec->bank_idx<sched->block_cnt_max );
@@ -363,7 +373,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
       /* Ignore the FEC set for a dead block. */
       sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-      return;
+      return 1;
     }
 
     /* Try to find a staging lane for this block. */
@@ -440,7 +450,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   if( FD_UNLIKELY( block->dying ) ) {
     /* Ignore the FEC set for a dead block. */
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-    return;
+    return 1;
   }
 
   if( FD_UNLIKELY( !block->in_rdisp ) ) {
@@ -459,9 +469,11 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
        a bad block.  We should refuse to replay down the fork. */
     FD_LOG_INFO(( "bad block: block->fec_eob set but getting another FEC set that is last in batch fec->mr %s, slot %lu, parent slot %lu",
                   FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
-    block->dying = 1;//FIXME inform replay/banks that it's dead?
+    subtree_abandon( sched, block );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-    return;
+    check_or_set_active_block( sched );
+    sched->metrics->block_bad_cnt++;
+    return 0;
   }
   if( FD_UNLIKELY( block->child_idx!=ULONG_MAX ) ) {
     /* This means something is wrong upstream.  FEC sets are not being
@@ -489,9 +501,11 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
        replay down the fork. */
     FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec_buf_soff %u, fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
                   block->fec_buf_sz, block->fec_buf_soff, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
-    block->dying = 1;//FIXME inform replay/banks that it's dead?
+    subtree_abandon( sched, block );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
-    return;
+    sched->metrics->block_bad_cnt++;
+    check_or_set_active_block( sched );
+    return 0;
   }
 
   block->shred_cnt += fec->shred_cnt;
@@ -505,20 +519,21 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
-  fd_sched_parse( sched, block, fec->alut_ctx );
-
-  /* Check if we need to set the active block. */
-  if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
-    try_activate_block( sched );
-  } else {
-    fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
-    if( FD_UNLIKELY( !block_is_activatable( active_block ) ) ) {
-      FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, dying %u, slot %lu, parent slot %lu",
-                    sched->active_bank_idx, active_block->txn_parsed_cnt, active_block->txn_done_cnt, (uint)active_block->fec_eos, (uint)active_block->dying, active_block->slot, active_block->parent_slot ));
-    }
+  int err = fd_sched_parse( sched, block, fec->alut_ctx );
+  if( FD_UNLIKELY( err==FD_SCHED_PARSER_BAD_BLOCK ) ) {
+    FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, txn_parsed_cnt %u, txn_done_cnt %u, txn_in_flight_cnt %u",
+                  fec->slot, fec->parent_slot, block->txn_parsed_cnt, block->txn_done_cnt, block->txn_in_flight_cnt ));
+    subtree_abandon( sched, block );
+    sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
+    sched->metrics->block_bad_cnt++;
+    check_or_set_active_block( sched );
+    return 0;
   }
 
-  return;
+  /* Check if we need to set the active block. */
+  check_or_set_active_block( sched );
+
+  return 1;
 }
 
 ulong
@@ -686,16 +701,24 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx ) {
     while( child_idx!=ULONG_MAX ) {
       fd_sched_block_t * child = block_pool_ele( sched, child_idx );
       if( FD_LIKELY( child->staged && child->staging_lane==block->staging_lane ) ) {
-        /* There is a child block down the same staging lane.  So switch
-           the active block to it, and have the child inherit the head
-           status of the lane.  This is the common case. */
-        sched->active_bank_idx = child_idx;
-        sched->staged_head_bank_idx[ block->staging_lane ] = child_idx;
-        if( FD_UNLIKELY( !fd_ulong_extract_bit( sched->staged_bitset, (int)block->staging_lane ) ) ) {
-          FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
-                        sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
+        /* There is a child block down the same staging lane ... */
+        if( FD_LIKELY( !block->dying ) ) {
+          /* ... and it's not dead, so switch the active block to it,
+             and have the child inherit the head status of the lane.
+             This is the common case. */
+          sched->active_bank_idx = child_idx;
+          sched->staged_head_bank_idx[ block->staging_lane ] = child_idx;
+          if( FD_UNLIKELY( !fd_ulong_extract_bit( sched->staged_bitset, (int)block->staging_lane ) ) ) {
+            FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
+                          sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
+          }
+          return;
+        } else {
+          /* ... but the child block is considered dead, likely because
+             the parser considers it invalid. */
+          subtree_abandon( sched, child );
+          break;
         }
-        return;
       }
       child_idx = child->sibling_idx;
     }
@@ -726,6 +749,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) {
+    //FIXME: this breaks when we abandon more than once
     /* Invariant: abandoning should only be performed on actively
        replayed blocks.  We impose this requirement on the caller
        because the dispatcher expects blocks to be abandoned in the same
@@ -1004,10 +1028,10 @@ add_block( fd_sched_t * sched,
   }
 }
 
-#define CHECK( cond )  do {      \
-  if( FD_UNLIKELY( !(cond) ) ) { \
-    return;                      \
-  }                              \
+#define CHECK( cond )  do {             \
+  if( FD_UNLIKELY( !(cond) ) ) {        \
+    return FD_SCHED_PARSER_AGAIN_LATER; \
+  }                                     \
 } while( 0 )
 
 /* CHECK that it is safe to read at least n more bytes. */
@@ -1020,12 +1044,13 @@ add_block( fd_sched_t * sched,
    bytes should be concatenated with the next FEC set for further
    parsing.  In the latter case, any remaining bytes should be thrown
    away. */
-static void
+FD_WARN_UNUSED static int
 fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   while( 1 ) {
     while( block->txns_rem>0UL ) {
-      if( FD_UNLIKELY( !fd_sched_parse_txn( sched, block, alut_ctx ) ) ) {
-        return;
+      int err;
+      if( FD_UNLIKELY( (err=fd_sched_parse_txn( sched, block, alut_ctx ))!=FD_SCHED_PARSER_OK ) ) {
+        return err;
       }
     }
     if( block->txns_rem==0UL && block->mblks_rem>0UL ) {
@@ -1060,9 +1085,10 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
     block->fec_sob      = 1;
     block->fec_eob      = 0;
   }
+  return FD_SCHED_PARSER_OK;
 }
 
-static int
+FD_WARN_UNUSED static int
 fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_t * alut_ctx ) {
   fd_txn_t * txn = fd_type_pun( block->txn );
 
@@ -1075,7 +1101,13 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
 
   if( FD_UNLIKELY( !pay_sz || !txn_sz ) ) {
     /* Can't parse out a full transaction. */
-    return 0;
+    return FD_SCHED_PARSER_AGAIN_LATER;
+  }
+
+  if( FD_UNLIKELY( block->txn_parsed_cnt>=FD_MAX_TXN_PER_SLOT ) ) {
+    /* The block contains more transactions than a valid block would.
+       Mark the block dead instead of keep processing it. */
+    return FD_SCHED_PARSER_BAD_BLOCK;
   }
 
   /* Try to expand ALUTs. */
@@ -1110,7 +1142,7 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
   block->txns_rem--;
-  return 1;
+  return FD_SCHED_PARSER_OK;
 }
 
 #undef CHECK
@@ -1182,6 +1214,19 @@ try_activate_block( fd_sched_t * sched ) {
     return;
   }
   /* No unstaged blocks to promote.  So we're done.  Yay. */
+}
+
+static void
+check_or_set_active_block( fd_sched_t * sched ) {
+  if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
+    try_activate_block( sched );
+  } else {
+    fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
+    if( FD_UNLIKELY( !block_is_activatable( active_block ) ) ) {
+      FD_LOG_CRIT(( "invariant violation: active_bank_idx %lu is not activatable, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, dying %u, slot %lu, parent slot %lu",
+                    sched->active_bank_idx, active_block->txn_parsed_cnt, active_block->txn_done_cnt, (uint)active_block->fec_eos, (uint)active_block->dying, active_block->slot, active_block->parent_slot ));
+    }
+  }
 }
 
 /* It's safe to call this function more than once on the same block. */

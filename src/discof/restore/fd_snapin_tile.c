@@ -234,7 +234,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
     slot mapping and assume everything executed at the root slot
     exactly?  The only invariant we should maintain from a memory
     perspective is that at most, across all active banks,
-    FD_PACK_MAX_TXN_PER_SLOT transactions are stored per slot, but we
+    FD_MAX_TXN_PER_SLOT transactions are stored per slot, but we
     have preserved that.  It is not true "per slot" technically, but
     it's true across all slots, and the memory is aggregated.  It will
     also always be true, even as slots are garbage collected, because

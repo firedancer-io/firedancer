@@ -1084,7 +1084,6 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
                          fd_capture_ctx_t *        capture_ctx ) {
 
   /* Collect fees */
-
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->priority_fee );
