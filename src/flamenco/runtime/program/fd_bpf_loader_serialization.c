@@ -245,6 +245,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
 
   /* Second pass over the account is to serialize into the buffer.
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L523-L557 */
+  ulong preceeding_duplicate_accounts = 0UL;
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     uchar         acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
     fd_pubkey_t * acc     = &txn_accs[acc_idx];
@@ -257,17 +258,15 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( ulong, serialized_params, 0UL );
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(ulong);
+      preceeding_duplicate_accounts++;
     } else {
       /* Calculate and store the start of the actual metadata region for this account,
          excluding any duplicate account markers at the beginning.
 
          We use this later for retrieving the serialized values later in the CPI security checks. */
-      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL :
-        input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
-        input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
-
-      acc_region_metas[i].metadata_region_offset = metadata_region_offset_with_dups +
-        (ulong)(serialized_params - curr_serialized_params_start);
+      acc_region_metas[i].metadata_region_offset = (ulong)(serialized_params - serialized_params_start) +
+        (preceeding_duplicate_accounts * sizeof(ulong));
+      preceeding_duplicate_accounts              = 0UL;
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L526 */
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
