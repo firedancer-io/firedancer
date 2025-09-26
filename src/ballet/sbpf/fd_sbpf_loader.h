@@ -35,20 +35,40 @@
 #define FD_SBPF_ELF_PARSER_ERR_NO_STRING_TABLE               (-14)
 #define FD_SBPF_ELF_PARSER_ERR_NO_DYNAMIC_STRING_TABLE       (-15)
 
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L40 */
+/* Map Rust ElfError (elf.rs v0.12.2) to C error codes */
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L40-L66 */
+#define FD_SBPF_ELF_ERR_FAILED_TO_PARSE                      ( -1)
+#define FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS             ( -2)
+#define FD_SBPF_ELF_ERR_INVALID_ENTRYPOINT                   ( -3)
+#define FD_SBPF_ELF_ERR_FAILED_TO_GET_SECTION                ( -4)
+#define FD_SBPF_ELF_ERR_UNRESOLVED_SYMBOL                    ( -5)
+#define FD_SBPF_ELF_ERR_SECTION_NOT_FOUND                    ( -6)
+#define FD_SBPF_ELF_ERR_RELATIVE_JUMP_OUT_OF_BOUNDS          ( -7)
+#define FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION                ( -8)
+#define FD_SBPF_ELF_ERR_WRONG_ENDIANNESS                     ( -9)
+#define FD_SBPF_ELF_ERR_WRONG_ABI                            (-10)
+#define FD_SBPF_ELF_ERR_WRONG_MACHINE                        (-11)
+#define FD_SBPF_ELF_ERR_WRONG_CLASS                          (-12)
+#define FD_SBPF_ELF_ERR_NOT_ONE_TEXT_SECTION                 (-13)
+#define FD_SBPF_ELF_ERR_WRITABLE_SECTION_NOT_SUPPORTED       (-14)
+#define FD_SBPF_ELF_ERR_ADDRESS_OUTSIDE_LOADABLE_SECTION     (-15)
+#define FD_SBPF_ELF_ERR_INVALID_VIRTUAL_ADDRESS              (-16)
+#define FD_SBPF_ELF_ERR_UNKNOWN_RELOCATION                   (-17)
+#define FD_SBPF_ELF_ERR_FAILED_TO_READ_RELOCATION_INFO       (-18)
+#define FD_SBPF_ELF_ERR_WRONG_TYPE                           (-19)
+#define FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL                       (-20)
+#define FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS                  (-21)
 #define FD_SBPF_ELF_ERR_UNSUPPORTED_SBPF_VERSION             (-22)
+#define FD_SBPF_ELF_ERR_INVALID_PROGRAM_HEADER               (-23)
 
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs
-   FD_SBPF_VERSION_COUNT represents the latest active version,
-   which is V3 for Agave 2.3 and V4 for Agave 3.x.
-   To build for Agave 3.x, set FD_SBPF_VERSION_COUNT to 5U. */
-#define FD_SBPF_VERSION_COUNT (4U)
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs */
+#define FD_SBPF_VERSION_COUNT (5U)
 #define FD_SBPF_V0            (0U)
 #define FD_SBPF_V1            (1U)
 #define FD_SBPF_V2            (2U)
 #define FD_SBPF_V3            (3U)
 #define FD_SBPF_V4            (4U)
-#define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT+1U)
+#define FD_SBPF_RESERVED      (FD_SBPF_VERSION_COUNT)
 
 /* Program struct *****************************************************/
 
@@ -138,6 +158,12 @@ struct fd_sbpf_elf_info {
   /* Known program header indices (like shndx_*) */
   int phndx_dyn;
 
+  /* Dynamic table entries */
+  int dt_rel;
+  int dt_relent;
+  int dt_relsz;
+  int dt_symtab;
+
   uint entry_pc;  /* Program counter of entry point
                      NOTE: MIGHT BE OUT OF BOUNDS! */
 
@@ -181,10 +207,14 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 typedef struct fd_sbpf_program fd_sbpf_program_t;
 
 struct fd_sbpf_loader_config {
-  int elf_deploy_checks;
+  union {
+   int elf_deploy_checks;
+   int reject_broken_elfs;
+  };
   uint sbpf_min_version;
   uint sbpf_max_version;
-  int enable_symbol_and_section_labels;
+  int  enable_symbol_and_section_labels;
+  int  optimize_rodata;
 };
 typedef struct fd_sbpf_loader_config fd_sbpf_loader_config_t;
 
@@ -290,6 +320,8 @@ fd_sbpf_strerror( void );
 
 /* SIMD-0189 */
 static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
+static inline int fd_sbpf_enable_elf_vaddr           ( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
+static inline int fd_sbpf_reject_rodata_stack_overlap( ulong sbpf_version ) { return sbpf_version != FD_SBPF_V0; }
 
 FD_PROTOTYPES_END
 

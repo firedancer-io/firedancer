@@ -90,6 +90,7 @@
 #define FD_ELF_DT_REL     17
 #define FD_ELF_DT_RELSZ   18
 #define FD_ELF_DT_RELENT  19
+#define FD_ELF_DT_NUM     35
 
 /* FD_ELF64_ST_TYPE extracts the symbol type from symbol st_info */
 
