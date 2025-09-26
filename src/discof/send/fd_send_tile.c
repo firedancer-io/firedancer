@@ -4,8 +4,10 @@
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../discof/tower/fd_tower_tile.h"
+#include "fd_target_slot.h"
 #include "generated/fd_send_tile_seccomp.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../disco/pack/fd_microblock.h"
 
 #include <sys/random.h>
 
@@ -447,7 +449,6 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
                  ulong                vote_slot,
                  uchar *              signed_vote_txn,
                  ulong                vote_txn_sz ) {
-
   uchar txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
   fd_txn_t * txn = (fd_txn_t *)txn_mem;
   FD_TEST( fd_txn_parse( signed_vote_txn, vote_txn_sz, txn_mem, NULL ) );
@@ -458,12 +459,15 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
   ulong message_sz  = vote_txn_sz - txn->message_off;
   fd_keyguard_client_sign( ctx->keyguard_client, signature, message, message_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
-  ulong poh_slot  = vote_slot+1;
   FD_LOG_INFO(("got vote for slot %lu", vote_slot));
 
+  fd_target_slot_push( ctx->target_slot, FD_TARGET_SLOT_TYPE_VOTE, vote_slot );
+
+  ulong const target_cnt = fd_target_slot_predict( ctx->target_slot );
+
   /* send to leader for next few slots */
-  for( ulong i=0UL; i<FD_SEND_TARGET_LEADER_CNT; i++ ) {
-    ulong target_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
+  for( ulong i=0UL; i<target_cnt; i++ ) {
+    ulong target_slot = ctx->target_slot->slots[i];
     fd_pubkey_t const * leader = fd_multi_epoch_leaders_get_leader_for_slot( ctx->mleaders, target_slot );
     if( FD_LIKELY( leader ) ) {
       leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
@@ -473,8 +477,10 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
     }
   }
 
+  ulong const most_likely_slot = ctx->target_slot->slots[0];
   for( ulong i=0; i<FD_SEND_CONNECT_AHEAD_LEADER_CNT; i++ ) {
-    ulong connect_slot = poh_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
+    /* FIXME: be smarter than just most likely slot ? */
+    ulong connect_slot = most_likely_slot + i*FD_EPOCH_SLOTS_PER_ROTATION;
     /* keep alive for at least as long as needed */
     ensure_conn_for_slot( ctx, connect_slot, FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS * (long)1e9 );
   }
@@ -519,6 +525,11 @@ before_frag( fd_send_tile_ctx_t * ctx,
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
   }
+
+  if( FD_UNLIKELY( ctx->in_links[in_idx].kind==IN_KIND_POH ) ) {
+    return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
+  }
+
   return 0;
 }
 
@@ -558,12 +569,28 @@ during_frag( fd_send_tile_ctx_t * ctx,
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
     FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
 
-    fd_tower_slot_done_t const * slot_done = (fd_tower_slot_done_t const *)dcache_entry;
+    fd_tower_slot_done_t const * slot_done = fd_type_pun_const( dcache_entry );
 
-    uchar signed_vote_txn[ FD_TPU_MTU ];
-    fd_memcpy( signed_vote_txn, slot_done->vote_txn, slot_done->vote_txn_sz );
+    ulong const vote_slot   = slot_done->vote_slot;
+    ulong const vote_txn_sz = slot_done->vote_txn_sz;
+    if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
 
-    handle_vote_msg( ctx, slot_done->vote_slot, signed_vote_txn, slot_done->vote_txn_sz );
+    uchar vote_txn[ FD_TPU_MTU ];
+    fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
+
+    handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
+  }
+
+  if( FD_UNLIKELY( kind==IN_KIND_SHRED ) ) {
+    fd_target_slot_push( ctx->target_slot, FD_TARGET_SLOT_TYPE_TURBINE, fd_disco_shred_out_shred_sig_slot( sig ) );
+  }
+
+  if( FD_UNLIKELY( kind==IN_KIND_POH ) ) {
+    fd_entry_batch_meta_t const * meta = fd_type_pun_const( dcache_entry );
+    if( FD_UNLIKELY( meta->block_complete ) ) {
+      ulong poh_slot = fd_disco_poh_sig_slot( sig );
+      fd_target_slot_push( ctx->target_slot, FD_TARGET_SLOT_TYPE_POH, poh_slot );
+    }
   }
 }
 
@@ -700,6 +727,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->conn_map = fd_send_conn_map_join( fd_send_conn_map_new( conn_map_mem ) );
   if( FD_UNLIKELY( !ctx->conn_map ) ) FD_LOG_ERR(( "fd_send_conn_map_join failed" ));
 
+  /* Initalize slot predictor */
+  fd_target_slot_t * target_slot = fd_target_slot_new( ctx->target_slot_mem );
+  if( FD_UNLIKELY( !target_slot ) ) FD_LOG_ERR(( "fd_target_slot_new failed" ));
+  ctx->target_slot = target_slot;
+
   ctx->src_ip_addr = tile->send.ip_addr;
   ctx->src_port    = tile->send.send_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
@@ -707,6 +739,8 @@ unprivileged_init( fd_topo_t *      topo,
   setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out"   );
   setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "replay_stake" );
   setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_out"    );
+  setup_input_link( ctx, topo, tile, IN_KIND_SHRED,  "shred_out"    );
+  setup_input_link( ctx, topo, tile, IN_KIND_POH,    "poh_replay"   );
 
   fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
   fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );

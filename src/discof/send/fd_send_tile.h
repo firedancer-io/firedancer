@@ -15,17 +15,17 @@
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../util/clock/fd_clock.h"
+#include "fd_target_slot.h"
 
 #define IN_KIND_SIGN   (0UL)
 #define IN_KIND_GOSSIP (1UL)
 #define IN_KIND_STAKE  (2UL)
 #define IN_KIND_TOWER  (3UL)
 #define IN_KIND_NET    (4UL)
+#define IN_KIND_SHRED  (5UL)
+#define IN_KIND_POH    (6UL)
 
-/* Send votes to next FD_SEND_TARGET_LEADER_CNT leaders (slot x, x+4, x+8, ...) */
-#define FD_SEND_TARGET_LEADER_CNT (3UL)
-
-/* Connect FD_CONNECT_AHEAD_LEADER_CNT leaders ahead (slot x, x+4, x+8, ...) */
+/* Connect FD_SEND_CONNECT_AHEAD_LEADER_CNT leaders ahead (slot x, x+4, x+8, ...) */
 #define FD_SEND_CONNECT_AHEAD_LEADER_CNT  (6UL)
 
 /* Agave currently rate limits connections per minute per IP */
@@ -120,6 +120,9 @@ struct fd_send_tile_ctx {
   /* Leader schedule tracking */
   fd_multi_epoch_leaders_t * mleaders;
 
+  /* Target slot predictor */
+  fd_target_slot_t * target_slot;
+
   /* QUIC handles */
   fd_quic_t * quic;
   fd_aio_t    quic_tx_aio[1];
@@ -158,6 +161,7 @@ struct fd_send_tile_ctx {
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
   uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_TARGET_SLOT_ALIGN))) target_slot_mem[ FD_TARGET_SLOT_FOOTPRINT ];
 };
 
 typedef struct fd_send_tile_ctx fd_send_tile_ctx_t;

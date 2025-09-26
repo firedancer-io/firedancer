@@ -532,6 +532,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "send",    0UL,          "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "send",    0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "send",    0UL,          "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(shred_tile_cnt)  fd_topob_tile_in (   topo, "send",    0UL,          "metric_in", "shred_out",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "send",    0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "send",    0UL,                       "send_net",     0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "send",    0UL,                       "send_txns",    0UL                                                );
 
