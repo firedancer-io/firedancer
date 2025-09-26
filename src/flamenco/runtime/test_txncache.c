@@ -63,8 +63,8 @@ test_new_join( uchar * scratch0 ) {
   FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL ) );
   FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL ) );
   FD_TEST( fd_txncache_shmem_new( scratch0, 2UL, 2UL ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) ) );
-  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 4096UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ) ) );
+  FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, fd_ulong_pow2_up( FD_MAX_TXN_PER_SLOT ) ) );
   FD_TEST( fd_txncache_shmem_new( scratch0, 512UL, 1UL ) );
   FD_TEST( fd_txncache_shmem_new( scratch0, 1UL, 1UL ) );
 
@@ -113,8 +113,8 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_PACK_MAX_TXN_PER_SLOT );
-  ulong max_footprint_local = fd_txncache_footprint( FD_PACK_MAX_TXN_PER_SLOT );
+  ulong max_footprint_shmem = fd_txncache_shmem_footprint( 4096UL, FD_MAX_TXN_PER_SLOT );
+  ulong max_footprint_local = fd_txncache_footprint( FD_MAX_TXN_PER_SLOT );
 
   ulong max_footprint = fd_ulong_align_up( max_footprint_shmem, 4096UL ) + max_footprint_local;
   uchar * scratch0 = fd_shmem_acquire( 4096UL, 1UL+(max_footprint/4096UL), 0UL );

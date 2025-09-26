@@ -1335,12 +1335,6 @@ replay( fd_replay_tile_t *  ctx,
     FD_TEST( ready_txn->txn_idx!=FD_SCHED_TXN_IDX_NULL );
     charge_busy = 1;
 
-    /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
-       that FD_TXN_MAX_PER_SLOT is respected here, and we do not
-       schedule above it (must end block with failure now if we would
-       go over), otherwise a malicious block could exceed the CU limit
-       and overflow the status cache or scheduler. */
-
     if( FD_UNLIKELY( ready_txn->block_start ) ) {
       replay_block_start( ctx,
                           stem,
@@ -1508,7 +1502,9 @@ process_fec_set( fd_replay_tile_t * ctx,
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
   sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
 
-  fd_sched_fec_ingest( ctx->sched, sched_fec );
+  if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
+    fd_banks_mark_bank_dead( ctx->banks, fd_banks_bank_query( ctx->banks, sched_fec->bank_idx ) );
+  }
 }
 
 static void
