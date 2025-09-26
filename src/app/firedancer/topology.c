@@ -629,7 +629,6 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_UNLIKELY( config->tiles.shredcap.enabled ) ) {
     fd_topob_wksp( topo, "scap" );
-    fd_topob_wksp( topo, "repair_scap" );
 
     fd_topob_tile( topo, "scap", "scap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
@@ -642,10 +641,7 @@ fd_topo_initialize( config_t * config ) {
     }
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "gossip_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
-    fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "repair_scap", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_in( topo, "scap", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-    fd_topob_tile_out( topo, "repair", 0UL, "repair_scap", 0UL );
 
     /* No default fd_topob_tile_in connection to stake_out */
   }
