@@ -115,8 +115,6 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
   FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
   fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->retrieving = 0;
-  FD_LOG_WARNING(( "returnable_frag" ));
-  FD_LOG_WARNING(( "returnable_frag2" ));
 
   return 0;
 }
