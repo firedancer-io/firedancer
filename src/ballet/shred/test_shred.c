@@ -1,19 +1,21 @@
 #include "fd_shred.h"
 
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, signature       )==0x00, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, variant         )==0x40, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, slot            )==0x41, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, idx             )==0x49, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, version         )==0x4d, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, fec_set_idx     )==0x4f, unit_test );
+#include <stddef.h> // offsetof
 
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, code.data_cnt   )==0x53, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, code.code_cnt   )==0x55, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, code.idx        )==0x57, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, signature       )==0x00, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, variant         )==0x40, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, slot            )==0x41, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, idx             )==0x49, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, version         )==0x4d, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, fec_set_idx     )==0x4f, unit_test );
 
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, data.parent_off )==0x53, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, data.flags      )==0x55, unit_test );
-FD_STATIC_ASSERT( __builtin_offsetof( fd_shred_t, data.size       )==0x56, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, code.data_cnt   )==0x53, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, code.code_cnt   )==0x55, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, code.idx        )==0x57, unit_test );
+
+FD_STATIC_ASSERT( offsetof( fd_shred_t, data.parent_off )==0x53, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, data.flags      )==0x55, unit_test );
+FD_STATIC_ASSERT( offsetof( fd_shred_t, data.size       )==0x56, unit_test );
 
 static uchar const fixture_legacy_coding_shred[FD_SHRED_MAX_SZ] = {
   0x12,0x5f,0x43,0x31,0xbe,0x64,0x52,0x07,0x88,0xc8,0x2b,0x22,0x71,0x4a,0xb9,0x2c,
