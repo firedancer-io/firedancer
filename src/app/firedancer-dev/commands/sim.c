@@ -118,15 +118,15 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "bstore"      );
   fd_topob_wksp( topo, "poh_shred"   );
   fd_topob_wksp( topo, "root_slot"   );
-  fd_topob_wksp( topo, "tcache"      );
+  fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "bank_busy"   );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width );
 

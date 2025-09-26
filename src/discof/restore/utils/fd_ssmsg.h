@@ -346,6 +346,9 @@ struct fd_snapshot_manifest {
   ulong blockhashes_len;
   fd_snapshot_manifest_blockhash_t blockhashes[ 301UL ];
 
+  /* The fork_id in the status cache for the root slot. */
+  ushort txncache_fork_id;
+
   ulong hard_forks_len;
   ulong hard_forks[ 64UL ];
 
