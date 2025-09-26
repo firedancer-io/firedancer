@@ -133,7 +133,7 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong child;   /* pool idx of the left-child */
   ulong sibling; /* pool idx of the right-sibling */
 
-  /* Data */
+  /* Data (set on insert) */
 
   ulong  slot;          /* The slot of the FEC set */
   uint   fec_set_idx;   /* The index of first shred in the FEC set */
@@ -142,17 +142,10 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   int    data_complete; /* Whether the FEC set completes an entry batch */
   int    slot_complete; /* Whether the FEC set completes the slot */
   int    leader;        /* Whether the FEC set corresponds to FECs produced during a leader slot */
-  int    eqvoc;         /* Whether the FEC set is equivocating.  Note,
-                           this doesn't track all types of equivocations
-                           (i.e. equivocations not on a slot boundary
-                           and malformed FEC indices).
-                           TODO: this will change with fix-32. */
+  int    eqvoc;         /* Whether the FEC set equivocates. TODO fixed-32 */
 
-  /* Metadata (set by caller)
+  /* Data (set by caller) */
 
-     parent_bank_idx and bank_idx are used to track downstream
-     consumers of the reasm_fecs from reasm_next().  parent_bank_idx and
-     bank_idx is set externally in the replay tile. */
   ulong parent_bank_idx;
   ulong bank_idx;
 };
@@ -205,6 +198,13 @@ fd_reasm_leave( fd_reasm_t * reasm );
 void *
 fd_reasm_delete( void * reasm );
 
+/* fd_reasm_{parent,child,sibling} provide accessors for traversing the
+   reasm tree. */
+
+FD_FN_PURE fd_reasm_fec_t * fd_reasm_parent ( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
+FD_FN_PURE fd_reasm_fec_t * fd_reasm_child  ( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
+FD_FN_PURE fd_reasm_fec_t * fd_reasm_sibling( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
+
 /* fd_reasm_root returns a pointer to the current root of of the reasm,
    NULL if there is no root. */
 
@@ -220,7 +220,8 @@ fd_reasm_slot0( fd_reasm_t * reasm );
    found, NULL otherwise. */
 
 fd_reasm_fec_t *
-fd_reasm_query( fd_reasm_t const * reasm, fd_hash_t const * merkle_root );
+fd_reasm_query( fd_reasm_t const * reasm,
+                fd_hash_t const * merkle_root );
 
 /* fd_reasm_init initializes reasm with a dummy root of key merkle_root
    and with metadata slot.  All other fields are set to either pool null
@@ -228,7 +229,9 @@ fd_reasm_query( fd_reasm_t const * reasm, fd_hash_t const * merkle_root );
    returned by fd_reasm_next. */
 
 fd_reasm_t *
-fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot );
+fd_reasm_init( fd_reasm_t *      reasm,
+               fd_hash_t const * merkle_root,
+               ulong             slot );
 
 /* fd_reasm_next returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
@@ -238,14 +241,7 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot );
    documentation for details). */
 
 fd_reasm_fec_t *
-fd_reasm_next( fd_reasm_t * reasm );
-
-/* fd_reasm_parent_bank_idx returns the bank index of the parent of the
-   FEC set.  Returns ULONG_MAX if the parent FEC's bank index has not
-   been set.  This function always assumes that the FEC has a parent. */
-
-ulong
-fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
+fd_reasm_out( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
@@ -266,12 +262,13 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               leader );
 
-/* fd_reasm_advances advances the reasm root to merkle_root root,
+/* fd_reasm_advance_root advances the root to merkle_root,
    pruning (ie. map remove and release) any FEC sets that do not descend
    from this new root. */
 
 fd_reasm_fec_t *
-fd_reasm_advance_root( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
+fd_reasm_advance_root( fd_reasm_t *      reasm,
+                       fd_hash_t const * merkle_root );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );

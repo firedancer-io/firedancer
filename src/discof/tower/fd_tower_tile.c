@@ -15,7 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#define LOGGING 0
+#define LOGGING 1
 
 #define IN_KIND_GENESIS (0)
 #define IN_KIND_SNAP    (1)
@@ -56,7 +56,7 @@ struct fd_tower_tile {
   fd_tower_t * vote_towers[ FD_REPLAY_TOWER_VOTE_ACC_MAX ];
   fd_pubkey_t  vote_keys[ FD_REPLAY_TOWER_VOTE_ACC_MAX ];
 
-  uchar vote_state[ FD_REPLAY_TOWER_VOTE_ACC_MAX ]; /* our vote state */
+  ulong root;
 
   int in_kind[ 64UL ];
   fd_tower_tile_in_t in[ 64UL ];
@@ -163,7 +163,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     return;
   }
 
-  /* Parse the replay vote towers */
+  /* Parse the replay vote towers. */
+
   for( ulong i=0UL; i<ctx->replay_towers_cnt; i++ ) {
     fd_tower_votes_remove_all( ctx->vote_towers[ i ] );
     fd_tower_from_vote_acc_data( ctx->replay_towers[ i ].acc, ctx->vote_towers[ i ] );
@@ -174,12 +175,11 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
       /* If this is our vote account, and our tower has not been
          initialized, initialize it with our vote state */
 
-      if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) {
-        fd_tower_from_vote_acc_data( ctx->replay_towers[i].acc, ctx->tower );
+      if( FD_UNLIKELY( fd_tower_votes_empty( ctx->tower ) ) ) { /* FIXME this is wrong and can only be done on "caught up" */
+        uchar const * acc = ctx->replay_towers[ i ].acc;
+        fd_tower_from_vote_acc_data( acc, ctx->tower );
+        ctx->root = fd_ulong_load_8_fast( fd_voter_root_laddr( (fd_voter_state_t const *)fd_type_pun_const( acc ) ) );
       }
-
-      /* Copy in our voter state */
-      memcpy( &ctx->vote_state, ctx->replay_towers[ i ].acc, ctx->replay_towers[ i ].acc_sz );
     }
   }
 
@@ -196,18 +196,23 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   /* 1. Determine next slot to vote for, if one exists. */
 
   msg->vote_slot = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->vote_keys, ctx->vote_towers, ctx->replay_towers_cnt, ctx->ghost );
-  msg->new_root  = 0UL;
+  msg->new_root  = 0;
 
   /* 2. Determine new root, if there is one.  A new vote slot can result
         in a new root but not always. */
 
-  if( FD_LIKELY( msg->vote_slot!=FD_SLOT_NULL ) ) {
-    msg->root_slot                  = fd_tower_vote( ctx->tower, msg->vote_slot );
-    fd_hash_t const * root_block_id = fd_ghost_hash( ctx->ghost, msg->root_slot );
-    if( FD_LIKELY( root_block_id ) ) {
-      msg->root_block_id = *root_block_id;
-      msg->new_root      = 1;
-      fd_ghost_publish( ctx->ghost, &msg->root_block_id );
+  if( FD_LIKELY( msg->vote_slot!=ULONG_MAX ) ) {
+    msg->root_slot = fd_tower_vote( ctx->tower, msg->vote_slot );
+    if( FD_LIKELY( msg->root_slot != ULONG_MAX ) ) {
+      fd_hash_t const * root_block_id = fd_ghost_hash( ctx->ghost, msg->root_slot );
+      if( FD_LIKELY( root_block_id ) ) {
+        msg->new_root = 1;
+        msg->root_block_id = *root_block_id;
+        fd_ghost_publish( ctx->ghost, &msg->root_block_id );
+        FD_LOG_NOTICE(( "New root %lu block_id %s", msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
+      } else {
+        FD_LOG_INFO(( "unable to find block id for root %lu. likely old tower vote that precedes snapshot slot.", msg->root_slot ));
+      }
     }
   }
 

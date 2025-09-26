@@ -289,7 +289,7 @@ struct fd_replay_tile {
      node, that is chaining off of the rooted fork, because the
      consensus root is always an ancestor of the actively replaying tip.
      */
-  fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower. */
+  fd_hash_t consensus_root_block_id;          /* The most recent block to have reached max lockout in the tower. */
   ulong     consensus_root_slot;     /* slot number of the above. */
   ulong     consensus_root_bank_idx; /* bank index of the above. */
   ulong     published_root_slot;     /* slot number of the published root. */
@@ -1175,7 +1175,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   fd_bank_block_height_set( ctx->slot_ctx->bank, 1UL );
 
-  ctx->consensus_root          = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->consensus_root_block_id          = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->consensus_root_slot     = 0UL;
   ctx->consensus_root_bank_idx = 0UL;
   ctx->published_root_slot     = 0UL;
@@ -1241,7 +1241,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
     publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
 
-    ctx->consensus_root          = manifest_block_id;
+    ctx->consensus_root_block_id          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
     ctx->consensus_root_bank_idx = 0UL;
     ctx->published_root_slot     = ctx->consensus_root_slot;
@@ -1406,7 +1406,7 @@ process_fec_set( fd_replay_tile_t * ctx,
      a bank index for the FEC and it just needs to be propagated to the
      reasm_fec. */
 
-  reasm_fec->parent_bank_idx = fd_reasm_parent_bank_idx( ctx->reasm, reasm_fec );
+  reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
@@ -1529,7 +1529,7 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
+  process_fec_set( ctx, fd_reasm_out( ctx->reasm ) );
 
   /* If we are leader, we can only unbecome the leader iff we have
      received the poh hash from the poh tile and block id from reasm. */
@@ -1604,10 +1604,11 @@ funk_publish( fd_replay_tile_t * ctx,
 
 static void
 advance_published_root( fd_replay_tile_t * ctx ) {
+  FD_LOG_NOTICE(( "advancing published root %lu", ctx->consensus_root_slot ));
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
+    FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root_block_id ) ));
   }
   ulong target_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
@@ -1712,11 +1713,12 @@ process_tower_update( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( msg->new_root ) ) {
 
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
+    ctx->consensus_root_slot = msg->root_slot;
+
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
     FD_TEST( block_id_ele );
 
-    ctx->consensus_root_slot     = msg->root_slot;
-    ctx->consensus_root          = msg->root_block_id;
+    ctx->consensus_root_block_id = msg->root_block_id;
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
@@ -1893,7 +1895,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( bank );
 
   ctx->consensus_root_slot = ULONG_MAX;
-  ctx->consensus_root      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->consensus_root_block_id      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
 
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */
