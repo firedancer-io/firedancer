@@ -335,6 +335,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
 
       txn_ctx->spad      = ctx->exec_spad[ in_idx ];
       txn_ctx->spad_wksp = ctx->exec_spad_wksp[ in_idx ];
+      txn_ctx->bank      = ctx->bank;
 
       /* Query the vote signature against the recently generated vote txn
         signatures.  If the query is successful, then we have seen our

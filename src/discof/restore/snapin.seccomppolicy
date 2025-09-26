@@ -17,12 +17,7 @@ write: (or (eq (arg 0) 2)
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
 
-# FIXME:
-# snapshot download needs
-# - open(O_RDONLY) or open(O_WRONLY|O_TRUNC) or open(O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR)
-# - write
-# - read
-# - close
-
-/* getrandom is used for secure randomness */
-getrandom
+# shutdown: exit is called on shutdown
+#
+# arg 0 is the exit code for close
+exit: (eq (arg 0) 0)
