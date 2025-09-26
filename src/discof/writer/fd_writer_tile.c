@@ -330,7 +330,6 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       if( FD_UNLIKELY( !ctx->bank ) ) {
         FD_LOG_CRIT(( "Could not find bank for slot %lu", txn_ctx->slot ));
       }
-      FD_LOG_WARNING(("BANKS BANK %p %p %lu", (void*)ctx->banks, (void*)ctx->bank, txn_ctx->bank_idx));
 
       if( !ctx->funk_txn || txn_ctx->slot != ctx->funk_txn->xid.ul[0] ) {
         fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->funk );
