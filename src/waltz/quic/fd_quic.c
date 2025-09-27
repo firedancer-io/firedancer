@@ -3566,16 +3566,11 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   long now = state->now;
 
   /* initialize expiry and tx_time */
-  fd_quic_pkt_meta_t pkt_meta_tmpl[1] = {{.expiry = now+500000000L, .tx_time = now}};
-  // pkt_meta_tmpl->expiry = fd_quic_calc_expiry( conn, now );
-  //ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
-  //if( margin < pkt_meta->expiry ) {
-  //  pkt_meta->expiry -= margin;
-  //}
+  long expiry = now + fd_quic_calc_expiry_duration( conn, 0 /* use PTO */ );
+  fd_quic_pkt_meta_t pkt_meta_tmpl[1] = {{.expiry = expiry, .tx_time = now}};
 
   while( enc_level != ~0u ) {
     uint initial_pkt = 0;    /* is this the first initial packet? */
-
 
     /* remaining in datagram */
     /* invariant: tx_ptr >= tx_buf */
@@ -4364,6 +4359,8 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
   /* used for metric tracking */
   ulong prev_retx_pkt_num[FD_QUIC_NUM_ENC_LEVELS] = { ~0ul, ~0ul, ~0ul, ~0ul };
 
+  long const expiry_duration = fd_quic_calc_expiry_duration( conn, 0 );
+
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
     uint  enc_level      = arg_enc_level;
@@ -4377,6 +4374,8 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 #if 1
         fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[j], pool );
         if( !pkt_meta ) continue;
+
+        pkt_meta->expiry = fd_long_min( pkt_meta->tx_time + expiry_duration, pkt_meta->expiry );
 
         if( enc_level == ~0u || pkt_meta->expiry < expiry ) {
           enc_level = j;
@@ -4401,7 +4400,8 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
         return;
       }
 
-      expiry = pkt_meta->expiry;
+      pkt_meta->expiry = fd_long_min( pkt_meta->tx_time + expiry_duration, pkt_meta->expiry );
+      expiry           = pkt_meta->expiry;
     }
 
     if( enc_level == ~0u ) return;
@@ -4431,7 +4431,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
       continue;
     }
 
-    quic->metrics.pkt_retransmissions_cnt += !(pkt_meta->key.pkt_num == prev_retx_pkt_num[enc_level]);
+    quic->metrics.pkt_retx_cnt[enc_level] += !(pkt_meta->key.pkt_num == prev_retx_pkt_num[enc_level]);
     prev_retx_pkt_num[enc_level] = pkt_meta->key.pkt_num;
 
     FD_DTRACE_PROBE_4( quic_pkt_meta_retry, conn->our_conn_id, (ulong)pkt_meta->key.pkt_num, pkt_meta->expiry, (uchar)pkt_meta->key.type);
@@ -4834,7 +4834,7 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
     if( FD_UNLIKELY( e->key.pkt_num > hi ) ) break;
     if( is_largest && e->key.pkt_num == hi && hi >= pkt->rtt_pkt_number ) {
       pkt->rtt_pkt_number = hi;
-      pkt->rtt_ack_time   = now - e->tx_time; /* in ns */
+      pkt->rtt_ack_time   = now - e->tx_time; /* in ticks      */
       pkt->rtt_ack_delay  = ack_delay;        /* in peer units */
     }
     fd_quic_reclaim_pkt_meta( conn, e, enc_level );
@@ -4848,30 +4848,32 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
                           fd_quic_ack_frame_t * data,
                           uchar const         * p,
                           ulong                 p_sz ) {
-  fd_quic_conn_t * conn      = context->conn;
-  uint             enc_level = context->pkt->enc_level;
+  fd_quic_conn_t *  conn        = context->conn;
+  uint              enc_level   = context->pkt->enc_level;
+  fd_quic_state_t * state       = fd_quic_get_state( context->quic );
+  long const        now         = state->now;
+  ulong const       largest_ack = data->largest_ack;
 
-  if( FD_UNLIKELY( data->first_ack_range > data->largest_ack ) ) {
+  if( FD_UNLIKELY( data->first_ack_range > largest_ack ) ) {
     /* this is a protocol violation, so inform the peer */
     fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
     return FD_QUIC_PARSE_FAIL;
   }
 
-  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
-  conn->last_ack = state->now;
+  conn->last_ack = now;
 
   /* track lowest packet acked */
-  ulong low_ack_pkt_number = data->largest_ack - data->first_ack_range;
+  ulong low_ack_pkt_number = largest_ack - data->first_ack_range;
 
   /* process ack range
      applies to pkt_number in [largest_ack - first_ack_range, largest_ack] */
   fd_quic_process_ack_range( conn,
                              context,
                              enc_level,
-                             data->largest_ack,
+                             largest_ack,
                              data->first_ack_range,
                              1 /* is_largest */,
-                             state->now,
+                             now,
                              data->ack_delay );
 
   uchar const * p_str = p;
@@ -4882,7 +4884,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
   /* cur_pkt_number holds the packet number of the lowest processed
      and acknowledged packet
      This should always be a valid packet number >= 0 */
-  ulong cur_pkt_number = data->largest_ack - data->first_ack_range;
+  ulong cur_pkt_number = largest_ack - data->first_ack_range;
 
   /* walk thru ack ranges */
   for( ulong j = 0UL; j < ack_range_count; ++j ) {
@@ -4935,7 +4937,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
                                cur_pkt_number - skip,
                                length,
                                0 /* is_largest */,
-                               state->now,
+                               now,
                                0 /* ack_delay not used here */ );
 
     /* Find the next lowest processed and acknowledged packet number
@@ -4948,23 +4950,43 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* process lost packets */
   {
+    /* We declare a packet 'p' lost if either of these conditions are true:
+       1. It was 'skipped'. More precisely, at least three packets were sent after 'p'
+          but before the lowest ack'ed packet in this ack frame, e.g. (p x y z lowest_acked).
+       2. It 'expired'. More precisely, 'p' was sent at least at least time-threshold time ago.
+          Time-threshold is computed in calc_expiry, and typically differs from pkt_meta->expiry.
+
+       While this is gross, it lets us mark packets lost more aggressively. It mostly
+       follows RFC 9002, Section 6.1.
+       */
     fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
     fd_quic_pkt_meta_t         * pool     = tracker->pool;
     fd_quic_pkt_meta_ds_t      * sent     = &tracker->sent_pkt_metas[enc_level];
     fd_quic_pkt_meta_t         * min_meta = fd_quic_pkt_meta_min( sent, pool );
 
-    if( FD_UNLIKELY( min_meta && min_meta->key.pkt_num < low_ack_pkt_number ) ) {
-      ulong skipped = 0;
+    if( FD_UNLIKELY( min_meta && min_meta->key.pkt_num < largest_ack ) ) {
+      ulong       skipped_cnt = 0;
+      ulong       expired_cnt = 0;
+      long const expiry_duration = fd_quic_calc_expiry_duration( conn, 1 );
       for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
                                                  !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
                                                  iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
         fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-        if( FD_UNLIKELY( e->key.pkt_num >= low_ack_pkt_number ) ) break;
-        skipped++;
+        ulong const pkt_num = e->key.pkt_num;
+        if( FD_UNLIKELY( pkt_num >= largest_ack ) ) break;
+
+        long expiry_time = fd_long_min( e->tx_time + expiry_duration, e->expiry );
+        e->expiry         = expiry_time;
+
+        int expired = !!(expiry_time <= now);
+        expired_cnt += (ulong)expired;
+        skipped_cnt++;
       }
 
-      if( FD_UNLIKELY( skipped > 3 ) ) {
-        fd_quic_process_lost( conn, enc_level, skipped - 3 );
+      fd_quic_svc_prep_schedule( conn, min_meta->expiry);
+
+      if( FD_UNLIKELY( (skipped_cnt>3) | expired_cnt ) ) {
+        fd_quic_process_lost( conn, enc_level, fd_ulong_max( fd_ulong_sat_sub( skipped_cnt, 3 ), expired_cnt ) );
       }
     }
   }
