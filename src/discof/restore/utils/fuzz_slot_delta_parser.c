@@ -9,13 +9,6 @@
 #include <stdlib.h>
 #include <assert.h>
 
-static void
-entry_cb( void *                        _ctx,
-          fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-  (void)entry;
-}
-
 fd_slot_delta_parser_t * parser;
 
 int
@@ -38,7 +31,17 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data_,
                         ulong         size ) {
-  fd_slot_delta_parser_init( parser, entry_cb, NULL );
-  fd_slot_delta_parser_consume( parser, data_, size );
+  ulong bytes_remaining = size;
+  fd_slot_delta_parser_init( parser );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  while( bytes_remaining ) {
+    int res = fd_slot_delta_parser_consume( parser, data_, bytes_remaining, result );
+
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE || res<0 ) break;
+
+    data_           += result->bytes_consumed;
+    bytes_remaining -= result->bytes_consumed;
+  }
   return 0;
 }
