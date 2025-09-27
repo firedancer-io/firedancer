@@ -14,8 +14,6 @@
    the gui_http_request callback. */
 static fd_http_static_file_t * STATIC_FILES;
 
-#define DIST_COMPRESSION_LEVEL (19)
-
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
 #include <stdlib.h>
 
@@ -127,29 +125,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-/* dist_file_sz returns the sum of static asset file sizes */
-
-FD_FN_CONST static ulong
-dist_file_sz( void ) {
-  ulong tots_sz = 0UL;
-  for( fd_http_static_file_t const * f = STATIC_FILES_STABLE; f->name; f++ ) {
-    tots_sz += *(f->data_len);
-  }
-  ulong tota_sz = 0UL;
-  for( fd_http_static_file_t const * f = STATIC_FILES_ALPHA; f->name; f++ ) {
-    tota_sz += *(f->data_len);
-  }
-  return fd_ulong_max( tots_sz, tota_sz );
-}
-
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  /* Reserve total size of files for compression buffers */
-  return fd_spad_footprint( dist_file_sz() ) +
-#   if FD_HAS_ZSTD
-    fd_ulong_align_up( ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL ), FD_WKSP_ALIGN_DEFAULT ) +
-#   endif
-    256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
+  return 256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
 }
 
 static inline void
@@ -355,11 +333,20 @@ gui_http_request( fd_http_server_request_t const * request ) {
         accepts_zstd = !!strstr( request->headers.accept_encoding, "zstd" );
       }
 
+      int accepts_gzip = 0;
+      if( FD_LIKELY( request->headers.accept_encoding ) ) {
+        accepts_gzip = !!strstr( request->headers.accept_encoding, "gzip" );
+      }
+
       char const * content_encoding = NULL;
       if( FD_LIKELY( accepts_zstd && f->zstd_data ) ) {
         content_encoding = "zstd";
         data = f->zstd_data;
-        data_len = f->zstd_data_len;
+        data_len = *(f->zstd_data_len);
+      } else if( FD_LIKELY( accepts_gzip && f->gzip_data ) ) {
+        content_encoding = "gzip";
+        data = f->gzip_data;
+        data_len = *(f->gzip_data_len);
       }
 
       return (fd_http_server_response_t){
@@ -435,77 +422,6 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
-#if FD_HAS_ZSTD
-
-/* pre_compress_files compresses static assets into wksp-provided
-   buffers using Zstandard.  Logs warning and continues if insufficient
-   wksp space is available. */
-
-static void
-pre_compress_files( fd_wksp_t * wksp ) {
-
-  /* Allocate ZSTD compression context.  Freed when exiting this
-     function's scope. */
-  ulong  cctx_sz  = ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL );
-  void * cctx_mem = fd_wksp_alloc_laddr( wksp, 16UL, cctx_sz, 1UL );
-  if( FD_UNLIKELY( !cctx_mem ) ) {
-    FD_LOG_WARNING(( "Failed to allocate compressor" ));
-    return;
-  }
-  ZSTD_CCtx * cctx = ZSTD_initStaticCCtx( cctx_mem, cctx_sz );
-  if( FD_UNLIKELY( !cctx ) ) {
-    FD_LOG_WARNING(( "Failed to create ZSTD compression context" ));
-    fd_wksp_free_laddr( cctx_mem );
-    return;
-  }
-
-  /* Allocate permanent space for the compressed files. */
-  ulong glo, ghi;
-  if( FD_UNLIKELY( !fd_wksp_alloc_at_least( wksp, FD_SPAD_ALIGN, dist_file_sz(), 1UL, &glo, &ghi ) ) ) {
-    FD_LOG_WARNING(( "Failed to allocate space for compressing assets" ));
-    fd_wksp_free_laddr( cctx_mem );
-    return;
-  }
-  fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_wksp_laddr_fast( wksp, glo ), fd_spad_mem_max_max( ghi-glo ) ) );
-  fd_spad_push( spad );
-
-  FD_TEST( STATIC_FILES );
-  for( fd_http_static_file_t * f=STATIC_FILES; f->name; f++ ) {
-    char const * ext = strrchr( f->name, '.' );
-    if( !ext ) continue;
-    if( !strcmp( ext, ".html" ) ||
-        !strcmp( ext, ".css"  ) ||
-        !strcmp( ext, ".js"   ) ||
-        !strcmp( ext, ".svg"  ) ) {}
-    else continue;
-
-    ulong   zstd_bufsz = fd_spad_alloc_max( spad, 1UL );
-    uchar * zstd_buf   = fd_spad_prepare( spad, 1UL, zstd_bufsz );
-    ulong zstd_sz = ZSTD_compressCCtx( cctx, zstd_buf, zstd_bufsz, f->data, *f->data_len, DIST_COMPRESSION_LEVEL );
-    if( ZSTD_isError( zstd_sz ) ) {
-      fd_spad_cancel( spad );
-      FD_LOG_WARNING(( "ZSTD_compressCCtx(%s) failed (%s)", f->name, ZSTD_getErrorName( zstd_sz ) ));
-      break;
-    }
-    f->zstd_data     = zstd_buf;
-    f->zstd_data_len = zstd_sz;
-    fd_spad_publish( spad, zstd_sz );
-  }
-
-  ulong uncompressed_sz = 0UL;
-  ulong compressed_sz   = 0UL;
-  FD_TEST( STATIC_FILES );
-  for( fd_http_static_file_t const * f=STATIC_FILES; f->name; f++ ) {
-    uncompressed_sz += *f->data_len;
-    compressed_sz   += fd_ulong_if( !!f->zstd_data_len, f->zstd_data_len, *f->data_len );
-  }
-
-  fd_wksp_free_laddr( cctx_mem );
-  FD_LOG_INFO(( "Compressed assets (%lu bytes => %lu bytes)", uncompressed_sz, compressed_sz ));
-}
-
-#endif /* FD_HAS_ZSTD */
-
 static FD_TL fd_alloc_t * cjson_alloc_ctx;
 
 static void *
@@ -535,10 +451,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
   STATIC_FILES = fd_ptr_if( gui_tile->gui.frontend_release_channel==0UL, (fd_http_static_file_t *)STATIC_FILES_STABLE, (fd_http_static_file_t *)STATIC_FILES_ALPHA );
-
-# if FD_HAS_ZSTD
-  pre_compress_files( topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp );
-# endif
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );

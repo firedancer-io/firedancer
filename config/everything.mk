@@ -3,7 +3,7 @@ MAKEFLAGS += --no-builtin-variables
 .SUFFIXES:
 .PHONY: all info check bin rust include lib unit-test integration-test fuzz-test help clean distclean asm ppp show-deps
 .PHONY: run-unit-test run-integration-test run-script-test run-fuzz-test
-.PHONY: seccomp-policies cov-report dist-cov-report frontend
+.PHONY: seccomp-policies cov-report dist-cov-report frontend frontend-clean
 .SECONDARY:
 .SECONDEXPANSION:
 
@@ -83,7 +83,7 @@ help:
 
 info: $(OBJDIR)/info
 
-clean:
+clean: frontend-clean
 	#######################################################################
 	# Cleaning $(OBJDIR)
 	#######################################################################
@@ -573,7 +573,10 @@ frontend:
 		counter=0; \
 		if [ ! -d "src/disco/gui/dist_$$release_channel" ]; then continue; fi; \
 		for file in $$(find src/disco/gui/dist_$$release_channel -type f | sort); do \
+			compress_prefix=$$(echo "$$file" | sed "s|src/disco/gui/dist_$${release_channel}/|src/disco/gui/dist_$${release_channel}_cmp/|"); \
 			echo "FD_IMPORT_BINARY( file_$$release_channel$$counter, \"$$file\" );" >> src/disco/gui/generated/http_import_dist.c; \
+			echo "FD_IMPORT_BINARY( file_$$release_channel$${counter}_zstd, \"$${compress_prefix}.zst\" );" >> src/disco/gui/generated/http_import_dist.c; \
+			echo "FD_IMPORT_BINARY( file_$$release_channel$${counter}_gzip, \"$${compress_prefix}.gz\" );" >> src/disco/gui/generated/http_import_dist.c; \
 			counter=$$((counter + 1)); \
 		done; \
 		echo "" >> src/disco/gui/generated/http_import_dist.c; \
@@ -584,14 +587,22 @@ frontend:
 		counter=0; \
 		for file in $$(find src/disco/gui/dist_$$release_channel -type f | sort); do \
 			stripped_file=$$(echo $$file | sed "s|^src/disco/gui/dist_$$release_channel/||"); \
-			echo "    {" >> src/disco/gui/generated/http_import_dist.c; \
-			echo "        .name = \"/$$stripped_file\"," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "        .data = file_$$release_channel$$counter," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "        .data_len = &file_$$release_channel$${counter}_sz," >> src/disco/gui/generated/http_import_dist.c; \
-			echo "    }," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "	{" >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.name = \"/$$stripped_file\"," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.data = file_$$release_channel$$counter," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.data_len = &file_$$release_channel$${counter}_sz," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.zstd_data = file_$$release_channel$${counter}_zstd," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.zstd_data_len = &file_$$release_channel$${counter}_zstd_sz," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.gzip_data = file_$$release_channel$${counter}_gzip," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "		.gzip_data_len = &file_$$release_channel$${counter}_gzip_sz," >> src/disco/gui/generated/http_import_dist.c; \
+			echo "	}," >> src/disco/gui/generated/http_import_dist.c; \
 			counter=$$((counter + 1)); \
 		done; \
-		echo "    {0}" >> src/disco/gui/generated/http_import_dist.c; \
+		echo "	{0}" >> src/disco/gui/generated/http_import_dist.c; \
 		echo "};" >> src/disco/gui/generated/http_import_dist.c; \
 		echo "" >> src/disco/gui/generated/http_import_dist.c; \
 	done; \
+
+frontend-clean:
+	rm -rf src/disco/gui/dist_stable_cmp/*
+	rm -rf src/disco/gui/dist_alpha_cmp/*
