@@ -12,6 +12,66 @@ unsigned int logfile_fd
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd))
 
+# client: if a connectiion via connect() fails, close the file
+# descriptor.  Only close the file descriptors opened via socket, so
+# not STDERR nor the logfile.
+#
+# server: if a sendto a connection fails, close the file descriptor
+#
+# arg 0 is the file descriptor to close.
+close: (not (or (eq (arg 0) logfile_fd)
+                (eq (arg 0) 2)))
+
+# server: read from an open connection that has been accepted
+#
+# arg 0 is the file descriptor to close.  We will restrict the file
+# descriptor used for STDERR and logging.
+read: (not (or (eq (arg 0) logfile_fd)
+               (eq (arg 0) 2)))
+
+# server: accept new connections
+#
+# arg 0 is the socket file descriptor.   We will restrict the file
+# descriptor used for STDERR and logging.
+#
+# arg 3 are the flags passed in
+accept4: (and (not (or (eq (arg 0) logfile_fd)
+                       (eq (arg 0) 2)))
+              (eq (arg 3) "SOCK_NONBLOCK|SOCK_CLOEXEC"))
+
+# server: requires polling existing connections
+ppoll
+
+# client/server: need to send messages
+#
+# arg 0 is the file descriptor that we want to send messages to.  We
+# will allow sending to any of the descriptors opened in the client.
+# Only restrict from sending to the logfile and STDERR
+#
+# arg 3 is the flag for the send request
+sendto: (and (not (or (eq (arg 0) logfile_fd)
+                      (eq (arg 0) 2)))
+             (eq (arg 3) "MSG_NOSIGNAL")
+             (eq (arg 4) 0)
+             (eq (arg 5) 0))
+
+# client: need to read from connections established by the client
+#
+# arg 0 is the file descriptor that we recieve messages from.  We will
+# allow receiving to any of the descriptors opened in the client.  Only
+# restrict from receiving to the logfile and STDERR
+#
+# arg 3 is the flags for the recvfrom call
+#
+# arg 4 is the src addr which is not set
+#
+# arg 5 is the addrlen field which is not used
+recvfrom: (and (not (or (eq (arg 0) logfile_fd)
+                        (eq (arg 0) 2)))
+               (eq (arg 3) 0)
+               (eq (arg 4) 0)
+               (eq (arg 5) 0))
+
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #
 # arg 0 is the file descriptor to fsync.

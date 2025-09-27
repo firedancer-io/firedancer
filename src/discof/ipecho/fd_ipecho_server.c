@@ -44,6 +44,8 @@ typedef struct fd_ipecho_server_connection fd_ipecho_server_connection_t;
 #include "../../util/tmpl/fd_pool.c"
 
 struct fd_ipecho_server {
+  int sockfd;
+
   ushort shred_version;
 
   ulong evict_idx;
@@ -138,11 +140,11 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
                        ushort               shred_version ) {
   server->shred_version = shred_version;
 
-  int sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
-  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  server->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  if( FD_UNLIKELY( -1==server->sockfd ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int optval = 1;
-  if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
+  if( FD_UNLIKELY( -1==setsockopt( server->sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
     FD_LOG_ERR(( "setsockopt failed (%i-%s)", errno, strerror( errno ) ));
 
   struct sockaddr_in addr = {
@@ -151,14 +153,14 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
     .sin_addr.s_addr = address,
   };
 
-  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) {
+  if( FD_UNLIKELY( -1==bind( server->sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) {
     FD_LOG_ERR(( "bind(%i,AF_INET," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
-                 sockfd, FD_IP4_ADDR_FMT_ARGS( address ), port,
+                 server->sockfd, FD_IP4_ADDR_FMT_ARGS( address ), port,
                  errno, fd_io_strerror( errno ) ));
   }
-  if( FD_UNLIKELY( -1==listen( sockfd, (int)server->max_connection_cnt ) ) ) FD_LOG_ERR(( "listen() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==listen( server->sockfd, (int)server->max_connection_cnt ) ) ) FD_LOG_ERR(( "listen() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  server->pollfds[ server->max_connection_cnt ] = (struct pollfd){ .fd = sockfd, .events = POLLIN, .revents = 0 };
+  server->pollfds[ server->max_connection_cnt ] = (struct pollfd){ .fd = server->sockfd, .events = POLLIN, .revents = 0 };
 }
 
 static inline int
@@ -291,7 +293,7 @@ write_conn( fd_ipecho_server_t * server,
 
   if( FD_LIKELY( conn->state==STATE_READING ) ) return;
 
-  long sz = send( server->pollfds[ conn_idx ].fd, conn->response_bytes+conn->response_bytes_written, sizeof(conn->response_bytes)-conn->response_bytes_written, MSG_NOSIGNAL );
+  long sz = sendto( server->pollfds[ conn_idx ].fd, conn->response_bytes+conn->response_bytes_written, sizeof(conn->response_bytes)-conn->response_bytes_written, MSG_NOSIGNAL, NULL, 0 );
   if( FD_UNLIKELY( -1==sz && errno==EAGAIN ) ) return; /* No data was written, continue. */
   if( FD_UNLIKELY( -1==sz && is_expected_network_error( errno ) ) ) {
     close_conn( server, conn_idx, CLOSE_PEER_RESET );
@@ -310,7 +312,19 @@ void
 fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms ) {
-  int nfds = fd_syscall_poll( server->pollfds, (uint)( server->max_connection_cnt+1UL ), timeout_ms );
+
+  /* Will look for first fd==-1.  fd_syscall_poll fails if any of the
+     fds passed in are ==-1.
+     TODO: There is probably a better way to do this. */
+  ulong valid_fds = 0UL;
+  for( ulong i=0UL; i<server->max_connection_cnt+1UL; i++ ) {
+    if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) {
+      valid_fds = i;
+      break;
+    }
+  }
+
+  int nfds = fd_syscall_poll( server->pollfds, (uint)valid_fds, timeout_ms );
   if( FD_UNLIKELY( 0==nfds ) ) return;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, strerror( errno ) ));
@@ -333,4 +347,9 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
 fd_ipecho_server_metrics_t *
 fd_ipecho_server_metrics( fd_ipecho_server_t * server ) {
   return server->metrics;
+}
+
+int
+fd_ipecho_server_sockfd( fd_ipecho_server_t * server ) {
+  return server->sockfd;
 }

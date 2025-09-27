@@ -32,4 +32,7 @@ fd_ipecho_client_poll( fd_ipecho_client_t * client,
                        ushort *             shred_version,
                        int *                charge_busy );
 
+struct pollfd const *
+fd_ipecho_client_get_pollfds( fd_ipecho_client_t * client );
+
 #endif
