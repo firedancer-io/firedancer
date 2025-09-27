@@ -45,6 +45,16 @@
 #define IN_KIND_GOSSIP  (1)
 #define MAX_IN_LINKS    (3)
 
+struct fd_snaprd_http_peer {
+  char               hostname[ 256UL ];
+  ulong              hostname_len;
+  int                is_https;
+  fd_sspeer_meta_t   meta;
+  fd_ip4_port_t      addr;
+};
+
+typedef struct fd_snaprd_http_peer fd_snaprd_http_peer_t;
+
 struct fd_snaprd_tile {
   fd_ssping_t * ssping;
   fd_sshttp_t * sshttp;
@@ -57,7 +67,10 @@ struct fd_snaprd_tile {
 
   long diagnostic_deadline_nanos;
 
-  fd_ip4_port_t addr;
+  struct {
+    fd_ip4_port_t            addr;
+    fd_sspeer_meta_t const * meta;
+  } peer;
 
   struct {
     ulong write_buffer_pos;
@@ -95,6 +108,9 @@ struct fd_snaprd_tile {
     uint maximum_download_retry_abort;
     uint max_full_snapshots_to_keep;
     uint max_incremental_snapshots_to_keep;
+
+    ulong                 peers_cnt;
+    fd_snaprd_http_peer_t peers[ 16UL ];
   } config;
 
   struct {
@@ -245,8 +261,8 @@ read_http_data( fd_snaprd_tile_t *  ctx,
     case FD_SSHTTP_ADVANCE_AGAIN: break;
     case FD_SSHTTP_ADVANCE_ERROR: {
       FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                      FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
-      fd_ssping_invalidate( ctx->ssping, ctx->addr, now );
+                      FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+      fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, now );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
       ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
       ctx->deadline_nanos = now;
@@ -530,8 +546,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
   switch ( ctx->state ) {
     case FD_SNAPRD_STATE_WAITING_FOR_PEERS: {
-      fd_ip4_port_t best = fd_ssping_best( ctx->ssping );
-      if( FD_LIKELY( best.l ) ) {
+      fd_ssping_result_t best = fd_ssping_best( ctx->ssping );
+      if( FD_LIKELY( best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS;
         ctx->deadline_nanos = now+500L*1000L*1000L;
       }
@@ -540,8 +556,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
     case FD_SNAPRD_STATE_COLLECTING_PEERS: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_ip4_port_t best = fd_ssping_best( ctx->ssping );
-      if( FD_UNLIKELY( !best.l ) ) {
+      fd_ssping_result_t best = fd_ssping_best( ctx->ssping );
+      if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
         break;
       }
@@ -552,10 +568,11 @@ after_credit( fd_snaprd_tile_t *  ctx,
         ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
-        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr ), fd_ushort_bswap( best.port ) ));
-        ctx->addr  = best;
+        FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), fd_ushort_bswap( best.addr.port ) ));
+        ctx->peer.addr = best.addr;
+        ctx->peer.meta = best.meta;
         ctx->state = FD_SNAPRD_STATE_READING_FULL_HTTP;
-        fd_sshttp_init( ctx->sshttp, best, "/snapshot.tar.bz2", 17UL, now );
+        fd_sshttp_init( ctx->sshttp, ctx->peer.addr, ctx->peer.meta, "/snapshot.tar.bz2", 17UL, now );
       }
       break;
     }
@@ -623,8 +640,8 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ) ));
-      fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
+      FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), fd_ushort_bswap( ctx->peer.addr.port ) ));
+      fd_sshttp_init( ctx->sshttp, ctx->peer.addr, ctx->peer.meta, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
       ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:
@@ -713,7 +730,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
           fd_contact_info_t * new = msg->contact_info.contact_info;
           fd_ip4_port_t new_addr  = new->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
           if( new_addr.l ) {
-            fd_ssping_add( ctx->ssping, new_addr );
+            fd_ssping_add( ctx->ssping, new_addr, NULL );
           }
           *cur = *new;
         }
@@ -751,9 +768,9 @@ after_frag( fd_snaprd_tile_t *  ctx,
         case FD_SNAPRD_STATE_READING_FULL_HTTP:
         case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:
           FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2",
-                          FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), ctx->peer.addr.port ));
           fd_sshttp_cancel( ctx->sshttp );
-          fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+          fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
           fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
           ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
           break;
@@ -762,9 +779,9 @@ after_frag( fd_snaprd_tile_t *  ctx,
           if( FD_UNLIKELY( ctx->malformed ) ) break;
 
           FD_LOG_NOTICE(( "error downloading snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2",
-                          FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
+                          FD_IP4_ADDR_FMT_ARGS( ctx->peer.addr.addr ), ctx->peer.addr.port ));
           fd_sshttp_cancel( ctx->sshttp );
-          fd_ssping_invalidate( ctx->ssping, ctx->addr, fd_log_wallclock() );
+          fd_ssping_invalidate( ctx->ssping, ctx->peer.addr, fd_log_wallclock() );
           /* We would like to transition to FULL_HTTP_RESET, but we
              can't do it just yet, because we have already sent a DONE
              control fragment, and need to wait for acknowledges to come
@@ -954,7 +971,16 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  for( ulong i=0UL; i<tile->snaprd.http.peers_cnt; i++ ) fd_ssping_add( ctx->ssping, tile->snaprd.http.peers[ i ] );
+  ctx->config.peers_cnt = tile->snaprd.http.peers_cnt;
+  for( ulong i=0UL; i<tile->snaprd.http.peers_cnt; i++ ) {
+    ctx->config.peers[ i ].addr = tile->snaprd.http.peers[ i ].addr;
+    fd_memcpy( ctx->config.peers[ i ].hostname, tile->snaprd.http.peers[ i ].hostname, 256UL );
+    ctx->config.peers[ i ].hostname_len = strnlen( tile->snaprd.http.peers[ i ].hostname, 256UL );
+    ctx->config.peers[ i ].is_https     = tile->snaprd.http.peers[ i ].is_https;
+    ctx->config.peers[ i ].meta = (fd_sspeer_meta_t){ .hostname = ctx->config.peers[ i ].hostname, .hostname_len = ctx->config.peers[ i ].hostname_len, .is_https = ctx->config.peers[ i ].is_https };
+  }
+
+  for( ulong i=0UL; i<ctx->config.peers_cnt; i++ ) fd_ssping_add( ctx->ssping, ctx->config.peers[ i ].addr, &ctx->config.peers[ i ].meta );
 
   if( FD_UNLIKELY( tile->out_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 1", tile->out_cnt ));
 

@@ -22,6 +22,13 @@
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
+struct fd_sspeer_meta {
+  char const *  hostname;
+  ulong         hostname_len;
+  int           is_https;
+};
+typedef struct fd_sspeer_meta fd_sspeer_meta_t;
+
 struct fd_ssping_private;
 typedef struct fd_ssping_private fd_ssping_t;
 
@@ -53,8 +60,9 @@ fd_ssping_join( void * shping );
    being tracked, trying to add a new peer is a no-op. */
 
 void
-fd_ssping_add( fd_ssping_t * ssping,
-               fd_ip4_port_t addr );
+fd_ssping_add( fd_ssping_t *            ssping,
+               fd_ip4_port_t            addr,
+               fd_sspeer_meta_t const * meta );
 
 /* Remove a peer from tracking by the snapshot pinger.  Peers are
    reference counted, so this will only remove the peer only if the
@@ -80,10 +88,18 @@ void
 fd_ssping_advance( fd_ssping_t * ssping,
                    long          now );
 
+/* An fd_ssping_result_t stores the best "active" peer by address
+   and associated source metadata. */
+struct fd_ssping_result {
+  fd_ip4_port_t            addr;
+  fd_sspeer_meta_t const * meta;
+};
+
+typedef struct fd_ssping_result fd_ssping_result_t;
+
 /* Retrieve the best "active" peer right now, by lowest ping.  If no
    peer is active or pingable, this returns 0.0.0.0:0. */
-
-fd_ip4_port_t
+fd_ssping_result_t
 fd_ssping_best( fd_ssping_t const * ssping );
 
 FD_PROTOTYPES_END

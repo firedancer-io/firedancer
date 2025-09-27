@@ -21,8 +21,9 @@
 #define PEER_DEADLINE_NANOS_INVALID (5L*60L*1000L*1000L*1000L) /* 5 minutes */
 
 struct fd_ssping_peer {
-  ulong         refcnt;
-  fd_ip4_port_t addr;
+  ulong                    refcnt;
+  fd_ip4_port_t            addr;
+  fd_sspeer_meta_t const * meta;
 
   struct {
     ulong next;
@@ -212,8 +213,9 @@ fd_ssping_join( void * shping ) {
 }
 
 void
-fd_ssping_add( fd_ssping_t * ssping,
-               fd_ip4_port_t addr ) {
+fd_ssping_add( fd_ssping_t *            ssping,
+               fd_ip4_port_t            addr,
+               fd_sspeer_meta_t const * meta ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
   if( FD_LIKELY( !peer ) ) {
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
@@ -222,6 +224,7 @@ fd_ssping_add( fd_ssping_t * ssping,
     peer->refcnt = 0UL;
     peer->state  = PEER_STATE_UNPINGED;
     peer->addr   = addr;
+    peer->meta   = meta;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
@@ -493,11 +496,11 @@ fd_ssping_advance( fd_ssping_t * ssping,
   poll_advance( ssping, now );
 }
 
-fd_ip4_port_t
+fd_ssping_result_t
 fd_ssping_best( fd_ssping_t const * ssping ) {
   score_treap_fwd_iter_t iter = score_treap_fwd_iter_init( ssping->score_treap, ssping->pool );
-  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_ip4_port_t){ .l=0UL };
+  if( FD_UNLIKELY( score_treap_fwd_iter_done( iter ) ) ) return (fd_ssping_result_t){ .addr= {.l=0UL}, .meta = NULL };
 
   fd_ssping_peer_t const * best = score_treap_fwd_iter_ele_const( iter, ssping->pool );
-  return best->addr;
+  return (fd_ssping_result_t){ .addr = best->addr, .meta = best->meta };
 }
