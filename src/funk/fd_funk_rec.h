@@ -332,28 +332,19 @@ fd_funk_rec_clone( fd_funk_t *               funk,
    Detailed Behavior:
 
    More specifically, first this function will query the transaction
-   stack to identify what the youngest transaction with the key is. If
-   a record is found in the current transaction then it will exit.
-   In the case where a record is found in some ancestor txn or if the
-   record doesn't exist, the function will then acquire a lock on the
-   keypair of the youngest ancestor account (if it exists) and the
-   keypair of the account we want to create. These two keys are
-   guaranteed to be on the same hash chain so in practice we will just
-   be locking the hash chain for the key.
+   stack to identify what the youngest transaction with the key is.
+   If a record is found in some ancestor txn or if the
+   record doesn't exist, we will allocate a new account record and add
+   this into the transaction. In either case, the record is set to the
+   given value. */
 
-   Once this lock is acquired, we will query the keypair for the keypair
-   we are going to create to make sure that it wasn't added in the time
-   that we were attempting to acquire the lock. If a keypair is found,
-   we will free the lock and exit the function.
-
-   Otherwise, we will allocate a new account record. Now we will add
-   this into the record map. At this point, we can now free the lock on
-   the hash chain. */
-
-void
+int
 fd_funk_rec_insert_para( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
-                         fd_funk_rec_key_t const * key );
+                         fd_funk_rec_key_t const * key,
+                         ulong                     val_align,
+                         ulong                     val_sz,
+                         void *                    val );
 
 /* fd_funk_rec_remove removes the live record with the
    given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on

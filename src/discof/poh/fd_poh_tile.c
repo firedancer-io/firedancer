@@ -67,7 +67,17 @@ after_credit( fd_poh_tile_t *     ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->idle_cnt++;
-  if( FD_UNLIKELY( ctx->idle_cnt>ctx->in_cnt ) ) {
+  if( FD_UNLIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt ) ) {
+    /* We would like to fully drain input links to the best of our
+       knowledge, before we spend cycles on hashing.  That is, we would
+       like to assert that all input links have stayed empty since the
+       last time we polled.  Given an arbitrary input link L, the worst
+       case is when L is at idx 0 in the input link shuffle the last
+       time we polled a frag from it, but then link L ends up at idx
+       in_cnt-1 in the subsequent input link shuffle.  So strictly
+       speaking we will need to have observed 2*in_cnt-1 consecutive
+       empty in links to be able to assert that link L has been empty
+       since the last time we polled it. */
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }

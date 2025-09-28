@@ -726,7 +726,8 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 /* fd_banks_advance_root() advances the root bank to the bank manager.
    This should only be used when a bank is no longer needed and has no
    active refcnts.  This will prune off the bank from the bank manager.
-   It returns the new root bank.
+   It returns the new root bank.  An invariant of this function is that
+   the new root bank should be a child of the current root bank.
 
    All banks that are ancestors or siblings of the new root bank will be
    cancelled and their resources will be released back to the pool. */
@@ -763,7 +764,10 @@ fd_banks_clear_bank( fd_banks_t * banks,
 
    Highest advanceable block is written to the out pointer.  Returns 1
    if the advanceable block can be advanced beyond the current root.
-   Returns 0 if no such block can be found. */
+   Returns 0 if no such block can be found.  We will ONLY advance our
+   advanceable_bank_idx to a child of the current root.  In order to
+   advance to the target bank, fd_banks_advance_root_prepare() must be
+   called repeatedly. */
 
 int
 fd_banks_advance_root_prepare( fd_banks_t * banks,

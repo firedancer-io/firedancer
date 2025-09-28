@@ -4,50 +4,35 @@
 #include <cstdio>
 #include <pthread.h>
 
-#define NUM_THREADS 16
-#define MAX_TXN_CNT 512
-#define NUM_KEYS    2
+#define NUM_THREADS 4
+#define MAX_TXN_CNT 4096
+#define NUM_KEYS    64
 
 static volatile uint exp_val[NUM_KEYS] = {0};
 
-struct test_funk_txn_pair {
+struct test_funk_thread_arg {
   fd_funk_t *       funk;
   fd_funk_txn_xid_t xid;
+  uint              start_idx;
+  uint              end_idx;
 };
-typedef struct test_funk_txn_pair test_funk_txn_pair_t;
+typedef struct test_funk_thread_arg test_funk_thread_arg_t;
 
-
-static void * work_thread( void * arg ) {
-  test_funk_txn_pair_t *    pair = (test_funk_txn_pair_t *)arg;
-  fd_funk_t *               funk = pair->funk;
-  fd_funk_txn_xid_t const * xid  = &pair->xid;
+static void * work_thread( void * _arg ) {
+  test_funk_thread_arg_t *  arg = (test_funk_thread_arg_t *)_arg;
+  fd_funk_t *               funk = arg->funk;
+  fd_funk_txn_xid_t const * xid  = &arg->xid;
 
   for( ulong i=0UL; i<1024UL; i++ ) {
-    uint key_idx = (uint)lrand48() % NUM_KEYS;
-    fd_funk_rec_key_t key = {};
-    key.ul[0] = key_idx;
-
-    /* First try to clone the record from the ancestor. */
-    fd_funk_rec_insert_para( funk, xid, &key );
-
-    /* Ensure that the record exists for the current txn. */
-    fd_funk_rec_query_t query_check[1];
-    fd_funk_rec_t const * rec_check = fd_funk_rec_query_try( funk, xid, &key, query_check );
-    FD_TEST( rec_check );
-
-    /* Now modify the record. */
-    fd_funk_rec_query_t query_modify[1];
-    fd_funk_rec_t * rec = fd_funk_rec_modify( funk, xid, &key, query_modify );
-    FD_TEST( rec );
-    FD_TEST( fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), alignof(ulong), sizeof(ulong), NULL ) );
-    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
-    ulong * val_ul = (ulong *)val;
-    *val_ul += 1UL;
-    fd_funk_rec_modify_publish( query_modify );
+    uint key_idx = ((uint)lrand48() % (arg->end_idx - arg->start_idx)) + arg->start_idx;
 
     /* Increment the value. */
     FD_ATOMIC_FETCH_AND_ADD( &exp_val[key_idx], 1 );
 
+    /* Update the record. */
+    fd_funk_rec_key_t key = {};
+    key.ul[0] = key_idx;
+    fd_funk_rec_insert_para( funk, xid, &key, alignof(uint), sizeof(uint), (void*)&exp_val[key_idx] );
   }
   return NULL;
 
@@ -90,15 +75,15 @@ int main( int argc, char ** argv ) {
         rec,
         fd_funk_alloc( funk ),
         fd_funk_wksp( funk ),
-        alignof(ulong),
-        sizeof(ulong),
+        alignof(uint),
+        sizeof(uint),
         NULL
     );
     FD_TEST( val );
 
     /* Set the value to 0. */
-    ulong * val_ul = (ulong *)val;
-    *val_ul = 0UL;
+    uint * val_ul = (uint *)val;
+    *val_ul = 0U;
     fd_funk_rec_publish( funk, prepare );
   }
 
@@ -117,11 +102,14 @@ int main( int argc, char ** argv ) {
       continue;
     }
 
-    test_funk_txn_pair_t pair = { funk, xid };
-
+    test_funk_thread_arg_t arg[NUM_THREADS];
     pthread_t thread[NUM_THREADS];
     for( uint i = 0; i < NUM_THREADS; ++i ) {
-      pthread_create( &thread[i], NULL, work_thread, (void *)&pair );
+      arg[i].funk = funk;
+      arg[i].xid = xid;
+      arg[i].start_idx = (i * NUM_KEYS) / NUM_THREADS;
+      arg[i].end_idx = ((i + 1) * NUM_KEYS) / NUM_THREADS;
+      pthread_create( &thread[i], NULL, work_thread, (void *)&arg[i] );
     }
 
     for( uint i = 0; i < NUM_THREADS; ++i ) {
@@ -137,9 +125,9 @@ int main( int argc, char ** argv ) {
       fd_funk_rec_query_t query = {};
       fd_funk_rec_t const * rec = fd_funk_rec_query_try( funk, &xid, &key, &query );
       FD_TEST( rec );
-      ulong * val_ul = (ulong *)fd_funk_val( rec, fd_funk_wksp( funk ) );
+      uint * val_ul = (uint *)fd_funk_val( rec, fd_funk_wksp( funk ) );
       if( FD_UNLIKELY( *val_ul != exp_val[i] ) ) {
-        FD_LOG_ERR(( "val_ul=%lu exp_val=%u", *val_ul, (uint)exp_val[i] ));
+        FD_LOG_ERR(( "val_ul=%u exp_val=%u", *val_ul, exp_val[i] ));
       }
     }
   }

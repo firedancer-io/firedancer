@@ -293,6 +293,7 @@ struct fd_replay_tile {
   ulong     consensus_root_slot;     /* slot number of the above. */
   ulong     consensus_root_bank_idx; /* bank index of the above. */
   ulong     published_root_slot;     /* slot number of the published root. */
+  ulong     published_root_bank_idx; /* bank index of the published root. */
 
   /* We need to maintain a tile-local mapping of block-ids to bank index
      and vice versa.  This translation layer is needed for conversion
@@ -1179,6 +1180,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   ctx->consensus_root_slot     = 0UL;
   ctx->consensus_root_bank_idx = 0UL;
   ctx->published_root_slot     = 0UL;
+  ctx->published_root_bank_idx = 0UL;
 
   ctx->reset_slot            = 0UL;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -1243,8 +1245,9 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
-    ctx->consensus_root_bank_idx = 0UL;
     ctx->published_root_slot     = ctx->consensus_root_slot;
+    ctx->consensus_root_bank_idx = 0UL;
+    ctx->published_root_bank_idx = 0UL;
 
     fd_sched_block_add_done( ctx->sched, ctx->slot_ctx->bank->idx, ULONG_MAX );
     FD_TEST( ctx->slot_ctx->bank->idx==0UL );
@@ -1313,67 +1316,64 @@ replay( fd_replay_tile_t *  ctx,
   int charge_busy = 0;
   while( ctx->exec_ready_bitset ) {
     fd_sched_txn_ready_t ready_txn[ 1 ];
-    if( FD_LIKELY( fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
-      FD_TEST( ready_txn->txn_idx!=FD_SCHED_TXN_IDX_NULL );
-      charge_busy = 1;
+    if( FD_UNLIKELY( !fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
+      break; /* Nothing to execute or do. */
+    }
 
-      /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
-         that FD_TXN_MAX_PER_SLOT is respected here, and we do not
-         schedule above it (must end block with failure now if we would
-         go over), otherwise a malicious block could exceed the CU limit
-         and overflow the status cache or scheduler. */
+    /* Context switch if the ready_txn is on a different bank. */
+    if( FD_UNLIKELY( ctx->slot_ctx->bank->idx!=ready_txn->bank_idx ) ) {
+      replay_ctx_switch( ctx, ready_txn->bank_idx );
+    }
 
-      if( FD_UNLIKELY( ready_txn->block_start ) ) {
-        replay_block_start( ctx,
-                            stem,
-                            ready_txn->bank_idx,
-                            ready_txn->parent_bank_idx,
-                            ready_txn->slot );
-        fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
-        replay_ctx_switch( ctx, ready_txn->bank_idx );
-        continue;
-      }
+    FD_TEST( ready_txn->txn_idx!=FD_SCHED_TXN_IDX_NULL );
+    charge_busy = 1;
 
-      if( FD_UNLIKELY( ready_txn->block_end ) ) {
-        ctx->block_draining = 1;
-        fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
-        break;
-      }
+    /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
+        that FD_TXN_MAX_PER_SLOT is respected here, and we do not
+        schedule above it (must end block with failure now if we would
+        go over), otherwise a malicious block could exceed the CU limit
+        and overflow the status cache or scheduler. */
 
-      /* We got a real transaction.  See if we need to context switch. */
-      if( FD_UNLIKELY( ctx->slot_ctx->bank->idx!=ready_txn->bank_idx ) ) {
-        /* Context switch. */
-        replay_ctx_switch( ctx, ready_txn->bank_idx );
-      }
+    if( FD_UNLIKELY( ready_txn->block_start ) ) {
+      replay_block_start( ctx,
+                          stem,
+                          ready_txn->bank_idx,
+                          ready_txn->parent_bank_idx,
+                          ready_txn->slot );
+      fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
+      continue;
+    }
 
-      /* Find an exec tile and mark it busy. */
-      int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
-      ctx->exec_ready_bitset = fd_ulong_pop_lsb( ctx->exec_ready_bitset );
-      ctx->exec_txn_id[ exec_idx ] = ready_txn->txn_idx;
-
-      fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, ready_txn->txn_idx );
-
-      /* FIXME: this should be done during txn parsing so that we don't
-         have to loop over all accounts a second time. */
-      /* Insert or reverify invoked programs for this epoch, if needed. */
-      fd_runtime_update_program_cache( ctx->slot_ctx, txn_p, ctx->runtime_spad );
-
-      /* At this point, we are going to send the txn down the execution
-         pipeline.  Increment the refcnt so we don't prematurely prune a
-         bank that's needed by an in-flight txn. */
-      ctx->slot_ctx->bank->refcnt++;
-
-      /* Send. */
-      fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
-      fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
-      memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
-      exec_msg->bank_idx = ctx->slot_ctx->bank->idx;
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
-    } else {
-      /* Nothing more the scheduler can offer. */
+    if( FD_UNLIKELY( ready_txn->block_end ) ) {
+      ctx->block_draining = 1;
+      fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
       break;
     }
+
+    /* Find an exec tile and mark it busy. */
+    int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
+    ctx->exec_ready_bitset = fd_ulong_pop_lsb( ctx->exec_ready_bitset );
+    ctx->exec_txn_id[ exec_idx ] = ready_txn->txn_idx;
+
+    fd_txn_p_t * txn_p = fd_sched_get_txn( ctx->sched, ready_txn->txn_idx );
+
+    /* FIXME: this should be done during txn parsing so that we don't
+        have to loop over all accounts a second time. */
+    /* Insert or reverify invoked programs for this epoch, if needed. */
+    fd_runtime_update_program_cache( ctx->slot_ctx, txn_p, ctx->runtime_spad );
+
+    /* At this point, we are going to send the txn down the execution
+        pipeline.  Increment the refcnt so we don't prematurely prune a
+        bank that's needed by an in-flight txn. */
+    ctx->slot_ctx->bank->refcnt++;
+
+    /* Send. */
+    fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
+    fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+    memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
+    exec_msg->bank_idx = ctx->slot_ctx->bank->idx;
+    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
+    exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 
   return charge_busy;
@@ -1502,95 +1502,6 @@ process_fec_set( fd_replay_tile_t * ctx,
 }
 
 static void
-after_credit( fd_replay_tile_t *  ctx,
-              fd_stem_context_t * stem,
-              int *               opt_poll_in,
-              int *               charge_busy ) {
-  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
-
-  /* Send any outstanding vote states to tower.  TODO: Not sure why this
-     is here?  Should happen when the slot completes instead? */
-  if( FD_UNLIKELY( ctx->vote_tower_out_idx<ctx->vote_tower_out_len ) ) {
-    *charge_busy = 1;
-    publish_next_vote_tower( ctx, stem );
-    /* Don't continue polling for fragments but instead skip to the next
-       iteration of the stem loop.
-
-       This is necessary so that all the votes states for the end of a
-       particular slot are sent in one atomic block, and are not
-       interleaved with votes states at the end of other slots. */
-    *opt_poll_in = 0;
-    return;
-  }
-
-  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
-    *charge_busy = 1;
-    *opt_poll_in = 0;
-    return;
-  }
-
-  process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
-
-  /* If we are leader, we can only unbecome the leader iff we have
-     received the poh hash from the poh tile and block id from reasm. */
-  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_block_id && ctx->recv_poh ) ) {
-    fini_leader_bank( ctx, ctx->leader_bank_idx, stem );
-  }
-
-  *charge_busy = replay( ctx, stem );
-}
-
-static int
-before_frag( fd_replay_tile_t * ctx,
-             ulong              in_idx,
-             ulong              seq,
-             ulong              sig ) {
-  (void)seq;
-  (void)sig;
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
-    /* If the transaction scheduler is full, there is nowhere for the
-       fragment to go and we cannot pull it off the incoming queue yet.
-       This will cause backpressure to the repair system. */
-    if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched ) ) ) return -1;
-  }
-
-  return 0;
-}
-
-static void
-process_txn_finalized( fd_replay_tile_t *                           ctx,
-                       fd_writer_replay_txn_finalized_msg_t const * msg ) {
-  FD_TEST( !fd_ulong_extract_bit( ctx->exec_ready_bitset, msg->exec_tile_id ) );
-  ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, msg->exec_tile_id );
-  ctx->slot_ctx->bank->refcnt--;
-  fd_sched_txn_done( ctx->sched, ctx->exec_txn_id[ msg->exec_tile_id ] );
-  /* Reference counter just decreased, and an exec tile just got freed
-     up.  If there's a need to be more aggressively pruning, we could
-     check here if more slots just became publishable and publish.  Not
-     publishing here shouldn't bloat the fork tree too much though.  We
-     mark minority forks dead as soon as we can, and execution dispatch
-     stops on dead blocks.  So shortly afterwards, dead blocks should be
-     eligible for pruning as in-flight transactions retire from the
-     execution pipeline. */
-
-  /* Abort bad blocks. */
-  if( FD_UNLIKELY( fd_banks_is_bank_dead( ctx->slot_ctx->bank ) ) ) {
-    fd_sched_block_abandon( ctx->sched, ctx->slot_ctx->bank->idx );
-  }
-}
-
-static void
-process_solcap_account_update( fd_replay_tile_t *                         ctx,
-                              fd_capture_ctx_account_update_msg_t const * msg ) {
-  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ) ) return;
-  if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->capture_ctx->solcap_start_slot ) ) return;
-
-  uchar const * account_data = (uchar const *)fd_type_pun_const( msg )+sizeof(fd_capture_ctx_account_update_msg_t);
-  fd_solcap_write_account( ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
-}
-
-static void
 funk_publish( fd_replay_tile_t * ctx,
               ulong              slot ) {
   fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = slot };
@@ -1652,7 +1563,104 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_reasm_advance_root( ctx->reasm, &advanceable_root_ele->block_id );
 
-  ctx->published_root_slot = advanceable_root_slot;
+  ctx->published_root_slot     = advanceable_root_slot;
+  ctx->published_root_bank_idx = advanceable_root_idx;
+}
+
+static void
+after_credit( fd_replay_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  if( FD_UNLIKELY( !ctx->is_booted ) ) return;
+
+  /* Send any outstanding vote states to tower.  TODO: Not sure why this
+     is here?  Should happen when the slot completes instead? */
+  if( FD_UNLIKELY( ctx->vote_tower_out_idx<ctx->vote_tower_out_len ) ) {
+    *charge_busy = 1;
+    publish_next_vote_tower( ctx, stem );
+    /* Don't continue polling for fragments but instead skip to the next
+       iteration of the stem loop.
+
+       This is necessary so that all the votes states for the end of a
+       particular slot are sent in one atomic block, and are not
+       interleaved with votes states at the end of other slots. */
+    *opt_poll_in = 0;
+    return;
+  }
+
+  if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
+
+  /* If we are leader, we can only unbecome the leader iff we have
+     received the poh hash from the poh tile and block id from reasm. */
+  if( FD_UNLIKELY( ctx->is_leader && ctx->recv_block_id && ctx->recv_poh ) ) {
+    fini_leader_bank( ctx, ctx->leader_bank_idx, stem );
+  }
+
+  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx ) ) {
+    advance_published_root( ctx );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
+
+  *charge_busy = replay( ctx, stem );
+}
+
+static int
+before_frag( fd_replay_tile_t * ctx,
+             ulong              in_idx,
+             ulong              seq,
+             ulong              sig ) {
+  (void)seq;
+  (void)sig;
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
+    /* If the transaction scheduler is full, there is nowhere for the
+       fragment to go and we cannot pull it off the incoming queue yet.
+       This will cause backpressure to the repair system. */
+    if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched ) ) ) return -1;
+  }
+
+  return 0;
+}
+
+static void
+process_txn_finalized( fd_replay_tile_t *                           ctx,
+                       fd_writer_replay_txn_finalized_msg_t const * msg ) {
+  FD_TEST( !fd_ulong_extract_bit( ctx->exec_ready_bitset, msg->exec_tile_id ) );
+  ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, msg->exec_tile_id );
+  ctx->slot_ctx->bank->refcnt--;
+  fd_sched_txn_done( ctx->sched, ctx->exec_txn_id[ msg->exec_tile_id ] );
+  /* Reference counter just decreased, and an exec tile just got freed
+     up.  If there's a need to be more aggressively pruning, we could
+     check here if more slots just became publishable and publish.  Not
+     publishing here shouldn't bloat the fork tree too much though.  We
+     mark minority forks dead as soon as we can, and execution dispatch
+     stops on dead blocks.  So shortly afterwards, dead blocks should be
+     eligible for pruning as in-flight transactions retire from the
+     execution pipeline. */
+
+  /* Abort bad blocks. */
+  if( FD_UNLIKELY( fd_banks_is_bank_dead( ctx->slot_ctx->bank ) ) ) {
+    fd_sched_block_abandon( ctx->sched, ctx->slot_ctx->bank->idx );
+  }
+}
+
+static void
+process_solcap_account_update( fd_replay_tile_t *                         ctx,
+                              fd_capture_ctx_account_update_msg_t const * msg ) {
+  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ) ) return;
+  if( FD_UNLIKELY( fd_bank_slot_get( ctx->slot_ctx->bank )<ctx->capture_ctx->solcap_start_slot ) ) return;
+
+  uchar const * account_data = (uchar const *)fd_type_pun_const( msg )+sizeof(fd_capture_ctx_account_update_msg_t);
+  fd_solcap_write_account( ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
 }
 
 static void
@@ -1720,7 +1728,6 @@ process_tower_update( fd_replay_tile_t *           ctx,
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
-    advance_published_root( ctx );
   }
 }
 

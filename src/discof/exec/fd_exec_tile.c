@@ -132,7 +132,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
             fd_stem_context_t *  stem ) {
 
   if( sig==EXEC_NEW_TXN_SIG ) {
-    FD_LOG_DEBUG(( "Sending ack for new txn msg" ));
+    //FD_LOG_DEBUG(( "Sending ack for new txn msg" ));
     /* At this point we can assume that the transaction is done
        executing. A writer tile will be repsonsible for commiting
        the transaction back to funk. */

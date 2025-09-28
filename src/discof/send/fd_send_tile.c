@@ -354,7 +354,7 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
   fd_send_conn_entry_t * entry  = fd_send_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
   if( FD_UNLIKELY( !entry ) ) {
     /* Skip if UNSTAKED */
-    FD_LOG_DEBUG(("send_tile: Skipping unstaked pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
+    // FD_LOG_DEBUG(("send_tile: Skipping unstaked pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
     ctx->metrics.unstaked_ci_rcvd++;
     return;
   }
@@ -434,7 +434,7 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
     fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, pubkey, NULL );
     /* UNSTAKED -> NO_CONN: create new entry in NO_CONN state */
     if( FD_UNLIKELY( !entry ) ) {
-      FD_LOG_DEBUG(("send_tile: creating new entry for pubkey %s", FD_BASE58_ENC_32_ALLOCA( pubkey.key )));
+      // FD_LOG_DEBUG(("send_tile: creating new entry for pubkey %s", FD_BASE58_ENC_32_ALLOCA( pubkey.key )));
       /* insert and initialize entry */
       entry = fd_send_conn_map_insert( ctx->conn_map, pubkey );
       *entry = (fd_send_conn_entry_t){.pubkey = entry->pubkey, .hash = entry->hash };
@@ -834,7 +834,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
   FD_MCNT_ENUM_COPY(   SEND, PKT_CRYPTO_FAILED,           ctx->quic->metrics.pkt_decrypt_fail_cnt    );
   FD_MCNT_ENUM_COPY(   SEND, PKT_NO_KEY,                  ctx->quic->metrics.pkt_no_key_cnt          );
-  FD_MCNT_SET(         SEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
+  FD_MCNT_ENUM_COPY(   SEND, PKT_NO_CONN,                 ctx->quic->metrics.pkt_no_conn_cnt         );
   FD_MCNT_ENUM_COPY(   SEND, FRAME_TX_ALLOC,              ctx->quic->metrics.frame_tx_alloc_cnt      );
   FD_MCNT_SET(         SEND, PKT_NET_HEADER_INVALID,      ctx->quic->metrics.pkt_net_hdr_err_cnt     );
   FD_MCNT_SET(         SEND, PKT_QUIC_HEADER_INVALID,     ctx->quic->metrics.pkt_quic_hdr_err_cnt    );

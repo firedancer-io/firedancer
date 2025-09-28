@@ -583,49 +583,26 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
     record_sz = fd_program_cache_entry_footprint( &elf_info );
   }
 
-  /* Insert a new funk record, replacing the existing one if needed.
-     min_sz==0 since the actual allocation happens below. */
-  fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->xid, &id );
-
-  /* Modify the record within the current funk txn */
-  fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( slot_ctx->funk, slot_ctx->xid, &id, query );
-  if( FD_UNLIKELY( !rec ) ) {
-    /* The record does not exist (somehow). Ideally this should never
-       happen as this function is called in a single-threaded context. */
-    FD_LOG_CRIT(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
-  }
-
   /* Resize the record to the new footprint if needed */
-  void * data = fd_funk_val_truncate(
-      rec,
-      fd_funk_alloc( slot_ctx->funk ),
-      fd_funk_wksp( slot_ctx->funk ),
-      0UL,
-      record_sz,
-      NULL );
-
+  uchar data[ record_sz ];
   fd_program_cache_entry_t * writable_entry = fd_type_pun( data );
 
   /* If the ELF header parsing failed, publish a failed verification
      record. */
   if( FD_UNLIKELY( failed_elf_parsing ) ) {
     fd_program_cache_entry_set_failed_verification( writable_entry, current_slot );
-    fd_funk_rec_modify_publish( query );
-    return;
+  } else {
+    /* Validate the sBPF program. This will set the program's flags
+       accordingly. We publish the funk record regardless of the return
+       code. */
+    writable_entry = fd_program_cache_entry_new( data, &elf_info, last_slot_modified, current_slot );
+    int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, writable_entry );
+    if( FD_UNLIKELY( res ) ) {
+      FD_LOG_DEBUG(( "fd_program_cache_validate_sbpf_program() failed" ));
+    }
   }
 
-  /* Validate the sBPF program. This will set the program's flags
-     accordingly. We publish the funk record regardless of the return
-     code. */
-  writable_entry = fd_program_cache_entry_new( data, &elf_info, last_slot_modified, current_slot );
-  int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, writable_entry );
-  if( FD_UNLIKELY( res ) ) {
-    FD_LOG_DEBUG(( "fd_program_cache_validate_sbpf_program() failed" ));
-  }
-
-  /* Finish modifying and release lock */
-  fd_funk_rec_modify_publish( query );
+  fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->xid, &id, alignof(fd_program_cache_entry_t), record_sz, writable_entry );
 
 } FD_SPAD_FRAME_END;
 }
@@ -653,35 +630,7 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *               fun
 
   /* Ensure the record is in the current funk transaction */
   fd_funk_rec_key_t id = fd_program_cache_key( program_key );
-  fd_funk_rec_insert_para( funk, xid, &id );
-
-  /* Modify the record within the current funk txn */
-  fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_modify( funk, xid, &id, query );
-  if( FD_UNLIKELY( !rec ) ) {
-    /* The record does not exist (somehow). Ideally this should never
-       happen since this function is called in a single-threaded
-       context. */
-    FD_LOG_CRIT(( "Failed to modify the BPF program cache record. Perhaps there is a race condition?" ));
-  }
-
-  /* Insert a tombstone */
-  if( FD_UNLIKELY( !fd_funk_val_truncate(
-      rec,
-      fd_funk_alloc( funk ),
-      fd_funk_wksp( funk ),
-      alignof(fd_program_cache_entry_t),
-      sizeof(fd_program_cache_entry_t),
-      NULL ) ) ) {
-    FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
-  }
-
-  fd_program_cache_entry_t * entry = fd_funk_val( rec, fd_funk_wksp( funk ) );
-  *entry = (fd_program_cache_entry_t) {
-    .magic              = FD_PROGRAM_CACHE_ENTRY_MAGIC,
-    .last_slot_modified = current_slot
-  };
-
-  /* Finish modifying and release lock */
-  fd_funk_rec_modify_publish( query );
+  fd_program_cache_entry_t entry = *existing_entry;
+  entry.last_slot_modified = current_slot;
+  fd_funk_rec_insert_para( funk, xid, &id, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t), &entry );
 }
