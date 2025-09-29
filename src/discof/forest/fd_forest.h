@@ -113,25 +113,27 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 struct fd_forest_cns {
   ulong slot;
   ulong forest_pool_idx;
-  ulong next;
-  ulong nextll;
-  ulong prevll;
+  ulong hash;            /* reserved by pool and map_chain */
+  ulong next;            /* reserved by dlist */
+  ulong prev;            /* reserved by dlist */
 };
 typedef struct fd_forest_cns fd_forest_cns_t;
 
 #define MAP_NAME     fd_forest_consumed
 #define MAP_ELE_T    fd_forest_cns_t
 #define MAP_KEY      slot
+#define MAP_NEXT     hash
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME   fd_forest_conslist
 #define DLIST_ELE_T  fd_forest_cns_t
-#define DLIST_PREV   prevll
-#define DLIST_NEXT   nextll
+#define DLIST_PREV   prev
+#define DLIST_NEXT   next
 #include "../../util/tmpl/fd_dlist.c"
 
 #define POOL_NAME     fd_forest_conspool
 #define POOL_T        fd_forest_cns_t
+#define POOL_NEXT     hash
 #include "../../util/tmpl/fd_pool.c"
 
 /* Internal use only for BFSing */
