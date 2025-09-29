@@ -153,7 +153,7 @@ struct fd_replay_tile {
   ulong                 exec_cnt;
   ulong                 exec_ready_bitset;                     /* Bit i set if exec tile i is idle */
   ulong                 exec_txn_id[ FD_PACK_MAX_BANK_TILES ]; /* In-flight txn id */
-  fd_replay_out_link_t  exec_out[ FD_PACK_MAX_BANK_TILES ];    /* Sending work down to exec tiles */
+  fd_replay_out_link_t  exec_out[ 1 ];                         /* Sending work down to exec tiles */
 
   /* A note on publishing ...
 
@@ -1314,10 +1314,10 @@ replay( fd_replay_tile_t *  ctx,
   }
 
   int charge_busy = 0;
-  while( ctx->exec_ready_bitset ) {
+  if( FD_LIKELY( ctx->exec_ready_bitset ) ) {
     fd_sched_txn_ready_t ready_txn[ 1 ];
     if( FD_UNLIKELY( !fd_sched_txn_next_ready( ctx->sched, ready_txn ) ) ) {
-      break; /* Nothing to execute or do. */
+      return charge_busy; /* Nothing to execute or do. */
     }
 
     /* Context switch if the ready_txn is on a different bank. */
@@ -1329,10 +1329,10 @@ replay( fd_replay_tile_t *  ctx,
     charge_busy = 1;
 
     /* EXTREMELY IMPORTANT TODO, SECURITY CRITICAL: We need to ensure
-        that FD_TXN_MAX_PER_SLOT is respected here, and we do not
-        schedule above it (must end block with failure now if we would
-        go over), otherwise a malicious block could exceed the CU limit
-        and overflow the status cache or scheduler. */
+       that FD_TXN_MAX_PER_SLOT is respected here, and we do not
+       schedule above it (must end block with failure now if we would
+       go over), otherwise a malicious block could exceed the CU limit
+       and overflow the status cache or scheduler. */
 
     if( FD_UNLIKELY( ready_txn->block_start ) ) {
       replay_block_start( ctx,
@@ -1341,14 +1341,17 @@ replay( fd_replay_tile_t *  ctx,
                           ready_txn->parent_bank_idx,
                           ready_txn->slot );
       fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
-      continue;
+      return charge_busy;
     }
 
     if( FD_UNLIKELY( ready_txn->block_end ) ) {
       ctx->block_draining = 1;
       fd_sched_txn_done( ctx->sched, ready_txn->txn_idx );
-      break;
+      return charge_busy;
     }
+
+    /* Likely/common case: we have a transaction we actually need to
+       execute. */
 
     /* Find an exec tile and mark it busy. */
     int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
@@ -1368,11 +1371,11 @@ replay( fd_replay_tile_t *  ctx,
     ctx->slot_ctx->bank->refcnt++;
 
     /* Send. */
-    fd_replay_out_link_t * exec_out = &ctx->exec_out[ exec_idx ];
+    fd_replay_out_link_t * exec_out = ctx->exec_out;
     fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
     memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
     exec_msg->bank_idx = ctx->slot_ctx->bank->idx;
-    fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, exec_out->idx, (EXEC_NEW_TXN_SIG<<32) | (ulong)exec_idx, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 
@@ -2047,18 +2050,16 @@ unprivileged_init( fd_topo_t *      topo,
   *ctx->stake_out  = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
 
-  for( ulong i=0UL; i<ctx->exec_cnt; i++ ) {
-    ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
-    FD_TEST( idx!=ULONG_MAX );
-    fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", 0UL );
+  FD_TEST( idx!=ULONG_MAX );
+  fd_topo_link_t * link = &topo->links[ tile->out_link_id[ idx ] ];
 
-    fd_replay_out_link_t * exec_out = &ctx->exec_out[ i ];
-    exec_out->idx    = idx;
-    exec_out->mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
-    exec_out->chunk0 = fd_dcache_compact_chunk0( exec_out->mem, link->dcache );
-    exec_out->wmark  = fd_dcache_compact_wmark( exec_out->mem, link->dcache, link->mtu );
-    exec_out->chunk  = exec_out->chunk0;
-  }
+  fd_replay_out_link_t * exec_out = ctx->exec_out;
+  exec_out->idx    = idx;
+  exec_out->mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+  exec_out->chunk0 = fd_dcache_compact_chunk0( exec_out->mem, link->dcache );
+  exec_out->wmark  = fd_dcache_compact_wmark( exec_out->mem, link->dcache, link->mtu );
+  exec_out->chunk  = exec_out->chunk0;
 
   fd_memset( &ctx->diagnostics, 0, sizeof(ctx->diagnostics) );
 
@@ -2107,8 +2108,10 @@ populate_allowed_fds( fd_topo_t const *      topo FD_FN_UNUSED,
 
 #undef DEBUG_LOGGING
 
-/* TODO: This needs to get sized out correctly. */
-#define STEM_BURST (128UL)
+/* counting carefully, after_credit can generate at most 7 frags and
+   returnable_frag boot_genesis can also generate at most 7 frags, so 14
+   is a conservative bound. */
+#define STEM_BURST (14UL)
 
 /* TODO: calculate this properly/fix stem to work with larger numbers of links */
 /* 1000 chosen empirically as anything larger slowed down replay times. Need to calculate

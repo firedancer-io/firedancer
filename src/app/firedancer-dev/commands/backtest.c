@@ -202,13 +202,13 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup replay->exec links in topo                                   */
+  /* Setup replay->exec link in topo                                    */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_exec" );
-  for( ulong i=0; i<exec_tile_cnt; i++ ) {
-    fd_topob_link( topo, "replay_exec", "replay_exec", 128UL, 10240UL, exec_tile_cnt );
-    fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", i );
-    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_link( topo, "replay_exec", "replay_exec", 16384UL, 2240UL, 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", 0UL );
+  for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
+    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/
