@@ -140,6 +140,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   assert( quic->config.idle_timeout > 0 );
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
+  g_clock    = 1000L;
   state->now = g_clock;
 
   /* Create dummy connection */
@@ -174,9 +175,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     conn->keys_avail = 0xff;
   }
 
-         g_clock = 1000UL;
-  long og_clock = g_clock;
-
   /* Calls fuzz entrypoint */
   send_udp_packet( quic, data, size );
 
@@ -184,22 +182,26 @@ LLVMFuzzerTestOneInput( uchar const * data,
      schedule in response to a single packet. */
   long svc_quota = fd_long_max( (long)size, 1000L );
 
-  while( g_clock == fd_quic_svc_timers_next(state->svc_timers, LONG_MAX, 0).timeout ) {
+  /* service all 'instant' events */
+  while( g_clock == fd_quic_svc_timers_next( state->svc_timers, g_clock, 0 ).timeout ) {
     fd_quic_service( quic, g_clock );
     assert( --svc_quota > 0 );
   }
+  /* assert no INSTANT left, and first prq event (if any) is in future */
+  assert( state->svc_timers->instant.cnt == 0 && conn->svc_meta.private.svc_type!=FD_QUIC_SVC_INSTANT );
   const ulong event_idx = conn->svc_meta.private.prq_idx;
   assert( event_idx == FD_QUIC_SVC_PRQ_IDX_INVAL || state->svc_timers->prq[ event_idx ].timeout > g_clock );
 
   /* Generate ACKs, if any left */
-  fd_quic_svc_event_t next = fd_quic_svc_timers_next( state->svc_timers, LONG_MAX, 0 );
-  while( next.conn && next.timeout <= og_clock + (long)quic->config.ack_threshold ) {
+  long  pre_ack_ts = g_clock;
+  fd_quic_svc_event_t next = fd_quic_svc_timers_next( state->svc_timers, g_clock, 0 );
+  while( next.conn && next.timeout <= pre_ack_ts + (long)quic->config.ack_delay ) {
     g_clock = next.timeout;
     fd_quic_service( quic, g_clock );
     assert( --svc_quota > 0 );
-    next = fd_quic_svc_timers_next( state->svc_timers, LONG_MAX, 0 );
+    next = fd_quic_svc_timers_next( state->svc_timers, g_clock, 0 );
   }
-  assert( next.timeout > og_clock+(long)quic->config.ack_threshold );
+  assert( next.timeout > pre_ack_ts+(long)quic->config.ack_delay );
 
   /* Simulate conn timeout */
   while( next.conn ) {
@@ -211,7 +213,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     g_clock = next.timeout;
     fd_quic_service( quic, g_clock );
     assert( --svc_quota > 0 );
-    next = fd_quic_svc_timers_next( state->svc_timers, LONG_MAX, 0 );
+    next = fd_quic_svc_timers_next( state->svc_timers, g_clock, 0 );
   }
 
   /* connection should be dead */
