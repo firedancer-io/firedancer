@@ -535,7 +535,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     }
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_runtime_fuzz_block_ctx_exec( runner, slot_ctx, block_info);
+    int res = fd_runtime_fuzz_block_ctx_exec( runner, slot_ctx, block_info );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -560,12 +560,13 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_memcpy( effects->bank_hash, bank_hash.hash, sizeof(fd_hash_t) );
 
     /* Capture cost tracker */
-    fd_cost_tracker_t cost_tracker = fd_bank_cost_tracker_get( slot_ctx->bank );
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_query( slot_ctx->bank );
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
-      .block_cost = cost_tracker.block_cost,
-      .vote_cost  = cost_tracker.vote_cost,
+      .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
+      .vote_cost  = cost_tracker ? cost_tracker->vote_cost : 0UL,
     };
+    fd_bank_cost_tracker_end_locking_query( slot_ctx->bank );
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_runtime_fuzz_block_ctx_destroy( runner );
