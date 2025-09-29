@@ -90,7 +90,7 @@ typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
 FD_FN_CONST static inline ulong
 fd_snapshot_parser_align( void ) {
-  return 128UL;
+  return fd_ulong_max( alignof(fd_snapshot_parser_t), fd_ulong_max( fd_ssmanifest_parser_align(), fd_ulong_max( fd_slot_delta_parser_align(), 16UL ) ) );
 }
 
 FD_FN_CONST ulong
