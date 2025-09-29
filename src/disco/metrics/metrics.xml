@@ -631,7 +631,16 @@ metric introduced.
 
 <enum name="TransactionResult">
     <int value="0" name="Success" label="Transaction executed successfully" />
+
+    <!-- Preflight and execution errors. This is just instruction
+         error, which can occur both when loading the transaction, and
+         when executing it. When loading, it occurs when executing the
+         compute budget program, or verifying precompiles. -->
     <int value="1" name="InstructonError" label="An error occurred while processing an instruction" />
+
+    <!-- Preflight errors. These are errors in validation before we
+         begin actually executing the transaction in the virtual
+         machine. -->
     <int value="2" name="AccountNotFound" label="The transaction fee payer address was not found" />
     <int value="3" name="ProgramAccountNotFound" label="A program account referenced by the transaction was not found" />
     <int value="4" name="InsufficientFundsForFee" label="The transaction fee payer did not have balance to pay the fee" />
@@ -646,17 +655,29 @@ metric introduced.
     <int value="13" name="MaxLoadedAccountsDataSizeExceeded" label="The total account data size of the loaded accounts exceeds the consensus limit" />
     <int value="14" name="DuplicateInstruction" label="A compute budget program instruction was invoked more than once" />
     <int value="15" name="InvalidLoadedAccountsDataSizeLimit" label="The compute budget program was invoked and set the loaded accounts data size to zero" />
+
+    <!-- Preflight errors during replay. These are errors in validation
+         before we begin executing the transaction, which can only
+         occur during replay, as such transactions do not make it to
+         execution when we are leader. -->
     <int value="16" name="AccountInUse" label="The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" />
     <int value="17" name="AccountLoadedTwice" label="The transaction references the same account twice" />
     <int value="18" name="SignatureFailure" label="The transaction had an invalid signature" />
     <int value="19" name="TooManyAccountLocks" label="The transaction references too many accounts. TODO: No longer possible with smart dispatcher" />
+
+    <!-- Execution errors. These are errors which occur during actual
+         execution of the transaction, after it has been validated. -->
     <int value="20" name="InsufficientFundsForRent" label="The transaction would leave an account with a lower balance than the rent-exempt minimum" />
     <int value="21" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
+
+    <!-- Errors that aren't returned by the runtime execution itself,
+         but are used by bank as an additional reason transactions
+         might fail. -->
     <int value="22" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
 </enum>
 
 <tile name="bankf">
-    <counter name="TransactionResult" enum="TransactionError" summary="Result of loading and executing a transaction." />
+    <counter name="TransactionResult" enum="TransactionResult" summary="Result of loading and executing a transaction." />
 </tile>
 
 <tile name="bank">

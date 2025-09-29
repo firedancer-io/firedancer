@@ -10,6 +10,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_bank.h"
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
 
@@ -48,7 +49,7 @@ typedef struct {
   fd_exec_txn_ctx_t txn_ctx[1];
 
   struct {
-    ulong txn_result[ 1-FD_BANK_TXN_ERR_LAST ];
+    ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
 } fd_bank_ctx_t;
 
@@ -161,7 +162,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-      ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
+      ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
       continue;
     }
 
@@ -184,7 +185,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
              that pack and GUI expect ... */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-err)<<24);
 
-    ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
+    ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
 
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size);
@@ -337,7 +338,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     (void)out_timestamps; // TODO: GUI, report timestamps
   }
 
-  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;
+  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;
 
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
