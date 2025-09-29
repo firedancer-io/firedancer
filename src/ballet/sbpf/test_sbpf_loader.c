@@ -59,7 +59,7 @@ void test_duplicate_entrypoint_entry( void ) {
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
-  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, &config );
+  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, &config, NULL );
   FD_TEST( res == 0 );
 
   // end of boilerplate

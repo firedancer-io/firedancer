@@ -58,7 +58,8 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
 
     fd_vm_syscall_register_all( syscalls, 0 );
 
-    int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config );
+    ulong entrypoint;
+    int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, &entrypoint );
     if( FD_UNLIKELY( res ) ) {
       break;
     }
@@ -79,16 +80,22 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->entry_pc = prog->entry_pc;
 
 
-    pb_size_t calldests_sz = (pb_size_t) fd_sbpf_calldests_cnt( prog->calldests);
+    pb_size_t calldests_sz = (pb_size_t) fd_sbpf_calldests_cnt( prog->calldests)+1UL;
     elf_effects->calldests_count = calldests_sz;
     elf_effects->calldests = FD_SCRATCH_ALLOC_APPEND(l, 8UL, calldests_sz * sizeof(uint64_t));
     if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
     }
 
+    /* Add the entrypoint to the calldests if needed */
+    if( entrypoint!=ULONG_MAX ) {
+      fd_sbpf_calldests_insert( prog->calldests, entrypoint );
+    }
+
     ulong i = 0;
-    for(ulong target_pc = fd_sbpf_calldests_const_iter_init(prog->calldests); !fd_sbpf_calldests_const_iter_done(target_pc);
-    target_pc = fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc)) {
+    for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
+                        !fd_sbpf_calldests_const_iter_done(target_pc);
+               target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
       elf_effects->calldests[i] = target_pc;
       ++i;
     }

@@ -1669,6 +1669,7 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L971-L976 */
+    uchar ro_section[buf_len]; fd_memset( ro_section, 0, buf_len );
     for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
       ulong sh_idx                       = ro_slices_shidxs[ i ];
       fd_elf64_shdr const * shdr         = &shdrs[ sh_idx ];
@@ -1687,11 +1688,12 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
-      memmove( rodata+buf_offset_start, rodata+slice_lo, slice_len );
+      fd_memcpy( ro_section+buf_offset_start, rodata+slice_lo, slice_len );
     }
 
-    /* Zero out the rest of the rodata segment. */
-    fd_memset( rodata+buf_len, 0, fd_ulong_sat_sub( prog->rodata_sz, buf_len ) );
+    /* Copy the rodata section back in. */
+    prog->rodata_sz = buf_len;
+    fd_memcpy( rodata, ro_section, buf_len );
   }
 
   return FD_SBPF_ELF_SUCCESS;
@@ -1885,12 +1887,14 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
 
      Note that even though we won't use the calldests value for the
      entry pc, we still need to "register" it to check for any potential
-     symbol collisions and report errors accordingly.
+     symbol collisions and report errors accordingly. We unregister it
+     first by setting it to ULONG_MAX.
 
      TODO: Add special casing for static syscalls enabled. For now, it
      is not implemented.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L654-L667 */
-  ulong entry_pc = offset / 8UL;
+  ulong entry_pc                = offset/8UL;
+  loader->registered_entrypoint = ULONG_MAX;
   err = fd_sbpf_register_function_hashed_legacy(
       loader,
       "entrypoint",
@@ -1915,7 +1919,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
-                      fd_sbpf_loader_config_t const * config ) {
+                      fd_sbpf_loader_config_t const * config,
+                      ulong *                         opt_out_entrypoint ) {
   fd_sbpf_loader_t loader = {
     .calldests             = prog->calldests,
     .syscalls              = syscalls,
@@ -1929,7 +1934,13 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
     /* There is nothing else to do in the strict case */
     return FD_SBPF_ELF_SUCCESS;
   }
-  return fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config );
+  int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config );
+  if( FD_UNLIKELY( res!=FD_SBPF_ELF_SUCCESS ) ) {
+    return res;
+  }
+
+  if( opt_out_entrypoint ) *opt_out_entrypoint = loader.registered_entrypoint;
+  return FD_SBPF_ELF_SUCCESS;
 }
 
 #undef ERR

@@ -74,7 +74,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Load program */
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config ) ) )
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config, NULL ) ) )
     FD_LOG_ERR(( "fd_sbpf_program_load() failed" ));
 
   tool_prog->bin_buf  = bin_buf;
