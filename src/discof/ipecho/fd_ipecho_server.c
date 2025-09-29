@@ -46,6 +46,7 @@ typedef struct fd_ipecho_server_connection fd_ipecho_server_connection_t;
 struct fd_ipecho_server {
   int sockfd;
 
+  int    has_shred_version;
   ushort shred_version;
 
   ulong evict_idx;
@@ -138,7 +139,12 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
                        uint                 address,
                        ushort               port,
                        ushort               shred_version ) {
-  server->shred_version = shred_version;
+
+  /* If the shred version is 0, we are still expecting it to be set.
+     We will not accept any connections until the shred version has been
+     set. */
+  server->has_shred_version = shred_version!=0U;
+  server->shred_version     = shred_version;
 
   server->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==server->sockfd ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -161,6 +167,13 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
   if( FD_UNLIKELY( -1==listen( server->sockfd, (int)server->max_connection_cnt ) ) ) FD_LOG_ERR(( "listen() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   server->pollfds[ server->max_connection_cnt ] = (struct pollfd){ .fd = server->sockfd, .events = POLLIN, .revents = 0 };
+}
+
+void
+fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
+                                    ushort               shred_version ) {
+  server->has_shred_version = 1;
+  server->shred_version     = shred_version;
 }
 
 static inline int
@@ -313,18 +326,9 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms ) {
 
-  /* Will look for first fd==-1.  fd_syscall_poll fails if any of the
-     fds passed in are ==-1.
-     TODO: There is probably a better way to do this. */
-  ulong valid_fds = 0UL;
-  for( ulong i=0UL; i<server->max_connection_cnt+1UL; i++ ) {
-    if( FD_UNLIKELY( -1==server->pollfds[ i ].fd ) ) {
-      valid_fds = i;
-      break;
-    }
-  }
+  if( FD_UNLIKELY( !server->has_shred_version ) ) return;
 
-  int nfds = fd_syscall_poll( server->pollfds, (uint)valid_fds, timeout_ms );
+  int nfds = fd_syscall_poll( server->pollfds, (uint)(server->max_connection_cnt+1UL), timeout_ms );
   if( FD_UNLIKELY( 0==nfds ) ) return;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, strerror( errno ) ));

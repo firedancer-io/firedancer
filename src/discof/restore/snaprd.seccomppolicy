@@ -16,6 +16,11 @@ write: (or (eq (arg 0) 2)
            (eq (arg 0) out_full_fd)
            (eq (arg 0) out_inc_fd))
 
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
 # snapshot: need to be able to read from an open file for snapshot
 # loading
 #
@@ -121,15 +126,14 @@ setsockopt: (and (not (or (eq (arg 0) 2)
 # snapshot: after a snapshot file has been read in, the file is renamed
 # to its full name
 #
-# arg 0 is the file descriptor for the file that is renamed.
-renameat: (or (eq (arg 0) out_full_fd)
-              (eq (arg 0) out_inc_fd)
-              (eq (arg 0) dir_fd))
-
-# logging: 'WARNING' and above fsync the logfile to disk immediately
+# arg 0 is the file descriptor for the directory that the file is being
+# renamed from
 #
-# arg 0 is the file descriptor to fsync.
-fsync: (eq (arg 0) logfile_fd)
+# arg 2 is the file descriptor for the directory that the file is being
+# renamed to.  This should be the same file descriptor as the one used
+# in arg 0
+renameat: (and (eq (arg 0) dir_fd)
+               (eq (arg 2) dir_fd))
 
 # shutdown: exit is called on shutdown
 #

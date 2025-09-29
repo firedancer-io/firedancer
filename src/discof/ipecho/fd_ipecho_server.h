@@ -38,6 +38,10 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
                        ushort               shred_version );
 
 void
+fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
+                                    ushort               shred_version );
+
+void
 fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms );

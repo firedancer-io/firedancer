@@ -3,7 +3,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include <sys/mman.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/poll.h>
@@ -36,9 +35,9 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t)           );
-  l = FD_LAYOUT_APPEND( l, fd_ipecho_client_align(),        fd_ipecho_client_footprint()         );
-  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_align(),        fd_ipecho_server_footprint( 1024UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t)         );
+  l = FD_LAYOUT_APPEND( l, fd_ipecho_client_align(),      fd_ipecho_client_footprint()         );
+  l = FD_LAYOUT_APPEND( l, fd_ipecho_server_align(),      fd_ipecho_server_footprint( 1024UL ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -69,6 +68,7 @@ poll_client( fd_ipecho_tile_ctx_t * ctx,
     FD_LOG_INFO(( "retrieved shred version %hu from entrypoint", ctx->shred_version ));
     FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
     fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, 0UL, 0UL );
+    fd_ipecho_server_set_shred_version( ctx->server, ctx->shred_version );
     ctx->retrieving = 0;
     return;
   } else if( FD_UNLIKELY( -1==result ) ) {
@@ -114,6 +114,7 @@ returnable_frag( fd_ipecho_tile_ctx_t * ctx,
   FD_TEST( !ctx->expected_shred_version || ctx->shred_version==ctx->expected_shred_version );
   FD_MGAUGE_SET( IPECHO, SHRED_VERSION, ctx->shred_version );
   fd_stem_publish( stem, 0UL, ctx->shred_version, 0UL, 0UL, 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  fd_ipecho_server_set_shred_version( ctx->server, ctx->shred_version );
   ctx->retrieving = 0;
 
   return 0;
@@ -144,7 +145,6 @@ privileged_init( fd_topo_t *      topo,
     ctx->client = NULL;
   }
 
-  /* Initialize the server. */
   ctx->server = fd_ipecho_server_join( fd_ipecho_server_new( _server, 1024UL ) );
   FD_TEST( ctx->server );
   fd_ipecho_server_init( ctx->server, ctx->bind_address, ctx->bind_port, ctx->shred_version );
@@ -156,7 +156,7 @@ privileged_init( fd_topo_t *      topo,
 
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+                 fd_topo_tile_t const * tile ) {
   /* stderr, logfile, one for each socket() call for up to 16
      gossip entrypoints (GOSSIP_TILE_ENTRYPOINTS_MAX) for
      fd_ipecho_client and one for fd_ipecho_server.  */
@@ -189,7 +189,16 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_ipecho_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ipecho_tile_ctx_t), sizeof(fd_ipecho_tile_ctx_t) );
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  /* We expect to have at mininum 3 file descriptors open:
+     - stderr
+     - logfile
+     - server socket
+     We can't account for any of the file descriptors that were likely
+     opened by the ipecho client because it is possible that none of the
+     sockets were able to successfully connect. */
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) {
+    FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  }
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
@@ -198,7 +207,8 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
   /* All of the fds managed by the client. */
   for( ulong i=0UL; i<tile->ipecho.entrypoints_cnt; i++ ) {
-    out_fds[ out_cnt++ ] = fd_ipecho_client_get_pollfds( ctx->client )[ i ].fd;
+    int fd = fd_ipecho_client_get_pollfds( ctx->client )[ i ].fd;
+    if( fd!=-1 ) out_fds[ out_cnt++ ] = fd;
   }
 
   /* The server's socket. */

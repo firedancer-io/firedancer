@@ -162,12 +162,11 @@ scratch_align( void ) {
 }
 
 static ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)                               );
+  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()                                  );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
@@ -518,7 +517,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return 1UL +                 /* stderr */
          1UL +                 /* logfile */
          FD_SSPING_MAX_PEERS + /* ssping max peers sockets */
-         4UL +                 /* snapshot file fds*/
+         4UL +                 /* snapshot file fds */
          1UL;                  /* sshttp socket */
 }
 
@@ -542,7 +541,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  /* At a minimum we expect these file descriptors to be open:
+     - stderr
+     - logfile
+     - at least one snapshot file descriptor */
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0;
   out_fds[ out_cnt++ ] = 2UL; /* stderr */
@@ -902,7 +906,6 @@ privileged_init( fd_topo_t *      topo,
     } else {
       ctx->local_out.incremental_snapshot_fd = -1;
     }
-
   } else {
     FD_TEST( full_slot!=ULONG_MAX );
 

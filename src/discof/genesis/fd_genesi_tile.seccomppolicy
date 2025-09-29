@@ -35,4 +35,4 @@ read: (eq (arg 0) genesis_fd)
 # shutdown: exit is called on shutdown
 #
 # arg 0 is the exit code for close
-exit
+exit: (eq (arg 0) 0)
