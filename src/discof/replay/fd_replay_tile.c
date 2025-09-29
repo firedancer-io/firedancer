@@ -122,13 +122,10 @@ struct fd_replay_tile {
   /* tx_metadata_storage enables the log collector if enabled */
   int tx_metadata_storage;
 
-  /* Funk */
   fd_funk_t funk[1];
 
-  /* Store */
+  fd_txncache_t * txncache;
   fd_store_t * store;
-
-  /* Banks */
   fd_banks_t * banks;
 
   /* slot_ctx holds a local view of the bank, accounts database, and
@@ -385,6 +382,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   l = FD_LAYOUT_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 1 << 20 ) );
   l = FD_LAYOUT_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
@@ -592,6 +590,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   fd_bank_slot_set( bank, slot );
   fd_bank_parent_slot_set( bank, parent_slot );
+  bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
 
   /* Create a new funk txn for the block. */
 
@@ -682,6 +681,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
   FD_TEST( bank_hash  );
   FD_TEST( block_hash );
+
+  if( FD_LIKELY( !is_initial ) ) fd_txncache_finalize_fork( ctx->txncache, bank->txncache_fork_id, 0UL, block_hash->uc );
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong slot_idx;
@@ -804,7 +805,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   }
   fd_bank_slot_set( bank, slot );
   fd_bank_parent_slot_set( bank, parent_slot );
-
+  bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
@@ -1153,6 +1154,12 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   ctx->slot_ctx->xid[0] = (fd_funk_txn_xid_t){ .ul = { 0UL, 0UL } };
   fd_runtime_read_genesis( ctx->slot_ctx, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
+
+  static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
+  ctx->slot_ctx->bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
+
+  fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( ctx->slot_ctx->bank ) );
+  fd_txncache_finalize_fork( ctx->txncache, ctx->slot_ctx->bank->txncache_fork_id, 0UL, block_hash->uc );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx, 0 );
   publish_stake_weights( ctx, stem, ctx->slot_ctx, 1 );
@@ -1557,10 +1564,9 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
   funk_publish( ctx, advanceable_root_slot );
 
+  fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
-
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
-
   fd_reasm_advance_root( ctx->reasm, &advanceable_root_ele->block_id );
 
   ctx->published_root_slot     = advanceable_root_slot;
@@ -1890,6 +1896,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_replay_tile_t * ctx   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t),   sizeof(fd_replay_tile_t) );
   void * block_id_arr_mem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_id_ele_t),  sizeof(fd_block_id_ele_t) * tile->replay.max_live_slots );
   void * block_id_map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_id_map_align(),     fd_block_id_map_footprint( chain_cnt ) );
+  void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->replay.max_live_slots ) );
   void * reasm_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_reasm_align(),            fd_reasm_footprint( 1 << 20 ) );
   void * sched_mem         = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),            fd_sched_footprint( tile->replay.max_live_slots ) );
   void * slot_ctx_mem      = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_slot_ctx_t), sizeof(fd_exec_slot_ctx_t) );
@@ -1932,6 +1939,12 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
+
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+  FD_TEST( txncache_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  FD_TEST( ctx->txncache );
 
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
 
@@ -1995,7 +2008,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->slot_ctx->funk         = ctx->funk;
   fd_funk_txn_xid_set_root( ctx->slot_ctx->xid );
-  ctx->slot_ctx->status_cache = NULL; /* TODO: Integrate status cache */
+  ctx->slot_ctx->status_cache = ctx->txncache;
   ctx->slot_ctx->capture_ctx  = ctx->capture_ctx;
 
   ctx->has_identity_vote_rooted = 0;

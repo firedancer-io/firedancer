@@ -494,6 +494,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       /* Finalize the transaction */
       fd_runtime_finalize_txn(
           slot_ctx->funk,
+          NULL,
           slot_ctx->xid,
           txn_ctx,
           slot_ctx->bank,

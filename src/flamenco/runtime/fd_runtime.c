@@ -1077,6 +1077,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_txncache_t *           txncache,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
                          fd_bank_t *               bank,
@@ -1182,10 +1183,16 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
-  // TODO: Implement txncache
-  // TODO: ONLY DO THIS INSERT IF IT IS NOT A NONCE TRANSACTION
-  // fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-  // fd_txncache_insert( txn_ctx->status_cache, bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+  if( FD_LIKELY( txncache && txn_ctx->nonce_account_idx_in_txn==ULONG_MAX ) ) {
+    /* In Agave, durable nonce transactions are inserted to the status
+       cache the same as any others, but this is only to serve RPC
+       requests, they do not need to be in there for correctness as the
+       nonce mechanism itself prevents double spend.  We skip this logic
+       entirely to simplify and improve performance of the txn cache. */
+
+    fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+    fd_txncache_insert( txncache, bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+  }
 }
 
 int
@@ -1211,7 +1218,6 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->slot                  = fd_bank_slot_get( bank );
   txn_ctx->bank_idx              = bank_idx;
   txn_ctx->features              = fd_bank_features_get( bank );
-  txn_ctx->status_cache          = NULL; // TODO: Make non-null once implemented
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, slot } };
   txn_ctx->capture_ctx           = capture_ctx;

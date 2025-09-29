@@ -281,8 +281,16 @@ fd_validate_fee_payer( fd_txn_account_t * account,
 
 static int
 fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
-
   if( FD_UNLIKELY( !txn_ctx->status_cache ) ) {
+    return FD_RUNTIME_EXECUTE_SUCCESS;
+  }
+
+  if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) ) {
+    /* In Agave, durable nonce transactions are inserted to the status
+       cache the same as any others, but this is only to serve RPC
+       requests, they do not need to be in there for correctness as the
+       nonce mechanism itself prevents double spend.  We skip this logic
+       entirely to simplify and improve performance of the txn cache. */
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -294,10 +302,9 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_blake3_append( b3, ((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->message_off),(ulong)( txn_ctx->txn.payload_sz - TXN( &txn_ctx->txn )->message_off ) );
   fd_blake3_fini( b3, &txn_ctx->blake_txn_msg_hash );
 
-  // TODO: ONLY DO THIS CHECK IF IT IS NOT A NONCE TRANSACTION
-  // fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
-  // int found = fd_txncache_query( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
-  // if( FD_UNLIKELY( !found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
+  fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+  int found = fd_txncache_query( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+  if( FD_UNLIKELY( found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
