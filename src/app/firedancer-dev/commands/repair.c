@@ -447,13 +447,27 @@ print_catchup_slots( fd_wksp_t * repair_tile_wksp, ctx_t * repair_ctx, int verbo
   fd_catchup_print( catchup_table, verbose );
 }
 
-static void
-sort_peers_by_latency( fd_policy_peer_t * active_table, fd_pubkey_t * peer_arr, ulong peer_cnt ) {
+static fd_location_info_t * location_table;
+static fd_pubkey_t peers_copy[ FD_ACTIVE_KEY_MAX ];
+
+static ulong
+sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_dlist, fd_peer_t * peers_arr ) {
+  ulong i = 0;
+  fd_peer_dlist_iter_t iter = fd_peer_dlist_iter_fwd_init( peers_dlist, peers_arr );
+  while( !fd_peer_dlist_iter_done( iter, peers_dlist, peers_arr ) ) {
+    fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, peers_dlist, peers_arr );
+    if( FD_UNLIKELY( !peer ) ) break;
+    peers_copy[ i++ ] = peer->identity;
+    if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
+    iter = fd_peer_dlist_iter_fwd_next( iter, peers_dlist, peers_arr );
+  }
+
+  ulong peer_cnt = i;
   for( uint i = 0; i < peer_cnt - 1; i++ ) {
     int swapped = 0;
     for( uint j = 0; j < peer_cnt - 1 - i; j++ ) {
-      fd_policy_peer_t const * active_j  = fd_policy_peer_map_query( active_table, peer_arr[ j ], NULL );
-      fd_policy_peer_t const * active_j1 = fd_policy_peer_map_query( active_table, peer_arr[ j + 1 ], NULL );
+      fd_policy_peer_t const * active_j  = fd_policy_peer_map_query( active_table, peers_copy[ j ], NULL );
+      fd_policy_peer_t const * active_j1 = fd_policy_peer_map_query( active_table, peers_copy[ j + 1 ], NULL );
 
       /* Skip peers with no responses */
       double latency_j  = 10e9;
@@ -463,37 +477,29 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_pubkey_t * peer_arr, 
 
       /* Swap if j has higher latency than j+1 */
       if( latency_j > latency_j1 ) {
-        fd_pubkey_t temp  = peer_arr[ j ];
-        peer_arr[ j ]     = peer_arr[ j + 1 ];
-        peer_arr[ j + 1 ] = temp;
-        swapped           = 1;
+        fd_pubkey_t temp    = peers_copy  [ j ];
+        peers_copy[ j ]     = peers_copy[ j + 1 ];
+        peers_copy[ j + 1 ] = temp;
+        swapped             = 1;
       }
     }
     if( !swapped ) break;
   }
+  return peer_cnt;
 }
-
-
-
-fd_location_info_t * location_table;
-fd_pubkey_t peers_copy[ FD_ACTIVE_KEY_MAX ];
 
 static void
 print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
   ulong              policy_gaddr  = fd_wksp_gaddr_fast( tile_ctx->wksp, tile_ctx->policy );
   fd_policy_t *      policy        = fd_wksp_laddr     ( repair_tile_wksp, policy_gaddr );
-  ulong              peermap_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.map );
-  ulong              peerarr_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.arr );
+  ulong              peermap_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.map  );
+  ulong              peerarr_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.pool );
+  ulong              peerlst_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.dlist );
   fd_policy_peer_t * peers_map     = (fd_policy_peer_t *)fd_wksp_laddr( repair_tile_wksp, peermap_gaddr );
-  fd_pubkey_t *      peers_arr     = (fd_pubkey_t *)fd_wksp_laddr( repair_tile_wksp, peerarr_gaddr );
+  fd_peer_dlist_t *  peers_dlist   = (fd_peer_dlist_t *)fd_wksp_laddr( repair_tile_wksp, peerlst_gaddr );
+  fd_peer_t *        peers_arr     = (fd_peer_t *)fd_wksp_laddr( repair_tile_wksp, peerarr_gaddr );
 
-  ulong peer_cnt = policy->peers.cnt;
-  FD_COMPILER_MFENCE();
-  memcpy( peers_copy, peers_arr, peer_cnt * sizeof(fd_pubkey_t) );
-  /* Assumption is that peer_cnt is always increasing, so it's valid
-     to copy the peers array from repair tile as it's being modified. */
-
-  sort_peers_by_latency( peers_map, peers_copy, peer_cnt );
+  ulong peer_cnt = sort_peers_by_latency( peers_map, peers_dlist, peers_arr );
   printf("\nPeer Location/Latency Information\n");
   printf( "| %-46s | %-7s | %-8s | %-8s | %-7s | %12s | %s\n", "Pubkey", "Req Cnt", "Req B/s", "Rx B/s", "Rx Rate", "Avg Latency", "Location Info" );
   for( uint i = 0; i < peer_cnt; i++ ) {
@@ -585,27 +591,23 @@ repair_cmd_fn_metrics_mode( args_t *   args,
     FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  int  catchup_pane = 1;
   int  catchup_verbose = 0;
   long last_print = 0;
   for( ;; ) {
     int c = fd_getchar();
-    if( FD_UNLIKELY( c=='\t'   ) ) catchup_pane = !catchup_pane;
     if( FD_UNLIKELY( c=='i'    ) ) catchup_verbose = !catchup_verbose;
     if( FD_UNLIKELY( c=='\x04' ) ) break; /* Ctrl-D */
 
     long now = fd_log_wallclock();
     if( FD_UNLIKELY( now - last_print > 1e9L ) ) {
       last_print = now;
-      if( !catchup_pane ) {
-        print_peer_location_latency( repair_wksp->wksp, repair_ctx );
-        printf( "peer latency | Use TAB to switch panes" TEXT_NEWLINE );
-        fflush( stdout );
-      } else {
-        print_catchup_slots( repair_wksp->wksp, repair_ctx, catchup_verbose );
-        printf( "catchup slots | Use TAB to switch panes | Use 'i' to toggle extra slot information" TEXT_NEWLINE );
-        fflush( stdout );
-      }
+      print_catchup_slots( repair_wksp->wksp, repair_ctx, catchup_verbose );
+      printf( "catchup slots | Use TAB to switch panes | Use 'i' to toggle extra slot information" TEXT_NEWLINE );
+      fflush( stdout );
+
+      /* Peer location latency is not that useful post catchup, and also
+         requires some concurrent dlist iteration, so only print it when
+         in profiler mode. */
     }
   }
 }
@@ -758,7 +760,6 @@ repair_cmd_fn_profiler_mode( args_t *   args,
                                FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_TIME_MIN,
                                FD_METRICS_HISTOGRAM_REPAIR_SLOT_COMPLETE_TIME_MAX,
                                "Slot Complete Time" );
-
 
       printf("\n");
       fflush( stdout );

@@ -459,13 +459,6 @@ fd_repair_send_request_async( ctx_t                 * ctx,
   sign_out->credits--;
 }
 
-
-static inline void
-handle_contact_info_remove( ctx_t * ctx                            FD_PARAM_UNUSED,
-                            fd_gossip_update_message_t const * msg FD_PARAM_UNUSED ) {
-  /* TODO: implement me */
-}
-
 static inline int
 before_frag( ctx_t * ctx,
              ulong   in_idx,
@@ -567,7 +560,7 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
   fd_contact_info_t const * contact_info = msg->contact_info.contact_info;
   fd_ip4_port_t repair_peer = contact_info->sockets[ FD_CONTACT_INFO_SOCKET_SERVE_REPAIR ];
   if( FD_UNLIKELY( !repair_peer.addr || !repair_peer.port ) ) return;
-  fd_policy_peer_t const * peer = fd_policy_add_peer( ctx->policy, &contact_info->pubkey, &repair_peer );
+  fd_policy_peer_t const * peer = fd_policy_peer_insert( ctx->policy, &contact_info->pubkey, &repair_peer );
   if( peer ) {
     /* The repair process uses a Ping-Pong protocol that incurs one
        round-trip time (RTT) for the initial repair request. To optimize
@@ -579,7 +572,7 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
     ctx->metrics->sent_pkt_types[metric_index[FD_REPAIR_KIND_SHRED]]++;
 
     ulong   preimage_sz = 0;
-    uchar * preimage = preimage_req( init, &preimage_sz );
+    uchar * preimage    = preimage_req( init, &preimage_sz );
     repair_signer_sync( ctx, init->shred.sig, preimage, preimage_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
 
     ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -615,6 +608,17 @@ after_sign( ctx_t             * ctx,
     uint  src_ip4 = 0U;
 
     fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+    if( FD_UNLIKELY( !active ) ) { /* randomly test the below case */
+      FD_LOG_INFO(( "Signed a message for %s, but it is no longer in the active peer list", FD_BASE58_ENC_32_ALLOCA( &pending->msg.shred.to ) ));
+      /* Happens extremely rarely, so we can just pick a new peer and
+         synchronously resign it right here. */
+      fd_pubkey_t const * new_peer  = fd_policy_peer_select( ctx->policy );
+      pending->msg.shred.to         = *new_peer;
+      fd_repair_msg_t * init        = &pending->msg;
+      ulong             preimage_sz = 0;
+      uchar *           preimage    = preimage_req( init, &preimage_sz );
+      repair_signer_sync( ctx, init->shred.sig, preimage, preimage_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+    }
     fd_inflights_request_insert( ctx->inflight, pending->nonce,  &pending->msg.shred.to );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
     send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -759,9 +763,7 @@ after_frag( ctx_t * ctx,
     if( FD_LIKELY( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ) ){
       after_contact( ctx, msg );
     } else {
-      /* TODO: this needs to be implemented */
-      //FD_LOG_ERR(( "unhandled gossip update message %lu", sig ));
-      handle_contact_info_remove( ctx, msg );
+      fd_policy_peer_remove( ctx->policy, &msg->contact_info.contact_info->pubkey );
     }
     return;
   }
@@ -786,8 +788,7 @@ after_frag( ctx_t * ctx,
         2. fec complete   - FEC set is completed by resolver. Also contains a shred.
         3. shred          - new shred
 
-        Msgs 2 and 3 have a shred header in ctx->buffer.
-     */
+        Msgs 2 and 3 have a shred header in ctx->buffer */
     int resolver_evicted = sz == 0;
     int fec_completes    = sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
     if( FD_UNLIKELY( resolver_evicted ) ) {
@@ -994,12 +995,6 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ in_idx ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->in_links[ in_idx ].net_rx, link->dcache );
       continue;
-    } else if( 0==strcmp( link->name, "gossip_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
-    } else if( 0==strcmp( link->name, "tower_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
-    } else if( 0==strcmp( link->name, "shred_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
     } else if( 0==strcmp( link->name, "sign_repair" ) ) {
       ctx->in_kind[ in_idx ]                  = IN_KIND_SIGN;
       sign_repair_in_idx[ sign_repair_idx++ ] = in_idx;
@@ -1007,15 +1002,14 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "sign_ping" )) {
       ctx->in_kind[ in_idx ] = IN_KIND_SIGN;
       sign_ping_in_idx       = in_idx;
-    } else if( 0==strcmp( link->name, "snap_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
-    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
-    } else if( 0==strcmp( link->name, "genesi_out" ) ) {
-      ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
-    } else {
-      FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
     }
+    else if( 0==strcmp( link->name, "gossip_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GOSSIP;
+    else if( 0==strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_TOWER;
+    else if( 0==strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ in_idx ] = IN_KIND_SHRED;
+    else if( 0==strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ in_idx ] = IN_KIND_SNAP;
+    else if( 0==strcmp( link->name, "replay_stake" ) ) ctx->in_kind[ in_idx ] = IN_KIND_STAKE;
+    else if( 0==strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ in_idx ] = IN_KIND_GENESIS;
+    else FD_LOG_ERR(( "repair tile has unexpected input link %s", link->name ));
 
     ctx->in_links[ in_idx ].mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
     ctx->in_links[ in_idx ].chunk0 = fd_dcache_compact_chunk0( ctx->in_links[ in_idx ].mem, link->dcache );
@@ -1169,7 +1163,7 @@ static inline void
 metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
-  FD_MCNT_SET( REPAIR, REQUEST_PEERS,     ctx->policy->peers.cnt );
+  FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_peer_pool_used( ctx->policy->peers.pool ) );
   FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
 
   FD_MCNT_SET      ( REPAIR, TOTAL_PKT_COUNT, ctx->metrics->send_pkt_cnt   );

@@ -7,7 +7,6 @@
    catchup progress, this is a circular buffer of the last N slots,
    where N=256 and is non-configurable. */
 
-
 #include "../../util/fd_util_base.h"
 struct fd_catchup_metrics {
   ulong slot;
