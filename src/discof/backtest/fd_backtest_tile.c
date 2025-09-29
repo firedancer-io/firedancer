@@ -213,10 +213,11 @@ after_credit( fd_backt_tile_t *   ctx,
      chained merkle root overwritten with their slot numbers and fec
      set index. This is done in order to preserve behavior for older
      ledgers which may not have merkle roots or chained merkle roots. */
-  fd_hash_t mr = { .ul[0] = shred->slot, .ul[1] = shred->fec_set_idx };
+  fd_hash_t mr        = { .ul[0] = shred->slot, .ul[1] = shred->fec_set_idx };
+  fd_hash_t hash_null = { 0 };
   if( FD_UNLIKELY( ctx->prev_slot==ULONG_MAX || shred->slot!=ctx->prev_slot || shred->fec_set_idx!=ctx->prev_fec_set_idx ) ) {
     fd_store_shacq ( ctx->store );
-    fd_store_insert( ctx->store, 0, &mr );
+    fd_store_insert( ctx->store, 0, &mr, &hash_null );
     fd_store_shrel ( ctx->store );
   }
 

@@ -523,18 +523,15 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   }
   fd_forest_blk_t * blk  = fd_forest_pool_ele_acquire( pool );
   ulong             null = fd_forest_pool_idx_null( pool );
-
   blk->slot        = slot;
   blk->parent_slot = parent_slot;
   blk->next        = null;
   blk->parent      = null;
   blk->child       = null;
   blk->sibling     = null;
-
   blk->consumed_idx = UINT_MAX;
   blk->buffered_idx = UINT_MAX;
   blk->complete_idx = UINT_MAX;
-
   fd_forest_blk_idxs_null( blk->fecs ); /* expensive */
   fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
   fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
@@ -542,14 +539,12 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   blk->est_buffered_tick_recv = 0;
 
   /* Metrics tracking */
-
   fd_forest_blk_idxs_null( blk->code ); /* expensive */
   blk->first_shred_ts = 0;
   blk->first_req_ts   = 0;
   blk->turbine_cnt    = 0;
   blk->repair_cnt     = 0;
   blk->recovered_cnt  = 0;
-
   return blk;
 }
 
@@ -778,6 +773,114 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
   /* Add this slot back to requests map */
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
+}
+
+void
+fd_forest_slot_clear( fd_forest_t * forest, ulong slot ) {
+  VER_INC;
+
+  FD_TEST( slot >= fd_forest_root_slot( forest ) );
+  fd_forest_blk_t      * pool     = fd_forest_pool( forest );
+  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
+  fd_forest_consumed_t * consumed = fd_forest_consumed( forest );
+  fd_forest_ref_t *      conspool = fd_forest_conspool( forest );
+  ulong *                queue    = fd_forest_deque( forest );
+  fd_forest_blk_t * blk  = query( forest, slot );
+  FD_TEST( blk );
+
+  /* Clean up the parent, and remove block from the maps */
+
+  fd_forest_blk_t * parent = fd_forest_pool_ele( pool, blk->parent );
+  if( FD_LIKELY( parent ) ) {
+    blk->parent = fd_forest_pool_idx_null( pool );
+    /* remove the block from the parent's child list */
+    fd_forest_blk_t * child = fd_forest_pool_ele( pool, parent->child );
+    if( FD_LIKELY( child->slot == blk->slot ) ) {
+      parent->child = child->sibling;
+    } else {
+      /* go through the sibling list, and remove the block */
+      fd_forest_blk_t * sibling = fd_forest_pool_ele( pool, child->sibling );
+      fd_forest_blk_t * prev    = child;
+      while( FD_LIKELY( sibling ) ) {
+        if( FD_LIKELY( sibling->slot == blk->slot ) ) {
+          prev->sibling = sibling->sibling;
+          break;
+        }
+        prev = sibling;
+        sibling = fd_forest_pool_ele( pool, sibling->sibling );
+      }
+    }
+
+    /* remove the block itself from the maps */
+
+    fd_forest_blk_t * removed = fd_forest_orphaned_ele_remove( orphaned, &blk->slot, NULL, pool );
+    if( !removed ) {
+      removed = ancestry_frontier_remove( forest, blk->slot ); FD_TEST( removed );
+
+      /* We removed from the main tree, so we possible need to insert parent into the frontier.
+         Only need to add parent to the frontier if it doesn't have any other children. */
+
+      if( blk->sibling == fd_forest_pool_idx_null( pool ) ) {
+        fd_forest_blk_t * parent = fd_forest_ancestry_ele_remove( ancestry, &blk->parent_slot, NULL, pool );
+        FD_TEST( parent );
+        fd_forest_frontier_ele_insert( frontier, parent, pool );
+        /* ensure parent is reachable from consumed frontier */
+        fd_forest_blk_t * ancestor = parent;
+        while( FD_UNLIKELY( ancestor && !fd_forest_consumed_ele_query( consumed, &ancestor->slot, NULL, conspool ) ) ) {
+          ancestor = fd_forest_pool_ele( pool, ancestor->parent );
+        }
+        if( FD_UNLIKELY( !ancestor ) ) {
+          FD_LOG_NOTICE(( "fd_forest: fd_forest_slot_clear: parent %lu is not reachable from consumed frontier, adding myself", parent->slot ));
+          consumed_insert( forest, fd_forest_pool_idx( pool, parent ) );
+        }
+      }
+    }
+  } else {
+    fd_forest_subtrees_ele_remove( subtrees, &blk->slot, NULL, pool );
+  }
+
+  /* Clean up children */
+
+  fd_forest_blk_t * child = fd_forest_pool_ele( pool, blk->child );
+  while( FD_LIKELY( child ) ) {
+    /* remove the parent from the child's */
+    child->parent = fd_forest_pool_idx_null( pool );
+
+    /* Orphan ALL THE KIDS! */
+    FD_TEST( fd_forest_deque_empty( queue ) );
+    fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
+
+    while( FD_UNLIKELY( fd_forest_deque_cnt( queue ) ) ) {
+      fd_forest_blk_t * head = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
+
+      fd_forest_blk_t * removed = ancestry_frontier_remove( forest, head->slot );
+      if( FD_UNLIKELY( head == child ) ) {
+        /* The direct child should be put in subtrees */
+        if( !removed ) fd_forest_orphaned_ele_remove( orphaned, &child->slot, NULL, pool );
+        fd_forest_subtrees_ele_insert( subtrees, child, pool );
+      } else {
+        /* All other children should be put in orphaned */
+        if( removed ) fd_forest_orphaned_ele_insert( orphaned, removed, pool );
+      }
+      consumed_remove( forest, fd_forest_pool_idx( pool, head ) );
+
+      fd_forest_blk_t * ch = fd_forest_pool_ele( pool, head->child );
+      while( FD_LIKELY( ch ) ) {
+        fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, ch ) );
+        ch = fd_forest_pool_ele( pool, ch->sibling );
+      }
+    }
+    /* Done orphaning ALL THE KIDS! of this kid */
+
+    child = fd_forest_pool_ele( pool, child->sibling );
+  }
+
+  /* finally, release the block from the pool */
+  fd_forest_pool_ele_release( pool, blk );
+  consumed_remove( forest, fd_forest_pool_idx( pool, blk ) );
 }
 
 fd_forest_blk_t const *

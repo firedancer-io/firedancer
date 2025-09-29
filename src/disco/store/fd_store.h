@@ -217,16 +217,16 @@ typedef struct fd_store_fec fd_store_fec_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_store {
-  ulong magic;       /* ==FD_STORE_MAGIC */
-  ulong fec_max;     /* max number of FEC sets that can be stored */
-  ulong part_cnt;    /* number of partitions, also the number of writers */
-  ulong root;        /* pool idx of the root */
-  ulong slot0;       /* FIXME this hack is needed until the block_id is in the bank (manifest) */
-  ulong store_gaddr; /* wksp gaddr of store in the backing wksp, non-zero gaddr */
-  ulong map_gaddr;   /* wksp gaddr of map of fd_store_key->fd_store_fec */
+  ulong magic;          /* ==FD_STORE_MAGIC */
+  ulong fec_max;        /* max number of FEC sets that can be stored */
+  ulong part_cnt;       /* number of partitions, also the number of writers */
+  ulong root;           /* pool idx of the root */
+  ulong slot0;          /* FIXME this hack is needed until the block_id is in the bank (manifest) */
+  ulong store_gaddr;    /* wksp gaddr of store in the backing wksp, non-zero gaddr */
+  ulong map_gaddr;      /* wksp gaddr of map of fd_store_key->fd_store_fec */
   ulong pool_mem_gaddr; /* wksp gaddr of shmem_t object in pool_para */
   ulong pool_ele_gaddr; /* wksp gaddr of first ele_t object in pool_para */
-  fd_rwlock_t lock; /* rwlock for concurrent access */
+  fd_rwlock_t lock;     /* rwlock for concurrent access */
 };
 typedef struct fd_store fd_store_t;
 
@@ -422,7 +422,7 @@ fd_store_query( fd_store_t * store, fd_hash_t const * merkle_root ) {
 }
 
 FD_FN_PURE static inline fd_store_fec_t const *
-fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
+fd_store_query_const( fd_store_t const * store, fd_hash_t const * merkle_root ) {
    fd_store_key_t key = { .mr = *merkle_root, .part = UINT_MAX };
    for( uint i = 0; i < store->part_cnt; i++ ) {
       key.part = i;
@@ -456,7 +456,8 @@ fd_store_query_const( fd_store_t const * store, fd_hash_t * merkle_root ) {
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
-                 fd_hash_t  * merkle_root );
+                 fd_hash_t  * merkle_root,
+                 fd_hash_t  * chained_merkle_root );
 
 /* fd_store_link queries for and links the child keyed by merkle_root to
    parent keyed by chained_merkle_root.  Returns a pointer to the child.

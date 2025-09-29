@@ -20,6 +20,7 @@
    to turn on additional runtime checks and logging. */
 
 #include "../../disco/fd_disco_base.h"
+#include <termios.h>
 
 #ifndef FD_FOREST_USE_HANDHOLDING
 #define FD_FOREST_USE_HANDHOLDING 1
@@ -659,6 +660,34 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );
+
+/* fd_forest_slot_clear is used to clear a slot from the forest.
+   It is called when we receive a duplicate confirmed message for a version
+   of a slot we do not have.  We need to clear the slot from the forest
+   to repair the correct version of the slot.
+
+   There are several ways to equivocate.
+
+
+   1                2
+   | \             | \
+   2  \            3  3'
+   |   \
+   3   3'
+
+   In both cases, we clear any records of shreds we have seen for this slot
+   and make sure that the slot gets added to the consumed frontier so that
+   we can repair the slot again.
+
+   In the second case, let's say we saw version 3, but we get told 3' is
+   the duplicate confirmed version. Then we also need to reset the parent
+   of 3' to be 1.
+
+   That's why instead of maintaining the blk element and just clearing
+   out the shred idxs, we instead just get rid of the block entirely. */
+
+void
+fd_forest_slot_clear( fd_forest_t * forest, ulong slot );
 
 /* fd_forest_publish publishes slot as the new forest root, setting
    the subtree beginning from slot as the new forest tree (ie. slot
