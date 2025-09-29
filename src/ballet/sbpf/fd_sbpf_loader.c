@@ -213,7 +213,7 @@ struct fd_sbpf_loader {
   /* External objects */
   ulong *              calldests;             /* owned by program */
   fd_sbpf_syscalls_t * syscalls;              /* owned by caller */
-  uchar                registered_entrypoint; /* 0=no, 1=yes */
+  ulong                registered_entrypoint; /* unset if ULONG_MAX */
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
@@ -270,8 +270,8 @@ fd_sbpf_lenient_get_string_in_section( char *                string,
    0 on success, inserts the target PC into the calldests, and sets
    *opt_out_pc_hash to murmur3_32(target_pc) (if opt_out_pc_hash is
    non-NULL). Returns FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION on failure
-   if the target PC is already in the calldests or syscalls registry,
-   and leaves out_pc_hash in an undefined state.
+   if the target PC is already in the syscalls registry and leaves
+   out_pc_hash in an undefined state.
 
    An important note is that Agave's implementation uses a map to store
    key-value pairs of (murmur3_32(target_pc), target_pc) within the
@@ -280,6 +280,13 @@ fd_sbpf_lenient_get_string_in_section( char *                string,
    the target PC on the fly given murmur3_32(target_pc) (provided as
    imm) in the VM by computing the inverse hash (since murmur3_32 is
    bijective for uints).
+
+   Another important note is that if a key-value pair already exists in
+   Agave's calldests map, they will only throw a symbol hash collision
+   error if the target PC is different from the one already registered.
+   We can omit this check because of the hash function's bijective
+   property, since the key-value pairs are deterministically derived
+   from one another.
 
    TODO: this function will have to be adapted to hash the target PC
    depending on the SBPF version (>= V3). That has not been implemented
@@ -296,24 +303,18 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t * loader,
   uchar is_entrypoint = strcmp( name, "entrypoint" )==0 ||
                         target_pc==FD_SBPF_ENTRYPOINT_PC;
   if( FD_UNLIKELY( is_entrypoint ) ) {
-    if( FD_UNLIKELY( loader->registered_entrypoint ) ) {
-      /* We already registered the entrypoint, so we cannot register it
-         again. */
+    if( FD_UNLIKELY( loader->registered_entrypoint!=ULONG_MAX &&
+                     loader->registered_entrypoint!=target_pc  ) ) {
+      /* We already registered the entrypoint to a different target PC,
+         so we cannot register it again. */
       return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
     }
-    loader->registered_entrypoint = 1;
+    loader->registered_entrypoint = target_pc;
 
     /* Optimization for this constant value */
     pc_hash = FD_SBPF_ENTRYPOINT_HASH;
   } else {
     pc_hash = fd_pchash( (uint)target_pc );
-  }
-
-  /* self.register_function() fails if there is an existing entry in the
-     calldests set.
-     https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L168-L176 */
-  if( FD_UNLIKELY( fd_sbpf_calldests_test( loader->calldests, target_pc ) ) ) {
-    return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
   }
 
   /* loader.get_function_registry() is their equivalent of our syscalls
@@ -1919,7 +1920,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
   fd_sbpf_loader_t loader = {
     .calldests             = prog->calldests,
     .syscalls              = syscalls,
-    .registered_entrypoint = 0,
+    .registered_entrypoint = ULONG_MAX,
   };
 
   /* Invoke strict vs lenient loader
