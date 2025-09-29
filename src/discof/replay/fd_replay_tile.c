@@ -1513,7 +1513,7 @@ funk_publish( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to funk publish slot %lu", slot ));
 }
 
-static void
+static int
 advance_published_root( fd_replay_tile_t * ctx ) {
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
@@ -1536,7 +1536,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
-  if( FD_UNLIKELY( !fd_banks_advance_root_prepare( ctx->banks, target_bank_idx, &advanceable_root_idx ) ) ) return;
+  if( FD_UNLIKELY( !fd_banks_advance_root_prepare( ctx->banks, target_bank_idx, &advanceable_root_idx ) ) ) return 0;
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, advanceable_root_idx );
   FD_TEST( bank );
@@ -1565,6 +1565,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
+
+  return 1;
 }
 
 static void
@@ -1595,16 +1597,28 @@ after_credit( fd_replay_tile_t *  ctx,
     return;
   }
 
-  process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
+  /* If the reassembler has a fec that is ready, we should process it
+     and pass it to the scheduler. */
+  fd_reasm_fec_t * fec = fd_reasm_next( ctx->reasm );
+  if( !!fec ) {
+    process_fec_set( ctx, fec );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
+  }
 
   /* If we are leader, we can only unbecome the leader iff we have
      received the poh hash from the poh tile and block id from reasm. */
   if( FD_UNLIKELY( ctx->is_leader && ctx->recv_block_id && ctx->recv_poh ) ) {
     fini_leader_bank( ctx, ctx->leader_bank_idx, stem );
+    *charge_busy = 1;
+    *opt_poll_in = 0;
+    return;
   }
 
-  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx ) ) {
-    advance_published_root( ctx );
+  /* If the published_root is not caught up to the consensus root, then
+     we should try to advance the published root. */
+  if( FD_UNLIKELY( ctx->consensus_root_bank_idx!=ctx->published_root_bank_idx && advance_published_root( ctx ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
