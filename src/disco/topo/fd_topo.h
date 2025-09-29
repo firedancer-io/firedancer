@@ -510,6 +510,16 @@ struct fd_topo_tile {
       int slices_fd;
     } shredcap;
 
+    struct {
+      char  file_path[ PATH_MAX ];
+      int   blockstore_fd;
+    } feccap;
+
+    struct {
+      char  file_path[ PATH_MAX ];
+      int   input_fd;
+    } simulate;
+
 #define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX (32UL)
 #define FD_TOPO_SNAPSHOTS_SERVERS_MAX     (16UL)
 
