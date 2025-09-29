@@ -15,7 +15,7 @@ struct fd_target_slot {
   ulong slots[FD_TARGET_SLOT_MAX_SLOTS];  /* Static allocation for 8 slot numbers */
   struct {
     ulong last_slot[FD_TARGET_SLOT_TYPE_CNT];
-    ulong max_turbine_slot; /* max turbine slot we've seen */
+    ulong turbine_est; /* current estimate for the turbine slot */
     int   caught_up; /* have we ever caught up? Just an estimate */
   } private;
 };

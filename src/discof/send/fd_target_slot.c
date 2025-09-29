@@ -10,6 +10,10 @@
 
 #define FD_TARGET_SLOT_CAUGHT_UP_THRESHOLD (4L)
 
+/* If the new claimed turbine slot increases by more, ignore it.
+   Note: we also ignore it if decreasing. */
+#define FD_TARGET_SLOT_MAX_TURBINE_JUMP (9L)
+
 fd_target_slot_t *
 fd_target_slot_new( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
@@ -29,16 +33,21 @@ fd_target_slot_push( fd_target_slot_t * target,
                      uint               slot_type,
                      ulong              slot ) {
   target->private.last_slot[slot_type] = slot;
+
   if( slot_type == FD_TARGET_SLOT_TYPE_TURBINE ) {
-    target->private.max_turbine_slot = fd_ulong_max( target->private.max_turbine_slot, slot );
+    long delta = (long)slot - (long)target->private.turbine_est;
+    if( delta>0 && delta<FD_TARGET_SLOT_MAX_TURBINE_JUMP ) {
+      target->private.turbine_est = slot;
+    }
   }
-  ulong const last_vote   = target->private.last_slot[FD_TARGET_SLOT_TYPE_VOTE];
-  ulong const max_turbine = target->private.max_turbine_slot;
+
+  ulong const last_vote    = target->private.last_slot[FD_TARGET_SLOT_TYPE_VOTE];
+  ulong const turbine_est  = target->private.turbine_est;
 
   /* consider caught up if turbine is at most 4 slots ahead */
   if( FD_UNLIKELY( !target->private.caught_up ) ) {
-    if( FD_UNLIKELY( (long)max_turbine - (long)last_vote < FD_TARGET_SLOT_CAUGHT_UP_THRESHOLD ) ) {
-      target->private.caught_up = !!max_turbine; /* don't set if turbine_slot==0 */
+    if( FD_UNLIKELY( (long)turbine_est - (long)last_vote < FD_TARGET_SLOT_CAUGHT_UP_THRESHOLD ) ) {
+      target->private.caught_up = !!(turbine_est); /* don't set if turbine_slot==0 */
     }
   }
 }

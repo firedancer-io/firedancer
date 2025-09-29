@@ -582,7 +582,9 @@ during_frag( fd_send_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_SHRED ) ) {
-    fd_target_slot_push( ctx->target_slot, FD_TARGET_SLOT_TYPE_TURBINE, fd_disco_shred_out_shred_sig_slot( sig ) );
+    ulong const shred_slot = fd_disco_shred_out_shred_sig_slot( sig );
+    FD_LOG_DEBUG(("send_tile: got shred for slot %lu in seq %lu", shred_slot, seq));
+    fd_target_slot_push( ctx->target_slot, FD_TARGET_SLOT_TYPE_TURBINE, shred_slot );
   }
 
   if( FD_UNLIKELY( kind==IN_KIND_POH ) ) {
