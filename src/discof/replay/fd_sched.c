@@ -279,7 +279,7 @@ fd_sched_new( void * mem, ulong block_cnt_max ) {
   sched->canary           = FD_SCHED_MAGIC;
   sched->block_cnt_max    = block_cnt_max;
   sched->root_idx         = ULONG_MAX;
-  sched->active_bank_idx   = ULONG_MAX;
+  sched->active_bank_idx  = ULONG_MAX;
   sched->staged_bitset    = 0UL;
 
   sched->txn_pool_free_cnt = FD_SCHED_MAX_DEPTH-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
@@ -351,7 +351,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
   if( FD_UNLIKELY( fec->fec->data_sz>FD_SCHED_MAX_PAYLOAD_PER_FEC ) ) {
     FD_LOG_CRIT(( "invalid FEC set: fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
-                  fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->bank_idx, fec->parent_bank_idx ));
+                  fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
   }
 
   fd_sched_block_t * block = block_pool_ele( sched, fec->bank_idx );
@@ -732,7 +732,7 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx ) {
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );
   } else if( !block_is_activatable( block ) ) {
-    /* We exhaused the active block, but it's not fully done yet.  We
+    /* We exhausted the active block, but it's not fully done yet.  We
        are just not getting FEC sets for it fast enough.  This could
        happen when the network path is congested, or when the leader
        simply went down.  Reset the active block. */

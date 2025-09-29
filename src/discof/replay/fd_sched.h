@@ -13,7 +13,7 @@
    dispatcher fd_rdisp.  The dispatcher is responsible for high
    performance lane-based scheduling of transactions.  On top of that,
    we add fork-aware management of lanes, and policies regarding which
-   lanes to priotize for execution.
+   lanes to prioritize for execution.
 
    Conceptually, transactions in a block form a DAG.  We would like to
    make our way through a block with a sufficient degree of parallelism,
@@ -67,8 +67,8 @@ struct fd_sched_fec {
                                            is responsible for ensuring that bank idx is in bounds and unique
                                            across equivocated blocks. */
   ulong            parent_bank_idx;     /* Index of the parent block.  Assumed to be in [0, block_cnt_max).
-                                           Caller is responsible for ensuring that bank idx is in bounds and
-                                           unique across equivocated blocks. */
+                                           Caller is responsible for ensuring that parent bank idx is in
+                                           bounds and unique across equivocated blocks. */
   ulong            slot;                /* Slot number of the block. */
   ulong            parent_slot;         /* Slot number of the parent block. */
   fd_store_fec_t * fec;                 /* FEC set data. */
