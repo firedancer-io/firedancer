@@ -279,11 +279,14 @@ during_frag( fd_snp_tile_ctx_t * ctx,
 
       /* on the shred channel we receive both packets from shred and repair */
       /* TODO improve coding here (fast parsing) */
-      if( ( fd_disco_netmux_sig_proto( sig )==DST_PROTO_SHRED && *(dcache_entry + 45UL)==0x1F )
-        ||( fd_disco_netmux_sig_proto( sig )==DST_PROTO_REPAIR ) ) {
-        ctx->packet = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
+      if( sz > 45
+          && *(dcache_entry + 42UL)=='S'
+          && *(dcache_entry + 43UL)=='N'
+          && *(dcache_entry + 44UL)=='P'
+          && ( *(dcache_entry + 45UL) & 0x0F ) != FD_SNP_TYPE_PAYLOAD ) {
+          ctx->packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
       } else {
-        ctx->packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
+        ctx->packet = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
       }
 
       memcpy( ctx->packet, dcache_entry, sz );
@@ -427,7 +430,7 @@ snp_callback_tx( void const *  _ctx,
 
   uint dst_ip = fd_uint_load_4( packet+FD_SNP_IP_DST_ADDR_OFF );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig = fd_disco_netmux_sig( dst_ip, dst_port, dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong sig = fd_disco_netmux_sig( dst_ip, 0U, dst_ip, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
 
   /* memcpy is done in during_frag, it's only needed for buffered packets */
   if( FD_UNLIKELY( meta & FD_SNP_META_OPT_BUFFERED ) ) {
