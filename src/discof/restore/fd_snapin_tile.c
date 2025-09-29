@@ -55,8 +55,8 @@ typedef struct fd_blockhash_entry fd_blockhash_entry_t;
 #define MAP_KEY                            blockhash
 #define MAP_KEY_T                          fd_blockhash_wrapper_t
 #define MAP_ELE_T                          fd_blockhash_entry_t
-#define MAP_KEY_EQ(k0,k1)                  memcmp( k0, k1, 32UL )==0
-#define MAP_KEY_HASH(key,seed)             (fd_hash( (seed), (key), 32UL))
+#define MAP_KEY_EQ(k0,k1)                  (memcmp( k0->bh, k1->bh, 32UL )==0)
+#define MAP_KEY_HASH(key,seed)             (fd_hash( (seed), (key->bh), 32UL))
 #define MAP_PREV                           map.prev
 #define MAP_NEXT                           map.next
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
