@@ -634,9 +634,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
                      ulong                           r_offset,
                      fd_sbpf_loader_config_t const * config ) {
 
-  fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_shdr const * sh_text            = &shdrs[ info->shndx_text ];
-  fd_elf64_shdr const * section_names_shdr = &shdrs[ elf->ehdr.e_shstrndx ];
+  fd_elf64_shdr const * shdrs                  = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * sh_text                = &shdrs[ info->shndx_text ];
+  fd_elf64_shdr const * dyn_section_names_shdr = &shdrs[ info->shndx_dynstr ];
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1253-L1254 */
   ulong imm_offset = fd_ulong_sat_add( r_offset, 4UL /* BYTE_OFFSET_IMMEDIATE */ );
@@ -669,7 +669,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   /* Verify symbol name.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1261-L1263 */
   char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
-  if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( name, section_names_shdr, symbol->st_name, FD_SBPF_SECTION_NAME_SZ_MAX, elf, elf_sz ) ) ) {
+  if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( name, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SECTION_NAME_SZ_MAX, elf, elf_sz ) ) ) {
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
 
