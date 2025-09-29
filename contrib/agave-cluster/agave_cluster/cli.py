@@ -452,7 +452,7 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     create_key(stake_key)
 
     faucet_key = os.path.join(cluster_path, 'faucet.json')
-    authority_key = os.path.join(cluster_path, 'authority.jsond')
+    authority_key = os.path.join(cluster_path, 'authority.json')
 
     solana = solana_binary('solana')
 
