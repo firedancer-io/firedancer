@@ -337,6 +337,8 @@ struct fd_bank {
   /* NOTE: Make sure that refcnt is the last field in the bank header. */
   ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
 
+  fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
+
   /* First, layout all non-CoW fields contiguously. This is done to
      allow for cloning the bank state with a simple memcpy. Each
      non-CoW field is just represented as a byte array. */

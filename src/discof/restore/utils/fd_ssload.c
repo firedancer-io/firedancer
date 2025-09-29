@@ -300,5 +300,5 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     }
   }
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
-
+  slot_ctx->bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }

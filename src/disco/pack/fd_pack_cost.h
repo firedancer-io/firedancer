@@ -175,6 +175,17 @@ FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 #define FD_PACK_MAX_TXN_PER_SLOT (FD_PACK_MAX_COST_PER_BLOCK_UPPER_BOUND/FD_PACK_MIN_TXN_COST)
 
+/* The txncache should at most store one entry for each transaction, so
+   you would expect this value to be just FD_PACK_MAX_TXN_PER_SLOT.  But
+   there's a minor complication ... Agave inserts each transaction into
+   the status cache twice, once with the signature as the key, and
+   once with the message hash as the key.  This is to support querying
+   transactions by either signature or message hash.  We load snapshots
+   from Agave nodes which serve both entries, and there is no way to
+   filter out the by signature entries which are useless to us, so
+   initially the status cache needs twice as much space. */
+#define FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT (2UL*FD_PACK_MAX_TXN_PER_SLOT)
+
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
 

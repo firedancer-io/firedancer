@@ -352,6 +352,7 @@ struct fd_topo_tile {
 
       int   tx_metadata_storage;
       ulong funk_obj_id;
+      ulong txncache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
       char  cluster_version[ 32 ];
@@ -379,6 +380,9 @@ struct fd_topo_tile {
 
     struct {
       ulong funk_obj_id;
+      ulong txncache_obj_id;
+
+      ulong max_live_slots;
 
       ulong capture_start_slot;
       char  dump_proto_dir[ PATH_MAX ];
@@ -389,6 +393,8 @@ struct fd_topo_tile {
     } exec;
 
     struct {
+      ulong max_live_slots;
+      ulong txncache_obj_id;
       ulong funk_obj_id;
       char  solcap_capture[ PATH_MAX ];
       ulong capture_start_slot;
@@ -520,6 +526,7 @@ struct fd_topo_tile {
     } snaprd;
 
     struct {
+      ulong max_live_slots;
       ulong funk_obj_id;
       ulong txncache_obj_id;
     } snapin;
@@ -535,6 +542,9 @@ struct fd_topo_tile {
     } ipecho;
 
     struct {
+      ulong max_live_slots;
+
+      ulong txncache_obj_id;
       ulong funk_obj_id;
     } bank;
 

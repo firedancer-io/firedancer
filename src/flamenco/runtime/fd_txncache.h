@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_flamenco_runtime_txncache_h
 #define HEADER_fd_src_flamenco_runtime_txncache_h
 
+#include "fd_txncache_shmem.h"
+
 /* A txn cache is a concurrent set storing the message hashes of
    transactions which have already executed.  Note the structure is
    keyed by message hash, not signature, otherwiwe a double spend might
@@ -113,9 +115,6 @@
 
 #define FD_TXNCACHE_MAGIC (0xF17EDA2CE5CAC4E0) /* FIREDANCE SCACHE V0 */
 
-typedef struct { ushort val; } fd_txncache_fork_id_t;
-
-/* Forward declare opaque handle */
 struct fd_txncache_private;
 typedef struct fd_txncache_private fd_txncache_t;
 
@@ -153,16 +152,17 @@ FD_FN_CONST ulong
 fd_txncache_align( void );
 
 FD_FN_CONST ulong
-fd_txncache_footprint( ulong max_live_slots,
-                       ulong max_txn_per_slot );
+fd_txncache_footprint( ulong max_live_slots );
 
 void *
-fd_txncache_new( void * shmem,
-                 ulong  max_live_slots,
-                 ulong  max_txn_per_slot );
+fd_txncache_new( void *                ljoin,
+                 fd_txncache_shmem_t * shmem );
 
 fd_txncache_t *
-fd_txncache_join( void * shtc );
+fd_txncache_join( void * ljoin );
+
+void
+fd_txncache_reset( fd_txncache_t * tc );
 
 /* fd_txncache_attach_child notifies the txncache that a new child bank
    has been created, off some parent.  This must be called before any
@@ -181,9 +181,18 @@ fd_txncache_join( void * shtc );
 
 fd_txncache_fork_id_t
 fd_txncache_attach_child( fd_txncache_t *       tc,
-                          fd_txncache_fork_id_t parent_fork_id,
-                          ulong                 txnhash_offset,
-                          uchar const *         blockhash );
+                          fd_txncache_fork_id_t parent_fork_id );
+
+void
+fd_txncache_attach_blockhash( fd_txncache_t *       tc,
+                              fd_txncache_fork_id_t fork_id,
+                              uchar const *         blockhash );
+
+void
+fd_txncache_finalize_fork( fd_txncache_t *       tc,
+                           fd_txncache_fork_id_t fork_id,
+                           ulong                 txnhash_offset,
+                           uchar const *         blockhash );
 
 /* fd_txncache_advance_root is called when the root slot of the chain
    has advanced, in which case old message hashes (referncing

@@ -287,12 +287,22 @@ backtest_topo( config_t * config ) {
   }
 
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
-  fd_topob_wksp( topo, "tcache"      );
+  fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "bank_busy"   );
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( FD_LIKELY( !disable_snap_loader ) ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
+  for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
+  for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
+
   FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
   for( ulong i=0UL; i<bank_tile_cnt; i++ ) {
     fd_topo_obj_t * busy_obj = fd_topob_obj( topo, "fseq", "bank_busy" );

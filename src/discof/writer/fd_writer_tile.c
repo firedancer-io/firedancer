@@ -55,6 +55,8 @@ struct fd_writer_tile_ctx {
   fd_funk_t                   funk[1];
   fd_funk_txn_xid_t           xid[1];
 
+  fd_txncache_t *             txncache;
+
   /* Link management. */
   fd_writer_tile_in_ctx_t     exec_writer_in[ FD_PACK_MAX_BANK_TILES ];
   fd_writer_tile_in_ctx_t     send_writer_in[1];
@@ -101,6 +103,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l       = FD_LAYOUT_APPEND( l, alignof(fd_writer_tile_ctx_t),  sizeof(fd_writer_tile_ctx_t) );
   l       = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),         fd_capture_ctx_footprint() );
   l       = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),        fd_vote_tracker_footprint() );
+  l       = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->writer.max_live_slots ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -347,6 +350,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
       if( FD_LIKELY( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_runtime_finalize_txn(
             ctx->funk,
+            ctx->txncache,
             ctx->xid,
             txn_ctx,
             ctx->bank,
@@ -386,6 +390,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_writer_tile_ctx_t), sizeof(fd_writer_tile_ctx_t) );
   void * capture_ctx_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),        fd_capture_ctx_footprint() );
   void * vote_tracker_mem    = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),       fd_vote_tracker_footprint() );
+  void * _txncache           = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->writer.max_live_slots ) );
   ulong scratch_alloc_mem    = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
     FD_LOG_CRIT( ( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
@@ -468,9 +473,13 @@ unprivileged_init( fd_topo_t *      topo,
   /* Funk                                                             */
   /********************************************************************/
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->writer.funk_obj_id ) ) ) ) {
-    FD_LOG_ERR(( "Failed to join database cache" ));
-  }
+  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->writer.funk_obj_id ) ) );
+
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->writer.txncache_obj_id );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+  FD_TEST( txncache_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  FD_TEST( ctx->txncache );
 
   /********************************************************************/
   /* Bank                                                             */
