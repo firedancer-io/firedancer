@@ -501,6 +501,16 @@ struct fd_topo_tile {
     } shredcap;
 
     struct {
+      char  folder_path[ PATH_MAX ];
+      int   blockstore_fd;
+    } feccap;
+
+    struct {
+      char  file_path[ PATH_MAX ];
+      int   input_fd;
+    } simulate;
+
+    struct {
       char  snapshots_path[ PATH_MAX ];
       int   incremental_snapshot_fetch;
       int   do_download;

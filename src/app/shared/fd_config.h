@@ -466,6 +466,16 @@ struct fd_config {
       ulong write_buffer_size;
     } shredcap;
 
+    struct {
+      int   enabled;
+      char  folder_path[ PATH_MAX ];
+    } feccap;
+
+    struct {
+      int   enabled;
+      char  file_path[ PATH_MAX ];
+    } simulate;
+
   } tiles;
   struct {
     ulong capture_start_slot;

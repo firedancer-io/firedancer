@@ -625,6 +625,13 @@ fd_topo_initialize( config_t * config ) {
     /* No default fd_topob_tile_in connection to stake_out */
   }
 
+  if( FD_UNLIKELY( config->tiles.feccap.enabled ) ) {
+    fd_topob_wksp( topo, "fcap" );
+
+    fd_topob_tile( topo, "fcap", "fcap", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topob_tile_in( topo, "fcap", 0UL, "metric_in", "shred_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
+
   int rpc_enabled = config->rpc.port;
   if( FD_UNLIKELY( rpc_enabled ) ) {
     fd_topob_wksp( topo, "rpcsrv" );
@@ -717,6 +724,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  if( FD_UNLIKELY( config->tiles.feccap.enabled ) ) {
+    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "fcap", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  }
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
@@ -1101,6 +1111,14 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
     tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
     strncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "fcap" ) ) ) {
+
+    strncpy( tile->feccap.folder_path, config->tiles.feccap.folder_path, sizeof(tile->feccap.folder_path) );
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "sim" ) ) ) {
+
+    strncpy( tile->simulate.file_path, config->tiles.simulate.file_path, sizeof(tile->simulate.file_path) );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));
