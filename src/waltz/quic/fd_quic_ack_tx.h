@@ -9,6 +9,7 @@
    parameter. */
 
 #include "fd_quic_common.h"
+#include "../../disco/metrics/generated/fd_metrics_quic.h"
 
 #define FD_ACK_DEBUG(...)
 //#define FD_ACK_DEBUG(...) __VA_ARGS__
@@ -94,6 +95,8 @@ fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
 #define FD_QUIC_ACK_TX_ENOSPC (3)
 #define FD_QUIC_ACK_TX_CANCEL (4)
 #define FD_QUIC_ACK_TX_CNT    (5)
+
+FD_STATIC_ASSERT( FD_METRICS_ENUM_QUIC_ACK_TX_CNT==FD_QUIC_ACK_TX_CNT, "quic_ack_tx_cnt_mismatch" );
 
 /* fd_quic_ack_queue_ele returns the ack_queue element indexed by a
    sequence number. */

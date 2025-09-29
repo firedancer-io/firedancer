@@ -83,6 +83,7 @@
 
 #include "fd_quic_common.h"
 #include "fd_quic_enum.h"
+#include "../../disco/metrics/generated/fd_metrics_quic.h"
 
 #include "../aio/fd_aio.h"
 #include "../tls/fd_tls.h"
@@ -313,32 +314,32 @@ union fd_quic_metrics {
     ulong retry_tx_cnt;    /* number of Retry packets sent */
 
     /* Conn metrics */
-    ulong conn_alloc_cnt;          /* number of conns currently allocated */
-    ulong conn_created_cnt;        /* number of conns created */
-    ulong conn_closed_cnt;         /* number of conns gracefully closed */
-    ulong conn_aborted_cnt;        /* number of conns aborted */
-    ulong conn_timeout_cnt;        /* number of conns timed out */
-    ulong conn_retry_cnt;          /* number of conns established with retry */
-    ulong conn_err_no_slots_cnt;   /* number of conns that failed to create due to lack of slots */
-    ulong conn_err_retry_fail_cnt; /* number of conns that failed during retry (e.g. invalid token) */
-    ulong conn_state_cnt[ 8 ];     /* current number of conns in each state */
+    ulong conn_alloc_cnt;                                        /* number of conns currently allocated */
+    ulong conn_created_cnt;                                      /* number of conns created */
+    ulong conn_closed_cnt;                                       /* number of conns gracefully closed */
+    ulong conn_aborted_cnt;                                      /* number of conns aborted */
+    ulong conn_timeout_cnt;                                      /* number of conns timed out */
+    ulong conn_retry_cnt;                                        /* number of conns established with retry */
+    ulong conn_err_no_slots_cnt;                                 /* number of conns that failed to create due to lack of slots */
+    ulong conn_err_retry_fail_cnt;                               /* number of conns that failed during retry (e.g. invalid token) */
+    ulong conn_state_cnt[ FD_METRICS_ENUM_QUIC_CONN_STATE_CNT ]; /* current number of conns in each state */
 
     /* Packet metrics */
-    ulong pkt_net_hdr_err_cnt;          /* number of packets dropped due to weird IPv4/UDP headers */
-    ulong pkt_quic_hdr_err_cnt;         /* number of packets dropped due to weird QUIC header */
-    ulong pkt_undersz_cnt;              /* number of QUIC packets dropped due to being too small */
-    ulong pkt_oversz_cnt;               /* number of QUIC packets dropped due to being too large */
-    ulong pkt_decrypt_fail_cnt[ 4 ];    /* number of packets that failed decryption due to auth tag */
-    ulong pkt_no_key_cnt[ 4 ];          /* number of packets that failed decryption due to missing key */
-    ulong pkt_no_conn_cnt[ 4 ];         /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
-    ulong frame_tx_alloc_cnt[ 3 ];      /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
-    ulong pkt_verneg_cnt;               /* number of QUIC version negotiation packets or packets with wrong version */
-    ulong pkt_retransmissions_cnt[ 4 ]; /* number of pkt_meta retries */
-    ulong initial_token_len_cnt[ 3 ];   /* number of Initial packets grouped by token length */
+    ulong pkt_net_hdr_err_cnt;                                               /* number of packets dropped due to weird IPv4/UDP headers */
+    ulong pkt_quic_hdr_err_cnt;                                              /* number of packets dropped due to weird QUIC header */
+    ulong pkt_undersz_cnt;                                                   /* number of QUIC packets dropped due to being too small */
+    ulong pkt_oversz_cnt;                                                    /* number of QUIC packets dropped due to being too large */
+    ulong pkt_decrypt_fail_cnt[ FD_METRICS_ENUM_QUIC_ENC_LEVEL_CNT ];        /* number of packets that failed decryption due to auth tag */
+    ulong pkt_no_key_cnt[ FD_METRICS_ENUM_QUIC_ENC_LEVEL_CNT ];              /* number of packets that failed decryption due to missing key */
+    ulong pkt_no_conn_cnt[ FD_METRICS_ENUM_QUIC_PKT_HANDLE_CNT ];            /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
+    ulong frame_tx_alloc_cnt[ FD_METRICS_ENUM_FRAME_TX_ALLOC_RESULT_CNT ];   /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
+    ulong pkt_verneg_cnt;                                                    /* number of QUIC version negotiation packets or packets with wrong version */
+    ulong pkt_retransmissions_cnt[FD_METRICS_ENUM_QUIC_ENC_LEVEL_CNT];       /* number of pkt_meta retries */
+    ulong initial_token_len_cnt[FD_METRICS_ENUM_QUIC_INITIAL_TOKEN_LEN_CNT]; /* number of Initial packets grouped by token length */
 
     /* Frame metrics */
-    ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
-    ulong frame_rx_err_cnt;        /* number of frames failed */
+    ulong frame_rx_cnt[ FD_METRICS_ENUM_QUIC_FRAME_TYPE_CNT ];      /* number of frames received (indexed by implementation-defined IDs) */
+    ulong frame_rx_err_cnt;                                         /* number of frames failed */
 
     /* Handshake metrics */
     ulong hs_created_cnt;          /* number of handshake flows created */
@@ -353,7 +354,7 @@ union fd_quic_metrics {
     ulong stream_rx_byte_cnt;       /* total stream payload bytes received */
 
     /* ACK metrics */
-    ulong ack_tx[ 5 ];
+    ulong ack_tx[ FD_METRICS_ENUM_QUIC_ACK_TX_CNT ];
 
     /* Performance metrics */
     fd_histf_t service_duration[ 1 ]; /* time spent in service */
