@@ -81,10 +81,9 @@ fd_shdr_get_file_range( fd_elf64_shdr const * shdr,
   }
 }
 
-/* FD_SBPF_SECTION_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator.
-   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L12 */
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L11-L13 */
 #define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
+#define FD_SBPF_SYMBOL_NAME_SZ_MAX  (64UL)
 
 /* ELF loader, part 2 **************************************************
 
@@ -668,8 +667,8 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
 
   /* Verify symbol name.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1261-L1263 */
-  char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
-  if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( name, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SECTION_NAME_SZ_MAX, elf, elf_sz ) ) ) {
+  char name[ FD_SBPF_SYMBOL_NAME_SZ_MAX ];
+  if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( name, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SYMBOL_NAME_SZ_MAX, elf, elf_sz ) ) ) {
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
 
