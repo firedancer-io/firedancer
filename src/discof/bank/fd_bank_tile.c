@@ -167,8 +167,13 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    // TODO: Revive ...
-    // writable_alt[ i ] = fd_type_pun( &txn_ctx->account_keys[ txn_ctx->txn_descriptor->acct_addr_cnt ] );
+    /* The account keys in the transaction context are laid out such
+       that first the non-alt accounts are laid out, then the writable
+       alt accounts, and finally the read-only alt accounts. */
+    fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
+    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
+      writable_alt[ i ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
+    }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
@@ -329,8 +334,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       break;
     }
 
-    // TODO: Revive
-    // writable_alt[ i ] = fd_type_pun( &txn_ctx->account_keys[ txn_ctx->txn_descriptor->acct_addr_cnt ] );
+    /* The account keys in the transaction context are laid out such
+       that first the non-alt accounts are laid out, then the writable
+       alt accounts, and finally the read-only alt accounts. */
+    fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
+    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
+      writable_alt[ i ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
+    }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     actual_execution_cus[ i ] = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
