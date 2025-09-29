@@ -1596,7 +1596,7 @@ state_process( fd_ssmanifest_parser_t * parser ) {
 
 FD_FN_CONST ulong
 fd_ssmanifest_parser_align( void ) {
-  return 128UL;
+  return fd_ulong_max( alignof(fd_ssmanifest_parser_t), fd_ulong_max( acc_vec_pool_align(), acc_vec_map_align() ) );
 }
 
 FD_FN_CONST ulong
@@ -1605,7 +1605,7 @@ fd_ssmanifest_parser_footprint( ulong max_acc_vecs ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)         );
   l = FD_LAYOUT_APPEND( l, acc_vec_pool_align(),            acc_vec_pool_footprint( max_acc_vecs ) );
   l = FD_LAYOUT_APPEND( l, acc_vec_map_align(),             acc_vec_map_footprint( max_acc_vecs )  );
-  return FD_LAYOUT_FINI( l, alignof(fd_ssmanifest_parser_t) );
+  return FD_LAYOUT_FINI( l, fd_ssmanifest_parser_align() );
 }
 
 void *
