@@ -1342,11 +1342,12 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   /* Initialize store for genesis case, similar to snapshot case */
   fd_hash_t genesis_block_id = { .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  fd_hash_t hash_null        = { 0 };
   fd_store_exacq( ctx->store );
   if( FD_UNLIKELY( fd_store_root( ctx->store ) ) ) {
     FD_LOG_CRIT(( "invariant violation: store root is not 0 for genesis" ));
   }
-  fd_store_insert( ctx->store, 0, &genesis_block_id );
+  fd_store_insert( ctx->store, 0, &genesis_block_id, &hash_null );
   ctx->store->slot0 = 0UL; /* Genesis slot */
   fd_store_exrel( ctx->store );
 
@@ -1446,10 +1447,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        is not provided in the snapshot.  A possible solution is to get
        the block id of the snapshot slot from repair. */
     fd_hash_t manifest_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
+    fd_hash_t hash_null         = { 0 };
 
     fd_store_exacq( ctx->store );
     FD_TEST( !fd_store_root( ctx->store ) );
-    fd_store_insert( ctx->store, 0, &manifest_block_id );
+    fd_store_insert( ctx->store, 0, &manifest_block_id, &hash_null );
     ctx->store->slot0 = snapshot_slot; /* FIXME manifest_block_id */
     fd_store_exrel( ctx->store );
 

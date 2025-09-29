@@ -929,6 +929,112 @@ test_orphan_requests( fd_wksp_t * wksp ) {
   FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
 }
 
+void
+test_slot_clear( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  /*
+       2
+      | \
+      3  3'
+  */
+
+  /* We execute 2 - 3. Tower detects that 3' is the duplicate confirmed
+     version.  We must dump slot 3 and re-repair 3'. */
+
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_data_shred_insert( forest, 2, 0, 0, 0, 0, 1 );
+  fd_forest_blk_fec_insert       ( forest, 2, 0, 0, 0, 1 );
+  fd_forest_blk_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 3, 2, 1, 0, 0, 1 ); /* 3 */
+  fd_forest_blk_fec_insert       ( forest, 3, 2, 1, 0, 1 );
+  fd_forest_print( forest );
+
+  fd_forest_slot_clear( forest, 3 ); /* 3' is the duplicate confirmed version */
+
+  ulong _3 = 3;
+  FD_TEST( !fd_forest_query( forest, 3 ) );
+  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
+
+  fd_forest_blk_fec_insert( forest, 3, 2, 1, 0, 1 ); /* pretend we received the fec for 3' */
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
+
+  /*
+       2
+       | \
+       3' \
+     / |   \
+    8  4   4'
+
+      We receive 4 (that has only 1 FEC set) built off of 3'.  We later
+      see that 4' is the duplicate confirmed version.  4' may have been
+      built off an entirely different parent.
+
+      We must clear 4 and re-repair 4'.
+  */
+
+  fd_forest_blk_data_shred_insert( forest, 4, 3, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 4, 3, 1, 0, 0, 1 );
+  fd_forest_blk_fec_insert       ( forest, 4, 3, 1, 0, 1 );
+  fd_forest_blk_data_shred_insert( forest, 8, 3, 0, 0, 0, 0 );
+  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_3, NULL, fd_forest_conspool( forest ) ) );
+
+  fd_forest_slot_clear( forest, 4 );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  ulong _4 = 4;
+  ulong _8 = 8;
+  FD_TEST( !fd_forest_query( forest, 4 ) );
+  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_4, NULL, fd_forest_conspool( forest ) ) );
+  FD_TEST( !fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_ancestry_ele_query( fd_forest_ancestry( forest ), &_3, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_8, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_8, NULL, fd_forest_conspool( forest ) ) );
+
+  /* now pretend that we rerepaired 4 */
+  fd_forest_blk_data_shred_insert( forest, 4, 2, 0, 0, 0, 0 );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_4, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_4, NULL, fd_forest_conspool( forest ) ) );
+  FD_TEST( !fd_forest_verify( forest ) );
+
+  /* now scenario is we've replayed through 6, but then learn 5 is
+     an incorrect version.  We need to dump it.  At that point we
+     expect slot 6 to be in subtrees, and 7 in the orphaned.
+      0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
+           \                     ->         \
+            3                                3
+     */
+  fd_forest_blk_fec_insert( forest, 4, 2, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 5, 4, 0, 0, 1 );
+  fd_forest_blk_fec_insert( forest, 6, 5, 0, 0, 1 );
+  fd_forest_blk_data_shred_insert( forest, 7, 6, 0, 0, 0, 0 );
+  fd_forest_print( forest );
+
+  ulong _6 = 6;
+  ulong _7 = 7;
+  FD_TEST( !fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_6, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_7, NULL, fd_forest_conspool( forest ) ) );
+
+  fd_forest_slot_clear( forest, 5 );
+  fd_forest_print( forest );
+  FD_TEST( !fd_forest_verify( forest ) );
+  FD_TEST( fd_forest_subtrees_ele_query( fd_forest_subtrees( forest ), &_6, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_orphaned_ele_query( fd_forest_orphaned( forest ), &_7, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_frontier_ele_query( fd_forest_frontier( forest ), &_4, NULL, fd_forest_pool( forest ) ) );
+  FD_TEST( fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_4, NULL, fd_forest_conspool( forest ) ) );
+  FD_TEST( !fd_forest_consumed_ele_query( fd_forest_consumed( forest ), &_7, NULL, fd_forest_conspool( forest ) ) );
+
+    /* now we add back 5, .
+      0 - 2 - 4 - 5 - 6 - 7            0 - 2 - 4     6 - 7
+           \                     ->         \
+            3                                3
+     */
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -953,6 +1059,8 @@ main( int argc, char ** argv ) {
   test_iter_publish( wksp );
   test_iter_subtree( wksp );
   test_orphan_requests( wksp );
+
+  test_slot_clear( wksp );
 
   fd_halt();
   return 0;

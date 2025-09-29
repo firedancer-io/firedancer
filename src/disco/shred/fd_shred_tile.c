@@ -1046,7 +1046,9 @@ after_frag( fd_shred_ctx_t *    ctx,
       long shacq_start, shacq_end, shrel_end;
       fd_store_fec_t * fec = NULL;
       FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
-        fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
+        fec = fd_store_insert( ctx->store, ctx->round_robin_id,
+                               (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ),
+                               (fd_hash_t *)fd_type_pun( ((uchar *)last + fd_shred_chain_off( last->variant )) ) );
       } FD_STORE_SHARED_LOCK_END;
 
       if( FD_UNLIKELY( !fec ) ) {
