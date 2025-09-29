@@ -434,13 +434,15 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
         return
 
     # Execute solana command to get stake history
-    stake_history_output = subprocess.run([solana_binary('solana'), '-u', f'http://{ip()}:8899', 'stake-history'], capture_output=True, text=True).stdout
-    # Parse the first entry in the stake history table
-    first_entry = stake_history_output.splitlines()[3]  # Assuming the first entry is on the fourth line
-    epoch, effective_stake, activating_stake, deactivating_stake, _ = first_entry.split()
-    # Print the stake information
-    total_stake = float(effective_stake) + float(activating_stake) - float(deactivating_stake)
+
     if percentage:
+        stake_history_output = subprocess.run([solana_binary('solana'), '-u', f'http://{ip()}:8899', 'stake-history'], capture_output=True, text=True).stdout
+        # Parse the first entry in the stake history table
+        first_entry = stake_history_output.splitlines()[3]  # Assuming the first entry is on the fourth line
+        epoch, effective_stake, activating_stake, deactivating_stake, _ = first_entry.split()
+        # Print the stake information
+        total_stake = float(effective_stake) + float(activating_stake) - float(deactivating_stake)
+        
         staked_sol_amount = int(total_stake / (1 - float(percentage)/100.0) * float(percentage)/100.0)
     else:
         staked_sol_amount = int(sol)
