@@ -417,12 +417,19 @@ fd_funk_txn_remove_published( fd_funk_t * funk ) {
 
   /* Iterate over all funk records and remove them */
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+  fd_funk_rec_map_iter_t iter_next;
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
     for(
         fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
         !fd_funk_rec_map_iter_done( iter );
-        iter = fd_funk_rec_map_iter_next( iter )
+        iter = iter_next
     ) {
+      /* Need to save the next record because we are removing the
+         current record. TODO: this is kinda hacky. We really should
+         not be iterating and removing elements at the same time.  We
+         should just have an internal map clear function. */
+      iter_next = fd_funk_rec_map_iter_next( iter );
+
       /* Get handle to rec object */
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( iter );
 
