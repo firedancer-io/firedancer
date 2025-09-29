@@ -1,4 +1,5 @@
 #include "fd_solfuzz.h"
+#include "fd_solfuzz_private.h"
 #include "generated/elf.pb.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../vm/fd_vm_base.h"
@@ -19,7 +20,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     return 0UL;
   }
 
-  ulong        elf_sz  = input->elf.data->size;
+  ulong  elf_sz  = input->elf.data->size;
   void * elf_bin = fd_spad_alloc_check( spad, 8UL, elf_sz );
   fd_memcpy( elf_bin, input->elf.data->bytes, elf_sz );
 
@@ -41,22 +42,29 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
 
   do{
 
-    fd_sbpf_loader_config_t config = { 0 };
-    config.elf_deploy_checks = input->deploy_checks;
-    config.sbpf_min_version = FD_SBPF_V0;
-    config.sbpf_max_version = FD_SBPF_V3;
+    fd_sbpf_loader_config_t config = {
+      .elf_deploy_checks = input->deploy_checks,
+      .sbpf_min_version  = FD_SBPF_V0,
+      .sbpf_max_version  = FD_SBPF_V3,
+     };
+
     if( FD_UNLIKELY( fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config )<0 ) ) {
       /* return incomplete effects on execution failures */
       break;
     }
 
-    void * rodata = fd_spad_alloc_check( spad, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
-
-    fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc_check( spad, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
-
+    void *               rodata   = fd_spad_alloc_check( spad, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
+    fd_sbpf_program_t *  prog     = fd_sbpf_program_new( fd_spad_alloc_check( spad, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
 
-    fd_vm_syscall_register_all( syscalls, 0 );
+    /* Register any active syscalls */
+    fd_features_t feature_set = {0};
+    fd_runtime_fuzz_restore_features( &feature_set, &input->features );
+    fd_vm_syscall_register_slot(
+        syscalls,
+        UINT_MAX /* Arbitrary slot, doesn't matter */,
+        &feature_set,
+        !!config.elf_deploy_checks );
 
     ulong entrypoint;
     int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, &entrypoint );
