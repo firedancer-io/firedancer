@@ -62,7 +62,8 @@ fd_sbpf_range_contains( ulong lo, ulong hi, ulong x ) {
 /* Mimics Elf64Shdr::file_range(). Returns 1 (Some) if the section
    header type is not SHT_NOBITS, and sets (lo, hi) to the section
    header offset and offset + size respectively. Returns 0 (None)
-   otherwise, and sets both (lo, hi) to 0.
+   otherwise, and sets both (lo, hi) to 0 (the default values for a
+   Rust Range type).
 
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L87-L93 */
 
@@ -1598,10 +1599,13 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
        and ro_fill_length variables. Agave stores three fields in the
        ro slices array that can all be derived from the section header,
        so we just need to store the indices.
+
+       The call to fd_shdr_get_file_range() is allowed to fail (Agave's
+       unwrap_or_default() call returns a range of 0..0 in this case).
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L899-L908 */
     ulong section_header_lo, section_header_hi;
-    if( FD_UNLIKELY( !fd_shdr_get_file_range( section_header, &section_header_lo, &section_header_hi ) ||
-                     section_header_hi>bin_sz ) ) {
+    fd_shdr_get_file_range( section_header, &section_header_lo, &section_header_hi );
+    if( FD_UNLIKELY( section_header_hi>bin_sz ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
     ulong section_data_len = section_header_hi - section_header_lo;
@@ -1677,8 +1681,8 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
 
       /* This was checked above and should never fail. */
       ulong slice_lo, slice_hi;
-      if( FD_UNLIKELY( !fd_shdr_get_file_range( shdr, &slice_lo, &slice_hi ) ||
-                       slice_lo>bin_sz ) ) {
+      fd_shdr_get_file_range( shdr, &slice_lo, &slice_hi );
+      if( FD_UNLIKELY( slice_lo>bin_sz ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
