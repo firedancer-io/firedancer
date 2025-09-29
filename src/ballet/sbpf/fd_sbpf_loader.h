@@ -286,8 +286,8 @@ fd_sbpf_program_new( void *                     prog_mem,
    Memory region [bin,bin+bin_sz) contains the ELF file to be loaded.
 
    On success, returns 0.
-   On error, returns FD_SBPF_ERR_* and leaves prog in an undefined
-   state.
+   On error, returns FD_SBPF_ERR_* and leaves prog and
+   opt_out_entrypoint in an undefined state.
 
    ### Compliance
 
@@ -299,7 +299,8 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
-                      fd_sbpf_loader_config_t const * config );
+                      fd_sbpf_loader_config_t const * config,
+                      ulong *                         opt_out_entrypoint );
 
 /* fd_sbpf_program_delete destroys the program object and unformats the
    memory regions holding it. */

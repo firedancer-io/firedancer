@@ -281,7 +281,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   /* Load program. */
 
   fd_sbpf_loader_config_t config = { 0 };
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config ) ) ) {
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config, NULL ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_load() failed" ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );
