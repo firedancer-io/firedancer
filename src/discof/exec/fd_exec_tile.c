@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../disco/metrics/fd_metrics.h"
 
 #include "../../funk/fd_funk.h"
 
@@ -80,6 +81,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
+static int
+before_frag( fd_exec_tile_ctx_t * ctx,
+             ulong                in_idx FD_FN_UNUSED,
+             ulong                seq    FD_FN_UNUSED,
+             ulong                sig ) {
+  return (sig&0xFFFFFFFFUL)!=ctx->tile_idx;
+}
+
 static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,
@@ -98,7 +107,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
                    ctx->replay_in_wmark ));
     }
 
-    if( FD_LIKELY( sig==EXEC_NEW_TXN_SIG ) ) {
+    if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
       fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
 
       ctx->txn_ctx->spad      = ctx->exec_spad;
@@ -130,7 +139,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
             ulong                tspub,
             fd_stem_context_t *  stem ) {
 
-  if( sig==EXEC_NEW_TXN_SIG ) {
+  if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
     //FD_LOG_DEBUG(( "Sending ack for new txn msg" ));
     /* At this point we can assume that the transaction is done
        executing. A writer tile will be repsonsible for commiting
@@ -186,7 +195,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tile_idx = tile->kind_id;
 
   /* First find and setup the in-link from replay to exec. */
-  ctx->replay_exec_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", ctx->tile_idx );
+  ctx->replay_exec_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", 0UL );
   if( FD_UNLIKELY( ctx->replay_exec_in_idx==ULONG_MAX ) ) {
     FD_LOG_ERR(( "Could not find replay_exec in-link" ));
   }
@@ -379,10 +388,16 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 #define STEM_BURST (1UL)
+/* Right now, depth of the exec_writer link is 128.  At 1M TPS per exec, that's
+   128us to fill.  In reality, we'd need more than 1 exec for 1M TPS,
+   but we also want to be conservative here, and normally we have a /1.5
+   factor in the calculation as well, so we use 75us. */
+#define STEM_LAZY  (75000UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_exec_tile_ctx_t)
 
+#define STEM_CALLBACK_BEFORE_FRAG  before_frag
 #define STEM_CALLBACK_AFTER_CREDIT after_credit
 #define STEM_CALLBACK_DURING_FRAG  during_frag
 #define STEM_CALLBACK_AFTER_FRAG   after_frag

@@ -373,7 +373,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_slot_done_t),  1UL );
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TPU_RAW_MTU,                1UL ); /* TODO: Horribly named. Rename to indicate tile and where its going */
 
-  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                    10240UL,                       exec_tile_cnt ); /* TODO: Depth probably not 128. MTU is made up and needs to be sized correctly. */
+                       fd_topob_link( topo, "replay_exec",  "replay_exec",  16384UL,                                  2240UL,                        1UL );
   /* Assuming the number of writer tiles is sufficient to keep up with
      the number of exec tiles, under equilibrium, we should have at least
      enough link space to buffer worst case input shuffling done by the
@@ -512,12 +512,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_out",   0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_stake", 0UL                                                );
   /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "executed_txn", 0UL                                                );
-  FOR(exec_tile_cnt)   fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_exec",  i                                                  );
+  /**/                 fd_topob_tile_out(   topo, "replay",  0UL,                       "replay_exec",  0UL                                                );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "resolv_repla", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /**/                 fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_out(   topo, "exec",    i,                         "exec_writer",  i                                                  );
   /* All writer tiles read from all exec tiles.  Each exec tile has a
      single out link, over which all the writer tiles round-robin. */
