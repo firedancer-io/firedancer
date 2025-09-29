@@ -273,6 +273,12 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP      ( bool,    tiles.shredcap.enabled                        );
     CFG_POP      ( cstr,    tiles.shredcap.folder_path                    );
     CFG_POP      ( ulong,   tiles.shredcap.write_buffer_size              );
+
+    CFG_POP      ( bool,    tiles.feccap.enabled                          );
+    CFG_POP      ( cstr,    tiles.feccap.file_path                        );
+
+    CFG_POP      ( bool,    tiles.simulate.enabled                       );
+    CFG_POP      ( cstr,    tiles.simulate.file_path                    );
   }
 
   CFG_POP      ( bool,   development.sandbox                              );
