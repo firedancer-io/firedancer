@@ -45,8 +45,9 @@ typedef struct fd_policy_dedup fd_policy_dedup_t; /* forward decl */
 
 struct fd_policy_dedup_ele {
   ulong key;      /* compact encoding of fd_repair_req_t detailed above */
-  ulong prev;     /* reserved by lru */
-  ulong next;     /* reserved by pool and map_chain */
+  ulong prev;   /* reserved by lru */
+  ulong next;
+  ulong hash;     /* reserved by pool and map_chain */
   long  req_ts;   /* timestamp when the request was sent */
 };
 typedef struct fd_policy_dedup_ele fd_policy_dedup_ele_t;
@@ -62,16 +63,23 @@ FD_FN_CONST static inline uint  fd_policy_dedup_key_shred_idx( ulong key ) { ret
 
 #define POOL_NAME fd_policy_dedup_pool
 #define POOL_T    fd_policy_dedup_ele_t
+#define POOL_NEXT hash
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_policy_dedup_map
 #define MAP_ELE_T fd_policy_dedup_ele_t
+#define MAP_NEXT  hash
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define DLIST_NAME   fd_policy_dedup_lru
+#define DLIST_ELE_T  fd_policy_dedup_ele_t
+#define DLIST_NEXT   next
+#define DLIST_PREV   prev
+#include "../../util/tmpl/fd_dlist.c"
 struct fd_policy_dedup {
   fd_policy_dedup_map_t * map;  /* map of dedup elements */
   fd_policy_dedup_ele_t * pool; /* memory pool of dedup elements */
-  //fd_policy_dedup_ele_t * lru;  /* singly-linked list of dedup elements by insertion order.  TODO: add eviction feature using linkedlist */
+  fd_policy_dedup_lru_t * lru;  /* singly-linked list of dedup elements by insertion order.  TODO: add eviction feature using linkedlist */
 };
 
 /* fd_policy_peer_t describes a peer validator that serves repairs.
@@ -95,6 +103,8 @@ struct fd_policy_peer {
 
   long  total_lat; /* total RTT over all responses in ns */
   ulong stake;
+
+  ulong pool_idx;
 };
 typedef struct fd_policy_peer fd_policy_peer_t;
 
@@ -109,14 +119,31 @@ typedef struct fd_policy_peer fd_policy_peer_t;
 #define MAP_KEY_HASH(key)     ((MAP_HASH_T)( (key).ul[1] ))
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+struct fd_peer {
+  fd_pubkey_t identity;
+  ulong       next;
+  ulong       prev;
+};
+typedef struct fd_peer fd_peer_t;
+
+#define POOL_NAME fd_peer_pool
+#define POOL_T    fd_peer_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define DLIST_NAME  fd_peer_dlist
+#define DLIST_ELE_T fd_peer_t
+#define DLIST_NEXT  next
+#define DLIST_PREV  prev
+#include "../../util/tmpl/fd_dlist.c"
+
 /* fd_policy_peers implements the data structures and bookkeeping for
    selecting repair peers via round-robin. */
 
 struct fd_policy_peers {
-  fd_pubkey_t      * arr; /* array of repair peers */
-  fd_policy_peer_t * map; /* map of pubkey->peer */
-  ulong              cnt; /* count of repair peers */
-  ulong              idx; /* round-robin index of next peer */
+  fd_peer_dlist_t *    dlist; /* doubly-linked list of repair peer pubkeys in insertion order */
+  fd_peer_t *          pool;  /* memory pool of repair peer pubkeys */
+  fd_policy_peer_t *   map;   /* map of pubkey->peer */
+  fd_peer_dlist_iter_t iter;   /* round-robin index of next peer */
 };
 typedef struct fd_policy_peers fd_policy_peers_t;
 
@@ -154,12 +181,16 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_policy_t),         sizeof(fd_policy_t)                           ),
       fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) ),
       fd_policy_dedup_pool_align(), fd_policy_dedup_pool_footprint( dedup_max   ) ),
+      fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint (             ) ),
       fd_policy_peer_map_align(),   fd_policy_peer_map_footprint  ( lg_peer_max ) ),
-      alignof(fd_pubkey_t),         sizeof(fd_pubkey_t) * peer_max                ),
+      fd_peer_pool_align(),         fd_peer_pool_footprint        ( peer_max    ) ),
+      fd_peer_dlist_align(),        fd_peer_dlist_footprint       (             ) ),
     fd_policy_align() );
 }
 
@@ -201,10 +232,16 @@ fd_repair_msg_t const *
 fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot );
 
 fd_policy_peer_t const *
-fd_policy_add_peer( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
+fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
 
 fd_policy_peer_t *
 fd_policy_peer_query( fd_policy_t * policy, fd_pubkey_t const * key );
+
+int
+fd_policy_peer_remove( fd_policy_t * policy, fd_pubkey_t const * key );
+
+fd_pubkey_t const *
+fd_policy_peer_select( fd_policy_t * policy );
 
 void
 fd_policy_peer_request_update( fd_policy_t * policy, fd_pubkey_t const * to );
