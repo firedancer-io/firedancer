@@ -95,7 +95,7 @@ typedef struct fd_replay_out_link fd_replay_out_link_t;
 
 struct fd_block_id_ele {
   fd_hash_t block_id;
-  ulong     slot;
+  ulong     slot; /* = FD_SLOT_NULL if not initialized */
   ulong     next_;
 };
 typedef struct fd_block_id_ele fd_block_id_ele_t;
@@ -1439,7 +1439,7 @@ process_fec_set( fd_replay_tile_t * ctx,
        map, we can safely remove it and replace it with the new entry.
        This is safe because we know that the old entry for this fork
        index has already been pruned away. */
-    if( fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) ) {
+    if( FD_LIKELY( block_id_ele->slot!=FD_SLOT_NULL && fd_block_id_map_ele_query( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) ) ) {
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
     }
 
@@ -1985,7 +1985,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->published_root_slot = ULONG_MAX;
 
-  ctx->block_draining           = 0;
+  ctx->block_draining = 0;
 
   ctx->enable_bank_hash_cmp = !!tile->replay.enable_bank_hash_cmp;
 
@@ -2031,6 +2031,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->block_id_arr = (fd_block_id_ele_t *)block_id_arr_mem;
   ctx->block_id_map = fd_block_id_map_join( fd_block_id_map_new( block_id_map_mem, chain_cnt, 999UL ) );
   FD_TEST( ctx->block_id_map );
+
+  for( ulong i=0UL; i<tile->replay.max_live_slots; i++ ) {
+    ctx->block_id_arr[ i ].slot = FD_SLOT_NULL;
+  }
 
   ctx->resolv_tile_cnt = fd_topo_tile_name_cnt( topo, "resolv" );
 
