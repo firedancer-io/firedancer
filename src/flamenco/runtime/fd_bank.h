@@ -210,15 +210,11 @@ FD_PROTOTYPES_BEGIN
   X(fd_cluster_version_t,              cluster_version,             sizeof(fd_cluster_version_t),              alignof(fd_cluster_version_t),              0,   0,                0    )  /* Cluster version */                                        \
   X(fd_hash_t,                         bank_hash,                   sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Bank hash */                                              \
   X(fd_hash_t,                         prev_bank_hash,              sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Previous bank hash */                                     \
-  X(ulong,                             latest_fec_ix_observed,      sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Latest FEC observed */                                    \
   X(fd_hash_t,                         genesis_hash,                sizeof(fd_hash_t),                         alignof(fd_hash_t),                         0,   0,                0    )  /* Genesis hash */                                           \
   X(fd_epoch_schedule_t,               epoch_schedule,              sizeof(fd_epoch_schedule_t),               alignof(fd_epoch_schedule_t),               0,   0,                0    )  /* Epoch schedule */                                         \
   X(fd_rent_t,                         rent,                        sizeof(fd_rent_t),                         alignof(fd_rent_t),                         0,   0,                0    )  /* Rent */                                                   \
   X(fd_lthash_value_t,                 lthash,                      sizeof(fd_lthash_value_t),                 alignof(fd_lthash_value_t),                 0,   0,                1    )  /* LTHash */                                                 \
   X(fd_sysvar_cache_t,                 sysvar_cache,                sizeof(fd_sysvar_cache_t),                 alignof(fd_sysvar_cache_t),                 0,   0,                0    )  /* Sysvar cache */                                           \
-  X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
-  X(fd_cost_tracker_t,                 cost_tracker,                FD_COST_TRACKER_FOOTPRINT,                 FD_COST_TRACKER_ALIGN,                      0,   0,                1    )  /* Cost tracker */                                           \
-  X(fd_epoch_leaders_t,                epoch_leaders,               FD_EPOCH_LEADERS_MAX_FOOTPRINT,            FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
                                                                                                                                                                                           /* then there can be 100k unique leaders in the worst */     \
                                                                                                                                                                                           /* case. We also can assume 432k slots per epoch. */         \
   X(fd_features_t,                     features,                    sizeof(fd_features_t),                     alignof(fd_features_t),                     0,   0,                0    )  /* Features */                                               \
@@ -231,6 +227,8 @@ FD_PROTOTYPES_BEGIN
   X(ulong,                             shred_cnt,                   sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Shred count */                                            \
   X(ulong,                             epoch,                       sizeof(ulong),                             alignof(ulong),                             0,   0,                0    )  /* Epoch */                                                  \
   X(int,                               has_identity_vote,           sizeof(int),                               alignof(int),                               0,   0,                0    )  /* Has identity vote */                                      \
+  X(fd_epoch_rewards_t,                epoch_rewards,               FD_EPOCH_REWARDS_FOOTPRINT,                FD_EPOCH_REWARDS_ALIGN,                     1,   1,                1    )  /* Epoch rewards */                                          \
+  X(fd_epoch_leaders_t,                epoch_leaders,               FD_EPOCH_LEADERS_MAX_FOOTPRINT,            FD_EPOCH_LEADERS_ALIGN,                     1,   1,                1    )  /* Epoch leaders. If our system supports 100k vote accs, */  \
   X(fd_vote_states_t,                  vote_states,                 FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   0,                1    )  /* Vote states for all vote accounts as of epoch E if */     \
                                                                                                                                                                                           /* epoch E is the one that is currently being executed */    \
   X(fd_vote_states_t,                  vote_states_prev,            FD_VOTE_STATES_FOOTPRINT,                  FD_VOTE_STATES_ALIGN,                       1,   1,                1    )  /* Vote states for all vote accounts as of of the end of */  \
@@ -323,6 +321,19 @@ struct fd_bank {
   ulong             sibling_idx; /* index of the right-sibling in the node pool */
   ulong             flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
 
+  /* Define non-templatized types here. */
+
+  /* Cost tracker. */
+  uchar       cost_tracker[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
+  int         cost_tracker_dirty;
+  fd_rwlock_t cost_tracker_lock;
+
+  /* Stake delegations delta. */
+
+  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
+  int         stake_delegations_delta_dirty;
+  fd_rwlock_t stake_delegations_delta_lock;
+
   /* NOTE: Make sure that refcnt is the last field in the bank header. */
   ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
 
@@ -375,11 +386,6 @@ struct fd_bank {
   #undef HAS_LOCK_0
   #undef HAS_LOCK_1
 
-  /* Stake delegations delta. */
-
-  uchar       stake_delegations_delta[FD_STAKE_DELEGATIONS_DELTA_FOOTPRINT] __attribute__((aligned(FD_STAKE_DELEGATIONS_ALIGN)));
-  int         stake_delegations_delta_dirty;
-  fd_rwlock_t stake_delegations_delta_lock;
 };
 typedef struct fd_bank fd_bank_t;
 
@@ -504,6 +510,39 @@ typedef struct fd_banks fd_banks_t;
   HAS_LOCK_##has_lock(type, name)
 FD_BANKS_ITER(X)
 #undef X
+
+/* Define accessor and mutator functions for the non-templatized
+   fields. */
+
+static inline fd_cost_tracker_t *
+fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_write( &bank->cost_tracker_lock );
+  if( FD_UNLIKELY( !bank->cost_tracker_dirty ) ) {
+    bank->cost_tracker_dirty = 1;
+    /* TODO: Use a real seed. */
+    uchar * mem = fd_cost_tracker_new( bank->cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ), 999UL );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_CRIT(( "Failed to allocate memory for cost tracker" ));
+    }
+  }
+  return fd_cost_tracker_join( bank->cost_tracker );
+}
+
+static inline void
+fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+}
+
+static inline fd_cost_tracker_t *
+fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_read( &bank->cost_tracker_lock );
+  return bank->cost_tracker_dirty ? fd_cost_tracker_join( bank->cost_tracker ) : NULL;
+}
+
+static inline void
+fd_bank_cost_tracker_end_locking_query( fd_bank_t * bank ) {
+  fd_rwlock_unread( &bank->cost_tracker_lock );
+}
 
 #undef HAS_LOCK_0
 #undef HAS_LOCK_1

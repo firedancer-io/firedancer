@@ -640,9 +640,26 @@ main( int argc, char ** argv ) {
      3. Pool was made dirty and had a non-null parent pool idx.
      4. Pool was made dirty and had a null parent pool idx. */
 
+
+  /* Set the cost tracker to some non-zero values. */
+
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank11 );
+  cost_tracker->block_cost = 100UL;
+  cost_tracker->vote_cost  = 200UL;
+  FD_TEST( bank11->cost_tracker_dirty == 1 );
+  fd_bank_cost_tracker_end_locking_modify( bank11 );
+
   fd_banks_clear_bank( banks, bank11 );
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
+
+  /* Make sure that the cost tracker is now not dirty, but the backing
+     memory has not changed at all. */
+
+  FD_TEST( bank11->cost_tracker_dirty == 0 );
+  cost_tracker = (fd_cost_tracker_t *)bank11->cost_tracker;
+  FD_TEST( cost_tracker->block_cost == 100UL );
+  FD_TEST( cost_tracker->vote_cost == 200UL );
 
   keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys3->magic == 101UL );
