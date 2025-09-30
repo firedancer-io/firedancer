@@ -680,7 +680,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   {
     if( symbol_is_function && symbol->st_value!=0UL ) {
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1267-L1269 */
-      if( FD_UNLIKELY( !fd_sbpf_range_contains( sh_text->sh_addr, fd_ulong_sat_add( sh_text->sh_addr, sh_text->sh_offset ), symbol->st_value ) ) ) {
+      if( FD_UNLIKELY( !fd_sbpf_range_contains( sh_text->sh_addr, fd_ulong_sat_add( sh_text->sh_addr, sh_text->sh_size ), symbol->st_value ) ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
