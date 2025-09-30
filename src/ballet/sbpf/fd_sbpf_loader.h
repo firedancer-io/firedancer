@@ -76,6 +76,8 @@
 #define FD_SBPF_ENTRYPOINT_PC   (0xb00c380U)
 #define FD_SBPF_ENTRYPOINT_HASH (0x71e3cf81U) /* fd_pchash( FD_SBPF_ENTRYPOINT_PC ) */
 
+#define E_FLAGS_SBPF_V2         (0x20U)
+
 /* Program struct *****************************************************/
 
 /* fd_sbpf_calldests is a bit vector of valid call destinations.
