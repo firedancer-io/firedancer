@@ -678,11 +678,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   uint key = 0U;
   int symbol_is_function = ( FD_ELF64_ST_TYPE( symbol->st_info )==FD_ELF_STT_FUNC );
   {
-    ulong text_section_lo, text_section_hi;
     if( symbol_is_function && symbol->st_value!=0UL ) {
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1267-L1269 */
-      if( FD_UNLIKELY( !( fd_shdr_get_file_range( sh_text, &text_section_lo, &text_section_hi ) &&
-                          fd_sbpf_range_contains( text_section_lo, text_section_hi, symbol->st_value ) ) ) ) {
+      if( FD_UNLIKELY( !fd_sbpf_range_contains( sh_text->sh_addr, fd_ulong_sat_add( sh_text->sh_addr, sh_text->sh_offset ), symbol->st_value ) ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
@@ -1673,7 +1671,7 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L971-L976 */
-    uchar ro_section[buf_len]; fd_memset( ro_section, 0, buf_len );
+    uchar ro_section[ buf_len ]; fd_memset( ro_section, 0, buf_len );
     for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
       ulong sh_idx                       = ro_slices_shidxs[ i ];
       fd_elf64_shdr const * shdr         = &shdrs[ sh_idx ];
@@ -1687,7 +1685,7 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
       }
 
       ulong buf_offset_start = fd_ulong_sat_sub( section_addr, lowest_addr );
-      ulong slice_len        = slice_hi - slice_lo;
+      ulong slice_len        = slice_hi-slice_lo;
       if( FD_UNLIKELY( slice_len>buf_len ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
@@ -1719,7 +1717,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
   fd_elf64_shdr const *      shtext   = &shdrs[ elf_info->shndx_text ];
 
   /* Copy rodata segment */
-  fd_memcpy( rodata, elf->bin, prog->info.rodata_sz );
+  fd_memcpy( rodata, elf->bin, prog->rodata_sz );
 
   /* Fixup all program counter relative call instructions
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1005-L1041 */
