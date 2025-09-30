@@ -464,8 +464,7 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
 
    Failure modes:
    - Vote account data is too large (returns -1)
-   - Vote account is not found in Funk (returns -1)
-   - Account metadata has wrong magic (returns -1) */
+   - Vote account is not found in Funk (returns -1) */
 static int
 fd_replay_out_vote_tower_from_funk(
   fd_funk_t const *         funk,
@@ -503,7 +502,7 @@ fd_replay_out_vote_tower_from_funk(
     }
 
     fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
-    vote_tower_out->acc_sz = (ushort)data_sz;
+    vote_tower_out->acc_sz = data_sz;
 
     if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
       break;
@@ -1149,7 +1148,7 @@ static void
 publish_reset( fd_replay_tile_t *  ctx,
                fd_stem_context_t * stem,
                fd_bank_t const *   bank ) {
-  if( FD_LIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
+  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
 
   fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
   FD_TEST( block_hash );
@@ -1507,6 +1506,7 @@ process_fec_set( fd_replay_tile_t * ctx,
     /* Once the block id for a block is known it must be added to the
        leader block mapping. */
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ reasm_fec->bank_idx ];
+    FD_TEST( block_id_ele );
 
     /* If an entry already exists for this bank index in the block id
        map, we can safely remove it and replace it with the new entry.
@@ -1516,7 +1516,6 @@ process_fec_set( fd_replay_tile_t * ctx,
       FD_TEST( fd_block_id_map_ele_remove( ctx->block_id_map, &block_id_ele->block_id, NULL, ctx->block_id_arr ) );
     }
 
-    FD_TEST( block_id_ele );
     block_id_ele->block_id = reasm_fec->key;
     block_id_ele->slot     = reasm_fec->slot;
 
@@ -1822,7 +1821,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
-  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, new_root=%d, root_slot=%lu, root_block_id=%s", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->new_root, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
+  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, new_root=%d, root_slot=%lu, root_block_id=%s)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->new_root, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
   maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->new_root ) ) {
@@ -2023,6 +2022,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->consensus_root_slot = ULONG_MAX;
   ctx->consensus_root      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->published_root_slot = ULONG_MAX;
 
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */
@@ -2083,8 +2083,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots ), tile->replay.max_live_slots );
   FD_TEST( ctx->sched );
 
-  ctx->consensus_root_slot = ULONG_MAX;
-  ctx->published_root_slot = ULONG_MAX;
 
   ctx->bank_idx_draining = ULONG_MAX;
 

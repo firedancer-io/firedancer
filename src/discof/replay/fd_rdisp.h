@@ -301,7 +301,7 @@ fd_rdisp_rekey_block( fd_rdisp_t *           disp,
    ensure this transaction appears to execute after each transaction
    added to this block in a prior call.
 
-   insert_block must be a known block that is schedule-ready.  txn,
+   insert_block must be a known block that is insert-ready.  txn,
    payload, and alts describe the transaction to be added.  txn must be
    the result of parsing payload, and alts contains the expansion and
    selection of the address lookup tables mentioned in the transaction
