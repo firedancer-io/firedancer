@@ -340,9 +340,9 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
                   FD_BASE58_ENC_32_ALLOCA( root_slist_ele_peek_tail( tc->shmem->root_ll, tc->blockcache_shmem_pool )->blockhash.uc ) ));
   }
 
-  FD_LOG_INFO(( "advancing root from %s to %s",
-                FD_BASE58_ENC_32_ALLOCA( parent_fork->shmem->blockhash.uc ),
-                FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ) ));
+  FD_LOG_DEBUG(( "advancing root from %s to %s",
+                 FD_BASE58_ENC_32_ALLOCA( parent_fork->shmem->blockhash.uc ),
+                 FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ) ));
 
   /* When a fork is rooted, any competing forks can be immediately
      removed as they will not be needed again.  This includes child
