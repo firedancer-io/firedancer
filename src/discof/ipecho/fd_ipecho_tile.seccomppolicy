@@ -33,8 +33,6 @@ read: (not (or (eq (arg 0) logfile_fd)
 #
 # arg 0 is the socket file descriptor.   We will restrict the file
 # descriptor used for STDERR and logging.
-#
-# arg 3 are the flags passed in
 accept4: (and (not (or (eq (arg 0) logfile_fd)
                        (eq (arg 0) 2)))
               (eq (arg 3) "SOCK_NONBLOCK|SOCK_CLOEXEC"))
@@ -47,8 +45,6 @@ ppoll
 # arg 0 is the file descriptor that we want to send messages to.  We
 # will allow sending to any of the descriptors opened in the client.
 # Only restrict from sending to the logfile and STDERR
-#
-# arg 3 is the flag for the send request
 sendto: (and (not (or (eq (arg 0) logfile_fd)
                       (eq (arg 0) 2)))
              (eq (arg 3) "MSG_NOSIGNAL")
@@ -60,12 +56,6 @@ sendto: (and (not (or (eq (arg 0) logfile_fd)
 # arg 0 is the file descriptor that we recieve messages from.  We will
 # allow receiving to any of the descriptors opened in the client.  Only
 # restrict from receiving to the logfile and STDERR
-#
-# arg 3 is the flags for the recvfrom call
-#
-# arg 4 is the src addr which is not set
-#
-# arg 5 is the addrlen field which is not used
 recvfrom: (and (not (or (eq (arg 0) logfile_fd)
                         (eq (arg 0) 2)))
                (eq (arg 3) 0)

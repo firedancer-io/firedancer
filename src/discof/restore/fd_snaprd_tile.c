@@ -517,7 +517,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return 1UL +                 /* stderr */
          1UL +                 /* logfile */
          FD_SSPING_MAX_PEERS + /* ssping max peers sockets */
-         4UL +                 /* snapshot file fds */
+         3UL +                 /* dirfd + 2 snapshot file fds in the worst case */
          1UL;                  /* sshttp socket */
 }
 
@@ -863,13 +863,6 @@ privileged_init( fd_topo_t *      topo,
   ctx->peer_selection = 1;
   ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS;
 
-  /* Initialize all file descriptors to -1. */
-  ctx->local_out.dir_fd                  = -1;
-  ctx->local_out.full_snapshot_fd        = -1;
-  ctx->local_out.incremental_snapshot_fd = -1;
-  ctx->local_in.full_snapshot_fd         = -1;
-  ctx->local_in.incremental_snapshot_fd  = -1;
-
   fd_ssarchive_remove_old_snapshots( tile->snaprd.snapshots_path,
                                      tile->snaprd.max_full_snapshots_to_keep,
                                      tile->snaprd.max_incremental_snapshots_to_keep );
@@ -906,6 +899,10 @@ privileged_init( fd_topo_t *      topo,
     } else {
       ctx->local_out.incremental_snapshot_fd = -1;
     }
+
+    ctx->local_in.full_snapshot_fd        = -1;
+    ctx->local_in.incremental_snapshot_fd = -1;
+
   } else {
     FD_TEST( full_slot!=ULONG_MAX );
 
@@ -934,8 +931,8 @@ privileged_init( fd_topo_t *      topo,
       ctx->local_in.incremental_snapshot_size = (ulong)incremental_stat.st_size;
     }
 
-    ctx->local_out.dir_fd = -1;
-    ctx->local_out.full_snapshot_fd = -1;
+    ctx->local_out.dir_fd                  = -1;
+    ctx->local_out.full_snapshot_fd        = -1;
     ctx->local_out.incremental_snapshot_fd = -1;
 
     if( FD_UNLIKELY( tile->snaprd.maximum_local_snapshot_age==0U ) ) {
