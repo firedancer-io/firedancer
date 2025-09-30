@@ -10,6 +10,7 @@
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../disco/metrics/generated/fd_metrics_bank.h"
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
 
@@ -48,7 +49,7 @@ typedef struct {
   fd_exec_txn_ctx_t txn_ctx[1];
 
   struct {
-    ulong txn_result[ 1-FD_BANK_TXN_ERR_LAST ];
+    ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
   } metrics;
 } fd_bank_ctx_t;
 
@@ -65,6 +66,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,          FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,   FD_BMTREE_COMMIT_FOOTPRINT(0) );
   l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,            FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),      fd_txncache_footprint( tile->bank.max_live_slots ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -161,12 +163,17 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-      ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
+      ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
       continue;
     }
 
-    // TODO: Revive ...
-    // writable_alt[ i ] = fd_type_pun( &txn_ctx->account_keys[ txn_ctx->txn_descriptor->acct_addr_cnt ] );
+    /* The account keys in the transaction context are laid out such
+       that first the non-alt accounts are laid out, then the writable
+       alt accounts, and finally the read-only alt accounts. */
+    fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
+    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
+      writable_alt[ i ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
+    }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
@@ -184,7 +191,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
              that pack and GUI expect ... */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-err)<<24);
 
-    ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( err ) ]++;
+    ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
 
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size);
@@ -235,7 +242,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->xid, txn_ctx, bank, NULL );
+    fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
     FD_TEST( txn->flags );
   }
 
@@ -327,8 +334,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       break;
     }
 
-    // TODO: Revive
-    // writable_alt[ i ] = fd_type_pun( &txn_ctx->account_keys[ txn_ctx->txn_descriptor->acct_addr_cnt ] );
+    /* The account keys in the transaction context are laid out such
+       that first the non-alt accounts are laid out, then the writable
+       alt accounts, and finally the read-only alt accounts. */
+    fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
+    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
+      writable_alt[ i ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
+    }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     actual_execution_cus[ i ] = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
@@ -337,7 +349,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     (void)out_timestamps; // TODO: GUI, report timestamps
   }
 
-  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ -fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;
+  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;
 
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -485,6 +497,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
   void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0)      );
   void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),    fd_txncache_footprint( tile->bank.max_live_slots ) );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -504,6 +517,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->spad          = ctx->exec_spad;
   ctx->txn_ctx->spad_wksp     = fd_wksp_containing( exec_spad );
   NONNULL( fd_funk_join( ctx->txn_ctx->funk, fd_topo_obj_laddr( topo, tile->bank.funk_obj_id ) ) );
+
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+  FD_TEST( txncache_shmem );
+  fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  FD_TEST( txncache );
+  ctx->txn_ctx->status_cache = txncache;
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );

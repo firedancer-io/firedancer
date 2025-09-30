@@ -496,13 +496,23 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
 
   /* We want to copy over the fields from the parent to the child,
      except for the fields which correspond to the header of the bank
-     struct which is used for pool management.  We can take advantage of
+     struct which either are used for internal memory managment or are
+     fields which are not copied over from the parent bank (e.g. stake
+     delegations delta and the cost tracker).  We can take advantage of
      the fact that those fields are laid out at the top of the bank
-     struct.
-
-     TODO: We don't need to copy over the stake delegations delta. */
+     struct. */
 
   memcpy( (uchar *)child_bank + FD_BANK_HEADER_SIZE, (uchar *)parent_bank + FD_BANK_HEADER_SIZE, sizeof(fd_bank_t) - FD_BANK_HEADER_SIZE );
+
+  /* Initialization for the non-templatized fields.  The dirty flag just
+     needs to be cleared and the lock needs to be released. */
+
+  child_bank->cost_tracker_dirty = 0;
+  fd_rwlock_unwrite( &child_bank->cost_tracker_lock );
+
+  child_bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_unwrite( &child_bank->stake_delegations_delta_lock );
+
 
   /* Setup all of the CoW fields. */
   #define HAS_COW_1(name)                                                   \
@@ -536,11 +546,6 @@ fd_banks_clone_from_parent( fd_banks_t * banks,
   }
 
   child_bank->refcnt = 0UL;
-
-  /* Delta field does not need to be copied over. The dirty flag just
-     needs to be cleared if it was set. */
-  child_bank->stake_delegations_delta_dirty = 0;
-  fd_rwlock_unwrite( &child_bank->stake_delegations_delta_lock );
 
   /* Now the child bank is replayable. */
   child_bank->flags |= FD_BANK_FLAGS_REPLAYABLE;
@@ -676,6 +681,10 @@ fd_banks_advance_root( fd_banks_t * banks,
     FD_LOG_CRIT(( "invariant violation: new root is NULL" ));
   }
 
+  if( FD_UNLIKELY( new_root->parent_idx!=old_root->idx ) ) {
+    FD_LOG_CRIT(( "invariant violation: trying to advance root bank by more than one" ));
+  }
+
   fd_stake_delegations_t * stake_delegations = fd_stake_delegations_join( banks->stake_delegations_root );
   fd_bank_stake_delegation_apply_deltas( banks, new_root, stake_delegations );
   new_root->stake_delegations_delta_dirty = 0;
@@ -784,6 +793,12 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
   #undef HAS_COW_0
   #undef HAS_COW_1
 
+  bank->cost_tracker_dirty = 0;
+  fd_rwlock_unwrite( &bank->cost_tracker_lock );
+
+  bank->stake_delegations_delta_dirty = 0;
+  fd_rwlock_unwrite( &bank->stake_delegations_delta_lock );
+
   fd_rwlock_unread( &banks->rwlock );
 }
 
@@ -861,130 +876,62 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     return 0;
   }
 
+  /* Early exit if the root bank still has a reference to it, we can't
+     advance from it unti it's released. */
+  if( FD_UNLIKELY( root->refcnt!=0UL ) ) {
+    fd_rwlock_unread( &banks->rwlock );
+    return 0;
+  }
+
   fd_bank_t * target_bank = fd_banks_pool_ele( bank_pool, target_bank_idx );
   if( FD_UNLIKELY( !target_bank ) ) {
     FD_LOG_CRIT(( "failed to get bank for valid pool idx %lu", target_bank_idx ));
   }
 
   /* Mark every node from the target bank up through its parents to the
-     root as being rooted. */
+     root as being rooted.  We also need to figure out the oldest,
+     non-rooted ancestor of the target bank since we only want to
+     advance our root bank by one. */
   fd_bank_t * curr = target_bank;
   fd_bank_t * prev = NULL;
-  while( curr ) {
+  while( curr && curr!=root ) {
     curr->flags |= FD_BANK_FLAGS_ROOTED;
     prev         = curr;
     curr         = fd_banks_pool_ele( bank_pool, curr->parent_idx );
   }
 
-  /* If we didn't reach the old root, target is not a descendant. */
-  if( FD_UNLIKELY( prev!=root ) ) {
-    FD_LOG_CRIT(( "invariant violation: target bank_idx %lu is not a direct descendant of root bank_idx %lu", target_bank_idx, root->idx ));
+  ulong advance_candidate_idx = prev->idx;
+
+  /* If we didn't reach the old root or there is no parent, target is
+     not a descendant. */
+  if( FD_UNLIKELY( !curr || prev->parent_idx!=root->idx ) ) {
+    FD_LOG_CRIT(( "invariant violation: target bank_idx %lu is not a direct descendant of root bank_idx %lu %lu %lu", target_bank_idx, root->idx, prev->idx, prev->parent_idx ));
   }
 
-  /* We know that the majority fork that is not getting pruned off is
-     the child of the target bank.  All other child/sibling nodes off of
-     the other nodes that were just marked as root are minority forks
-     which should be pruned off. */
+  /* We should mark the old root bank as dead. */
+  root->flags |= FD_BANK_FLAGS_DEAD;
 
-  /* Now traverse from root towards target and find the highest
-     block that can be pruned. */
-  ulong        highest_advanceable_bank_idx = ULONG_MAX;
-  fd_bank_t *  advanceable_bank             = NULL;
-  fd_bank_t *  prune_candidate              = root;
-  int          found_advanceable_block      = 0;
-  while( prune_candidate && prune_candidate->flags & FD_BANK_FLAGS_ROOTED ) {
-    fd_bank_t * rooted_child_bank = NULL;
-
-    if( prune_candidate->refcnt!=0UL ) {
-      break;
-    }
-
-    /* For this node to be pruned, all minority forks that branch off
-       from it must be entirely eligible for pruning.  A fork is
-       eligible for pruning if there are no outstanding references to
-       any of the nodes on the fork.  This means checking all children
-       (except for the one on the rooted fork) and their entire
-       subtrees. */
-    int all_minority_forks_can_be_pruned = 1;
-    ulong child_idx = prune_candidate->child_idx;
-    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
-      fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
-      if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
-        rooted_child_bank = sibling;
-      } else if( sibling->parent_idx!=target_bank_idx ) {
-        /* This is a minority fork. */
-        if( !fd_banks_subtree_can_be_pruned( bank_pool, sibling ) ) {
-          all_minority_forks_can_be_pruned = 0;
-          break;
-        }
+  /* We will at most advance our root bank by one.  This means we can
+     advance our root bank by one if each of the siblings of the
+     potential new root are eligible for pruning.  Each of the sibling
+     subtrees can be pruned if the subtrees have no active references on
+     their bank. */
+  ulong child_idx = root->child_idx;
+  while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+    fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
+    if( child_idx!=advance_candidate_idx ) {
+      fd_banks_subtree_mark_dead( bank_pool, child_bank );
+      if( !fd_banks_subtree_can_be_pruned( bank_pool, child_bank ) ) {
+        fd_rwlock_unread( &banks->rwlock );
+        return 0;
       }
-      child_idx = sibling->sibling_idx;
     }
-
-    if( !all_minority_forks_can_be_pruned ) {
-      break;
-    }
-
-    highest_advanceable_bank_idx = prune_candidate->idx;
-    advanceable_bank             = prune_candidate;
-    prune_candidate              = rooted_child_bank;
-    found_advanceable_block      = 1;
+    child_idx = child_bank->sibling_idx;
   }
 
-  int advanced_publishable_block = 0;
-  if( FD_LIKELY( found_advanceable_block ) ) {
-    /* Find the rooted child of the highest block that can be pruned.
-       That's where we can publish to. */
-    fd_bank_t * rooted_child_bank = NULL;
-    ulong child_idx = advanceable_bank->child_idx;
-    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
-      fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
-      if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
-        rooted_child_bank = sibling;
-        break;
-      }
-      child_idx = sibling->sibling_idx;
-    }
-    if( FD_LIKELY( rooted_child_bank ) ) {
-      highest_advanceable_bank_idx = rooted_child_bank->idx;
-    }
-
-    /* Write output. */
-    *advanceable_bank_idx_out = highest_advanceable_bank_idx;
-
-    if( FD_LIKELY( highest_advanceable_bank_idx!=root->idx ) ) {
-      advanced_publishable_block = 1;
-    }
-  }
-
-  /* At this point the highest publishable bank has been identified. */
-
-  /* Now mark all minority forks as being dead.  This involves
-     traversing the tree down from the old root through its descendants
-     that are marked as rooted.  Any child/sibling nodes of these rooted
-     nodes are minority forks which should be marked as dead. */
-
-  curr = root;
-  while( curr && curr->flags & FD_BANK_FLAGS_ROOTED ) {
-    fd_bank_t * rooted_child_bank = NULL;
-    ulong       child_idx         = curr->child_idx;
-    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
-      fd_bank_t * sibling = fd_banks_pool_ele( bank_pool, child_idx );
-      if( sibling->flags & FD_BANK_FLAGS_ROOTED ) {
-        rooted_child_bank = sibling;
-      } else if( sibling->parent_idx!=target_bank_idx ) {
-        /* This is a minority fork.  Every node in the subtree should
-           be marked as dead.  We know that it is a minority fork
-           this node is not a child of the new target root. */
-        fd_banks_subtree_mark_dead( bank_pool, sibling );
-      }
-      child_idx = sibling->sibling_idx;
-    }
-    curr = rooted_child_bank;
-  }
-
+  *advanceable_bank_idx_out = advance_candidate_idx;
   fd_rwlock_unread( &banks->rwlock );
-  return advanced_publishable_block;
+  return 1;
 }
 
 fd_bank_t *

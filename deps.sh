@@ -152,6 +152,8 @@ check_fedora_pkgs () {
     make               # build system
     pkgconf            # build system
     patch              # build system
+    zstd               # build system
+    gzip               # build system
     gcc                # compiler
     gcc-c++            # compiler
 
@@ -195,6 +197,8 @@ check_debian_pkgs () {
     diffutils          # build system
     build-essential    # C/C++ compiler
     pkgconf            # build system
+    zstd               # build system
+    gzip               # build system
 
     cmake              # Agave (protobuf-src)
     libclang-dev       # Agave (bindgen)
@@ -233,6 +237,8 @@ check_alpine_pkgs () {
     linux-headers    # base dependency
     libucontext-dev  # base dependency
     patch            # build system
+    zstd             # build system
+    gzip             # build system
   )
   if [[ $DEVMODE == 1 ]]; then
     REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )
@@ -536,20 +542,7 @@ install_rocksdb () {
 
   # Fix a random build failure
   git checkout HEAD -- db/blob/blob_file_meta.h
-  git apply << EOF
-diff --git a/db/blob/blob_file_meta.h b/db/blob/blob_file_meta.h
-index d7c8a12..8cfff9b 100644
---- a/db/blob/blob_file_meta.h
-+++ b/db/blob/blob_file_meta.h
-@@ -5,6 +5,7 @@
- 
- #pragma once
- 
-+#include <cstdint>
- #include <cassert>
- #include <iosfwd>
- #include <memory>
-EOF
+  git apply <(echo -e "diff --git a/db/blob/blob_file_meta.h b/db/blob/blob_file_meta.h\nindex d7c8a12..8cfff9b 100644\n--- a/db/blob/blob_file_meta.h\n+++ b/db/blob/blob_file_meta.h\n@@ -5,6 +5,7 @@\n \n #pragma once\n \n+#include <cstdint>\n #include <cassert>\n #include <iosfwd>\n #include <memory>\n")
 
   ROCKSDB_DISABLE_NUMA=1 \
   ROCKSDB_DISABLE_ZLIB=1 \

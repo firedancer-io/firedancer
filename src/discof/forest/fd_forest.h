@@ -40,8 +40,6 @@
    we can afford to drastically decrease the number of chains in return
    for a slightly higher chance of collisions. */
 
-#define FD_FOREST_FORK_CNT_EST  128
-
 #define SET_NAME fd_forest_blk_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
@@ -72,6 +70,10 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   /* i.e. when fecs == cmpl, the slot is truly complete and everything
   is contained in fec store. Look at fec_clear for more details.*/
+
+  int est_buffered_tick_recv; /* tick of shred at buffered_idx.  Note since we don't track all the
+                                 ticks received, this will be a lower bound estimate on the highest tick we have seen.
+                                 But this is only used for limiting eager repair, so an exact value is not necessary. */
 
   /* Metrics */
 
@@ -111,17 +113,27 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 struct fd_forest_cns {
   ulong slot;
   ulong forest_pool_idx;
-  ulong next;
+  ulong hash;            /* reserved by pool and map_chain */
+  ulong next;            /* reserved by dlist */
+  ulong prev;            /* reserved by dlist */
 };
 typedef struct fd_forest_cns fd_forest_cns_t;
 
 #define MAP_NAME     fd_forest_consumed
 #define MAP_ELE_T    fd_forest_cns_t
 #define MAP_KEY      slot
+#define MAP_NEXT     hash
 #include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME   fd_forest_conslist
+#define DLIST_ELE_T  fd_forest_cns_t
+#define DLIST_PREV   prev
+#define DLIST_NEXT   next
+#include "../../util/tmpl/fd_dlist.c"
 
 #define POOL_NAME     fd_forest_conspool
 #define POOL_T        fd_forest_cns_t
+#define POOL_NEXT     hash
 #include "../../util/tmpl/fd_pool.c"
 
 /* Internal use only for BFSing */
@@ -168,7 +180,8 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
 
   ulong consumed_gaddr; /* map of slot to pool idx of the completed repair frontier */
-  ulong conspool_gaddr; /* wksp gaddr of fd_forest_consumed_pool */
+  ulong conslist_gaddr; /* wksp gaddr of fd_forest_conslist */
+  ulong conspool_gaddr; /* wksp gaddr of fd_forest_conspool */
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
 
@@ -202,17 +215,19 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_forest_t),         sizeof(fd_forest_t)                                    ),
-      fd_fseq_align(),              fd_fseq_footprint()                                    ),
-      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max                ) ),
-      fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max                ) ),
-      fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max                ) ),
-      fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( FD_FOREST_FORK_CNT_EST ) ),
-      fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max                ) ),
-      fd_forest_consumed_align(),   fd_forest_consumed_footprint( FD_FOREST_FORK_CNT_EST ) ),
-      fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max                ) ),
-      fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max                ) ),
+      alignof(fd_forest_t),         sizeof(fd_forest_t)                     ),
+      fd_fseq_align(),              fd_fseq_footprint()                     ),
+      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max ) ),
+      fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
+      fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
+      fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( ele_max ) ),
+      fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
+      fd_forest_consumed_align(),   fd_forest_consumed_footprint( ele_max ) ),
+      fd_forest_conslist_align(),   fd_forest_conslist_footprint(         ) ),
+      fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max ) ),
+      fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max ) ),
     fd_forest_align() );
 }
 
@@ -374,6 +389,19 @@ fd_forest_consumed_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->consumed_gaddr );
 }
 
+/* fd_forest_{conslist, conslist_const} returns a pointer in the caller's
+   address space to forest's conslist. */
+
+FD_FN_PURE static inline fd_forest_conslist_t *
+fd_forest_conslist( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->conslist_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_conslist_t const *
+fd_forest_conslist_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->conslist_gaddr );
+}
+
 /* fd_forest_{conspool, conspool_const} returns a pointer in the caller's
    address space to forest's conspool pool. */
 
@@ -420,7 +448,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot );
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, int src );
+fd_forest_data_shred_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint shred_idx, uint fec_set_idx, int slot_complete, int ref_tick, int src );
 
 fd_forest_blk_t *
 fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
@@ -431,7 +459,7 @@ fd_forest_code_shred_insert( fd_forest_t * forest, ulong slot, uint shred_idx );
    corresponding to the shred slot. */
 
 fd_forest_blk_t *
-fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete );
+fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint last_shred_idx, uint fec_set_idx, int slot_complete, int ref_tick );
 
 /* fd_forest_fec_clear clears the FEC set at the given slot and
    fec_set_idx.
@@ -500,7 +528,7 @@ struct fd_forest_iter {
   ulong ele_idx;
   uint  shred_idx;
   ulong                     frontier_ver; /* the frontier version number of forest at time of initialization */
-  fd_forest_consumed_iter_t head; /* the frontier node "root" of our current iteration, provided NO insertions or deletions in the frontier. */
+  fd_forest_conslist_iter_t head; /* the frontier node "root" of our current iteration, provided NO insertions or deletions in the frontier. */
 };
 typedef struct fd_forest_iter fd_forest_iter_t;
 

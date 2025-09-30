@@ -187,7 +187,7 @@ echo "
     max_account_records = $INDEX_MAX
     max_database_transactions = 64
 [runtime]
-    max_live_slots = 4
+    max_live_slots = 32
     max_fork_width = 4
 [log]
     level_stderr = \"INFO\"

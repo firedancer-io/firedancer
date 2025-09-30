@@ -50,6 +50,11 @@ typedef struct fd_slot_entry fd_slot_entry_t;
 #include "../../../util/tmpl/fd_map_chain.c"
 
 typedef void
+(* fd_slot_delta_parser_process_group_fn_t)( void *        _ctx,
+                                             uchar const * blockhash,
+                                             ulong         txnhash_offset );
+
+typedef void
 (* fd_slot_delta_parser_process_entry_fn_t)( void *                        _ctx,
                                              fd_sstxncache_entry_t const * entry );
 
@@ -75,6 +80,7 @@ fd_slot_delta_parser_delete( void * shmem );
 
 void
 fd_slot_delta_parser_init( fd_slot_delta_parser_t *                parser,
+                           fd_slot_delta_parser_process_group_fn_t group_cb,
                            fd_slot_delta_parser_process_entry_fn_t entry_cb,
                            void *                                  cb_arg );
 

@@ -105,10 +105,10 @@ sim_topo( config_t * config ) {
   /* Setup replay<->exec links in topo                                  */
   /**********************************************************************/
   fd_topob_wksp( topo, "replay_exec" );
+  fd_topob_link( topo, "replay_exec", "replay_exec", 16384UL, 2240UL, 1UL );
+  fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", 0UL );
   for( ulong i=0; i<config->firedancer.layout.exec_tile_count; i++ ) {
-    fd_topob_link( topo, "replay_exec", "replay_exec", 128UL, 10240UL, 1UL );
-    fd_topob_tile_out( topo, "replay", 0UL, "replay_exec", i );
-    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
   fd_topo_tile_t * exec_tile   = &topo->tiles[ fd_topo_find_tile( topo, "exec", 0UL ) ];
 
@@ -118,15 +118,15 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "bstore"      );
   fd_topob_wksp( topo, "poh_shred"   );
   fd_topob_wksp( topo, "root_slot"   );
-  fd_topob_wksp( topo, "tcache"      );
+  fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "bank_busy"   );
   fd_topob_wksp( topo, "exec_spad"   );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "tcache",
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
       config->firedancer.runtime.max_live_slots,
-      fd_ulong_pow2_up( FD_PACK_MAX_TXN_PER_SLOT ) );
+      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topo_obj_t * poh_slot_obj = fd_topob_obj( topo, "fseq", "poh_slot" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width );
 

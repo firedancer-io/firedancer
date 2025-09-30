@@ -20,8 +20,8 @@ $(call make-unit-test,test_hashes,test_hashes,fd_flamenco fd_funk fd_ballet fd_u
 $(call add-hdrs,fd_pubkey_utils.h)
 $(call add-objs,fd_pubkey_utils,fd_flamenco)
 
-$(call add-hdrs,fd_txncache.h)
-$(call add-objs,fd_txncache,fd_flamenco)
+$(call add-hdrs,fd_txncache_shmem.h fd_txncache.h)
+$(call add-objs,fd_txncache_shmem fd_txncache,fd_flamenco)
 
 $(call add-hdrs,fd_cost_tracker.h)
 $(call add-objs,fd_cost_tracker,fd_flamenco)

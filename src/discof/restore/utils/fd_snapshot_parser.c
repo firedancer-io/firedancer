@@ -1,9 +1,7 @@
 #include "fd_snapshot_parser.h"
-#include "fd_ssmsg.h"
 #include "fd_ssmanifest_parser.h"
 
 #include "../../../util/archive/fd_tar.h"
-#include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_ACC_SZ_MAX */
 
 #include <errno.h>
 #include <assert.h>
@@ -25,7 +23,8 @@ fd_snapshot_parser_new( void * mem,
                         ulong  seed,
                         ulong  max_acc_vecs,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
-                        fd_slot_delta_parser_process_entry_fn_t  status_cache_cb,
+                        fd_slot_delta_parser_process_group_fn_t  status_cache_group_cb,
+                        fd_slot_delta_parser_process_entry_fn_t  status_cache_entry_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb ) {
 
@@ -60,11 +59,12 @@ fd_snapshot_parser_new( void * mem,
 
   self->buf = _buf_mem;
 
-  self->manifest_cb     = manifest_cb;
-  self->status_cache_cb = status_cache_cb;
-  self->acc_hdr_cb      = acc_hdr_cb;
-  self->acc_data_cb     = acc_data_cb;
-  self->cb_arg          = cb_arg;
+  self->manifest_cb           = manifest_cb;
+  self->status_cache_group_cb = status_cache_group_cb;
+  self->status_cache_entry_cb = status_cache_entry_cb;
+  self->acc_hdr_cb            = acc_hdr_cb;
+  self->acc_data_cb           = acc_data_cb;
+  self->cb_arg                = cb_arg;
 
   self->metrics.accounts_files_processed = 0UL;
   self->metrics.accounts_files_total     = 0UL;

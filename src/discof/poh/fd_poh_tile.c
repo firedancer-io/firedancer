@@ -67,7 +67,17 @@ after_credit( fd_poh_tile_t *     ctx,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->idle_cnt++;
-  if( FD_UNLIKELY( ctx->idle_cnt>ctx->in_cnt ) ) {
+  if( FD_UNLIKELY( ctx->idle_cnt>=2UL*ctx->in_cnt ) ) {
+    /* We would like to fully drain input links to the best of our
+       knowledge, before we spend cycles on hashing.  That is, we would
+       like to assert that all input links have stayed empty since the
+       last time we polled.  Given an arbitrary input link L, the worst
+       case is when L is at idx 0 in the input link shuffle the last
+       time we polled a frag from it, but then link L ends up at idx
+       in_cnt-1 in the subsequent input link shuffle.  So strictly
+       speaking we will need to have observed 2*in_cnt-1 consecutive
+       empty in links to be able to assert that link L has been empty
+       since the last time we polled it. */
     fd_poh_advance( ctx->poh, stem, opt_poll_in, charge_busy );
     ctx->idle_cnt = 0UL;
   }
@@ -76,11 +86,11 @@ after_credit( fd_poh_tile_t *     ctx,
 /* ....
 
     1. replay -> (pack, poh) ... start packing for slot
-    2. if slot in progress -> pack -> poh (done_packing) for old slot
+    2. if slot in progress -> pack -> poh (abandon_packing) for old slot
     3. pack free to start packing
-    4. if poh slot in progress, refuse replay frag ... until see done_packing
+    4. if poh slot in progress, refuse replay frag ... until see abandon_packing
     5. poh must process pack frags in order
-    6. when poh sees done_packing, return poh -> replay saying bank unused now */
+    6. when poh sees done_packing/abandon_packing, return poh -> replay saying bank unused now */
 
 static inline int
 returnable_frag( fd_poh_tile_t *     ctx,
@@ -129,15 +139,22 @@ returnable_frag( fd_poh_tile_t *     ctx,
         fd_poh_begin_leader( ctx->poh, became_leader->slot, became_leader->hashcnt_per_tick, became_leader->ticks_per_slot, became_leader->tick_duration_ns, became_leader->max_microblocks_in_slot );
       } else if( sig==REPLAY_SIG_RESET ) {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-        fd_poh_reset( ctx->poh, stem, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
+        fd_poh_reset( ctx->poh, stem, reset->timestamp, reset->hashcnt_per_tick, reset->ticks_per_slot, reset->tick_duration_ns, reset->completed_slot, reset->completed_blockhash, reset->next_leader_slot, reset->max_microblocks_in_slot, reset->completed_block_id );
       }
       break;
     }
     case IN_KIND_BANK: {
+      ulong target_slot = fd_disco_bank_sig_slot( sig );
+      if( FD_UNLIKELY( fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) {
+        /* If we are skipping to a leader slot, we can't process bank
+           microblocks until we are actually ready to mix them in, which
+           is when we have hashed through the slots being skipped. */
+        return 1;
+      }
+
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );
-      ulong target_slot = fd_disco_bank_sig_slot( sig );
       fd_poh1_mixin( ctx->poh, stem, target_slot, trailer->hash, txn_cnt, txns );
       break;
     }

@@ -4,6 +4,7 @@
 #include "../../util/fd_util_base.h"
 
 struct fd_poh_reset {
+  long  timestamp;
   ulong completed_slot;
   uchar completed_blockhash[ 32UL ];
   ulong hashcnt_per_tick;

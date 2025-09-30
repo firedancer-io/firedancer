@@ -176,6 +176,7 @@ update_hashes_per_tick( fd_poh_t * poh,
 void
 fd_poh_reset( fd_poh_t *          poh,
               fd_stem_context_t * stem,
+              long                timestamp,               /* The local timestamp when the reset is occurring */
               ulong               hashcnt_per_tick,        /* The hashcnt per tick of the bank that completed */
               ulong               ticks_per_slot,
               ulong               tick_duration_ns,
@@ -194,6 +195,7 @@ fd_poh_reset( fd_poh_t *          poh,
   poh->reset_slot               = poh->slot;
   poh->next_leader_slot         = next_leader_slot;
   poh->max_microblocks_per_slot = max_microblocks_in_slot;
+  poh->reset_slot_start_ns      = timestamp;
 
   if( FD_UNLIKELY( poh->state==STATE_UNINIT ) ) {
     poh->tick_duration_ns = tick_duration_ns;
@@ -246,6 +248,12 @@ fd_poh_begin_leader( fd_poh_t * poh,
 int
 fd_poh_have_leader_bank( fd_poh_t const * poh ) {
   return poh->state==STATE_WAITING_FOR_SLOT || poh->state==STATE_LEADER;
+}
+
+int
+fd_poh_hashing_to_leader_slot( fd_poh_t const * poh ) {
+  int hashing = poh->state==STATE_WAITING_FOR_SLOT || poh->state==STATE_LEADER;
+  return hashing && poh->slot<poh->next_leader_slot;
 }
 
 void

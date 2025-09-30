@@ -23,7 +23,7 @@ jobs:
           compiler: clang
           extras: +dev
 
-      - run: sudo apt update && sudo apt install -y zip
+      - run: sudo apt update && sudo apt install -y zip zstd
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build shared object for fd_exec_sol_compat*.so
@@ -98,7 +98,7 @@ jobs:
         with:
           extras: +dev
 
-      - run: sudo apt update && sudo apt install -y zip
+      - run: sudo apt update && sudo apt install -y zip zstd
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
         name: Build M1 fuzz tests

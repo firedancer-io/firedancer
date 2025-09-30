@@ -19,41 +19,6 @@
 #define POH_PKT_TYPE_BECAME_LEADER (1UL)
 #define POH_PKT_TYPE_FEAT_ACT_SLOT (2UL)
 
-/* Equivocatable slot.
-
-   3 bits, or 8 versions/7 equivocations per slot. */
-#define FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX (3)
-#define FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX    (1UL<<FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX)
-#define FD_ESLOT_SLOT_LSB_MASK             ((1UL<<(64-FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX))-1UL)
-#define FD_ESLOT_PRIME_LSB_MASK            (FD_ESLOT_EQVOC_PER_SLOT_CNT_MAX-1UL)
-
-union fd_eslot {
-  struct {
-    ulong slot: 64UL-FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX;
-
-    /* Prime counter, starting from 0, ++ for every equivocation on the
-       slot. */
-    ulong prime: FD_ESLOT_EQVOC_PER_SLOT_CNT_LG_MAX;
-  };
-  ulong id;
-};
-typedef union fd_eslot fd_eslot_t;
-
-FD_FN_CONST static inline fd_eslot_t
-fd_eslot( ulong slot, ulong prime ) {
-  return (fd_eslot_t){ .slot = slot&FD_ESLOT_SLOT_LSB_MASK, .prime = (ulong)prime&FD_ESLOT_PRIME_LSB_MASK };
-}
-
-FD_FN_CONST static inline ulong
-fd_eslot_slot( fd_eslot_t eslot ) {
-  return (ulong)eslot.slot;
-}
-
-FD_FN_CONST static inline uchar
-fd_eslot_prime( fd_eslot_t eslot ) {
-  return (uchar)eslot.prime;
-}
-
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
    XSK entry size, so this value follows naturally. */
@@ -91,6 +56,18 @@ FD_STATIC_ASSERT( FD_SHRED_OUT_MTU == 156UL , update FD_SHRED_OUT_MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
+
+/* These limits are defined here to prevent circular dependencies, and
+   statically asserted they are calculated correctly in the relevant
+   places.  We get one bound using transactions that consume the minimum
+   number of CUs and another bound using the minimum size transactions.
+   The overall bound is the lower of the two. */
+#define FD_MAX_TXN_PER_SLOT_CU    98039UL
+#define FD_MAX_TXN_PER_SLOT_SHRED 272635UL
+#define FD_MAX_TXN_PER_SLOT       98039UL
+FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT<=FD_MAX_TXN_PER_SLOT_CU&&FD_MAX_TXN_PER_SLOT<=FD_MAX_TXN_PER_SLOT_SHRED, max_txn_per_slot );
+FD_STATIC_ASSERT( FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_CU||FD_MAX_TXN_PER_SLOT>=FD_MAX_TXN_PER_SLOT_SHRED, max_txn_per_slot );
+
 
 FD_PROTOTYPES_BEGIN
 

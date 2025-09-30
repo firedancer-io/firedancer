@@ -1,6 +1,7 @@
 #include "../../shared/fd_config.h"
 #include "../../shared/fd_action.h"
 #include "../../../disco/metrics/fd_metrics.h"
+#include "../../../util/clock/fd_clock.h"
 #include "../../../util/net/fd_pcap.h"
 
 #include <errno.h>
@@ -22,9 +23,16 @@ struct dump_ctx {
 
   ulong *                  metrics_base;
   long                     next_stat_log;
-  ulong                    last_frags;
-  ulong                    last_bytes;
+  ulong                    frags;
+  ulong                    bytes;
   ulong                    last_overrun_frags;
+
+  long                     warmup_until;
+
+  fd_clock_t               clock[ 1 ];
+  fd_clock_shmem_t         clock_mem[ 1 ];
+  fd_clock_epoch_t         clock_epoch[ 1 ];
+  long                     clock_recal_next;
 };
 typedef struct dump_ctx dump_ctx_t;
 
@@ -156,7 +164,7 @@ during_frag( dump_ctx_t * ctx,
   void const *           frag_data = fd_chunk_to_laddr_const( ctx->links[ in_idx ].dcache_base, chunk );
 
   fd_pcap_pkt( fd_io_buffered_ostream_peek( &ctx->ostream ),
-               (long)seq,
+               0L,
                mline,
                sizeof(fd_frag_meta_t),
                frag_data,
@@ -172,32 +180,41 @@ after_frag( dump_ctx_t *        ctx,
             ulong               sig FD_PARAM_UNUSED,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
-            ulong               tspub FD_PARAM_UNUSED,
+            ulong               tspub,
             fd_stem_context_t * stem FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( !ctx->pending_sz ) ) return;
   long pcap_sz = fd_pcap_pkt_sz( sizeof(fd_frag_meta_t), sz );
   FD_TEST( (ulong)pcap_sz == ctx->pending_sz );
-  fd_io_buffered_ostream_seek( &ctx->ostream, ctx->pending_sz );
+
+  long tickcount = fd_tickcount();
+  long now       = fd_clock_epoch_y( ctx->clock_epoch, tickcount );
+  if( FD_LIKELY( now>ctx->warmup_until ) ) {
+    if( FD_LIKELY( tspub!=0UL ) ) {
+      long   tspub_decomp    = fd_frag_meta_ts_decomp( tspub, tickcount );
+      long   tspub_wallclock = fd_clock_epoch_y( ctx->clock_epoch, tspub_decomp );
+      uint * pcap_tss        = fd_io_buffered_ostream_peek( &ctx->ostream );
+      pcap_tss[ 0 ] = (uint)(((ulong)tspub_wallclock) / (ulong)1e9);
+      pcap_tss[ 1 ] = (uint)(((ulong)tspub_wallclock) % (ulong)1e9); /* Actually nsec */
+    }
+    fd_io_buffered_ostream_seek( &ctx->ostream, ctx->pending_sz );
+    ctx->frags += 1UL;
+    ctx->bytes += sz;
+  }
   ctx->pending_sz = 0UL;
 }
 
 static void
 log_metrics( dump_ctx_t * ctx ) {
-  ulong frags = 0UL;
-  ulong bytes = 0UL;
+  FD_LOG_NOTICE(( "dumped %lu frags, %lu bytes", ctx->frags, ctx->bytes ));
+  ctx->frags = 0UL;
+  ctx->bytes = 0UL;
+
   ulong overrun_frags = 0UL;
   for( ulong i=0UL; i<ctx->link_cnt; i++) {
     volatile ulong const * link_metrics = fd_metrics_link_in( ctx->metrics_base, i );
-    frags         += link_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ];
-    bytes         += link_metrics[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ];
     overrun_frags += link_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ];
     overrun_frags += link_metrics[ FD_METRICS_COUNTER_LINK_OVERRUN_READING_FRAG_COUNT_OFF ];
   }
-
-  long frags_diff = fd_seq_diff( frags, ctx->last_frags );
-  long bytes_diff = fd_seq_diff( bytes, ctx->last_bytes );
-  FD_LOG_NOTICE(( "dumped %ld frags, %ld bytes", frags_diff, bytes_diff ));
-
   if( FD_UNLIKELY( overrun_frags != ctx->last_overrun_frags ) ) {
     /* Note: We expect overruns at startup because we have no way to
        know the current seq to start polling from, so we start at 0
@@ -212,7 +229,11 @@ log_metrics( dump_ctx_t * ctx ) {
 
 static void
 during_housekeeping( dump_ctx_t * ctx ) {
-  long now = fd_log_wallclock();
+  long now = fd_clock_epoch_y( ctx->clock_epoch, fd_tickcount() );
+  if( FD_UNLIKELY( now > ctx->clock_recal_next ) ) {
+    ctx->clock_recal_next = fd_clock_default_recal( ctx->clock );
+    fd_clock_epoch_refresh( ctx->clock_epoch, ctx->clock_mem );
+  }
   if( FD_UNLIKELY( now > ctx->next_stat_log ) ) {
     ctx->next_stat_log = now + (long)1e9;
     log_metrics( ctx );
@@ -297,7 +318,18 @@ dump_cmd_fn( args_t      * args,
     ctx.metrics_base = fd_metrics_join( fd_metrics_new( fd_alloca( FD_METRICS_ALIGN, FD_METRICS_FOOTPRINT( ctx.link_cnt, 0UL ) ), ctx.link_cnt, 0UL ) );
     fd_metrics_register( ctx.metrics_base );
 
-    ctx.next_stat_log = fd_log_wallclock() + (long)1e9;
+    /* The purpose of the warmup period is to ensure that all frags in
+       the pcap were from after the dump was started.  fd_stem currently
+       has no way to start from the most recently published frags when
+       joining links, so at startup we get a full ~depth set of callbacks
+       for old frags.  This code assumes that we are caught up and only
+       processing new frags by the time the warmup timer expires. */
+    fd_clock_default_init( ctx.clock, ctx.clock_mem );
+    ctx.clock_recal_next = fd_clock_default_recal( ctx.clock );
+    fd_clock_epoch_init( ctx.clock_epoch, ctx.clock_mem );
+    ctx.warmup_until = fd_clock_epoch_y( ctx.clock_epoch, fd_tickcount() ) + (long)1e9;
+    ctx.next_stat_log = ctx.warmup_until + (long)1e9;
+
     stem_run1( ctx.link_cnt, /* in_cnt */
                mcaches,      /* in_mcache */
                fseqs,        /* in_fseq */
@@ -320,6 +352,9 @@ dump_cmd_fn( args_t      * args,
       FD_LOG_NOTICE(( "dumped %lu frags, %lu bytes in total from %s:%lu. Link hash: 0x%x",
                       frags, bytes, link->topo->name, link->topo->kind_id, link->link_hash ));
     }
+
+    fd_clock_leave( ctx.clock );
+    fd_clock_delete( ctx.clock_mem );
 
     fd_metrics_delete( fd_metrics_leave( ctx.metrics_base ) );
     ctx.metrics_base = NULL;

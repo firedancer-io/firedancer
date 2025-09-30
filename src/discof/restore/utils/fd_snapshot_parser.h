@@ -75,7 +75,8 @@ struct fd_snapshot_parser {
 
   /* Account processing callbacks */
   fd_snapshot_parser_process_manifest_fn_t manifest_cb;
-  fd_slot_delta_parser_process_entry_fn_t  status_cache_cb;
+  fd_slot_delta_parser_process_group_fn_t  status_cache_group_cb;
+  fd_slot_delta_parser_process_entry_fn_t  status_cache_entry_cb;
   fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb;
   fd_snapshot_process_acc_data_fn_t        acc_data_cb;
   void * cb_arg;
@@ -90,7 +91,7 @@ typedef struct fd_snapshot_parser fd_snapshot_parser_t;
 
 FD_FN_CONST static inline ulong
 fd_snapshot_parser_align( void ) {
-  return 128UL;
+  return fd_ulong_max( alignof(fd_snapshot_parser_t), fd_ulong_max( fd_ssmanifest_parser_align(), fd_ulong_max( fd_slot_delta_parser_align(), 16UL ) ) );
 }
 
 FD_FN_CONST ulong
@@ -118,7 +119,7 @@ fd_snapshot_parser_reset( fd_snapshot_parser_t * self,
   self->flags = 0UL;
   fd_snapshot_parser_reset_tar( self );
   fd_ssmanifest_parser_init( self->manifest_parser, (fd_snapshot_manifest_t*)manifest_buf );
-  fd_slot_delta_parser_init( self->slot_delta_parser, self->status_cache_cb, self->cb_arg );
+  fd_slot_delta_parser_init( self->slot_delta_parser, self->status_cache_group_cb, self->status_cache_entry_cb, self->cb_arg );
 
   self->status_cache_done    = 0;
   self->manifest_done        = 0;
@@ -140,7 +141,8 @@ fd_snapshot_parser_new( void * mem,
                         ulong  seed,
                         ulong  max_acc_vecs,
                         fd_snapshot_parser_process_manifest_fn_t manifest_cb,
-                        fd_slot_delta_parser_process_entry_fn_t  status_cache_cb,
+                        fd_slot_delta_parser_process_group_fn_t  status_cache_group_cb,
+                        fd_slot_delta_parser_process_entry_fn_t  status_cache_entry_cb,
                         fd_snapshot_process_acc_hdr_fn_t         acc_hdr_cb,
                         fd_snapshot_process_acc_data_fn_t        acc_data_cb );
 

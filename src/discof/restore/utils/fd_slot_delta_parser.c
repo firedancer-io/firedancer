@@ -31,12 +31,14 @@ struct fd_slot_delta_parser_private {
 
   ulong   len;                                      /* number of slot delta entries */
   int     is_root;                                  /* whether the current slot delta entry is rooted */
+  ulong   txnhash_offset;                           /* offset into the txncache for the current slot delta entry */
   ulong   slot_delta_status_len;                    /* number of blockhashes in the slot delta entry */
   ulong   cache_status_len;                         /* number of txns associated with the blockhash */
   ulong   borsh_io_error_len;                       /* used to parse a variable len borsh_io_error string */
   uint    error_discriminant;                       /* stores the error discriminant of a txn result */
   uchar   error;                                    /* stores the error code of a txn result */
 
+  fd_slot_delta_parser_process_group_fn_t group_cb; /* callback invoked for each parsed group of entrys */
   fd_slot_delta_parser_process_entry_fn_t entry_cb; /* callback invoked for each parsed entry */
   void *                                  cb_arg;   /* callback arg */
 
@@ -78,7 +80,7 @@ state_dst( fd_slot_delta_parser_t * parser ) {
     case STATE_SLOT_DELTA_IS_ROOT:                                 return (uchar*)&parser->is_root;
     case STATE_SLOT_DELTA_STATUS_LEN:                              return (uchar*)&parser->slot_delta_status_len;
     case STATE_STATUS_BLOCKHASH:                                   return parser->entry->blockhash;
-    case STATE_STATUS_TXN_IDX:                                     return NULL;
+    case STATE_STATUS_TXN_IDX:                                     return (uchar*)&parser->txnhash_offset;
     case STATE_CACHE_STATUS_LEN:                                   return (uchar*)&parser->cache_status_len;
     case STATE_CACHE_STATUS_KEY_SLICE:                             return parser->entry->txnhash;
     case STATE_CACHE_STATUS_RESULT:                                return (uchar*)&parser->error_discriminant;
@@ -185,6 +187,7 @@ state_process( fd_slot_delta_parser_t * parser ) {
       break;
     case STATE_STATUS_TXN_IDX:
       parser->state = STATE_CACHE_STATUS_LEN;
+      if( FD_LIKELY( parser->group_cb ) ) parser->group_cb( parser->cb_arg, parser->entry->blockhash, parser->txnhash_offset );
       break;
     case STATE_CACHE_STATUS_LEN:
       if( FD_UNLIKELY( !parser->cache_status_len ) ) loop( parser );
@@ -311,6 +314,7 @@ fd_slot_delta_parser_delete( void * shmem ) {
 
 void
 fd_slot_delta_parser_init( fd_slot_delta_parser_t *                parser,
+                           fd_slot_delta_parser_process_group_fn_t group_cb,
                            fd_slot_delta_parser_process_entry_fn_t entry_cb,
                            void *                                  cb_arg ) {
   parser->state     = STATE_SLOT_DELTAS_LEN;
@@ -330,6 +334,7 @@ fd_slot_delta_parser_init( fd_slot_delta_parser_t *                parser,
 
   parser->slot_pool_ele_cnt = 0UL;
 
+  parser->group_cb = group_cb;
   parser->entry_cb = entry_cb;
   parser->cb_arg   = cb_arg;
 
