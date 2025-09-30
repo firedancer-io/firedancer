@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-D-Il30aG.js","assets/index-BjT-fLah.css"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-dQ4D2z6w.js","assets/index-BjT-fLah.css"])))=>i.map(i=>d[i]);
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
@@ -55636,7 +55636,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
   const eZe = "_card_1pr66_1", tZe = "_skipped_1pr66_7", RU = {
     card: eZe,
     skipped: tZe
-  }, nZe = "_grid_1l24j_1", rZe = "_header-text_1l24j_19", oZe = "_slot-header-text_1l24j_25", iZe = "_votes-header_1l24j_30", sZe = "_non-votes-header_1l24j_33", aZe = "_fees-header_1l24j_36", AZe = "_tips-header_1l24j_39", lZe = "_compute-units-header_1l24j_42", cZe = "_slot-text_1l24j_46", uZe = "_row-text_1l24j_69", fZe = "_active_1l24j_74", dZe = "_narrow-screen_1l24j_79", hi = {
+  }, nZe = "_grid_1be1a_1", rZe = "_header-text_1be1a_19", oZe = "_slot-header-text_1be1a_25", iZe = "_votes-header_1be1a_30", sZe = "_non-votes-header_1be1a_33", aZe = "_fees-header_1be1a_36", AZe = "_tips-header_1be1a_39", lZe = "_compute-units-header_1be1a_42", cZe = "_slot-text_1be1a_46", uZe = "_row-text_1be1a_69", fZe = "_active_1be1a_75", dZe = "_narrow-screen_1be1a_80", hi = {
     grid: nZe,
     headerText: rZe,
     slotHeaderText: oZe,
@@ -57906,7 +57906,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
     });
   }, Nqe = pI("/gossip")({
     component: Oqe
-  }), Fqe = x.lazy(() => Mqe(() => import("./index-D-Il30aG.js"), __vite__mapDeps([0,1])));
+  }), Fqe = x.lazy(() => Mqe(() => import("./index-dQ4D2z6w.js"), __vite__mapDeps([0,1])));
   function Oqe() {
     return y.jsx(x.Suspense, {
       children: y.jsx(Fqe, {})

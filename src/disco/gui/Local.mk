@@ -6,28 +6,20 @@ $(call make-unit-test,test_live_table,test_live_table,fd_disco fd_util)
 endif
 
 src/disco/gui/dist_stable_cmp/%.zst: src/disco/gui/dist_stable/%
-	@if [ ! -f $@ ]; then \
-		mkdir -p $(@D); \
-		zstd -19 $< -o $@; \
-	fi
+	mkdir -p $(@D);
+	zstd -f -19 $< -o $@;
 
 src/disco/gui/dist_stable_cmp/%.gz: src/disco/gui/dist_stable/%
-	@if [ ! -f $@ ]; then \
-		mkdir -p $(@D); \
-		gzip -c -9 $< > $@; \
-	fi
+	mkdir -p $(@D);
+	gzip -f -c -9 $< > $@;
 
 src/disco/gui/dist_alpha_cmp/%.zst: src/disco/gui/dist_alpha/%
-	@if [ ! -f $@ ]; then \
-		mkdir -p $(@D); \
-		zstd -19 $< -o $@; \
-	fi
+	mkdir -p $(@D);
+	zstd -f -19 $< -o $@;
 
 src/disco/gui/dist_alpha_cmp/%.gz: src/disco/gui/dist_alpha/%
-	@if [ ! -f $@ ]; then \
-		mkdir -p $(@D); \
-		gzip -c -9 $< > $@; \
-	fi
+	mkdir -p $(@D);
+	gzip -f -c -9 $< > $@;
 
 FD_GUI_FRONTEND_STABLE_FILES := $(shell find src/disco/gui/dist_stable -type f)
 FD_GUI_FRONTEND_ALPHA_FILES := $(shell find src/disco/gui/dist_alpha -type f)

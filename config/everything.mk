@@ -560,7 +560,7 @@ else
 $(error "unexpected FRONTEND_RELEASE_CHANNEL")
 endif
 
-frontend:
+frontend: frontend-clean
 	cd frontend && npm ci && npm run build
 	rm -rf src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
 	mkdir -p src/disco/gui/dist_$(FRONTEND_RELEASE_CHANNEL)
@@ -604,5 +604,5 @@ frontend:
 	done; \
 
 frontend-clean:
-	rm -rf src/disco/gui/dist_stable_cmp/*
-	rm -rf src/disco/gui/dist_alpha_cmp/*
+	rm -rf src/disco/gui/dist_stable_cmp
+	rm -rf src/disco/gui/dist_alpha_cmp

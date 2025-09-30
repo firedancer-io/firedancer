@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-CQJzAPkF.js","assets/index-_St8gGTN.css"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/index-CPPopdxQ.js","assets/index-_St8gGTN.css"])))=>i.map(i=>d[i]);
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
@@ -53225,7 +53225,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
   const M$e = "_card_1pr66_1", F$e = "_skipped_1pr66_7", e7 = {
     card: M$e,
     skipped: F$e
-  }, N$e = "_grid_t45aw_1", O$e = "_header-text_t45aw_19", P$e = "_slot-header-text_t45aw_25", L$e = "_votes-header_t45aw_30", U$e = "_non-votes-header_t45aw_33", G$e = "_fees-header_t45aw_36", j$e = "_tips-header_t45aw_39", H$e = "_compute-units-header_t45aw_42", Y$e = "_slot-text_t45aw_46", $$e = "_row-text_t45aw_69", J$e = "_active_t45aw_74", W$e = "_narrow-screen_t45aw_79", X$e = "_icon_t45aw_83", fi = {
+  }, N$e = "_grid_180wk_1", O$e = "_header-text_180wk_19", P$e = "_slot-header-text_180wk_25", L$e = "_votes-header_180wk_30", U$e = "_non-votes-header_180wk_33", G$e = "_fees-header_180wk_36", j$e = "_tips-header_180wk_39", H$e = "_compute-units-header_180wk_42", Y$e = "_slot-text_180wk_46", $$e = "_row-text_180wk_69", J$e = "_active_180wk_75", W$e = "_narrow-screen_180wk_80", X$e = "_icon_180wk_84", fi = {
     grid: N$e,
     headerText: O$e,
     slotHeaderText: P$e,
@@ -55704,7 +55704,7 @@ In order to be iterable, non-array objects must have a [Symbol.iterator]() metho
     });
   }, kWe = uC("/gossip")({
     component: TWe
-  }), DWe = x.lazy(() => xWe(() => import("./index-CQJzAPkF.js"), __vite__mapDeps([0,1])));
+  }), DWe = x.lazy(() => xWe(() => import("./index-CPPopdxQ.js"), __vite__mapDeps([0,1])));
   function TWe() {
     return b.jsx(x.Suspense, {
       children: b.jsx(DWe, {})
