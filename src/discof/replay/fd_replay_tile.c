@@ -996,6 +996,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   FD_TEST( ctx->is_booted );
   if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return 0;
   if( FD_UNLIKELY( ctx->is_leader || ctx->next_leader_slot==ULONG_MAX ) ) return 0;
+  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
   long now = fd_log_wallclock();
@@ -1533,13 +1534,10 @@ advance_published_root( fd_replay_tile_t * ctx ) {
 
   /* If the identity vote has been seen on a bank that should be rooted,
      then we are now ready to produce blocks. */
-  if( !ctx->has_identity_vote_rooted ) {
+  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) {
     fd_bank_t * root_bank = fd_banks_bank_query( ctx->banks, target_bank_idx );
-    if( FD_LIKELY( !!root_bank ) ) {
-      if( FD_UNLIKELY( !ctx->has_identity_vote_rooted && fd_bank_has_identity_vote_get( root_bank ) ) ) {
-        ctx->has_identity_vote_rooted = 1;
-      }
-    }
+    if( FD_UNLIKELY( !root_bank ) ) FD_LOG_CRIT(( "invariant violation: root bank not found for bank index %lu", target_bank_idx ));
+    if( FD_LIKELY( fd_bank_has_identity_vote_get( root_bank ) ) ) ctx->has_identity_vote_rooted = 1;
   }
 
   ulong advanceable_root_idx = ULONG_MAX;
