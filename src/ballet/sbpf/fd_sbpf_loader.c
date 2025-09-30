@@ -596,7 +596,7 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
       /* In this case, we are relocating an address inside a data
          section.
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1217-L1228 */
-      if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, sizeof(ulong) ) >elf_sz ) ) {
+      if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, sizeof(ulong) )>elf_sz ) ) {
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
       refd_addr = FD_LOAD( ulong, rodata+r_offset );
