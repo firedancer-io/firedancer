@@ -17,7 +17,7 @@
 #include <netinet/tcp.h>
 #include <netinet/in.h>
 
-#include "generated/snaprd_seccomp.h"
+#include "generated/fd_snaprd_tile_seccomp.h"
 
 #define FD_SSPING_MAX_PEERS (65536UL)
 
@@ -532,8 +532,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t) );
 
-  populate_sock_filter_policy_snaprd( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)ctx->local_in.full_snapshot_fd, (uint)ctx->local_in.incremental_snapshot_fd );
-  return sock_filter_policy_snaprd_instr_cnt;
+  populate_sock_filter_policy_fd_snaprd_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)ctx->local_in.full_snapshot_fd, (uint)ctx->local_in.incremental_snapshot_fd );
+  return sock_filter_policy_fd_snaprd_tile_instr_cnt;
 }
 
 static ulong

@@ -18,6 +18,4 @@ write: (or (eq (arg 0) 2)
 fsync: (eq (arg 0) logfile_fd)
 
 # shutdown: exit is called on shutdown
-#
-# arg 0 is the exit code for close
 exit: (eq (arg 0) 0)

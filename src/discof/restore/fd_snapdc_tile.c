@@ -3,7 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 
-#include "generated/snapdc_seccomp.h"
+#include "generated/fd_snapdc_tile_seccomp.h"
 
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
@@ -284,8 +284,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  populate_sock_filter_policy_snapdc( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_snapdc_instr_cnt;
+  populate_sock_filter_policy_fd_snapdc_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_snapdc_tile_instr_cnt;
 }
 
 static void

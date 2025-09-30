@@ -10,7 +10,7 @@
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
-#include "generated/snapin_seccomp.h"
+#include "generated/fd_snapin_tile_seccomp.h"
 
 #define NAME "snapin"
 
@@ -669,8 +669,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
 
-  populate_sock_filter_policy_snapin( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_snapin_instr_cnt;
+  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_snapin_tile_instr_cnt;
 }
 
 

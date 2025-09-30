@@ -30,12 +30,6 @@ read: (or (eq (arg 0) in_full_fd)
 
 # snapshot: establish connections when initializing client for snapshot
 # download and for pinging peers
-#
-# arg 0 is the domain of the socket
-#
-# arg 1 is the type of the socket
-#
-# arg 2 is the protocol of the socket
 socket: (or (and (eq (arg 0) "PF_INET")
                  (eq (arg 1) "SOCK_DGRAM|SOCK_NONBLOCK")
                  (eq (arg 2) "IPPROTO_ICMP"))
@@ -109,10 +103,6 @@ recvfrom: (not (or (eq (arg 0) 2)
 # arg 0 is the file descriptor that corresponds to the socket that we
 # want to connect to.  We know that we don't want to connect to the
 # file descriptors used for logging, stderr, or any of the snapshot fds.
-#
-# arg 1 is the protocol level that we want for our socket
-#
-# arg 2 is the option we want for our socket
 setsockopt: (and (not (or (eq (arg 0) 2)
                           (eq (arg 0) logfile_fd)
                           (eq (arg 0) dir_fd)
@@ -136,6 +126,4 @@ renameat: (and (eq (arg 0) dir_fd)
                (eq (arg 2) dir_fd))
 
 # shutdown: exit is called on shutdown
-#
-# arg 0 is the exit code for close
 exit: (eq (arg 0) 0)
