@@ -46,7 +46,6 @@ typedef struct fd_ipecho_server_connection fd_ipecho_server_connection_t;
 struct fd_ipecho_server {
   int sockfd;
 
-  int    has_shred_version;
   ushort shred_version;
 
   ulong evict_idx;
@@ -140,11 +139,9 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
                        ushort               port,
                        ushort               shred_version ) {
 
-  /* If the shred version is 0, we are still expecting it to be set.
-     We will not accept any connections until the shred version has been
-     set. */
-  server->has_shred_version = shred_version!=0U;
-  server->shred_version     = shred_version;
+  /* If the shred version is 0 that means that the shred version has not
+     been set yet. */
+  server->shred_version = shred_version;
 
   server->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==server->sockfd ) ) FD_LOG_ERR(( "socket() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -172,8 +169,7 @@ fd_ipecho_server_init( fd_ipecho_server_t * server,
 void
 fd_ipecho_server_set_shred_version( fd_ipecho_server_t * server,
                                     ushort               shred_version ) {
-  server->has_shred_version = 1;
-  server->shred_version     = shred_version;
+  server->shred_version = shred_version;
 }
 
 static inline int
@@ -326,7 +322,9 @@ fd_ipecho_server_poll( fd_ipecho_server_t * server,
                        int *                charge_busy,
                        int                  timeout_ms ) {
 
-  if( FD_UNLIKELY( !server->has_shred_version ) ) return;
+  /* If the shred version is 0 that means that the shred version just
+     has not been set yet.  Don't try to accept connections yet. */
+  if( FD_UNLIKELY( server->shred_version==0U ) ) return;
 
   int nfds = fd_syscall_poll( server->pollfds, (uint)(server->max_connection_cnt+1UL), timeout_ms );
   if( FD_UNLIKELY( 0==nfds ) ) return;
