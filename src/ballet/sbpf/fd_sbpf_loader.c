@@ -217,7 +217,8 @@ struct fd_sbpf_loader {
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
-/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L467-L496 */
+/* TODO: Normalize the error codes EVERYWHERE
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L467-L496 */
 int
 fd_sbpf_lenient_get_string_in_section( char *                string,
                                        fd_elf64_shdr const * section_header,
@@ -1365,7 +1366,7 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
 
     /* Validate bounds - reject broken ELFs */
     if( FD_UNLIKELY( vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
-      return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
   }
 
@@ -1384,7 +1385,7 @@ fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
   const ulong E_FLAGS_OFFSET = 48UL;
 
   if( FD_UNLIKELY( bin_sz<E_FLAGS_OFFSET+sizeof(uint) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
   }
   uint e_flags = FD_LOAD( uint, bin+E_FLAGS_OFFSET );
 
@@ -1581,8 +1582,6 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     ulong buf_offset_end   = fd_ulong_sat_sub( highest_addr, has_addr_file_offset ? addr_file_offset : 0UL );
 
     /* Set the rodata accordingly, and zero out the rest.
-       TODO: This should be optimized to avoid memcpys and set pointers
-       instead, like Agave does.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L948 */
     memmove( rodata, rodata+buf_offset_start, buf_offset_end-buf_offset_start );
     fd_memset( rodata+buf_offset_end, 0, prog->rodata_sz-buf_offset_end );
@@ -1749,7 +1748,12 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
 
 /* Second part of load_with_lenient_parser().
 
-   TODO: Explain what this function does.
+   This function is responsible for "loading" an sBPF program. This
+   means...
+   1. Applies any relocations in-place to the rodata section.
+   2. Registers the program entrypoint and other valid calldests.
+   3. Parses and validates the rodata sections, zeroing out any gaps
+      between sections.
 
    Returns 0 on success and an ElfError error code on failure.
 
