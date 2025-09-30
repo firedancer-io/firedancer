@@ -4,7 +4,7 @@
 #include "fd_snp_common.h"
 
 #define FD_SNP_APP_ALIGN (8UL)
-#define FD_SNP_APP_MAGIC (1234567890UL)
+#define FD_SNP_APP_MAGIC (0xf17eda2ce7529a99UL)
 
 /* TYPES */
 

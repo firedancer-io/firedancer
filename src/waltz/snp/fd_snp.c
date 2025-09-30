@@ -21,7 +21,7 @@ fd_snp_footprint_ext( fd_snp_limits_t const * limits,
   // ulong  tx_buf_sz        = limits->tx_buf_sz;
   // ulong  stream_pool_cnt  = limits->stream_pool_cnt;
 
-  if( FD_UNLIKELY( conn_cnt        ==0UL ) ) { FD_LOG_WARNING(( "invalid conn_cnt==0" )); return 0UL; }
+  if( FD_UNLIKELY( conn_cnt       ==0UL ) ) { FD_LOG_WARNING(( "invalid conn_cnt==0" )); return 0UL; }
 
   layout->meta_sz = sizeof(fd_snp_layout_t);
 
@@ -39,21 +39,21 @@ fd_snp_footprint_ext( fd_snp_limits_t const * limits,
   offs                      = fd_ulong_align_up( offs, fd_snp_conn_map_align() );
   layout->conn_map_off      = offs;
   ulong conn_map_footprint  = fd_snp_conn_map_footprint( 1 + fd_ulong_find_msb( limits->conn_cnt ) );
-  if( FD_UNLIKELY( !conn_map_footprint ) ) { FD_LOG_WARNING(( "invalid fd_snp_conn_map_footprint" )); return 0UL; }
+  if( FD_UNLIKELY( !conn_map_footprint  ) ) { FD_LOG_WARNING(( "invalid fd_snp_conn_map_footprint" )); return 0UL; }
   offs                     += conn_map_footprint;
 
   /* allocate space for packets */
   offs                      = fd_ulong_align_up( offs, fd_snp_pkt_pool_align() );
   layout->pkt_pool_off      = offs;
   ulong pkt_pool_footprint  = fd_snp_pkt_pool_footprint( limits->conn_cnt ); //FIXME
-  if( FD_UNLIKELY( !pkt_pool_footprint ) ) { FD_LOG_WARNING(( "invalid fd_snp_pkt_pool_footprint (pkt_pool)" )); return 0UL; }
+  if( FD_UNLIKELY( !pkt_pool_footprint  ) ) { FD_LOG_WARNING(( "invalid fd_snp_pkt_pool_footprint (pkt_pool)" )); return 0UL; }
   offs                     += pkt_pool_footprint;
 
   /* allocate space for connections' last packet */
   offs                      = fd_ulong_align_up( offs, fd_snp_pkt_pool_align() );
   layout->last_pkt_pool_off = offs;
   ulong last_pkt_footprint  = fd_snp_pkt_pool_footprint( limits->conn_cnt );
-  if( FD_UNLIKELY( !last_pkt_footprint ) ) { FD_LOG_WARNING(( "invalid fd_snp_pkt_pool_footprint (last_pkt_pool)" )); return 0UL; }
+  if( FD_UNLIKELY( !last_pkt_footprint  ) ) { FD_LOG_WARNING(( "invalid fd_snp_pkt_pool_footprint (last_pkt_pool)" )); return 0UL; }
   offs                     += last_pkt_footprint;
 
   return offs;
@@ -131,11 +131,6 @@ fd_snp_t *
 fd_snp_init( fd_snp_t * snp ) {
 
   fd_snp_limits_t const * limits = &snp->limits;
-  fd_snp_config_t       * config = &snp->config;
-
-  (void)config;
-  // if( FD_UNLIKELY( config->tick_per_us==0 ) ) { FD_LOG_WARNING(( "zero cfg.tick_per_us"  )); return NULL; }
-
 
   /* Validate layout */
   fd_snp_layout_t layout = {0};
@@ -149,8 +144,8 @@ fd_snp_init( fd_snp_t * snp ) {
   }
 
   /* Initialize apps (statically allocated) */
-  if( FD_UNLIKELY( snp->apps_cnt > sizeof(snp->apps)/sizeof(fd_snp_applications_t) ) ) {
-    FD_LOG_WARNING(( "[snp] invalid apps_cnt=%lu", snp->apps_cnt ));
+  if( FD_UNLIKELY( snp->apps_cnt > FD_SNP_APPS_CNT_MAX ) ) {
+    FD_LOG_WARNING(( "[snp] invalid apps_cnt=%lu max=%lu", snp->apps_cnt, FD_SNP_APPS_CNT_MAX ));
     return NULL;
   }
   for( ulong j=0; j<snp->apps_cnt; j++ ) {
@@ -159,8 +154,8 @@ fd_snp_init( fd_snp_t * snp ) {
       return NULL;
     }
     fd_ip4_udp_hdr_init( snp->apps[j].net_hdr, 0, 0, snp->apps[j].port );
-    snp->apps[j].multicast_net_hdr[j] = snp->apps[j].net_hdr[j];
-    snp->apps[j].multicast_net_hdr->ip4->daddr = fd_uint_bswap( snp->apps[j].multicast_ip );
+    snp->apps[j].multicast_net_hdr[j]              = snp->apps[j].net_hdr[j];
+    snp->apps[j].multicast_net_hdr->ip4->daddr     = fd_uint_bswap( snp->apps[j].multicast_ip );
     snp->apps[j].multicast_net_hdr->udp->net_dport = fd_ushort_bswap( snp->apps[j].port );
   }
 
@@ -371,9 +366,8 @@ fd_snp_has_enough_flow_tx_credit( fd_snp_t *      snp,
 }
 
 static inline int
-fd_snp_has_enough_flow_rx_credit( fd_snp_t *      snp,
+fd_snp_has_enough_flow_rx_credit( fd_snp_t *      snp FD_PARAM_UNUSED,
                                   fd_snp_conn_t * conn ) {
-  (void)snp;
   /* Returns true if there are enough flow rx credits to receive
      a packet.  It does not take responses into account (e.g.
      ACKs), in which case one should also check flow_tx_level.
@@ -386,18 +380,16 @@ fd_snp_has_enough_flow_rx_credit( fd_snp_t *      snp,
 }
 
 static inline void
-fd_snp_incr_flow_tx_level( fd_snp_t *      snp,
+fd_snp_incr_flow_tx_level( fd_snp_t *      snp FD_PARAM_UNUSED,
                            fd_snp_conn_t * conn,
                            ulong           incr ) {
-  (void)snp;
   conn->flow_tx_level += (long)incr;
 }
 
 static inline void
-fd_snp_incr_flow_rx_level( fd_snp_t *      snp,
+fd_snp_incr_flow_rx_level( fd_snp_t *      snp FD_PARAM_UNUSED,
                            fd_snp_conn_t * conn,
                            ulong           incr ) {
-  (void)snp;
   conn->flow_rx_level += (long)incr;
 }
 
@@ -449,6 +441,7 @@ fd_snp_finalize_snp_and_invoke_tx_cb(
   fd_snp_v1_finalize_packet( conn, packet+sizeof(fd_ip4_udp_hdrs_t), packet_sz-sizeof(fd_ip4_udp_hdrs_t) );
   conn->last_sent_ts = fd_snp_timestamp_ms();
   {
+    /* TODO JAV debug only - remove when ready */
     static ulong cnt_tx;
     if( cnt_tx%1000==0 ) FD_LOG_NOTICE(( "[snp] sent datagram session_id=%016lx", conn->session_id ));
     cnt_tx++;
@@ -478,6 +471,7 @@ fd_snp_verify_snp_and_invoke_rx_cb(
   ulong data_offset = sizeof(fd_ip4_udp_hdrs_t) + 12;
   if( FD_LIKELY( packet[data_offset]==FD_SNP_FRAME_DATAGRAM ) ) {
     {
+      /* TODO JAV debug only - remove when ready */
       static ulong cnt_rx;
       if( cnt_rx%1000==0 ) FD_LOG_NOTICE(( "[snp] received datagram session_id=%016lx", conn->session_id ));
       cnt_rx++;
@@ -494,13 +488,11 @@ fd_snp_verify_snp_and_invoke_rx_cb(
 static inline int
 fd_snp_finalize_multicast_and_invoke_tx_cb(
   fd_snp_t *      snp,
-  fd_snp_conn_t * conn,
+  fd_snp_conn_t * conn FD_PARAM_UNUSED,
   uchar *         packet,
   ulong           packet_sz,
   fd_snp_meta_t   meta
 ) {
-  (void)conn;
-
   if( FD_UNLIKELY( packet_sz==0 ) ) {
     return 0;
   }
@@ -520,11 +512,12 @@ fd_snp_finalize_multicast_and_invoke_tx_cb(
   fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
   memcpy( hdr, snp->apps[ snp_app_id ].multicast_net_hdr, sizeof(fd_ip4_udp_hdrs_t) );
   fd_ip4_hdr_t * ip4 = hdr->ip4;
-  ip4->net_id = fd_ushort_bswap( snp->apps[ snp_app_id ].net_id++ );
-  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
-  hdr->udp->net_len    = fd_ushort_bswap( (ushort)( packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t) ) );
+  ip4->net_id       = fd_ushort_bswap( snp->apps[ snp_app_id ].net_id++ );
+  ip4->check        = fd_ip4_hdr_check_fast( ip4 );
+  hdr->udp->net_len = fd_ushort_bswap( (ushort)( packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t) ) );
 
   {
+    /* TODO JAV debug only - remove when ready */
     static ulong cnt_tx_m;
     if( cnt_tx_m%1000==0 ) FD_LOG_HEXDUMP_NOTICE(( "multi", packet, 42 + 20 ));
     cnt_tx_m++;
@@ -799,7 +792,7 @@ fd_snp_process_packet( fd_snp_t * snp,
   /* 2. Parse SNP: derive proto and meta */
   ulong proto = FD_SNP_META_PROTO_UDP;
 
-  //TODO: proper fd_snp_parse()
+  /* TODO: proper fd_snp_parse() */
   if( FD_LIKELY( packet_sz >= sizeof(fd_ip4_udp_hdrs_t) + 4 ) ) {
     uchar const * magic = packet + sizeof(fd_ip4_udp_hdrs_t);
     if( (*magic)=='S' && (*(magic+1))=='N' && (*(magic+2))=='P' ) {
@@ -1035,6 +1028,7 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
   ulong used_ele = 0;
   fd_snp_conn_t * conn = snp->conn_pool;
 
+/* TODO relocate this to fd_snp_config_t */
 #define FD_SNP_HANDSHAKE_RETRY_MAX (5U)
 #define FD_SNP_HANDSHAKE_RETRY_MS  (500L)
 #define FD_SNP_KEEP_ALIVE_MS       (4000L)
@@ -1073,7 +1067,7 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
       }
       if( now > conn->last_sent_ts + FD_SNP_KEEP_ALIVE_MS ) {
         FD_LOG_WARNING(( "[snp-hkp] keep alive - pinging session_id=%016lx peer_session_id=%016lx", conn->session_id, conn->peer_session_id ));
-        FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp-hkp] keep alive - pinging session_id=%016lx peer_session_id=%016lx", conn->session_id, conn->peer_session_id )) );
+        // FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp-hkp] keep alive - pinging session_id=%016lx peer_session_id=%016lx", conn->session_id, conn->peer_session_id )) );
         fd_snp_send_ping( snp, conn );
         continue;
       }
@@ -1100,6 +1094,10 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
       }
     }
   }
+#undef FD_SNP_HANDSHAKE_RETRY_MAX
+#undef FD_SNP_HANDSHAKE_RETRY_MS
+#undef FD_SNP_KEEP_ALIVE_MS
+#undef FD_SNP_TIMEOUT_MS
 
   return (int)used;
 }

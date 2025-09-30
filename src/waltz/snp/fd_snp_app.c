@@ -14,7 +14,7 @@ fd_snp_app_new( void * mem, fd_snp_app_limits_t const * limits ) {
   ulong align = fd_snp_app_align();
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, align ) ) ) return NULL;
 
-  //TODO: check limits, and size based on limits
+  /* TODO: check limits, and size based on limits */
 
   /* Zero the entire memory region */
   fd_snp_app_t * snp = (fd_snp_app_t *)mem;
@@ -51,9 +51,9 @@ fd_snp_app_recv( fd_snp_app_t const * ctx,          /* snp_app context */
       data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t);
       break;
     case FD_SNP_META_PROTO_V1:
-      //FIXME: parse properly
-      data = packet + sizeof(fd_ip4_udp_hdrs_t) + 15;            //TODO: 12 is for SNP header + 3 for TL
-      data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t) - 15 - 19; //TODO: 19 is for final TL-MAC
+      /* TODO parse properly */
+      data = packet + sizeof(fd_ip4_udp_hdrs_t) + 15;            /* TODO 12 is for SNP header + 3 for TL */
+      data_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t) - 15 - 19; /* TODO 19 is for final TL-MAC */
       if( FD_UNLIKELY( fd_snp_ip_is_multicast( packet ) ) ) {
         data_sz += 19;
         meta |= FD_SNP_META_OPT_BROADCAST;
@@ -63,7 +63,7 @@ fd_snp_app_recv( fd_snp_app_t const * ctx,          /* snp_app context */
       return FD_SNP_FAILURE; /* Not implemented */
   }
 
-  // FIXME: extract peer info from packet/meta
+  /* TODO: extract peer info from packet/meta */
   fd_snp_peer_t peer = 0;
 
   return ctx->cb.rx ? ctx->cb.rx( ctx->cb.ctx, peer, data, data_sz, meta ) : (int)data_sz;
@@ -86,7 +86,7 @@ fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
       actual_packet_sz = data_sz + data_offset;
       break;
     case FD_SNP_META_PROTO_V1:
-      data_offset = sizeof(fd_ip4_udp_hdrs_t) + 12;  //TODO: 12 is for SNP header
+      data_offset = sizeof(fd_ip4_udp_hdrs_t) + 12;  /* TODO: 12 is for SNP header */
 
       if( FD_LIKELY( packet!=NULL ) ) {
         packet[data_offset] = FD_SNP_FRAME_DATAGRAM;
@@ -95,7 +95,7 @@ fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
       }
       data_offset += 3;
 
-      actual_packet_sz = data_sz + data_offset + 19; //TODO: 19 is for final MAC
+      actual_packet_sz = data_sz + data_offset + 19; /* TODO: 19 is for final MAC */
       break;
     default:
       return FD_SNP_FAILURE; /* Not implemented */

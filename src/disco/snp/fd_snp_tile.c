@@ -35,15 +35,12 @@ snp_limits( fd_topo_tile_t const * tile ) {
 #define IN_KIND_SIGN        (3UL)
 #define IN_KIND_CRDS        (4UL)
 #define IN_KIND_STAKE       (5UL)
-#define IN_KIND_REPAIR      (6UL)
-#define IN_KIND_NET_REPAIR  (7UL)
 
 /* The order here depends on the order in which fd_topob_tile_out(...)
     are called inside topology.c (in the corresponding folder) */
 #define NET_OUT_IDX      (0)
 #define SHRED_OUT_IDX    (1)
 #define SIGN_OUT_IDX     (2)
-#define REPAIR_OUT_IDX   (3)
 
 typedef union {
   struct {
@@ -73,43 +70,17 @@ typedef struct {
   int              in_kind[ 32 ];
 
   /* Channels */
-  // fd_frag_meta_t * net_out_mcache;
-  // ulong *          net_out_sync;
-  // ulong            net_out_depth;
-  // ulong            net_out_seq;
-
   // ulong            net_out_idx; /* TODO */
   fd_wksp_t *      net_out_mem;
   ulong            net_out_chunk0;
   ulong            net_out_wmark;
   ulong            net_out_chunk;
 
-  // fd_frag_meta_t * shred_out_mcache;
-  // ulong *          shred_out_sync;
-  // ulong            shred_out_depth;
-  // ulong            shred_out_seq;
-
   // ulong            shred_out_idx; /* TODO */
   fd_wksp_t *      shred_out_mem;
   ulong            shred_out_chunk0;
   ulong            shred_out_wmark;
   ulong            shred_out_chunk;
-
-  // fd_frag_meta_t * repair_out_mcache;
-  // ulong *          repair_out_sync;
-  // ulong            repair_out_depth;
-  // ulong            repair_out_seq;
-
-  ulong            repair_out_idx;
-  fd_wksp_t *      repair_out_mem;
-  ulong            repair_out_chunk0;
-  ulong            repair_out_wmark;
-  ulong            repair_out_chunk;
-
-  // fd_frag_meta_t * sign_out_mcache;
-  // ulong *          sign_out_sync;
-  // ulong            sign_out_depth;
-  // ulong            sign_out_seq;
 
   // ulong            sign_out_idx; /* TODO */
   fd_wksp_t *      sign_out_mem;
@@ -206,12 +177,6 @@ handle_new_cluster_contact_info( fd_snp_tile_ctx_t * ctx,
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
-
-    /* Establish connection for turbine */
-    // uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-    // fd_snp_meta_t meta = fd_snp_meta_from_parts( FD_SNP_META_PROTO_V1, /* app_id */ 0, dests[i].ip4, dests[i].port );
-    // FD_LOG_NOTICE(( "[snp] connect to %u:%u", dests[i].ip4, dests[i].port ));
-    // fd_snp_send( ctx->snp, packet, 0, meta );
   }
 }
 
@@ -234,10 +199,7 @@ before_frag( fd_snp_tile_ctx_t * ctx,
   /* TODO optimize aways those that return 0 */
   /* TODO: load balance using sig */
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) )    return 0;
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPAIR ) ) return 0;
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_SHRED ) ) return 0; // can be DST_PROTO_SHRED or DST_PROTO_REPAIR
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_REPAIR ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
-  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CRDS ) ) return 0;
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET_SHRED ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
 
   return 0;
 }
@@ -253,8 +215,7 @@ during_frag( fd_snp_tile_ctx_t * ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
 
-    case IN_KIND_SHRED:
-    case IN_KIND_REPAIR: {
+    case IN_KIND_SHRED: {
       /* Applications are unreliable channels, we copy the incoming packet
          and we'll process it in after_frag. */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -273,9 +234,6 @@ during_frag( fd_snp_tile_ctx_t * ctx,
       uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
       ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
       FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-      // if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-      //   FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-      //         ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
       /* on the shred channel we receive both packets from shred and repair */
       /* TODO improve coding here (fast parsing) */
@@ -289,25 +247,6 @@ during_frag( fd_snp_tile_ctx_t * ctx,
         ctx->packet = fd_chunk_to_laddr( ctx->shred_out_mem, ctx->shred_out_chunk );
       }
 
-      memcpy( ctx->packet, dcache_entry, sz );
-      ctx->packet_sz = sz;
-    } break;
-
-    /* TODO once repair and shred are received from net through the same
-       link, additional logic will be needed to differentiate both (most
-       probably via udp port), combining both into "case IN_KIND_NET". */
-
-    case IN_KIND_NET_REPAIR: {
-      /* Net is an unreliable channel, we copy the incoming packet
-         and we'll process it in after_frag. */
-      uchar const * dcache_entry = fd_net_rx_translate_frag( &ctx->in[ in_idx ].net_rx, chunk, ctl, sz );
-      ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-      FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
-      // if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
-      //   FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz,
-      //         ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-      ctx->packet = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
       memcpy( ctx->packet, dcache_entry, sz );
       ctx->packet_sz = sz;
     } break;
@@ -367,34 +306,10 @@ after_frag( fd_snp_tile_ctx_t * ctx,
       fd_snp_send( ctx->snp, ctx->packet, ctx->packet_sz, meta );
     } break;
 
-    /* TODO temporary - once the repair tile has support for snp,
-        combine IN_KIND_REPAIR case with IN_KIND_SHRED. */
-    case IN_KIND_REPAIR: {
-      FD_LOG_NOTICE(( "*** after_frag IN_KIND_REPAIR init ..." ));
-      /* No memcpy needed here - already done in during_frag. */
-      // fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, ctx->packet_sz, 0UL, 0UL /* tsorig */, _tspub );
-      fd_stem_publish( ctx->stem, NET_OUT_IDX /*ctx->net_out_idx*/, sig, ctx->net_out_chunk, ctx->packet_sz, 0UL, 0UL /* tsorig */, _tspub );
-      // ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
-      ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, ctx->packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
-      FD_LOG_NOTICE(( "*** after_frag IN_KIND_REPAIR done!" ));
-    } break;
-
     case IN_KIND_NET_SHRED: {
       /* Process incoming network packets */
       FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp] received from net %lu, processing", ctx->packet_sz )) );
       fd_snp_process_packet( ctx->snp, ctx->packet, ctx->packet_sz );
-    } break;
-
-    /* TODO temporary - once the repair tile has support for snp,
-        combine IN_KIND_NET_REPAIR case with IN_KIND_NET_SHRED. */
-    case IN_KIND_NET_REPAIR: {
-      FD_LOG_NOTICE(( "*** after_frag IN_KIND_NET_REPAIR init ..." ));
-      /* No memcpy needed here - already done in during_frag. */
-      // fd_mcache_publish( ctx->repair_out_mcache, ctx->repair_out_depth, ctx->repair_out_seq, sig, ctx->repair_out_chunk, ctx->packet_sz, 0UL, 0UL /* tsorig */, _tspub );
-      fd_stem_publish( ctx->stem, ctx->repair_out_idx, sig, ctx->repair_out_chunk, ctx->packet_sz, 0UL, 0UL /* tsorig */, _tspub );
-      // ctx->repair_out_seq   = fd_seq_inc( ctx->repair_out_seq, 1UL );
-      ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, ctx->packet_sz, ctx->repair_out_chunk0, ctx->repair_out_wmark );
-      FD_LOG_NOTICE(( "*** after_frag IN_KIND_NET_REPAIR done!" ));
     } break;
 
     case IN_KIND_GOSSIP:
@@ -436,9 +351,7 @@ snp_callback_tx( void const *  _ctx,
   if( FD_UNLIKELY( meta & FD_SNP_META_OPT_BUFFERED ) ) {
     memcpy( fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk ), packet, packet_sz );
   }
-  // fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
   fd_stem_publish( ctx->stem, NET_OUT_IDX /*ctx->net_out_idx*/, sig, ctx->net_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
-  // ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 
   FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp] publish to net %lu to %u:%u", packet_sz, dst_ip, dst_port )) );
@@ -450,21 +363,17 @@ snp_callback_rx( void const *  _ctx,
                  uchar const * packet,
                  ulong         packet_sz,
                  fd_snp_meta_t meta ) {
-  (void)packet;
-
   fd_snp_tile_ctx_t * ctx = (fd_snp_tile_ctx_t *)_ctx;
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = (ulong)meta;
   FD_TEST( ctx->stem != NULL );
-  //TODO: based on ... (port?) ... we should send it to the correct application, e.g. shred tile
+  /* TODO: based on ... (port?) ... we should send it to the correct application, e.g. shred tile */
 
   /* No memcpy needed here - already done in during_frag. */
   if( FD_UNLIKELY( meta & FD_SNP_META_OPT_BUFFERED ) ) {
     memcpy( ctx->packet, packet, packet_sz );
   }
-  // fd_mcache_publish( ctx->shred_out_mcache, ctx->shred_out_depth, ctx->shred_out_seq, sig, ctx->shred_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
   fd_stem_publish( ctx->stem, SHRED_OUT_IDX /*ctx->shred_out_idx*/, sig, ctx->shred_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
-  // ctx->shred_out_seq   = fd_seq_inc( ctx->shred_out_seq, 1UL );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, packet_sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
   FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp] publish to shred %lu meta=%016lx", packet_sz, sig )) );
@@ -488,9 +397,7 @@ snp_callback_sign( void const *  _ctx,
   uchar * dst = fd_chunk_to_laddr( ctx->sign_out_mem, ctx->sign_out_chunk );
   memcpy( dst+0UL, &session_id, sizeof(ulong) );
   memcpy( dst+sizeof(ulong), to_sign, FD_SNP_TO_SIGN_SZ - sizeof(ulong) );
-  // fd_mcache_publish( ctx->sign_out_mcache, ctx->sign_out_depth, ctx->sign_out_seq, sig, ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, 0UL, 0UL /* tsorig */, tspub );
   fd_stem_publish( ctx->stem, SIGN_OUT_IDX /*ctx->sign_out_idx*/, sig, ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, 0UL, 0UL /* tsorig */, tspub );
-  // ctx->sign_out_seq   = fd_seq_inc( ctx->sign_out_seq, 1UL );
   ctx->sign_out_chunk = fd_dcache_compact_next( ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, ctx->sign_out_chunk0, ctx->sign_out_wmark );
 
   FD_LOG_NOTICE(( "[snp] publish to sign %016lx", session_id ));
@@ -523,7 +430,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "snp_net"    ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SHRED_OUT_IDX]].name,  "snp_shred"  ) );
     FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "snp_sign"   ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[REPAIR_OUT_IDX]].name, "snp_repair" ) );
   } else {
     FD_LOG_ERR(( "snp tile has unexpected cnt of output links %lu", tile->out_cnt ));
   }
@@ -567,8 +473,7 @@ unprivileged_init( fd_topo_t *      topo,
   snp->flow_cred_total = LONG_MAX;
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
-    if( FD_LIKELY( ( !strcmp( link->name, "net_shred"  ) ) ||
-                   ( !strcmp( link->name, "net_repair" ) ) ) ) {
+    if( FD_LIKELY( !strcmp( link->name, "net_shred"  ) ) ) {
       FD_LOG_NOTICE(( "[snp] link->depth %lu link->mtu %lu", link->depth, link->mtu ));
       FD_TEST( link->mtu == FD_NET_MTU );
       /* TODO review if the difference between FD_NET_MTU and
@@ -597,17 +502,9 @@ unprivileged_init( fd_topo_t *      topo,
       continue; /* only net_rx needs to be set in this case. */
     }
 
-    if( FD_LIKELY(      !strcmp( link->name, "net_repair"  ) ) ) {
-      ctx->in_kind[ i ] = IN_KIND_NET_REPAIR;
-      fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
-      continue; /* only net_rx needs to be set in this case. */
-    }
-
     if( FD_LIKELY(      !strcmp( link->name, "shred_snp"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
-    else if( FD_LIKELY( !strcmp( link->name, "repair_snp"  ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CRDS;  /* TODO reusing crds_shred */
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    // else if( FD_LIKELY( !strcmp( link->name, "gossip_snp"  ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP; /* TODO pending implementation */
     else if( FD_LIKELY( !strcmp( link->name, "sign_snp"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
@@ -620,10 +517,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
 
-  // ctx->net_out_mcache = net_out->mcache;
-  // ctx->net_out_sync   = fd_mcache_seq_laddr( ctx->net_out_mcache );
-  // ctx->net_out_depth  = fd_mcache_depth( ctx->net_out_mcache );
-  // ctx->net_out_seq    = fd_mcache_seq_query( ctx->net_out_sync );
   ctx->net_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( net_out->dcache ), net_out->dcache );
   ctx->net_out_mem    = topo->workspaces[ topo->objs[ net_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->net_out_wmark  = fd_dcache_compact_wmark ( ctx->net_out_mem, net_out->dcache, net_out->mtu );
@@ -631,10 +524,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * shred_out = &topo->links[ tile->out_link_id[ SHRED_OUT_IDX ] ];
 
-  // ctx->shred_out_mcache = shred_out->mcache;
-  // ctx->shred_out_sync   = fd_mcache_seq_laddr( ctx->shred_out_mcache );
-  // ctx->shred_out_depth  = fd_mcache_depth( ctx->shred_out_mcache );
-  // ctx->shred_out_seq    = fd_mcache_seq_query( ctx->shred_out_sync );
   ctx->shred_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
   ctx->shred_out_mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->shred_out_wmark  = fd_dcache_compact_wmark ( ctx->shred_out_mem, shred_out->dcache, shred_out->mtu );
@@ -642,31 +531,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
 
-  // ctx->sign_out_mcache = sign_out->mcache;
-  // ctx->sign_out_sync   = fd_mcache_seq_laddr( ctx->sign_out_mcache );
-  // ctx->sign_out_depth  = fd_mcache_depth( ctx->sign_out_mcache );
-  // ctx->sign_out_seq    = fd_mcache_seq_query( ctx->sign_out_sync );
   ctx->sign_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( sign_out->dcache ), sign_out->dcache );
   ctx->sign_out_mem    = topo->workspaces[ topo->objs[ sign_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->sign_out_wmark  = fd_dcache_compact_wmark ( ctx->sign_out_mem, sign_out->dcache, sign_out->mtu );
   ctx->sign_out_chunk  = ctx->sign_out_chunk0;
-
-  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "snp_repair", ctx->round_robin_id );
-  if( FD_LIKELY( ctx->repair_out_idx!=ULONG_MAX ) ) { /* firedancer topo compiler hint */
-
-    fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
-
-    // ctx->repair_out_mcache = repair_out->mcache;
-    // ctx->repair_out_sync   = fd_mcache_seq_laddr( ctx->repair_out_mcache );
-    // ctx->repair_out_depth  = fd_mcache_depth( ctx->repair_out_mcache );
-    // ctx->repair_out_seq    = fd_mcache_seq_query( ctx->repair_out_sync );
-    ctx->repair_out_chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( repair_out->dcache ), repair_out->dcache );
-    ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
-    ctx->repair_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu );
-    ctx->repair_out_chunk  = ctx->repair_out_chunk0;
-
-    FD_TEST( fd_dcache_compact_is_safe( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu, repair_out->depth ) );
-  }
 
   ctx->shred_cnt = 0UL;
 

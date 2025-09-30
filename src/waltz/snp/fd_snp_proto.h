@@ -9,7 +9,7 @@
 
 /* SNP_MTU controls the maximum supported UDP payload size. */
 
-//TODO: FD_SNP_MTU is currently 24 x 64
+/* TODO: FD_SNP_MTU is currently 24 x 64 */
 #define FD_SNP_MTU     (1536UL)
 #define FD_SNP_MTU_MIN (1200UL)
 
@@ -75,8 +75,7 @@
 
 #define FD_SNP_MAX_SESSION_TMP (3)
 
-#define FD_SNP_MAGIC (0xdeadbeeffeebdaedUL)
-
+#define FD_SNP_MAGIC (0xf17eda2ce7552299UL)
 
 
 struct fd_snp_config {
@@ -99,20 +98,24 @@ typedef struct fd_snp_config fd_snp_config_t;
 /* Packets */
 
 struct FD_SNP_ALIGNED fd_snp_pkt {
-  ulong next; // fd_pool
+  /* used both by packets cache, and last sent packets - preferably,
+     data should be FD_SNP_ALIGNED, so placing it at the top of the
+     struct. */
+  uchar  data[ FD_SNP_MTU ];
+
+  /* fd_pool */
+  ulong  next;
 
   /* only used by last sent packets */
-  ulong meta;
+  ulong  meta;
 
   /* only used by packets cache */
   ulong  session_id;
+  ushort data_sz;
   uchar  send; // send or recv
 
-  /* used both by packets cache, and last sent packets */
-  ushort data_sz;
-  uchar  data[ FD_SNP_MTU ];
-
-  uchar _padding[ 490-128 ]; /* force sizeof(fd_snp_pkt_t)==2048 for feng shui (cf fd_pool.c) */
+  /* force sizeof(fd_snp_pkt_t)==2048 for feng shui (cf fd_pool.c) */
+  uchar  _padding[ 2048 - 1563 ];
 };
 typedef struct fd_snp_pkt fd_snp_pkt_t;
 FD_STATIC_ASSERT( sizeof(fd_snp_pkt_t)==2048UL, fd_snp_pkt_t );

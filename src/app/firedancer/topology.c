@@ -237,6 +237,7 @@ fd_topo_initialize( config_t * config ) {
   /*             topo, name */
   fd_topob_wksp( topo, "metric_in"  );
   fd_topob_wksp( topo, "net_gossip" );
+  fd_topob_wksp( topo, "net_repair" );
   fd_topob_wksp( topo, "net_quic"   );
   fd_topob_wksp( topo, "net_send"   );
   fd_topob_wksp( topo, "net_snp"    );
@@ -276,9 +277,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "gossip_verif" );
   fd_topob_wksp( topo, "gossip_tower" );
   fd_topob_wksp( topo, "replay_tower" );
-
-  fd_topob_wksp( topo, "repair_snp"   );
-  fd_topob_wksp( topo, "snp_repair"   );
 
   fd_topob_wksp( topo, "repair_sign"  );
   fd_topob_wksp( topo, "sign_repair"  );
@@ -338,8 +336,6 @@ fd_topo_initialize( config_t * config ) {
 
   /*                                  topo, link_name,      wksp_name,      depth,                                    mtu,                           burst */
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
-  /**/                 fd_topob_link( topo, "repair_snp",   "repair_snp",   32768UL,                                  FD_NET_MTU,                    1UL );
-  FOR(snp_tile_cnt)    fd_topob_link( topo, "snp_repair",   "snp_repair",   32768UL,                                  FD_NET_MTU,                    1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_snp",    "shred_snp",    32768UL,                                  FD_NET_MTU,                    1UL );
   FOR(snp_tile_cnt)    fd_topob_link( topo, "snp_shred",    "snp_shred",    32768UL,                                  FD_NET_MTU,                    1UL );
   FOR(snp_tile_cnt)    fd_topob_link( topo, "snp_net",      "net_snp",      config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
@@ -447,10 +443,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topos_net_tiles( topo, config->layout.net_tile_count, &config->net, config->tiles.netlink.max_routes, config->tiles.netlink.max_peer_routes, config->tiles.netlink.max_neighbors, tile_to_cpu );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_gossip", i, config->net.ingress_buffer_size );
-  /* TODO this should be "net_snp", but that would require changes ti src/disco/net/xdp/fd_xdp_tile.c(1190)*/
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
-  /* TODO this should be "net_snp", but that would require changes ti src/disco/net/xdp/fd_xdp_tile.c(1178)*/
+  /* TODO this should be "net_snp", but that would require changes to src/disco/net/xdp/fd_xdp_tile.c */
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_send",   i, config->net.ingress_buffer_size );
 
@@ -682,6 +677,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "pack",    0UL,          "metric_in", "resolv_pack",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "send_net",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   FOR(shred_tile_cnt) for( ulong j=0UL; j<snp_tile_cnt; j++ )
@@ -692,9 +688,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_repair",  i                                                    );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "shred",  i,                          "shred_snp",     i                                                    );
 
-  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in",  "repair_shred", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "repair_shred",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
-  /**/                 fd_topob_tile_out( topo, "repair",  0UL,                       "repair_snp",    0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "repair",  0UL,                       "repair_net",    0UL                                                  );
 
   /**/                 fd_topob_tile_in(  topo, "tower",   0UL,          "metric_in", "gossip_tower", 0UL,           FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "tower",   0UL,          "metric_in", "replay_tower", 0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -702,15 +698,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_replay", 0UL                                                   );
   /**/                 fd_topob_tile_out( topo, "tower",  0UL,                        "tower_send",   0UL                                                   );
 
-  FOR(snp_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ ) /* TODO this should be "net_snp", but that would require changes to src/disco/net/xdp/fd_xdp_tile.c(1178) */
+
+  FOR(snp_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ ) /* TODO this should be "net_snp", but that would require changes to src/disco/net/xdp/fd_xdp_tile.c */
                        fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "net_shred",    j,            FD_TOPOB_UNRELIABLE,  FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(snp_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ ) /* TODO this should be "net_snp", but that would require changes to src/disco/net/xdp/fd_xdp_tile.c(1190) */
-                       fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "net_repair",   j,            FD_TOPOB_UNRELIABLE,  FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(snp_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "shred_snp",    j,            FD_TOPOB_UNRELIABLE,  FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(snp_tile_cnt)    fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "repair_snp",   0UL,          FD_TOPOB_UNRELIABLE,  FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(snp_tile_cnt)    fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "crds_shred",   0UL,          FD_TOPOB_RELIABLE,    FD_TOPOB_POLLED ); /* TODO reusing crds_shred */
-  FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,    FD_TOPOB_POLLED );
+  FOR(snp_tile_cnt)    fd_topob_tile_in(  topo, "snp",    i,             "metric_in", "stake_out",    0UL,          FD_TOPOB_RELIABLE,    FD_TOPOB_POLLED );
   FOR(snp_tile_cnt)    fd_topob_tile_out( topo, "snp",    i,                          "snp_net",      i                                                   );
   FOR(snp_tile_cnt)    fd_topob_tile_out( topo, "snp",    i,                          "snp_shred",    i                                                   );
 
@@ -748,7 +742,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_send",  0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_tower", 0UL                                                  );
 
-  FOR(snp_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "snp_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_repai",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "shred_repair",  i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -931,7 +925,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config ) {
     if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 
-      tile->net.default_address                = config->net.ip_addr;
       tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
@@ -966,7 +959,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
       strncpy( tile->shred.identity_key_path, config->paths.identity_key, sizeof(tile->shred.identity_key_path) );
 
-      tile->shred.depth                         = 65536UL; /* TODO review which link this is referring to !! */
+      tile->shred.depth                         = 65536UL;
       tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;

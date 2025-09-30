@@ -36,10 +36,12 @@
 
 #define FD_SNP_IP_DST_ADDR_OFF   (30UL)
 
+#define FD_SNP_APPS_CNT_MAX      (8UL)
+
 /* TYPES */
 
 /* fd_snp_app_peer_t is a type to represent a peer identifier.
-   Currently it encodes the peer IPv4 + port, but the application
+   Currently, it encodes the peer IPv4 + port, but the application
    should not make any assumption. */
 typedef ulong fd_snp_peer_t;
 
@@ -68,7 +70,7 @@ fd_snp_meta_from_parts( ulong  snp_proto,
                         uchar  snp_app_id,
                         uint   ip4,
                         ushort port ) {
-  return ( snp_proto )
+  return ( snp_proto & FD_SNP_META_PROTO_MASK )
     | (( (ulong) ( snp_app_id & 0x0F ) ) << 48 )
     | (( (ulong) port ) << 32 )
     | (( (ulong) ip4 ));
@@ -91,13 +93,12 @@ fd_snp_ip_is_multicast( uchar const * packet ) {
   return 224 <= packet[FD_SNP_IP_DST_ADDR_OFF] && packet[FD_SNP_IP_DST_ADDR_OFF] <= 239;
 }
 
-/* fd_snp_tlv_extract() parses a tlv set pointed to by
-   buf + offset, it populates meta accordingly, and
-   returns the offset of the next tlv in the buffer.
-   If the length (l) is in {1,2,4,8}, then meta will
-   hold the corresponding value in {u8,u16,u32,u64}
-   accordingly, otherwise meta->ptr will be pointing
-   to the begining of value (v) inside the buffer. */
+/* fd_snp_tlv_extract() parses a tlv set pointed to by buf + offset,
+   it populates meta accordingly, and returns the offset of the next
+   tlv in the buffer.  If the length (l) is in {1,2,4,8}, then meta
+   will hold the corresponding value in {u8,u16,u32,u64} accordingly,
+   otherwise meta->ptr will be pointing to the begining of value (v)
+   inside the buffer. */
 static inline ulong
 fd_snp_tlv_extract( uchar const * buf,
                     ulong         offset,
@@ -116,14 +117,13 @@ fd_snp_tlv_extract( uchar const * buf,
   return offset + 3UL + l;
 }
 
-/* fd_snp_tlv_extract_fast() performs a fast parsing of
-   the tlv set pointed to by buf + offset, it populates
-   meta partially, and returns the offset of the next tlv
-   in the buffer.  It does not attempt to parse the value
-   (v) depending on the length (l). Instead, it only
-   computes meta-ptr, pointing to the begining of value
-   (v) inside the buffer.  Useful when doing a fast scan
-   of all tlv(s) inside a buffer. */
+/* fd_snp_tlv_extract_fast() performs a fast parsing of the tlv set
+   pointed to by buf + offset, it populates meta partially, and
+   returns the offset of the next tlv in the buffer.  It does not
+   attempt to parse the value (v) depending on the length (l).
+   Instead, it only computes meta-ptr, pointing to the begining of
+   value (v) inside the buffer.  Useful when doing a fast scan of all
+   tlv(s) inside a buffer. */
 static inline ulong
 fd_snp_tlv_extract_fast( uchar const * buf,
                          ulong         offset,

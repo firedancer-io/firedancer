@@ -93,7 +93,6 @@ typedef struct {
 struct fd_topo_net_tile {
   ulong umem_dcache_obj_id;  /* dcache for XDP UMEM frames */
   uint  bind_address;
-  uint  default_address;
 
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
