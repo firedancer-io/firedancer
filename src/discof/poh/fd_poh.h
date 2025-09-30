@@ -467,6 +467,7 @@ fd_poh_join( void *         shpoh,
 void
 fd_poh_reset( fd_poh_t *          poh,
               fd_stem_context_t * stem,
+              long                timestamp,
               ulong               hashcnt_per_tick,
               ulong               ticks_per_slot,
               ulong               tick_duration_ns,
@@ -478,6 +479,9 @@ fd_poh_reset( fd_poh_t *          poh,
 
 int
 fd_poh_have_leader_bank( fd_poh_t const * poh );
+
+int
+fd_poh_hashing_to_leader_slot( fd_poh_t const * poh );
 
 void
 fd_poh_begin_leader( fd_poh_t * poh,

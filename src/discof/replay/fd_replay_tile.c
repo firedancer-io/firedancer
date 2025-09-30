@@ -1121,6 +1121,7 @@ publish_reset( fd_replay_tile_t *  ctx,
 
   fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
+  reset->timestamp        = fd_log_wallclock();
   reset->completed_slot   = fd_bank_slot_get( bank );
   reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   reset->ticks_per_slot   = fd_bank_ticks_per_slot_get( bank );
@@ -1706,6 +1707,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
+    reset->timestamp = ctx->reset_timestamp_nanos;
     reset->completed_slot = ctx->reset_slot;
     reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
     reset->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
