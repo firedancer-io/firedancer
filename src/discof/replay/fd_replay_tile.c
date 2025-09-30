@@ -1605,7 +1605,7 @@ after_credit( fd_replay_tile_t *  ctx,
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
 
-  if( FD_LIKELY( fd_reasm_has_next( ctx->reasm ) && fd_sched_can_ingest( ctx->sched ) ) ) {
+  if( FD_LIKELY( fd_reasm_has_next( ctx->reasm ) && fd_sched_can_ingest( ctx->sched ) && !fd_banks_is_full( ctx->banks ) ) ) {
     /* If sched is full or there are no free banks, we cannot ingest any
        more FEC sets into the scheduler. */
     process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
