@@ -176,6 +176,11 @@ fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
   return reasm;
 }
 
+int
+fd_reasm_has_next( fd_reasm_t * reasm ) {
+  return !out_empty( reasm->out );
+}
+
 fd_reasm_fec_t *
 fd_reasm_next( fd_reasm_t * reasm ) {
   if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
@@ -242,6 +247,11 @@ link( fd_reasm_t     * reasm,
     curr->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
     if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* set to equivocating */
   }
+}
+
+int
+fd_reasm_full( fd_reasm_t * reasm ) {
+  return pool_free( reasm->pool )==0UL;
 }
 
 fd_reasm_fec_t *

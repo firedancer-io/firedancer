@@ -230,6 +230,13 @@ fd_reasm_query( fd_reasm_t const * reasm, fd_hash_t const * merkle_root );
 fd_reasm_t *
 fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot );
 
+/* fd_reasm_has_next returns 1 if there is a next FEC set to return, 0
+   otherwise.  If this function returns 1, then fd_reasm_next() will be
+   guaranteed to return a FEC set. */
+
+int
+fd_reasm_has_next( fd_reasm_t * reasm );
+
 /* fd_reasm_next returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
    the reasm out queue.  Any FEC sets in the out queue are part of a
@@ -247,10 +254,18 @@ fd_reasm_next( fd_reasm_t * reasm );
 ulong
 fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
 
+/* fd_reasm_full returns 1 if the reasm is full and can not insert any
+   more FEC sets and 0 otherwise.  This is used to backpressure the
+   caller if the reasm is full. */
+
+int
+fd_reasm_full( fd_reasm_t * reasm );
+
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
    make one or more FEC sets available for in-order delivery.  Caller
-   can consume these FEC sets via fd_reasm_out.
+   can consume these FEC sets via fd_reasm_out.  This function assumes
+   that the reasm is not full (fd_reasm_full() returns 0).
 
    See top-level documentation for further details on insertion. */
 
