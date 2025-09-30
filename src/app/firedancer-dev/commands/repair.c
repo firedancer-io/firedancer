@@ -477,7 +477,7 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_
 
       /* Swap if j has higher latency than j+1 */
       if( latency_j > latency_j1 ) {
-        fd_pubkey_t temp    = peers_copy  [ j ];
+        fd_pubkey_t temp    = peers_copy[ j ];
         peers_copy[ j ]     = peers_copy[ j + 1 ];
         peers_copy[ j + 1 ] = temp;
         swapped             = 1;
@@ -602,7 +602,7 @@ repair_cmd_fn_metrics_mode( args_t *   args,
     if( FD_UNLIKELY( now - last_print > 1e9L ) ) {
       last_print = now;
       print_catchup_slots( repair_wksp->wksp, repair_ctx, catchup_verbose );
-      printf( "catchup slots | Use TAB to switch panes | Use 'i' to toggle extra slot information" TEXT_NEWLINE );
+      printf( "catchup slots | Use 'i' to toggle extra slot information" TEXT_NEWLINE );
       fflush( stdout );
 
       /* Peer location latency is not that useful post catchup, and also
