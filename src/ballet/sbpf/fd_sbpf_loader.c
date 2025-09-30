@@ -417,8 +417,7 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
        the text section offset ranges will always be set to a defined
        value. */
     if( ( fd_shdr_get_file_range( sh_text, &text_section_lo, &text_section_hi ) &&
-          fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ) ||
-        info->sbpf_version==FD_SBPF_V0 ) {
+          fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ) ) {
       imm_offset = fd_ulong_sat_add( r_offset, 4UL /* BYTE_OFFSET_IMMEDIATE */ );
     }
   }
@@ -470,8 +469,7 @@ fd_sbpf_r_bpf_64_64( fd_sbpf_elf_t const *      elf,
 
   /* Same check as above...
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1106-L1140 */
-  if( fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ||
-      info->sbpf_version==FD_SBPF_V0 ) {
+  if( fd_sbpf_range_contains( text_section_lo, text_section_hi, r_offset ) ) {
     ulong imm_low_offset  = imm_offset;
     ulong imm_high_offset = fd_ulong_sat_add( imm_low_offset, 8UL /* INSN_SIZE */ );
 
@@ -592,25 +590,13 @@ fd_sbpf_r_bpf_64_relative( fd_sbpf_elf_t const *      elf,
   } else {
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1216-L1228 */
     ulong refd_addr = 0UL;
-    if( info->sbpf_version!=FD_SBPF_V0 ) {
-      /* In this case, we are relocating an address inside a data
-         section.
-         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1217-L1228 */
-      if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, sizeof(ulong) )>elf_sz ) ) {
-        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-      }
-      refd_addr = FD_LOAD( ulong, rodata+r_offset );
-      if( refd_addr<FD_SBPF_MM_PROGRAM_ADDR ) {
-        refd_addr = fd_ulong_sat_add( refd_addr, FD_SBPF_MM_PROGRAM_ADDR );
-      }
-    } else {
-      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1230-L1239 */
-      if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, 4UL /* BYTE_LENGTH_IMMEDIATE */ )>elf_sz ) ) {
-        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-      }
-      refd_addr = FD_LOAD( uint, rodata+imm_offset );
-      refd_addr = fd_ulong_sat_add( refd_addr, FD_SBPF_MM_PROGRAM_ADDR );
+
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1230-L1239 */
+    if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, 4UL /* BYTE_LENGTH_IMMEDIATE */ )>elf_sz ) ) {
+      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
+    refd_addr = FD_LOAD( uint, rodata+imm_offset );
+    refd_addr = fd_ulong_sat_add( refd_addr, FD_SBPF_MM_PROGRAM_ADDR );
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1242-L1245 */
     if( FD_UNLIKELY( fd_ulong_sat_add( r_offset, sizeof(ulong) )>elf_sz ) ) {
@@ -1374,30 +1360,11 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L620-L638 */
   {
-    ulong sbpf_version = info->sbpf_version;
-    ulong text_section_vaddr;
-    if( fd_sbpf_enable_elf_vaddr( sbpf_version ) && text_shdr.sh_addr >= FD_SBPF_MM_RODATA_ADDR ) {
-      text_section_vaddr = text_shdr.sh_addr;
-    } else {
-      text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_RODATA_ADDR );
-    }
-
-    ulong vaddr_end;
-    if( fd_sbpf_reject_rodata_stack_overlap( sbpf_version ) ) {
-      vaddr_end = fd_ulong_sat_add( text_section_vaddr, text_shdr.sh_size );
-    } else {
-      vaddr_end = text_section_vaddr;
-    }
+    ulong text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_RODATA_ADDR );
+    ulong vaddr_end          = text_section_vaddr;
 
     /* Validate bounds - reject broken ELFs */
-    if( FD_UNLIKELY(
-        (
-          config->reject_broken_elfs
-          && !fd_sbpf_enable_elf_vaddr( sbpf_version )
-          && text_shdr.sh_addr != text_shdr.sh_offset
-        )
-        || ( vaddr_end > FD_SBPF_MM_STACK_ADDR )
-    ) ) {
+    if( FD_UNLIKELY( vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
     }
   }
@@ -1415,7 +1382,6 @@ fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
                                          fd_sbpf_loader_config_t const * config ) {
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L376-L381 */
   const ulong E_FLAGS_OFFSET  = 48UL;
-  const uint  E_FLAGS_SBPF_V2 = 0x20;
 
   if( FD_UNLIKELY( bin_sz < E_FLAGS_OFFSET+sizeof(uint) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
@@ -1477,6 +1443,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
 
   /* Invoke strict vs lenient parser. The strict parser is used for
      SBPF version >= 3.
+     +
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( info->sbpf_version ) ) ) {
     return fd_sbpf_elf_peek_strict( info, bin, bin_sz, config );
@@ -1492,11 +1459,10 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
                            ulong                           bin_sz,
                            fd_sbpf_loader_config_t const * config ) {
 
-  fd_sbpf_elf_t const *      elf                = (fd_sbpf_elf_t const *)bin;
-  fd_sbpf_elf_info_t const * elf_info           = &prog->info;
-  fd_elf64_shdr const *      shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
-  fd_elf64_shdr const *      section_names_shdr = &shdrs[ elf->ehdr.e_shstrndx ];
-  uchar *                    rodata             = prog->rodata;
+  fd_sbpf_elf_t const * elf                = (fd_sbpf_elf_t const *)bin;
+  fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
+  fd_elf64_shdr const * section_names_shdr = &shdrs[ elf->ehdr.e_shstrndx ];
+  uchar *               rodata             = prog->rodata;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L818-L834 */
   ulong lowest_addr          = ULONG_MAX; /* Lowest section address */
@@ -1556,36 +1522,15 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     if( FD_LIKELY( !invalid_offsets ) ) {
 
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L866-L880 */
-      if( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) {
-        if( FD_UNLIKELY( section_addr<section_header->sh_offset ) ) {
-          invalid_offsets = 1;
-        } else {
-          /* The behavior of get_or_insert() sets addr_file_offset if
-             None and returns the existing value if Some.
-             https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L872-L879 */
-          ulong offset = fd_ulong_sat_sub( section_addr, section_header->sh_offset );
-          if( !has_addr_file_offset ) {
-            has_addr_file_offset = 1;
-            addr_file_offset     = offset;
-          }
-          if( FD_UNLIKELY( addr_file_offset!=offset ) ) {
-            invalid_offsets = 1;
-          }
-        }
-      } else if( FD_UNLIKELY( section_addr!=section_header->sh_offset ) ) {
+      if( FD_UNLIKELY( section_addr!=section_header->sh_offset ) ) {
         invalid_offsets = 1;
       }
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L886-L897 */
     ulong vaddr_end = section_addr;
-    if( !( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) &&
-           section_addr>=FD_SBPF_MM_RODATA_ADDR ) ) {
+    if( section_addr<FD_SBPF_MM_RODATA_ADDR ) {
       vaddr_end = fd_ulong_sat_add( section_addr, FD_SBPF_MM_RODATA_ADDR );
-    }
-
-    if( fd_sbpf_reject_rodata_stack_overlap( elf_info->sbpf_version ) ) {
-      vaddr_end = fd_ulong_sat_add( vaddr_end, section_header->sh_size );
     }
 
     if( FD_UNLIKELY( ( config->reject_broken_elfs && invalid_offsets ) ||
@@ -1628,24 +1573,12 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
   uchar can_borrow =
       !invalid_offsets &&
       fd_ulong_sat_sub( fd_ulong_sat_add( last_ro_section, 1UL ), first_ro_section )==n_ro_sections;
-  if( FD_UNLIKELY( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) && !can_borrow ) ) {
-    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-  }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L923-L984 */
   if( FD_UNLIKELY( config->optimize_rodata && can_borrow ) ) {
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L924-L948 */
     ulong buf_offset_start = fd_ulong_sat_sub( lowest_addr, has_addr_file_offset ? addr_file_offset : 0UL );
     ulong buf_offset_end   = fd_ulong_sat_sub( highest_addr, has_addr_file_offset ? addr_file_offset : 0UL );
-
-    /* The linker may have already put sections within the VM's rodata
-       address range, so we must normalize accordingly.
-       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L935-L946  */
-    if( lowest_addr<FD_SBPF_MM_RODATA_ADDR ) {
-      if( FD_UNLIKELY( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) ) {
-        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-      }
-    }
 
     /* Set the rodata accordingly, and zero out the rest.
        TODO: This should be optimized to avoid memcpys and set pointers
@@ -1762,17 +1695,15 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
         return err;
       }
 
-      if( !fd_sbpf_static_syscalls( elf_info->sbpf_version ) ) {
-        /* Store PC hash in text section. Check for writes outside the
-           text section.
-           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1034-L1038 */
-        ulong offset = fd_ulong_sat_add( fd_ulong_sat_mul( i, 8UL ), 4UL ); // offset in text section
-        if( FD_UNLIKELY( offset+4UL>shtext->sh_size ) ) {
-          return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-        }
-
-        FD_STORE( uint, ptr+4UL, pc_hash );
+      /* Store PC hash in text section. Check for writes outside the
+         text section.
+         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1034-L1038 */
+      ulong offset = fd_ulong_sat_add( fd_ulong_sat_mul( i, 8UL ), 4UL ); // offset in text section
+      if( FD_UNLIKELY( offset+4UL>shtext->sh_size ) ) {
+        return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
+
+      FD_STORE( uint, ptr+4UL, pc_hash );
     }
   }
 
@@ -1781,44 +1712,12 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
      fd_sbpf_lenient_elf_parse().
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1046-L1304 */
   {
-    fd_elf64_phdr const * phdr           = (fd_elf64_phdr const *)( elf->bin + elf->ehdr.e_phoff );
-    ushort                pht_cnt        = elf->ehdr.e_phnum;
-    fd_elf64_phdr const * program_header = NULL;
-    fd_elf64_rel const *  dt_rels        = (fd_elf64_rel const *)( elf->bin + elf_info->dt_reloff );
-    uint                  dt_rel_cnt     = elf_info->dt_relsz / sizeof(fd_elf64_rel);
+    fd_elf64_rel const *  dt_rels    = (fd_elf64_rel const *)( elf->bin + elf_info->dt_reloff );
+    uint                  dt_rel_cnt = elf_info->dt_relsz / sizeof(fd_elf64_rel);
 
     for( uint i=0U; i<dt_rel_cnt; i++ ) {
       fd_elf64_rel const * dt_rel   = &dt_rels[ i ];
       ulong                r_offset = dt_rel->r_offset;
-
-      /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1052-L1066 */
-      if( fd_sbpf_enable_elf_vaddr( elf_info->sbpf_version ) ) {
-
-        /* Inverting this condition for readability...
-           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1053-L1061 */
-        if( !( program_header &&
-               program_header->p_vaddr<=r_offset &&
-               r_offset<fd_ulong_sat_add( program_header->p_vaddr, program_header->p_memsz ) ) ) {
-
-          /* Iterate through the program header table to find the header
-             https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1056-L1059 */
-          for( ushort j=0; j<pht_cnt; j++ ) {
-            fd_elf64_phdr const * header = &phdr[ j ];
-            if( header->p_vaddr<=r_offset &&
-                r_offset<fd_ulong_sat_add( header->p_vaddr, header->p_memsz ) ) {
-              program_header = header;
-              break;
-            }
-          }
-        }
-
-        /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1062-L1065 */
-        if( FD_UNLIKELY( !program_header ) ) {
-          return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-        }
-        r_offset = fd_ulong_sat_add( fd_ulong_sat_sub( r_offset, program_header->p_vaddr ),
-                                     program_header->p_offset );
-      }
 
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1068-L1303 */
       int err;
