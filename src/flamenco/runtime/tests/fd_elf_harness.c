@@ -2,6 +2,7 @@
 #include "fd_solfuzz_private.h"
 #include "generated/elf.pb.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
+#include "../program/fd_bpf_loader_program.h"
 #include "../../vm/fd_vm_base.h"
 
 ulong
@@ -41,12 +42,17 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
      immediately if execution fails at any point */
 
   do{
+    fd_features_t feature_set = {0};
+    fd_runtime_fuzz_restore_features( &feature_set, &input->features );
 
     fd_sbpf_loader_config_t config = {
       .elf_deploy_checks = input->deploy_checks,
-      .sbpf_min_version  = FD_SBPF_V0,
-      .sbpf_max_version  = FD_SBPF_V3,
-     };
+    };
+    fd_bpf_get_sbpf_versions(
+        &config.sbpf_min_version,
+        &config.sbpf_max_version,
+        UINT_MAX,
+        &feature_set );
 
     if( FD_UNLIKELY( fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config )<0 ) ) {
       /* return incomplete effects on execution failures */
@@ -58,8 +64,6 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
 
     /* Register any active syscalls */
-    fd_features_t feature_set = {0};
-    fd_runtime_fuzz_restore_features( &feature_set, &input->features );
     fd_vm_syscall_register_slot(
         syscalls,
         UINT_MAX /* Arbitrary slot, doesn't matter */,

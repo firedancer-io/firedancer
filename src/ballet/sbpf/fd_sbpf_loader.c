@@ -1381,12 +1381,12 @@ fd_sbpf_program_get_sbpf_version_or_err( void const *                    bin,
                                          ulong                           bin_sz,
                                          fd_sbpf_loader_config_t const * config ) {
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L376-L381 */
-  const ulong E_FLAGS_OFFSET  = 48UL;
+  const ulong E_FLAGS_OFFSET = 48UL;
 
-  if( FD_UNLIKELY( bin_sz < E_FLAGS_OFFSET+sizeof(uint) ) ) {
+  if( FD_UNLIKELY( bin_sz<E_FLAGS_OFFSET+sizeof(uint) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
   }
-  uint e_flags = fd_uint_load_4( (uchar const *)bin + E_FLAGS_OFFSET );
+  uint e_flags = FD_LOAD( uint, bin+E_FLAGS_OFFSET );
 
   uint sbpf_version = 0U;
   if( FD_UNLIKELY( config->sbpf_max_version==FD_SBPF_V0 ) ) {
