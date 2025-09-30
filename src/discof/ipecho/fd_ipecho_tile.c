@@ -159,12 +159,13 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile ) {
   /* stderr, logfile, one for each socket() call for up to 16
      gossip entrypoints (GOSSIP_TILE_ENTRYPOINTS_MAX) for
-     fd_ipecho_client and one for fd_ipecho_server.  */
-  return 1UL /* stderr */ +
-         1UL /* logfile */ +
-         tile->ipecho.entrypoints_cnt /* for the client */ +
-         1UL /* for the server's socket */ +
-         1024UL /* for the server's connections */;
+     fd_ipecho_client, one for fd_ipecho_server, and up to 1024 for the
+     server's connections.  */
+  return 1UL +                          /* stderr */
+         1UL +                          /* logfile */
+         tile->ipecho.entrypoints_cnt + /* for the client */
+         1UL +                          /* for the server's socket */
+         1024UL;                        /* for the server's connections */;
 }
 
 static ulong
@@ -208,7 +209,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   /* All of the fds managed by the client. */
   for( ulong i=0UL; i<tile->ipecho.entrypoints_cnt; i++ ) {
     int fd = fd_ipecho_client_get_pollfds( ctx->client )[ i ].fd;
-    if( fd!=-1 ) out_fds[ out_cnt++ ] = fd;
+    if( FD_LIKELY( fd!=-1 ) ) out_fds[ out_cnt++ ] = fd;
   }
 
   /* The server's socket. */
