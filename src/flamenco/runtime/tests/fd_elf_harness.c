@@ -54,8 +54,10 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
         UINT_MAX,
         &feature_set );
 
-    if( FD_UNLIKELY( fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config )<0 ) ) {
-      /* return incomplete effects on execution failures */
+    int err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
+
+    if( FD_UNLIKELY( err ) ) {
+      /* TODO: Capture error code */
       break;
     }
 
@@ -63,7 +65,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     fd_sbpf_program_t *  prog     = fd_sbpf_program_new( fd_spad_alloc_check( spad, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
 
-    /* Register any active syscalls */
+    /* Register any syscalls given the active feature set */
     fd_vm_syscall_register_slot(
         syscalls,
         UINT_MAX /* Arbitrary slot, doesn't matter */,
@@ -71,8 +73,9 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
         !!config.elf_deploy_checks );
 
     ulong entrypoint;
-    int res = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, &entrypoint );
-    if( FD_UNLIKELY( res ) ) {
+    err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, &entrypoint );
+    if( FD_UNLIKELY( err ) ) {
+      /* TODO: Capture error code */
       break;
     }
 
@@ -90,7 +93,6 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->text_cnt = prog->text_cnt;
     elf_effects->text_off = prog->text_off;
     elf_effects->entry_pc = prog->entry_pc;
-
 
     pb_size_t calldests_sz = (pb_size_t) fd_sbpf_calldests_cnt( prog->calldests)+1UL;
     elf_effects->calldests_count = calldests_sz;
