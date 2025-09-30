@@ -1604,9 +1604,11 @@ after_credit( fd_replay_tile_t *  ctx,
 
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
-  fd_reasm_fec_t * fec = fd_reasm_next( ctx->reasm );
-  if( !!fec ) {
-    process_fec_set( ctx, fec );
+
+  if( FD_LIKELY( fd_reasm_has_next( ctx->reasm ) && fd_sched_can_ingest( ctx->sched ) ) ) {
+    /* If sched is full or there are no free banks, we cannot ingest any
+       more FEC sets into the scheduler. */
+    process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1635,16 +1637,17 @@ after_credit( fd_replay_tile_t *  ctx,
 static int
 before_frag( fd_replay_tile_t * ctx,
              ulong              in_idx,
-             ulong              seq,
-             ulong              sig ) {
-  (void)seq;
-  (void)sig;
+             ulong              seq FD_PARAM_UNUSED,
+             ulong              sig FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED ) ) {
-    /* If the transaction scheduler is full, there is nowhere for the
-       fragment to go and we cannot pull it off the incoming queue yet.
-       This will cause backpressure to the repair system. */
-    if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched ) ) ) return -1;
+    /* If reasm is full, we can not insert any more FEC sets.  We must
+       not consume any frags from shred_out until reasm can process more
+       FEC sets. */
+
+    if( FD_UNLIKELY( fd_reasm_full( ctx->reasm ) ) ) {
+      return -1;
+    }
   }
 
   return 0;

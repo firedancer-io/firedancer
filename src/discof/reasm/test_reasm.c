@@ -154,7 +154,9 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * fec = NULL;
   while( FD_LIKELY( fec ) ) {
+    int has_next = fd_reasm_has_next( reasm );
     fec = fd_reasm_next( reasm );
+    FD_TEST( (!!fec)==has_next );
     FD_TEST( 0==memcmp( &fec->key, &mr0, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr1, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr2, sizeof(fd_hash_t) ) );
@@ -238,6 +240,8 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_disco_repair_replay_sig_parent_off( sig ) == 1 );
   FD_TEST( fd_disco_repair_replay_sig_data_cnt( sig ) == 32 );
   FD_TEST( fd_disco_repair_replay_sig_slot_complete( sig ) == 1 );
+
+  FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();
   return 0;
