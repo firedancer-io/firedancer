@@ -205,7 +205,8 @@ FD_STATIC_ASSERT( sizeof(fd_exec_writer_txn_msg_t)<=FD_EXEC_WRITER_MTU, exec_wri
    been finalized. */
 
 struct __attribute__((packed)) fd_writer_replay_txn_finalized_msg {
-  int exec_tile_id;
+  int   exec_tile_id;
+  ulong bank_idx;
 };
 typedef struct fd_writer_replay_txn_finalized_msg fd_writer_replay_txn_finalized_msg_t;
 

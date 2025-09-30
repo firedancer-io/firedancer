@@ -13,6 +13,7 @@ struct __attribute__((packed)) fd_capture_ctx_account_update_msg {
   fd_solana_account_meta_t info;
   ulong                    data_sz;
   fd_hash_t                hash;
+  ulong                    bank_idx;
   /* Account data follows immediately after this struct */
 };
 typedef struct fd_capture_ctx_account_update_msg fd_capture_ctx_account_update_msg_t;
