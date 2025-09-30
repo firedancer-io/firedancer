@@ -171,8 +171,6 @@ echo "
         enabled = true
         end_slot = $END_SLOT
         rocksdb_path = \"$DUMP/$LEDGER/rocksdb\"
-        shredcap_path = \"$DUMP/$LEDGER/slices.bin\"
-        bank_hash_path = \"$DUMP/$LEDGER/bank_hashes.bin\"
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"

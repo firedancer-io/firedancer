@@ -1,0 +1,38 @@
+[snapshots]
+    incremental_snapshots = false
+    download = false
+    minimum_download_speed_mib = 0
+    maximum_local_snapshot_age = 0
+    maximum_download_retry_abort = 0
+[layout]
+    shred_tile_count = 4
+[tiles]
+    [tiles.archiver]
+        enabled = true
+        ingest_mode = "rocksdb"
+    [tiles.replay]
+        cluster_version = "2.3.0"
+        heap_size_gib = 50
+        enable_features = [  ]
+    [tiles.gui]
+        enabled = false
+[store]
+    max_completed_shred_sets = 32768
+[funk]
+    heap_size_gib = 5
+    max_account_records = 2000000
+    max_database_transactions = 64
+[runtime]
+    max_live_slots = 32
+    max_fork_width = 4
+[development]
+    sandbox = false
+    no_agave = true
+    no_clone = true
+[log]
+    level_stderr = "INFO"
+[hugetlbfs]
+    mount_path = "/mnt/.fd"
+    allow_hugepage_increase = true
+[gossip]
+    entrypoints = [ "0.0.0.0:1" ]
