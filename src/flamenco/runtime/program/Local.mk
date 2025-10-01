@@ -53,6 +53,7 @@ ifdef FD_HAS_HOSTED
 ifdef FD_HAS_SECP256K1
 $(call make-unit-test,test_program_cache,test_program_cache,fd_flamenco fd_ballet fd_funk fd_util)
 $(call run-unit-test,test_program_cache)
+$(call make-unit-test,test_program_cache_concur,test_program_cache_concur,fd_flamenco fd_vm fd_funk fd_ballet fd_util)
 endif
 endif
 

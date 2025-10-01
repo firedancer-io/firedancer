@@ -3,12 +3,9 @@
 /* For additional context see https://solana.com/docs/programs/deploying#state-accounts */
 
 #include "../fd_pubkey_utils.h"
+#include "../context/fd_exec_slot_ctx.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../sysvar/fd_sysvar.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../../vm/syscall/fd_vm_syscall.h"
-#include "../../vm/fd_vm.h"
-#include "../fd_executor.h"
 #include "fd_bpf_loader_serialization.h"
 #include "fd_native_cpi.h"
 #include "../fd_borrowed_account.h"

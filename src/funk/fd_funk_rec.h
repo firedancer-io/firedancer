@@ -327,25 +327,6 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err );
 
-/* fd_funk_rec_insert_para does thread-safe insertion of a funk record.
-
-   Detailed Behavior:
-
-   More specifically, first this function will query the transaction
-   stack to identify what the youngest transaction with the key is.
-   If a record is found in some ancestor txn or if the
-   record doesn't exist, we will allocate a new account record and add
-   this into the transaction. In either case, the record is set to the
-   given value. */
-
-int
-fd_funk_rec_insert_para( fd_funk_t *               funk,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_funk_rec_key_t const * key,
-                         ulong                     val_align,
-                         ulong                     val_sz,
-                         void *                    val );
-
 /* fd_funk_rec_remove removes the live record with the
    given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on
    success and an FD_FUNK_ERR_* (negative) on failure.  Reasons for

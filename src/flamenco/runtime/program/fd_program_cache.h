@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h
 
-#include "../../fd_flamenco_base.h"
-#include "../fd_acc_mgr.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../../vm/syscall/fd_vm_syscall.h"
-#include "../fd_system_ids.h"
+#include "../../types/fd_types_custom.h"
+#include "../../../funk/fd_funk_base.h"
+#include "../../../ballet/sbpf/fd_sbpf_loader.h"
 
 /* fd_program_cache contains the core logic for the program cache's
    behavior, including accesses, insertions, updates, and verifies.
@@ -300,6 +298,25 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *               fun
                                                    fd_funk_txn_xid_t const * xid,
                                                    fd_pubkey_t const *       program_key,
                                                    ulong                     current_slot );
+
+/* fd_funk_rec_insert_para does thread-safe insertion of a funk record.
+
+   Detailed Behavior:
+
+   More specifically, first this function will query the transaction
+   stack to identify what the youngest transaction with the key is.
+   If a record is found in some ancestor txn or if the
+   record doesn't exist, we will allocate a new account record and add
+   this into the transaction. In either case, the record is set to the
+   given value. */
+
+int
+fd_funk_rec_insert_para( fd_funk_t *               funk,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_funk_rec_key_t const * key,
+                         ulong                     val_align,
+                         ulong                     val_sz,
+                         void *                    val );
 
 FD_PROTOTYPES_END
 
