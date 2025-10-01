@@ -2482,7 +2482,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
          Program account and program data account discriminants get checked when loading in program accounts
          into the program cache. If the discriminants are incorrect, the program is marked as closed. */
       if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) ) {
-        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
