@@ -510,6 +510,7 @@ watch_cmd_fn( args_t *   args,
                       config->gid,
                       0,
                       0,
+                      0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
                       0,
                       0UL,

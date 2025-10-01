@@ -598,6 +598,7 @@ typedef struct {
 
   int          keep_host_networking;
   int          allow_connect;
+  int          allow_renameat;
   ulong        rlimit_file_cnt;
   ulong        rlimit_address_space;
   ulong        rlimit_data;

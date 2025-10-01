@@ -171,16 +171,19 @@ fd_sandbox_private_drop_caps( ulong cap_last_cap );
    existing file descriptors created before sandboxing can still be
    used as normal.
 
-   Landlock in newer kernels also prevents network access, and returns
-   EACCESS on bind(2) or connect(2) calls.  If allow_connect is nonzero,
-   the connect(2) syscall will still be allowed.
+   Landlock in newer kernels also prevents network and file system
+   access.  It returns EACCESS on bind(2), connect(2), or renameat(2)
+   calls.  If allow_connect is nonzero, the connect(2) syscall will
+   still be allowed (along with various others).  If allow_renameat is
+   nonzero, the renameat(2) syscall will still be allowed.
 
    Unlike most other mitigations, this function will return without an
    error or exiting the program if the kernel does not support landlock.
    In future it should be made required. */
 
 void
-fd_sandbox_private_landlock_restrict_self( int allow_connect );
+fd_sandbox_private_landlock_restrict_self( int allow_connect,
+                                           int allow_renameat );
 
 /* Install a seccomp-bpf to the current process.  This filter looks at
    all syscalls and will terminate the process with SIGSYS if a syscall
@@ -207,6 +210,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      uint        desired_gid,
                                      int         keep_host_networking,
                                      int         allow_connect,
+                                     int         allow_renameat,
                                      int         keep_controlling_terminal,
                                      int         dumpable,
                                      ulong       rlimit_file_cnt,

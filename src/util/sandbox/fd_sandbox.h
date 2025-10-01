@@ -146,6 +146,7 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   uint                 desired_gid,                  /* Group ID to switch the process to inside the sandbox */
                   int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
                   int                  allow_connect,                /* True if the connect(2) syscall should be allowed via. landlock */
+                  int                  allow_renameat,               /* True if the renameat(2) syscall should be allowed via. landlock */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
                   int                  dumpable,                     /* True if the "dumpable" attribute of the process should be kept, otherwise it will be cleared */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
