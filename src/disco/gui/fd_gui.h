@@ -348,11 +348,6 @@ struct fd_gui_slot_staged_shred_event {
 
 typedef struct fd_gui_slot_staged_shred_event fd_gui_slot_staged_shred_event_t;
 
-#define SORT_NAME fd_gui_slot_staged_shred_event_sort
-#define SORT_KEY_T fd_gui_slot_staged_shred_event_t
-#define SORT_BEFORE(a,b) (__extension__({ (void)(b); (a).slot==ULONG_MAX; }))
-#include "../../util/tmpl/fd_sort.c"
-
 struct __attribute__((packed)) fd_gui_slot_history_shred_event {
   long   timestamp;
   ushort shred_idx;
@@ -367,15 +362,6 @@ struct fd_gui_slot_ranking {
   int   type;
 };
 typedef struct fd_gui_slot_ranking fd_gui_slot_ranking_t;
-
-/* All rankings are initialized / reset to ULONG_MAX.  These sentinels
-   sort AFTER non-sentinel ranking entries.  Equal slots are sorted by
-   oldest slot AFTER.  Otherwise sort by value according to ranking
-   type. */
-#define SORT_NAME fd_gui_slot_ranking_sort
-#define SORT_KEY_T fd_gui_slot_ranking_t
-#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).value==(b).value, (a).slot>(b).slot, fd_int_if( (a).type==FD_GUI_SLOT_RANKING_TYPE_DESC, (a).value>(b).value, (a).value<(b).value ) ) ) )
-#include "../../util/tmpl/fd_sort.c"
 
 struct fd_gui_slot_rankings {
   fd_gui_slot_ranking_t largest_tips          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
@@ -399,11 +385,6 @@ struct fd_gui_ephemeral_slot {
       long timestamp_arrival_nanos;
 };
 typedef struct fd_gui_ephemeral_slot fd_gui_ephemeral_slot_t;
-
-#define SORT_NAME fd_gui_ephemeral_slot_sort
-#define SORT_KEY_T fd_gui_ephemeral_slot_t
-#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).slot==(b).slot, (a).timestamp_arrival_nanos>(b).timestamp_arrival_nanos, (a).slot>(b).slot ) ) )
-#include "../../util/tmpl/fd_sort.c"
 
 struct __attribute__((packed)) fd_gui_txn {
   uchar signature[ FD_TXN_SIGNATURE_SZ ];
@@ -735,6 +716,10 @@ struct fd_gui {
     ulong history_slot;          /* the largest slot store in history */
     ulong history_tail;          /* history_tail % FD_GUI_SHREDS_STAGING_SZ is the last valid event in history +1 */
     fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
+
+    /* scratch space for stable sorts */
+    fd_gui_slot_staged_shred_event_t _staged_scratch [ FD_GUI_SHREDS_STAGING_SZ ];
+    fd_gui_slot_staged_shred_event_t _staged_scratch2[ FD_GUI_SHREDS_STAGING_SZ ];
   } shreds; /* full client */
 };
 
@@ -839,6 +824,11 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snaprd_update_t const * msg );
+
+void
+fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
+                               fd_stake_weight_msg_t const * leader_schedule,
+                               long                          now );
 
 void
 fd_gui_handle_tower_update( fd_gui_t *                   gui,

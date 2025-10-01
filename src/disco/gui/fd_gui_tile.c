@@ -54,6 +54,8 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
 #define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
 #define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
+#define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
+#define IN_KIND_REPLAY_VOTES (14UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -227,11 +229,25 @@ during_frag( fd_gui_ctx_t * ctx,
     }
   }
 
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_STAKE ) ) {
+    fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)src;
+    FD_TEST( sz==(ushort)(sizeof(fd_stake_weight_msg_t)+(leader_schedule->staked_cnt*sizeof(fd_vote_stake_weight_t))) );
+    sz = fd_stake_weight_msg_sz( leader_schedule->staked_cnt );
+  }
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
+    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return;
+  }
+
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
     /* There are multiple frags types sent on this link, the currently the
      only way to distinguish them is to check sz.  We dont actually read
      from the dcache.  */
     return;
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_VOTES ) ) {
+      FD_TEST( sig<=FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+      FD_TEST( sz==(ushort)(sig*sizeof(fd_replay_vote_t)) );
+      sz = sig*sizeof(fd_replay_vote_t);
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
@@ -270,6 +286,24 @@ after_frag( fd_gui_ctx_t *      ctx,
       } else {
         return;
       }
+      break;
+    }
+    case IN_KIND_REPLAY_STAKE: {
+      FD_TEST( ctx->is_full_client );
+
+      fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)ctx->buf;
+      for( ulong i=0UL; i<leader_schedule->staked_cnt; i++ ) {
+        if( !leader_schedule->weights[ i ].stake ) {
+          FD_LOG_ERR(("i=%lu sz=%lu", i, sz));
+        }
+      }
+      fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_REPLAY_VOTES: {
+      FD_TEST( ctx->is_full_client );
+      fd_replay_vote_t * votes = (fd_replay_vote_t *)ctx->buf;
+      fd_gui_peers_handle_vote_update( ctx->peers, votes, sig, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_TOWER_OUT: {
@@ -347,6 +381,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_POH_PACK: {
+      FD_TEST( !ctx->is_full_client );
       FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
       fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
       fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
@@ -629,19 +664,21 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "plugin_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"  ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "shred_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;  /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "snaprd_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "repair_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;  /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT; /* full client only */
+    if( FD_LIKELY( !strcmp( link->name, "plugin_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"    ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;  /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snaprd_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "repair_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;  /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_votes" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_VOTES; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {

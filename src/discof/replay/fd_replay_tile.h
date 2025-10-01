@@ -71,6 +71,19 @@ struct fd_replay_tower {
 
 typedef struct fd_replay_tower fd_replay_tower_t;
 
+struct fd_replay_vote {
+  fd_pubkey_t vote_account;
+  fd_pubkey_t node_account;
+  ulong       stake;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+  uchar       commission;
+  ulong       epoch;
+  ulong       epoch_credits;
+};
+
+typedef struct fd_replay_vote fd_replay_vote_t;
+
 union fd_replay_message {
   fd_replay_slot_completed_t slot_completed;
   fd_replay_root_advanced_t  root_advanced;
