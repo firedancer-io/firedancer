@@ -178,7 +178,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
 
       /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
-      fd_guarded_borrowed_account_t view_acc;
+      fd_guarded_borrowed_account_t view_acc = {0};
       fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       ulong acc_data_len = fd_borrowed_account_get_data_len( &view_acc );
@@ -243,7 +243,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
 
       /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
-      fd_guarded_borrowed_account_t view_acc;
+      fd_guarded_borrowed_account_t view_acc = {0};
       fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L465 */
@@ -340,7 +340,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
 
     /* get the borrowed account
        https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L519 */
-    fd_guarded_borrowed_account_t view_acc;
+    fd_guarded_borrowed_account_t view_acc = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, i, &view_acc );
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -476,7 +476,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
 
     /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
-    fd_guarded_borrowed_account_t view_acc;
+    fd_guarded_borrowed_account_t view_acc = {0};
     fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
     ulong acc_data_len = fd_borrowed_account_get_data_len( &view_acc );
@@ -535,7 +535,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
 
       /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
-      fd_guarded_borrowed_account_t view_acc;
+      fd_guarded_borrowed_account_t view_acc = {0};
       fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &view_acc );
@@ -620,7 +620,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
                       sizeof(fd_pubkey_t); /* key */
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L378 */
-      fd_guarded_borrowed_account_t view_acc;
+      fd_guarded_borrowed_account_t view_acc = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, i, &view_acc );
 
       ulong lamports = FD_LOAD( ulong, input_cursor );

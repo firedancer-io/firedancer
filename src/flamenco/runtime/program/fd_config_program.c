@@ -47,7 +47,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t const * config_account_key       = NULL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L26 */
-  fd_guarded_borrowed_account_t config_acc_rec;
+  fd_guarded_borrowed_account_t config_acc_rec = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_CONFIG, &config_acc_rec );
 
   config_account_key = config_acc_rec.acct->pubkey;

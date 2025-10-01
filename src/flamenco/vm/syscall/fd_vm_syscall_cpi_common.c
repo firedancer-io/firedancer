@@ -136,7 +136,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
   /* Borrow the callee account.
      TODO: Agave borrows before this function call. Consider refactoring to borrow the account at the same place as Agave.
      https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L893 */
-  fd_guarded_borrowed_account_t callee_acc;
+  fd_guarded_borrowed_account_t callee_acc = {0};
   err = fd_exec_instr_ctx_try_borrow_instr_account( vm->instr_ctx, instr_acc_idx, &callee_acc );
   if( FD_UNLIKELY( err ) ) {
     /* No need to do anything if the account is missing from the borrowed accounts cache */
@@ -284,7 +284,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
        will set its meta up) */
 
     /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L878-L881 */
-    fd_guarded_borrowed_account_t callee_acct;
+    fd_guarded_borrowed_account_t callee_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
 
     fd_pubkey_t const *       account_key = callee_acct.acct->pubkey;
@@ -537,7 +537,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       the callee's changes.
       TODO: Agave borrows before entering this function. We should consider doing the same.
       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
-    fd_guarded_borrowed_account_t borrowed_callee_acc;
+    fd_guarded_borrowed_account_t borrowed_callee_acc = {0};
     err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
@@ -599,7 +599,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
        contain the callee's changes.
        TODO: Agave borrows before entering this function. We should consider doing the same.
        https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
-    fd_guarded_borrowed_account_t borrowed_callee_acc;
+    fd_guarded_borrowed_account_t borrowed_callee_acc = {0};
     err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
@@ -969,7 +969,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
         /* Borrow the callee account
            https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1154-L1155 */
-        fd_guarded_borrowed_account_t callee_acc;
+        fd_guarded_borrowed_account_t callee_acc = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, acc_instr_idx, &callee_acc );
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1298 */
