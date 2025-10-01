@@ -442,7 +442,7 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
         epoch, effective_stake, activating_stake, deactivating_stake, _ = first_entry.split()
         # Print the stake information
         total_stake = float(effective_stake) + float(activating_stake) - float(deactivating_stake)
-        
+
         staked_sol_amount = int(total_stake / (1 - float(percentage)/100.0) * float(percentage)/100.0)
     else:
         staked_sol_amount = int(sol)
@@ -999,6 +999,56 @@ def validators(ctx):
         for stake_account_pubkey, balance, active_stake, delegated_stake in stake_account_details:
             click.echo(f"    {stake_account_pubkey}: Balance: {balance}, Active Stake: {active_stake}, Delegated Stake: {delegated_stake}")
         click.echo("")
+
+
+@main.command('leader-stats')
+@click.pass_context
+def leader_stats(ctx):
+    """Show leader stats for a given identifier."""
+    solana = solana_binary('solana')
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "epoch"], capture_output=True, text=True)
+    epoch = int(result.stdout)
+    leader_schedule_epoch = epoch - 1
+    result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "leader-schedule", "--epoch", str(leader_schedule_epoch)], capture_output=True, text=True)
+    leader_schedule = result.stdout
+
+    # collect leader pubkeys
+    cluster_path = str(get_ledger_directory())
+    keys_path = os.path.join(cluster_path, 'keys')
+    validator_leader_slots = {}
+    for validator_name in os.listdir(keys_path):
+        id_key = os.path.join(keys_path, validator_name, 'id.json')
+        id_pubkey = get_pubkey(id_key)
+        validator_leader_slots[id_pubkey] = set()
+
+    for line in leader_schedule.strip().split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                slot = int(parts[0])
+                schedule_identifier = parts[1]
+                if schedule_identifier in validator_leader_slots:
+                    validator_leader_slots[schedule_identifier].add(slot)
+            except ValueError:
+                # Skip lines that don't have valid slot numbers
+                continue
+
+    click.echo(f"Epoch: {epoch}")
+    for leader_pubkey, leader_slots in validator_leader_slots.items():
+        current_txn_cnt = 0
+        for slot in leader_slots:
+            result = subprocess.run([solana, "-u", f"http://{ip()}:8899", "block", str(slot)], capture_output=True, text=True)
+            # count number of "Transaction " in result.stdout
+            current_txn_cnt += result.stdout.count("Transaction ")
+
+        click.echo(f"  Leader: {leader_pubkey}")
+        click.echo(f"    Number of Leader Slots: {len(leader_slots)}")
+        click.echo(f"    Average Transactions per Slot: {current_txn_cnt / len(leader_slots)}")
+    return
 
 
 if __name__ == '__main__':
