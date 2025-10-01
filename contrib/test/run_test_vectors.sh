@@ -27,7 +27,7 @@ GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
 
 echo $GIT_REF
 
-if [ ! -d dump/test-vectors ]; then
+if [ ! -f dump/test-vectors/README.md ]; then
   cd dump
   git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
   cd test-vectors

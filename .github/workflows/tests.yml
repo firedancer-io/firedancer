@@ -120,9 +120,9 @@ jobs:
           make run-fuzz-test
 
       - name: check out test-vectors (persistent)
-        if: ${{ matrix.run-unit-tests && matrix.test-case != 'native' }}
+        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native' }}
         run: |
-          if [[ ! -d /data/svc_firedancer ]]; then git -C /data/svc_firedancer clone https://github.com/firedancer-io/test-vectors.git; fi
+          if [[ ! -d /data/svc_firedancer/test-vectors ]]; then git -C /data/svc_firedancer clone https://github.com/firedancer-io/test-vectors.git; fi
           mkdir dump
           ln -s /data/svc_firedancer/test-vectors dump/test-vectors
 
