@@ -208,7 +208,6 @@ typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
-  long tsprint; /* timestamp for printing */
 
   ulong repair_seed;
 
@@ -278,9 +277,6 @@ struct ctx {
     ulong sign_tile_unavail;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
-
-    /* diagnostics */
-    volatile ulong * last_replayed_slot;
   } metrics[ 1 ];
 
   /* Slot-level metrics */
@@ -896,19 +892,6 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( ctx->forest->root != ULONG_MAX && now - ctx->tsprint > (long)1e9 ) ) {
-    ulong replay_slot  = *ctx->metrics->last_replayed_slot;
-    ulong replay_diff  = ctx->metrics->current_slot - replay_slot;
-    ulong turbine_diff = ctx->metrics->current_slot - ctx->metrics->repaired_slots;
-    FD_LOG_NOTICE(( "\n\n[Firedancer]\n"
-                    "Replay:  %lu (-%lu)\n"
-                    "Repair:  %lu (-%lu)\n"
-                    "Shred:   %lu\n",
-                    replay_slot, replay_diff,
-                    ctx->metrics->repaired_slots, turbine_diff,
-                    ctx->metrics->current_slot ));
-    ctx->tsprint = now;
-  }
 
   *charge_busy = 1;
 
@@ -1119,13 +1102,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
 
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
-  fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  if( FD_UNLIKELY( replay_tile == NULL || replay_tile->metrics == NULL ) ) {
-    ctx->metrics->last_replayed_slot = &ctx->metrics->repaired_slots;
-  } else {
-    ulong volatile * const replay_metrics = fd_metrics_tile( replay_tile->metrics );
-    ctx->metrics->last_replayed_slot = replay_metrics+MIDX( COUNTER, REPLAY, MAX_REPLAYED_SLOT );
-  }
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),
                                                               FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_TIME ) ) );
@@ -1133,7 +1109,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY ) ) );
 
   ctx->tsdebug = fd_log_wallclock();
-  ctx->tsprint = fd_log_wallclock();
 }
 
 static ulong

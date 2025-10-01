@@ -1164,7 +1164,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
 
-  FD_LOG_NOTICE(( "recalculating partitioned rewards" ));
+  FD_LOG_DEBUG(( "recalculating partitioned rewards" ));
 
   if( FD_UNLIKELY( epoch_rewards->active ) ) {
 
@@ -1172,7 +1172,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
         preceeding epoch.
 
         https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
-    FD_LOG_NOTICE(( "epoch rewards is active" ));
+    FD_LOG_DEBUG(( "epoch rewards is active" ));
 
     ulong const slot           = fd_bank_slot_get( slot_ctx->bank );
     ulong const epoch          = fd_bank_epoch_get( slot_ctx->bank );

@@ -493,7 +493,15 @@
 | <span class="metrics-name">replay_&#8203;store_&#8203;read_&#8203;work</span> | histogram | Time in seconds spent on reading a FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;wait</span> | histogram | Time in seconds spent waiting for the store to publish a new FEC set |
 | <span class="metrics-name">replay_&#8203;store_&#8203;publish_&#8203;work</span> | histogram | Time in seconds spent on publishing a new FEC set |
-| <span class="metrics-name">replay_&#8203;max_&#8203;replayed_&#8203;slot</span> | counter | The largest slot that we have replayed |
+| <span class="metrics-name">replay_&#8203;root_&#8203;slot</span> | gauge | The slot at which our node has most recently rooted |
+| <span class="metrics-name">replay_&#8203;root_&#8203;distance</span> | gauge | The distance in slots between our current root and the current reset slot |
+| <span class="metrics-name">replay_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are currently leader, or 0 if none |
+| <span class="metrics-name">replay_&#8203;next_&#8203;leader_&#8203;slot</span> | gauge | The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot |
+| <span class="metrics-name">replay_&#8203;reset_&#8203;slot</span> | gauge | The slot at which we last reset the replay stage, or 0 if unknown |
+| <span class="metrics-name">replay_&#8203;max_&#8203;live_&#8203;banks</span> | gauge | The maximum number of banks we can have alive |
+| <span class="metrics-name">replay_&#8203;live_&#8203;banks</span> | gauge | The number of banks we currently have alive |
+| <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
+| <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall. Not an accurate TPS as it includes skipped slots |
 
 </div>
 

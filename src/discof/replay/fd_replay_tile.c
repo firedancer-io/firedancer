@@ -351,7 +351,6 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t stake_out[1];
 
-  long tsprint; /* timestamp for interval printing */
   struct {
     fd_histf_t store_read_wait[ 1 ];
     fd_histf_t store_read_work[ 1 ];
@@ -360,8 +359,9 @@ struct fd_replay_tile {
     fd_histf_t store_link_wait[ 1 ];
     fd_histf_t store_link_work[ 1 ];
 
-    ulong max_replayed_slot;
-  } diagnostics;
+    ulong slots_total;
+    ulong transactions_total;
+  } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
 };
@@ -392,13 +392,32 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_replay_tile_t * ctx ) {
-  FD_MHIST_COPY( REPLAY, STORE_LINK_WAIT,    ctx->diagnostics.store_link_wait );
-  FD_MHIST_COPY( REPLAY, STORE_LINK_WORK,    ctx->diagnostics.store_link_work );
-  FD_MHIST_COPY( REPLAY, STORE_READ_WAIT,    ctx->diagnostics.store_read_wait );
-  FD_MHIST_COPY( REPLAY, STORE_READ_WORK,    ctx->diagnostics.store_read_work );
-  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WAIT, ctx->diagnostics.store_publish_wait );
-  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WORK, ctx->diagnostics.store_publish_work );
-  FD_MCNT_SET  ( REPLAY, MAX_REPLAYED_SLOT,  ctx->diagnostics.max_replayed_slot );
+  FD_MHIST_COPY( REPLAY, STORE_LINK_WAIT,    ctx->metrics.store_link_wait );
+  FD_MHIST_COPY( REPLAY, STORE_LINK_WORK,    ctx->metrics.store_link_work );
+  FD_MHIST_COPY( REPLAY, STORE_READ_WAIT,    ctx->metrics.store_read_wait );
+  FD_MHIST_COPY( REPLAY, STORE_READ_WORK,    ctx->metrics.store_read_work );
+  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WAIT, ctx->metrics.store_publish_wait );
+  FD_MHIST_COPY( REPLAY, STORE_PUBLISH_WORK, ctx->metrics.store_publish_work );
+
+  FD_MGAUGE_SET( REPLAY, ROOT_SLOT, ctx->consensus_root_slot );
+  ulong leader_slot = ctx->leader_bank ? fd_bank_slot_get( ctx->leader_bank ) : 0UL;
+  FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
+
+  if( FD_LIKELY( ctx->leader_bank ) ) {
+    FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, leader_slot );
+    FD_MGAUGE_SET( REPLAY, LEADER_SLOT, leader_slot );
+  } else {
+    FD_MGAUGE_SET( REPLAY, NEXT_LEADER_SLOT, ctx->next_leader_slot==ULONG_MAX ? 0UL : ctx->next_leader_slot );
+    FD_MGAUGE_SET( REPLAY, LEADER_SLOT, 0UL );
+  }
+  FD_MGAUGE_SET( REPLAY, RESET_SLOT, ctx->reset_slot==ULONG_MAX ? 0UL : ctx->reset_slot );
+
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( ctx->banks );
+  ulong live_banks = fd_banks_pool_max( bank_pool ) - fd_banks_pool_free( bank_pool );
+  FD_MGAUGE_SET( REPLAY, LIVE_BANKS, live_banks );
+
+  FD_MCNT_SET( REPLAY, SLOTS_TOTAL, ctx->metrics.slots_total );
+  FD_MCNT_SET( REPLAY, TRANSACTIONS_TOTAL, ctx->metrics.transactions_total );
 }
 
 static void
@@ -642,7 +661,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
 
-  ctx->diagnostics.max_replayed_slot = fd_ulong_max( ctx->diagnostics.max_replayed_slot, slot );
   return bank;
 }
 
@@ -691,6 +709,9 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+
+  ctx->metrics.slots_total++;
+  ctx->metrics.transactions_total = fd_bank_txn_count_get( bank );
 }
 
 static void
@@ -723,6 +744,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
+    .silent       = 1,
   };
   fd_runtime_block_execute_finalize( &slot_ctx );
 
@@ -888,6 +910,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
     .bank         = ctx->leader_bank,
     .xid          = {xid},
     .status_cache = ctx->txncache,
+    .silent       = 1,
   };
   fd_runtime_block_execute_finalize( &slot_ctx );
 
@@ -955,6 +978,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
+    .silent       = 1,
   };
   fd_rewards_recalculate_partitioned_rewards( &slot_ctx, ctx->capture_ctx, ctx->runtime_spad );
 
@@ -1287,9 +1311,13 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ctx->consensus_root          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
-    ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->consensus_root_bank_idx = 0UL;
+    ctx->published_root_slot     = ctx->consensus_root_slot;
     ctx->published_root_bank_idx = 0UL;
+
+    ctx->reset_slot            = snapshot_slot;
+    ctx->reset_timestamp_nanos = fd_log_wallclock();
+    ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
     FD_TEST( bank->idx==0UL );
@@ -1450,8 +1478,8 @@ process_fec_set( fd_replay_tile_t * ctx,
   FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
     if( FD_UNLIKELY( !fd_store_link( ctx->store, &reasm_fec->key, &reasm_fec->cmr ) ) ) FD_LOG_WARNING(( "failed to link %s %s. slot %lu fec_set_idx %u", FD_BASE58_ENC_32_ALLOCA( &reasm_fec->key ), FD_BASE58_ENC_32_ALLOCA( &reasm_fec->cmr ), reasm_fec->slot, reasm_fec->fec_set_idx ));
   } FD_STORE_SHARED_LOCK_END;
-  fd_histf_sample( ctx->diagnostics.store_link_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0L ) );
-  fd_histf_sample( ctx->diagnostics.store_link_work, (ulong)fd_long_max( shrel_end - shacq_end,   0L ) );
+  fd_histf_sample( ctx->metrics.store_link_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0L ) );
+  fd_histf_sample( ctx->metrics.store_link_work, (ulong)fd_long_max( shrel_end - shacq_end,   0L ) );
 
   /* Update the reasm_fec with the correct bank index and parent bank
      index.  If the FEC belongs to a leader, we have already allocated
@@ -1535,8 +1563,8 @@ process_fec_set( fd_replay_tile_t * ctx,
     sched_fec->shred_cnt = reasm_fec->data_cnt;
   } FD_STORE_SHARED_LOCK_END;
 
-  fd_histf_sample( ctx->diagnostics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
-  fd_histf_sample( ctx->diagnostics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
+  fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
+  fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
 
   sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
   sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
@@ -1602,8 +1630,8 @@ advance_published_root( fd_replay_tile_t * ctx ) {
     fd_store_publish( ctx->store, &advanceable_root_ele->block_id );
   } FD_STORE_EXCLUSIVE_LOCK_END;
 
-  fd_histf_sample( ctx->diagnostics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
-  fd_histf_sample( ctx->diagnostics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
+  fd_histf_sample( ctx->metrics.store_publish_wait, (ulong)fd_long_max( exacq_end-exacq_start, 0UL ) );
+  fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
 
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
   funk_publish( ctx, advanceable_root_slot );
@@ -1809,6 +1837,16 @@ process_tower_update( fd_replay_tile_t *           ctx,
 
     publish_root_advanced( ctx, stem );
   }
+
+  ulong distance = 0UL;
+  fd_bank_t * parent = bank;
+  while( parent ) {
+    if( FD_UNLIKELY( parent->idx==ctx->consensus_root_bank_idx ) ) break;
+    parent = fd_banks_get_parent( ctx->banks, parent );
+    distance++;
+  }
+
+  FD_MGAUGE_SET( REPLAY, ROOT_DISTANCE, distance );
 }
 
 static void
@@ -1975,6 +2013,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   FD_TEST( ctx->banks );
 
+  fd_bank_t * bank_pool = fd_banks_get_bank_pool( ctx->banks );
+  FD_MGAUGE_SET( REPLAY, MAX_LIVE_BANKS, fd_banks_pool_max( bank_pool ) );
+
   fd_bank_t * bank = fd_banks_init_bank( ctx->banks );
   fd_bank_slot_set( bank, 0UL );
   FD_TEST( bank );
@@ -2123,20 +2164,20 @@ unprivileged_init( fd_topo_t *      topo,
   exec_out->wmark  = fd_dcache_compact_wmark( exec_out->mem, link->dcache, link->mtu );
   exec_out->chunk  = exec_out->chunk0;
 
-  fd_memset( &ctx->diagnostics, 0, sizeof(ctx->diagnostics) );
+  fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
-  fd_histf_join( fd_histf_new( ctx->diagnostics.store_link_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_LINK_WAIT ),
-                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_LINK_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->diagnostics.store_link_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_LINK_WORK ),
-                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_LINK_WORK ) ) );
-  fd_histf_join( fd_histf_new( ctx->diagnostics.store_read_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WAIT ),
-                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->diagnostics.store_read_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WORK ),
-                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WORK ) ) );
-  fd_histf_join( fd_histf_new( ctx->diagnostics.store_publish_wait, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WAIT ),
-                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
-  fd_histf_join( fd_histf_new( ctx->diagnostics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
-                                                                    FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_link_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_LINK_WAIT ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_LINK_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_link_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_LINK_WORK ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_LINK_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_read_wait,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WAIT ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_read_work,    FD_MHIST_SECONDS_MIN( REPLAY, STORE_READ_WORK ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_READ_WORK ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_publish_wait, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WAIT ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WAIT ) ) );
+  fd_histf_join( fd_histf_new( ctx->metrics.store_publish_work, FD_MHIST_SECONDS_MIN( REPLAY, STORE_PUBLISH_WORK ),
+                                                                FD_MHIST_SECONDS_MAX( REPLAY, STORE_PUBLISH_WORK ) ) );
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

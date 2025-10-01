@@ -104,10 +104,6 @@ snapshot_load_topo( config_t *     config,
     fd_topo_configure_tile( tile, config );
   }
 
-  /* No need for diagnostics, this is a diagnostic tool which prints on
-     its own. */
-  snaprd_tile->snaprd.diagnostics = 0;
-
   if( !args->snapshot_load.tile_cpus[0] ) {
     fd_topob_auto_layout( topo, 0 );
   }
