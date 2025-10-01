@@ -127,9 +127,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)                             );
   l = FD_LAYOUT_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint( 1UL<<24UL )            );
-  if( FD_LIKELY( tile->snapin.txncache_obj_id!=ULONG_MAX ) ) {
-    l = FD_LAYOUT_APPEND( l, fd_txncache_align(),      fd_txncache_footprint( tile->snapin.max_live_slots ) );
-  }
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->snapin.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
   return FD_LAYOUT_FINI( l, alignof(fd_snapin_tile_t) );
@@ -664,10 +662,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),  sizeof(fd_snapin_tile_t)                  );
   void * _ssparse        = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_parser_align(), fd_snapshot_parser_footprint( 1UL<<24UL ) );
-  void * _txncache       = NULL;
-  if( FD_LIKELY( tile->snapin.txncache_obj_id!=ULONG_MAX ) ) {
-    _txncache            = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->snapin.max_live_slots ) );
-  }
+  void * _txncache       = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->snapin.max_live_slots ) );
   ctx->txncache_entries  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   ctx->blockhash_offsets = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS );
 
@@ -679,15 +674,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   fd_funk_txn_xid_set_root( ctx->xid );
 
-  if( FD_LIKELY( tile->snapin.txncache_obj_id!=ULONG_MAX ) ) {
-    void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
-    fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
-    FD_TEST( txncache_shmem );
-    ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
-    FD_TEST( ctx->txncache );
-  } else {
-    ctx->txncache = NULL;
-  }
+  void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
+  fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
+  FD_TEST( txncache_shmem );
+  ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
+  FD_TEST( ctx->txncache );
 
   ctx->txncache_entries_len = 0UL;
   ctx->blockhash_offsets_len = 0UL;
