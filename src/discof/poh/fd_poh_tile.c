@@ -122,7 +122,7 @@ returnable_frag( fd_poh_tile_t *     ctx,
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
-    FD_TEST( ((int)(pack_idx-ctx->expect_pack_idx))>=0L );
+    if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
     if( FD_UNLIKELY( pack_idx!=ctx->expect_pack_idx ) ) return 1;
     ctx->expect_pack_idx++;
   }
