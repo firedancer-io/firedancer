@@ -396,54 +396,6 @@ fd_funk_rec_cancel( fd_funk_t *             funk,
   fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
 }
 
-int
-fd_funk_rec_insert_para( fd_funk_t *               funk,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_funk_rec_key_t const * key,
-                         ulong                     val_align,
-                         ulong                     val_sz,
-                         void *                    val ) {
-  if( FD_UNLIKELY( !funk           ) ) FD_LOG_ERR(( "NULL funk" ));
-  if( FD_UNLIKELY( !xid            ) ) FD_LOG_ERR(( "NULL xid"  ));
-  if( FD_UNLIKELY( !key            ) ) FD_LOG_ERR(( "NULL key"  ));
-  if( FD_UNLIKELY( !val && val_sz  ) ) FD_LOG_ERR(( "NULL val"  ));
-
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, xid, key );
-
-  for(;;) {
-    /* See if the record already exists. */
-    fd_funk_rec_query_t query[1];
-    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
-    if( err == FD_MAP_SUCCESS ) {
-      fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
-      /* Set the value of the record */
-      if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
-        FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
-        return err;
-      }
-      memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), val, val_sz );
-      return FD_FUNK_SUCCESS;
-    }
-
-    /* The record doesn't exist. Create it. */
-    fd_funk_rec_prepare_t prepare[1];
-    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, xid, key, prepare, &err );
-    if( FD_UNLIKELY( !rec ) ) {
-      FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
-      return err;
-    }
-    /* Set the value of the record */
-    if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
-      return err;
-    }
-    memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), val, val_sz );
-    fd_funk_rec_publish( funk, prepare );
-    return FD_FUNK_SUCCESS;
-  }
-}
-
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_txn_xid_t const * xid,

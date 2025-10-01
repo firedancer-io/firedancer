@@ -1,5 +1,7 @@
 #include "../program/fd_program_cache.h"
 #include "generated/context.pb.h"
+#include "../fd_acc_mgr.h"
+#include "../../features/fd_features.h"
 #include <assert.h>
 
 int

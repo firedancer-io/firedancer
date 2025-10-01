@@ -1,6 +1,7 @@
-#include "fd_funk_rec.h"
-#include "fd_funk_txn.h"
-#include "test_funk_common.hpp"
+#include "../../../funk/fd_funk_rec.h"
+#include "../../../funk/fd_funk_txn.h"
+#include "../../../funk/test_funk_common.hpp"
+#include "fd_program_cache.h"
 #include <cstdio>
 #include <pthread.h>
 

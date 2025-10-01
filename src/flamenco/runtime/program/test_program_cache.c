@@ -1,5 +1,6 @@
 #include "fd_program_cache.h"
-#include "../../../util/fd_util.h"
+#include "../../../funk/fd_funk.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 #if FD_HAS_HOSTED
 
