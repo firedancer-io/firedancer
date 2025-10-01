@@ -22,16 +22,8 @@
    type should be set such that fd_<type>_t is defined in fd_types.h. */
 
 #define TEST_VECTOR( X )                                            \
-  X( txn_vote,                         flamenco_txn,         0, 0 ) \
   X( vote_account,                     vote_state_versioned, 1, 0 ) \
   X( vote_account_two,                 vote_state_versioned, 1, 0 ) \
-  X( gossip_pull_req,                  gossip_msg,           0, 0 ) \
-  X( gossip_pull_resp_contact_info,    gossip_msg,           0, 0 ) \
-  X( gossip_pull_resp_contact_info_v2, gossip_msg,           0, 0 ) \
-  X( gossip_pull_resp_node_instance,   gossip_msg,           0, 0 ) \
-  X( gossip_pull_resp_snapshot_hashes, gossip_msg,           0, 0 ) \
-  X( gossip_pull_resp_version,         gossip_msg,           0, 0 ) \
-  X( gossip_push_vote,                 gossip_msg,           0, 0 ) \
   X( repair_pong,                      repair_protocol,      0, 0 ) \
   X( repair_window_index,              repair_protocol,      0, 0 ) \
   X( repair_highest_window_index,      repair_protocol,      0, 0 ) \
