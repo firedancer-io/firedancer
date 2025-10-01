@@ -401,9 +401,6 @@ fd_funk_rec_t * fd_funk_all_iter_ele( fd_funk_all_iter_t * iter );
 int
 fd_funk_rec_verify( fd_funk_t * funk );
 
-int
-fd_funk_rec_purify( fd_funk_t * funk );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_funk_fd_funk_rec_h */

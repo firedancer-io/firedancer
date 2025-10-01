@@ -494,13 +494,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
   fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
 
-  int const critical = _dst_rec_head_idx==NULL;
-  if( critical ) {
-    /* If the root transaction is being updated, we need to mark
-       the beginning of a critical section becuase fd_funk_purify can't fix it */
-    fd_begin_crit( funk );
-  }
-
   fd_funk_txn_t * txn = &txn_pool->ele[ txn_idx ];
   fd_funk_txn_state_assert( txn, FD_FUNK_TXN_STATE_PUBLISH );
   uint rec_idx = txn->rec_head_idx;
@@ -566,10 +559,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
 
   txn_pool->ele[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn_pool->ele[ txn_idx ].rec_tail_idx = FD_FUNK_REC_IDX_NULL;
-
-  if( critical ) {
-    fd_end_crit( funk );
-  }
 }
 
 /* fd_funk_txn_publish_funk_child publishes a transaction that is known

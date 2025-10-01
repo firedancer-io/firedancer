@@ -13,7 +13,6 @@ $(call make-unit-test,test_funk_txn,test_funk_txn test_funk_common,fd_funk fd_ut
 $(call run-unit-test,test_funk_txn)
 $(call make-unit-test,test_funk_val,test_funk_val test_funk_common,fd_funk fd_util)
 $(call run-unit-test,test_funk_val)
-$(call make-unit-test,test_funk_reconnect,test_funk_reconnect test_funk_common,fd_funk fd_util)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_funk_txn2,test_funk_txn2,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn2)

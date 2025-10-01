@@ -327,16 +327,6 @@ fd_funk_t *
 fd_funk_join( fd_funk_t * ljoin,
               void *      shfunk );
 
-/* fd_funk_purify attempts to clean up a possibly corrupt funk
-   instance. The shfunk argument is what would normally be passed to
-   join, and purify should be used BEFORE calling join. As a side
-   effect, all pending transactions are aborted. Important note:
-   purify is very expensive. Do not use this API indiscriminately. It
-   is meant to be used after a process crash. An error is returned if
-   purify fails. */
-int
-fd_funk_purify( void * shfunk );
-
 /* fd_funk_leave leaves a funk join.  Returns the memory region used for
    join on success (caller has ownership on return and the caller is no
    longer joined) and NULL on failure (logs details).  Sets *opt_shfunk
@@ -486,19 +476,6 @@ fd_funk_rec_is_full( fd_funk_t * funk ) {
 static inline int
 fd_funk_txn_is_full( fd_funk_t * funk ) {
   return fd_funk_txn_pool_is_empty( funk->txn_pool );
-}
-
-/* fd_begin_crit and fd_end_crit are used to mark the beginning and end of a critical section.
-   They indicate that funk is in a state where fd_funk_purify doesn't work. */
-
-static inline void
-fd_begin_crit(fd_funk_t * funk) {
-   funk->shmem->magic = FD_FUNK_MAGIC+1;
-}
-
-static inline void
-fd_end_crit(fd_funk_t * funk) {
-   funk->shmem->magic = FD_FUNK_MAGIC;
 }
 
 /* Misc */
