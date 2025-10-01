@@ -992,6 +992,7 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
   account_update_msg->pubkey               = *account->pubkey;
   account_update_msg->info                 = fd_txn_account_get_solana_meta( account );
   account_update_msg->data_sz              = meta->dlen;
+  account_update_msg->bank_idx             = bank->idx;
   memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
   capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
 

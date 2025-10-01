@@ -363,6 +363,7 @@ after_frag( fd_writer_tile_ctx_t * ctx,
 
       /* Notify the replay tile that we are done with this txn. */
       ctx->txn_finalized_buffer.exec_tile_id = msg->exec_tile_id;
+      ctx->txn_finalized_buffer.bank_idx     = ctx->bank->idx;
       ctx->pending_txn_finalized_msg = 1;
       break;
     } default:

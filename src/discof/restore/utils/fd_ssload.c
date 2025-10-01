@@ -1,7 +1,5 @@
 #include "fd_ssload.h"
 
-#include "../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../../flamenco/runtime/program/fd_vote_program.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
 
@@ -60,31 +58,32 @@ blockhashes_recover( fd_blockhashes_t *                       blockhashes,
 
 void
 fd_ssload_recover( fd_snapshot_manifest_t * manifest,
-                   fd_exec_slot_ctx_t *     slot_ctx ) {
+                   fd_banks_t *             banks,
+                   fd_bank_t *              bank ) {
 
   /* Slot */
 
-  fd_bank_slot_set( slot_ctx->bank, manifest->slot );
-  fd_bank_parent_slot_set( slot_ctx->bank, manifest->parent_slot );
+  fd_bank_slot_set( bank, manifest->slot );
+  fd_bank_parent_slot_set( bank, manifest->parent_slot );
 
   /* Bank Hash */
 
   fd_hash_t hash;
   fd_memcpy( &hash.uc, manifest->bank_hash, 32UL );
-  fd_bank_bank_hash_set( slot_ctx->bank, hash );
+  fd_bank_bank_hash_set( bank, hash );
 
   fd_hash_t parent_hash;
   fd_memcpy( &parent_hash.uc, manifest->parent_bank_hash, 32UL );
-  fd_bank_prev_bank_hash_set( slot_ctx->bank, parent_hash );
+  fd_bank_prev_bank_hash_set( bank, parent_hash );
 
-  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( slot_ctx->bank );
+  fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( bank );
   fee_rate_governor->target_lamports_per_signature = manifest->fee_rate_governor.target_lamports_per_signature;
   fee_rate_governor->target_signatures_per_slot    = manifest->fee_rate_governor.target_signatures_per_slot;
   fee_rate_governor->min_lamports_per_signature    = manifest->fee_rate_governor.min_lamports_per_signature;
   fee_rate_governor->max_lamports_per_signature    = manifest->fee_rate_governor.max_lamports_per_signature;
   fee_rate_governor->burn_percent                  = manifest->fee_rate_governor.burn_percent;
 
-  fd_inflation_t * inflation = fd_bank_inflation_modify( slot_ctx->bank );
+  fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
   inflation->initial         = manifest->inflation_params.initial;
   inflation->terminal        = manifest->inflation_params.terminal;
   inflation->taper           = manifest->inflation_params.taper;
@@ -92,7 +91,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   inflation->foundation_term = manifest->inflation_params.foundation_term;
   inflation->unused          = 0.0;
 
-  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( slot_ctx->bank );
+  fd_epoch_schedule_t * epoch_schedule = fd_bank_epoch_schedule_modify( bank );
   epoch_schedule->slots_per_epoch             = manifest->epoch_schedule_params.slots_per_epoch;
   epoch_schedule->leader_schedule_slot_offset = manifest->epoch_schedule_params.leader_schedule_slot_offset;
   epoch_schedule->warmup                      = manifest->epoch_schedule_params.warmup;
@@ -100,47 +99,47 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   epoch_schedule->first_normal_slot           = manifest->epoch_schedule_params.first_normal_slot;
 
   ulong epoch = fd_slot_to_epoch( epoch_schedule, manifest->slot, NULL );
-  fd_bank_epoch_set( slot_ctx->bank, epoch );
+  fd_bank_epoch_set( bank, epoch );
 
-  fd_rent_t * rent = fd_bank_rent_modify( slot_ctx->bank );
+  fd_rent_t * rent = fd_bank_rent_modify( bank );
   rent->lamports_per_uint8_year = manifest->rent_params.lamports_per_uint8_year;
   rent->exemption_threshold     = manifest->rent_params.exemption_threshold;
   rent->burn_percent            = manifest->rent_params.burn_percent;
 
-  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( slot_ctx->bank, manifest->hashes_per_tick );
-  else                                             fd_bank_hashes_per_tick_set( slot_ctx->bank, DEFAULT_HASHES_PER_TICK );
+  if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( bank, manifest->hashes_per_tick );
+  else                                             fd_bank_hashes_per_tick_set( bank, DEFAULT_HASHES_PER_TICK );
 
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
     fd_lthash_value_t lthash;
     fd_memcpy( lthash.bytes, manifest->accounts_lthash, 2048UL );
-    fd_bank_lthash_set( slot_ctx->bank, lthash );
+    fd_bank_lthash_set( bank, lthash );
   } else {
     fd_lthash_value_t lthash = {0};
-    fd_bank_lthash_set( slot_ctx->bank, lthash );
+    fd_bank_lthash_set( bank, lthash );
   }
 
-  fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+  fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( bank );
   blockhashes_recover( blockhashes, manifest->blockhashes, manifest->blockhashes_len, 42UL /* TODO */ );
 
   /* PoH */
-  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
+  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
   fd_hash_t const * last_hash = fd_blockhashes_peek_last( bhq );
-  if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( slot_ctx->bank, *last_hash );
+  if( FD_LIKELY( last_hash ) ) fd_bank_poh_set( bank, *last_hash );
 
-  fd_bank_capitalization_set( slot_ctx->bank, manifest->capitalization );
-  fd_bank_lamports_per_signature_set( slot_ctx->bank, manifest->lamports_per_signature );
-  fd_bank_prev_lamports_per_signature_set( slot_ctx->bank, manifest->lamports_per_signature );
-  fd_bank_transaction_count_set( slot_ctx->bank, manifest->transaction_count );
-  fd_bank_parent_signature_cnt_set( slot_ctx->bank, manifest->signature_count );
-  fd_bank_tick_height_set( slot_ctx->bank, manifest->tick_height );
-  fd_bank_max_tick_height_set( slot_ctx->bank, manifest->max_tick_height );
-  fd_bank_ns_per_slot_set( slot_ctx->bank, manifest->ns_per_slot );
-  fd_bank_ticks_per_slot_set( slot_ctx->bank, manifest->ticks_per_slot );
-  fd_bank_genesis_creation_time_set( slot_ctx->bank, manifest->creation_time_millis );
-  fd_bank_slots_per_year_set( slot_ctx->bank, manifest->slots_per_year );
-  fd_bank_block_height_set( slot_ctx->bank, manifest->block_height );
-  fd_bank_execution_fees_set( slot_ctx->bank, manifest->collector_fees );
-  fd_bank_priority_fees_set( slot_ctx->bank, 0UL );
+  fd_bank_capitalization_set( bank, manifest->capitalization );
+  fd_bank_lamports_per_signature_set( bank, manifest->lamports_per_signature );
+  fd_bank_prev_lamports_per_signature_set( bank, manifest->lamports_per_signature );
+  fd_bank_transaction_count_set( bank, manifest->transaction_count );
+  fd_bank_parent_signature_cnt_set( bank, manifest->signature_count );
+  fd_bank_tick_height_set( bank, manifest->tick_height );
+  fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
+  fd_bank_ns_per_slot_set( bank, manifest->ns_per_slot );
+  fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
+  fd_bank_genesis_creation_time_set( bank, manifest->creation_time_millis );
+  fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
+  fd_bank_block_height_set( bank, manifest->block_height );
+  fd_bank_execution_fees_set( bank, manifest->collector_fees );
+  fd_bank_priority_fees_set( bank, 0UL );
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152
@@ -151,7 +150,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      (There might be some hard forks in the future, ignore these)
 
      SIMD-0047: The first restart slot should be `0` */
-  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( slot_ctx->bank );
+  fd_sol_sysvar_last_restart_slot_t * last_restart_slot = fd_bank_last_restart_slot_modify( bank );
   last_restart_slot->slot = 0UL;
   if( FD_LIKELY( manifest->hard_forks_len ) ) {
     for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) {
@@ -164,7 +163,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   /* Stake delegations for the current epoch. */
-  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( slot_ctx->banks );
+  fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( banks );
   for( ulong i=0UL; i<manifest->stake_delegations_len; i++ ) {
     fd_snapshot_manifest_stake_delegation_t const * elem = &manifest->stake_delegations[ i ];
     fd_stake_delegations_update(
@@ -180,7 +179,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   }
 
   /* Vote states for the current epoch. */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   for( ulong i=0UL; i<manifest->vote_accounts_len; i++ ) {
     fd_snapshot_manifest_vote_account_t const * elem = &manifest->vote_accounts[ i ];
     /* First convert the epoch credits to the format expected by the
@@ -207,10 +206,10 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
         epoch_credits_prev_credits );
     fd_vote_states_update_stake( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey, elem->stake );
   }
-  fd_bank_vote_states_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_end_locking_modify( bank );
 
   /* Vote stakes for the previous epoch (E-1). */
-  fd_vote_states_t * vote_stakes_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_stakes_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   for( ulong i=0UL; i<manifest->epoch_stakes[1].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[1].vote_stakes[i];
     /* First convert the epoch credits to the format expected by the
@@ -242,7 +241,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
     }
   }
 
-  fd_bank_vote_states_prev_end_locking_modify( slot_ctx->bank );
+  fd_bank_vote_states_prev_end_locking_modify( bank );
 
   /* We also want to set the total stake to be the total amout of stake
      at the end of the previous epoch. This value is used for the
@@ -266,10 +265,10 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
      stakes at the end of epoch 6.  Therefore, we save the total
      epoch stake by querying for epoch+1. This logic is encapsulated
      in fd_ssmanifest_parser.c. */
-  fd_bank_total_epoch_stake_set( slot_ctx->bank, manifest->epoch_stakes[1].total_stake );
+  fd_bank_total_epoch_stake_set( bank, manifest->epoch_stakes[1].total_stake );
 
   /* Vote stakes for the previous epoch (E-2) */
-  fd_vote_states_t * vote_stakes_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( slot_ctx->bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
+  fd_vote_states_t * vote_stakes_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
   for( ulong i=0UL; i<manifest->epoch_stakes[0].vote_stakes_len; i++ ) {
     fd_snapshot_manifest_vote_stakes_t const * elem = &manifest->epoch_stakes[0].vote_stakes[i];
     /* First convert the epoch credits to the format expected by the
@@ -299,6 +298,6 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
       fd_vote_states_remove( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote );
     }
   }
-  fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
-  slot_ctx->bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
+  fd_bank_vote_states_prev_prev_end_locking_modify( bank );
+  bank->txncache_fork_id = (fd_txncache_fork_id_t){ .val = manifest->txncache_fork_id };
 }
