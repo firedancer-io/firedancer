@@ -373,14 +373,14 @@ rename_snapshots( fd_snaprd_tile_t * ctx ) {
   char const * incremental_snapshot_name;
   fd_sshttp_snapshot_names( ctx->sshttp, &full_snapshot_name, &incremental_snapshot_name );
 
-  if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) ) {
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", ctx->local_out.dir_fd, full_snapshot_name ) ) )
-      FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) {
-    if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", ctx->local_out.dir_fd, incremental_snapshot_name ) ) )
-      FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
+  // if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) ) {
+  //   if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", ctx->local_out.dir_fd, full_snapshot_name ) ) )
+  //     FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  // }
+  // if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) {
+  //   if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", ctx->local_out.dir_fd, incremental_snapshot_name ) ) )
+  //     FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  // }
 }
 
 static void
