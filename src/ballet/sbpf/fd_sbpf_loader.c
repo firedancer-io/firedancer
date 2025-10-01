@@ -1333,7 +1333,7 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
 
   ulong entry_off = fd_ulong_sat_sub( ehdr.e_entry, text_shdr->sh_addr );
   info->entry_pc         = (uint)( entry_off / 8UL );
-  info->text_off         = (uint)text_shdr->sh_offset;
+  info->text_off         = (uint)text_shdr->sh_addr;
   info->text_sz          = (uint)text_shdr->sh_size;
   info->text_cnt         = (uint)( text_shdr->sh_size / 8UL );
   info->shndx_text       = shndx_text;
