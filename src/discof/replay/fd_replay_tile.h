@@ -25,15 +25,12 @@ struct fd_replay_slot_completed {
   fd_hash_t block_hash;      /* last microblock header hash of slot received from replay */
 
   ulong transaction_count;
-  ulong nonvote_txn_count;
-  ulong failed_txn_count;
-  ulong nonvote_failed_txn_count;
-  ulong max_compute_units;
-  ulong total_compute_units_used;
-  ulong execution_fees;
-  ulong priority_fees;
-  ulong tips;
-  ulong shred_count;
+
+  /* Reference to the bank for this completed slot.  TODO: We can
+     eliminate non-timestamp fields and have consumers just use
+     bank_idx. */
+  ulong bank_idx;
+  ulong parent_bank_idx; /* ULONG_MAX if unavailable */
 
   long first_fec_set_received_nanos;      /* timestamp when replay received the first fec of the slot from turbine or repair */
   long preparation_begin_nanos;           /* timestamp when replay began preparing the state to begin execution of the slot */
