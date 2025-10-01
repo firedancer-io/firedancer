@@ -82,6 +82,20 @@ fd_shdr_get_file_range( fd_elf64_shdr const * shdr,
   }
 }
 
+/* Converts an ElfParserError code to an ElfError code. */
+static int
+fd_sbpf_elf_parser_err_to_elf_err( int err ) {
+  if( err==FD_SBPF_ELF_SUCCESS ) {
+    return err;
+  } else if( err==FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS ) {
+    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
+  } else if( err==FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER ) {
+    return FD_SBPF_ELF_ERR_INVALID_PROGRAM_HEADER;
+  } else {
+    return FD_SBPF_ELF_ERR_FAILED_TO_PARSE;
+  }
+}
+
 /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L11-L13 */
 #define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
 #define FD_SBPF_SYMBOL_NAME_SZ_MAX  (64UL)
@@ -217,7 +231,8 @@ struct fd_sbpf_loader {
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
-/* TODO: Normalize the error codes EVERYWHERE
+/* Queries a single string from a section which is marked as SHT_STRTAB.
+   Returns an ElfParserError on failure and 0 on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L467-L496 */
 int
 fd_sbpf_lenient_get_string_in_section( char *                string,
@@ -816,8 +831,8 @@ fd_sbpf_check_overlap( ulong a_start, ulong a_end, ulong b_start, ulong b_end ) 
   return !( ( a_end <= b_start || b_end <= a_start ) );
 }
 
-/* TODO: Normalize the error codes.
-   Elf64::parse()
+/* Mirrors Elf64::parse() in Agave. Returns an ElfParserError code on
+   failure and 0 on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L148 */
 int
 fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
@@ -1229,8 +1244,9 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
   return 0;
 }
 
-/* TODO: Document this function.
-   TODO: Convert ElfParserError error codes to ElfError. */
+/* Performs validation checks on the ELF. Returns an ElfError on failure
+   and 0 on success.
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L719-L809 */
 int
 fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t *            info,
                               void const *                    bin,
@@ -1279,7 +1295,7 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t *            info,
     int res = fd_sbpf_lenient_get_string_in_section( name, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, bin, bin_sz );
     if( FD_UNLIKELY( res < 0 ) ) {
       /* this can never fail because it was checked above, but safer to keep it */
-      return res;
+      return fd_sbpf_elf_parser_err_to_elf_err( res );
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L765-L775 */
@@ -1331,25 +1347,23 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t *            info,
   return FD_SBPF_ELF_SUCCESS;
 }
 
-/* TODO: Document this function.
-
-   TODO: Convert ElfParserError error codes to ElfError. */
+/* First part of Agave's load_with_lenient_parser(). We split up this
+   function into two parts so we know how much memory we need to
+   allocate for the loading step. Returns an ElfError on failure and 0
+   on success.
+   https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L593-L638 */
 static int
 fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
                           void const *                    bin,
                           ulong                           bin_sz,
                           fd_sbpf_loader_config_t const * config ) {
-//FIXME
-#if 0
-  fd_sbpf_elf_info_t * res = fd_sbpf_elf_peek_old( info, bin, bin_sz, config->elf_deploy_checks, config->sbpf_min_version, config->sbpf_max_version );
-  return res==NULL ? FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER : 0;
-#else
+
   (void)config;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L607 */
   int res = fd_sbpf_lenient_elf_parse( info, bin, bin_sz, config );
   if( FD_UNLIKELY( res<0 ) ) {
-    return res;
+    return fd_sbpf_elf_parser_err_to_elf_err( res );
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L617 */
@@ -1374,7 +1388,6 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L638 */
 
   return 0;
-#endif
 }
 
 static int
@@ -1443,11 +1456,12 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   };
 
   /* Invoke strict vs lenient parser. The strict parser is used for
-     SBPF version >= 3.
-     +
+     SBPF version >= 3. The strict parser also returns an ElfParserError
+     while the lenient parser returns an ElfError, so we have to map
+     the strict parser's error code.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( info->sbpf_version ) ) ) {
-    return fd_sbpf_elf_peek_strict( info, bin, bin_sz, config );
+    return fd_sbpf_elf_parser_err_to_elf_err( fd_sbpf_elf_peek_strict( info, bin, bin_sz, config ) );
   }
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
