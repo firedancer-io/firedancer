@@ -652,6 +652,14 @@ metric introduced.
     <counter name="ForceCompleteRequest" summary="The number of times we received a FEC force complete message" />
     <counter name="ForceCompleteFailure" summary="The number of times we failed to force complete a FEC set on request" />
     <counter name="ForceCompleteSuccess" summary="The number of times we successfully forced completed a FEC set on request" />
+    <counter name="TxShredLoadBytesViaUdpCnt" summary="The total count of shred load bytes sent via raw UDP" />
+    <counter name="TxShredLoadBytesViaSnpCnt" summary="The total count of shred load bytes sent via SNP" />
+    <counter name="TxShredPktBytesViaUdpCnt" summary="The total count of shred packet bytes sent via raw UDP" />
+    <counter name="TxShredPktBytesViaSnpCnt" summary="The total count of shred packet bytes sent via SNP" />
+    <counter name="TxShredsViaUdpCnt" summary="The total count of shreds sent via raw UDP" />
+    <counter name="TxShredsViaSnpCnt" summary="The total count of shreds sent via SNP" />
+    <counter name="RxShredsViaUdpCnt" summary="The total count of shreds received via raw UDP" />
+    <counter name="RxShredsViaSnpCnt" summary="The total count of shreds received via SNP" />
 </tile>
 
 <tile name="snp">
@@ -661,6 +669,14 @@ metric introduced.
     <histogram name="ClusterContactSnpCnt" min="0" max="40200">
         <summary>Number of contact SNP in the cluster contact info message</summary>
     </histogram>
+    <counter name="TxBytesViaUdpCnt" summary="The total count of bytes sent via raw UDP" />
+    <counter name="TxBytesViaSnpCnt" summary="The total count of bytes sent via SNP" />
+    <counter name="TxPktsViaUdpCnt" summary="The total count of packets sent via raw UDP" />
+    <counter name="TxPktsViaSnpCnt" summary="The total count of packets sent via SNP" />
+    <counter name="RxBytesViaUdpCnt" summary="The total count of bytes received via raw UDP" />
+    <counter name="RxBytesViaSnpCnt" summary="The total count of bytes received via SNP" />
+    <counter name="RxPktsViaUdpCnt" summary="The total count of packets received via raw UDP" />
+    <counter name="RxPktsViaSnpCnt" summary="The total count of packets received via SNP" />
 </tile>
 
 <tile name="store">

@@ -237,6 +237,14 @@ typedef struct {
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
     ulong invalid_block_id_cnt;
     ulong shred_rejected_unchained_cnt;
+    ulong tx_shred_load_bytes_via_udp_cnt;
+    ulong tx_shred_load_bytes_via_snp_cnt;
+    ulong tx_shred_pkt_bytes_via_udp_cnt;
+    ulong tx_shred_pkt_bytes_via_snp_cnt;
+    ulong tx_shreds_via_udp_cnt;
+    ulong tx_shreds_via_snp_cnt;
+    ulong rx_shreds_via_udp_cnt;
+    ulong rx_shreds_via_snp_cnt;
   } metrics[ 1 ];
 
   struct {
@@ -314,6 +322,16 @@ metrics_write( fd_shred_ctx_t * ctx ) {
 
   FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt         );
   FD_MCNT_SET  ( SHRED, SHRED_REJECTED_UNCHAINED,   ctx->metrics->shred_rejected_unchained_cnt );
+
+  FD_MCNT_SET  ( SHRED, TX_SHRED_LOAD_BYTES_VIA_UDP_CNT, ctx->metrics->tx_shred_load_bytes_via_udp_cnt );
+  FD_MCNT_SET  ( SHRED, TX_SHRED_LOAD_BYTES_VIA_SNP_CNT, ctx->metrics->tx_shred_load_bytes_via_snp_cnt );
+  FD_MCNT_SET  ( SHRED, TX_SHRED_PKT_BYTES_VIA_UDP_CNT,  ctx->metrics->tx_shred_pkt_bytes_via_udp_cnt  );
+  FD_MCNT_SET  ( SHRED, TX_SHRED_PKT_BYTES_VIA_SNP_CNT,  ctx->metrics->tx_shred_pkt_bytes_via_snp_cnt  );
+
+  FD_MCNT_SET  ( SHRED, TX_SHREDS_VIA_UDP_CNT,           ctx->metrics->tx_shreds_via_udp_cnt           );
+  FD_MCNT_SET  ( SHRED, TX_SHREDS_VIA_SNP_CNT,           ctx->metrics->tx_shreds_via_snp_cnt           );
+  FD_MCNT_SET  ( SHRED, RX_SHREDS_VIA_UDP_CNT,           ctx->metrics->rx_shreds_via_udp_cnt           );
+  FD_MCNT_SET  ( SHRED, RX_SHREDS_VIA_SNP_CNT,           ctx->metrics->rx_shreds_via_snp_cnt           );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result             );
 }
@@ -683,6 +701,12 @@ send_shred( fd_shred_ctx_t                 * ctx,
   FD_DEBUG_SHRED(FD_LOG_NOTICE(( "[shred] sending shred %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
   FD_PARAM_UNUSED int res = fd_snp_app_send( ctx->snp, packet, FD_NET_MTU, shred, shred_sz, meta );
   FD_DEBUG_SHRED( if( res<0 ) FD_LOG_WARNING(( "[shred] send error: %d", res )) );
+
+  ulong proto;
+  fd_snp_meta_into_parts( &proto, NULL, NULL, NULL, meta );
+  int is_snp = proto!=FD_SNP_META_PROTO_UDP;
+  ctx->metrics->tx_shred_load_bytes_via_udp_cnt += fd_ulong_if( is_snp, 0UL, shred_sz );
+  ctx->metrics->tx_shred_load_bytes_via_snp_cnt += fd_ulong_if( is_snp, shred_sz, 0UL );
 }
 
 static int
@@ -701,6 +725,14 @@ snp_callback_tx( void const *  _ctx,
     ctx->net_out_chunk  = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
   }
   fd_stem_publish( ctx->stem, SNP_OUT_IDX, sig, ctx->net_out_chunkP, packet_sz, 0UL, ctx->tsorig, tspub );
+
+  ulong proto;
+  fd_snp_meta_into_parts( &proto, NULL, NULL, NULL, meta );
+  int is_snp = proto!=FD_SNP_META_PROTO_UDP;
+  ctx->metrics->tx_shred_pkt_bytes_via_udp_cnt += fd_ulong_if( is_snp, 0UL, packet_sz );
+  ctx->metrics->tx_shred_pkt_bytes_via_snp_cnt += fd_ulong_if( is_snp, packet_sz, 0UL );
+  ctx->metrics->tx_shreds_via_udp_cnt          += fd_ulong_if( is_snp, 0UL, 1UL );
+  ctx->metrics->tx_shreds_via_snp_cnt          += fd_ulong_if( is_snp, 1UL, 0UL );
 
   FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] publish to snp %lu", packet_sz )) );
 
@@ -757,6 +789,12 @@ snp_callback_rx( void const *  _ctx,
   if( shred->slot%10==0 && shred->fec_set_idx==0 && shred->idx==0 ) {
     FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx ));
   }
+
+  ulong proto;
+  fd_snp_meta_into_parts( &proto, NULL, NULL, NULL, meta );
+  int is_snp = proto!=FD_SNP_META_PROTO_UDP;
+  ctx->metrics->rx_shreds_via_udp_cnt += fd_ulong_if( is_snp, 0UL, 1UL );
+  ctx->metrics->rx_shreds_via_snp_cnt += fd_ulong_if( is_snp, 1UL, 0UL );
 
   FD_DEBUG_SHRED( FD_LOG_NOTICE(( "[shred] shred received %lu:%u:%u", shred->slot, shred->fec_set_idx, shred->idx )) );
   return FD_SNP_SUCCESS;
@@ -1339,6 +1377,14 @@ unprivileged_init( fd_topo_t *      topo,
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
   ctx->metrics->invalid_block_id_cnt = 0UL;
   ctx->metrics->shred_rejected_unchained_cnt = 0UL;
+  ctx->metrics->tx_shred_load_bytes_via_udp_cnt = 0UL;
+  ctx->metrics->tx_shred_load_bytes_via_snp_cnt = 0UL;
+  ctx->metrics->tx_shred_pkt_bytes_via_udp_cnt  = 0UL;
+  ctx->metrics->tx_shred_pkt_bytes_via_snp_cnt  = 0UL;
+  ctx->metrics->tx_shreds_via_udp_cnt           = 0UL;
+  ctx->metrics->tx_shreds_via_snp_cnt           = 0UL;
+  ctx->metrics->rx_shreds_via_udp_cnt           = 0UL;
+  ctx->metrics->rx_shreds_via_snp_cnt           = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;

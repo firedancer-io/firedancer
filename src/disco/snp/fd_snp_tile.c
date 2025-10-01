@@ -102,6 +102,14 @@ typedef struct {
   struct {
     fd_histf_t contact_info_cnt[ 1 ];
     fd_histf_t contact_snp_cnt[ 1 ];
+    ulong      tx_bytes_via_udp_cnt;
+    ulong      tx_bytes_via_snp_cnt;
+    ulong      tx_pkts_via_udp_cnt;
+    ulong      tx_pkts_via_snp_cnt;
+    ulong      rx_bytes_via_udp_cnt;
+    ulong      rx_bytes_via_snp_cnt;
+    ulong      rx_pkts_via_udp_cnt;
+    ulong      rx_pkts_via_snp_cnt;
   } metrics[ 1 ];
 
   fd_stem_context_t * stem;
@@ -189,6 +197,16 @@ static inline void
 metrics_write( fd_snp_tile_ctx_t * ctx ) {
   FD_MHIST_COPY( SNP, CLUSTER_CONTACT_INFO_CNT, ctx->metrics->contact_info_cnt );
   FD_MHIST_COPY( SNP, CLUSTER_CONTACT_SNP_CNT, ctx->metrics->contact_snp_cnt );
+
+  FD_MCNT_SET  ( SNP, TX_BYTES_VIA_UDP_CNT,   ctx->metrics->tx_bytes_via_udp_cnt );
+  FD_MCNT_SET  ( SNP, TX_BYTES_VIA_SNP_CNT,   ctx->metrics->tx_bytes_via_snp_cnt );
+  FD_MCNT_SET  ( SNP, TX_PKTS_VIA_UDP_CNT,    ctx->metrics->tx_pkts_via_udp_cnt  );
+  FD_MCNT_SET  ( SNP, TX_PKTS_VIA_SNP_CNT,    ctx->metrics->tx_pkts_via_snp_cnt  );
+
+  FD_MCNT_SET  ( SNP, RX_BYTES_VIA_UDP_CNT,   ctx->metrics->rx_bytes_via_udp_cnt );
+  FD_MCNT_SET  ( SNP, RX_BYTES_VIA_SNP_CNT,   ctx->metrics->rx_bytes_via_snp_cnt );
+  FD_MCNT_SET  ( SNP, RX_PKTS_VIA_UDP_CNT,    ctx->metrics->rx_pkts_via_udp_cnt  );
+  FD_MCNT_SET  ( SNP, RX_PKTS_VIA_SNP_CNT,    ctx->metrics->rx_pkts_via_snp_cnt  );
 }
 
 static inline int
@@ -249,6 +267,19 @@ during_frag( fd_snp_tile_ctx_t * ctx,
 
       memcpy( ctx->packet, dcache_entry, sz );
       ctx->packet_sz = sz;
+
+      int is_snp = 0;
+      if( sz > 45
+          && *(dcache_entry + 42UL)=='S'
+          && *(dcache_entry + 43UL)=='N'
+          && *(dcache_entry + 44UL)=='P' ) {
+        is_snp = 1;
+      }
+      ctx->metrics->rx_bytes_via_udp_cnt += fd_ulong_if( is_snp, 0UL, sz );
+      ctx->metrics->rx_bytes_via_snp_cnt += fd_ulong_if( is_snp, sz, 0UL );
+      ctx->metrics->rx_pkts_via_udp_cnt  += fd_ulong_if( is_snp, 0UL, 1UL );
+      ctx->metrics->rx_pkts_via_snp_cnt  += fd_ulong_if( is_snp, 1UL, 0UL );
+
     } break;
 
     case IN_KIND_GOSSIP:
@@ -341,7 +372,8 @@ snp_callback_tx( void const *  _ctx,
   fd_snp_tile_ctx_t * ctx = (fd_snp_tile_ctx_t *)_ctx;
   uint dst_ip_meta;
   ushort dst_port;
-  fd_snp_meta_into_parts( NULL, NULL, &dst_ip_meta, &dst_port, meta );
+  ulong proto;
+  fd_snp_meta_into_parts( &proto, NULL, &dst_ip_meta, &dst_port, meta );
 
   uint dst_ip = fd_uint_load_4( packet+FD_SNP_IP_DST_ADDR_OFF );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -353,6 +385,12 @@ snp_callback_tx( void const *  _ctx,
   }
   fd_stem_publish( ctx->stem, NET_OUT_IDX /*ctx->net_out_idx*/, sig, ctx->net_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
+
+  int is_snp = proto!=FD_SNP_META_PROTO_UDP;
+  ctx->metrics->tx_bytes_via_udp_cnt += fd_ulong_if( is_snp, 0UL, packet_sz );
+  ctx->metrics->tx_bytes_via_snp_cnt += fd_ulong_if( is_snp, packet_sz, 0UL );
+  ctx->metrics->tx_pkts_via_udp_cnt  += fd_ulong_if( is_snp, 0UL, 1UL );
+  ctx->metrics->tx_pkts_via_snp_cnt  += fd_ulong_if( is_snp, 1UL, 0UL );
 
   FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp] publish to net %lu to %u:%u", packet_sz, dst_ip, dst_port )) );
   return FD_SNP_SUCCESS;
@@ -544,6 +582,14 @@ unprivileged_init( fd_topo_t *      topo,
                                                                    FD_MHIST_MAX(         SNP, CLUSTER_CONTACT_INFO_CNT   ) ) );
   fd_histf_join( fd_histf_new( ctx->metrics->contact_snp_cnt,      FD_MHIST_MIN(         SNP, CLUSTER_CONTACT_SNP_CNT    ),
                                                                    FD_MHIST_MAX(         SNP, CLUSTER_CONTACT_SNP_CNT    ) ) );
+  ctx->metrics->tx_bytes_via_udp_cnt = 0UL;
+  ctx->metrics->tx_bytes_via_snp_cnt = 0UL;
+  ctx->metrics->tx_pkts_via_udp_cnt  = 0UL;
+  ctx->metrics->tx_pkts_via_snp_cnt  = 0UL;
+  ctx->metrics->rx_bytes_via_udp_cnt = 0UL;
+  ctx->metrics->rx_bytes_via_snp_cnt = 0UL;
+  ctx->metrics->rx_pkts_via_udp_cnt  = 0UL;
+  ctx->metrics->rx_pkts_via_snp_cnt  = 0UL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

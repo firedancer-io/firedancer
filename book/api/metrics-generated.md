@@ -444,6 +444,14 @@
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;request</span> | counter | The number of times we received a FEC force complete message |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;failure</span> | counter | The number of times we failed to force complete a FEC set on request |
 | <span class="metrics-name">shred_&#8203;force_&#8203;complete_&#8203;success</span> | counter | The number of times we successfully forced completed a FEC set on request |
+| <span class="metrics-name">shred_&#8203;tx_&#8203;shred_&#8203;load_&#8203;bytes_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of shred load bytes sent via raw UDP |
+| <span class="metrics-name">shred_&#8203;tx_&#8203;shred_&#8203;load_&#8203;bytes_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of shred load bytes sent via SNP |
+| <span class="metrics-name">shred_&#8203;tx_&#8203;shred_&#8203;pkt_&#8203;bytes_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of shred packet bytes sent via raw UDP |
+| <span class="metrics-name">shred_&#8203;tx_&#8203;shred_&#8203;pkt_&#8203;bytes_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of shred packet bytes sent via SNP |
+| <span class="metrics-name">shred_&#8203;tx_&#8203;shreds_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of shreds sent via raw UDP |
+| <span class="metrics-name">shred_&#8203;tx_&#8203;shreds_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of shreds sent via SNP |
+| <span class="metrics-name">shred_&#8203;rx_&#8203;shreds_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of shreds received via raw UDP |
+| <span class="metrics-name">shred_&#8203;rx_&#8203;shreds_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of shreds received via SNP |
 
 </div>
 
@@ -883,5 +891,13 @@
 |--------|------|-------------|
 | <span class="metrics-name">snp_&#8203;cluster_&#8203;contact_&#8203;info_&#8203;cnt</span> | histogram | Number of contact infos in the cluster contact info message |
 | <span class="metrics-name">snp_&#8203;cluster_&#8203;contact_&#8203;snp_&#8203;cnt</span> | histogram | Number of contact SNP in the cluster contact info message |
+| <span class="metrics-name">snp_&#8203;tx_&#8203;bytes_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of bytes sent via raw UDP |
+| <span class="metrics-name">snp_&#8203;tx_&#8203;bytes_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of bytes sent via SNP |
+| <span class="metrics-name">snp_&#8203;tx_&#8203;pkts_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of packets sent via raw UDP |
+| <span class="metrics-name">snp_&#8203;tx_&#8203;pkts_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of packets sent via SNP |
+| <span class="metrics-name">snp_&#8203;rx_&#8203;bytes_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of bytes received via raw UDP |
+| <span class="metrics-name">snp_&#8203;rx_&#8203;bytes_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of bytes received via SNP |
+| <span class="metrics-name">snp_&#8203;rx_&#8203;pkts_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The total count of packets received via raw UDP |
+| <span class="metrics-name">snp_&#8203;rx_&#8203;pkts_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The total count of packets received via SNP |
 
 </div>
