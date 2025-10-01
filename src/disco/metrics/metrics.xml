@@ -427,6 +427,7 @@ metric introduced.
 </enum>
 
 <tile name="resolf">
+    <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
