@@ -406,7 +406,12 @@ fd_funk_txn_cancel_children( fd_funk_t *               funk,
 
 void
 fd_funk_txn_remove_published( fd_funk_t * funk ) {
+  /* Prevent new funk txn objects from spawning */
+  if( FD_UNLIKELY( fd_funk_txn_pool_lock( funk->txn_pool, 1 )!=FD_POOL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "Failed to remove published txns: fd_funk_txn_pool_lock failed" ));
+  }
   if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
+    fd_funk_txn_pool_unlock( funk->txn_pool );
     FD_LOG_ERR(( "Failed to remove published txns: there are still txns in preparation" ));
   }
 
@@ -418,33 +423,45 @@ fd_funk_txn_remove_published( fd_funk_t * funk ) {
   /* Iterate over all funk records and remove them */
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    /* FIXME: Chains could be locked while iterating if the remove API
+              supported  */
+    //ulong lock_seq[1] = {chain_idx};
+    //int lock_err = fd_funk_rec_map_iter_lock( rec_map, lock_seq, 1UL, FD_MAP_FLAG_BLOCKING );
+    //if( FD_UNLIKELY( lock_err!=FD_MAP_SUCCESS ) ) {
+    //  FD_LOG_CRIT(( "fd_funk_rec_map_iter_lock failed (%i-%s)", lock_err, fd_map_strerror( lock_err ) ));
+    //}
     for(
         fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
         !fd_funk_rec_map_iter_done( iter );
-        iter = fd_funk_rec_map_iter_next( iter )
     ) {
-      /* Get handle to rec object */
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( iter );
+      ulong next = fd_funk_rec_map_private_idx( rec->map_next );;
+
+      /* Remove rec object from map */
+      fd_funk_rec_map_query_t rec_query[1];
+      int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      fd_funk_rec_key_t key; fd_funk_rec_key_copy( &key, rec->pair.key );
+      if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
 
       /* Sanity check: Record belongs to last published XID */
       if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) ) {
         FD_LOG_ERR(( "Failed to remove published txns: concurrent in-prep record detected" ));
       }
 
-      /* Remove rec object from map */
-      fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( iter.ele ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
-      if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
 
       /* Free rec resources */
-      fd_funk_val_flush( fd_funk_rec_map_iter_ele( iter ), alloc, wksp );
+      fd_funk_val_flush( rec, alloc, wksp );
       fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      iter.ele_idx = next;
     }
+    //fd_funk_rec_map_iter_unlock( rec_map, lock_seq, 1UL );
   }
 
   /* Reset 'last published' XID to 'root' XID */
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
   fd_funk_last_publish_transition( funk->shmem, &root_xid );
+
+  fd_funk_txn_pool_unlock( funk->txn_pool );
 }
 
 /* Cancel all outstanding transactions */

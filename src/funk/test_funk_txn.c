@@ -1,4 +1,5 @@
 #include "fd_funk.h"
+#include "fd_funk_rec.h"
 #include "fd_funk_txn.h"
 
 /* TODO: more extensive testing of fd_funk_txn_cancel_siblings,
@@ -14,6 +15,109 @@ FD_STATIC_ASSERT( FD_FUNK_TXN_ALIGN    ==alignof(fd_funk_txn_t), unit_test );
 FD_STATIC_ASSERT( FD_FUNK_TXN_FOOTPRINT==sizeof (fd_funk_txn_t), unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_TXN_IDX_NULL==(ulong)UINT_MAX, unit_test );
+
+static void
+test_funk_txn_remove_published( fd_wksp_t * wksp ) {
+  ulong wksp_tag = 4242UL;
+  fd_wksp_tag_query_info_t info[1];
+  FD_TEST( fd_wksp_tag_query( wksp, &wksp_tag, 1UL, info, 1UL )==0 );
+
+  /* Craft a custom funk instance with narrow hash maps */
+
+  ulong  map_chain_cnt =    2UL;
+  ulong  rec_max       = 1024UL;
+  ulong  txn_max       =   16UL;
+
+  ulong  rec_map_gaddr  = fd_wksp_alloc( wksp, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( map_chain_cnt ), wksp_tag );
+  void * rec_map_mem    = fd_wksp_laddr( wksp, rec_map_gaddr );
+  FD_TEST( fd_funk_rec_map_new( rec_map_mem, map_chain_cnt, 0UL ) );
+
+  ulong  rec_pool_gaddr = fd_wksp_alloc( wksp, fd_funk_rec_pool_align(), fd_funk_rec_pool_footprint(), wksp_tag );
+  void * rec_pool_mem   = fd_wksp_laddr( wksp, rec_pool_gaddr );
+  FD_TEST( fd_funk_rec_pool_new( rec_pool_mem ) );
+  ulong  rec_ele_gaddr  = fd_wksp_alloc( wksp, alignof(fd_funk_rec_t), rec_max*sizeof(fd_funk_rec_t), wksp_tag );
+  FD_TEST( rec_ele_gaddr );
+
+  ulong  txn_map_gaddr  = fd_wksp_alloc( wksp, fd_funk_txn_map_align(), fd_funk_txn_map_footprint( map_chain_cnt ), wksp_tag );
+  void * txn_map_mem    = fd_wksp_laddr( wksp, txn_map_gaddr );
+  FD_TEST( fd_funk_txn_map_new( txn_map_mem, map_chain_cnt, 0UL ) );
+
+  ulong  txn_pool_gaddr = fd_wksp_alloc( wksp, fd_funk_txn_pool_align(), fd_funk_txn_pool_footprint(), wksp_tag );
+  void * txn_pool_mem   = fd_wksp_laddr( wksp, txn_pool_gaddr );
+  FD_TEST( fd_funk_txn_pool_new( txn_pool_mem ) );
+  ulong  txn_ele_gaddr  = fd_wksp_alloc( wksp, alignof(fd_funk_txn_t), txn_max*sizeof(fd_funk_txn_t), wksp_tag );
+  FD_TEST( txn_ele_gaddr );
+
+  ulong  alloc_gaddr    = fd_wksp_alloc( wksp, fd_alloc_align(), fd_alloc_footprint(), wksp_tag );
+  void * alloc_mem      = fd_wksp_laddr( wksp, alloc_gaddr );
+  FD_TEST( fd_alloc_new( alloc_mem, wksp_tag ) );
+
+  fd_funk_shmem_t * shfunk = fd_wksp_alloc_laddr( wksp, FD_FUNK_ALIGN, alignof(fd_funk_shmem_t), wksp_tag );
+  memset( shfunk, 0, sizeof(fd_funk_shmem_t) );
+  shfunk->magic           = FD_FUNK_MAGIC;
+  shfunk->wksp_tag        = wksp_tag;
+  shfunk->seed            = 0UL;
+  shfunk->cycle_tag       = 3UL;
+  shfunk->rec_map_gaddr   = rec_map_gaddr;
+  shfunk->rec_pool_gaddr  = rec_pool_gaddr;
+  shfunk->rec_ele_gaddr   = rec_ele_gaddr;
+  shfunk->rec_max         = (uint)rec_max;
+  shfunk->txn_map_gaddr   = txn_map_gaddr;
+  shfunk->txn_pool_gaddr  = txn_pool_gaddr;
+  shfunk->txn_ele_gaddr   = txn_ele_gaddr;
+  shfunk->txn_max         = txn_max;
+  shfunk->alloc_gaddr     = alloc_gaddr;
+  shfunk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  shfunk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
+  fd_funk_txn_xid_set_root( shfunk->root         );
+  fd_funk_txn_xid_set_root( shfunk->last_publish );
+
+  /* Join the custom instance */
+
+  fd_funk_t _funk[1];
+  fd_funk_t * funk = fd_funk_join( _funk, shfunk );
+  FD_TEST( funk );
+  fd_funk_rec_pool_reset( funk->rec_pool, 0UL );
+  fd_funk_txn_pool_reset( funk->txn_pool, 0UL );
+
+  /* Insert records */
+
+  fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
+  fd_funk_txn_xid_t xid1 = { .ul = { 1UL, 0UL } };
+  fd_funk_txn_prepare( funk, &root, &xid1 );
+  for( ulong i=0UL; i<rec_max; i++ ) {
+    fd_funk_rec_key_t key = { .ul = { i, 0 } };
+    fd_funk_rec_prepare_t prepare[1];
+    FD_TEST( fd_funk_rec_prepare( funk, &xid1, &key, prepare, NULL ) );
+    fd_funk_rec_publish( funk, prepare );
+  }
+  fd_funk_txn_publish( funk, &xid1 );
+
+  /* Delete records */
+
+  fd_funk_txn_remove_published( funk );
+
+  /* Ensure {transaction,record} {map,pool} is empty */
+
+  for( ulong i=0UL; i<map_chain_cnt; i++ ) {
+    FD_TEST( fd_funk_txn_map_iter_done( fd_funk_txn_map_iter( funk->txn_map, i ) ) );
+  }
+  for( ulong i=0UL; i<txn_max; i++ ) {
+    FD_TEST( funk->txn_pool->ele[ i ].state==FD_FUNK_TXN_STATE_FREE );
+  }
+  for( ulong i=0UL; i<map_chain_cnt; i++ ) {
+    FD_TEST( fd_funk_rec_map_iter_done( fd_funk_rec_map_iter( funk->rec_map, i ) ) );
+  }
+  for( ulong i=0UL; i<rec_max; i++ ) {
+    fd_funk_rec_t * rec = funk->rec_pool->ele + i;
+    FD_TEST( rec->val_max==0UL || rec->val_max==UINT_MAX );
+  }
+
+  /* Clean up */
+
+  fd_funk_leave( _funk, NULL );
+  fd_wksp_tag_free( wksp, &wksp_tag, 1UL );
+}
 
 int
 main( int     argc,
@@ -43,6 +147,8 @@ main( int     argc,
   }
 
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "Unable to attach to wksp" ));
+
+  test_funk_txn_remove_published( wksp );
 
   FD_LOG_NOTICE(( "Testing with --wksp-tag %lu --seed %lu --txn-max %lu --rxn-max %u --iter-max %lu",
                   wksp_tag, seed, txn_max, rec_max, iter_max ));
@@ -326,6 +432,7 @@ main( int     argc,
 
   fd_funk_leave( funk, NULL );
   fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+
   if( name ) fd_wksp_detach( wksp );
   else       fd_wksp_delete_anonymous( wksp );
 
