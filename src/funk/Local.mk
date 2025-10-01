@@ -18,4 +18,8 @@ $(call make-unit-test,test_funk_txn2,test_funk_txn2,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn2)
 $(call make-unit-test,bench_funk_index,bench_funk_index,fd_funk fd_util)
 endif
+ifdef FD_HAS_RACESAN
+$(call make-unit-test,test_funk_race,test_funk_race,fd_funk fd_util)
+$(call run-unit-test,test_funk_race)
+endif
 endif
