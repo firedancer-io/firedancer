@@ -618,6 +618,7 @@ after_sign( ctx_t             * ctx,
       ulong             preimage_sz = 0;
       uchar *           preimage    = preimage_req( init, &preimage_sz );
       repair_signer_sync( ctx, init->shred.sig, preimage, preimage_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+      active                        = fd_policy_peer_query( ctx->policy, new_peer );
     }
     fd_inflights_request_insert( ctx->inflight, pending->nonce,  &pending->msg.shred.to );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
