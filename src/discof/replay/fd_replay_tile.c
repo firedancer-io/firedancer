@@ -545,6 +545,44 @@ buffer_vote_towers( fd_replay_tile_t *        ctx,
   fd_bank_vote_states_prev_end_locking_query( bank );
 }
 
+/* This function creates and publishes a snapshot of all the vote
+   account states at the end of this slot, which can be consumed for
+   monitoring purposes.
+
+   This function should be called at the end of a slot, before any epoch
+   boundary processing. */
+static void
+publish_vote_states( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     fd_bank_t *         bank ) {
+  fd_replay_votes_snap_t * votes = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_prev_locking_query( bank );
+  fd_vote_states_iter_t iter_[1];
+  ulong idx = 0UL;
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+
+    votes->snapshot[ idx ].vote_account        = vote_state->vote_account;
+    votes->snapshot[ idx ].node_account        = vote_state->node_account;
+    votes->snapshot[ idx ].stake               = vote_state->stake;
+    votes->snapshot[ idx ].last_vote_slot      = vote_state->last_vote_slot;
+    votes->snapshot[ idx ].last_vote_timestamp = vote_state->last_vote_timestamp;
+    votes->snapshot[ idx ].commission          = vote_state->commission;
+    votes->snapshot[ idx ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
+    votes->snapshot[ idx ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
+
+    idx++;
+  }
+  fd_bank_vote_states_prev_end_locking_query( bank );
+
+  votes->vote_cnt = idx;
+  ulong sz = sizeof(ulong)+votes->vote_cnt*(sizeof(votes->snapshot)/sizeof(votes->snapshot[0]));
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_VOTES_SNAP, ctx->replay_out->chunk, sz, 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sz, ctx->replay_out->chunk0, ctx->replay_out->wmark );
+}
+
 /* This function publishes the next vote tower in the
    ctx->vote_tower_out buffer to the tower tile.
 
@@ -754,6 +792,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Copy the vote tower of all the vote accounts into the buffer,
      which will be published in after_credit. */
   buffer_vote_towers( ctx, &xid, bank );
+
+  /* Take a snapshot of vote states and publish them to consumers */
+  publish_vote_states( ctx, stem, bank );
 
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */

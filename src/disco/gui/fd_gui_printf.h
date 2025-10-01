@@ -50,6 +50,11 @@ fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx );
 
 void
+fd_gui_peers_printf_gossip_update( fd_gui_peers_ctx_t * peers,
+                                   int                  action,
+                                   ulong                contact_info_table_idx );
+
+void
 fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
                                    ulong const *       updated,
                                    ulong               updated_cnt,

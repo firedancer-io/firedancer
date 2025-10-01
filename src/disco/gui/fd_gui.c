@@ -221,6 +221,16 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
+  /* todo .. temporary workaround to skip the blur until frontend boot
+     screen lands */
+  if( FD_UNLIKELY( gui->summary.is_full_client ) ) {
+    uchar prev = gui->summary.startup_progress.phase;
+    gui->summary.startup_progress.phase = FD_GUI_START_PROGRESS_TYPE_RUNNING;
+    fd_gui_printf_startup_progress( gui );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    gui->summary.startup_progress.phase = prev;
+  }
+
   if( FD_LIKELY( gui->block_engine.has_block_engine ) ) {
     fd_gui_printf_block_engine( gui );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -632,8 +642,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
         gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
         gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos = now;
       }
-      int slot_turbine_hist_full = gui->summary.slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ-1 ].slot!=ULONG_MAX;
-      if( FD_UNLIKELY( snapshot_phase == 12UL && slot_turbine_hist_full && gui->summary.slot_completed!=ULONG_MAX ) ) {
+      if( FD_UNLIKELY( snapshot_phase == 12UL && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
         gui->summary.boot_progress.phase                           = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
         gui->summary.boot_progress.catching_up_time_nanos          = now;
       }
@@ -1347,56 +1356,49 @@ fd_gui_clear_slot( fd_gui_t * gui,
   }
 }
 
-static void
-fd_gui_handle_leader_schedule( fd_gui_t *    gui,
-                               ulong const * msg,
-                               long          now ) {
-  ulong epoch               = msg[ 0 ];
-  ulong staked_cnt          = msg[ 1 ];
-  ulong start_slot          = msg[ 2 ];
-  ulong slot_cnt            = msg[ 3 ];
-  ulong excluded_stake      = msg[ 4 ];
-  ulong vote_keyed_lsched   = msg[ 5 ];
+void
+fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
+                               fd_stake_weight_msg_t const * leader_schedule,
+                               long                          now ) {
+  FD_TEST( leader_schedule->staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( leader_schedule->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
-  FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
-  FD_TEST( slot_cnt<=MAX_SLOTS_PER_EPOCH );
-
-  ulong idx = epoch % 2UL;
+  ulong idx = leader_schedule->epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
 
-  gui->epoch.epochs[ idx ].epoch            = epoch;
-  gui->epoch.epochs[ idx ].start_slot       = start_slot;
-  gui->epoch.epochs[ idx ].end_slot         = start_slot + slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
+  gui->epoch.epochs[ idx ].epoch            = leader_schedule->epoch;
+  gui->epoch.epochs[ idx ].start_slot       = leader_schedule->start_slot;
+  gui->epoch.epochs[ idx ].end_slot         = leader_schedule->start_slot + leader_schedule->slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].excluded_stake   = leader_schedule->excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
   memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
   memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );
 
-  gui->epoch.epochs[ idx ].rankings_slot = start_slot;
+  gui->epoch.epochs[ idx ].rankings_slot = leader_schedule->start_slot;
 
-  fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
-  memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * stake_weights = leader_schedule->weights;
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, leader_schedule->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
-                                                                               epoch,
+                                                                               leader_schedule->epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
-                                                                               slot_cnt,
-                                                                               staked_cnt,
+                                                                               leader_schedule->slot_cnt,
+                                                                               leader_schedule->staked_cnt,
                                                                                gui->epoch.epochs[ idx ].stakes,
-                                                                               excluded_stake,
-                                                                               vote_keyed_lsched ) );
+                                                                               leader_schedule->excluded_stake,
+                                                                               leader_schedule->vote_keyed_lsched ) );
 
-  if( FD_UNLIKELY( start_slot==0UL ) ) {
+  if( FD_UNLIKELY( leader_schedule->start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = now;
   } else {
     gui->epoch.epochs[ idx ].start_time = LONG_MAX;
 
-    for( ulong i=0UL; i<fd_ulong_min( start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
-      fd_gui_slot_t * slot = gui->slots[ (start_slot-i) % FD_GUI_SLOTS_CNT ];
-      if( FD_UNLIKELY( slot->slot!=(start_slot-i) ) ) break;
+    for( ulong i=0UL; i<fd_ulong_min( leader_schedule->start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+      fd_gui_slot_t * slot = gui->slots[ (leader_schedule->start_slot-i) % FD_GUI_SLOTS_CNT ];
+      if( FD_UNLIKELY( slot->slot!=(leader_schedule->start_slot-i) ) ) break;
       else if( FD_UNLIKELY( slot->skipped ) ) continue;
 
       gui->epoch.epochs[ idx ].start_time = slot->completed_time;
@@ -1785,8 +1787,7 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
     if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
 
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
-      FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
-    }
+      FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));    }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
     slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
@@ -1902,6 +1903,17 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
   gui->summary.slot_optimistically_confirmed = _slot;
   fd_gui_printf_optimistically_confirmed_slot( gui );
   fd_http_server_ws_broadcast( gui->http );
+}
+
+void
+fd_gui_handle_tower_update( fd_gui_t *    gui,
+                            ulong         opt_root_slot,
+                            ulong         last_landed_vote,
+                            ulong         fork_history_sz,
+                            ulong const * fork_history,
+                            long          now ) {
+  fd_gui_handle_reset_slot( gui, last_landed_vote, fork_history_sz, fork_history, now );
+  if( FD_UNLIKELY( opt_root_slot!=ULONG_MAX ) ) fd_gui_handle_rooted_slot( gui, opt_root_slot );
 }
 
 static void
@@ -2084,7 +2096,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
-      fd_gui_handle_rooted_slot( gui, (ulong *)msg );
+      fd_gui_handle_rooted_slot( gui, ((ulong *)msg)[ 0 ] );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
       fd_gui_handle_optimistically_confirmed_slot( gui, (ulong *)msg );
@@ -2094,7 +2106,8 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      fd_gui_handle_leader_schedule( gui, (ulong const *)msg, now );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "sanity check" );
+      fd_gui_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }
     case FD_PLUGIN_MSG_SLOT_START: {
@@ -2118,7 +2131,11 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_SLOT_RESET: {
-      fd_gui_handle_reset_slot( gui, (ulong *)msg, now );
+      ulong last_landed_vote = ((ulong *)msg)[ 0 ];
+      ulong fork_history_sz = ((ulong *)msg)[ 1 ] + 1UL;
+      ulong const * fork_history =&((ulong *)msg)[ 2 ];
+      FD_TEST( fork_history_sz <= 4097 );
+      fd_gui_handle_reset_slot( gui, last_landed_vote, fork_history_sz, fork_history, now );
       break;
     }
     case FD_PLUGIN_MSG_BALANCE: {

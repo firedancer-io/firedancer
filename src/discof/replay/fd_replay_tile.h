@@ -4,12 +4,15 @@
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
 #include "../../flamenco/types/fd_types_custom.h"
+#include "../../flamenco/stakes/fd_vote_states.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
 #define REPLAY_SIG_ROOT_ADVANCED  (1)
 #define REPLAY_SIG_VOTE_STATE     (2)
 #define REPLAY_SIG_RESET          (3)
 #define REPLAY_SIG_BECAME_LEADER  (4)
+#define REPLAY_SIG_VOTES_SNAP     (2)
 
 struct fd_replay_slot_completed {
   ulong slot;
@@ -66,6 +69,21 @@ struct fd_replay_tower {
 };
 
 typedef struct fd_replay_tower fd_replay_tower_t;
+struct fd_replay_votes_snap {
+  ulong vote_cnt;
+  struct {
+    fd_pubkey_t vote_account;
+    fd_pubkey_t node_account;
+    ulong       stake;
+    ulong       last_vote_slot;
+    long        last_vote_timestamp;
+    uchar       commission;
+    ulong       epoch;
+    ulong       epoch_credits;
+  } snapshot[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+};
+
+typedef struct fd_replay_votes_snap fd_replay_votes_snap_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t slot_completed;
@@ -73,6 +91,7 @@ union fd_replay_message {
   fd_poh_reset_t             reset;
   fd_became_leader_t         became_leader;
   fd_replay_tower_t          tower;
+  fd_replay_votes_snap_t     votes;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

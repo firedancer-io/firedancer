@@ -425,11 +425,13 @@ before it is ready.
 The phases form a state machine, and the validator can progress through
 them in interesting ways,
 
+```txt
                    +--+      +------------------------------+
                    |  v      |                              v
 joining_gossip -> loading_full_snapshot -> catching_up -> running
                         v        ^          ^
              loading_incremental_snapshot --+
+```
 
 Some interesting transitions are,
 
@@ -491,21 +493,21 @@ Some interesting transitions are,
 :::
 
 **`BootProgress`**
-| Field                                                                | Type            | Description |
-|----------------------------------------------------------------------|-----------------|-------------|
-| phase                                                                | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, or `running`. This indicates the current phase of the boot process |
-| joining_gossip_elapsed_seconds                                       | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
-| loading_{full|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
-| loading_{full|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_slot                             | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot` or later, this is the slot of the snapshot being loaded. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_total_bytes_compressed           | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (compressed) total size of the snapshot being loaded, in bytes. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_read_bytes_compressed            | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (compressed) total number of bytes read from disk for the snapshot. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_read_path                        | `string\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is either the remote url or local file path from which the snapshot is being read. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_decompress_bytes_decompressed    | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (decompressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
-| loading_{full|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
-| catching_up_elapsed_seconds                                          | `number`        | If the phase is `catching_up`, this is the duration, in seconds, the validator has spent catching up to the current slot |
+| Field                                                                 | Type            | Description |
+|-----------------------------------------------------------------------|-----------------|-------------|
+| phase                                                                 | `string`        | One of `joining_gossip`, `loading_full_snapshot`, `loading_incremental_snapshot`, `catching_up`, or `running`. This indicates the current phase of the boot process |
+| joining_gossip_elapsed_seconds                                        | `number`        | If the phase is `joining_gossip`, this is the duration, in seconds, spent joining the gossip network |
+| loading_{full\|incremental}_snapshot_elapsed_seconds                  | `number`        | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the elapsed time, in seconds, spent reading (either downloading or reading from disk) the snapshot since the last reset |
+| loading_{full\|incremental}_snapshot_reset_count                      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the number of times the load for the snapshot failed and the phase was restarted from scratch. A snapshot load may fail due to an unreliable or underperforming network connection. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_slot                             | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot` or later, this is the slot of the snapshot being loaded. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_total_bytes_compressed           | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) total size of the snapshot being loaded, in bytes. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_read_bytes_compressed            | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) total number of bytes read from disk for the snapshot. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_read_path                        | `string\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is either the remote url or local file path from which the snapshot is being read. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_decompress_bytes_decompressed    | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_decompress_bytes_compressed      | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (compressed) number of bytes processed by decompress from the snapshot so far. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_insert_bytes_decompressed        | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the (decompressed) number of bytes processed from the snapshot by the snapshot insert time so far. Otherwise, `null` |
+| loading_{full\|incremental}_snapshot_insert_accounts                  | `number\|null`  | If the phase is at least `loading_{full\|incremental}_snapshot`, this is the current number of inserted accounts from the snapshot into the validator's accounts database. Otherwise, `null` |
+| catching_up_elapsed_seconds                                           | `number`        | If the phase is `catching_up`, this is the duration, in seconds, the validator has spent catching up to the current slot |
 
 
 #### `summary.schedule_strategy`
@@ -1110,16 +1112,16 @@ sort_key:
 
 
 **`GossipNetworkHealth`**
-| Field                                                           | Type     | Description |
-|-----------------------------------------------------------------|----------|-------------|
-| num_{push|pull_response}_entries_rx_{success|failure|duplicate} | `number` | The number of Gossip Table entries that this node has ever received. `success` means only entries that were fully received and included in the Table are counted. `failure` means only entries that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to entries that were dropped as duplicates. {push|pull_request} means that only entries received via Gossip {push|pull_request} messages are counted |
-| num_{push|pull_response}_messages_rx_{success|failure}          | `number` | The number of Gossip messages that this node has ever received. `success` means only messages that were fully valid, even if any entries they contain were dropped. `failure` means only messages that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to messages that were dropped as duplicates. {`push`|`pull_request`} is the type of Gossip message counted |
-| total_stake                                                     | `number` | The total active stake on the Solana network for the current epoch. The information is derived from the getLeaderSchedule rpc call at startup and is fixed for the duration of the epoch |
-| total_staked_peers                                              | `number` | The total number of peers on the current epoch leader schedule also active on Gossip.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
-| total_unstaked_peers                                            | `number` | The total number of peers active on gossip, not including peers on the leader schedule.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
-| connected_stake                                                 | `number` | The sum of active stake across all peers with a ContactInfo entry in the Gossip Table.  The stake quantity is taken from the leader schedule, and reflects the activate stake at the start of the current epoch |
-| connected_staked_peers                                          | `number` | The number of currently connected peers that have nonzero active stake |
-| connected_unstaked_peers                                        | `number` | The number of currently connected peers without any stake currently active |
+| Field                                                              | Type     | Description |
+|--------------------------------------------------------------------|----------|-------------|
+| num_{push\|pull_response}_entries_rx_{success\|failure\|duplicate} | `number` | The number of Gossip Table entries that this node has ever received. `success` means only entries that were fully received and included in the Table are counted. `failure` means only entries that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to entries that were dropped as duplicates. {push\|pull_request} means that only entries received via Gossip {push\|pull_request} messages are counted |
+| num_{push\|pull_response}_messages_rx_{success\|failure}           | `number` | The number of Gossip messages that this node has ever received. `success` means only messages that were fully valid, even if any entries they contain were dropped. `failure` means only messages that was dropped for any reason, including parsing failures or invariant violations, are counted. `duplicate` refers to messages that were dropped as duplicates. {push\|pull_request} is the type of Gossip message counted |
+| total_stake                                                        | `number` | The total active stake on the Solana network for the current epoch. The information is derived from the getLeaderSchedule rpc call at startup and is fixed for the duration of the epoch |
+| total_staked_peers                                                 | `number` | The total number of peers on the current epoch leader schedule also active on Gossip.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
+| total_unstaked_peers                                               | `number` | The total number of peers active on gossip, not including peers on the leader schedule.  This information is derived from `getClusterNodes` and `getLeaderSchedule` rpc calls at startup |
+| connected_stake                                                    | `number` | The sum of active stake across all peers with a ContactInfo entry in the Gossip Table.  The stake quantity is taken from the leader schedule, and reflects the activate stake at the start of the current epoch |
+| connected_staked_peers                                             | `number` | The number of currently connected peers that have nonzero active stake |
+| connected_unstaked_peers                                           | `number` | The number of currently connected peers without any stake currently active |
 
 **`GossipNetworkTraffic`**
 | Field            | Type       | Description |
@@ -1130,7 +1132,7 @@ sort_key:
 | peer_throughput  | `number[]` | A list of network throughputs in bytes per second. The peer name for each entry is the corresponding entry in `peer_names` |
 
 **`GossipStorageStats`**
-| Field         | Type       | Description |!
+| Field         | Type       | Description |
 |---------------|------------|-------------|
 | capacity      | `number`   | The total number of entries that can be stored in the Gossip Table before old entries start being evicted |
 | expired_total | `number`   | The cumulative number of Gossip Table entries that have expired and been removed |
@@ -1381,7 +1383,7 @@ identity is no longer in these three data sources, it will be removed.
 | shred_version | `number`       | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
 | version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
-| sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of `gossip`, `repair`, `rpc`, `rpc_pubsub`, `serve_repair`, `serve_repair_quic`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, or `tvu_forwards`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
+| sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of gossip `serve_repair_quic`, `rpc`, `rpc_pubsub`, `serve_repair`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, `tvu_quic`, `tpu_vote_quic`, or `alpenglow`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
 
 **`PeerUpdateVoteAccount`**
 | Field           | Type           | Description |
@@ -1689,12 +1691,12 @@ response value will be `null`.
 **`SlotRankings`**
 | Field                                         | Type       | Description |
 |-----------------------------------------------|------------|-------------|
-| {slots|vals}_{smallest|largest}_tips          | `number[]` | Rankings for the {smallest|largest} tips this epoch |
-| {slots|vals}_{smallest|largest}_fees          | `number[]` | Rankings for the {smallest|largest} fees this epoch |
-| {slots|vals}_{smallest|largest}_rewards       | `number[]` | Rankings for the {smallest|largest} rewards this epoch |
-| {slots|vals}_{smallest|largest}_duration      | `number[]` | Rankings for the {smallest|largest} slot durations this epoch |
-| {slots|vals}_{smallest|largest}_compute_units | `number[]` | Rankings for the {smallest|largest} compute units this epoch |
-| {slots|vals}_{smallest|largest}_skipped       | `number[]` | Rankings for the {earliest|latest} skipped slots this epoch |
+| {slots\|vals}_{smallest\|largest}_tips          | `number[]` | Rankings for the {smallest\|largest} tips this epoch |
+| {slots\|vals}_{smallest\|largest}_fees          | `number[]` | Rankings for the {smallest\|largest} fees this epoch |
+| {slots\|vals}_{smallest\|largest}_rewards       | `number[]` | Rankings for the {smallest\|largest} rewards this epoch |
+| {slots\|vals}_{smallest\|largest}_duration      | `number[]` | Rankings for the {smallest\|largest} slot durations this epoch |
+| {slots\|vals}_{smallest\|largest}_compute_units | `number[]` | Rankings for the {smallest\|largest} compute units this epoch |
+| {slots\|vals}_{smallest\|largest}_skipped       | `number[]` | Rankings for the {earliest\|latest} skipped slots this epoch |
 
 Each metric in this message will have four associated arrays.
 
