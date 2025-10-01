@@ -4377,7 +4377,7 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
 
     if( !pkt_meta ) return;
 
-    ulong const enc_level = pkt_meta->enc_level;
+    uint  const enc_level = pkt_meta->enc_level;
     ulong const pkt_num   = pkt_meta->key.pkt_num;
 
     /* Continue until nothing expired nor to be skipped */
@@ -4388,7 +4388,10 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
     };
 
     /* already moved to another enc_level */
-    if( enc_level < conn->peer_enc_level ) continue;
+    if( enc_level < conn->peer_enc_level ) {
+      fd_quic_abandon_enc_level( conn, enc_level );
+      continue;
+    };
 
     quic->metrics.pkt_retransmissions_cnt[enc_level] += !(pkt_meta->key.pkt_num == prev_retx_pkt_num[enc_level]);
     prev_retx_pkt_num[enc_level] = pkt_num;
