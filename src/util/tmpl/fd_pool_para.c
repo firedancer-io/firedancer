@@ -707,9 +707,6 @@ POOL_(acquire)( POOL_(t) *   join,
   FD_COMPILER_MFENCE();
 
   fd_int_store_if( !!_opt_err, _opt_err, err );
-  #ifdef POOL_MARK_NOT_IN_POOL
-  if( ele != sentinel ) POOL_MARK_NOT_IN_POOL( ele );
-  #endif
   return ele;
 }
 
@@ -722,10 +719,6 @@ POOL_(release)( POOL_(t) *   join,
 
   ulong ele_idx = (ulong)(ele - join->ele);
   if( FD_UNLIKELY( ele_idx>=ele_max ) ) return FD_POOL_ERR_INVAL; /* opt for valid call */
-
-  #ifdef POOL_MARK_IN_POOL
-  POOL_MARK_IN_POOL( ele );
-  #endif
 
   int err = FD_POOL_SUCCESS;
 
@@ -820,14 +813,8 @@ POOL_(reset)( POOL_(t) * join,
   else { /* Note: ele_max at least 1 here */
     ele_top = sentinel_cnt;
     for( ulong ele_idx=ele_top; ele_idx<(ele_max-1UL); ele_idx++ ) {
-      #ifdef POOL_MARK_IN_POOL
-      POOL_MARK_IN_POOL( &ele[ ele_idx ] );
-      #endif
       ele[ ele_idx ].POOL_NEXT = POOL_(private_cidx)( ele_idx+1UL );
     }
-    #ifdef POOL_MARK_IN_POOL
-    POOL_MARK_IN_POOL( &ele[ ele_max-1UL ] );
-    #endif
     ele[ ele_max-1UL ].POOL_NEXT = POOL_(private_cidx)( POOL_(idx_null)() );
   }
 
