@@ -151,6 +151,16 @@ int
 fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
                                         fd_exec_txn_ctx_t const * txn_ctx );
 
+/* fd_cost_tracker_accumulate accumulates the contents of the
+   from_cost_tracker into the to_cost_tracker.  This is primarily used
+   for bundle transactions where a cost tracker that corresponds to a
+   bundle must be accumulated into the cost tracker of the leader.  If
+   the limits are exceeded, then a non-zero value is returned. */
+
+int
+fd_cost_tracker_accumulate( fd_cost_tracker_t * to_cost_tracker,
+                            fd_cost_tracker_t * from_cost_tracker );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_cost_tracker_h */

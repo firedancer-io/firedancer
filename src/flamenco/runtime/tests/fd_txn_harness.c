@@ -361,6 +361,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
       txn,
       runner->spad,
       NULL,
+      0,
       0 );
 
   return txn_ctx;

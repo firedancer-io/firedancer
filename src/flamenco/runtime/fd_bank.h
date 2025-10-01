@@ -357,7 +357,7 @@ struct fd_bank {
 
   /* Now, layout all information needed for CoW fields. These are only
      copied when explicitly requested by the caller. The field's data
-     is located at teh pool idx in the pool. If the dirty flag has been
+     is located at the pool idx in the pool. If the dirty flag has been
      set, then the element has been copied over for this bank. */
 
   #define HAS_COW_1(type, name, footprint, align) \
@@ -841,6 +841,14 @@ fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
                    ulong        parent_bank_idx );
 
+/* fd_banks_merge_with_parent copies the contents of the bank into the
+   parent bank and removes it from the bank tree.  It also releases the
+   bank's resources back to be used.  This function assumes that the
+   bank that is passed in has no children. */
+
+void
+fd_banks_merge_with_parent( fd_banks_t * banks,
+                            fd_bank_t *  bank );
 
 /* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
 

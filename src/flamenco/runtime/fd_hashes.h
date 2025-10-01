@@ -109,10 +109,10 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
 
 void
 fd_hashes_hash_bank( fd_lthash_value_t const * lthash,
-                     fd_hash_t const *        prev_bank_hash,
-                     fd_hash_t const *        last_blockhash,
-                     ulong                    signature_count,
-                     fd_hash_t *              hash_out );
+                     fd_hash_t const *         prev_bank_hash,
+                     fd_hash_t const *         last_blockhash,
+                     ulong                     signature_count,
+                     fd_hash_t *               hash_out );
 
 FD_PROTOTYPES_END
 

@@ -161,7 +161,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
+    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0, 0 );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
       continue;
@@ -304,6 +304,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               sz,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
+  FD_TEST( bank );
+
+  /* We want each bundle to be it's own funk_txn/bank_id.  If the bundle
+     is successfully executed, we will publish it into the leader bank
+     and funk transaction, otherwise it will be discarded. */
+
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 
@@ -311,6 +319,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+
+  fd_funk_txn_xid_t parent_xid = { .ul= { slot, slot } };
+  fd_funk_txn_xid_t bundle_xid = { .ul= { slot, ULONG_MAX } };
+  fd_funk_txn_prepare( ctx->txn_ctx->funk, &parent_xid, &bundle_xid );
 
   int execution_success = 1;
   int transaction_err[ MAX_TXN_PER_MICROBLOCK ];
@@ -324,13 +336,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = txns+i;
 
-    fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... bank manager ?
+    fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, 0 ); /* TODO ... */
+    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0, 1 );
 
     transaction_err[ i ] = err;
     if( FD_UNLIKELY( err ) ) {
       execution_success = 0;
+      fd_funk_txn_cancel( ctx->txn_ctx->funk, &bundle_xid );
       break;
     }
 
@@ -347,6 +360,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     actual_acct_data_cus[ i ] = (uint)(txn_ctx->loaded_accounts_data_size);
     (void)tips; // TODO: GUI, report tips
     (void)out_timestamps; // TODO: GUI, report timestamps
+  }
+
+  if( FD_LIKELY( execution_success ) ) {
+    fd_funk_txn_publish_into_parent( ctx->txn_ctx->funk, &bundle_xid );
   }
 
   for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;

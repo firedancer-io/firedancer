@@ -1012,6 +1012,101 @@ fd_banks_new_bank( fd_banks_t * banks,
   return child_bank;
 }
 
+static inline void
+fd_banks_merge_stake_delegation_delta( fd_bank_t * to_bank,
+                                       fd_bank_t * from_bank ) {
+  fd_stake_delegations_t * to_stake_delegations   = fd_bank_stake_delegations_delta_locking_modify( to_bank );
+  fd_stake_delegations_t * from_stake_delegations = fd_bank_stake_delegations_delta_locking_query( from_bank );
+
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, from_stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+    if( stake_delegation->is_tombstone==0 ) {
+      fd_stake_delegations_update( to_stake_delegations,
+                                   &stake_delegation->stake_account,
+                                   &stake_delegation->vote_account,
+                                   stake_delegation->stake,
+                                   stake_delegation->activation_epoch,
+                                   stake_delegation->deactivation_epoch,
+                                   stake_delegation->credits_observed,
+                                   stake_delegation->warmup_cooldown_rate );
+    } else {
+      fd_stake_delegations_remove( to_stake_delegations,
+                                   &stake_delegation->stake_account );
+    }
+  }
+
+  fd_bank_stake_delegations_delta_end_locking_modify( to_bank );
+  fd_bank_stake_delegations_delta_end_locking_query( to_bank );
+}
+
+
+void
+fd_banks_merge_with_parent( fd_banks_t * banks,
+                            fd_bank_t *  bank ) {
+  fd_rwlock_write( &banks->rwlock );
+
+  if( FD_UNLIKELY( bank->parent_idx==fd_banks_pool_idx_null( fd_banks_get_bank_pool( banks ) ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank %lu has no parent bank", bank->idx ));
+  }
+
+  fd_bank_t * parent_bank = fd_banks_pool_ele( fd_banks_get_bank_pool( banks ), bank->parent_idx );
+  if( FD_UNLIKELY( (parent_bank->flags&FD_BANK_FLAGS_DEAD) || !(parent_bank->flags&FD_BANK_FLAGS_REPLAYABLE) ) ) {
+    FD_LOG_CRIT(( "invariant violation: parent bank %lu is dead or not replayable", parent_bank->idx ));
+  }
+
+  /* Copy the contents of the bank back into the parent bank. */
+
+  /* Simple copy for all non-bank header fields. */
+
+  memcpy( (uchar *)parent_bank + FD_BANK_HEADER_SIZE, (uchar *)bank + FD_BANK_HEADER_SIZE, sizeof(fd_bank_t) - FD_BANK_HEADER_SIZE );
+
+  /* For CoW fields, if the field was marked dirty in the child, we need
+     to replace the parent's pool index.  If the parent was already
+     marked dirty, its resource must be released. */
+  #define HAS_COW_1(name)                                                      \
+  if( bank->name##_dirty ) {                                                   \
+    if( parent_bank->name##_dirty ) {                                          \
+      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );  \
+      fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx ); \
+    }                                                                          \
+    parent_bank->name##_dirty    = 1;                                          \
+    parent_bank->name##_pool_idx = bank->name##_pool_idx;                      \
+  }
+
+  /* Do nothing if not CoW. */
+  #define HAS_COW_0(name)
+
+  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
+    HAS_COW_##cow(name);                                                   \
+  FD_BANKS_ITER(X)
+  #undef X
+  #undef HAS_COW_0
+  #undef HAS_COW_1
+
+  /* For the stake delegation delta, we need to copy the child bank's
+     stake delegation delta into the parent. */
+
+  fd_banks_merge_stake_delegation_delta( parent_bank, bank );
+
+  /* For the cost tracker, accumulate the child bank's values into the
+     parent. */
+
+  fd_cost_tracker_t * parent_cost_tracker = fd_bank_cost_tracker_locking_modify( parent_bank );
+  fd_cost_tracker_t * child_cost_tracker  = fd_bank_cost_tracker_locking_query( bank );
+
+  if( FD_UNLIKELY( fd_cost_tracker_accumulate( parent_cost_tracker, child_cost_tracker ) ) ) {
+    FD_LOG_CRIT(( "invariant violation: parent bank %lu would exceed cost limits", parent_bank->idx ));
+  }
+
+  fd_bank_cost_tracker_end_locking_modify( parent_bank );
+  fd_bank_cost_tracker_end_locking_query( parent_bank );
+
+  fd_rwlock_unwrite( &banks->rwlock );
+}
+
 void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
                          fd_bank_t *  bank ) {

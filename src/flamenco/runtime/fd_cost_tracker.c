@@ -284,7 +284,6 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
     FD_LOG_CRIT(( "failed to get account cost pool" ));
   }
 
-
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
 
@@ -527,4 +526,54 @@ fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
      https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L168 */
   add_transaction_cost( cost_tracker, txn_ctx, &txn_cost );
   return FD_COST_TRACKER_SUCCESS;
+}
+
+int
+fd_cost_tracker_accumulate( fd_cost_tracker_t * to_cost_tracker,
+                            fd_cost_tracker_t * from_cost_tracker ) {
+  to_cost_tracker->block_cost                   += from_cost_tracker->block_cost;
+  to_cost_tracker->vote_cost                    += from_cost_tracker->vote_cost;
+  to_cost_tracker->allocated_accounts_data_size += from_cost_tracker->allocated_accounts_data_size;
+
+  if( FD_UNLIKELY( to_cost_tracker->block_cost>to_cost_tracker->block_cost_limit ) ) {
+    return FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT;
+  }
+  if( FD_UNLIKELY( to_cost_tracker->vote_cost>to_cost_tracker->vote_cost_limit ) ) {
+    return FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT;
+  }
+  if( FD_UNLIKELY( to_cost_tracker->allocated_accounts_data_size>FD_MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA ) ) {
+    return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT;
+  }
+
+  fd_account_cost_map_t * to_map  = fd_cost_tracker_account_cost_map_get( to_cost_tracker );
+  fd_account_cost_t *     to_pool = fd_cost_tracker_account_cost_pool_get( to_cost_tracker );
+
+  fd_account_cost_map_t * from_map  = fd_cost_tracker_account_cost_map_get( from_cost_tracker );
+  fd_account_cost_t *     from_pool = fd_cost_tracker_account_cost_pool_get( from_cost_tracker );
+
+  for( fd_account_cost_map_iter_t iter = fd_account_cost_map_iter_init( from_map, from_pool );
+       !fd_account_cost_map_iter_done( iter, from_map, from_pool );
+       fd_account_cost_map_iter_next( iter, from_map, from_pool ) ) {
+    fd_account_cost_t * account_cost = fd_account_cost_map_iter_ele( iter, from_map, from_pool );
+
+    fd_account_cost_t * to_account_cost = fd_account_cost_map_ele_query( to_map, &account_cost->account, NULL, to_pool );
+    if( to_account_cost ) {
+      to_account_cost->cost = fd_ulong_sat_add( to_account_cost->cost, account_cost->cost );
+      if( FD_UNLIKELY( to_account_cost->cost>to_cost_tracker->account_cost_limit ) ) {
+        return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT;
+      }
+    } else {
+      if( FD_UNLIKELY( !fd_account_cost_pool_free( to_pool ) ) ) {
+        FD_LOG_CRIT(( "There are no free accounts in account costs pool" ));
+      }
+      to_account_cost = fd_account_cost_pool_ele_acquire( to_pool );
+      if( FD_UNLIKELY( !to_account_cost ) ) {
+        FD_LOG_CRIT(( "Failed to acquire account cost" ));
+      }
+      to_account_cost->account = account_cost->account;
+      to_account_cost->cost    = account_cost->cost;
+      fd_account_cost_map_ele_insert( to_map, to_account_cost, to_pool );
+    }
+  }
+  return 0;
 }

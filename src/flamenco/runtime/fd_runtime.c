@@ -1202,7 +1202,8 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     fd_txn_p_t *        txn,
                                     fd_spad_t *         exec_spad,
                                     fd_capture_ctx_t *  capture_ctx,
-                                    uchar               do_sigverify ) {
+                                    uchar               do_sigverify,
+                                    int                 is_bundle ) {
   FD_SPAD_FRAME_BEGIN( exec_spad ) {
   int exec_res = 0;
 
@@ -1219,7 +1220,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->bank_idx              = bank_idx;
   txn_ctx->features              = fd_bank_features_get( bank );
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
-  txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, slot } };
+  txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, is_bundle ? ULONG_MAX : slot } };
   txn_ctx->capture_ctx           = capture_ctx;
   txn_ctx->txn                   = *txn;
 

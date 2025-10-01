@@ -120,7 +120,8 @@ during_frag( fd_exec_tile_ctx_t * ctx,
           &txn->txn,
           ctx->exec_spad,
           ctx->capture_ctx,
-          1 );
+          1,
+          0 );
 
       return;
     } else {
