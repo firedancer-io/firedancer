@@ -25,17 +25,6 @@ print("", file=body)
 print('size_t LLVMFuzzerMutate(uchar *data, size_t size, size_t max_size);', file=body)
 print("", file=body)
 
-print('void *fd_flamenco_txn_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {', file=body)
-print('  fd_flamenco_txn_t *self = (fd_flamenco_txn_t *) mem;', file=body)
-print('  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_flamenco_txn_t);', file=body)
-print('  fd_flamenco_txn_new(mem);', file=body)
-print('  LLVMFuzzerMutate( &self->txn_buf[0], FD_TXN_MAX_SZ, FD_TXN_MAX_SZ );', file=body)
-print('  self->raw_sz = fd_rng_ulong( rng ) % FD_TXN_MTU;', file=body)
-print('  LLVMFuzzerMutate( &self->raw[0], self->raw_sz, self->raw_sz );', file=body)
-print('  return mem;', file=body)
-print('}', file=body)
-print("", file=body)
-
 preambletypes = set()
 postambletypes = set()
 
@@ -727,8 +716,6 @@ class EnumType:
         # FIXME: Annoying, but no other choice than to avoid generating a struct that uses them
         if 'vote_instruction' == self.name:
             print(f'  while( self->discriminant == 14 || self->discriminant == 15 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
-        if 'gossip_msg' == self.name:
-            print(f'  while( self->discriminant == 0 || self->discriminant == 1 || self->discriminant == 2 ) {{ self->discriminant = fd_rng_uint( rng ) % { len(self.variants) }; }}', file=body)
         if not self.isFixedSize():
             print(f'  {n}_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );', file=body)
         print(f'  return mem;', file=body)
