@@ -1,6 +1,7 @@
 #include "fd_funk.h"
 #include "fd_funk_base.h"
 #include "fd_funk_txn.h"
+#include "../util/racesan/fd_racesan_target.h"
 
 /* Provide the actual record map implementation */
 
@@ -37,18 +38,18 @@ fd_funk_rec_txn_borrow( fd_funk_t const *         funk,
     int txn_query_err = fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, txn_query, 0 );
     if( FD_UNLIKELY( txn_query_err==FD_MAP_ERR_AGAIN ) ) continue;
     if( FD_UNLIKELY( txn_query_err!=FD_MAP_SUCCESS ) ) {
-      FD_LOG_ERR(( "fd_funk_rec op failed: txn_map_query_try(%lu:%lu) error %i-%s",
-                  xid->ul[0], xid->ul[1],
-                  txn_query_err, fd_map_strerror( txn_query_err ) ));
+      FD_LOG_CRIT(( "fd_funk_rec op failed: txn_map_query_try(%lu:%lu) error %i-%s",
+                   xid->ul[0], xid->ul[1],
+                   txn_query_err, fd_map_strerror( txn_query_err ) ));
     }
     break;
   }
   fd_funk_txn_t * txn = fd_funk_txn_map_query_ele( txn_query );
   uint txn_state = FD_VOLATILE_CONST( txn->state );
   if( FD_UNLIKELY( txn_state!=FD_FUNK_TXN_STATE_ACTIVE ) ) {
-    FD_LOG_ERR(( "fd_funk_rec op failed: txn %p %lu:%lu state is %u-%s",
-                 (void *)txn, xid->ul[0], xid->ul[1],
-                 txn_state, fd_funk_txn_state_str( txn_state ) ));
+    FD_LOG_CRIT(( "fd_funk_rec op failed: txn %p %lu:%lu state is %u-%s",
+                  (void *)txn, xid->ul[0], xid->ul[1],
+                  txn_state, fd_funk_txn_state_str( txn_state ) ));
   }
   return txn;
 }
@@ -236,9 +237,9 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
                      fd_funk_rec_key_t const * key,
                      fd_funk_rec_prepare_t *   prepare,
                      int *                     opt_err ) {
-  if( FD_UNLIKELY( !funk    ) ) FD_LOG_ERR(( "NULL funk"    ));
-  if( FD_UNLIKELY( !xid     ) ) FD_LOG_ERR(( "NULL xid"     ));
-  if( FD_UNLIKELY( !prepare ) ) FD_LOG_ERR(( "NULL prepare" ));
+  if( FD_UNLIKELY( !funk    ) ) FD_LOG_CRIT(( "NULL funk"    ));
+  if( FD_UNLIKELY( !xid     ) ) FD_LOG_CRIT(( "NULL xid"     ));
+  if( FD_UNLIKELY( !prepare ) ) FD_LOG_CRIT(( "NULL prepare" ));
 
   fd_funk_txn_map_query_t txn_query[1];
   fd_funk_txn_t * txn = fd_funk_rec_txn_borrow( funk, xid, txn_query );
@@ -261,7 +262,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 
   fd_funk_rec_t * rec = prepare->rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 1, opt_err );
   if( opt_err && *opt_err == FD_POOL_ERR_CORRUPT ) {
-    FD_LOG_ERR(( "corrupt element returned from funk rec pool" ));
+    FD_LOG_CRIT(( "corrupt element returned from funk rec pool" ));
   }
   if( FD_UNLIKELY( !rec ) ) {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_REC );
@@ -318,12 +319,14 @@ fd_funk_rec_push_tail( fd_funk_t *             funk,
       next_idx_p = &funk->rec_pool->ele[ rec_prev_idx ].next_idx;
     }
 
+    fd_racesan_hook( "funk_rec_push_tail:next_cas" );
     if( FD_UNLIKELY( !__sync_bool_compare_and_swap( next_idx_p, FD_FUNK_REC_IDX_NULL, rec_idx ) ) ) {
       /* Another thread beat us to the punch */
       FD_SPIN_PAUSE();
       continue;
     }
 
+    fd_racesan_hook( "funk_rec_push_tail:tail_cas" );
     if( FD_UNLIKELY( !__sync_bool_compare_and_swap( rec_tail_idx, rec_prev_idx, rec_idx ) ) ) {
       /* This CAS is guaranteed to succeed if the previous CAS passed. */
       FD_LOG_CRIT(( "Irrecoverable data race encountered while appending to txn rec list (invariant violation?): cas(%p,%u,%u)",
@@ -367,9 +370,10 @@ fd_funk_rec_publish( fd_funk_t *             funk,
     fd_funk_rec_push_tail( funk, prepare );
   }
 
+  fd_racesan_hook( "funk_rec_publish:map_insert" );
   int insert_err = fd_funk_rec_map_insert( funk->rec_map, rec, FD_MAP_FLAG_BLOCKING );
   if( insert_err ) {
-    FD_LOG_CRIT(( "fd_funk_rec_map_insert failed (err %i)", insert_err ));
+    FD_LOG_CRIT(( "fd_funk_rec_map_insert failed (%i-%s)", insert_err, fd_map_strerror( insert_err ) ));
   }
 }
 
@@ -424,9 +428,9 @@ fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_txn_xid_t const * xid,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_t **          rec_out ) {
-  if( FD_UNLIKELY( !funk ) ) FD_LOG_ERR(( "NULL funk" ));
-  if( FD_UNLIKELY( !xid  ) ) FD_LOG_ERR(( "NULL xid"  ));
-  if( FD_UNLIKELY( !key  ) ) FD_LOG_ERR(( "NULL key"  ));
+  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
+  if( FD_UNLIKELY( !xid  ) ) FD_LOG_CRIT(( "NULL xid"  ));
+  if( FD_UNLIKELY( !key  ) ) FD_LOG_CRIT(( "NULL key"  ));
 
   fd_funk_txn_map_query_t txn_query[1];
   fd_funk_txn_t * txn = fd_funk_rec_txn_borrow( funk, xid, txn_query );
