@@ -178,8 +178,16 @@
 #endif
 #define STEM_(n) FD_EXPAND_THEN_CONCAT3(STEM_NAME,_,n)
 
+#ifndef STEM_DO_LINK_BURST
+#define STEM_DO_LINK_BURST (0)
+#endif
+
 #ifndef STEM_BURST
+#if STEM_DO_LINK_BURST
+#define STEM_BURST (0UL)
+#else
 #error "STEM_BURST must be defined"
+#endif
 #endif
 
 #ifndef STEM_CALLBACK_CONTEXT_TYPE
@@ -245,11 +253,15 @@ STEM_(run1)( ulong                        in_cnt,
              ulong                        cons_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
+             int *                        link_kind,
+             ulong *                      link_burst,
              ulong                        burst,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
              STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
+  (void)link_kind;
+  (void)link_burst;
   /* in frag stream state */
   ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
@@ -509,6 +521,8 @@ STEM_(run1)( ulong                        in_cnt,
       .cr_avail            = cr_avail,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+      .link_kind           = link_kind,
+      .burst               = link_burst,
     };
 #endif
 
@@ -744,6 +758,12 @@ STEM_(run)( fd_topo_t *      topo,
     FD_TEST( out_mcache[ i ] );
   }
 
+  ulong link_burst[ FD_TOPO_MAX_LINKS ];
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    link_burst[ i ] = topo->links[ tile->out_link_id[ i ] ].burst;
+  }
+
+  int link_kind[ FD_TOPO_MAX_LINKS ];
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
@@ -754,6 +774,7 @@ STEM_(run)( fd_topo_t *      topo,
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
+          link_kind[ k ] = RELIABLE_LINK;
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
@@ -778,6 +799,8 @@ STEM_(run)( fd_topo_t *      topo,
                reliable_cons_cnt,
                cons_out,
                cons_fseq,
+               link_kind,
+               link_burst,
                STEM_BURST,
                STEM_LAZY,
                rng,
