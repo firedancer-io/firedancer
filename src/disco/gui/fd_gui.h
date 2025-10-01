@@ -10,6 +10,7 @@
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../util/hist/fd_histf.h"
 #include "../../discof/restore/fd_snaprd_tile.h"
+#include "../../choreo/tower/fd_tower.h"
 
 #include "../topo/fd_topo.h"
 
@@ -737,8 +738,21 @@ void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
 
 void
-fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
+fd_gui_handle_snapshot_update( fd_gui_t *           gui,
                                fd_snaprd_update_t * msg );
+
+void
+fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
+                               fd_stake_weight_msg_t const * leader_schedule,
+                               long                          now );
+
+void
+fd_gui_handle_tower_update( fd_gui_t *    gui,
+                            ulong         opt_root_slot,
+                            ulong         last_landed_vote,
+                            ulong         fork_history_sz,
+                            ulong const * fork_history,
+                            long          now );
 
 
 void
