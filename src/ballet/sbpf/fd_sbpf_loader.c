@@ -714,11 +714,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
 }
 
 static int
-fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t *            info,
-                         void const *                    bin,
-                         ulong                           bin_sz,
-                         fd_sbpf_loader_config_t const * config ) {
-  (void)config;
+fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
+                         void const *         bin,
+                         ulong                bin_sz ) {
 
   /* Parse file header */
 
@@ -835,11 +833,9 @@ fd_sbpf_check_overlap( ulong a_start, ulong a_end, ulong b_start, ulong b_end ) 
    failure and 0 on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L148 */
 int
-fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
-                           void const *                    bin,
-                           ulong                           bin_sz,
-                           fd_sbpf_loader_config_t const * config ) {
-  (void)config;
+fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
+                           void const *         bin,
+                           ulong                bin_sz ) {
 
   /* This documents the values that will be set in this function */
   info->rodata_sz        = (uint)bin_sz; // FIXME
@@ -1248,12 +1244,10 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t *            info,
    and 0 on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L719-L809 */
 int
-fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t *            info,
-                              void const *                    bin,
-                              ulong                           bin_sz,
-                              fd_sbpf_loader_config_t const * config,
-                              fd_elf64_shdr *                 text_shdr ) {
-  (void)config;
+fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
+                              void const *         bin,
+                              ulong                bin_sz,
+                              fd_elf64_shdr *      text_shdr ) {
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L721-L736 */
   fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
@@ -1353,22 +1347,19 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t *            info,
    on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L593-L638 */
 static int
-fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
-                          void const *                    bin,
-                          ulong                           bin_sz,
-                          fd_sbpf_loader_config_t const * config ) {
-
-  (void)config;
+fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t * info,
+                          void const *         bin,
+                          ulong                bin_sz ) {
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L607 */
-  int res = fd_sbpf_lenient_elf_parse( info, bin, bin_sz, config );
+  int res = fd_sbpf_lenient_elf_parse( info, bin, bin_sz );
   if( FD_UNLIKELY( res<0 ) ) {
     return fd_sbpf_elf_parser_err_to_elf_err( res );
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L617 */
   fd_elf64_shdr text_shdr = { 0 };
-  res = fd_sbpf_lenient_elf_validate( info, bin, bin_sz, config, &text_shdr );
+  res = fd_sbpf_lenient_elf_validate( info, bin, bin_sz, &text_shdr );
   if( FD_UNLIKELY( res<0 ) ) {
     return res;
   }
@@ -1461,9 +1452,9 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
      the strict parser's error code.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L407 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( info->sbpf_version ) ) ) {
-    return fd_sbpf_elf_parser_err_to_elf_err( fd_sbpf_elf_peek_strict( info, bin, bin_sz, config ) );
+    return fd_sbpf_elf_parser_err_to_elf_err( fd_sbpf_elf_peek_strict( info, bin, bin_sz ) );
   }
-  return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
+  return fd_sbpf_elf_peek_lenient( info, bin, bin_sz );
 }
 
 /* Parses and concatenates the readonly data sections
