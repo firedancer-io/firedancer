@@ -37,7 +37,7 @@ fi
 
 if ! git checkout -q $GIT_REF; then
   git remote update
-  git checkout -q FETCH_HEAD
+  git checkout -q $GIT_REF
 fi
 cd ../..
 
