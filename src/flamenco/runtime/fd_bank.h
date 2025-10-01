@@ -841,6 +841,14 @@ fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
                    ulong        parent_bank_idx );
 
+
+/* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
+
+static inline int
+fd_banks_is_full( fd_banks_t * banks ) {
+  return fd_banks_pool_free( fd_banks_get_bank_pool( banks ) )==0UL;
+}
+
 /* fd_banks_validate does validation on the banks struct to make sure
    that there are no corruptions/invariant violations.  It returns 0
    if no issues have been detected and 1 otherwise.

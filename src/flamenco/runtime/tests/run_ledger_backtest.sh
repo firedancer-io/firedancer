@@ -189,10 +189,6 @@ echo "
 [runtime]
     max_live_slots = 32
     max_fork_width = 4
-[development]
-    sandbox = false
-    no_agave = true
-    no_clone = true
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"

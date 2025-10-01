@@ -23,3 +23,6 @@ fsync: (eq (arg 0) logfile_fd)
 # - write
 # - read
 # - close
+
+/* getrandom is used for secure randomness */
+getrandom

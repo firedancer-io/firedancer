@@ -1,3 +1,5 @@
+#define _GNU_SOURCE /* SOL_TCP (seccomp) */
+
 #include "utils/fd_ssping.h"
 #include "utils/fd_sshttp.h"
 #include "utils/fd_ssctrl.h"
@@ -8,11 +10,16 @@
 #include "../../flamenco/gossip/fd_gossip_types.h"
 
 #include <errno.h>
-#include <fcntl.h>
-#include <string.h>
-#include <unistd.h>
 #include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/stat.h>
+#include <netinet/tcp.h>
+#include <netinet/in.h>
+
+#include "generated/fd_snaprd_tile_seccomp.h"
+
+#define FD_SSPING_MAX_PEERS (65536UL)
 
 #define NAME "snaprd"
 
@@ -155,12 +162,11 @@ scratch_align( void ) {
 }
 
 static ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)       );
-  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()          );
-  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( 65536UL ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snaprd_tile_t),  sizeof(fd_snaprd_tile_t)                               );
+  l = FD_LAYOUT_APPEND( l, fd_sshttp_align(),          fd_sshttp_footprint()                                  );
+  l = FD_LAYOUT_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_contact_info_t), sizeof(fd_contact_info_t) * FD_CONTACT_INFO_TABLE_SIZE );
   return FD_LAYOUT_FINI( l, alignof(fd_snaprd_tile_t) );
 }
@@ -501,6 +507,66 @@ print_diagnostics( fd_snaprd_tile_t * ctx ) {
   ctx->diagnostics.prev_accounts_inserted    = accounts_inserted;
 }
 
+static ulong
+rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                 fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  /* stderr, logfile, dirfd, local out full fd, local out incremental
+     fd, local in full fd, local in incremental fd, and one spare for a
+     socket(). */
+
+  return 1UL +                 /* stderr */
+         1UL +                 /* logfile */
+         FD_SSPING_MAX_PEERS + /* ssping max peers sockets */
+         3UL +                 /* dirfd + 2 snapshot file fds in the worst case */
+         1UL;                  /* sshttp socket */
+}
+
+static ulong
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t) );
+
+  populate_sock_filter_policy_fd_snaprd_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)ctx->local_in.full_snapshot_fd, (uint)ctx->local_in.incremental_snapshot_fd );
+  return sock_filter_policy_fd_snaprd_tile_instr_cnt;
+}
+
+static ulong
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  /* At a minimum we expect these file descriptors to be open:
+     - stderr
+     - logfile
+     - at least one snapshot file descriptor */
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0;
+  out_fds[ out_cnt++ ] = 2UL; /* stderr */
+  if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) ) {
+    out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  }
+
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t) );
+  if( -1!=ctx->local_out.dir_fd )                  out_fds[ out_cnt++ ] = ctx->local_out.dir_fd;
+  if( -1!=ctx->local_out.full_snapshot_fd )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
+  if( -1!=ctx->local_out.incremental_snapshot_fd ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
+  if( -1!=ctx->local_in.full_snapshot_fd )         out_fds[ out_cnt++ ] = ctx->local_in.full_snapshot_fd;
+  if( -1!=ctx->local_in.incremental_snapshot_fd )  out_fds[ out_cnt++ ] = ctx->local_in.incremental_snapshot_fd;
+
+  return out_cnt;
+}
+
 static void
 after_credit( fd_snaprd_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -740,7 +806,7 @@ after_frag( fd_snaprd_tile_t *  ctx,
                ctx->state!=FD_SNAPRD_STATE_COLLECTING_PEERS &&
                ctx->state!=FD_SNAPRD_STATE_WAITING_FOR_PEERS );
 
-      switch( ctx->state) {
+      switch( ctx->state ) {
         case FD_SNAPRD_STATE_READING_FULL_FILE:
         case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:
         case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
@@ -833,6 +899,10 @@ privileged_init( fd_topo_t *      topo,
     } else {
       ctx->local_out.incremental_snapshot_fd = -1;
     }
+
+    ctx->local_in.full_snapshot_fd        = -1;
+    ctx->local_in.incremental_snapshot_fd = -1;
+
   } else {
     FD_TEST( full_slot!=ULONG_MAX );
 
@@ -861,8 +931,8 @@ privileged_init( fd_topo_t *      topo,
       ctx->local_in.incremental_snapshot_size = (ulong)incremental_stat.st_size;
     }
 
-    ctx->local_out.dir_fd = -1;
-    ctx->local_out.full_snapshot_fd = -1;
+    ctx->local_out.dir_fd                  = -1;
+    ctx->local_out.full_snapshot_fd        = -1;
     ctx->local_out.incremental_snapshot_fd = -1;
 
     if( FD_UNLIKELY( tile->snaprd.maximum_local_snapshot_age==0U ) ) {
@@ -963,6 +1033,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out.wmark  = fd_dcache_compact_wmark ( ctx->out.wksp, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out.chunk  = ctx->out.chunk0;
   ctx->out.mtu    = topo->links[ tile->out_link_id[ 0 ] ].mtu;
+
 }
 
 #define STEM_BURST 2UL /* One control message, and one data message */
@@ -981,14 +1052,17 @@ unprivileged_init( fd_topo_t *      topo,
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_snaprd = {
-  .name                 = NAME,
-  .scratch_align        = scratch_align,
-  .scratch_footprint    = scratch_footprint,
-  .privileged_init      = privileged_init,
-  .unprivileged_init    = unprivileged_init,
-  .run                  = stem_run,
-  .keep_host_networking = 1,
-  .allow_connect        = 1
+  .name                     = NAME,
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
+  .keep_host_networking     = 1,
+  .allow_connect            = 1
 };
 
 #undef NAME
