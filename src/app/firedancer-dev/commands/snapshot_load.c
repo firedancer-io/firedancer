@@ -5,7 +5,10 @@
 #include "../../shared_dev/commands/dev.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/topo/fd_topob.h"
+#include "../../../disco/pack/fd_pack.h"
+#include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../util/tile/fd_tile_private.h"
+#include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 
 #include <sys/resource.h>
@@ -26,6 +29,12 @@ snapshot_load_topo( config_t *     config,
   fd_topo_t * topo = &config->topo;
   fd_topob_new( &config->topo, config->name );
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+
+  fd_topob_wksp( topo, "txncache" );
+  fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
+      config->firedancer.runtime.max_live_slots,
+      fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, txncache_obj->id, "txncache" ) );
 
   fd_topob_wksp( topo, "funk" );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
@@ -82,7 +91,11 @@ snapshot_load_topo( config_t *     config,
 
   /* snapin funk access */
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  snapin_tile->snapin.funk_obj_id = funk_obj->id;
+  fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  snapin_tile->snapin.funk_obj_id     = funk_obj->id;
+  snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
+
+  snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
 
   /* snapshot manifest out link */
   fd_topob_wksp( topo, "snap_out" );
