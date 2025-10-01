@@ -252,7 +252,7 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L409-L410 */
 
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, instr_acc_idx, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
@@ -296,7 +296,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L82-L83 */
 
-  fd_guarded_borrowed_account_t from;
+  fd_guarded_borrowed_account_t from = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, from_acct_idx, &from );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L84-L91 */
@@ -442,7 +442,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L146-L147 */
 
-  fd_guarded_borrowed_account_t to;
+  fd_guarded_borrowed_account_t to = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_acct_idx, &to );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L148 */
@@ -616,7 +616,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   uchar const instr_acc_idx = 0;
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L448-L449 */
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, instr_acc_idx, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
@@ -779,7 +779,7 @@ fd_system_program_exec_authorize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L484-L485 */
 
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, 0, &account );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -810,7 +810,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L474-475 */
 
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, nonce_acct_idx, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L492-L494 */

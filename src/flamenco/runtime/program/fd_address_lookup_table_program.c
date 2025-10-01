@@ -195,7 +195,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* Prepare LUT account **********************************************/
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L59-L60 */
   /* try_borrow_instruction_account => get_index_of_instruction_account_in_transaction */
-  fd_guarded_borrowed_account_t lut_acct;
+  fd_guarded_borrowed_account_t lut_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L60-L62 */
@@ -216,7 +216,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* Prepare authority account ****************************************/
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L74-L75 */
   /* try_borrow_instruction_account => get_index_of_instruction_account_in_transaction */
-  fd_guarded_borrowed_account_t authority_acct;
+  fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
 
@@ -236,7 +236,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* Prepare payer account ********************************************/
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L87-L88 */
     /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  fd_guarded_borrowed_account_t payer_acct;
+  fd_guarded_borrowed_account_t payer_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_PAYER, &payer_acct );
 
   payer_key = payer_acct.acct->pubkey;
@@ -470,7 +470,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* Prepare LUT account **********************************************/
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L177-L178 */
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  fd_guarded_borrowed_account_t lut_acct;
+  fd_guarded_borrowed_account_t lut_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L178-L181 */
@@ -485,7 +485,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L184-L185 */
   fd_pubkey_t const * authority_key = NULL;
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  fd_guarded_borrowed_account_t authority_acct;
+  fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
   authority_key = authority_acct.acct->pubkey;
@@ -576,7 +576,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L231-L232 */
-  fd_guarded_borrowed_account_t lut_acct;
+  fd_guarded_borrowed_account_t lut_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
   lut_key = lut_acct.acct->pubkey;
@@ -593,7 +593,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   fd_pubkey_t const * authority_key = NULL;
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L239-L240 */
-  fd_guarded_borrowed_account_t authority_acct;
+  fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
   authority_key = authority_acct.acct->pubkey;
@@ -723,7 +723,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     /* try_borrow_account => get_index_of_instruction_account_in_transaction */
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L325-L326 */
-    fd_guarded_borrowed_account_t payer_acct;
+    fd_guarded_borrowed_account_t payer_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_PAYER, &payer_acct );
 
     payer_key = payer_acct.acct->pubkey;
@@ -802,7 +802,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* try_borrow_instruction_account => get_index_of_instruction_account_in_transaction */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L347-L348 */
-  fd_guarded_borrowed_account_t lut_acct;
+  fd_guarded_borrowed_account_t lut_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L348-L350 */
@@ -817,7 +817,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t const * authority_key = NULL;
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L354-L355 */
-  fd_guarded_borrowed_account_t authority_acct;
+  fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
   authority_key = authority_acct.acct->pubkey;
@@ -910,7 +910,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* try_borrow_instruction_account => get_index_of_instruction_account_in_transaction */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L396-L397 */
-  fd_guarded_borrowed_account_t lut_acct;
+  fd_guarded_borrowed_account_t lut_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L397-L399 */
@@ -925,7 +925,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t const * authority_key = NULL;
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L403-L404 */
-  fd_guarded_borrowed_account_t authority_acct;
+  fd_guarded_borrowed_account_t authority_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_AUTHORITY, &authority_acct );
 
   authority_key = authority_acct.acct->pubkey;
@@ -1026,7 +1026,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* try_borrow_instruction_account => get_index_of_instruction_account_in_transaction */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L458-L459 */
-  fd_guarded_borrowed_account_t recipient_acct;
+  fd_guarded_borrowed_account_t recipient_acct = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_RECIPIENT, &recipient_acct );
 
   err = fd_borrowed_account_checked_add_lamports( &recipient_acct, withdrawn_lamports );
