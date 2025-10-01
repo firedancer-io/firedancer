@@ -828,7 +828,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snaprd" ) ) ) {
 
     fd_memcpy( tile->snaprd.snapshots_path, config->paths.snapshots, PATH_MAX );
-    tile->snaprd.diagnostics                       = 1;
     tile->snaprd.incremental_snapshot_fetch        = config->firedancer.snapshots.incremental_snapshots;
     tile->snaprd.do_download                       = config->firedancer.snapshots.download;
     tile->snaprd.maximum_local_snapshot_age        = config->firedancer.snapshots.maximum_local_snapshot_age;

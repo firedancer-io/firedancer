@@ -216,8 +216,13 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 
 sudo killall firedancer-dev || true
 
-set -x
-sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
+if [[ -n "$CI" ]]; then
+  set -x
+  sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml --no-watch
+else
+  set -x
+  sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml
+fi
 { status=$?; set +x; } &> /dev/null
 
 if [ "$status" -eq 139 ]; then
@@ -243,11 +248,6 @@ else
     # rm $LOG
     exit 0
   fi
-
-  echo "LAST 40 LINES OF LOG:"
-  tail -40 $LOG
-  echo_error "backtest test failed: $*"
-  echo $LOG
 
   exit 1
 fi
