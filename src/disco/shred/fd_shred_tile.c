@@ -1039,6 +1039,10 @@ after_frag( fd_shred_ctx_t *    ctx,
         fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
       } FD_STORE_SHARED_LOCK_END;
 
+      if( FD_UNLIKELY( !fec ) ) {
+        __asm__("int $3");
+      }
+
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );
         ulong        payload_sz = fd_shred_payload_sz( data_shred );

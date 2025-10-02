@@ -589,9 +589,7 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
     fd_repair_msg_t * init     = fd_repair_shred( ctx->protocol, &contact_info->pubkey, (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
     out_ctx_t *       sign_out = sign_avail_credits( ctx ); // totally could be null, TODO how to handle this? we don't want to lose the peer probably
     if( !sign_out ){
-      FD_LOG_WARNING((" we wanted to send a repair request to %s, but no sign_out context is available", FD_BASE58_ENC_32_ALLOCA( &contact_info->pubkey ) ));
       fd_ping_signs_queue_push( ctx->ping_queue, *init );
-      ctx->metrics->sign_tile_unavail++;
       return;
     }
     fd_repair_send_request_async( ctx, sign_out, init, SIGN_INIT_REQUEST );
