@@ -84,6 +84,9 @@ struct fd_gossip_metrics {
 
   ulong ci_rx_unrecognized_socket_tag_cnt;
   ulong ci_rx_ipv6_address_cnt;
+
+  ulong crds_inserted_count;
+  ulong crds_inserted_fresh_count;
 };
 
 typedef struct fd_gossip_metrics fd_gossip_metrics_t;

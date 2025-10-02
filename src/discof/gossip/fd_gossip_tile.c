@@ -163,6 +163,9 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 
   FD_MCNT_SET( GOSSIP, CONTACT_INFO_UNRECOGNIZED_SOCKET_TAGS, metrics->ci_rx_unrecognized_socket_tag_cnt );
   FD_MCNT_SET( GOSSIP, CONTACT_INFO_IPV6,                     metrics->ci_rx_ipv6_address_cnt );
+
+  FD_MCNT_SET( GOSSIP, CRDS_INSERTED_COUNT,       metrics->crds_inserted_count );
+  FD_MCNT_SET( GOSSIP, CRDS_INSERTED_FRESH_COUNT, metrics->crds_inserted_fresh_count );
 }
 
 void

@@ -501,7 +501,7 @@
 | <span class="metrics-name">replay_&#8203;max_&#8203;live_&#8203;banks</span> | gauge | The maximum number of banks we can have alive |
 | <span class="metrics-name">replay_&#8203;live_&#8203;banks</span> | gauge | The number of banks we currently have alive |
 | <span class="metrics-name">replay_&#8203;slots_&#8203;total</span> | counter | Count of slots replayed successfully |
-| <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall. Not an accurate TPS as it includes skipped slots |
+| <span class="metrics-name">replay_&#8203;transactions_&#8203;total</span> | counter | Count of transactions processed overall on the current fork |
 
 </div>
 
@@ -640,6 +640,8 @@
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">contact_&#8203;info_&#8203;v2</span>"} | counter |  (Contact Info V2) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots</span>"} | counter |  (Restart Last Voted Fork Slots) |
 | <span class="metrics-name">gossip_&#8203;crds_&#8203;tx_&#8203;pull_&#8203;response_&#8203;bytes</span><br/>{crds_&#8203;value="<span class="metrics-enum">restart_&#8203;heaviest_&#8203;fork</span>"} | counter |  (Restart Heaviest Fork) |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;inserted_&#8203;count</span> | counter |  |
+| <span class="metrics-name">gossip_&#8203;crds_&#8203;inserted_&#8203;fresh_&#8203;count</span> | counter |  |
 
 </div>
 

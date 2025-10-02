@@ -19,6 +19,8 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_LAST+1UL,
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
 
+#define CRDS_FRESH_DEADLINE_NANOS (15L*1000L*1000L*1000L) /* 15 seconds */
+
 struct stake {
   fd_pubkey_t pubkey;
   ulong       stake;
@@ -522,6 +524,9 @@ rx_pull_response( fd_gossip_t *                          gossip,
       fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
       continue;
     }
+
+    gossip->metrics->crds_inserted_count++;
+    gossip->metrics->crds_inserted_fresh_count += (ulong)fd_long_if( fd_long_max( 0L, now-value->wallclock_nanos )<CRDS_FRESH_DEADLINE_NANOS, 1UL, 0UL );
 
     fd_crds_entry_t const * candidate = fd_crds_insert( gossip->crds,
                                                         value,

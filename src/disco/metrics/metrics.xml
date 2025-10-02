@@ -920,6 +920,9 @@ metric introduced.
     <counter name="CrdsTxPushBytes" label="Total wire bytes of CRDS sent out in push messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseCount" label="Number of CRDS values sent in pull response messages" enum="CrdsValue" />
     <counter name="CrdsTxPullResponseBytes" label="Total wire bytes of CRDS sent out in pull response messages" enum="CrdsValue" />
+
+    <counter name="CrdsInsertedCount" label="The total number of entries ever inserted into the data store" />
+    <counter name="CrdsInsertedFreshCount" label="The total number of entries ever inserted into the data store which were considered fresh" />
 </tile>
 
 <enum name="GossvfMessageOutcome">
