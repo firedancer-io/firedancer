@@ -861,6 +861,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snaprd.entrypoints_enabled               = config->firedancer.snapshots.sources.entrypoints.enabled;
     tile->snaprd.gossip_peers_enabled              = config->firedancer.snapshots.sources.gossip.enabled;
     tile->snaprd.gossip_entrypoints_cnt            = config->gossip.entrypoints_cnt;
+    tile->snaprd.development.disable_peer_selection  = config->development.snapshots.disable_peer_selection;
 
     for( ulong i=0UL; i<tile->snaprd.gossip_entrypoints_cnt; i++ ) tile->snaprd.gossip_entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
 

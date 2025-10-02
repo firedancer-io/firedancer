@@ -1762,3 +1762,11 @@ user = ""
         # This option has not been tested or security audited and should
         # not currently be used in production.
         websocket_compression = false
+    [development.snapshots]
+        # There are certain scenarios where we might want to run the
+        # validator without the ability to select snapshot peers and
+        # download snapshots for development and testing purposes.  If
+        # this option is set to true, the validator will not attempt to
+        # download nor select snapshot peers.  It will instead look for
+        # any local snapshots and load the most recent one.
+        disable_peer_selection = false

@@ -309,6 +309,7 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
+  CFG_POP      ( bool,   development.snapshots.disable_peer_selection );
 
   CFG_POP      ( bool,   development.gui.websocket_compression            );
   CFG_POP      ( cstr,   development.gui.frontend_release_channel         );
