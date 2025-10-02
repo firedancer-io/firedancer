@@ -296,16 +296,13 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
 static void
 fd_solcap_dump_account_data( fd_solcap_differ_t *            diff,
                              fd_solcap_AccountMeta const *   meta,
-                             fd_solcap_account_tbl_t const * entry,
+                             char const *                    filename,
                              void const *                    acc_data ) {
   /* Create dump file */
-  char path[ FD_BASE58_ENCODED_32_LEN+4+1 ];
-  int res = snprintf( path, sizeof(path), "%s.bin", FD_BASE58_ENC_32_ALLOCA( entry->key ) );
-  FD_TEST( (res>0) & (res<(int)sizeof(path)) );
-  int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
+  int fd = openat( diff->dump_dir_fd, filename, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
   if( FD_UNLIKELY( fd<0 ) )
     FD_LOG_ERR(( "openat(%d,%s) failed (%d-%s)",
-                diff->dump_dir_fd, path, errno, strerror( errno ) ));
+                diff->dump_dir_fd, filename, errno, strerror( errno ) ));
 
   /* Write dump file */
   FILE * file = fdopen( fd, "wb" );
@@ -375,12 +372,16 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
       }
 
       for( ulong i=0; i<2; i++ ) {
-        fd_solcap_dump_account_data( diff, meta+i, entry[i], acc_data[i] );
+        char filename[ FD_BASE58_ENCODED_32_LEN+2+4+1 ];
+        int res = snprintf( filename, sizeof(filename), "%s.%lu.bin",
+                            FD_BASE58_ENC_32_ALLOCA( entry[i]->key ), i );
+        FD_TEST( (res>0) & (res<(int)sizeof(filename)) );
+        fd_solcap_dump_account_data( diff, meta+i, filename, acc_data[i] );
       }
 
       /* Inform user */
-      printf( "        (%s) data:       %s/%s.bin\n"
-              "        (%s) data:       %s/%s.bin\n"
+      printf( "        (%s) data:       %s/%s.0.bin\n"
+              "        (%s) data:       %s/%s.1.bin\n"
               "                        vimdiff <(xxd '%s/%s.bin') <(xxd '%s/%s.bin')\n",
               diff->file_paths[0], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
               diff->file_paths[1], diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ),
@@ -392,8 +393,8 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
         for( ulong i=0UL; i<2UL; i++ ) {
           /* Create YAML file */
-          char path[ FD_BASE58_ENCODED_32_LEN+4+1 ];
-          int res = snprintf( path, sizeof(path), "%s.yml", FD_BASE58_ENC_32_ALLOCA( entry[i]->key ) );
+          char path[ FD_BASE58_ENCODED_32_LEN+2+4+1 ];
+          int res = snprintf( path, sizeof(path), "%s.%lu.yml", FD_BASE58_ENC_32_ALLOCA( entry[i]->key ), i );
           FD_TEST( (res>0) & (res<(int)sizeof(path)) );
           int fd = openat( diff->dump_dir_fd, path, O_CREAT|O_WRONLY|O_TRUNC, 0666 );
           if( FD_UNLIKELY( fd<0 ) )
@@ -408,7 +409,7 @@ fd_solcap_diff_account_data( fd_solcap_differ_t *                  diff,
 
 
         /* Inform user */
-        printf( "                 vimdiff '%s/%s.yml' '%s/%s.yml'\n",
+        printf( "                 vimdiff '%s/%s.0.yml' '%s/%s.1.yml'\n",
           diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[0]->key ),
           diff->dump_dir, FD_BASE58_ENC_32_ALLOCA( entry[1]->key ) );
 
@@ -525,7 +526,10 @@ fd_solcap_diff_missing_account( fd_solcap_differ_t *                  diff,
       /* Copy data */
       FD_TEST( meta->data_sz == fread( acc_data, 1UL, meta->data_sz, stream ) );
 
-      fd_solcap_dump_account_data( diff, meta, entry, acc_data );
+      char filename[ FD_BASE58_ENCODED_32_LEN+4+1 ];
+      int res = snprintf( filename, sizeof(filename), "%s.bin", FD_BASE58_ENC_32_ALLOCA( entry->key ) );
+      FD_TEST( (res>0) & (res<(int)sizeof(filename)) );
+      fd_solcap_dump_account_data( diff, meta, filename, acc_data );
 
       /* Inform user */
       printf( "        data:       %s/%s.bin\n"
