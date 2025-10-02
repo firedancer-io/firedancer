@@ -82,21 +82,55 @@ struct fd_sched_fec {
 };
 typedef struct fd_sched_fec fd_sched_fec_t;
 
-#define FD_SCHED_TXN_IDX_NULL        (ULONG_MAX)
-#define FD_SCHED_TXN_IDX_BLOCK_START (ULONG_MAX-1UL)
-#define FD_SCHED_TXN_IDX_BLOCK_END   (ULONG_MAX-2UL)
+/* The scheduler may return one of the following types of tasks for the
+   replay tile.
 
-struct fd_sched_txn_ready {
-  ulong bank_idx;         /* Same as in fd_sched_fec_t. */
-  ulong parent_bank_idx;  /* Same as in fd_sched_fec_t. */
-  ulong slot;             /* Slot number of the block. */
-  ulong txn_idx;
-  uint  block_end:1;      /* Set for the final sentinel in the block; relevant because the
-                             caller might need to do end-of-block processing; special txn_idx. */
-  uint  block_start:1;    /* Set for the first sentinel in the block; relevant because the
-                             caller might need to do start-of-block processing; special txn_idx. */
+   e - passed down to exec tiles.
+   i - replay completes the task immediately.
+   q - replay may either do it immediately or queue the task up. */
+#define FD_SCHED_TT_NULL          (0UL)
+#define FD_SCHED_TT_BLOCK_START   (1UL) /* (i) Start-of-block processing. */
+#define FD_SCHED_TT_BLOCK_END     (2UL) /* (q) End-of-block processing. */
+#define FD_SCHED_TT_TXN_EXEC      (3UL) /* (e) Transaction execution. */
+#define FD_SCHED_TT_TXN_SIGVERIFY (4UL) /* (e) Transaction sigverify. */
+#define FD_SCHED_TT_LTHASH        (5UL) /* (e) Account lthash. */
+#define FD_SCHED_TT_POH_VERIFY    (6UL) /* (e) PoH hash verification. */
+
+struct fd_sched_block_start {
+  ulong bank_idx;        /* Same as in fd_sched_fec_t. */
+  ulong parent_bank_idx; /* Same as in fd_sched_fec_t. */
+  ulong slot;            /* Slot number of the block. */
 };
-typedef struct fd_sched_txn_ready fd_sched_txn_ready_t;
+typedef struct fd_sched_block_start fd_sched_block_start_t;
+
+struct fd_sched_block_end {
+  ulong bank_idx;
+};
+typedef struct fd_sched_block_end fd_sched_block_end_t;
+
+struct fd_sched_txn_exec {
+  ulong bank_idx;
+  ulong slot;
+  ulong txn_idx;
+};
+typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
+
+struct fd_sched_txn_sigverify {
+  ulong bank_idx;
+  ulong txn_idx;
+};
+typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
+
+struct fd_sched_task {
+  ulong task_type; /* Set to one of the task types defined above. */
+  union {
+    fd_sched_block_start_t   block_start[ 1 ];
+    fd_sched_block_end_t     block_end[ 1 ];
+    fd_sched_txn_exec_t      txn_exec[ 1 ];
+    fd_sched_txn_sigverify_t txn_sigverify[ 1 ];
+  };
+};
+typedef struct fd_sched_task fd_sched_task_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -164,15 +198,25 @@ fd_sched_can_ingest( fd_sched_t * sched );
    transactions from a subsequent block start executing.  In general,
    the caller should check if the last transaction in the current block
    is done, and if so, do end-of-block processing before calling this
-   function to start the next block. */
-ulong
-fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn );
+   function to start the next block.
 
-/* Mark a transaction as complete.  This means that the effects of this
-   transaction's execution are now visible on any core that could
+   In addition to returning transactions for execution, this function
+   may also return a sigverify task.  Sigverify can be completed
+   aynschronously outside the critical path of transaction execution, as
+   long as every transaction in a block passes sigverify before we
+   commit the block.  The scheduler prioritizes actual execution of
+   transactions over sigverify, and in general sigverify tasks are only
+   returned when no real transaction can be dispatched.  In other words,
+   the scheduler tries to exploit idle cycles in the exec tiles during
+   times of low parallelism critical path progression. */
+ulong
+fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_tile_cnt );
+
+/* Mark a task as complete.  For transaction execution, this means that
+   the effects of the execution are now visible on any core that could
    execute a subsequent transaction. */
 void
-fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx );
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
@@ -184,13 +228,6 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx );
    actively replayed block, and should only be invoked once on it. */
 void
 fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx );
-
-/* Returns 1 if the block is done, 0 otherwise.  A block is done if all
-   transactions in the block have completed.  Caller may begin
-   end-of-block processing when the block is done.  Assumes that the
-   block has not been pruned. */
-int
-fd_sched_block_is_done( fd_sched_t * sched, ulong bank_idx );
 
 /* Add a block as immediately done to the scheduler.  This is useful for
    installing the snapshot slot, or for informing the scheduler of a

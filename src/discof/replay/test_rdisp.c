@@ -211,7 +211,7 @@ test_mainnet( char const * filename       FD_PARAM_UNUSED,
   while( txn_remaining ) {
     ulong ready = 0UL;
     while( eq_cnt( eq ) && eq->timeout<fd_tickcount() + advanced_ticks ) {
-      fd_rdisp_complete_txn( disp, eq->txn_idx );
+      fd_rdisp_complete_txn( disp, eq->txn_idx, 1 );
       free |= 1UL<<eq->exec_idx;
       if( FD_UNLIKELY( check_results ) ) {
         for( ulong i=0UL; i<acct_cnt[ eq->txn_idx ]; i++ ) {
@@ -404,7 +404,7 @@ random_test( fd_rng_t * rng,
         uint selected_i = fd_rng_uint_roll( rng, (uint)d[l].dispatched_cnt );
         ulong selected = d[l].dispatched_pool[ selected_i ];
         if( log_details ) FD_LOG_NOTICE(( "completing %lu", selected ));
-        fd_rdisp_complete_txn( disp, selected );
+        fd_rdisp_complete_txn( disp, selected, 1 );
         d[l].dispatched_pool[ selected_i ] = d[l].dispatched_pool[ --d[l].dispatched_cnt ];
 
         ulong mask = ~(1UL<<d[l].internal_id[ selected ]);
@@ -413,7 +413,7 @@ random_test( fd_rng_t * rng,
       }
       for( ulong l=0UL; l<4UL; l++ ) {
         /* Complete any outstanding ones */
-        for( ulong i=0UL; i<d[l].dispatched_cnt; i++ ) fd_rdisp_complete_txn( disp, d[l].dispatched_pool[ i ] );
+        for( ulong i=0UL; i<d[l].dispatched_cnt; i++ ) fd_rdisp_complete_txn( disp, d[l].dispatched_pool[ i ], 1 );
 
         fd_rdisp_remove_block( disp, tag( l ) );
         fd_rdisp_verify( disp, verify_scratch );
@@ -489,9 +489,9 @@ main( int     argc,
   fd_rdisp_verify( disp, verify_scratch );
 
   FD_TEST( t1[0]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );
-  FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[0] );
-  FD_TEST( t1[1]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[1] );
-  FD_TEST( t1[2]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[2] );
+  FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[0], 1 );
+  FD_TEST( t1[1]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[1], 1 );
+  FD_TEST( t1[2]==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );   fd_rdisp_complete_txn( disp, t1[2], 1 );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* empty */
   fd_rdisp_verify( disp, verify_scratch );
 
@@ -502,9 +502,9 @@ main( int     argc,
   fd_rdisp_verify( disp, verify_scratch );
 
   ulong last;
-  last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* empty */
   fd_rdisp_verify( disp, verify_scratch );
 
@@ -520,9 +520,9 @@ main( int     argc,
 
   FD_TEST( 0==fd_rdisp_promote_block( disp, tag( 1UL ), 0 ) );
 
-  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); /* empty */
 
   FD_TEST( 0==fd_rdisp_add_block( disp, tag( 3UL ), 0 ) );
@@ -537,16 +537,16 @@ main( int     argc,
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
   FD_TEST( 0UL  ==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) );
 
-  last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 3UL ) ); FD_TEST( pop_option( t3, 3UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
 
   FD_TEST( 0UL!=(t2[0]=add_txn( disp, rng, tag( 2UL ), "ABC", "DEF", 0 )) );
   FD_TEST( 0UL!=(t2[1]=add_txn( disp, rng, tag( 2UL ), "A",   "DEF", 0 )) );
   FD_TEST( 0UL!=(t2[2]=add_txn( disp, rng, tag( 2UL ), "AF",  "DE",  0 )) );
-  FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
-  FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
-  FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+  FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0], 1 );
+  FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1], 1 );
+  FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2], 1 );
 
   /* Now it is possible to demote */
   FD_TEST(   (1UL<<2) & fd_rdisp_staging_lane_info( disp, lane_info ) );
@@ -560,9 +560,9 @@ main( int     argc,
   FD_TEST( !((1UL<<2) & fd_rdisp_staging_lane_info( disp, lane_info )) );
   FD_TEST( 0==fd_rdisp_promote_block( disp, tag( 2UL ), 3UL ) );
   FD_TEST(   (1UL<<3) & fd_rdisp_staging_lane_info( disp, lane_info ) );
-  FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0] );
-  FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1] );
-  FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2] );
+  FD_TEST( t2[0]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[0], 1 );
+  FD_TEST( t2[1]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[1], 1 );
+  FD_TEST( t2[2]==fd_rdisp_get_next_ready( disp, tag( 2UL ) ) );   fd_rdisp_complete_txn( disp, t2[2], 1 );
 
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 2UL ) ) );
 
@@ -576,11 +576,11 @@ main( int     argc,
   FD_TEST( 0UL!=(t4[3]=add_txn( disp, rng, tag( 4UL ), "D", "J", 0 )) );
   FD_TEST( 0UL!=(t4[4]=add_txn( disp, rng, tag( 4UL ), "E", "J", 0 )) );
 
-  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4,     2UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4,     2UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( last==t4[2]                     ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4+3UL, 2UL, last ) ); fd_rdisp_complete_txn( disp, last );
-  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4+3UL, 2UL, last ) ); fd_rdisp_complete_txn( disp, last );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4,     2UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4,     2UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( last==t4[2]                     ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4+3UL, 2UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
+  last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4+3UL, 2UL, last ) ); fd_rdisp_complete_txn( disp, last, 1 );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 4UL ) ) );
 
   /* Tests that only apply for the non-simple dispatcher */
@@ -596,20 +596,37 @@ main( int     argc,
     FD_TEST( 0UL!=(t4[3]=add_txn( disp, rng, tag( 4UL ), "D", "J", 0 )) );
     FD_TEST( 0UL!=(t4[4]=add_txn( disp, rng, tag( 4UL ), "E", "J", 0 )) );
     ulong txnl;
-    FD_TEST( txnf==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );   fd_rdisp_complete_txn( disp, txnf );
+    FD_TEST( txnf==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );   fd_rdisp_complete_txn( disp, txnf, 1 );
 
     for( ulong i=0UL; i<5UL; i++ ) { last = fd_rdisp_get_next_ready( disp, tag( 4UL ) ); FD_TEST( pop_option( t4, 5UL, last ) ); }
-    fd_rdisp_complete_txn( disp, t4[4]&0xFFFFUL );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
-    fd_rdisp_complete_txn( disp, t4[0]&0xFFFFUL );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
+    fd_rdisp_complete_txn( disp, t4[4]&0xFFFFUL, 1 );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
+    fd_rdisp_complete_txn( disp, t4[0]&0xFFFFUL, 1 );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
     FD_TEST( 0UL!=(txnl =add_txn( disp, rng, tag( 4UL ), "J", "F", 0 )) );
-    fd_rdisp_complete_txn( disp, t4[3]&0xFFFFUL );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
-    fd_rdisp_complete_txn( disp, t4[1]&0xFFFFUL );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
-    fd_rdisp_complete_txn( disp, t4[2]&0xFFFFUL );
+    fd_rdisp_complete_txn( disp, t4[3]&0xFFFFUL, 1 );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
+    fd_rdisp_complete_txn( disp, t4[1]&0xFFFFUL, 1 );  FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
+    fd_rdisp_complete_txn( disp, t4[2]&0xFFFFUL, 1 );
 
     FD_TEST( txnl==fd_rdisp_get_next_ready( disp, tag( 4UL ) ) );
-    fd_rdisp_complete_txn( disp, txnl );
+    fd_rdisp_complete_txn( disp, txnl, 1 );
 
     FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 4UL ) ) );
+
+
+    /* Zombie */
+    FD_TEST( 0==fd_rdisp_add_block( disp, tag( 5UL ), 3UL ) );
+    FD_TEST( 0UL!=(t0[0]=add_txn( disp, rng, tag( 5UL ), "A",   "J", 0 )) );
+    FD_TEST( 0UL!=(t0[1]=add_txn( disp, rng, tag( 5UL ), "AB",  "J", 0 )) );
+    FD_TEST( 0UL!=(t0[2]=add_txn( disp, rng, tag( 5UL ), "ABC", "J", 0 )) );
+    FD_TEST( t0[0]==fd_rdisp_get_next_ready( disp, tag( 5UL ) ) );
+    FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 5UL ) ) );
+    fd_rdisp_complete_txn( disp, t0[0], 0 );
+    FD_TEST( t0[1]==fd_rdisp_get_next_ready( disp, tag( 5UL ) ) );
+    FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 5UL ) ) );
+    fd_rdisp_complete_txn( disp, t0[1], 1 );
+    fd_rdisp_complete_txn( disp, t0[0], 1 );
+    FD_TEST( t0[2]==fd_rdisp_get_next_ready( disp, tag( 5UL ) ) );
+    fd_rdisp_complete_txn( disp, t0[2], 1 );
+    FD_TEST( 0==fd_rdisp_remove_block( disp, tag( 5UL ) ) );
 
 
     /* Test that it respects block boundaries */
@@ -629,12 +646,12 @@ main( int     argc,
     for( ulong i=0UL; i<3UL; i++ ) { last = fd_rdisp_get_next_ready( disp, tag( 0UL ) ); FD_TEST( pop_option( t0, 3UL, last ) ); }
     FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) ); /* empty */
     FD_TEST( 0UL==fd_rdisp_get_next_ready( disp, tag( 1UL ) ) ); /* not schedule-ready */
-    for( ulong i=0UL; i<3UL; i++ ) fd_rdisp_complete_txn( disp, t0[i]&0xFFFFUL );
+    for( ulong i=0UL; i<3UL; i++ ) fd_rdisp_complete_txn( disp, t0[i]&0xFFFFUL, 1 );
     FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
 
     /* Now block 1 is schedule-ready */
     for( ulong i=0UL; i<3UL; i++ ) { last = fd_rdisp_get_next_ready( disp, tag( 1UL ) ); FD_TEST( pop_option( t1, 3UL, last ) ); }
-    for( ulong i=0UL; i<3UL; i++ ) fd_rdisp_complete_txn( disp, t1[i]&0xFFFFUL );
+    for( ulong i=0UL; i<3UL; i++ ) fd_rdisp_complete_txn( disp, t1[i]&0xFFFFUL, 1 );
     FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 1UL ) ) );
   }
 
@@ -648,9 +665,9 @@ main( int     argc,
     ulong txn_idx = add_txn2( disp, rng, tag( 0UL ), accts, 38UL );
     FD_TEST( txn_idx==fd_rdisp_get_next_ready( disp, tag( 0UL ) ) );
     txn_idxs[txn_cnt++] = txn_idx;
-    if( FD_UNLIKELY( txn_cnt==100UL ) ) while( txn_cnt ) fd_rdisp_complete_txn( disp, txn_idxs[--txn_cnt] );
+    if( FD_UNLIKELY( txn_cnt==100UL ) ) while( txn_cnt ) fd_rdisp_complete_txn( disp, txn_idxs[--txn_cnt], 1 );
   }
-  while( txn_cnt ) fd_rdisp_complete_txn( disp, txn_idxs[--txn_cnt] );
+  while( txn_cnt ) fd_rdisp_complete_txn( disp, txn_idxs[--txn_cnt], 1 );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
@@ -666,7 +683,7 @@ main( int     argc,
     if( block>=FD_RDISP_MAX_BLOCK_DEPTH ) {
       ulong ablock = block-FD_RDISP_MAX_BLOCK_DEPTH;
       FD_TEST( txn_idx[ablock]==fd_rdisp_get_next_ready( disp, tag( ablock ) ) );
-      fd_rdisp_complete_txn( disp, txn_idx[ablock] );
+      fd_rdisp_complete_txn( disp, txn_idx[ablock], 1 );
       FD_TEST( 0==fd_rdisp_remove_block( disp, tag( ablock ) ) );
     }
     if( block<2UL*FD_RDISP_MAX_BLOCK_DEPTH ) {

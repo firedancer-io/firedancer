@@ -8,12 +8,12 @@
 #include "../../disco/fd_disco.h"
 #include "../../discof/fd_discof.h"
 #include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/restore/utils/fd_ssmanifest_parser.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../disco/fd_disco.h"
 #include "../../util/pod/fd_pod_format.h"
-#include "../replay/fd_exec.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -226,6 +226,41 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, shared_spad_max_alloc_align(),   fd_spad_footprint( shared_spad_max_alloc_footprint() ) );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),                fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static inline ulong
+generate_stake_weight_msg_manifest( ulong                                       epoch,
+                                    fd_epoch_schedule_t const *                 epoch_schedule,
+                                    fd_snapshot_manifest_epoch_stakes_t const * epoch_stakes,
+                                    ulong *                                     stake_weight_msg_out ) {
+  fd_stake_weight_msg_t *  stake_weight_msg = (fd_stake_weight_msg_t *)fd_type_pun( stake_weight_msg_out );
+  fd_vote_stake_weight_t * stake_weights    = stake_weight_msg->weights;
+
+  stake_weight_msg->epoch             = epoch;
+  stake_weight_msg->staked_cnt        = epoch_stakes->vote_stakes_len;
+  stake_weight_msg->start_slot        = fd_epoch_slot0( epoch_schedule, epoch );
+  stake_weight_msg->slot_cnt          = epoch_schedule->slots_per_epoch;
+  stake_weight_msg->excluded_stake    = 0UL;
+  stake_weight_msg->vote_keyed_lsched = 1UL;
+
+  /* FIXME: SIMD-0180 - hack to (de)activate in testnet vs mainnet.
+     This code can be removed once the feature is active. */
+  {
+    if(    ( 1==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_TESTNET )
+        || ( 0==epoch_schedule->warmup && epoch<FD_SIMD0180_ACTIVE_EPOCH_MAINNET ) ) {
+      stake_weight_msg->vote_keyed_lsched = 0UL;
+    }
+  }
+
+  /* epoch_stakes from manifest are already filtered (stake>0), but not sorted */
+  for( ulong i=0UL; i<epoch_stakes->vote_stakes_len; i++ ) {
+    stake_weights[ i ].stake = epoch_stakes->vote_stakes[ i ].stake;
+    memcpy( stake_weights[ i ].id_key.uc, epoch_stakes->vote_stakes[ i ].identity, sizeof(fd_pubkey_t) );
+    memcpy( stake_weights[ i ].vote_key.uc, epoch_stakes->vote_stakes[ i ].vote, sizeof(fd_pubkey_t) );
+  }
+  sort_vote_weights_by_stake_vote_inplace( stake_weights, epoch_stakes->vote_stakes_len);
+
+  return fd_stake_weight_msg_sz( epoch_stakes->vote_stakes_len );
 }
 
 static void
