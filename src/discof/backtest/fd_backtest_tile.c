@@ -284,8 +284,8 @@ returnable_frag( fd_backt_tile_t *   ctx,
         double replay_time_s = (double)ctx->replay_time * 1e-9;
         double publish_time_s = (double)ctx->publish_time * 1e-9;
         double sec_per_slot  = replay_time_s / (double)ctx->slot_cnt;
-        FD_LOG_NOTICE(( "replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
-        FD_LOG_ERR(( "Backtest playback done." ));
+        FD_LOG_NOTICE(( "Backtest playback done. replay completed - slots: %lu, published: %6.6f s, elapsed: %6.6f s, sec/slot: %6.6f", ctx->slot_cnt, publish_time_s, replay_time_s, sec_per_slot ));
+        exit(0);
       }
 
       fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
