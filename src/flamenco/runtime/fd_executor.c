@@ -1529,28 +1529,16 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ];
-  for ( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
-    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( fd_spad_alloc( txn_ctx->spad, alignof(fd_sha512_t), sizeof(fd_sha512_t) ) ) );
-    if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
-    shas[i] = sha;
-  }
+fd_executor_txn_verify( fd_txn_p_t *  txn_p,
+                        fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] ) {
+  fd_txn_t * txn = TXN( txn_p );
 
-  fd_txn_t const * txn = TXN( &txn_ctx->txn );
+  uchar * signatures = txn_p->payload + txn->signature_off;
+  uchar * pubkeys    = txn_p->payload + txn->acct_addr_off;
+  uchar * msg        = txn_p->payload + txn->message_off;
+  ulong   msg_sz     = txn_p->payload_sz - txn->message_off;
 
-  uchar  signature_cnt = txn->signature_cnt;
-  ushort signature_off = txn->signature_off;
-  ushort acct_addr_off = txn->acct_addr_off;
-  ushort message_off   = txn->message_off;
-
-  uchar const * signatures = (uchar *)txn_ctx->txn.payload + signature_off;
-  uchar const * pubkeys = (uchar *)txn_ctx->txn.payload + acct_addr_off;
-  uchar const * msg = (uchar *)txn_ctx->txn.payload + message_off;
-  ulong msg_sz = (ulong)txn_ctx->txn.payload_sz - message_off;
-
-  /* Verify signatures */
-  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, signature_cnt );
+  int res = fd_ed25519_verify_batch_single_msg( msg, msg_sz, signatures, pubkeys, shas, txn->signature_cnt );
   if( FD_UNLIKELY( res != FD_ED25519_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }

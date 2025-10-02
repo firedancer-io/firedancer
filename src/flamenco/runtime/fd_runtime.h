@@ -462,8 +462,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
                                     fd_spad_t *         exec_spad,
-                                    fd_capture_ctx_t *  capture_ctx,
-                                    uchar               do_sigverify );
+                                    fd_capture_ctx_t *  capture_ctx );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,

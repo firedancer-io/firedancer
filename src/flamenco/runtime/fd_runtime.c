@@ -36,7 +36,6 @@
 
 #include "fd_system_ids.h"
 #include "../../disco/pack/fd_pack.h"
-#include "../../discof/replay/fd_exec.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -1214,8 +1213,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
                                     fd_spad_t *         exec_spad,
-                                    fd_capture_ctx_t *  capture_ctx,
-                                    uchar               do_sigverify ) {
+                                    fd_capture_ctx_t *  capture_ctx ) {
   FD_SPAD_FRAME_BEGIN( exec_spad ) {
   int exec_res = 0;
 
@@ -1244,14 +1242,6 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
      Note that this does not include additional keys referenced in
      address lookup tables. */
   fd_executor_setup_txn_account_keys( txn_ctx );
-
-  if( FD_LIKELY( do_sigverify ) ) {
-    exec_res = fd_executor_txn_verify( txn_ctx );
-    if( FD_UNLIKELY( exec_res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-      txn_ctx->flags = 0U;
-      return exec_res;
-    }
-  }
 
   /* Pre-execution checks */
   exec_res = fd_runtime_pre_execute_check( txn_ctx );

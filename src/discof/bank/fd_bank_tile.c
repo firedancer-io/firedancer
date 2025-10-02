@@ -161,7 +161,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
+    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
       continue;
@@ -326,7 +326,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... bank manager ?
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, 0 ); /* TODO ... */
+    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL ); /* TODO ... */
 
     transaction_err[ i ] = err;
     if( FD_UNLIKELY( err ) ) {
