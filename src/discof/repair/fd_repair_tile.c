@@ -139,8 +139,6 @@
 #define FD_ACTIVE_KEY_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<20)
-/* Max number of pending sign requests */
-#define FD_REPAIR_PENDING_SIGN_REQ_MAX (1<<10)
 
 /* static map from request type to metric array index */
 static uint metric_index[FD_REPAIR_KIND_ORPHAN + 1] = {
@@ -187,23 +185,26 @@ typedef struct fd_fec_sig fd_fec_sig_t;
 #define MAP_MEMOIZE 0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-/* Pending sign request structure for async request handling */
-#define FD_REPAIR_PENDING_SIGN_REQ_MAX (1<<10) /* TODO: should be parameterized on link depth, not fixed. its on a branch somewhere*/
+#define SIGN_PONG          (0)
+#define SIGN_INIT_REQUEST  (1)
+#define SIGN_SHRED_REQUEST (2)
 struct fd_repair_pending_sign {
-  ulong       nonce;        /* map key, unique nonce */
-  ulong       next;         /* used internally by fd_map_chain */
+  ulong       key;        /* map key, unique nonce */
   ulong       buflen;
   union {
     uchar           buf[sizeof(fd_repair_msg_t)];
     fd_repair_msg_t msg;
   };
+  uchar           type;  /* SIGN_PONG, SIGN_INIT_REQUEST, SIGN_SHRED_REQUEST */
 };
 typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 
-#define MAP_NAME    fd_signs_map
-#define MAP_KEY     nonce
-#define MAP_T       fd_repair_pending_sign_t
-#define MAP_MEMOIZE 0
+#define MAP_NAME         fd_signs_map
+#define MAP_KEY          key
+#define MAP_KEY_NULL     ULONG_MAX
+#define MAP_KEY_INVAL(k) (k==ULONG_MAX)
+#define MAP_T            fd_repair_pending_sign_t
+#define MAP_MEMOIZE      0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 struct ctx {
@@ -259,6 +260,7 @@ struct ctx {
 
   /* Pending sign requests for async operations */
   fd_repair_pending_sign_t * signs_map;
+  uint                       pending_key_next;
 
   ushort net_id;
   /* Includes Ethernet, IP, UDP headers */
@@ -324,23 +326,24 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 fd_repair_pending_sign_t *
 pending_sign_request_insert( ctx_t *                  ctx,
-                             fd_repair_msg_t const *  msg ) {
+                             fd_repair_msg_t const *  msg,
+                             uchar                    type ) {
 
   /* Check if there is any space for a new pending sign request. Should never fail as long as credit management is working. */
   if( FD_UNLIKELY( fd_signs_map_key_cnt( ctx->signs_map )==fd_signs_map_key_max( ctx->signs_map ) ) ) return NULL;
 
-  fd_repair_pending_sign_t * pending = fd_signs_map_insert( ctx->signs_map, msg->shred.nonce );
+  fd_repair_pending_sign_t * pending = fd_signs_map_insert( ctx->signs_map, ctx->pending_key_next++ );
   if( FD_UNLIKELY( !pending ) ) return NULL; // Not possible, unless the same nonce is used twice.
-  pending->nonce  = msg->shred.nonce;
   pending->msg    = *msg;
   pending->buflen = fd_repair_sz( msg );
+  pending->type   = type;
   return pending;
 }
 
 fd_repair_pending_sign_t *
 pending_sign_request_query( ctx_t * ctx,
-                            ulong   nonce ) {
-  return fd_signs_map_query( ctx->signs_map, nonce, NULL );
+                            ulong   key ) {
+  return fd_signs_map_query( ctx->signs_map, key, NULL );
 }
 
 int
@@ -368,13 +371,12 @@ repair_signer_async( ctx_t *                    ctx,
                      fd_repair_pending_sign_t * pending,
                      int                        sign_type,
                      out_ctx_t *                sign_out) {
-  ulong   nonce       = pending->nonce;
   ulong   preimage_sz = 0;
   uchar * preimage    = preimage_req( &pending->msg, &preimage_sz );
   uchar * dst         = fd_chunk_to_laddr( sign_out->mem, sign_out->chunk );
   fd_memcpy( dst, preimage, preimage_sz );
 
-  ulong sig = ((ulong)nonce << 32) | (uint)sign_type;
+  ulong sig = ((ulong)pending->key << 32) | (uint)sign_type;
   fd_stem_publish( ctx->stem, sign_out->idx, sig, sign_out->chunk, preimage_sz, 0UL, 0UL, 0UL );
   sign_out->chunk = fd_dcache_compact_next( sign_out->chunk, preimage_sz, sign_out->chunk0, sign_out->wmark );
 
@@ -406,7 +408,7 @@ send_packet( ctx_t * ctx,
 
   fd_udp_hdr_t * udp = hdr->udp;
   udp->net_dport = dst_port;
-  udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
   hdr->udp->check = 0U;
 
@@ -442,12 +444,12 @@ sign_avail_credits( ctx_t * ctx ) {
 static void
 fd_repair_send_request_async( ctx_t                 * ctx,
                               out_ctx_t             * sign_out,
-                              fd_repair_msg_t const * msg ){
+                              fd_repair_msg_t const * msg,
+                              uchar                   type ){
   /* Acquire and add a pending request from the pool */
-  fd_repair_pending_sign_t * pending = pending_sign_request_insert( ctx, msg /*, now, recipient */);
-  if( FD_UNLIKELY( !pending ) ) {
-    return;
-  }
+  fd_repair_pending_sign_t * pending = pending_sign_request_insert( ctx, msg, type );
+  if( FD_UNLIKELY( !pending ) ) return;
+
   /* Sign and prepare the message directly into the pending buffer */
   repair_signer_async( ctx, pending, FD_KEYGUARD_SIGN_TYPE_ED25519, sign_out );
 
@@ -563,17 +565,13 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
        this, we proactively send a placeholder Repair request as soon as we
        receive a peer's contact information for the first time, effectively
        prepaying the RTT cost. */
-    fd_policy_peer_t * peer = fd_policy_peer_query( ctx->policy, &contact_info->pubkey );
-    fd_repair_msg_t  * init = fd_repair_shred( ctx->protocol, &contact_info->pubkey, (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
-    ctx->metrics->sent_pkt_types[metric_index[FD_REPAIR_KIND_SHRED]]++;
-
-    ulong   preimage_sz = 0;
-    uchar * preimage    = preimage_req( init, &preimage_sz );
-    repair_signer_sync( ctx, init->shred.sig, preimage, preimage_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-
-    ulong tsorig       = fd_frag_meta_ts_comp( fd_tickcount() );
-    uint  src_ip4_addr = 0U; /* unknown */
-    send_packet( ctx, ctx->stem, 1, peer->ip4, peer->port, src_ip4_addr, (uchar *)fd_type_pun( init ), fd_repair_sz( init ), tsorig );
+    fd_repair_msg_t * init     = fd_repair_shred( ctx->protocol, &contact_info->pubkey, (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
+    out_ctx_t *       sign_out = sign_avail_credits( ctx ); // totally could be null, TODO how to handle this? we don't want to lose the peer probably
+    if( !sign_out ){
+      ctx->metrics->sign_tile_unavail++;
+      return;
+    }
+    fd_repair_send_request_async( ctx, sign_out, init, SIGN_INIT_REQUEST );
   }
 }
 
@@ -582,11 +580,11 @@ after_sign( ctx_t             * ctx,
             ulong               in_idx,
             ulong               sig,
             fd_stem_context_t * stem ) {
-  ulong nonce = sig >> 32;
-  /* Look up the pending request by nonce. Since the repair_sign links are
+  ulong pending_key = sig >> 32;
+  /* Look up the pending request. Since the repair_sign links are
      reliable, the incoming sign_repair fragments represent a complete
      set of the previously sent outgoing messages. However, with
-     multiple sign tiles, the responses may not arrive in order. */
+     multiple sign tiles, the responses may arrive interleaved. */
 
   /* Find which sign tile sent this response and increment its credits */
   for( uint i = 0; i < ctx->repair_sign_cnt; i++ ) {
@@ -598,31 +596,36 @@ after_sign( ctx_t             * ctx,
     }
   }
 
-  fd_repair_pending_sign_t * pending = pending_sign_request_query( ctx, nonce );
+  fd_repair_pending_sign_t * pending = pending_sign_request_query( ctx, pending_key );
   if( FD_LIKELY( pending ) ) {
     fd_memcpy( pending->buf + 4, ctx->buffer, 64UL );
     uint  src_ip4 = 0U;
 
     fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
-    if( FD_UNLIKELY( !active ) ) { /* randomly test the below case */
+    if( FD_UNLIKELY( !active ) ) {
       FD_LOG_INFO(( "Signed a message for %s, but it is no longer in the active peer list", FD_BASE58_ENC_32_ALLOCA( &pending->msg.shred.to ) ));
       /* Happens extremely rarely, so we can just pick a new peer and
          synchronously resign it right here. */
-      fd_pubkey_t const * new_peer  = fd_policy_peer_select( ctx->policy );
-      pending->msg.shred.to         = *new_peer;
-      fd_repair_msg_t * init        = &pending->msg;
-      ulong             preimage_sz = 0;
-      uchar *           preimage    = preimage_req( init, &preimage_sz );
-      repair_signer_sync( ctx, init->shred.sig, preimage, preimage_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
-      active                        = fd_policy_peer_query( ctx->policy, new_peer );
+      fd_pubkey_t const * new_peer = fd_policy_peer_select( ctx->policy );
+      pending->msg.shred.to        = *new_peer;
+      out_ctx_t *         sign_out = sign_avail_credits( ctx );
+      FD_TEST( sign_out );
+      if( !sign_out ){
+        ctx->metrics->sign_tile_unavail++;
+        return;
+      }
+      fd_repair_send_request_async( ctx, sign_out, &pending->msg, SIGN_SHRED_REQUEST );
+      return;
     }
-    fd_inflights_request_insert( ctx->inflight, pending->nonce,  &pending->msg.shred.to );
-    fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
+    if( FD_LIKELY( pending->type == SIGN_SHRED_REQUEST ) ) {
+      fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to );
+      fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
+    }
     send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
-    pending_sign_request_remove( ctx, nonce );
+    pending_sign_request_remove( ctx, pending_key );
   } else {
-    FD_LOG_CRIT(( "No pending request found for nonce %lu", nonce ));
+    FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
   }
 }
 
@@ -906,7 +909,7 @@ after_credit( ctx_t *             ctx,
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot );
   if( FD_UNLIKELY( !cout ) ) return;
 
-  fd_repair_send_request_async( ctx, sign_out, cout );
+  fd_repair_send_request_async( ctx, sign_out, cout, SIGN_SHRED_REQUEST );
 
 }
 
@@ -1109,6 +1112,7 @@ unprivileged_init( fd_topo_t *      topo,
                                                                FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY ) ) );
 
   ctx->tsdebug = fd_log_wallclock();
+  ctx->pending_key_next = 0;
 }
 
 static ulong
