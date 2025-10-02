@@ -287,8 +287,10 @@ fd_tls_send_cert_verify( fd_tls_t const *       this,
   return 0L;
 }
 
-static long fd_tls_server_hs_start        ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
-static long fd_tls_server_hs_wait_finished( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
+static long fd_tls_server_hs_start           ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
+static long fd_tls_server_hs_wait_cert       ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
+static long fd_tls_server_hs_wait_cert_verify( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
+static long fd_tls_server_hs_wait_finished   ( fd_tls_t const *, fd_tls_estate_srv_t *, uchar const *, ulong, uint );
 
 long
 fd_tls_server_handshake( fd_tls_t const *      server,
@@ -298,9 +300,13 @@ fd_tls_server_handshake( fd_tls_t const *      server,
                          uint                  encryption_level ) {
   switch( handshake->base.state ) {
   case FD_TLS_HS_START:
-    return fd_tls_server_hs_start        ( server, handshake, msg, msg_sz, encryption_level );
+    return fd_tls_server_hs_start           ( server, handshake, msg, msg_sz, encryption_level );
+  case FD_TLS_HS_WAIT_CERT:
+    return fd_tls_server_hs_wait_cert       ( server, handshake, msg, msg_sz, encryption_level );
+  case FD_TLS_HS_WAIT_CV:
+    return fd_tls_server_hs_wait_cert_verify( server, handshake, msg, msg_sz, encryption_level );
   case FD_TLS_HS_WAIT_FINISHED:
-    return fd_tls_server_hs_wait_finished( server, handshake, msg, msg_sz, encryption_level );
+    return fd_tls_server_hs_wait_finished   ( server, handshake, msg, msg_sz, encryption_level );
   default:
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_ILLEGAL_STATE );
   }
@@ -697,6 +703,55 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   fd_sha256_append( &transcript, msg_buf, server_ee_sz );
 
+  /* Send Client Certificate Request **********************************/
+  if( handshake->client_cert ) {
+
+    ulong cr_sz;
+
+    do {
+      uchar *       wire     = msg_buf;
+      uchar * const wire_end = msg_buf + MSG_BUFSZ;
+
+      /* Leave space for message header */
+
+      void * hdr_ptr = wire;
+      wire += sizeof(fd_tls_msg_hdr_t);
+      fd_tls_msg_hdr_t hdr = { .type = FD_TLS_MSG_CERT_REQUEST };
+
+      /* Construct certificate request */
+      fd_tls_cert_request_t cr = {
+        .certificate_request_context = {
+          .buf   = (uchar *)"", /* forces this opaque to be included */
+          .bufsz = 0,
+        },
+        .signature_algorithms = { .ed25519 = 1 },
+      };
+
+      /* Encode certificate request */
+
+      long encode_res = fd_tls_encode_cert_request( &cr, wire, (ulong)(wire_end-wire) );
+      if( FD_UNLIKELY( encode_res<0L ) )
+        return fd_tls_alert( &handshake->base, (uint)(-encode_res), FD_TLS_REASON_CERT_CR_ENCODE );
+      wire += (ulong)encode_res;
+
+      hdr.sz = fd_uint_to_tls_u24( (uint)encode_res );
+      fd_tls_encode_msg_hdr( &hdr, hdr_ptr, sizeof(fd_tls_msg_hdr_t) );
+      cr_sz = (ulong)(wire - msg_buf);
+    } while(0);
+
+    /* Send certificate request */
+
+    if( FD_UNLIKELY( !server->sendmsg_fn(
+          handshake,
+          msg_buf, cr_sz,
+          FD_TLS_LEVEL_HANDSHAKE,
+          /* flush */ 0 ) ) )
+      return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_SENDMSG_FAIL );
+
+
+    fd_sha256_append( &transcript, msg_buf, cr_sz );
+  }
+
   /* Send Certificate *************************************************/
 
   ulong cert_msg_sz;
@@ -810,9 +865,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   fd_tls_transcript_store( &handshake->transcript, &transcript );
 
-  /* Done */
-
-  handshake->base.state = FD_TLS_HS_WAIT_FINISHED;
+  handshake->base.state = handshake->client_cert ? FD_TLS_HS_WAIT_CERT : FD_TLS_HS_WAIT_FINISHED;
 
 # undef MSG_BUFSZ
   return (long)read_sz;
@@ -846,7 +899,7 @@ fd_tls_handle_cert_chain( fd_tls_estate_base_t * const base,
 
 static long
 fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
-                           fd_sha256_t const *    transcript,
+                           fd_sha256_t *          transcript,
                            uchar const *          record,
                            ulong                  record_sz,
                            uchar const            pubkey[ static 32 ],
@@ -908,8 +961,99 @@ fd_tls_handle_cert_verify( fd_tls_estate_base_t * hs,
   if( FD_UNLIKELY( sig_err != FD_ED25519_SUCCESS ) )
     return fd_tls_alert( hs, FD_TLS_ALERT_DECRYPT_ERROR, FD_TLS_REASON_ED25519_FAIL );
 
+  fd_sha256_append( transcript, record, read_sz );
+
   return (long)read_sz;
 }
+
+static long
+fd_tls_server_hs_wait_cert( fd_tls_t const *      server FD_PARAM_UNUSED,
+                            fd_tls_estate_srv_t * hs,
+                            uchar const *   const record,
+                            ulong                 record_sz,
+                            uint                  encryption_level )  {
+  if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
+    return fd_tls_alert( &hs->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+
+  /* Restore state ****************************************************/
+
+  fd_sha256_t transcript;
+  fd_tls_transcript_load( &hs->transcript, &transcript );
+
+  /* Read incoming client "Certificate" message *********************/
+  ulong read_sz;
+  do {
+    uchar const *       wire     = record;
+    uchar const * const wire_end = record + record_sz;
+
+    /* Decode message header */
+
+    fd_tls_msg_hdr_t msg_hdr = {0};
+    long decode_res = fd_tls_decode_msg_hdr( &msg_hdr, wire, (ulong)(wire_end-wire) );
+    if( FD_UNLIKELY( decode_res<0L ) )
+      return fd_tls_alert( &hs->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_PARSE );
+    wire += (ulong)decode_res;
+
+    if( FD_UNLIKELY( msg_hdr.type != FD_TLS_MSG_CERT ) )
+      return fd_tls_alert( &hs->base, FD_TLS_ALERT_UNEXPECTED_MESSAGE, FD_TLS_REASON_CERT_EXPECTED );
+
+    ulong msg_sz = fd_tls_u24_to_uint( msg_hdr.sz );
+    if( FD_UNLIKELY( msg_sz > (ulong)(wire_end-wire) ) )
+      return fd_tls_alert( &hs->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_CR_PARSE );
+
+    /* Decode Certificate */
+
+    /* TODO: confirm we should extract from cert?*/
+    decode_res = fd_tls_handle_cert_chain( &hs->base, wire, msg_sz, NULL, hs->client_pubkey, hs->client_cert_rpk );
+    if( FD_UNLIKELY( decode_res<0L ) )
+      return fd_tls_alert( &hs->base, (uint)(-decode_res), FD_TLS_REASON_CERT_PARSE );
+    wire += (ulong)decode_res;
+
+    read_sz = (ulong)(wire - record);
+  } while(0);
+
+  fd_sha256_append( &transcript, record, read_sz );
+
+  fd_tls_transcript_store( &hs->transcript, &transcript );
+
+  /* We're using client auth, set next state to wait for key info */
+  hs->base.state = FD_TLS_HS_WAIT_CV;
+
+  return 0L;
+}
+
+
+static long
+fd_tls_server_hs_wait_cert_verify( fd_tls_t const *      const  server,
+                                   fd_tls_estate_srv_t * const  handshake,
+                                   uchar const *         const record,
+                                   ulong                 const record_sz,
+                                   uint                  const encryption_level ) {
+
+  (void)server;
+
+  if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
+    return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
+
+  /* Restore state ****************************************************/
+
+  fd_sha256_t transcript;
+  fd_tls_transcript_load( &handshake->transcript, &transcript );
+
+  /* Decode incoming client CertificateVerify *************************/
+
+  long res = fd_tls_handle_cert_verify( &handshake->base, &transcript, record, record_sz, handshake->client_pubkey, 1 );
+  if( FD_UNLIKELY( res<0L ) ) return res;
+  /* already recorded in transcript */
+
+  /* Finish up ********************************************************/
+
+  fd_tls_transcript_store( &handshake->transcript, &transcript );
+
+  handshake->base.state = FD_TLS_HS_WAIT_FINISHED;
+  return res;
+}
+
 
 static long
 fd_tls_server_hs_wait_finished( fd_tls_t const *      server,
@@ -1409,7 +1553,7 @@ fd_tls_client_hs_wait_cert_cr( fd_tls_t const *      const client,
       return fd_tls_alert( &handshake->base, FD_TLS_ALERT_DECODE_ERROR, FD_TLS_REASON_CERT_CR_PARSE );
 
     switch( msg_hdr.type ) {
-    case FD_TLS_MSG_CERT_REQ:
+    case FD_TLS_MSG_CERT_REQUEST:
       decode_res = fd_tls_client_handle_cert_req ( handshake, wire, msg_sz );
       next_state = FD_TLS_HS_WAIT_CERT;
       break;
@@ -1504,8 +1648,7 @@ fd_tls_client_hs_wait_cert_verify( fd_tls_t const *      const client,
 
   long res = fd_tls_handle_cert_verify( &hs->base, &hs->transcript, record, record_sz, hs->server_pubkey, 0 );
   if( FD_UNLIKELY( res<0L ) ) return res;
-
-  fd_sha256_append( &hs->transcript, record, (ulong)res );
+  /* already recorded in transcript */
 
   /* Finish up ********************************************************/
 

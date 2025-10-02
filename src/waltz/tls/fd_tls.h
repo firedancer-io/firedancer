@@ -332,6 +332,7 @@ typedef struct fd_tls fd_tls_t;
 
 #define FD_TLS_REASON_CERT_CR_EXPECTED (501)  /* wanted Certificate or CertificateRequest, got another msg type */
 #define FD_TLS_REASON_CERT_CR_PARSE    (503)  /* failed to parse Certificate or CertificateRequest */
+#define FD_TLS_REASON_CERT_CR_ENCODE   (504)  /* failed to encode Certificate or CertificateRequest */
 
 #define FD_TLS_REASON_CERT_TYPE      (601)  /* unsupported certificate type */
 #define FD_TLS_REASON_CERT_EXPECTED  (602)  /* wanted Certificate, got another msg type */

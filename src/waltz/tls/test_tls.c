@@ -214,6 +214,7 @@ test_tls_pair( fd_rng_t * rng ) {
 
   fd_tls_estate_srv_t srv_hs[1]; FD_TEST( fd_tls_estate_srv_new( srv_hs ) );
   test_server_hs = srv_hs;
+  srv_hs->client_cert = 1;
 
   fd_tls_estate_cli_t cli_hs[1];
   FD_TEST( fd_tls_estate_cli_new( cli_hs ) );
@@ -223,7 +224,7 @@ test_tls_pair( fd_rng_t * rng ) {
 
   /* ClientHello */
   fd_tls_client_handshake( client, cli_hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL );
-  /* ServerHello, EncryptedExtensions, Certificate, CertificateVerify, Finished */
+  /* ServerHello, EncryptedExtensions, CertificateRequest, Certificate, CertificateVerify, Finished */
   test_tls_server_respond( server, srv_hs );
   /* Finished */
   test_tls_client_respond( client, cli_hs );
@@ -233,6 +234,9 @@ test_tls_pair( fd_rng_t * rng ) {
   /* Check if connected */
   FD_TEST( srv_hs->base.state==FD_TLS_HS_CONNECTED );
   FD_TEST( cli_hs->base.state==FD_TLS_HS_CONNECTED );
+
+  FD_TEST( 0==memcmp( cli_hs->server_pubkey, server->cert_public_key, 32UL ) );
+  FD_TEST( 0==memcmp( srv_hs->client_pubkey, client->cert_public_key, 32UL ) ); /* requires srv_hs->client_cert*/
 
   test_server_hs = NULL;
   fd_tls_estate_srv_delete( srv_hs );

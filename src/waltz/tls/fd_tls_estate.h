@@ -107,13 +107,19 @@ FD_PROTOTYPES_END
    TLS handshake state machine.  It is first instantiated when the
    client sent its ClientHello, the first message of a TLS handshake.
 
-   Currently, only one external state exists:
+   Currently, there are three external states:
 
-     FD_TLS_HS_WAIT_FINISHED:  Processed ClientHello.
+    FD_TLS_HS_WAIT_CERT:  Processed ClientHello.
+      The server has responded with all messages up to and including
+      Finished, and is now waiting for the client to respond with a
+      Certificate.
 
-       At this point, the server has responded with all messages up to
-       server Finished and is waiting for the client to respond with
-       client Finished (and optionally, a certificate).
+    FD_TLS_HS_WAIT_CV:  Processed Certificate.
+      The server is now waiting for the client's CertificateVerify.
+
+    FD_TLS_HS_WAIT_FINISHED:
+       The server is waiting for the client's Finished. Client auth,
+       if requested by the server, is complete.
 
    State data contains:
 
