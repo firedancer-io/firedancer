@@ -414,6 +414,7 @@ fd_snp_finalize_udp_and_invoke_tx_cb(
   fd_ip4_hdr_t * ip4 = hdr->ip4;
   ip4->daddr  = dst_ip;
   ip4->net_id = fd_ushort_bswap( snp->apps[ snp_app_id ].net_id++ );
+  ip4->net_tot_len  = fd_ushort_bswap( (ushort)(packet_sz - sizeof(fd_eth_hdr_t)) );
   ip4->check  = fd_ip4_hdr_check_fast( ip4 );
   hdr->udp->net_dport  = fd_ushort_bswap( dst_port );
   hdr->udp->net_len    = fd_ushort_bswap( (ushort)( packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t) ) );
@@ -513,6 +514,7 @@ fd_snp_finalize_multicast_and_invoke_tx_cb(
   memcpy( hdr, snp->apps[ snp_app_id ].multicast_net_hdr, sizeof(fd_ip4_udp_hdrs_t) );
   fd_ip4_hdr_t * ip4 = hdr->ip4;
   ip4->net_id       = fd_ushort_bswap( snp->apps[ snp_app_id ].net_id++ );
+  ip4->net_tot_len  = fd_ushort_bswap( (ushort)(packet_sz - sizeof(fd_eth_hdr_t)) );
   ip4->check        = fd_ip4_hdr_check_fast( ip4 );
   hdr->udp->net_len = fd_ushort_bswap( (ushort)( packet_sz - sizeof(fd_ip4_udp_hdrs_t) + sizeof(fd_udp_hdr_t) ) );
 
