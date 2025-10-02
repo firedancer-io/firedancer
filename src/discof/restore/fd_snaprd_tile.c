@@ -114,17 +114,9 @@ struct fd_snaprd_tile {
   } local_out;
 
   uchar in_kind[ MAX_IN_LINKS ];
-  struct {
-    struct {
-      ulong slot;
-    } full;
-
-    struct {
-      ulong slot;
-    } incremental;
-  } http;
 
   struct {
+    ulong full_slot;
     ulong slot;
     int   dirty;
   } predicted_incremental;
@@ -313,9 +305,9 @@ snapshot_path_gui_publish( fd_snaprd_tile_t *  ctx,
 static void
 predict_incremental( fd_snaprd_tile_t * ctx ) {
   if( FD_UNLIKELY( !ctx->config.incremental_snapshot_fetch ) ) return;
-  if( FD_UNLIKELY( ctx->http.full.slot==ULONG_MAX ) )          return;
+  if( FD_UNLIKELY( ctx->predicted_incremental.full_slot==ULONG_MAX ) ) return;
 
-  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->http.full.slot );
+  fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
 
   if( FD_LIKELY( best.addr.l ) ) {
     if( FD_UNLIKELY( ctx->predicted_incremental.slot!=best.ssinfo.incremental.slot ) ) {
@@ -588,11 +580,11 @@ rename_snapshots( fd_snaprd_tile_t * ctx ) {
   char const * incremental_snapshot_name;
   fd_sshttp_snapshot_names( ctx->sshttp, &full_snapshot_name, &incremental_snapshot_name );
 
-  if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) ) {
+  if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd && full_snapshot_name[ 0 ]!='\0' ) ) {
     if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", ctx->local_out.dir_fd, full_snapshot_name ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) {
+  if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd && incremental_snapshot_name[ 0 ]!='\0' ) ) {
     if( FD_UNLIKELY( -1==renameat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", ctx->local_out.dir_fd, incremental_snapshot_name ) ) )
       FD_LOG_ERR(( "renameat() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -735,15 +727,29 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      fd_ssinfo_t cluster      = fd_sspeer_selector_cluster_slot( ctx->selector );
-      ulong       cluster_slot = ctx->config.incremental_snapshot_fetch ? cluster.incremental.slot : cluster.full.slot;
-      ulong       local_slot   = ctx->config.incremental_snapshot_fetch ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
-      if( FD_LIKELY( local_slot!=ULONG_MAX && local_slot>=fd_ulong_sat_sub( cluster_slot, ctx->config.maximum_local_snapshot_age ) ) ) {
+      fd_ssinfo_t cluster         = fd_sspeer_selector_cluster_slot( ctx->selector );
+      ulong       cluster_slot    = ctx->config.incremental_snapshot_fetch ? cluster.incremental.slot : cluster.full.slot;
+      ulong       local_slot      = ctx->config.incremental_snapshot_fetch ? ctx->local_in.incremental_snapshot_slot : ctx->local_in.full_snapshot_slot;
+      ulong       local_slot_with_download = local_slot;
+      int         local_too_old   = local_slot!=ULONG_MAX && cluster_slot!=0UL && local_slot<fd_ulong_sat_sub( cluster_slot, ctx->config.maximum_local_snapshot_age );
+      int         local_full_only = ctx->local_in.incremental_snapshot_slot==ULONG_MAX && ctx->local_in.full_snapshot_slot!=ULONG_MAX;
+      if( FD_LIKELY( (ctx->config.incremental_snapshot_fetch && local_full_only) || local_too_old ) ) {
+        fd_sspeer_t best_incremental = fd_sspeer_selector_best( ctx->selector, 1, ctx->local_in.full_snapshot_slot );
+        if( FD_LIKELY( best_incremental.addr.l ) ) {
+          ctx->predicted_incremental.slot = best_incremental.ssinfo.incremental.slot;
+          local_slot_with_download = best_incremental.ssinfo.incremental.slot;
+          ctx->local_in.incremental_snapshot_slot = ULONG_MAX; /* don't use the local incremental snapshot */
+        }
+      }
+
+      int can_use_local_full = local_slot_with_download!=ULONG_MAX && local_slot_with_download>=fd_ulong_sat_sub( cluster_slot, ctx->config.maximum_local_snapshot_age );
+      if( FD_LIKELY( can_use_local_full ) ) {
         send_expected_slot( stem, local_slot );
 
         FD_LOG_NOTICE(( "reading full snapshot from local file `%s`", ctx->local_in.full_snapshot_path ));
-        ctx->metrics.full.bytes_total = ctx->local_in.full_snapshot_size;
-        ctx->state                    = FD_SNAPRD_STATE_READING_FULL_FILE;
+        ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
+        ctx->metrics.full.bytes_total        = ctx->local_in.full_snapshot_size;
+        ctx->state                           = FD_SNAPRD_STATE_READING_FULL_FILE;
       } else {
         if( FD_UNLIKELY( !ctx->config.incremental_snapshot_fetch ) ) send_expected_slot( stem, best.ssinfo.full.slot );
 
@@ -754,9 +760,9 @@ after_credit( fd_snaprd_tile_t *  ctx,
         }
 
         FD_LOG_NOTICE(( "downloading full snapshot from http://" FD_IP4_ADDR_FMT ":%hu/snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), best.addr.port ));
-        ctx->addr           = best.addr;
-        ctx->state          = FD_SNAPRD_STATE_READING_FULL_HTTP;
-        ctx->http.full.slot = best.ssinfo.full.slot;
+        ctx->addr                            = best.addr;
+        ctx->state                           = FD_SNAPRD_STATE_READING_FULL_HTTP;
+        ctx->predicted_incremental.full_slot = best.ssinfo.full.slot;
         fd_sshttp_init( ctx->sshttp, best.addr, "/snapshot.tar.bz2", 17UL, now );
       }
       break;
@@ -764,7 +770,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
     case FD_SNAPRD_STATE_COLLECTING_PEERS_INCREMENTAL: {
       if( FD_UNLIKELY( now<ctx->deadline_nanos ) ) break;
 
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->http.full.slot );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         ctx->state = FD_SNAPRD_STATE_WAITING_FOR_PEERS_INCREMENTAL;
         break;
@@ -773,8 +779,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       ctx->addr = best.addr;
       FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( best.addr.addr ), best.addr.port ));
       fd_sshttp_init( ctx->sshttp, best.addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
-      ctx->state                 = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
-      ctx->http.incremental.slot = best.ssinfo.incremental.slot;
+      ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
     }
     case FD_SNAPRD_STATE_READING_FULL_FILE:
@@ -830,9 +835,14 @@ after_credit( fd_snaprd_tile_t *  ctx,
         break;
       }
 
-      FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
-      ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
-      ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
+      if( FD_LIKELY( ctx->local_in.incremental_snapshot_slot==ULONG_MAX ) ) {
+        ctx->state = FD_SNAPRD_STATE_COLLECTING_PEERS_INCREMENTAL;
+        ctx->deadline_nanos = 0L;
+      } else {
+        FD_LOG_NOTICE(( "reading incremental snapshot from local file `%s`", ctx->local_in.incremental_snapshot_path ));
+        ctx->metrics.incremental.bytes_total = ctx->local_in.incremental_snapshot_size;
+        ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_FILE;
+      }
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:
       if( FD_UNLIKELY( ctx->ack_cnt<NUM_SNAP_CONSUMERS ) ) break;
@@ -856,7 +866,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       }
 
       /* Get the best incremental peer to download from */
-      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->http.full.slot );
+      fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 1, ctx->predicted_incremental.full_slot );
       if( FD_UNLIKELY( !best.addr.l ) ) {
         fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_RESET_FULL, 0UL, 0UL, 0UL, 0UL, 0UL );
         ctx->state = FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET;
@@ -871,8 +881,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       ctx->addr = best.addr;
       FD_LOG_NOTICE(( "downloading incremental snapshot from http://" FD_IP4_ADDR_FMT ":%hu/incremental-snapshot.tar.bz2", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), ctx->addr.port ));
       fd_sshttp_init( ctx->sshttp, ctx->addr, "/incremental-snapshot.tar.bz2", 29UL, fd_log_wallclock() );
-      ctx->state                 = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
-      ctx->http.incremental.slot = best.ssinfo.incremental.slot;
+      ctx->state = FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP;
       break;
     case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:
     case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:
@@ -1139,10 +1148,6 @@ privileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !S_ISREG( full_stat.st_mode ) ) ) FD_LOG_ERR(( "full snapshot path `%s` is not a regular file", full_path ));
     ctx->local_in.full_snapshot_size = (ulong)full_stat.st_size;
 
-    /* TODO: make it possible to download the incremental if it is too
-       old or does not exist. */
-    if( FD_LIKELY( tile->snaprd.incremental_snapshot_fetch ) ) FD_TEST( incremental_slot!=ULONG_MAX );
-
     if( FD_LIKELY( incremental_slot!=ULONG_MAX ) ) {
       strncpy( ctx->local_in.incremental_snapshot_path, incremental_path, PATH_MAX );
       ctx->local_in.incremental_snapshot_fd = open( ctx->local_in.incremental_snapshot_path, O_RDONLY|O_CLOEXEC|O_NONBLOCK );
@@ -1299,11 +1304,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_http_resolver_add( ctx->ssresolver, tile->snaprd.http.peers[ i ] );
   }
 
-  ctx->http.full.slot        = ULONG_MAX;
-  ctx->http.incremental.slot = ULONG_MAX;
-
-  ctx->predicted_incremental.slot  = ULONG_MAX;
-  ctx->predicted_incremental.dirty = 0;
+  ctx->predicted_incremental.full_slot = ULONG_MAX;
+  ctx->predicted_incremental.slot      = ULONG_MAX;
+  ctx->predicted_incremental.dirty     = 0;
 
   ctx->gossip.entrypoints_received = 0UL;
   ctx->gossip.saturated            = 0;
