@@ -145,7 +145,7 @@ send_test_topo( config_t * config ) {
   }
 
   /* Finish topology setup */
-  if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0 );
+  if( FD_UNLIKELY( !strcmp( config->layout.affinity, "auto" ) ) ) fd_topob_auto_layout( topo, 0, 1 );
   fd_topob_finish( topo, CALLBACKS );
 }
 

@@ -132,7 +132,8 @@ fd_topob_tile_out( fd_topo_t *  topo,
 
 void
 fd_topob_auto_layout( fd_topo_t * topo,
-                      int         reserve_agave_cores );
+                      int         reserve_agave_cores,
+                      int         is_firedancer );
 
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
