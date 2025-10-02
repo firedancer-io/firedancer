@@ -31,10 +31,10 @@ main( int argc, char ** argv ) {
   uchar * new_tx_account = fd_txn_account_new( tx_acc_mem, &pubkey, meta, 0 );
   FD_TEST( new_tx_account );
 
-  FD_TEST( !fd_txn_account_join( NULL, wksp ) );
-  FD_TEST( !fd_txn_account_join( data2, wksp ) );
-  FD_TEST( !fd_txn_account_join( tx_acc_mem, NULL ) );
-  fd_txn_account_t * txn_account = fd_txn_account_join( tx_acc_mem, wksp );
+  FD_TEST( !fd_txn_account_join( NULL ) );
+  FD_TEST( !fd_txn_account_join( data2 ) );
+  FD_TEST( !fd_txn_account_join( tx_acc_mem ) );
+  fd_txn_account_t * txn_account = fd_txn_account_join( tx_acc_mem );
   FD_TEST( txn_account );
 
   /* TODO: These tests do not enforce that the account is read-only
@@ -54,18 +54,18 @@ main( int argc, char ** argv ) {
 
   FD_TEST( fd_txn_account_leave( txn_account ) );
 
-  FD_TEST( fd_txn_account_join( fd_txn_account_leave( txn_account ), wksp ) );
+  FD_TEST( fd_txn_account_join( fd_txn_account_leave( txn_account ) ) );
   FD_TEST( !fd_txn_account_leave( NULL ) );
 
   uchar * deleted_tx_account = fd_txn_account_delete( fd_txn_account_leave( txn_account ) );
   FD_TEST( deleted_tx_account );
-  FD_TEST( !fd_txn_account_join( deleted_tx_account, wksp ) );
+  FD_TEST( !fd_txn_account_join( deleted_tx_account ) );
   FD_TEST( !fd_txn_account_delete( NULL ) );
 
   /* Repeat similar tests with a mutable account */
 
   meta->dlen = 101UL;
-  txn_account = fd_txn_account_join( fd_txn_account_new( tx_acc_mem, &pubkey, meta, 1 ), wksp );
+  txn_account = fd_txn_account_join( fd_txn_account_new( tx_acc_mem, &pubkey, meta, 1 ) );
   FD_TEST( txn_account );
 
   FD_TEST( fd_txn_account_is_mutable( txn_account ) );

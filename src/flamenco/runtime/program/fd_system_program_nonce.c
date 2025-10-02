@@ -1034,7 +1034,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
               txn_ctx->rollback_nonce_account,
               &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
               (fd_account_meta_t *)borrowed_account_data,
-              1 ), txn_ctx->spad_wksp ) ) ) {
+              1 ) ) ) ) {
           FD_LOG_CRIT(( "Failed to join txn account" ));
         }
 

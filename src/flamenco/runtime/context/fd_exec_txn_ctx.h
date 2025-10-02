@@ -10,6 +10,7 @@
 #include "../../../funk/fd_funk.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
+#include "../fd_runtime_const.h"
 
 /* Return data for syscalls */
 
@@ -20,6 +21,12 @@ struct fd_txn_return_data {
 };
 
 typedef struct fd_txn_return_data fd_txn_return_data_t;
+
+/* TODO:FIXME: magic number for alignment*/
+struct __attribute__((aligned(8UL))) fd_writable_acc_buf {
+  uchar mem[ FD_RUNTIME_ACC_SZ_MAX ];
+};
+typedef struct fd_writable_acc_buf fd_writable_acc_buf_t;
 
 /* fd_exec_txn_ctx_t is the context needed to execute a transaction. */
 
@@ -62,6 +69,8 @@ struct fd_exec_txn_ctx {
 
   fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
   fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
+
+  fd_writable_acc_buf_t *              writable_accounts_arr;
 
   fd_compute_budget_details_t          compute_budget_details;                      /* Compute budget details */
 

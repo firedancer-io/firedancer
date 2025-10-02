@@ -46,6 +46,8 @@ typedef struct {
   fd_banks_t * banks;
   fd_spad_t *  exec_spad;
 
+  fd_writable_acc_buf_t writable_acc_arr[ FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION ];
+
   fd_exec_txn_ctx_t txn_ctx[1];
 
   struct {
@@ -62,11 +64,11 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,          FD_BLAKE3_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,   FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,            FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),      fd_txncache_footprint( tile->bank.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_bank_ctx_t), sizeof(fd_bank_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),    fd_txncache_footprint( tile->bank.max_live_slots ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -161,7 +163,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
+    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, ctx->writable_acc_arr, NULL, 0 );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
       continue;
@@ -304,6 +306,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               sz,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
+
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 
@@ -326,7 +329,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... bank manager ?
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, 0 ); /* TODO ... */
+    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, NULL, 0 ); /* TODO ... */
 
     transaction_err[ i ] = err;
     if( FD_UNLIKELY( err ) ) {
@@ -493,11 +496,11 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
-  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0)      );
-  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),    fd_txncache_footprint( tile->bank.max_live_slots ) );
+  fd_bank_ctx_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
+  void * blake3           = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
+  void * bmtree           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0)      );
+  void * exec_spad        = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),    fd_txncache_footprint( tile->bank.max_live_slots ) );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \

@@ -58,10 +58,15 @@ typedef struct fd_exec_tile_ctx {
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
-     fd_funk_t.
-     TODO: These should probably be made read-only handles. */
+     fd_funk_t. */
   fd_banks_t *          banks;
   fd_funk_t             funk[ 1 ];
+
+  /* An array for writable accounts.  This is a staging buffer for
+     transactions.  The buffer is sized to be large enough to hold all
+     writable accounts for a transaction with 10MiB for each account
+     and up to 64 writable accounts. */
+  fd_writable_acc_buf_t writable_accounts_arr[ FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION ];
 
   fd_txncache_t *       txncache;
 
@@ -121,6 +126,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
           ctx->txn_ctx,
           &txn->txn,
           ctx->exec_spad,
+          ctx->writable_accounts_arr,
           ctx->capture_ctx,
           1 );
     } else {

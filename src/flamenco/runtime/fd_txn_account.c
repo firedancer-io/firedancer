@@ -30,26 +30,11 @@ fd_txn_account_new( void *              mem,
 
   fd_memcpy( txn_account->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
-  fd_wksp_t * wksp = fd_wksp_containing( meta );
-
   txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
-
   txn_account->starting_dlen     = meta->dlen;
   txn_account->starting_lamports = meta->lamports;
 
   uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
-
-  txn_account->meta_gaddr = fd_wksp_gaddr( wksp, meta );
-  if( FD_UNLIKELY( !txn_account->meta_gaddr ) ) {
-    FD_LOG_WARNING(( "meta_gaddr is 0" ));
-    return NULL;
-  }
-
-  txn_account->data_gaddr = fd_wksp_gaddr( wksp, data );
-  if( FD_UNLIKELY( !txn_account->data_gaddr ) ) {
-    FD_LOG_WARNING(( "data_gaddr is 0" ));
-    return NULL;
-  }
 
   txn_account->meta       = meta;
   txn_account->data       = data;
@@ -59,7 +44,7 @@ fd_txn_account_new( void *              mem,
 }
 
 fd_txn_account_t *
-fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
+fd_txn_account_join( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -70,32 +55,10 @@ fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !data_wksp ) ) {
-    FD_LOG_WARNING(( "NULL data_wksp" ));
-    return NULL;
-  }
-
   fd_txn_account_t * txn_account = (fd_txn_account_t *)mem;
 
   if( FD_UNLIKELY( txn_account->magic != FD_TXN_ACCOUNT_MAGIC ) ) {
     FD_LOG_WARNING(( "wrong magic" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( txn_account->meta_gaddr==0UL ) ) {
-    FD_LOG_WARNING(( "`meta gaddr is 0" ));
-    return NULL;
-  }
-
-  txn_account->meta = fd_wksp_laddr( data_wksp, txn_account->meta_gaddr );
-  if( FD_UNLIKELY( !txn_account->meta ) ) {
-    FD_LOG_WARNING(( "meta is NULL" ));
-    return NULL;
-  }
-
-  txn_account->data = fd_wksp_laddr( data_wksp, txn_account->data_gaddr );
-  if( FD_UNLIKELY( !txn_account->data && txn_account->meta->dlen ) ) {
-    FD_LOG_WARNING(( "data is NULL" ));
     return NULL;
   }
 
@@ -170,7 +133,7 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        0 ), fd_funk_wksp( funk ) ) ) ) {
+        0 ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
@@ -210,7 +173,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        1 ), fd_funk_wksp( funk ) ) ) ) {
+        1 ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 

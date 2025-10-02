@@ -956,7 +956,7 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
           txn_ctx->rollback_fee_payer_account,
           fee_payer_key,
           (fd_account_meta_t *)fee_payer_data,
-          1 ), txn_ctx->spad_wksp ) ) ) {
+          1 ) ) ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
 
@@ -1420,7 +1420,6 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
 
   int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
-  fd_wksp_t *         data_wksp    = NULL;
 
   if( is_writable ) {
     /* If the account is writable or a fee payer, then we need to create
@@ -1428,7 +1427,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
 
-    uchar * new_raw_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+    uchar * new_raw_data = txn_ctx->writable_accounts_arr[idx].mem;
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
 
     if( FD_LIKELY( meta ) ) {
@@ -1440,7 +1439,6 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     account_meta = (fd_account_meta_t *)new_raw_data;
-    data_wksp    = txn_ctx->spad_wksp;
 
   } else {
     /* If the account is not writable, then we can simply initialize
@@ -1450,11 +1448,9 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
 
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
       account_meta = (fd_account_meta_t *)meta;
-      data_wksp    = fd_funk_wksp( txn_ctx->funk );
     } else {
       uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
       account_meta = (fd_account_meta_t *)mem;
-      data_wksp    = txn_ctx->spad_wksp;
       fd_account_meta_init( account_meta );
     }
   }
@@ -1463,7 +1459,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
       txn_account,
       acc,
       account_meta,
-      is_writable ), data_wksp ) ) ) {
+      is_writable ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
