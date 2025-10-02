@@ -345,9 +345,9 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t * loader,
      entrypoint. */
   if( FD_LIKELY( !is_entrypoint ) ) {
     fd_sbpf_calldests_insert( loader->calldests, target_pc );
-    if( opt_out_pc_hash ) *opt_out_pc_hash = pc_hash;
   }
 
+  if( opt_out_pc_hash ) *opt_out_pc_hash = pc_hash;
   return FD_SBPF_ELF_SUCCESS;
 }
 
