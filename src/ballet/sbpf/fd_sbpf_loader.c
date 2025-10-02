@@ -1096,10 +1096,13 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       dynamic_table_start = dyn_ph.p_offset;
       dynamic_table_end = dyn_ph.p_offset + dyn_ph.p_filesz;
 
-      /* slice_from_program_header also checks that the size of the slice is a multiple of the type size */
-      if( FD_UNLIKELY( ( dynamic_table_end < dynamic_table_start )
-                    |  ( dynamic_table_end > bin_sz )
-                    |  ( dyn_ph.p_filesz % sizeof(fd_elf64_dyn) != 0UL ) ) ) {
+      /* slice_from_program_header also checks that the size of the
+         slice is a multiple of the type size and that the alignment is
+         correct. */
+      if( FD_UNLIKELY( dynamic_table_end<dynamic_table_start ||
+                       dynamic_table_end>bin_sz ||
+                       dyn_ph.p_filesz%sizeof(fd_elf64_dyn)!=0UL ||
+                       ((ulong)bin+dynamic_table_start)%8UL!=0UL ) ) {
         /* skip - try SHT_DYNAMIC instead */
         dynamic_table_start = ULONG_MAX;
         dynamic_table_end = ULONG_MAX;
