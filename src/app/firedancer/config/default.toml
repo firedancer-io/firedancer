@@ -1499,9 +1499,7 @@ user = ""
     # This option cannot be enabled in production.  In development, you
     # can also launch Firedancer as a single process for with the
     # `--no-clone` argument to `firedancer-dev`.
-    #
-    # TODO: No clone should not be on by default, fix sandbox.
-    no_clone = true
+    no_clone = false
 
     # As part of security sandboxing, the dumpable bit of each process
     # is cleared with prctl( PR_SET_DUMPABLE, 0 ).  This prevents other

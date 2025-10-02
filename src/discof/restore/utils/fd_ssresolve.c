@@ -142,7 +142,7 @@ fd_ssresolve_send_request( fd_ssresolve_t * ssresolve ) {
     fd_ssresolve_render_req( ssresolve, ssresolve->addr );
   }
 
-  long sent = send( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, 0 );
+  long sent = sendto( ssresolve->sockfd, ssresolve->request+ssresolve->request_sent, ssresolve->request_len-ssresolve->request_sent, 0, NULL, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==sent ) ) {
     return FD_SSRESOLVE_ADVANCE_ERROR;
@@ -209,10 +209,10 @@ static int
 fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
                             fd_ssresolve_result_t * result ) {
   FD_TEST( ssresolve->state==FD_SSRESOLVE_STATE_RESP );
-  long read = recv( ssresolve->sockfd, ssresolve->response+ssresolve->response_len, sizeof(ssresolve->response)-ssresolve->response_len, 0 );
+  long read = recvfrom( ssresolve->sockfd, ssresolve->response+ssresolve->response_len, sizeof(ssresolve->response)-ssresolve->response_len, 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSRESOLVE_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
-    FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    FD_LOG_WARNING(( "recvfrom() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     return FD_SSRESOLVE_ADVANCE_ERROR;
   }
 
@@ -254,7 +254,7 @@ fd_ssresolve_read_response( fd_ssresolve_t *        ssresolve,
 }
 
 int
-fd_ssresolve_advance_poll_out( fd_ssresolve_t *        ssresolve ) {
+fd_ssresolve_advance_poll_out( fd_ssresolve_t * ssresolve ) {
   int res;
   switch( ssresolve->state ) {
     case FD_SSRESOLVE_STATE_REQ: {

@@ -1677,8 +1677,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *               slot_ctx,
     /* FIXME Why is there a previous blockhash at genesis?  Why is the
              last_hash field an option type in Agave, if even the first
              real block has a previous blockhash? */
-    ulong seed; FD_TEST( fd_rng_secure( &seed, sizeof(ulong) ) );
-    fd_blockhashes_t *    bhq  = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), seed );
+    /* TODO: Use a real seed here. */
+    fd_blockhashes_t *    bhq  = fd_blockhashes_init( fd_bank_block_hash_queue_modify( slot_ctx->bank ), 0UL );
     fd_blockhash_info_t * info = fd_blockhashes_push_new( bhq, genesis_hash );
     info->fee_calculator.lamports_per_signature = 0UL;
   }

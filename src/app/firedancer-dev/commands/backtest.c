@@ -37,6 +37,10 @@ fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 backtest_topo( config_t * config ) {
+
+  config->development.sandbox  = 0;
+  config->development.no_clone = 1;
+
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
 
   int disable_snap_loader = !config->gossip.entrypoints_cnt;
