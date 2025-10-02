@@ -24,7 +24,10 @@
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
-#include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
+#include "../../../discof/replay/fd_exec.h"
+#include "../../../ballet/lthash/fd_lthash.h"
+#include "../../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../../../disco/pack/fd_pack_cost.h"
 
 #include "../main.h"
 
@@ -219,7 +222,7 @@ backtest_topo( config_t * config ) {
      has been finalized by the exec tile. */
   /**********************************************************************/
   fd_topob_wksp( topo, "exec_replay" );
-  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_replay_txn_finalized_msg_t), 1UL );
+  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_task_done_msg_t), 1UL );
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_replay", i );
   FOR(exec_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "exec_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 

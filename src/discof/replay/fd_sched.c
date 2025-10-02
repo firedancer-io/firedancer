@@ -34,6 +34,10 @@ FD_STATIC_ASSERT( FD_TXN_MTU>=sizeof(ulong),               resize buffer for res
 
 /* Structs. */
 
+#define SET_NAME txn_bitset
+#define SET_MAX  FD_SCHED_MAX_DEPTH
+#include "../../util/tmpl/fd_set.c"
+
 struct fd_sched_block {
   ulong               slot;
   ulong               parent_slot;
@@ -44,8 +48,12 @@ struct fd_sched_block {
   /* Counters. */
   uint                txn_parsed_cnt;
   /*                  txn_queued_cnt = txn_parsed_cnt-txn_in_flight_cnt-txn_done_cnt */
-  uint                txn_in_flight_cnt;
-  uint                txn_done_cnt;
+  uint                txn_exec_in_flight_cnt;
+  uint                txn_exec_done_cnt;
+  uint                txn_sigverify_in_flight_cnt;
+  uint                txn_sigverify_done_cnt;
+  uint                txn_done_cnt; /* A transaction is considered done when all types of tasks associated with it are done. */
+  ulong               txn_idx[ FD_MAX_TXN_PER_SLOT ]; /* Indexed by parse order. */
   uint                shred_cnt;
 
   /* Parser state. */
@@ -105,12 +113,15 @@ struct fd_sched_metrics {
   uint  alut_success_cnt;
   uint  alut_serializing_cnt;
   uint  txn_abandoned_parsed_cnt;
+  uint  txn_abandoned_exec_done_cnt;
   uint  txn_abandoned_done_cnt;
   uint  txn_max_in_flight_cnt;
   ulong txn_weighted_in_flight_cnt;
   ulong txn_weighted_in_flight_tickcount;
   ulong txn_none_in_flight_tickcount;
   ulong txn_parsed_cnt;
+  ulong txn_exec_done_cnt;
+  ulong txn_sigverify_done_cnt;
   ulong txn_done_cnt;
   ulong bytes_ingested_cnt;
   ulong bytes_ingested_unparsed_cnt;
@@ -136,6 +147,8 @@ struct fd_sched {
   ulong               txn_pool_free_cnt;
   fd_txn_p_t          txn_pool[ FD_SCHED_MAX_DEPTH ];
   ulong               txn_to_bank_idx[ FD_SCHED_MAX_DEPTH ]; /* Index of the bank that the txn belongs to. */
+  txn_bitset_t        exec_done_set[ txn_bitset_word_cnt ];      /* Indexed by txn_idx. */
+  txn_bitset_t        sigverify_done_set[ txn_bitset_word_cnt ]; /* Indexed by txn_idx. */
   fd_sched_block_t *  block_pool; /* Just a flat array. */
 };
 typedef struct fd_sched fd_sched_t;
@@ -163,6 +176,9 @@ check_or_set_active_block( fd_sched_t * sched );
 static void
 subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block );
 
+static void
+maybe_switch_block_on_txn_done( fd_sched_t * sched, ulong bank_idx );
+
 FD_FN_UNUSED static ulong
 find_and_stage_longest_unstaged_fork( fd_sched_t * sched, int lane_idx );
 
@@ -187,8 +203,9 @@ block_is_void( fd_sched_block_t * block ) {
 
 static inline int
 block_should_signal_end( fd_sched_block_t * block ) {
-  ulong txn_queued_cnt = block->txn_parsed_cnt-block->txn_in_flight_cnt-block->txn_done_cnt;
-  return block->fec_eos && txn_queued_cnt==0UL && !block->block_end_signaled;
+  ulong exec_queued_cnt      = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
+  ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
+  return block->fec_eos && exec_queued_cnt==0UL && sigverify_queued_cnt==0UL && !block->block_end_signaled;
 }
 
 static inline int
@@ -230,14 +247,14 @@ block_is_activatable( fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 debug_print_block( fd_sched_block_t * block ) {
-  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, txn_parsed_cnt %u, txn_in_flight_cnt %u, txn_done_cnt %u, shred_cnt %u",
-                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->txn_parsed_cnt, block->txn_in_flight_cnt, block->txn_done_cnt, block->shred_cnt ));
+  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, txn_done_cnt %u, shred_cnt %u",
+                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->txn_done_cnt, block->shred_cnt ));
 }
 
 FD_FN_UNUSED static void
 debug_print_metrics( fd_sched_t * sched ) {
-  FD_LOG_INFO(( "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu",
-                sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt ));
+  FD_LOG_INFO(( "metrics: block_added_cnt %u, block_added_staged_cnt %u, block_added_unstaged_cnt %u, block_added_dead_ood_cnt %u, block_removed_cnt %u, block_abandoned_cnt %u, block_promoted_cnt %u, block_demoted_cnt %u, deactivate_no_child_cnt %u, deactivate_no_txn_cnt %u, deactivate_pruned_cnt %u, deactivate_abandoned_cnt %u, lane_switch_cnt %u, lane_promoted_cnt %u, lane_demoted_cnt %u, alut_success_cnt %u, alut_serializing_cnt %u, txn_abandoned_parsed_cnt %u, txn_abandoned_done_cnt %u, txn_max_in_flight_cnt %u, txn_weighted_in_flight_cnt %lu, txn_weighted_in_flight_tickcount %lu, txn_none_in_flight_tickcount %lu, txn_parsed_cnt %lu, txn_exec_done_cnt %lu, txn_sigverify_done_cnt %lu, txn_done_cnt %lu, bytes_ingested_cnt %lu, bytes_ingested_unparsed_cnt %lu, bytes_dropped_cnt %lu, fec_cnt %lu",
+                sched->metrics->block_added_cnt, sched->metrics->block_added_staged_cnt, sched->metrics->block_added_unstaged_cnt, sched->metrics->block_added_dead_ood_cnt, sched->metrics->block_removed_cnt, sched->metrics->block_abandoned_cnt, sched->metrics->block_promoted_cnt, sched->metrics->block_demoted_cnt, sched->metrics->deactivate_no_child_cnt, sched->metrics->deactivate_no_txn_cnt, sched->metrics->deactivate_pruned_cnt, sched->metrics->deactivate_abandoned_cnt, sched->metrics->lane_switch_cnt, sched->metrics->lane_promoted_cnt, sched->metrics->lane_demoted_cnt, sched->metrics->alut_success_cnt, sched->metrics->alut_serializing_cnt, sched->metrics->txn_abandoned_parsed_cnt, sched->metrics->txn_abandoned_done_cnt, sched->metrics->txn_max_in_flight_cnt, sched->metrics->txn_weighted_in_flight_cnt, sched->metrics->txn_weighted_in_flight_tickcount, sched->metrics->txn_none_in_flight_tickcount, sched->metrics->txn_parsed_cnt, sched->metrics->txn_exec_done_cnt, sched->metrics->txn_sigverify_done_cnt, sched->metrics->txn_done_cnt, sched->metrics->bytes_ingested_cnt, sched->metrics->bytes_ingested_unparsed_cnt, sched->metrics->bytes_dropped_cnt, sched->metrics->fec_cnt ));
 }
 
 /* Public functions. */
@@ -284,6 +301,9 @@ fd_sched_new( void * mem, ulong block_cnt_max ) {
 
   sched->txn_pool_free_cnt = FD_SCHED_MAX_DEPTH-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
 
+  txn_bitset_new( sched->exec_done_set );
+  txn_bitset_new( sched->sigverify_done_set );
+
   return sched;
 }
 
@@ -302,6 +322,9 @@ fd_sched_join( void * mem, ulong block_cnt_max ) {
 
   sched->rdisp      = fd_rdisp_join( _rdisp );
   sched->block_pool = _bpool;
+
+  txn_bitset_join( sched->exec_done_set );
+  txn_bitset_join( sched->sigverify_done_set );
 
   return sched;
 }
@@ -521,8 +544,8 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
   if( FD_UNLIKELY( err==FD_SCHED_PARSER_BAD_BLOCK ) ) {
-    FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, txn_parsed_cnt %u, txn_done_cnt %u, txn_in_flight_cnt %u",
-                  fec->slot, fec->parent_slot, block->txn_parsed_cnt, block->txn_done_cnt, block->txn_in_flight_cnt ));
+    FD_LOG_INFO(( "bad block: slot %lu, parent slot %lu, txn_parsed_cnt %u, txn_done_cnt %u",
+                  fec->slot, fec->parent_slot, block->txn_parsed_cnt, block->txn_done_cnt ));
     subtree_abandon( sched, block );
     sched->metrics->bytes_dropped_cnt += block->fec_buf_sz-block->fec_buf_soff;
     sched->metrics->block_bad_cnt++;
@@ -537,7 +560,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 }
 
 ulong
-fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
+fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_tile_cnt ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
   if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
@@ -547,9 +570,7 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
     return 0UL;
   }
 
-  out_txn->txn_idx     = FD_SCHED_TXN_IDX_NULL;
-  out_txn->block_start = 0;
-  out_txn->block_end   = 0;
+  out->task_type = FD_SCHED_TT_NULL;
 
   /* We could in theory reevaluate staging lane allocation here and do
      promotion/demotion as needed.  It's a policy decision to minimize
@@ -563,57 +584,74 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
   }
 
   if( FD_UNLIKELY( !block->block_start_signaled ) ) {
-    out_txn->txn_idx         = FD_SCHED_TXN_IDX_BLOCK_START;
-    out_txn->bank_idx        = bank_idx;
-    out_txn->parent_bank_idx = block->parent_idx;
-    out_txn->slot            = block->slot;
-    out_txn->block_start     = 1;
-
+    out->task_type = FD_SCHED_TT_BLOCK_START;
+    out->block_start->bank_idx        = bank_idx;
+    out->block_start->parent_bank_idx = block->parent_idx;
+    out->block_start->slot            = block->slot;
     block->block_start_signaled = 1;
     return 1UL;
   }
 
-  ulong txn_queued_cnt = block->txn_parsed_cnt-block->txn_in_flight_cnt-block->txn_done_cnt;
-  if( FD_LIKELY( txn_queued_cnt>0 ) ) { /* Optimize for no fork switching. */
-    out_txn->txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
-    if( FD_UNLIKELY( out_txn->txn_idx==0UL ) ) {
+  ulong exec_queued_cnt = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
+  if( FD_LIKELY( exec_queued_cnt>0UL ) ) { /* Optimize for no fork switching. */
+    out->txn_exec->txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
+    if( FD_UNLIKELY( out->txn_exec->txn_idx==0UL ) ) {
       /* There are transactions queued but none ready for execution.
          This implies that there must be in-flight transactions on whose
          completion the queued transactions depend. So we return and
          wait for those in-flight transactions to retire.  This is a
          policy decision to execute as much as we can down the current
          fork. */
-      if( FD_UNLIKELY( !block->txn_in_flight_cnt ) ) {
-        FD_LOG_CRIT(( "invariant violation: no ready transaction found but block->txn_in_flight_cnt==0, txn_parsed_cnt %u, txn_queued_cnt %lu, fec_eos %u, slot %lu, parent slot %lu",
-                      block->txn_parsed_cnt, txn_queued_cnt, (uint)block->fec_eos, block->slot, block->parent_slot ));
+      if( FD_UNLIKELY( !block->txn_exec_in_flight_cnt ) ) {
+        FD_LOG_CRIT(( "invariant violation: no ready transaction found but block->txn_exec_in_flight_cnt==0, txn_parsed_cnt %u, exec_queued_cnt %lu, fec_eos %u, slot %lu, parent slot %lu",
+                      block->txn_parsed_cnt, exec_queued_cnt, (uint)block->fec_eos, block->slot, block->parent_slot ));
+      }
+      ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
+      if( FD_LIKELY( sigverify_queued_cnt>0UL && exec_tile_cnt>1UL ) ) { /* Leave one exec tile idle for critical path execution. */
+        /* Dispatch transactions for sigverify in parse order. */
+        out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
+        out->txn_sigverify->bank_idx = bank_idx;
+        out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
+        block->txn_sigverify_in_flight_cnt++;
+        return 1UL;
       }
       return 0UL;
     }
-    out_txn->bank_idx        = bank_idx;
-    out_txn->parent_bank_idx = block->parent_idx;
-    out_txn->slot            = block->slot;
+    out->task_type = FD_SCHED_TT_TXN_EXEC;
+    out->txn_exec->bank_idx = bank_idx;
+    out->txn_exec->slot     = block->slot;
 
     long now = fd_tickcount();
     ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
-    sched->metrics->txn_none_in_flight_tickcount     += fd_ulong_if( block->txn_in_flight_cnt==0U && sched->txn_in_flight_last_tick!=LONG_MAX, delta, 0UL );
-    sched->metrics->txn_weighted_in_flight_tickcount += fd_ulong_if( block->txn_in_flight_cnt!=0U, delta, 0UL );
-    sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_in_flight_cnt;
+    sched->metrics->txn_none_in_flight_tickcount     += fd_ulong_if( block->txn_exec_in_flight_cnt==0U && sched->txn_in_flight_last_tick!=LONG_MAX, delta, 0UL );
+    sched->metrics->txn_weighted_in_flight_tickcount += fd_ulong_if( block->txn_exec_in_flight_cnt!=0U, delta, 0UL );
+    sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_exec_in_flight_cnt;
     sched->txn_in_flight_last_tick = now;
 
-    block->txn_in_flight_cnt++;
-    txn_queued_cnt--;
-    sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_in_flight_cnt );
+    block->txn_exec_in_flight_cnt++;
+    sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_exec_in_flight_cnt );
+    return 1UL;
+  }
+
+  /* At this point txn_queued_cnt==0 */
+
+  /* Try to dispatch a sigverify task, but leave one exec tile idle for
+     critical path execution, unless there's not going to be any more
+     real transactions for the critical path. */
+  ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
+  if( FD_LIKELY( sigverify_queued_cnt>0UL && exec_tile_cnt>fd_ulong_if( block->fec_eos, 0UL, 1UL ) ) ) {
+    /* Dispatch transactions for sigverify in parse order. */
+    out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
+    out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
+    out->txn_sigverify->bank_idx = bank_idx;
+    block->txn_sigverify_in_flight_cnt++;
     return 1UL;
   }
 
   if( FD_UNLIKELY( block_should_signal_end( block ) ) ) {
     FD_TEST( block->block_start_signaled );
-    out_txn->txn_idx         = FD_SCHED_TXN_IDX_BLOCK_END;
-    out_txn->bank_idx        = bank_idx;
-    out_txn->parent_bank_idx = block->parent_idx;
-    out_txn->slot            = block->slot;
-    out_txn->block_end       = 1;
-
+    out->task_type = FD_SCHED_TT_BLOCK_END;
+    out->block_end->bank_idx = bank_idx;
     block->block_end_signaled = 1;
     return 1UL;
   }
@@ -628,20 +666,19 @@ fd_sched_txn_next_ready( fd_sched_t * sched, fd_sched_txn_ready_t * out_txn ) {
 
      Either way, there should be in-flight transactions.  We deactivate
      the active block the moment we exhausted transactions from it. */
-  if( FD_UNLIKELY( !block->txn_in_flight_cnt ) ) {
-    FD_LOG_CRIT(( "invariant violation: expected in-flight transactions but none, txn_parsed_cnt %u, txn_done_cnt %u, fec_eos %u, slot %lu, parent slot %lu",
-                  block->txn_parsed_cnt, block->txn_done_cnt, (uint)block->fec_eos, block->slot, block->parent_slot ));
+  if( FD_UNLIKELY( !block->txn_exec_in_flight_cnt && !block->txn_sigverify_in_flight_cnt ) ) {
+    FD_LOG_CRIT(( "invariant violation: expected in-flight transactions but none, txn_parsed_cnt %u, txn_exec_done_cnt %u, txn_sigverify_done_cnt %u, txn_done_cnt %u, fec_eos %u, slot %lu, parent slot %lu",
+                  block->txn_parsed_cnt, block->txn_exec_done_cnt, block->txn_sigverify_done_cnt, block->txn_done_cnt, (uint)block->fec_eos, block->slot, block->parent_slot ));
   }
 
   return 0UL;
 }
 
 void
-fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx ) {
+fd_sched_txn_exec_done( fd_sched_t * sched, ulong txn_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
-  FD_TEST( txn_idx!=FD_SCHED_TXN_IDX_NULL );
 
-  ulong              bank_idx = fd_ulong_if( txn_idx==FD_SCHED_TXN_IDX_BLOCK_START||txn_idx==FD_SCHED_TXN_IDX_BLOCK_END, sched->active_bank_idx, sched->txn_to_bank_idx[ txn_idx ] );
+  ulong              bank_idx = sched->txn_to_bank_idx[ txn_idx ];
   fd_sched_block_t * block    = block_pool_ele( sched, bank_idx );
 
   if( FD_UNLIKELY( !block->staged ) ) {
@@ -655,22 +692,28 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx ) {
                   block->slot, block->parent_slot ));
   }
 
-  if( FD_LIKELY( txn_idx!=FD_SCHED_TXN_IDX_BLOCK_START && txn_idx!=FD_SCHED_TXN_IDX_BLOCK_END ) ) {
-    FD_TEST( txn_idx<FD_SCHED_MAX_DEPTH );
-    long now = fd_tickcount();
-    ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
-    sched->metrics->txn_weighted_in_flight_tickcount += delta;
-    sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_in_flight_cnt;
-    sched->txn_in_flight_last_tick = now;
+  FD_TEST( txn_idx<FD_SCHED_MAX_DEPTH );
+  long now = fd_tickcount();
+  ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
+  sched->metrics->txn_weighted_in_flight_tickcount += delta;
+  sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_exec_in_flight_cnt;
+  sched->txn_in_flight_last_tick = now;
 
-    block->txn_done_cnt++;
-    block->txn_in_flight_cnt--;
+  block->txn_exec_done_cnt++;
+  block->txn_exec_in_flight_cnt--;
+  sched->metrics->txn_exec_done_cnt++;
+  txn_bitset_insert( sched->exec_done_set, txn_idx );
+  if( txn_bitset_test( sched->exec_done_set, txn_idx ) && txn_bitset_test( sched->sigverify_done_set, txn_idx ) ) {
+    /* Release txn_idx if both exec and sigverify are done.  This is
+       guaranteed to only happen once per transaction because whichever
+       one completed first would not release. */
     fd_rdisp_complete_txn( sched->rdisp, txn_idx );
     sched->txn_pool_free_cnt++;
+    block->txn_done_cnt++;
     sched->metrics->txn_done_cnt++;
   }
 
-  if( FD_UNLIKELY( block->dying && block->txn_in_flight_cnt==0U ) ) {
+  if( FD_UNLIKELY( block->dying && block->txn_exec_in_flight_cnt==0U && block->txn_sigverify_in_flight_cnt==0U ) ) {
     if( FD_UNLIKELY( sched->active_bank_idx==bank_idx ) ) {
       FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
                     bank_idx, block->slot, block->parent_slot ));
@@ -687,59 +730,61 @@ fd_sched_txn_done( fd_sched_t * sched, ulong txn_idx ) {
                   bank_idx, block->slot, block->parent_slot ));
   }
 
-  if( FD_UNLIKELY( block_is_done( block ) ) ) {
-    block->in_rdisp = 0;
-    block->staged   = 0;
-    fd_rdisp_remove_block( sched->rdisp, bank_idx );
-    sched->metrics->block_removed_cnt++;
+  maybe_switch_block_on_txn_done( sched, bank_idx );
+}
 
-    /* See if there is a child block down the same staging lane.  This
-       is a policy decision to minimize fork churn.  We could in theory
-       reevaluate staging lane allocation here and do promotion/demotion
-       as needed. */
-    ulong child_idx = block->child_idx;
-    while( child_idx!=ULONG_MAX ) {
-      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
-      if( FD_LIKELY( child->staged && child->staging_lane==block->staging_lane ) ) {
-        /* There is a child block down the same staging lane ... */
-        if( FD_LIKELY( !block->dying ) ) {
-          /* ... and it's not dead, so switch the active block to it,
-             and have the child inherit the head status of the lane.
-             This is the common case. */
-          sched->active_bank_idx = child_idx;
-          sched->staged_head_bank_idx[ block->staging_lane ] = child_idx;
-          if( FD_UNLIKELY( !fd_ulong_extract_bit( sched->staged_bitset, (int)block->staging_lane ) ) ) {
-            FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
-                          sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
-          }
-          return;
-        } else {
-          /* ... but the child block is considered dead, likely because
-             the parser considers it invalid. */
-          subtree_abandon( sched, child );
-          break;
-        }
-      }
-      child_idx = child->sibling_idx;
-    }
-    /* There isn't a child block down the same staging lane.  This is
-       the last block in the staging lane.  Release the staging lane. */
-    sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
-    sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
+void
+fd_sched_txn_sigverify_done( fd_sched_t * sched, ulong txn_idx ) {
+  FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
-    /* Reset the active block. */
-    sched->active_bank_idx = ULONG_MAX;
-    sched->metrics->deactivate_no_child_cnt++;
-    try_activate_block( sched );
-  } else if( !block_is_activatable( block ) ) {
-    /* We exhausted the active block, but it's not fully done yet.  We
-       are just not getting FEC sets for it fast enough.  This could
-       happen when the network path is congested, or when the leader
-       simply went down.  Reset the active block. */
-    sched->active_bank_idx = ULONG_MAX;
-    sched->metrics->deactivate_no_txn_cnt++;
-    try_activate_block( sched );
+  ulong              bank_idx = sched->txn_to_bank_idx[ txn_idx ];
+  fd_sched_block_t * block    = block_pool_ele( sched, bank_idx );
+
+  if( FD_UNLIKELY( !block->staged ) ) {
+    /* Invariant: only staged blocks can have in-flight transactions. */
+    FD_LOG_CRIT(( "invariant violation: block->staged==0, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
   }
+  if( FD_UNLIKELY( !block->in_rdisp ) ) {
+    /* Invariant: staged blocks must be in the dispatcher. */
+    FD_LOG_CRIT(( "invariant violation: block->in_rdisp==0, slot %lu, parent slot %lu",
+                  block->slot, block->parent_slot ));
+  }
+
+  FD_TEST( txn_idx<FD_SCHED_MAX_DEPTH );
+
+  block->txn_sigverify_done_cnt++;
+  block->txn_sigverify_in_flight_cnt--;
+  sched->metrics->txn_sigverify_done_cnt++;
+  txn_bitset_insert( sched->sigverify_done_set, txn_idx );
+  if( txn_bitset_test( sched->exec_done_set, txn_idx ) && txn_bitset_test( sched->sigverify_done_set, txn_idx ) ) {
+    /* Release txn_idx if both exec and sigverify are done.  This is
+       guaranteed to only happen once per transaction because whichever
+       one completed first would not release. */
+    fd_rdisp_complete_txn( sched->rdisp, txn_idx );
+    sched->txn_pool_free_cnt++;
+    block->txn_done_cnt++;
+    sched->metrics->txn_done_cnt++;
+  }
+
+  if( FD_UNLIKELY( block->dying && block->txn_exec_in_flight_cnt==0U && block->txn_sigverify_in_flight_cnt==0U ) ) {
+    if( FD_UNLIKELY( sched->active_bank_idx==bank_idx ) ) {
+      FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
+                    bank_idx, block->slot, block->parent_slot ));
+    }
+    subtree_abandon( sched, block );
+    return;
+  }
+
+  if( FD_UNLIKELY( !block->dying && sched->active_bank_idx!=bank_idx ) ) {
+    /* Block is not dead.  So we should be actively replaying it. */
+    fd_sched_block_t * active_block = block_pool_ele( sched, sched->active_bank_idx );
+    FD_LOG_CRIT(( "invariant violation: sched->active_bank_idx %lu, slot %lu, parent slot %lu, bank_idx %lu, slot %lu, parent slot %lu",
+                  sched->active_bank_idx, active_block->slot, active_block->parent_slot,
+                  bank_idx, block->slot, block->parent_slot ));
+  }
+
+  maybe_switch_block_on_txn_done( sched, bank_idx );
 }
 
 void
@@ -749,7 +794,6 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   if( FD_UNLIKELY( bank_idx!=sched->active_bank_idx ) ) {
-    //FIXME: this breaks when we abandon more than once
     /* Invariant: abandoning should only be performed on actively
        replayed blocks.  We impose this requirement on the caller
        because the dispatcher expects blocks to be abandoned in the same
@@ -781,10 +825,13 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_i
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   add_block( sched, bank_idx, parent_bank_idx );
-  block->txn_done_cnt = block->txn_parsed_cnt = UINT_MAX;
-  block->fec_eos = 1;
-  block->block_start_signaled = 1;
-  block->block_end_signaled   = 1;
+  block->txn_parsed_cnt         = UINT_MAX;
+  block->txn_exec_done_cnt      = UINT_MAX;
+  block->txn_sigverify_done_cnt = UINT_MAX;
+  block->txn_done_cnt           = UINT_MAX;
+  block->fec_eos                = 1;
+  block->block_start_signaled   = 1;
+  block->block_end_signaled     = 1;
   if( FD_UNLIKELY( parent_bank_idx==ULONG_MAX ) ) {
     /* Assumes that a NULL parent implies the snapshot slot. */
     sched->root_idx = bank_idx;
@@ -838,9 +885,9 @@ fd_sched_advance_root( fd_sched_t * sched, ulong root_idx ) {
        fact, anything that we are publishing away should be out of the
        dispatcher at this point.  And there should be no more in-flight
        transactions. */
-    if( FD_UNLIKELY( head->txn_in_flight_cnt ) ) {
-      FD_LOG_CRIT(( "invariant violation: block has transactions in flight, slot %lu, parent slot %lu",
-                    head->slot, head->parent_slot ));
+    if( FD_UNLIKELY( head->txn_exec_in_flight_cnt || head->txn_sigverify_in_flight_cnt ) ) {
+      FD_LOG_CRIT(( "invariant violation: block has transactions in flight (%u exec %u sigverify), slot %lu, parent slot %lu",
+                    head->txn_exec_in_flight_cnt, head->txn_sigverify_in_flight_cnt, head->slot, head->parent_slot ));
     }
     if( FD_UNLIKELY( head->in_rdisp ) ) {
       /* We should have removed it from the dispatcher when we were
@@ -975,10 +1022,13 @@ add_block( fd_sched_t * sched,
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   FD_TEST( !block->in_sched );
 
-  block->txn_parsed_cnt    = 0U;
-  block->txn_in_flight_cnt = 0U;
-  block->txn_done_cnt      = 0U;
-  block->shred_cnt         = 0U;
+  block->txn_parsed_cnt              = 0U;
+  block->txn_exec_in_flight_cnt      = 0U;
+  block->txn_exec_done_cnt           = 0U;
+  block->txn_sigverify_in_flight_cnt = 0U;
+  block->txn_sigverify_done_cnt      = 0U;
+  block->txn_done_cnt                = 0U;
+  block->shred_cnt                   = 0U;
 
   block->mblks_rem    = 0UL;
   block->txns_rem     = 0UL;
@@ -1138,9 +1188,16 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
   sched->txn_to_bank_idx[ txn_idx ] = bank_idx;
-
+  txn_bitset_remove( sched->exec_done_set, txn_idx );
+  txn_bitset_remove( sched->sigverify_done_set, txn_idx );
+  block->txn_idx[ block->txn_parsed_cnt ] = txn_idx;
   block->fec_buf_soff += (uint)pay_sz;
   block->txn_parsed_cnt++;
+#define FD_SCHED_SKIP_SIGVERIFY 1
+#if FD_SCHED_SKIP_SIGVERIFY
+  txn_bitset_insert( sched->sigverify_done_set, txn_idx );
+  block->txn_sigverify_done_cnt++;
+#endif
   block->txns_rem--;
   return FD_SCHED_PARSER_OK;
 }
@@ -1278,15 +1335,16 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
        recycled, we would basically be aliasing the same txn_id and end
        up indexing into txn_to_bank_idx[] that is already overwritten
        with new blocks. */
-    abandon = abandon && block->txn_in_flight_cnt==0;
+    abandon = abandon && block->txn_exec_in_flight_cnt==0 && block->txn_sigverify_in_flight_cnt==0;
 
     if( abandon ) {
       block->in_rdisp = 0;
       fd_rdisp_abandon_block( sched->rdisp, (ulong)(block-sched->block_pool) );
       sched->txn_pool_free_cnt += block->txn_parsed_cnt-block->txn_done_cnt; /* in_flight_cnt==0 */
       sched->metrics->block_abandoned_cnt++;
-      sched->metrics->txn_abandoned_parsed_cnt += block->txn_parsed_cnt;
-      sched->metrics->txn_abandoned_done_cnt   += block->txn_done_cnt;
+      sched->metrics->txn_abandoned_parsed_cnt    += block->txn_parsed_cnt;
+      sched->metrics->txn_abandoned_exec_done_cnt += block->txn_exec_done_cnt;
+      sched->metrics->txn_abandoned_done_cnt      += block->txn_done_cnt;
 
       /* Now release the staging lane. */
       //FIXME when demote supports non-empty blocks, we should demote
@@ -1313,6 +1371,64 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
     fd_sched_block_t * child = block_pool_ele( sched, child_idx );
     subtree_abandon( sched, child );
     child_idx = child->sibling_idx;
+  }
+}
+
+static void
+maybe_switch_block_on_txn_done( fd_sched_t * sched, ulong bank_idx ) {
+  fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
+  if( FD_UNLIKELY( block_is_done( block ) ) ) {
+    block->in_rdisp = 0;
+    block->staged   = 0;
+    fd_rdisp_remove_block( sched->rdisp, bank_idx );
+    sched->metrics->block_removed_cnt++;
+
+    /* See if there is a child block down the same staging lane.  This
+       is a policy decision to minimize fork churn.  We could in theory
+       reevaluate staging lane allocation here and do promotion/demotion
+       as needed. */
+    ulong child_idx = block->child_idx;
+    while( child_idx!=ULONG_MAX ) {
+      fd_sched_block_t * child = block_pool_ele( sched, child_idx );
+      if( FD_LIKELY( child->staged && child->staging_lane==block->staging_lane ) ) {
+        /* There is a child block down the same staging lane ... */
+        if( FD_LIKELY( !block->dying ) ) {
+          /* ... and it's not dead, so switch the active block to it,
+             and have the child inherit the head status of the lane.
+             This is the common case. */
+          sched->active_bank_idx = child_idx;
+          sched->staged_head_bank_idx[ block->staging_lane ] = child_idx;
+          if( FD_UNLIKELY( !fd_ulong_extract_bit( sched->staged_bitset, (int)block->staging_lane ) ) ) {
+            FD_LOG_CRIT(( "invariant violation: staged_bitset 0x%lx bit %lu is not set, slot %lu, parent slot %lu, child slot %lu, parent slot %lu",
+                          sched->staged_bitset, block->staging_lane, block->slot, block->parent_slot, child->slot, child->parent_slot ));
+          }
+          return;
+        } else {
+          /* ... but the child block is considered dead, likely because
+             the parser considers it invalid. */
+          subtree_abandon( sched, child );
+          break;
+        }
+      }
+      child_idx = child->sibling_idx;
+    }
+    /* There isn't a child block down the same staging lane.  This is
+       the last block in the staging lane.  Release the staging lane. */
+    sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
+    sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
+
+    /* Reset the active block. */
+    sched->active_bank_idx = ULONG_MAX;
+    sched->metrics->deactivate_no_child_cnt++;
+    try_activate_block( sched );
+  } else if( !block_is_activatable( block ) ) {
+    /* We exhausted the active block, but it's not fully done yet.  We
+       are just not getting FEC sets for it fast enough.  This could
+       happen when the network path is congested, or when the leader
+       simply went down.  Reset the active block. */
+    sched->active_bank_idx = ULONG_MAX;
+    sched->metrics->deactivate_no_txn_cnt++;
+    try_activate_block( sched );
   }
 }
 

@@ -50,7 +50,7 @@ fd_vote_tracker_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l,  fd_vote_tracker_align(),     sizeof(fd_vote_tracker_t) );
   l = FD_LAYOUT_APPEND( l,  fd_vote_tracker_deq_align(), fd_vote_tracker_deq_footprint() );
-  l = FD_LAYOUT_APPEND( l,  fd_vote_tracker_map_align(),  fd_vote_tracker_map_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l,  fd_vote_tracker_map_align(), fd_vote_tracker_map_footprint( map_chain_cnt ) );
   return FD_LAYOUT_FINI( l, fd_vote_tracker_align() );
 }
 
