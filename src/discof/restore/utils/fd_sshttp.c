@@ -168,7 +168,7 @@ send_request( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long sent = send( http->sockfd, http->request+http->request_sent, http->request_len-http->request_sent, 0 );
+  long sent = sendto( http->sockfd, http->request+http->request_sent, http->request_len-http->request_sent, 0, NULL, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==sent ) ) {
     fd_sshttp_cancel( http );
@@ -282,7 +282,7 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long read = recv( http->sockfd, http->response+http->response_len, sizeof(http->response)-http->response_len, 0 );
+  long read = recvfrom( http->sockfd, http->response+http->response_len, sizeof(http->response)-http->response_len, 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return 0;
   else if( FD_UNLIKELY( -1==read ) ) {
     FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
@@ -367,7 +367,7 @@ read_body( fd_sshttp_t * http,
   }
 
   FD_TEST( http->content_read<http->content_len );
-  long read = recv( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0 );
+  long read = recvfrom( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
     fd_sshttp_cancel( http );

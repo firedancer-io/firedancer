@@ -1,6 +1,7 @@
 #include "fd_ssping.h"
 #include "fd_sspeer_selector.h"
 
+#include "../../../util/fd_util.h"
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
 
@@ -315,7 +316,7 @@ poll_advance( fd_ssping_t * ssping,
 
   ulong next_poll_idx = fd_ulong_min( ssping->poll_idx+FD_SSPING_RATE_LIMIT, ssping->fds_len );
   ulong fds_cnt       = fd_ulong_min( next_poll_idx - ssping->poll_idx, FD_SSPING_RATE_LIMIT );
-  int   nfds          = poll( ssping->fds+ssping->poll_idx, fds_cnt, 0 );
+  int   nfds          = fd_syscall_poll( ssping->fds+ssping->poll_idx, (uint)fds_cnt, 0 );
   if( FD_LIKELY( !nfds ) ) return;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
@@ -336,7 +337,7 @@ poll_advance( fd_ssping_t * ssping,
         .checksum         = 0  /* Will be calculated by the kernel */
       };
 
-      long result = send( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0 );
+      long result = sendto( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0, NULL, 0 );
       if( FD_UNLIKELY( !result ) ) continue;
       if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
       else if( FD_UNLIKELY( -1==result ) ) {
@@ -348,7 +349,7 @@ poll_advance( fd_ssping_t * ssping,
 
     if( FD_LIKELY( pfd->revents & POLLIN ) ) {
       struct icmphdr icmp_hdr;
-      long result = recv( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0 );
+      long result = recvfrom( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0, NULL, NULL );
       if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
       else if( FD_UNLIKELY( -1==result || (ulong)result<sizeof(icmp_hdr) || icmp_hdr.type!=ICMP_ECHOREPLY ) ) {
         unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );

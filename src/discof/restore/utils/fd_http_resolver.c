@@ -3,6 +3,7 @@
 #include "fd_ssresolve.h"
 
 #include "../../../util/log/fd_log.h"
+#include "../../../util/fd_util.h"
 
 #include <poll.h>
 #include <errno.h>
@@ -335,7 +336,7 @@ poll_advance( fd_http_resolver_t * resolver,
               long                 now ) {
   if( FD_LIKELY( !resolver->fds_len ) ) return;
 
-  int nfds = poll( resolver->fds, resolver->fds_len, 0 );
+  int nfds = fd_syscall_poll( resolver->fds, (uint)resolver->fds_len, 0 );
   if( FD_LIKELY( !nfds ) ) return;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));

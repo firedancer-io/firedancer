@@ -1,6 +1,5 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../funk/fd_funk.h"
-#include "generated/fd_genesi_tile_seccomp.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
@@ -12,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "generated/fd_genesi_tile_seccomp.h"
 struct fd_genesi_tile {
   int fd;
 
@@ -245,10 +245,13 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
 
-  populate_sock_filter_policy_fd_genesi_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
+
+  populate_sock_filter_policy_fd_genesi_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->fd );
   return sock_filter_policy_fd_genesi_tile_instr_cnt;
 }
 
@@ -257,15 +260,18 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  (void)topo;
-  (void)tile;
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
+
+  if( FD_UNLIKELY( out_fds_cnt<3UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
+  if( FD_LIKELY( ctx->fd!=-1 ) ) out_fds[ out_cnt++ ] = ctx->fd;
   return out_cnt;
 }
 
