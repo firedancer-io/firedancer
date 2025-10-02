@@ -225,29 +225,19 @@ else
 fi
 { status=$?; set +x; } &> /dev/null
 
-if [ "$status" -eq 139 ]; then
-  echo "Backtest crashed with a segmentation fault!" &> /dev/null
-fi
-
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
-
-echo_notice "Finished on-demand ingest and replay\n"
 
 echo "Log for ledger $LEDGER at $LOG"
 
 # check that the ledger is not corrupted after a run
 check_ledger_checksum
 
-if grep -q "Backtest playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
-then
+if [ "$status" -eq 0 ]; then
+  echo_notice "Finished on-demand ingest and replay\n"
   exit 0
-  #   rm $LOG
-else
-  if [ -n "$TRASH_HASH" ]; then
-    echo "inverted test passed"
-    # rm $LOG
-    exit 0
-  fi
-
-  exit 1
 fi
+
+tail -n 10 $LOG
+echo "Failed with status: $status"
+
+exit $status
