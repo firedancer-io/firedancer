@@ -300,7 +300,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( rent );
   fd_bank_rent_set( slot_ctx->bank, *rent );
 
-  fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, test_ctx->slot_ctx.prev_slot, NULL ) );
+  fd_bank_epoch_set( slot_ctx->bank, fd_slot_to_epoch( epoch_schedule, slot, NULL ) );
 
 
   /* Refresh the program cache */
