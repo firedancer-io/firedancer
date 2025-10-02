@@ -5170,6 +5170,10 @@ fd_quic_handle_stream_data_blocked_frame(
     uchar const *                         p    FD_PARAM_UNUSED,
     ulong                                 p_sz FD_PARAM_UNUSED ) {
   FD_DTRACE_PROBE_3( quic_handle_stream_data_blocked, context->conn->our_conn_id, data->stream_id, data->max_stream_data );
+  fd_quic_conn_t * conn = context->conn;
+  if( FD_LIKELY( conn )) {
+    FD_LOG_INFO(("stream_data_blocked from " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS(context->conn->peer[0].ip_addr), context->conn->peer[0].udp_port));
+  }
 
   /* Since we do not do runtime allocations, we will not attempt
      to find more memory in the case of STREAM_DATA_BLOCKED.*/
