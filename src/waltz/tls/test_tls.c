@@ -183,6 +183,7 @@ prepare_tls_pair( fd_rng_t * rng,
     .sign       = fd_tls_test_sign( &server_sign_ctx ),
     .secrets_fn = test_tls_secrets,
     .sendmsg_fn = test_tls_sendmsg,
+    .auth_client = 1,
   };
 
   /* Generate keys */

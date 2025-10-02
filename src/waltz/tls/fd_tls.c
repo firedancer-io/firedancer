@@ -744,7 +744,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
   fd_sha256_append( &transcript, msg_buf, server_ee_sz );
 
   /* Send Client Certificate Request **********************************/
-  if( handshake->client_cert ) {
+  if( server->auth_client ) {
 
     ulong cr_sz;
 
@@ -879,7 +879,7 @@ fd_tls_server_hs_start( fd_tls_t const *      const server,
 
   fd_tls_transcript_store( &handshake->transcript, &transcript );
 
-  handshake->base.state = handshake->client_cert ? FD_TLS_HS_WAIT_CERT : FD_TLS_HS_WAIT_FINISHED;
+  handshake->base.state = server->auth_client ? FD_TLS_HS_WAIT_CERT : FD_TLS_HS_WAIT_FINISHED;
 
 # undef MSG_BUFSZ
   return (long)read_sz;
@@ -1082,6 +1082,8 @@ fd_tls_server_hs_wait_cert_verify( fd_tls_t const *      const  server FD_PARAM_
   /* Finish up ********************************************************/
 
   fd_tls_transcript_store( &handshake->transcript, &transcript );
+
+  handshake->client_cert = 1; /* mark that client was authenticated */
 
   handshake->base.state = FD_TLS_HS_WAIT_FINISHED;
   return res;

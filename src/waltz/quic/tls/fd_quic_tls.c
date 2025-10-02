@@ -62,7 +62,8 @@ fd_quic_tls_tp_peer( void *        handshake,
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
-                  uchar const   cert_public_key[ static 32 ] );
+                  uchar const   cert_public_key[ static 32 ],
+                  int           authenticate_client );
 
 fd_quic_tls_t *
 fd_quic_tls_new( fd_quic_tls_t *     self,
@@ -88,7 +89,7 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
   self->peer_params_cb        = cfg->peer_params_cb;
 
   /* Initialize fd_tls */
-  fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key );
+  fd_quic_tls_init( &self->tls, cfg->signer, cfg->cert_public_key, cfg->authenticate_client );
 
   return self;
 }
@@ -99,10 +100,12 @@ fd_quic_tls_new( fd_quic_tls_t *     self,
 static void
 fd_quic_tls_init( fd_tls_t *    tls,
                   fd_tls_sign_t signer,
-                  uchar const   cert_public_key[ static 32 ] ) {
+                  uchar const   cert_public_key[ static 32 ],
+                  int           authenticate_client ) {
   tls = fd_tls_new( tls );
   *tls = (fd_tls_t) {
     .quic = 1,
+    .auth_client = (ulong)(authenticate_client&0x1),
     .rand = {
       .ctx     = NULL,
       .rand_fn = fd_quic_tls_rand
