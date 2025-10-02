@@ -314,6 +314,10 @@ fd_forest_verify( fd_forest_t const * forest ) {
 
   fd_forest_consumed_t const * consumed = fd_forest_consumed_const( forest );
   fd_forest_cns_t const *      conspool = fd_forest_conspool_const( forest );
+  fd_forest_conslist_t const * conslist = fd_forest_conslist_const( forest );
+
+  if( fd_forest_conslist_verify( conslist, fd_forest_conspool_max( conspool ), conspool ) == -1 ) return -1;
+  if( fd_forest_consumed_verify( consumed, fd_forest_conspool_max( conspool ), conspool ) == -1 ) return -1;
 
   /* from every frontier walk back and verify that there is an ancestor in the consumed map */
   for( fd_forest_frontier_iter_t iter = fd_forest_frontier_iter_init( frontier, pool ); !fd_forest_frontier_iter_done( iter, frontier, pool ); iter = fd_forest_frontier_iter_next( iter, frontier, pool ) ) {
@@ -336,6 +340,19 @@ fd_forest_verify( fd_forest_t const * forest ) {
     if( !fd_forest_ancestry_ele_query_const( ancestry, &ele->slot, NULL, pool ) && !fd_forest_frontier_ele_query_const( frontier, &ele->slot, NULL, pool ) ) {
       return -1;
     }
+  }
+
+  /* Every element in consumed list must be in the consumed map */
+  for( fd_forest_conslist_iter_t iter = fd_forest_conslist_iter_fwd_init( conslist, conspool ); !fd_forest_conslist_iter_done( iter, conslist, conspool ); iter = fd_forest_conslist_iter_fwd_next( iter, conslist, conspool ) ) {
+    fd_forest_cns_t const * ele = fd_forest_conslist_iter_ele_const( iter, conslist, conspool );
+    if( !fd_forest_consumed_ele_query_const( consumed, &ele->slot, NULL, conspool ) ) return -1;
+  }
+
+  /* Subtrees must have null parents */
+
+  for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool ); !fd_forest_subtrees_iter_done( iter, subtrees, pool ); iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
+    fd_forest_blk_t const * ele = fd_forest_subtrees_iter_ele_const( iter, subtrees, pool );
+    if( ele->parent != fd_forest_pool_idx_null( pool ) ) return -1;
   }
 
   return 0;
@@ -455,18 +472,15 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   }
   fd_forest_blk_t * blk  = fd_forest_pool_ele_acquire( pool );
   ulong             null = fd_forest_pool_idx_null( pool );
-
   blk->slot        = slot;
   blk->parent_slot = parent_slot;
   blk->next        = null;
   blk->parent      = null;
   blk->child       = null;
   blk->sibling     = null;
-
   blk->consumed_idx = UINT_MAX;
   blk->buffered_idx = UINT_MAX;
   blk->complete_idx = UINT_MAX;
-
   fd_forest_blk_idxs_null( blk->fecs ); /* expensive */
   fd_forest_blk_idxs_null( blk->idxs ); /* expensive */
   fd_forest_blk_idxs_null( blk->cmpl ); /* expensive */
@@ -474,14 +488,12 @@ acquire( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
   blk->est_buffered_tick_recv = 0;
 
   /* Metrics tracking */
-
   fd_forest_blk_idxs_null( blk->code ); /* expensive */
   blk->first_shred_ts = 0;
   blk->first_req_ts   = 0;
   blk->turbine_cnt    = 0;
   blk->repair_cnt     = 0;
   blk->recovered_cnt  = 0;
-
   return blk;
 }
 
@@ -673,6 +685,114 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
   }
   if( FD_UNLIKELY( fec_set_idx == 0 ) ) ele->buffered_idx = UINT_MAX;
   else                                  ele->buffered_idx = fd_uint_if( ele->buffered_idx != UINT_MAX, fd_uint_min( ele->buffered_idx, fec_set_idx - 1 ), UINT_MAX );
+}
+
+void
+fd_forest_slot_clear( fd_forest_t * forest, ulong slot ) {
+  VER_INC;
+
+  FD_TEST( slot >= fd_forest_root_slot( forest ) );
+  fd_forest_blk_t      * pool     = fd_forest_pool( forest );
+  fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
+  fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
+  fd_forest_ancestry_t * ancestry = fd_forest_ancestry( forest );
+  fd_forest_consumed_t * consumed = fd_forest_consumed( forest );
+  fd_forest_cns_t *      conspool = fd_forest_conspool( forest );
+  ulong *                queue    = fd_forest_deque( forest );
+  fd_forest_blk_t * blk  = query( forest, slot );
+  FD_TEST( blk );
+
+  /* Clean up the parent, and remove block from the maps */
+
+  fd_forest_blk_t * parent = fd_forest_pool_ele( pool, blk->parent );
+  if( FD_LIKELY( parent ) ) {
+    blk->parent = fd_forest_pool_idx_null( pool );
+    /* remove the block from the parent's child list */
+    fd_forest_blk_t * child = fd_forest_pool_ele( pool, parent->child );
+    if( FD_LIKELY( child->slot == blk->slot ) ) {
+      parent->child = child->sibling;
+    } else {
+      /* go through the sibling list, and remove the block */
+      fd_forest_blk_t * sibling = fd_forest_pool_ele( pool, child->sibling );
+      fd_forest_blk_t * prev    = child;
+      while( FD_LIKELY( sibling ) ) {
+        if( FD_LIKELY( sibling->slot == blk->slot ) ) {
+          prev->sibling = sibling->sibling;
+          break;
+        }
+        prev = sibling;
+        sibling = fd_forest_pool_ele( pool, sibling->sibling );
+      }
+    }
+
+    /* remove the block itself from the maps */
+
+    fd_forest_blk_t * removed = fd_forest_orphaned_ele_remove( orphaned, &blk->slot, NULL, pool );
+    if( !removed ) {
+      removed = ancestry_frontier_remove( forest, blk->slot ); FD_TEST( removed );
+
+      /* We removed from the main tree, so we possible need to insert parent into the frontier.
+         Only need to add parent to the frontier if it doesn't have any other children. */
+
+      if( blk->sibling == fd_forest_pool_idx_null( pool ) ) {
+        fd_forest_blk_t * parent = fd_forest_ancestry_ele_remove( ancestry, &blk->parent_slot, NULL, pool );
+        FD_TEST( parent );
+        fd_forest_frontier_ele_insert( frontier, parent, pool );
+        /* ensure parent is reachable from consumed frontier */
+        fd_forest_blk_t * ancestor = parent;
+        while( FD_UNLIKELY( ancestor && !fd_forest_consumed_ele_query( consumed, &ancestor->slot, NULL, conspool ) ) ) {
+          ancestor = fd_forest_pool_ele( pool, ancestor->parent );
+        }
+        if( FD_UNLIKELY( !ancestor ) ) {
+          FD_LOG_NOTICE(( "fd_forest: fd_forest_slot_clear: parent %lu is not reachable from consumed frontier, adding myself", parent->slot ));
+          consumed_insert( forest, parent->slot, fd_forest_pool_idx( pool, parent ) );
+        }
+      }
+    }
+  } else {
+    fd_forest_subtrees_ele_remove( subtrees, &blk->slot, NULL, pool );
+  }
+
+  /* Clean up children */
+
+  fd_forest_blk_t * child = fd_forest_pool_ele( pool, blk->child );
+  while( FD_LIKELY( child ) ) {
+    /* remove the parent from the child's */
+    child->parent = fd_forest_pool_idx_null( pool );
+
+    /* Orphan ALL THE KIDS! */
+    FD_TEST( fd_forest_deque_empty( queue ) );
+    fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
+
+    while( FD_UNLIKELY( fd_forest_deque_cnt( queue ) ) ) {
+      fd_forest_blk_t * head = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
+
+      fd_forest_blk_t * removed = ancestry_frontier_remove( forest, head->slot );
+      if( FD_UNLIKELY( head == child ) ) {
+        /* The direct child should be put in subtrees */
+        if( !removed ) fd_forest_orphaned_ele_remove( orphaned, &child->slot, NULL, pool );
+        fd_forest_subtrees_ele_insert( subtrees, child, pool );
+      } else {
+        /* All other children should be put in orphaned */
+        if( removed ) fd_forest_orphaned_ele_insert( orphaned, removed, pool );
+      }
+      consumed_remove( forest, head->slot );
+
+      fd_forest_blk_t * ch = fd_forest_pool_ele( pool, head->child );
+      while( FD_LIKELY( ch ) ) {
+        fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, ch ) );
+        ch = fd_forest_pool_ele( pool, ch->sibling );
+      }
+    }
+    /* Done orphaning ALL THE KIDS! of this kid */
+
+    child = fd_forest_pool_ele( pool, child->sibling );
+  }
+
+  /* finally, release the block from the pool */
+  fd_forest_pool_ele_release( pool, blk );
+  consumed_remove( forest, blk->slot );
 }
 
 fd_forest_blk_t const *
@@ -957,18 +1077,6 @@ fd_forest_preorder_print( fd_forest_t const * forest ) {
   printf( "\n\n" );
 }
 
-/* TODO use bit tricks / change */
-static int
-num_digits( ulong slot ) {
-  /* using log10 */
-  int digits = 0;
-  while( slot ) {
-    digits++;
-    slot /= 10;
-  }
-  return digits;
-}
-
 static void
 ancestry_print2( fd_forest_t const * forest,
                  fd_forest_blk_t const    * ele,
@@ -980,7 +1088,7 @@ ancestry_print2( fd_forest_t const * forest,
   if( FD_UNLIKELY( ele == NULL ) ) return;
 
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
-  int digits = num_digits( ele->slot );
+  int digits = (int)fd_ulong_base10_dig_cnt( ele->slot );
 
   /* If there is a prefix, this means we are on a fork,  and we need to
      indent to the correct depth. We do depth - 1 for more satisfying
@@ -1012,7 +1120,7 @@ ancestry_print2( fd_forest_t const * forest,
       depth += digits + 6;
     } else {
       printf( ", %lu] ── [%lu", prev->slot, ele->slot );
-      depth += digits + num_digits(prev->slot ) + 8;
+      depth += digits + (int)fd_ulong_base10_dig_cnt( prev->slot ) + 8;
     }
     last_printed = ele->slot;
   } else if( curr && curr->sibling != ULONG_MAX ) { // has multiple children, do not elide
@@ -1092,7 +1200,7 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_blk_t const * ele, int sp
       /* current slot wasn't printed, but now that we are branching,
          we will want to print the current slot and close the bracket */
       printf( ", %lu]", ele->slot );
-      space += fd_int_max( num_digits( ele->slot ) + 2, 0 );
+      space += fd_int_max( (int)fd_ulong_base10_dig_cnt( ele->slot ) + 2, 0 );
     } else {
       printf( "]");
     }
@@ -1106,7 +1214,7 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_blk_t const * ele, int sp
       /* current slot wasn't printed, but now that we are branching,
          we will want to print the current slot and close the bracket */
       printf( ", %lu]", ele->slot );
-      space += fd_int_max( num_digits( ele->slot ) + 2, 0 );
+      space += fd_int_max( (int)fd_ulong_base10_dig_cnt( ele->slot ) + 2, 0 );
     } else {
       printf( "]");
     }

@@ -1,7 +1,6 @@
 #include "fd_store.h"
 #include "../../flamenco/fd_flamenco_base.h"
 
-static const fd_hash_t hash_null = { 0 };
 
 #define null fd_store_pool_idx_null()
 
@@ -146,7 +145,8 @@ fd_store_delete( void * shstore ) {
 fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
-                 fd_hash_t  * merkle_root ) {
+                 fd_hash_t  * merkle_root,
+                 fd_hash_t  * chained_merkle ) {
 
 # if FD_STORE_USE_HANDHOLDING
   if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s already in store", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
@@ -162,7 +162,7 @@ fd_store_insert( fd_store_t * store,
 
   fec->key.mr           = *merkle_root;
   fec->key.part         = part_idx;
-  fec->cmr              = hash_null;
+  fec->cmr              = *chained_merkle;
   fec->next             = null;
   fec->parent           = null;
   fec->child            = null;

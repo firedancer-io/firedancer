@@ -8,4 +8,6 @@ $(call add-objs,fd_repair,fd_discof)
 $(call add-hdrs,fd_repair.h)
 $(call add-objs,fd_repair_metrics,fd_discof)
 $(call add-hdrs,fd_repair_metrics.h)
+
+$(call make-unit-test,test_repair,test_repair,fd_discof fd_disco fd_flamenco fd_tango fd_ballet fd_util)
 endif

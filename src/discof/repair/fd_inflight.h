@@ -10,7 +10,10 @@
    by nonce as in the current strategy (see fd_policy.h), all requests
    have a unique nonce.  The chances that an inflight request does not
    get a response are non-negligible due to shred tile upstream deduping
-   duplicates. */
+   duplicates.
+
+   TODO: combine this with repair_metrics.h? Looks misleadingly like
+   it's an important module. */
 
 /* Max number of pending requests */
 #define FD_INFLIGHT_REQ_MAX (1<<20)

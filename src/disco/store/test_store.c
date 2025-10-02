@@ -34,13 +34,13 @@ test_simple( fd_wksp_t * wksp ) {
   fd_hash_t mr4 = { { 4 } };
   fd_hash_t mr5 = { { 5 } };
   fd_hash_t mr6 = { { 6 } };
-  fd_store_insert( store, 0, &mr0 );
-  fd_store_insert( store, 0, &mr1 );
-  fd_store_insert( store, 0, &mr2 );
-  fd_store_insert( store, 0, &mr4 );
-  fd_store_insert( store, 0, &mr3 );
-  fd_store_insert( store, 0, &mr5 );
-  fd_store_insert( store, 0, &mr6 );
+  fd_store_insert( store, 0, &mr0, &mr0 );
+  fd_store_insert( store, 0, &mr1, &mr0 );
+  fd_store_insert( store, 0, &mr2, &mr1 );
+  fd_store_insert( store, 0, &mr4, &mr2 );
+  fd_store_insert( store, 0, &mr3, &mr1 );
+  fd_store_insert( store, 0, &mr5, &mr3 );
+  fd_store_insert( store, 0, &mr6, &mr5 );
 
   fd_store_fec_t const * fec0 = fd_store_query_const( store, &mr0 );
   fd_store_fec_t const * fec1 = fd_store_query_const( store, &mr1 );
@@ -112,46 +112,46 @@ test_mr( fd_wksp_t * wksp ) {
   fd_hash_t mr5a = { { 5, 0xa } };
   fd_hash_t mr5b = { { 5, 0xb } };
   fd_hash_t mr6a = { { 6, 0xa } };
-  FD_TEST( fd_store_insert( store, 0, &mr0 ) );
+  FD_TEST( fd_store_insert( store, 0, &mr0, &mr0 ) );
   FD_TEST( fd_store_query_const( store, &mr0 ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr1a ) );
+  FD_TEST( fd_store_insert( store, 0, &mr1a, &mr0 ) );
   FD_TEST( fd_store_query_const( store, &mr1a ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr1b ) );
+  FD_TEST( fd_store_insert( store, 0, &mr1b, &mr1a ) );
   FD_TEST( fd_store_query_const( store, &mr1b ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr2a ) );
+  FD_TEST( fd_store_insert( store, 0, &mr2a, &mr1b) );
   FD_TEST( fd_store_query_const( store, &mr2a ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr2b ) );
+  FD_TEST( fd_store_insert( store, 0, &mr2b, &mr2a ) );
   FD_TEST( fd_store_query_const( store, &mr2b ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr2c ) );
+  FD_TEST( fd_store_insert( store, 0, &mr2c, &mr2b ) );
   FD_TEST( fd_store_query_const( store, &mr2c ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr3a ) );
+  FD_TEST( fd_store_insert( store, 0, &mr3a, &mr1b ) );
   FD_TEST( fd_store_query_const( store, &mr3a ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr4a ) );
+  FD_TEST( fd_store_insert( store, 0, &mr4a, &mr2c ) );
   FD_TEST( fd_store_query_const( store, &mr4a ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr4b ) );
+  FD_TEST( fd_store_insert( store, 0, &mr4b, &mr4a ) );
   FD_TEST( fd_store_query_const( store, &mr4b ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr4c ) );
+  FD_TEST( fd_store_insert( store, 0, &mr4c, &mr4b ) );
   FD_TEST( fd_store_query_const( store, &mr4c ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr4d ) );
+  FD_TEST( fd_store_insert( store, 0, &mr4d, &mr4c ) );
   FD_TEST( fd_store_query_const( store, &mr4d ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr5a ) );
+  FD_TEST( fd_store_insert( store, 0, &mr5a, &mr3a ) );
   FD_TEST( fd_store_query_const( store, &mr5a ) );
 
-  FD_TEST( fd_store_insert( store, 0, &mr5b ) );
+  FD_TEST( fd_store_insert( store, 0, &mr5b, &mr5a ) );
   FD_TEST( fd_store_query_const( store, &mr5b ) );
 
-  FD_TEST( fd_store_insert( store, 1, &mr6a ) );
+  FD_TEST( fd_store_insert( store, 1, &mr6a, &mr5b ) );
   FD_TEST( fd_store_query_const( store, &mr6a ) );
 
   fd_store_link( store, &mr1a, &mr0 );
@@ -192,13 +192,16 @@ test_map_function( fd_wksp_t * wksp ) {
   FD_TEST( store );
   ulong part_sz = fec_max / store->part_cnt;
 
+
+  fd_hash_t hash_null = { 0 };
   fd_store_key_t key1 = { .mr = { { 0 } }, .part = 0 };
   fd_store_key_t key2 = { .mr = { { 0 } }, .part = 1 };
 
+
   FD_TEST( fd_store_map_key_eq( &key1, &key2 ) );
   FD_TEST( fd_store_map_key_hash( &key1, part_sz ) != fd_store_map_key_hash( &key2, part_sz ) );
-  fd_store_insert( store, key1.part, &key1.mr );
-  fd_store_insert( store, key2.part, &key2.mr ); /* will fail, mr already exists.*/
+  fd_store_insert( store, key1.part, &key1.mr, &hash_null );
+  fd_store_insert( store, key2.part, &key2.mr, &hash_null ); /* will fail, mr already exists.*/
 
   /* at this point there are two merkle root = 0 keys in the map, but they live in different partitions */
   /* the store_query APIs should return the same fec_t *, but the store_map_ele_query APIs should return different fec_t * */
@@ -210,8 +213,8 @@ test_map_function( fd_wksp_t * wksp ) {
   /* purposefully collide a bunch of keys with key1 */
   fd_store_key_t collide1 = { .mr = { .ul = { 0, 20, 0, 0 } }, .part = 0 };
   fd_store_key_t collide2 = { .mr = { .ul = { 0, 30, 0, 0 } }, .part = 0 };
-  fd_store_insert( store, collide1.part, &collide1.mr );
-  fd_store_insert( store, collide2.part, &collide2.mr );
+  fd_store_insert( store, collide1.part, &collide1.mr, &hash_null );
+  fd_store_insert( store, collide2.part, &collide2.mr, &hash_null );
 
   FD_TEST( fd_store_map_ele_query_const( map, &collide1, NULL, fec0 ) );
   FD_TEST( fd_store_map_ele_query_const( map, &collide2, NULL, fec0 ) );
@@ -258,13 +261,14 @@ shred_tile_insert( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "shred_tile_insert called on tile %lu", fd_tile_idx() ));
 
   while( !FD_VOLATILE_CONST( tile_go ) ) FD_SPIN_PAUSE();
+  fd_hash_t hash_null = { 0 };
 
   ulong tile_idx = fd_tile_idx();
   for( ulong i = 1; i < num_insert; i++ ) {
     fd_hash_t mr = { .ul = { (i << 16) | tile_idx } };
     fd_rwlock_read( &store->lock );
     FD_LOG_NOTICE(( "inserting %lu at tile %lu", i, tile_idx ));
-    fd_store_insert( store, (uint)tile_idx, &mr );
+    fd_store_insert( store, (uint)tile_idx, &mr, &hash_null );
     fd_rwlock_unread( &store->lock );
   }
   return 0;
