@@ -1389,6 +1389,13 @@ user = ""
         # per object allocations in the replay tile's context
         heap_size_gib = 50
 
+        # Controls whether runtime slot context logging is silenced.
+        # When true (default), runtime slot information (slot number,
+        # bank hash, parent bank hash, lthash, signature count, last
+        # blockhash) will not be printed during block execution. When
+        # false, this information will be logged at NOTICE level.
+        silent_runtime_logs = true
+
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other
         # transactions. It also uses this as the UDP src port.

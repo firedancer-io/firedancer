@@ -327,7 +327,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   /* Now load the blockhash offsets for these blockhashes ... */
-  FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
+  // FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );

@@ -375,6 +375,7 @@ struct fd_topo_tile {
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
+      int   silent_runtime_logs;
 
     } replay;
 

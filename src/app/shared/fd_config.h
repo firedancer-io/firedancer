@@ -442,6 +442,7 @@ struct fd_config {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
       ulong heap_size_gib;
+      int   silent_runtime_logs;
     } replay;
 
     struct {

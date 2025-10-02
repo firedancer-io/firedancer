@@ -126,6 +126,9 @@ struct fd_replay_tile {
   /* tx_metadata_storage enables the log collector if enabled */
   int tx_metadata_storage;
 
+  /* Logs configuration from TOML */
+  int silent_runtime_logs;
+
   fd_funk_t funk[1];
 
   fd_txncache_t * txncache;
@@ -640,6 +643,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   }
   bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
+  FD_LOG_NOTICE(( "silent_runtime_logs: %d", ctx->silent_runtime_logs ));
   int is_epoch_boundary = 0;
   fd_exec_slot_ctx_t slot_ctx = {
     .bank         = bank,
@@ -647,6 +651,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
+    .silent       = !!ctx->silent_runtime_logs,
   };
   fd_runtime_block_pre_execute_process_new_epoch(
       &slot_ctx,
@@ -743,7 +748,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
-    .silent       = 1,
+    .silent       = !!ctx->silent_runtime_logs,
   };
   fd_runtime_block_execute_finalize( &slot_ctx );
 
@@ -909,7 +914,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
     .bank         = ctx->leader_bank,
     .xid          = {xid},
     .status_cache = ctx->txncache,
-    .silent       = 1,
+    .silent       = !!ctx->silent_runtime_logs,
   };
   fd_runtime_block_execute_finalize( &slot_ctx );
 
@@ -977,7 +982,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
-    .silent       = 1,
+    .silent       = !!ctx->silent_runtime_logs,
   };
   fd_rewards_recalculate_partitioned_rewards( &slot_ctx, ctx->capture_ctx, ctx->runtime_spad );
 
@@ -2048,6 +2053,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->txncache );
 
   ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
+  ctx->silent_runtime_logs = tile->replay.silent_runtime_logs;
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {

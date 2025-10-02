@@ -902,6 +902,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.heap_size_gib  = config->tiles.replay.heap_size_gib;
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
+    FD_LOG_NOTICE(( "silent_runtime_logs: %d", config->tiles.replay.silent_runtime_logs ));
+    tile->replay.silent_runtime_logs = config->tiles.replay.silent_runtime_logs;
 
     /* not specified by [tiles.replay] */
 
