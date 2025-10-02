@@ -1408,6 +1408,11 @@ dynamic_port_range = "8900-9000"
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
 
+    # SNP tile performs SNP-protocol handling, both ingress and egress.
+    [tiles.snp]
+        # This protocol is optional, and it is disabled by default.
+        enabled = false
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

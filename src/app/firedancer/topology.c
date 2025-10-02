@@ -964,6 +964,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
       tile->shred.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
+      tile->shred.is_snp_enabled                = config->tiles.snp.enabled;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
       if( FD_UNLIKELY( strcmp( config->firedancer.gossip.host, "" ) ) ) {

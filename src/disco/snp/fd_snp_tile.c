@@ -12,8 +12,11 @@
 #include "../fd_disco.h"
 #include "../net/fd_net_tile.h"
 #include "../../waltz/snp/fd_snp.h"
+#include "../../waltz/snp/fd_snp_app.h"
 
 #include <linux/unistd.h>
+
+#include "../../app/fdctl/version.h"
 
 static inline fd_snp_limits_t
 snp_limits( fd_topo_tile_t const * tile ) {
@@ -113,6 +116,12 @@ typedef struct {
   } metrics[ 1 ];
 
   fd_stem_context_t * stem;
+
+  fd_snp_app_t * snp_app;
+
+  fd_snp_meta_t meta;
+  ulong         sig;
+  ulong         tsorig;
 } fd_snp_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -123,11 +132,13 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_snp_limits_t limits = snp_limits( tile );
+  fd_snp_app_limits_t limits_app = {0}; /* TODO remove? */
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snp_tile_ctx_t), sizeof(fd_snp_tile_ctx_t)   );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),        fd_stake_ci_footprint()     );
-  l = FD_LAYOUT_APPEND( l, fd_snp_align(),             fd_snp_footprint( &limits ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snp_tile_ctx_t), sizeof(fd_snp_tile_ctx_t)           );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),        fd_stake_ci_footprint()             );
+  l = FD_LAYOUT_APPEND( l, fd_snp_align(),             fd_snp_footprint( &limits )         );
+  l = FD_LAYOUT_APPEND( l, fd_snp_app_align(),         fd_snp_app_footprint( &limits_app ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -185,6 +196,12 @@ handle_new_cluster_contact_info( fd_snp_tile_ctx_t * ctx,
     memcpy( dests[i].pubkey.uc, in_dests[i].pubkey, 32UL );
     dests[i].ip4  = in_dests[i].ip4_addr;
     dests[i].port = in_dests[i].udp_port;
+    dests[i].is_secure = (in_dests[i].version_minor == FDCTL_MINOR_VERSION) ? 1U : 0U;
+    /* TODO JAV remove when ready */
+    if( FD_UNLIKELY( dests[i].is_secure ) ) {
+      FD_LOG_NOTICE(( "%u.%u.%u.%u:%u is_secure? %x",
+        (dests[i].ip4>>0)&0xff, (dests[i].ip4>>8)&0xff, (dests[i].ip4>>16)&0xff, (dests[i].ip4>>24)&0xff, dests[i].port, dests[i].is_secure ));
+    }
   }
 }
 
@@ -231,6 +248,10 @@ during_frag( fd_snp_tile_ctx_t * ctx,
              ulong               sz,
              ulong               ctl ) {
 
+  ctx->skip_frag = 0;
+
+  ctx->tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+
   switch( ctx->in_kind[ in_idx ] ) {
 
     case IN_KIND_SHRED: {
@@ -242,8 +263,27 @@ during_frag( fd_snp_tile_ctx_t * ctx,
               ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
       ctx->packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-      memcpy( ctx->packet, dcache_entry, sz );
-      ctx->packet_sz = sz;
+      fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)dcache_entry;
+      uint ip4_daddr     = hdr->ip4->daddr;
+      ushort udp_dport   = fd_ushort_bswap( hdr->udp->net_dport );
+
+      /* TODO temporary version of is_secure retrieval */
+      int is_secure = 0;
+      for( ulong d_i=0; d_i<ctx->new_dest_cnt; d_i++ ) {
+        if( ip4_daddr == ctx->new_dest_ptr[ d_i ].ip4 ) {
+          is_secure = ctx->new_dest_ptr[ d_i ].is_secure;
+          break;
+        }
+      }
+
+      fd_snp_meta_t meta = fd_snp_meta_from_parts( is_secure ? FD_SNP_META_PROTO_V1 : FD_SNP_META_PROTO_UDP, /* app_id */ 0, ip4_daddr, udp_dport );
+      int res = fd_snp_app_send( ctx->snp_app, ctx->packet, FD_NET_MTU, dcache_entry + sizeof(fd_ip4_udp_hdrs_t), sz - sizeof(fd_ip4_udp_hdrs_t), meta );
+      if( res < 0 ) {
+        FD_LOG_WARNING(( "fd_snp_app_send returned res %d", res ));
+        ctx->skip_frag = 1;
+      }
+      ctx->packet_sz = (ulong)res;
+      ctx->meta = meta;
     } break;
 
     case IN_KIND_NET_SHRED: {
@@ -267,6 +307,7 @@ during_frag( fd_snp_tile_ctx_t * ctx,
 
       memcpy( ctx->packet, dcache_entry, sz );
       ctx->packet_sz = sz;
+      ctx->sig = sig;
 
       int is_snp = 0;
       if( sz > 45
@@ -279,7 +320,6 @@ during_frag( fd_snp_tile_ctx_t * ctx,
       ctx->metrics->rx_bytes_via_snp_cnt += fd_ulong_if( is_snp, sz, 0UL );
       ctx->metrics->rx_pkts_via_udp_cnt  += fd_ulong_if( is_snp, 0UL, 1UL );
       ctx->metrics->rx_pkts_via_snp_cnt  += fd_ulong_if( is_snp, 1UL, 0UL );
-
     } break;
 
     case IN_KIND_GOSSIP:
@@ -327,14 +367,15 @@ after_frag( fd_snp_tile_ctx_t * ctx,
             ulong               tsorig  FD_PARAM_UNUSED,
             ulong               _tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem  ) {
+  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+
   /* make sure to set ctx->stem before invoking any snp callback. */
   ctx->stem = stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
       /* Process all applications (with multicast) */
-      fd_snp_meta_t meta = (fd_snp_meta_t)sig;
-      fd_snp_send( ctx->snp, ctx->packet, ctx->packet_sz, meta );
+      fd_snp_send( ctx->snp, ctx->packet, ctx->packet_sz, ctx->meta );
     } break;
 
     case IN_KIND_NET_SHRED: {
@@ -383,7 +424,7 @@ snp_callback_tx( void const *  _ctx,
   if( FD_UNLIKELY( meta & FD_SNP_META_OPT_BUFFERED ) ) {
     memcpy( fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk ), packet, packet_sz );
   }
-  fd_stem_publish( ctx->stem, NET_OUT_IDX /*ctx->net_out_idx*/, sig, ctx->net_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
+  fd_stem_publish( ctx->stem, NET_OUT_IDX /*ctx->net_out_idx*/, sig, ctx->net_out_chunk, packet_sz, 0UL, ctx->tsorig, tspub );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 
   int is_snp = proto!=FD_SNP_META_PROTO_UDP;
@@ -403,15 +444,19 @@ snp_callback_rx( void const *  _ctx,
                  fd_snp_meta_t meta ) {
   fd_snp_tile_ctx_t * ctx = (fd_snp_tile_ctx_t *)_ctx;
   ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig = (ulong)meta;
+  ulong sig = ctx->sig;
   FD_TEST( ctx->stem != NULL );
-  /* TODO: based on ... (port?) ... we should send it to the correct application, e.g. shred tile */
-
   /* No memcpy needed here - already done in during_frag. */
+
   if( FD_UNLIKELY( meta & FD_SNP_META_OPT_BUFFERED ) ) {
+    /* TODO this calculation of sig is very specific to the shred tile. */
+    fd_ip4_hdr_t * ip4_hdr = (fd_ip4_hdr_t *)(packet + sizeof(fd_eth_hdr_t));
+    ulong hdr_sz = sizeof(fd_eth_hdr_t) + FD_IP4_GET_LEN( *ip4_hdr ) + sizeof(fd_udp_hdr_t);
+    sig = fd_disco_netmux_sig( 0/*unsued*/, 0/*unsued*/, 0/*unsued*/, DST_PROTO_SHRED, hdr_sz );
+    /* copy the buffered packet */
     memcpy( ctx->packet, packet, packet_sz );
   }
-  fd_stem_publish( ctx->stem, SHRED_OUT_IDX /*ctx->shred_out_idx*/, sig, ctx->shred_out_chunk, packet_sz, 0UL, 0UL /* tsorig */, tspub );
+  fd_stem_publish( ctx->stem, SHRED_OUT_IDX /*ctx->shred_out_idx*/, sig, ctx->shred_out_chunk, packet_sz, 0UL, ctx->tsorig, tspub );
   ctx->shred_out_chunk = fd_dcache_compact_next( ctx->shred_out_chunk, packet_sz, ctx->shred_out_chunk0, ctx->shred_out_wmark );
 
   FD_DEBUG_SNP( FD_LOG_NOTICE(( "[snp] publish to shred %lu meta=%016lx", packet_sz, sig )) );
@@ -435,7 +480,7 @@ snp_callback_sign( void const *  _ctx,
   uchar * dst = fd_chunk_to_laddr( ctx->sign_out_mem, ctx->sign_out_chunk );
   memcpy( dst+0UL, &session_id, sizeof(ulong) );
   memcpy( dst+sizeof(ulong), to_sign, FD_SNP_TO_SIGN_SZ - sizeof(ulong) );
-  fd_stem_publish( ctx->stem, SIGN_OUT_IDX /*ctx->sign_out_idx*/, sig, ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, 0UL, 0UL /* tsorig */, tspub );
+  fd_stem_publish( ctx->stem, SIGN_OUT_IDX /*ctx->sign_out_idx*/, sig, ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, 0UL, ctx->tsorig, tspub );
   ctx->sign_out_chunk = fd_dcache_compact_next( ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, ctx->sign_out_chunk0, ctx->sign_out_wmark );
 
   FD_LOG_NOTICE(( "[snp] publish to sign %016lx", session_id ));
@@ -489,9 +534,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* SNP */
   fd_snp_limits_t limits = snp_limits( tile );
+  fd_snp_app_limits_t limits_app = { 0 };
 
   void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()     );
   void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_align(),          fd_snp_footprint( &limits ) );
+  void * _snp_app  = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_app_align(),      fd_snp_app_footprint( &limits_app )  );
 
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
 
@@ -596,6 +643,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->stem = NULL; /* to be set before every snp callback function */
+
+  fd_snp_app_t * snp_app = fd_snp_app_join( fd_snp_app_new( _snp_app, &limits_app ) );
+  ctx->snp_app = snp_app;
 }
 
 static ulong
