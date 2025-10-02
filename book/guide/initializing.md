@@ -156,17 +156,34 @@ See the [kernel
 documentation](https://docs.kernel.org/networking/scaling.html) for more
 information.
 
-In Firedancer, each `net` tile serves one network queue, so the
-`ethtool-channels` stage will modify the combined channel count of the
-configured network device `[net.interface]` to be the same as the number
-of `net` tiles, `[layout.net_tile_count]`. If your NIC does not support
-the required number of queues, you will need to reduce the number of
-`net` tiles, potentially down to one for NICs which don't support queues
-at all.
+In Firedancer, each `net` tile serves just one network queue, so the
+`ethtool-channels` stage will modify the network device `[net.interface]`
+configuration such that all packets needed by Firedancer are steered to
+the proper queue(s).  There are three modes, selectable in your
+configuration, that govern this behavior:
 
-The command run by the stage is similar to running `ethtool
---set-channels <device> combined <N>` but it also supports bonded
-devices. We can check that it worked:
+ * **simple** mode modifies the combined channel count of the configured
+network device to be the same as the number of `net` tiles,
+`[layout.net_tile_count]`. If your NIC does not support the required
+number of queues, you will need to reduce the number of `net` tiles,
+potentially down to one for NICs which don't support queues at all.  This
+is the default mode and should work for all network devices.  Because
+the queue count is reduced system-wide, not solely for Firedancer, this
+can have a negative performance impact on non-Firedancer network traffic.
+
+ * **dedicated** mode reserves a dedicated hardware queue for each `net`
+tile.  This is the more advanced mode and may not work with all network
+devices.  By modifying the RXFH indirection table and installing ntuple
+rules, Firedancer traffic is directed onto the dedicated queues and all
+other traffic is sharded amongst the rest.  This has a performance
+benefit for both Firedancer and non-Firedancer traffic.
+
+ * **auto** mode attempts to initialize the device in dedicated mode
+and automatically falls back to simple mode if any failure occurs.
+
+The command run by the stage in simple mode is similar to running
+`ethtool --set-channels <device> combined <N>` but it also supports
+bonded devices. We can check that it worked:
 
 <<< @/snippets/ethtool-channels.ansi
 
@@ -174,8 +191,8 @@ The stage only needs to be run once after boot but before running
 Firedancer. It has no dependencies on any other stage, although it is
 dependent on the number of `net` tiles in your configuration.
 
-Changing device settings with `ethtool-channels` requires root privileges, and
-cannot be performed with capabilities.
+Changing device settings with `ethtool-channels` requires root
+privileges, and cannot be performed with capabilities.
 
 ## ethtool-gro
 XDP is incompatible with a feature of network devices called

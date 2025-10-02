@@ -851,20 +851,23 @@ user = ""
         # the correct queue(s).  The queue setup and initialization has the
         # following options:
         #
-        # "simple" (default)
+        # "simple"
         #   Reduces the total queue count to equal the number of net tiles.
         #   All packets (both interesting to Firedancer and not) are sharded
         #   amongst these queues.  Simple, reliable, and works everywhere
         #   but suboptimal performance impact, especially to socket-based
         #   traffic.
         #
-        # "dedicated" (experimental)
+        # "dedicated"
         #   Reserves a dedicated hardware queue for each net tile.  For
         #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
         #   to route interesting packets based on UDP dst port.  This mode
-        #   is considered experimental and may not work with some network
-        #   device setups. This should not yet be used in production.
-        rss_queue_mode = "simple"
+        #   may not work with some network device setups.
+        #
+        # "auto" (default)
+        #   Attempts to run in "dedicated" mode but automatically falls
+        #   back to "simple" mode if necessary.
+        rss_queue_mode = "auto"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
