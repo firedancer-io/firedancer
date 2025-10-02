@@ -1165,15 +1165,16 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       for( ulong i=0; i<ehdr.e_phnum; i++ ) {
         /* Again... */
         fd_elf64_phdr phdr = FD_LOAD( fd_elf64_phdr, bin + phdr_start + i*sizeof(fd_elf64_phdr) );
-        if( FD_UNLIKELY( phdr.p_vaddr + phdr.p_memsz < phdr.p_vaddr ) ) {
+        if( FD_UNLIKELY( phdr.p_vaddr+phdr.p_memsz<phdr.p_vaddr ) ) {
           return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
         }
-        if( phdr.p_vaddr <= vaddr && vaddr < phdr.p_vaddr + phdr.p_memsz ) {
+        if( phdr.p_vaddr<=vaddr && vaddr<phdr.p_vaddr+phdr.p_memsz ) {
           /* vaddr - phdr.p_vaddr is guaranteed to be non-negative */
-          offset = vaddr - phdr.p_vaddr + phdr.p_offset;
-          if( FD_UNLIKELY( offset < phdr.p_offset ) ) {
+          offset = vaddr-phdr.p_vaddr+phdr.p_offset;
+          if( FD_UNLIKELY( offset<phdr.p_offset ) ) {
             return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
           }
+          break;
         }
       }
       if( FD_UNLIKELY( offset==ULONG_MAX ) ) {
