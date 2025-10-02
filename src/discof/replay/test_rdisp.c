@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #endif
 
-#define TEST_FOOTPRINT (128UL*1024UL*1024UL)
+#define TEST_FOOTPRINT (512UL*1024UL*1024UL)
 uchar footprint[ TEST_FOOTPRINT ] __attribute__((aligned(128)));
 uint  verify_scratch[ 512UL ];
 
@@ -652,6 +652,29 @@ main( int     argc,
   }
   while( txn_cnt ) fd_rdisp_complete_txn( disp, txn_idxs[--txn_cnt] );
   FD_TEST(  0==fd_rdisp_remove_block( disp, tag( 0UL ) ) );
+
+  fd_rdisp_delete( fd_rdisp_leave( disp ) );
+
+
+  FD_TEST( fd_rdisp_footprint( FD_RDISP_MAX_BLOCK_DEPTH, FD_RDISP_MAX_BLOCK_DEPTH )<=TEST_FOOTPRINT && fd_rdisp_align()<=128UL ); /* if this fails, update the test */
+
+  disp = fd_rdisp_join( fd_rdisp_new( footprint, FD_RDISP_MAX_BLOCK_DEPTH, FD_RDISP_MAX_BLOCK_DEPTH, SEED ) );
+  FD_TEST( disp );
+  /* Fill block_depth, (remove one, add one) a bunch, then drain*/
+  ulong txn_idx[ FD_RDISP_MAX_BLOCK_DEPTH*2UL ];
+  for( ulong block=0UL; block<3UL*FD_RDISP_MAX_BLOCK_DEPTH; block++ ) {
+    if( block>=FD_RDISP_MAX_BLOCK_DEPTH ) {
+      ulong ablock = block-FD_RDISP_MAX_BLOCK_DEPTH;
+      FD_TEST( txn_idx[ablock]==fd_rdisp_get_next_ready( disp, tag( ablock ) ) );
+      fd_rdisp_complete_txn( disp, txn_idx[ablock] );
+      FD_TEST( 0==fd_rdisp_remove_block( disp, tag( ablock ) ) );
+    }
+    if( block<2UL*FD_RDISP_MAX_BLOCK_DEPTH ) {
+      FD_TEST( 0==fd_rdisp_add_block( disp, tag( block ), 0UL ) );
+      txn_idx[block] = add_txn( disp, rng, tag( block ), "", "A", 0 );
+      FD_TEST( txn_idx[block] );
+    }
+  }
 
   fd_rdisp_delete( fd_rdisp_leave( disp ) );
 
