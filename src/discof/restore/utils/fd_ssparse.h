@@ -7,13 +7,14 @@
 
 #define FD_SSPARSE_MAGIC (0xF17EDA2CE58AC5E0) /* FIREDANCE PARSE V0 */
 
-#define FD_SSPARSE_ADVANCE_ERROR          (-1)
-#define FD_SSPARSE_ADVANCE_AGAIN          ( 0)
-#define FD_SSPARSE_ADVANCE_MANIFEST       ( 1)
-#define FD_SSPARSE_ADVANCE_STATUS_CACHE   ( 2)
-#define FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ( 3)
-#define FD_SSPARSE_ADVANCE_ACCOUNT_DATA   ( 4)
-#define FD_SSPARSE_ADVANCE_DONE           ( 5)
+#define FD_SSPARSE_ADVANCE_ERROR                          (-1)
+#define FD_SSPARSE_ADVANCE_AGAIN                          ( 0)
+#define FD_SSPARSE_ADVANCE_MANIFEST                       ( 1)
+#define FD_SSPARSE_ADVANCE_STATUS_CACHE                   ( 2)
+#define FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE ( 3)
+#define FD_SSPARSE_ADVANCE_ACCOUNT_HEADER                 ( 4)
+#define FD_SSPARSE_ADVANCE_ACCOUNT_DATA                   ( 5)
+#define FD_SSPARSE_ADVANCE_DONE                           ( 6)
 
 /* fd_ssparse_t is a solana snapshot parser.  It is designed to parse a
    snapshot in streaming fasion, chunk by chunk. */

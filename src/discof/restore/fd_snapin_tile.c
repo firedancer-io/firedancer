@@ -79,7 +79,12 @@ struct fd_snapin_tile {
   fd_ssparse_t *           ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
-  ulong                    bank_slot;
+
+  struct {
+    ulong                            bank_slot;
+    ulong                            blockhashes_len;
+    fd_snapshot_manifest_blockhash_t blockhashes[ 301UL ];
+  } manifest_fields;
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
@@ -396,14 +401,14 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 static void
 process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk );
-  ulong bank_slot = ctx->bank_slot = manifest->slot;
-  if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, bank_slot ) ) ) {
-    FD_LOG_WARNING(( "slot deltas verification failed" ));
-    transition_malformed( ctx, ctx->stem );
-    return;
+
+  /* Buffer manifest fields */
+  ctx->manifest_fields.bank_slot       = manifest->slot;
+  ctx->manifest_fields.blockhashes_len = manifest->blockhashes_len;
+  for( ulong i=0UL; i<manifest->blockhashes_len; i++ ) {
+    ctx->manifest_fields.blockhashes[ i ] = manifest->blockhashes[ i ];
   }
 
-  if( FD_UNLIKELY( populate_txncache( ctx, manifest->blockhashes, manifest->blockhashes_len ) ) ) return;
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
@@ -535,6 +540,20 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       }
+      case FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE: {
+        if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, ctx->manifest_fields.bank_slot ) ) ) {
+          FD_LOG_WARNING(( "slot deltas verification failed" ));
+          transition_malformed( ctx, ctx->stem );
+          break;
+        }
+      
+        if( FD_UNLIKELY( populate_txncache( ctx, ctx->manifest_fields.blockhashes, ctx->manifest_fields.blockhashes_len ) ) ) {
+          FD_LOG_WARNING(( "populating txncache failed" ));
+          transition_malformed( ctx, ctx->stem );
+          break;
+        }
+        break;
+      }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
         process_account_header( ctx, result );
         break;
@@ -631,7 +650,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
-      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, ctx->bank_slot } };
+      fd_funk_txn_xid_t target_xid = { .ul = { ctx->manifest_fields.bank_slot, ctx->manifest_fields.bank_slot } };
       fd_funk_txn_prepare( ctx->funk, ctx->xid, &target_xid );
       fd_funk_txn_publish_into_parent( ctx->funk, &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );

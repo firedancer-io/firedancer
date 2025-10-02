@@ -352,7 +352,8 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
   else { /* ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes */
     /* finished parsing status cache */
     ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    return FD_SSPARSE_ADVANCE_STATUS_CACHE;
+    if( FD_LIKELY( ssparse->flags.seen_manifest ) ) return FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE;
+    else                                            return FD_SSPARSE_ADVANCE_STATUS_CACHE;
   }
 }
 
@@ -379,7 +380,8 @@ advance_manifest( fd_ssparse_t *                ssparse,
   else { /* ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes */
     /* finished parsing manifest */
     ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    return FD_SSPARSE_ADVANCE_MANIFEST;
+    if( FD_LIKELY( ssparse->flags.seen_status_cache ) ) return FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE;
+    else                                                return FD_SSPARSE_ADVANCE_MANIFEST;
   }
 }
 
