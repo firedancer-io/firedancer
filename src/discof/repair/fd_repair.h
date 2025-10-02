@@ -253,7 +253,7 @@ fd_repair_sz( fd_repair_msg_t const * msg ) {
      case FD_REPAIR_KIND_SHRED:         return sizeof(uint) + sizeof(fd_repair_shred_req_t);
      case FD_REPAIR_KIND_HIGHEST_SHRED: return sizeof(uint) + sizeof(fd_repair_highest_shred_req_t);
      case FD_REPAIR_KIND_ORPHAN:        return sizeof(uint) + sizeof(fd_repair_orphan_req_t);
-     default:                           FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind ));
+     default:                           { __asm__("int $3"); FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind )); }
    }
 }
 

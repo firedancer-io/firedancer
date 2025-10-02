@@ -207,6 +207,25 @@ typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 #define MAP_MEMOIZE      0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* Because the sign tiles could be all busy when a contact info arrives,
+   we need to save ping messages to be signed in a queue and dispatched
+   in after_credit when there are sign tiles available.  The size of the queue was determined by the following: we can limit
+   the size of this queue to be the maximum number of active keys -
+   which is equal to the number of warm up requests we might queue.  The
+   queue will also hold pongs, but in order for the ping to arrive the
+   warm up request must have left the queue.  It is possible that we
+   start up and get FD_ACTIVE_KEY_MAX peers gossiped to us, and as we are
+   queueing up their pings they all drop and another FD_ACTIVE_KEY_MAX
+   new peers gossip to us, causing us to fill up the queue.  Idk overall
+   this scenario is highly unlikely and it's not the end of the world
+   if we drop a warmup req or ping  to a peer because the first req to them
+   will retrigger it anyway. */
+
+#define QUEUE_NAME       fd_ping_signs_queue
+#define QUEUE_T          fd_repair_msg_t
+#define QUEUE_MAX        2*FD_ACTIVE_KEY_MAX
+#include "../../util/tmpl/fd_queue.c"
+
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
 
@@ -260,6 +279,7 @@ struct ctx {
 
   /* Pending sign requests for async operations */
   fd_repair_pending_sign_t * signs_map;
+  fd_repair_msg_t          * ping_queue;
   uint                       pending_key_next;
 
   ushort net_id;
@@ -311,6 +331,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                       );
   l = FD_LAYOUT_APPEND( l, fd_fec_sig_align(),        fd_fec_sig_footprint  ( 20 )                                   );
   l = FD_LAYOUT_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth )                        );
+  l = FD_LAYOUT_APPEND( l, fd_ping_signs_queue_align(), fd_ping_signs_queue_footprint( )                             );
   l = FD_LAYOUT_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint  ()                                );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
@@ -568,6 +589,8 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
     fd_repair_msg_t * init     = fd_repair_shred( ctx->protocol, &contact_info->pubkey, (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
     out_ctx_t *       sign_out = sign_avail_credits( ctx ); // totally could be null, TODO how to handle this? we don't want to lose the peer probably
     if( !sign_out ){
+      FD_LOG_WARNING((" we wanted to send a repair request to %s, but no sign_out context is available", FD_BASE58_ENC_32_ALLOCA( &contact_info->pubkey ) ));
+      fd_ping_signs_queue_push( ctx->ping_queue, *init );
       ctx->metrics->sign_tile_unavail++;
       return;
     }
@@ -605,7 +628,9 @@ after_sign( ctx_t             * ctx,
     if( FD_UNLIKELY( !active ) ) {
       FD_LOG_INFO(( "Signed a message for %s, but it is no longer in the active peer list", FD_BASE58_ENC_32_ALLOCA( &pending->msg.shred.to ) ));
       /* Happens extremely rarely, so we can just pick a new peer and
-         synchronously resign it right here. */
+         try to resign here.  The likelihood of this happening is pretty
+         low, so if there is no sign tile available, it's ok we'll just
+         re-request this shred 80ms later. */
       fd_pubkey_t const * new_peer = fd_policy_peer_select( ctx->policy );
       pending->msg.shred.to        = *new_peer;
       out_ctx_t *         sign_out = sign_avail_credits( ctx );
@@ -905,6 +930,11 @@ after_credit( ctx_t *             ctx,
     ctx->metrics->sign_tile_unavail++;
     return;
   }
+  if( FD_UNLIKELY( !fd_ping_signs_queue_empty( ctx->ping_queue ) ) ) {
+    fd_repair_msg_t msg = fd_ping_signs_queue_pop( ctx->ping_queue );
+    fd_repair_send_request_async( ctx, sign_out, &msg, msg.kind != FD_REPAIR_KIND_PONG ? SIGN_INIT_REQUEST : SIGN_PONG );
+    return;
+  }
 
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot );
   if( FD_UNLIKELY( !cout ) ) return;
@@ -949,13 +979,14 @@ unprivileged_init( fd_topo_t *      topo,
   int   lg_sign_depth    = fd_ulong_find_msb( fd_ulong_pow2_up(total_sign_depth) ) + 1;
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),            sizeof(ctx_t)                                                  );
-  ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),         fd_repair_footprint   ()                                       );
-  ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),         fd_forest_footprint   ( tile->repair.slot_max )                );
-  ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),         fd_policy_footprint   ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
-  ctx->inflight     = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),      fd_inflights_footprint()                                       );
-  ctx->fec_sigs     = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(),        fd_fec_sig_footprint  ( 20 )                                   );
-  ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),      fd_signs_map_footprint( lg_sign_depth )                        );
+  ctx_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ctx_t),              sizeof(ctx_t)                                                  );
+  ctx->protocol     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(),           fd_repair_footprint   ()                                       );
+  ctx->forest       = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_align(),           fd_forest_footprint   ( tile->repair.slot_max )                );
+  ctx->policy       = FD_SCRATCH_ALLOC_APPEND( l, fd_policy_align(),           fd_policy_footprint   ( FD_NEEDED_KEY_MAX, FD_ACTIVE_KEY_MAX ) );
+  ctx->inflight     = FD_SCRATCH_ALLOC_APPEND( l, fd_inflights_align(),        fd_inflights_footprint()                                       );
+  ctx->fec_sigs     = FD_SCRATCH_ALLOC_APPEND( l, fd_fec_sig_align(),          fd_fec_sig_footprint  ( 20 )                                   );
+  ctx->signs_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_signs_map_align(),        fd_signs_map_footprint( lg_sign_depth )                        );
+  ctx->ping_queue   = FD_SCRATCH_ALLOC_APPEND( l, fd_ping_signs_queue_align(), fd_ping_signs_queue_footprint() );
   ctx->slot_metrics = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_metrics_align(), fd_repair_metrics_footprint()                                  );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, scratch_align() ) == (ulong)scratch + scratch_footprint( tile ) );
 
@@ -965,6 +996,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->inflight     = fd_inflights_join     ( fd_inflights_new     ( ctx->inflight                                                         ) );
   ctx->fec_sigs     = fd_fec_sig_join       ( fd_fec_sig_new       ( ctx->fec_sigs, 20                                                     ) );
   ctx->signs_map    = fd_signs_map_join     ( fd_signs_map_new     ( ctx->signs_map, lg_sign_depth                                         ) );
+  ctx->ping_queue   = fd_ping_signs_queue_join( fd_ping_signs_queue_new( ctx->ping_queue ) );
   ctx->slot_metrics = fd_repair_metrics_join( fd_repair_metrics_new( ctx->slot_metrics                                                     ) );
 
   /* Process in links */
