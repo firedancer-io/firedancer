@@ -64,39 +64,11 @@ FD_PROTOTYPES_BEGIN
    After a successful call to fd_txn_account_new, the object will now
    own the account's metadata and data. */
 
-void *
+fd_txn_account_t *
 fd_txn_account_new( void *              mem,
                     fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
                     int                 is_mutable );
-
-/* fd_txn_account_join joins a thread with an indepedent address space
-   to the memory region allocated by fd_txn_account_new. There can be
-   only ONE valid join per fd_txn_account_t object. If a _join is called
-   from one thread, it is implied that the object is no longer valid
-   on other threads.
-
-   TODO: When the new db is introduced, the wksp argument should be
-   removed in favor of using offsets into other data structures. */
-
-fd_txn_account_t *
-fd_txn_account_join( void * mem );
-
-/* fd_txn_account_leave leaves a current local join and returns a
-   pointer to the underlying shared memory region. The fd_txn_account_t
-   will still own the account's metadata and data. */
-
-void *
-fd_txn_account_leave( fd_txn_account_t * acct );
-
-/* fd_txn_account_delete removes the memory layout for the
-   fd_txn_account_t object. It returns a pointer to the underlying
-   shared struct. Any attempts to join after a call to
-   fd_txn_account_delete will fail. The account's metadata and data
-   will be owned by the caller after the delete is called.  */
-
-void *
-fd_txn_account_delete( void * mem );
 
 /* Factory constructors from funk.
    TODO: These need to be removed when a new db is introduced and either

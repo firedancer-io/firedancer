@@ -237,14 +237,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        fork and diverge, so the link from here til PoH mixin must be
        completely reliable with nothing dropped.
 
-       fd_runtime_finalize_txn checks if the transaction fits into the
+       fd_runtime_commit_txn checks if the transaction fits into the
        block with the cost tracker.  If it doesn't fit, flags is set to
        zero.  A key invariant of the leader pipeline is that pack
        ensures all transactions must fit already, so it is a fatal error
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+    fd_runtime_commit_txn( ctx->txn_ctx->funk, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
     FD_TEST( txn->flags );
   }
 

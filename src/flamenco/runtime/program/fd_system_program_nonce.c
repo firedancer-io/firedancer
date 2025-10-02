@@ -1030,11 +1030,11 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         }
         fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
 
-        if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+        if( FD_UNLIKELY( !fd_txn_account_new(
               txn_ctx->rollback_nonce_account,
               &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
               (fd_account_meta_t *)borrowed_account_data,
-              1 ) ) ) ) {
+              1 ) ) ) {
           FD_LOG_CRIT(( "Failed to join txn account" ));
         }
 

@@ -1,7 +1,7 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
 
-void *
+fd_txn_account_t *
 fd_txn_account_new( void *              mem,
                     fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
@@ -43,71 +43,6 @@ fd_txn_account_new( void *              mem,
   return mem;
 }
 
-fd_txn_account_t *
-fd_txn_account_join( void * mem ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof(fd_txn_account_t) ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  fd_txn_account_t * txn_account = (fd_txn_account_t *)mem;
-
-  if( FD_UNLIKELY( txn_account->magic != FD_TXN_ACCOUNT_MAGIC ) ) {
-    FD_LOG_WARNING(( "wrong magic" ));
-    return NULL;
-  }
-
-  return txn_account;
-}
-
-void *
-fd_txn_account_leave( fd_txn_account_t * acct ) {
-
-  if( FD_UNLIKELY( !acct ) ) {
-    FD_LOG_WARNING(( "NULL acct" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( acct->magic != FD_TXN_ACCOUNT_MAGIC ) ) {
-    FD_LOG_WARNING(( "wrong magic" ));
-    return NULL;
-  }
-
-  acct->meta = NULL;
-  acct->data = NULL;
-
-  return acct;
-}
-
-void *
-fd_txn_account_delete( void * mem ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof(fd_txn_account_t) ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  fd_txn_account_t * txn_account = (fd_txn_account_t *)mem;
-
-  if( FD_UNLIKELY( txn_account->magic != FD_TXN_ACCOUNT_MAGIC ) ) {
-    FD_LOG_WARNING(( "wrong magic" ));
-    return NULL;
-  }
-
-  txn_account->magic = 0UL;
-
-  return mem;
-}
-
 /* Factory constructors from funk */
 
 int
@@ -129,11 +64,11 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
     return err;
   }
 
-  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+  if( FD_UNLIKELY( !fd_txn_account_new(
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        0 ) ) ) ) {
+        0 ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
@@ -169,11 +104,11 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
      prepared_rec field so that any created records can be published
      with fd_txn_account_mutable_fini. */
 
-  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+  if( FD_UNLIKELY( !fd_txn_account_new(
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        1 ) ) ) ) {
+        1 ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 

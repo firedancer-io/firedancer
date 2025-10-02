@@ -952,11 +952,11 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
     ulong  data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
     void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + data_len );
-    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+    if( FD_UNLIKELY( !fd_txn_account_new(
           txn_ctx->rollback_fee_payer_account,
           fee_payer_key,
           (fd_account_meta_t *)fee_payer_data,
-          1 ) ) ) ) {
+          1 ) ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
 
@@ -1455,11 +1455,11 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
     }
   }
 
-  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+  if( FD_UNLIKELY( !fd_txn_account_new(
       txn_account,
       acc,
       account_meta,
-      is_writable ) ) ) ) {
+      is_writable ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 

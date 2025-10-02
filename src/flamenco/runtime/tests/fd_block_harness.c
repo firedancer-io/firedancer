@@ -491,8 +491,8 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
         break;
       }
 
-      /* Finalize the transaction */
-      fd_runtime_finalize_txn(
+      /* Commit the transaction */
+      fd_runtime_commit_txn(
           slot_ctx->funk,
           NULL,
           slot_ctx->xid,

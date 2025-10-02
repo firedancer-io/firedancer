@@ -148,7 +148,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       ulong               dlen     = fd_txn_account_get_data_len( acc );
       fd_account_meta_t * meta     = (fd_account_meta_t *)data;
       fd_memcpy( data, fd_txn_account_get_meta( acc ), sizeof(fd_account_meta_t)+dlen );
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, 0 ) ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_new( acc, acc_key, meta, 0 ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
     }
@@ -173,7 +173,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     fd_account_meta_init( meta );
 
-    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( program_acc, program_key, meta, 1 ) ) ) ) {
+    if( FD_UNLIKELY( !fd_txn_account_new( program_acc, program_key, meta, 1 ) ) ) {
       FD_LOG_CRIT(( "Failed to join and new a txn account" ));
     }
 
@@ -195,7 +195,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
       fd_account_meta_t * meta = (fd_account_meta_t *)mem;
       memset( meta, 0, sizeof(fd_account_meta_t) );
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, 0 ) ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_new( acc, acc_key, meta, 0 ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
       continue;

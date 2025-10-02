@@ -461,12 +461,12 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *            banks,
                                     uchar                   do_sigverify );
 
 void
-fd_runtime_finalize_txn( fd_funk_t *               funk,
-                         fd_txncache_t *           txncache,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_exec_txn_ctx_t *       txn_ctx,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx );
+fd_runtime_commit_txn( fd_funk_t *               funk,
+                       fd_txncache_t *           txncache,
+                       fd_funk_txn_xid_t const * xid,
+                       fd_exec_txn_ctx_t *       txn_ctx,
+                       fd_bank_t *               bank,
+                       fd_capture_ctx_t *        capture_ctx );
 
 /* Epoch Boundary *************************************************************/
 

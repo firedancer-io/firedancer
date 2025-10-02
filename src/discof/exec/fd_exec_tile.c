@@ -178,7 +178,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
       }
 
       if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-          fd_runtime_finalize_txn(
+          fd_runtime_commit_txn(
             ctx->funk,
             ctx->txncache,
             &xid,

@@ -1035,11 +1035,6 @@ fd_runtime_save_account( fd_funk_t *               funk,
                          fd_bank_t *               bank,
                          fd_capture_ctx_t *        capture_ctx ) {
 
-  /* Join the transaction account */
-  if( FD_UNLIKELY( !fd_txn_account_join( account ) ) ) {
-    FD_LOG_CRIT(( "fd_runtime_save_account: failed to join account" ));
-  }
-
   /* Look up the previous version of the account from Funk */
   FD_TXN_ACCOUNT_DECL( previous_account_version );
   int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, xid );
@@ -1070,18 +1065,14 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_runtime_finalize_account( funk, xid, account );
 }
 
-/* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
-   executor to finalize borrowed account changes back into funk. It also
-   handles txncache insertion and updates to the vote/stake cache.
-   TODO: This function should probably be moved to fd_executor.c. */
 
 void
-fd_runtime_finalize_txn( fd_funk_t *               funk,
-                         fd_txncache_t *           txncache,
-                         fd_funk_txn_xid_t const * xid,
-                         fd_exec_txn_ctx_t *       txn_ctx,
-                         fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx ) {
+fd_runtime_commit_txn( fd_funk_t *               funk,
+                       fd_txncache_t *           txncache,
+                       fd_funk_txn_xid_t const * xid,
+                       fd_exec_txn_ctx_t *       txn_ctx,
+                       fd_bank_t *               bank,
+                       fd_capture_ctx_t *        capture_ctx ) {
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
@@ -1124,10 +1115,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
         continue;
       }
 
-      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts[i] );
-      if( FD_UNLIKELY( !acc_rec ) ) {
-        FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
-      }
+      fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
       if( dirty_vote_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_vote_store_account( acc_rec, bank );
