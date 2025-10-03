@@ -149,9 +149,6 @@ struct fd_sbpf_elf_info {
   uint text_cnt;    /* Instruction count */
   ulong text_sz;    /* Length of text segment */
 
-  uint dynstr_off;  /* File offset of .dynstr section (0=missing) */
-  uint dynstr_sz;   /* Dynstr char count */
-
   uint rodata_sz;         /* size of rodata segment */
   uint rodata_footprint;  /* size of ELF binary */
 
@@ -173,9 +170,6 @@ struct fd_sbpf_elf_info {
 
   uint entry_pc;  /* Program counter of entry point
                      NOTE: MIGHT BE OUT OF BOUNDS! */
-
-  /* Bitmap of sections to be loaded (LSB => MSB) */
-  ulong loaded_sections[ 1024UL ];
 
   /* SBPF version, SIMD-0161 */
   ulong sbpf_version;

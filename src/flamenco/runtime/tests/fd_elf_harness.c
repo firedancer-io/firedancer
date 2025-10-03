@@ -94,9 +94,8 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->text_off = prog->text_off;
     elf_effects->entry_pc = prog->entry_pc;
 
-    pb_size_t calldests_sz = (pb_size_t) fd_sbpf_calldests_cnt( prog->calldests)+1UL;
-    elf_effects->calldests_count = calldests_sz;
-    elf_effects->calldests = FD_SCRATCH_ALLOC_APPEND(l, 8UL, calldests_sz * sizeof(uint64_t));
+    pb_size_t max_calldests_sz = (pb_size_t) fd_sbpf_calldests_cnt( prog->calldests)+1UL;
+    elf_effects->calldests = FD_SCRATCH_ALLOC_APPEND(l, 8UL, max_calldests_sz * sizeof(uint64_t));
     if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
     }
@@ -106,12 +105,10 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
       fd_sbpf_calldests_insert( prog->calldests, entrypoint );
     }
 
-    ulong i = 0;
     for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
                         !fd_sbpf_calldests_const_iter_done(target_pc);
                target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
-      elf_effects->calldests[i] = target_pc;
-      ++i;
+      elf_effects->calldests[elf_effects->calldests_count++] = target_pc;
     }
   } while(0);
 

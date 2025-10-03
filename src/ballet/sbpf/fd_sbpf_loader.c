@@ -840,8 +840,6 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   /* This documents the values that will be set in this function */
   info->rodata_sz        = (uint)bin_sz; // FIXME
   info->rodata_footprint = (uint)bin_sz;
-  info->dynstr_off       = 0U;
-  info->dynstr_sz        = 0U;
   info->phndx_dyn        = -1;
   info->shndx_dyn        = -1;
   info->shndx_symtab     = -1;
@@ -852,13 +850,6 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L149 */
   if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
     return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
-  }
-  /* TODO: decide whether we want to enforce that bin is aligned,
-           in which case we can simply cast pointers to the various
-           table entries, or if we want to allow misaligned bin,
-           in which case we have to keep the FD_LOAD calls. */
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)bin, 8UL ) ) ) {
-    return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
   }
 
   fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
@@ -1071,8 +1062,6 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         info->shndx_dynstr = (int)i;
-        info->dynstr_off   = (uint)shdr.sh_offset;
-        info->dynstr_sz    = (uint)shdr.sh_size;
       }
     }
   }
@@ -1102,7 +1091,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       if( FD_UNLIKELY( dynamic_table_end<dynamic_table_start ||
                        dynamic_table_end>bin_sz ||
                        dyn_ph.p_filesz%sizeof(fd_elf64_dyn)!=0UL ||
-                       ((ulong)bin+dynamic_table_start)%8UL!=0UL ) ) {
+                       !fd_ulong_is_aligned( dynamic_table_start, 8UL ) ) ) {
         /* skip - try SHT_DYNAMIC instead */
         dynamic_table_start = ULONG_MAX;
         dynamic_table_end = ULONG_MAX;
@@ -1432,8 +1421,6 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
     .text_off         = 0U,
     .text_cnt         = 0U,
     .text_sz          = 0UL,
-    .dynstr_off       = 0U,
-    .dynstr_sz        = 0U,
     .rodata_sz        = 0U,
     .rodata_footprint = 0U,
     .shndx_text       = -1,
