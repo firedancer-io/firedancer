@@ -31,7 +31,17 @@ LLVMFuzzerInitialize( int  *   argc,
 int
 LLVMFuzzerTestOneInput( uchar const * data_,
                         ulong         size ) {
-  fd_slot_delta_parser_init( parser, NULL, NULL, NULL );
-  fd_slot_delta_parser_consume( parser, data_, size );
+  ulong bytes_remaining = size;
+  fd_slot_delta_parser_init( parser );
+
+  fd_slot_delta_parser_advance_result_t result[1];
+  while( bytes_remaining ) {
+    int res = fd_slot_delta_parser_consume( parser, data_, bytes_remaining, result );
+
+    if( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE || res<0 ) break;
+
+    data_           += result->bytes_consumed;
+    bytes_remaining -= result->bytes_consumed;
+  }
   return 0;
 }
