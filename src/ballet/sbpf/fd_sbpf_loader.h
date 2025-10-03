@@ -277,9 +277,14 @@ fd_sbpf_program_new( void *                     prog_mem,
 
    Initializes and populates the program struct with information about
    the program and prepares the read-only segment provided in
-   fd_sbpf_program_new.
+   fd_sbpf_program_new. This includes performing relocations in the
+   ELF file and zeroing gaps between rodata sections.
 
    Memory region [bin,bin+bin_sz) contains the ELF file to be loaded.
+
+   syscalls should be a pointer to a map of registered syscalls and
+   will be checked against when registering calldests for potential
+   symbol collisions.
 
    On success, returns 0.
    On error, returns FD_SBPF_ERR_* and leaves prog and
