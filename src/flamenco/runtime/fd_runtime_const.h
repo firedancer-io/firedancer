@@ -45,6 +45,12 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
+struct fd_runtime_mem {
+  uchar __attribute__((aligned(alignof(fd_vote_stake_weight_t)))) epoch_leaders_mem[ FD_RUNTIME_MAX_VOTE_ACCOUNTS * sizeof(fd_vote_stake_weight_t) ];
+  uchar __attribute__((aligned(128UL)))                           stake_pool_mem   [ FD_RUNTIME_MAX_VOTE_ACCOUNTS * 64UL ]; /* TODO: Don't use magic number */
+};
+typedef struct fd_runtime_mem fd_runtime_mem_t;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_const_h */

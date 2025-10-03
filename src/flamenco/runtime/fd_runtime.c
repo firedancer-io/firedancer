@@ -117,9 +117,9 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 void
 fd_runtime_update_leaders( fd_bank_t * bank,
                            ulong       slot,
-                           fd_spad_t * runtime_spad ) {
+                           uchar *     epoch_weights_mem ) {
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+  fd_vote_stake_weight_t * epoch_weights = (fd_vote_stake_weight_t *)epoch_weights_mem;
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
@@ -128,8 +128,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  ulong                    vote_acc_cnt          = fd_vote_states_cnt( vote_states_prev_prev ) ;
-  fd_vote_stake_weight_t * epoch_weights         = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
   ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
   fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
@@ -162,7 +160,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     }
     fd_bank_epoch_leaders_end_locking_modify( bank );
   }
-  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
@@ -431,7 +428,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
 
 static int
 fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_spad_t *          runtime_spad ) {
+                                            fd_spad_t *          runtime_spad,
+                                            fd_runtime_mem_t *   runtime_mem ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
@@ -443,7 +441,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
   ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( slot_ctx->bank ), NULL );
-  fd_sysvar_clock_update( slot_ctx, runtime_spad, &parent_epoch );
+  fd_sysvar_clock_update( slot_ctx, runtime_mem->stake_pool_mem, &parent_epoch );
 
   // It has to go into the current txn previous info but is not in slot 0
   if( fd_bank_slot_get( slot_ctx->bank ) != 0 ) {
@@ -1471,9 +1469,10 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
  */
 /* process for the start of a new epoch */
 static void
-fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                              ulong                parent_epoch,
-                              fd_spad_t *          runtime_spad ) {
+fd_runtime_process_new_epoch( fd_exec_slot_ctx_t *     slot_ctx,
+                              ulong                    parent_epoch,
+                              fd_spad_t *              runtime_spad,
+                              fd_vote_stake_weight_t * epoch_weights_mem ) {
   FD_LOG_NOTICE(( "fd_process_new_epoch start, epoch: %lu, slot: %lu", fd_bank_epoch_get( slot_ctx->bank ), fd_bank_slot_get( slot_ctx->bank ) ));
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -1557,7 +1556,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Update current leaders using epoch_stakes (new T-2 stakes) */
 
-  fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runtime_spad );
+  fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), epoch_weights_mem );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
@@ -1876,7 +1875,10 @@ fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_sysvar_slot_history_update( slot_ctx );
 
-  fd_runtime_update_leaders( slot_ctx->bank, 0, runtime_spad );
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    fd_vote_stake_weight_t * epoch_weights_mem = fd_spad_alloc( runtime_spad, alignof(fd_vote_stake_weight_t), FD_RUNTIME_MAX_VOTE_ACCOUNTS * sizeof(fd_vote_stake_weight_t) );
+    fd_runtime_update_leaders( slot_ctx->bank, 0, epoch_weights_mem );
+  } FD_SPAD_FRAME_END;
 
   fd_runtime_freeze( slot_ctx );
 
@@ -1949,10 +1951,11 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t *               slot_ctx,
    used to emulate this behavior */
 
 void
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_capture_ctx_t *   capture_ctx,
-                                                fd_spad_t *          runtime_spad,
-                                                int *                is_epoch_boundary ) {
+fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t *     slot_ctx,
+                                                fd_capture_ctx_t *       capture_ctx,
+                                                fd_spad_t *              runtime_spad,
+                                                fd_vote_stake_weight_t * epoch_weights_mem,
+                                                int *                    is_epoch_boundary ) {
 
   ulong const slot = fd_bank_slot_get( slot_ctx->bank );
   if( slot != 0UL ) {
@@ -1969,7 +1972,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
-      fd_runtime_process_new_epoch( slot_ctx, prev_epoch, runtime_spad );
+      fd_runtime_process_new_epoch( slot_ctx, prev_epoch, runtime_spad, epoch_weights_mem );
       *is_epoch_boundary = 1;
     }
   } else {

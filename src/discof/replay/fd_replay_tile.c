@@ -315,6 +315,11 @@ struct fd_replay_tile {
      TODO: Should be replaced by tile-level allocations. */
   fd_spad_t * runtime_spad;
 
+  /* All runtime_allocations should be scoped out and allocated here.
+     TODO: Maybe move to runtime_const? */
+
+  fd_runtime_mem_t runtime_mem;
+
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
   ulong             vote_tower_out_idx; /* index of vote tower to publish next */
@@ -652,6 +657,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
       &slot_ctx,
       ctx->capture_ctx,
       ctx->runtime_spad,
+      ctx->runtime_mem.epoch_leaders_mem,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
@@ -865,6 +871,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
       &slot_ctx,
       ctx->capture_ctx,
       ctx->runtime_spad,
+      ctx->runtime_mem.epoch_leaders_mem,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
@@ -989,7 +996,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
        does, but just hacking that in breaks stuff. */
     fd_runtime_update_leaders( bank,
                                fd_bank_slot_get( bank ),
-                               ctx->runtime_spad );
+                               ctx->runtime_mem.epoch_leaders_mem );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
     fd_hash_t * poh = fd_bank_poh_modify( bank );
@@ -1330,7 +1337,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     };
     fd_features_restore( &slot_ctx );
 
-    fd_runtime_update_leaders( bank, fd_bank_slot_get( bank ), ctx->runtime_spad );
+    fd_runtime_update_leaders( bank, fd_bank_slot_get( bank ), ctx->runtime_mem.epoch_leaders_mem );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     FD_TEST( block_id_ele );

@@ -258,9 +258,9 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           ulong       slot,
-                           fd_spad_t * runtime_spad );
+fd_runtime_update_leaders( fd_bank_t *              bank,
+                           ulong                    slot,
+                           fd_vote_stake_weight_t * epoch_weights_mem );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -483,10 +483,11 @@ fd_runtime_is_epoch_boundary( fd_exec_slot_ctx_t * slot_ctx,
    the bank hash.
  */
 void
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_capture_ctx_t *   capture_ctx,
-                                                fd_spad_t *          runtime_spad,
-                                                int *                is_epoch_boundary );
+fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t *     slot_ctx,
+                                                fd_capture_ctx_t *       capture_ctx,
+                                                fd_spad_t *              runtime_spad,
+                                                fd_vote_stake_weight_t * epoch_weights_mem,
+                                                int *                    is_epoch_boundary );
 
 /* `fd_runtime_update_program_cache()` is responsible for updating the
    program cache with any programs referenced in the current

@@ -33,7 +33,7 @@ fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
 
 void
 fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
-                        fd_spad_t *          spad,
+                        uchar *              stake_pool_mem,
                         ulong const *        parent_epoch );
 
 /* Writes the current value of the clock sysvar to funk. */

@@ -323,7 +323,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( slot_ctx->bank );
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), runner->spad );
+  fd_vote_stake_weight_t * epoch_weights_mem = fd_spad_alloc( runner->spad, alignof(fd_vote_stake_weight_t), FD_RUNTIME_MAX_VOTE_ACCOUNTS * sizeof(fd_vote_stake_weight_t) );
+  fd_runtime_update_leaders( slot_ctx->bank, fd_bank_slot_get( slot_ctx->bank ), epoch_weights_mem );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
@@ -465,7 +466,8 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runner->spad, &is_epoch_boundary );
+    fd_vote_stake_weight_t * epoch_weights_mem = fd_spad_alloc( runner->spad, alignof(fd_vote_stake_weight_t), FD_RUNTIME_MAX_VOTE_ACCOUNTS * sizeof(fd_vote_stake_weight_t) );
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, capture_ctx, runner->spad, epoch_weights_mem, &is_epoch_boundary );
 
     res = fd_runtime_block_execute_prepare( slot_ctx, runner->spad );
     if( FD_UNLIKELY( res ) ) {
