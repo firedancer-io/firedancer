@@ -1653,10 +1653,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
     /* Validate the bytes range of the text section.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1006-L1008 */
     ulong lo, hi;
-    uchar is_some = fd_shdr_get_file_range( shtext, &lo, &hi );
-    if( FD_UNLIKELY( !is_some ) ) {
-      return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
-    }
+    fd_shdr_get_file_range( shtext, &lo, &hi );
 
     ulong insn_cnt = (hi-lo)/8UL;
     if( FD_UNLIKELY( shtext->sh_size+shtext->sh_offset>bin_sz ) ) {
