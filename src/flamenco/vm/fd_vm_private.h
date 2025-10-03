@@ -208,7 +208,11 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 
 /* fd_vm_mem_cfg configures the vm's tlb arrays.  Assumes vm is valid
    and vm already has configured the rodata, stack, heap and input
-   regions.  Returns vm. */
+   regions.  Returns vm.
+
+   TODO: There may be an offset into the rodata region where the program
+   bytes actually begins (this should be taken from the ELF information.
+   I don't think we do that anywhere, so it might be wrong...)*/
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {

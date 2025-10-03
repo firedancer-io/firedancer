@@ -55,16 +55,18 @@ void test_duplicate_entrypoint_entry( void ) {
   fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_scratch_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
-  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, &config );
+  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, &config, NULL );
   FD_TEST( res == 0 );
 
   // end of boilerplate
 
-  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595 ) == 0 );
-  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 3920 ) == 1 );
+  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595UL )==0 );
+  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 3920UL )==0 );
+  FD_TEST( prog->entry_pc==3920UL );
 
 }
 

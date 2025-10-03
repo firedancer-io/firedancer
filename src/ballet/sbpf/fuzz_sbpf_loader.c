@@ -55,7 +55,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
   /* Load program */
-  int res = fd_sbpf_program_load( prog, data, size, syscalls, &config );
+  int res = fd_sbpf_program_load( prog, data, size, syscalls, &config, NULL );
 
   /* Should be able to load at least one program and not load at least one program */
   if ( FD_UNLIKELY( !res ) ) {
