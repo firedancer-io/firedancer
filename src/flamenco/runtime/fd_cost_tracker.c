@@ -25,16 +25,6 @@ fd_cost_tracker_account_cost_map_get( fd_cost_tracker_t const * cost_tracker ) {
   return fd_account_cost_map_join( (uchar *)cost_tracker + cost_tracker->map_offset_ );
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
-FD_FN_PURE static inline ulong
-calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
-  ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->loaded_accounts_data_size,
-                                                   FD_ACCOUNT_DATA_COST_PAGE_SIZE ),
-                                 1UL );
-  cost /= FD_ACCOUNT_DATA_COST_PAGE_SIZE;
-  return fd_ulong_sat_mul( cost, FD_VM_HEAP_COST );
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L313-L321 */
 FD_FN_PURE static inline ulong
 get_instructions_data_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
@@ -509,7 +499,7 @@ fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
     txn_cost = (fd_transaction_cost_t){ .discriminant = fd_transaction_cost_enum_simple_vote };
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L78-L81 */
-    ulong loaded_accounts_data_size_cost = calculate_loaded_accounts_data_size_cost( txn_ctx );
+    ulong loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L82-L83 */
     ulong instructions_data_cost = get_instructions_data_cost( txn_ctx );
