@@ -653,20 +653,19 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
   }
 
   /* Get the dynamic symbol table section header. The section header
-      was already validated in fd_sbpf_lenient_elf_parse() so we can
-      directly get the symbol table. */
+     was already validated in fd_sbpf_lenient_elf_parse() so we can
+     directly get the symbol table. */
   fd_elf64_shdr const * sh_dynsym    = &shdrs[ info->shndx_dynsymtab ];
   fd_elf64_sym const *  dynsym_table = (fd_elf64_sym const *)( elf->bin + sh_dynsym->sh_offset );
   ulong                 dynsym_cnt   = (ulong)(sh_dynsym->sh_size / sizeof(fd_elf64_sym));
 
   /* The symbol table index is stored in the lower 4 bytes of r_info.
-      Check the bounds of the symbol table index. */
+     Check the bounds of the symbol table index. */
   ulong r_sym = FD_ELF64_R_SYM( dt_rel->r_info );
   if( FD_UNLIKELY( r_sym>=dynsym_cnt ) ) {
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
   symbol = &dynsym_table[ r_sym ];
-
 
   /* Verify symbol name.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1261-L1263 */
