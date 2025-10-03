@@ -647,6 +647,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
+    .capture_ctx  = ctx->capture_ctx,
   };
   fd_runtime_block_pre_execute_process_new_epoch(
       &slot_ctx,
@@ -744,6 +745,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
     .silent       = 1,
+    .capture_ctx  = ctx->capture_ctx,
   };
   fd_runtime_block_execute_finalize( &slot_ctx );
 
@@ -858,6 +860,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
     .funk  = ctx->funk,
     .banks = ctx->banks,
     .xid   = {xid},
+    .capture_ctx  = ctx->capture_ctx,
   };
 
   int is_epoch_boundary = 0;
@@ -910,6 +913,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
     .xid          = {xid},
     .status_cache = ctx->txncache,
     .silent       = 1,
+    .capture_ctx  = ctx->capture_ctx,
   };
   fd_runtime_block_execute_finalize( &slot_ctx );
 
@@ -978,6 +982,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
     .silent       = 1,
+    .capture_ctx  = ctx->capture_ctx,
   };
   fd_rewards_recalculate_partitioned_rewards( &slot_ctx, ctx->capture_ctx, ctx->runtime_spad );
 
@@ -1206,6 +1211,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
     .funk         = ctx->funk,
     .xid[0]       = xid,
     .status_cache = ctx->txncache,
+    .capture_ctx  = ctx->capture_ctx,
   };
   fd_runtime_read_genesis( &slot_ctx, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
 
@@ -1327,6 +1333,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       .funk         = ctx->funk,
       .xid[0]       = { .ul = { snapshot_slot, snapshot_slot } },
       .status_cache = ctx->txncache,
+      .capture_ctx  = ctx->capture_ctx,
     };
     fd_features_restore( &slot_ctx );
 
@@ -1438,6 +1445,7 @@ replay( fd_replay_tile_t *  ctx,
       .funk         = ctx->funk,
       .xid[0]       = { .ul = { ready_txn->slot, ready_txn->slot } },
       .status_cache = ctx->txncache,
+      .capture_ctx  = ctx->capture_ctx,
     };
     fd_runtime_update_program_cache( &slot_ctx, txn_p, ctx->runtime_spad );
 
