@@ -147,12 +147,12 @@ fd_store_fec_t *
 fd_store_insert( fd_store_t * store,
                  ulong        part_idx,
                  fd_hash_t  * merkle_root ) {
+  if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) {
+    FD_LOG_WARNING(( "Merkle root %s already in store.  Ignoring insert.", FD_BASE58_ENC_32_ALLOCA( merkle_root ) ));
+    return NULL;
+  }
 
-# if FD_STORE_USE_HANDHOLDING
-  if( FD_UNLIKELY( fd_store_query_const( store, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s already in store", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }
-# endif
   int err;
-
   fd_store_pool_t  pool = fd_store_pool( store );
   fd_store_fec_t * fec  = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
 

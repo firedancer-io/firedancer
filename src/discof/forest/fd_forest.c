@@ -668,6 +668,18 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
   }
   fd_forest_blk_t * ele = query( forest, slot );
   if( FD_UNLIKELY( !ele ) ) return;
+  if( FD_UNLIKELY( fd_forest_blk_idxs_test( ele->cmpl, max_shred_idx ) ) ) {
+    /* It's possible the the fec_resolver evicted something that we
+       actually have the completed version of (ex. it was our own leader
+       block, but for some reason someone is also sending us our own
+       block through turbine.  fec_resolver is still going to buffer
+       those fec sets, because our own shreds don't go through
+       fec_resolver.  So then we are in a state where we have received
+       fec_complete messages for all the FECs in our slot, but
+       fec_resolver possibly has some incomplete ctxs for some of those
+       FEC sets, that will eventually get evicted). */
+    return;
+  }
   for( uint i=fec_set_idx; i<=fec_set_idx+max_shred_idx; i++ ) {
     fd_forest_blk_idxs_remove( ele->idxs, i );
   }
