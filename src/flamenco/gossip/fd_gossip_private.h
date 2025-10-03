@@ -185,6 +185,7 @@ struct fd_gossip_view_node_instance {
 
 typedef struct fd_gossip_view_node_instance fd_gossip_view_node_instance_t;
 
+#define FD_GOSSIP_VOTE_IDX_MAX (32U)
 struct fd_gossip_view_vote {
   uchar  index;
   ulong  txn_sz;
@@ -193,12 +194,14 @@ struct fd_gossip_view_vote {
 
 typedef struct fd_gossip_view_vote fd_gossip_view_vote_t;
 
+#define FD_GOSSIP_EPOCH_SLOTS_IDX_MAX (255U)
 struct fd_gossip_view_epoch_slots {
   uchar  index;
 };
 
 typedef struct fd_gossip_view_epoch_slots fd_gossip_view_epoch_slots_t;
 
+#define FD_GOSSIP_DUPLICATE_SHRED_IDX_MAX (512U)
 struct fd_gossip_view_duplicate_shred {
   ushort index;
   ulong  slot;
