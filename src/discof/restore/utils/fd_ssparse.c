@@ -24,6 +24,7 @@ struct fd_ssparse_private {
     int seen_manifest;
     int seen_status_cache;
     int seen_version;
+    int manifest_and_status_cache_pending_result;
   } flags;
 
   uchar version[ 5UL ];
@@ -352,8 +353,8 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
   else { /* ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes */
     /* finished parsing status cache */
     ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    if( FD_LIKELY( ssparse->flags.seen_manifest ) ) return FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE;
-    else                                            return FD_SSPARSE_ADVANCE_STATUS_CACHE;
+    if( FD_LIKELY( ssparse->flags.seen_manifest ) ) ssparse->flags.manifest_and_status_cache_pending_result = 1;
+    return FD_SSPARSE_ADVANCE_STATUS_CACHE;
   }
 }
 
@@ -380,8 +381,8 @@ advance_manifest( fd_ssparse_t *                ssparse,
   else { /* ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes */
     /* finished parsing manifest */
     ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    if( FD_LIKELY( ssparse->flags.seen_status_cache ) ) return FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE;
-    else                                                return FD_SSPARSE_ADVANCE_MANIFEST;
+    if( FD_LIKELY( ssparse->flags.seen_status_cache ) ) ssparse->flags.manifest_and_status_cache_pending_result = 1;
+    return FD_SSPARSE_ADVANCE_MANIFEST;
   }
 }
 
@@ -402,6 +403,10 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   bytes_remaining         -= pad_sz;
 
   if( FD_LIKELY( !bytes_remaining ) ) ssparse->state = FD_SSPARSE_STATE_TAR_HEADER;
+  if( FD_LIKELY( ssparse->flags.manifest_and_status_cache_pending_result ) ) {
+    ssparse->flags.manifest_and_status_cache_pending_result = 0;
+    return FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE;
+  }
   return FD_SSPARSE_ADVANCE_AGAIN;
 }
 

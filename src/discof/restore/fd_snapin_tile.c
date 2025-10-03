@@ -62,6 +62,10 @@ struct blockhash_group {
 
 typedef struct blockhash_group blockhash_group_t;
 
+#define IN_KIND_SNAPDC (0)
+#define IN_KIND_HASH   (1)
+#define MAX_IN_LINKS   (13)
+
 struct fd_snapin_tile {
   int full;
   int state;
@@ -75,10 +79,22 @@ struct fd_snapin_tile {
 
   fd_funk_txn_xid_t xid[1]; /* txn XID */
 
+  ulong in_offset[ MAX_IN_LINKS ];
+
   fd_stem_context_t *      stem;
   fd_ssparse_t *           ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
+
+  struct {
+    int               enabled;
+    ulong             received_lthashes;
+    ulong             num_lta_tiles;
+    fd_lthash_value_t expected_lthash;
+    fd_lthash_value_t calculated_lthash;
+  } hash_info;
+
+  uchar in_kind[ MAX_IN_LINKS ];
 
   struct {
     ulong                            bank_slot;
@@ -115,6 +131,28 @@ struct fd_snapin_tile {
     ulong       chunk;
     ulong       mtu;
   } manifest_out;
+
+  struct {
+    fd_wksp_t * wksp;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       chunk;
+    ulong       mtu;
+  } hash_out;
+
+  struct {
+    fd_wksp_t * wksp;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+  } hash_in_add[ FD_MAX_SNAPLTA_TILES ];
+
+  struct {
+    fd_wksp_t * wksp;
+    ulong       chunk0;
+    ulong       wmark;
+    ulong       mtu;
+  } hash_in_sub[ FD_MAX_SNAPLTS_TILES ];
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -411,6 +449,13 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
+  if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
+    fd_memcpy( &ctx->hash_info.expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+  } else {
+    FD_LOG_WARNING(( "snapshot manifest doesn't have an accounts lthash" ));
+    transition_malformed( ctx, ctx->stem );
+  }
+
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( ctx->stem, 0UL, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
@@ -434,14 +479,24 @@ process_account_header( fd_snapin_tile_t *            ctx,
 
   fd_account_meta_t * meta = fd_funk_val( rec, ctx->funk->wksp );
   if( FD_UNLIKELY( meta ) ) {
+    /* Reaching here means the existing value is a duplicate account.
+       We need to hash the existing account and subtract that hash from
+       the running lthash. */
+
     if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
       ctx->acc_data = NULL;
+      // fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+      // fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
+      // fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
+      // ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
       return;
     }
 
-    /* TODO: Reaching here means the existing value is a duplicate
-       account.  We need to hash the existing account and subtract that
-       hash from the running lthash. */
+    // fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    // fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
+    // fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
+    // fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
+    // ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
   }
 
   if( FD_LIKELY( rec->val_sz<sizeof(fd_account_meta_t)+result->account_header.data_len ) ) {
@@ -464,7 +519,13 @@ process_account_header( fd_snapin_tile_t *            ctx,
 static void
 process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
-  if( FD_UNLIKELY( !ctx->acc_data ) ) return;
+  if( FD_UNLIKELY( !ctx->acc_data ) ) {
+    // uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    // fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
+    // fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
+    // ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    return;
+  }
 
   fd_memcpy( ctx->acc_data, result->account_data.data, result->account_data.len );
   ctx->acc_data += result->account_data.len;
@@ -486,92 +547,88 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     return 0;
   }
 
-  for(;;) {
-    if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
+  uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
 
-    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
-
-    fd_ssparse_advance_result_t result[1];
-    int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
-    switch( res ) {
-      case FD_SSPARSE_ADVANCE_ERROR:
+  fd_ssparse_advance_result_t result[1];
+  int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
+  switch( res ) {
+    case FD_SSPARSE_ADVANCE_ERROR:
+      transition_malformed( ctx, stem );
+      return 0;
+    case FD_SSPARSE_ADVANCE_AGAIN:
+      break;
+    case FD_SSPARSE_ADVANCE_MANIFEST: {
+      int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
+                                              result->manifest.data,
+                                              result->manifest.data_sz,
+                                              result->manifest.acc_vec_map,
+                                              result->manifest.acc_vec_pool );
+      if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
         transition_malformed( ctx, stem );
         return 0;
-      case FD_SSPARSE_ADVANCE_AGAIN:
-        break;
-      case FD_SSPARSE_ADVANCE_MANIFEST: {
-        int res = fd_ssmanifest_parser_consume( ctx->manifest_parser,
-                                                result->manifest.data,
-                                                result->manifest.data_sz,
-                                                result->manifest.acc_vec_map,
-                                                result->manifest.acc_vec_pool );
-        if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
+      }
+      else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) process_manifest( ctx );
+      break;
+    }
+    case FD_SSPARSE_ADVANCE_STATUS_CACHE: {
+      fd_slot_delta_parser_advance_result_t sd_result[1];
+      ulong bytes_remaining = result->status_cache.data_sz;
+
+      while( bytes_remaining ) {
+        int res = fd_slot_delta_parser_consume( ctx->slot_delta_parser,
+                                                result->status_cache.data,
+                                                bytes_remaining,
+                                                sd_result );
+        if( FD_UNLIKELY( res<0 ) ) {
           transition_malformed( ctx, stem );
           return 0;
-        }
-        else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) process_manifest( ctx );
-        break;
-      }
-      case FD_SSPARSE_ADVANCE_STATUS_CACHE: {
-        fd_slot_delta_parser_advance_result_t sd_result[1];
-        ulong bytes_remaining = result->status_cache.data_sz;
+        } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
+          if( FD_UNLIKELY( ctx->blockhash_offsets_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) FD_LOG_ERR(( "blockhash offsets overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
 
-        while( bytes_remaining ) {
-          int res = fd_slot_delta_parser_consume( ctx->slot_delta_parser,
-                                                  result->status_cache.data,
-                                                  bytes_remaining,
-                                                  sd_result );
-          if( FD_UNLIKELY( res<0 ) ) {
-            transition_malformed( ctx, stem );
-            return 0;
-          } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_GROUP ) ) {
-            if( FD_UNLIKELY( ctx->blockhash_offsets_len>=FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ) ) FD_LOG_ERR(( "blockhash offsets overflow, max is %lu", FD_SNAPIN_MAX_SLOT_DELTA_GROUPS ));
+          memcpy( ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].blockhash, sd_result->group.blockhash, 32UL );
+          ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_offset = sd_result->group.txnhash_offset;
+          ctx->blockhash_offsets_len++;
+        } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
+          if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) FD_LOG_ERR(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
+          ctx->txncache_entries[ ctx->txncache_entries_len++ ] = *sd_result->entry;
+        }
 
-            memcpy( ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].blockhash, sd_result->group.blockhash, 32UL );
-            ctx->blockhash_offsets[ ctx->blockhash_offsets_len ].txnhash_offset = sd_result->group.txnhash_offset;
-            ctx->blockhash_offsets_len++;
-          } else if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
-            if( FD_UNLIKELY( ctx->txncache_entries_len>=FD_SNAPIN_TXNCACHE_MAX_ENTRIES ) ) FD_LOG_ERR(( "txncache entries overflow, max is %lu", FD_SNAPIN_TXNCACHE_MAX_ENTRIES ));
-            ctx->txncache_entries[ ctx->txncache_entries_len++ ] = *sd_result->entry;
-          }
-
-          bytes_remaining           -= sd_result->bytes_consumed;
-          result->status_cache.data += sd_result->bytes_consumed;
-        }
-        break;
+        bytes_remaining           -= sd_result->bytes_consumed;
+        result->status_cache.data += sd_result->bytes_consumed;
       }
-      case FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE: {
-        if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, ctx->manifest_fields.bank_slot ) ) ) {
-          FD_LOG_WARNING(( "slot deltas verification failed" ));
-          transition_malformed( ctx, ctx->stem );
-          break;
-        }
-      
-        if( FD_UNLIKELY( populate_txncache( ctx, ctx->manifest_fields.blockhashes, ctx->manifest_fields.blockhashes_len ) ) ) {
-          FD_LOG_WARNING(( "populating txncache failed" ));
-          transition_malformed( ctx, ctx->stem );
-          break;
-        }
-        break;
-      }
-      case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
-        process_account_header( ctx, result );
-        break;
-      case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-        process_account_data( ctx, result );
-        break;
-      case FD_SSPARSE_ADVANCE_DONE:
-        ctx->state = FD_SNAPIN_STATE_DONE;
-        break;
-      default:
-        FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
-        break;
+      break;
     }
-
-    ctx->in.pos += result->bytes_consumed;
-    if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
-    else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
+    case FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE: {
+      if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, ctx->manifest_fields.bank_slot ) ) ) {
+        FD_LOG_WARNING(( "slot deltas verification failed" ));
+        transition_malformed( ctx, ctx->stem );
+        break;
+      }
+    
+      if( FD_UNLIKELY( populate_txncache( ctx, ctx->manifest_fields.blockhashes, ctx->manifest_fields.blockhashes_len ) ) ) {
+        FD_LOG_WARNING(( "populating txncache failed" ));
+        transition_malformed( ctx, ctx->stem );
+        break;
+      }
+      break;
+    }
+    case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
+      process_account_header( ctx, result );
+      break;
+    case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
+      process_account_data( ctx, result );
+      break;
+    case FD_SSPARSE_ADVANCE_DONE:
+      ctx->state = FD_SNAPIN_STATE_DONE;
+      break;
+    default:
+      FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
+      break;
   }
+
+  ctx->in.pos += result->bytes_consumed;
+  if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
+  else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
 
   int reprocess_frag = ctx->in.pos<sz;
   if( FD_LIKELY( !reprocess_frag ) ) ctx->in.pos = 0UL;
@@ -582,6 +639,10 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
+  /* 1. Pass the control message downstream to the next consumer. */
+  fd_stem_publish( stem, 2UL, sig, ctx->hash_out.chunk, 0UL, 0UL, 0UL, 0UL );
+
+  int send_ack = 1;
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_RESET_FULL:
       ctx->full = 1;
@@ -592,6 +653,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_funk_txn_remove_published( ctx->funk );
+      fd_lthash_zero( &ctx->hash_info.expected_lthash );
+      fd_lthash_zero( &ctx->hash_info.calculated_lthash );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
@@ -604,6 +667,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_funk_txn_cancel( ctx->funk, ctx->xid );
       fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
+      fd_lthash_zero( &ctx->hash_info.expected_lthash );
+      fd_lthash_zero( &ctx->hash_info.calculated_lthash );
       ctx->state = FD_SNAPIN_STATE_LOADING;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
@@ -614,6 +679,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         break;
       }
 
+      send_ack = 0;
       ctx->txncache_entries_len = 0UL;
       ctx->blockhash_offsets_len = 0UL;
       fd_txncache_reset( ctx->txncache );
@@ -656,6 +722,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
       fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      send_ack = 0;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
@@ -667,10 +734,66 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       return;
   }
 
+  /* snapin waits for result lthashes to come back from the snaplt tiles.
+     Until these hashes come back, snapin cannot ack the control message
+     sent from snaprd because snaprd would advance before snapin
+     is ready to receive another snapshot byte stream or shutdown. */
+  if( FD_UNLIKELY( !send_ack ) ) return;
+
   /* We must acknowledge after handling the control frag, because if it
      causes us to generate a malformed transition, that must be sent
      back to the snaprd controller before the acknowledgement. */
   fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_ACK, 0UL, 0UL, 0UL, 0UL, 0UL );
+}
+
+static void
+handle_hash_frag( fd_snapin_tile_t *  ctx,
+                  ulong               in_idx,
+                  ulong               sig,
+                  ulong               chunk,
+                  ulong               sz,
+                  fd_stem_context_t * stem ) {
+  switch( sig ) {
+    case FD_SNAPSHOT_HASH_MSG_RESULT_ADD: {
+      FD_LOG_WARNING(("in idx is %lu, in offset is %lu", in_idx, ctx->in_offset[in_idx]));
+      FD_TEST( sz==sizeof(fd_lthash_value_t) );
+      fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->hash_in_add[ ctx->in_offset[ in_idx ] ].wksp, chunk );
+      fd_lthash_add( &ctx->hash_info.calculated_lthash, result );
+      FD_LOG_WARNING(("received add lthash %s", FD_LTHASH_ENC_32_ALLOCA( result ) ));
+      ctx->hash_info.received_lthashes++;
+
+      if( FD_LIKELY( ctx->hash_info.received_lthashes!=ctx->hash_info.num_lta_tiles ) ) break;
+      break;
+    }
+    case FD_SNAPSHOT_HASH_MSG_RESULT_SUB: {
+      FD_LOG_WARNING(("in idx is %lu, in offset is %lu", in_idx, ctx->in_offset[in_idx]));
+      FD_TEST( sz==sizeof(fd_lthash_value_t) );
+      fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->hash_in_sub[ ctx->in_offset[ in_idx ] ].wksp, chunk );
+      fd_lthash_sub( &ctx->hash_info.calculated_lthash, result );
+      FD_LOG_WARNING(("received sub lthash %s", FD_LTHASH_ENC_32_ALLOCA( result ) ));
+      ctx->hash_info.received_lthashes++;
+      break;
+    }
+    default:
+      FD_LOG_ERR(( "unexpected hash sig %lu", sig ));
+      break;
+  }
+
+  if( FD_LIKELY( ctx->hash_info.received_lthashes==ctx->hash_info.num_lta_tiles+1UL ) ) {
+    if( FD_UNLIKELY( memcmp( &ctx->hash_info.expected_lthash, &ctx->hash_info.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
+      FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
+                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_info.calculated_lthash ),
+                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_info.expected_lthash ) ));
+      transition_malformed( ctx, stem );
+    } else {
+      FD_LOG_NOTICE(( "calculated accounts lthash %s matches accounts lthash %s in snapshot manifest",
+                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_info.calculated_lthash ),
+                      FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_info.expected_lthash ) ));
+    }
+    ctx->hash_info.received_lthashes = 0UL;
+    fd_lthash_zero( &ctx->hash_info.calculated_lthash );
+    fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_ACK, 0UL, 0UL, 0UL, 0UL, 0UL );
+  }
 }
 
 static inline int
@@ -694,8 +817,12 @@ returnable_frag( fd_snapin_tile_t *  ctx,
 
   FD_TEST( ctx->state!=FD_SNAPIN_STATE_SHUTDOWN );
 
-  if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig  );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAPDC ) ) {
+    if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
+    else                                           handle_control_frag( ctx, stem, sig  );
+  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_HASH ) ) {
+    handle_hash_frag( ctx, in_idx, sig, chunk, sz, stem );
+  }
 
   return 0;
 }
@@ -752,7 +879,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
 
-  ctx->full = 1;
+  ctx->full  = 1;
   ctx->state = FD_SNAPIN_STATE_LOADING;
 
   ctx->boot_timestamp = fd_log_wallclock();
@@ -780,9 +907,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
+  ulong expected_in_cnt = 1UL + fd_topo_tile_name_cnt( topo, "snaplta" ) + fd_topo_tile_name_cnt( topo, "snaplts" );
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2",  tile->out_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt!=expected_in_cnt ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected %lu",  tile->in_cnt, expected_in_cnt ));
+  if( FD_UNLIKELY( tile->out_cnt!=3UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 3",  tile->out_cnt  ));
 
   fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ 0UL ] ];
   ctx->manifest_out.wksp   = topo->workspaces[ topo->objs[ writer_link->dcache_obj_id ].wksp_id ].wksp;
@@ -791,20 +919,61 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->manifest_out.chunk  = ctx->manifest_out.chunk0;
   ctx->manifest_out.mtu    = writer_link->mtu;
 
+  fd_topo_link_t const * hash_out_link = &topo->links[ tile->out_link_id[ 2UL ] ];
+  FD_TEST( strcmp( hash_out_link->name, "snapin_lts" )==0 );
+  ctx->hash_out.wksp   = topo->workspaces[ topo->objs[ hash_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->hash_out.chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( hash_out_link->dcache ), hash_out_link->dcache );
+  ctx->hash_out.wmark  = fd_dcache_compact_wmark ( ctx->hash_out.wksp, hash_out_link->dcache, hash_out_link->mtu );
+  ctx->hash_out.chunk  = ctx->hash_out.chunk0;
+  ctx->hash_out.mtu    = hash_out_link->mtu;
+
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
 
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
-  fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
-  ctx->in.wksp                   = in_wksp->wksp;;
-  ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
-  ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
-  ctx->in.mtu                    = in_link->mtu;
-  ctx->in.pos                    = 0UL;
+  ulong hash_in_add_idx = 0UL;
+  ulong hash_in_sub_idx = 0UL;
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_LIKELY( 0==strcmp( in_link->name, "snap_stream" ) ) ) {
+      fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+      ctx->in.wksp                   = in_wksp->wksp;;
+      ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
+      ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
+      ctx->in.mtu                    = in_link->mtu;
+      ctx->in.pos                    = 0UL;
+      ctx->in_kind[ i ]              = IN_KIND_SNAPDC;
+      ctx->in_offset[ i ]            = 0UL;
+    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplta_in" ) ) ) {
+      if( FD_UNLIKELY( hash_in_add_idx>=FD_MAX_SNAPLTA_TILES ) ) FD_LOG_ERR(( "tile `" NAME "` has too many snaplta_in links, max is %lu", FD_MAX_SNAPLTA_TILES ));
+      fd_topo_wksp_t const * hash_in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+      ctx->hash_in_add[ hash_in_add_idx ].wksp              = hash_in_wksp->wksp;
+      ctx->hash_in_add[ hash_in_add_idx ].chunk0            = fd_dcache_compact_chunk0( ctx->hash_in_add[ hash_in_add_idx ].wksp, in_link->dcache );
+      ctx->hash_in_add[ hash_in_add_idx ].wmark             = fd_dcache_compact_wmark( ctx->hash_in_add[ hash_in_add_idx ].wksp, in_link->dcache, in_link->mtu );
+      ctx->hash_in_add[ hash_in_add_idx ].mtu               = in_link->mtu;
+      ctx->in_kind[ i ]                                     = IN_KIND_HASH;
+      ctx->in_offset[ i ]                                   = hash_in_add_idx;
+      hash_in_add_idx++;
+    } else if( FD_LIKELY( 0==strcmp( in_link->name, "snaplts_in" ) ) ) {
+      if( FD_UNLIKELY( hash_in_sub_idx>=FD_MAX_SNAPLTS_TILES ) ) FD_LOG_ERR(( "tile `" NAME "` has too many snaplta_in links, max is %lu", FD_MAX_SNAPLTS_TILES ));
+      fd_topo_wksp_t const * hash_in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
+      ctx->hash_in_sub[ hash_in_sub_idx ].wksp              = hash_in_wksp->wksp;
+      ctx->hash_in_sub[ hash_in_sub_idx ].chunk0            = fd_dcache_compact_chunk0( ctx->hash_in_sub[ hash_in_sub_idx ].wksp, in_link->dcache );
+      ctx->hash_in_sub[ hash_in_sub_idx ].wmark             = fd_dcache_compact_wmark( ctx->hash_in_sub[ hash_in_sub_idx ].wksp, in_link->dcache, in_link->mtu );
+      ctx->hash_in_sub[ hash_in_sub_idx ].mtu               = in_link->mtu;
+      ctx->in_kind[ i ] = IN_KIND_HASH;
+      ctx->in_offset[ i ]                                   = hash_in_sub_idx;
+      hash_in_sub_idx++;
+    } else {
+      FD_LOG_ERR(( "tile `" NAME "` has unexpected in link name `%s`", in_link->name ));
+    }
+  }
+
+  ctx->hash_info.received_lthashes = 0UL;
+  ctx->hash_info.num_lta_tiles     = fd_topo_tile_name_cnt( topo, "snaplta" );
 }
 
-#define STEM_BURST 2UL /* For control fragments, one acknowledgement, and one malformed message */
+#define STEM_BURST 4UL /* For control fragments, one acknowledgement, and one malformed message */
 #define STEM_LAZY  1000L
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapin_tile_t

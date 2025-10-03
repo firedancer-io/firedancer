@@ -117,7 +117,7 @@ typedef struct fd_topo_net_tile fd_topo_net_tile_t;
    credits from consumers. */
 struct fd_topo_tile {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
-  char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
+  char  name[ 8UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
   char  metrics_name[ 10UL ];   /* The name of this tile for looking up metrics.  This is used so tiles can share a name but report different metrics, for Frankendancer and Firedancer. */
   ulong kind_id;                /* The ID of this tile within its name.  If there are n tile of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a tile, as does "id" on its own. */
   int   is_agave;               /* If the tile needs to run in the Agave (Anza) address space or not. */

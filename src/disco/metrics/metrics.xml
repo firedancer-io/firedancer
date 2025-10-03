@@ -1042,6 +1042,18 @@ metric introduced.
     <gauge name="AccountsInserted" summary="Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="snaplta">
+    <gauge name="State" summary="State of the tile. 0=hashing, 1=done, 2=shutdown" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
+<tile name="snaplts">
+    <gauge name="State" summary="State of the tile. 0=hashing, 1=done, 2=shutdown" />
+    <gauge name="FullAccountsHashed" summary="Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+    <gauge name="IncrementalAccountsHashed" summary="Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 </tile>

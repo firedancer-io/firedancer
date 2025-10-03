@@ -34,7 +34,7 @@
 
 #define IN_KIND_SNAPCTL (0)
 #define IN_KIND_GOSSIP  (1)
-#define MAX_IN_LINKS    (3)
+#define MAX_IN_LINKS    (3 + FD_MAX_SNAPLTA_TILES + FD_MAX_SNAPLTS_TILES)
 
 struct fd_restore_out_link {
   ulong       idx;
@@ -97,6 +97,8 @@ struct fd_snaprd_tile {
   long  deadline_nanos;
   ulong ack_cnt;
   int   peer_selection;
+
+  ulong num_lta_tiles;
 
   fd_ip4_port_t addr;
 
@@ -705,7 +707,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
      proceed, to prevent tile state machines from getting out of sync
      (see fd_ssctrl.h for more details).  Currently there are two
      downstream consumers, snapdc and snapin. */
-#define NUM_SNAP_CONSUMERS (2UL)
+#define NUM_SNAP_CONSUMERS (2UL + ctx->num_lta_tiles + 1UL)
 
   switch ( ctx->state ) {
     case FD_SNAPRD_STATE_WAITING_FOR_PEERS: {
@@ -1307,6 +1309,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->gossip.entrypoints_received = 0UL;
   ctx->gossip.saturated            = 0;
+
+  ctx->num_lta_tiles = fd_topo_tile_name_cnt( topo, "snaplta" );
 }
 
 #define STEM_BURST 3UL /* One control message, and one data message, and one expected slot message */

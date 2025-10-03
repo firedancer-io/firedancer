@@ -7,6 +7,8 @@ endif
 ifdef FD_HAS_INT128
 $(call add-objs,fd_snapin_tile,fd_discof)
 endif
+$(call add-objs,fd_snaplta_tile,fd_discof)
+$(call add-objs,fd_snaplts_tile,fd_discof)
 endif
 ifdef FD_HAS_INT128
 $(call add-objs,utils/fd_ssparse,fd_discof)

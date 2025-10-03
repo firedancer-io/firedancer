@@ -382,6 +382,8 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "snaprd", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
     "snapin", /* FIREDANCER only */
+    "snaplta",/* FIREDANCER only */
+    "snaplts",/* FIREDANCER only */
     "arch_f", /* FIREDANCER only */
     "arch_w", /* FIREDANCER only */
   };

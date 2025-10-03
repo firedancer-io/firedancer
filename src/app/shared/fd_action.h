@@ -5,7 +5,7 @@
 
 union fdctl_args {
   struct {
-    char  tile_name[ 7UL ];
+    char  tile_name[ 8UL ];
     ulong kind_id;
     int   pipe_fd;
   } run1;
