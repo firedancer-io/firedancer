@@ -240,11 +240,7 @@ int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
    that have the ERASE flag set (i.e. are tombstones of erased
    records). fd_funk_rec_query_try_global will return a NULL in this case
    but still set *txn_out to the relevant transaction. This behavior
-   differs from fd_funk_rec_query_try.
-
-   TODO: This function should be renamed to fd_funk_rec_query_try
-   and fd_funk_rec_query_try should be renamed to
-   fd_funk_rec_query_try_strict. */
+   differs from fd_funk_rec_query_try. */
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_xid_t const * xid,
