@@ -1324,12 +1324,16 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
     return FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS;
   }
 
-  ulong entry_off = fd_ulong_sat_sub( ehdr.e_entry, text_shdr->sh_addr );
-  info->entry_pc         = (uint)( entry_off / 8UL );
-  info->text_off         = (uint)text_shdr->sh_addr;
-  info->text_sz          = (uint)text_shdr->sh_size;
-  info->text_cnt         = (uint)( text_shdr->sh_size / 8UL );
-  info->shndx_text       = shndx_text;
+  /* Get text section file ranges to calculate the size */
+  ulong text_section_lo, text_section_hi;
+  fd_shdr_get_file_range( text_shdr, &text_section_lo, &text_section_hi );
+
+  ulong entry_off  = fd_ulong_sat_sub( ehdr.e_entry, text_shdr->sh_addr );
+  info->entry_pc   = (uint)( entry_off / 8UL );
+  info->text_off   = (uint)text_shdr->sh_addr;
+  info->text_sz    = text_section_hi-text_section_lo;
+  info->text_cnt   = (uint)( info->text_sz/8UL );
+  info->shndx_text = shndx_text;
 
   return FD_SBPF_ELF_SUCCESS;
 }
