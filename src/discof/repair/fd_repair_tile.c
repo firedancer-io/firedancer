@@ -673,6 +673,8 @@ after_fec( ctx_t      * ctx,
 
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
   fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick );
+  fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
+  if( FD_LIKELY( fec_sig ) ) fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
   FD_TEST( ele ); /* must be non-empty */
 
   /* metrics for completed slots */
@@ -837,20 +839,26 @@ after_frag( ctx_t * ctx,
       uint i = blk->consumed_idx + 1;
       for( uint j = i; j < blk->buffered_idx + 1; j++ ) {
         if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->fecs, j ) ) ) {
-          fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-          if( FD_LIKELY( fec_sig ) ) {
-            ulong          sig      = fd_ulong_load_8( fec_sig->sig );
-            ulong          tile_idx = sig % ctx->shred_tile_cnt;
-            uint           last_idx = j - i;
+          if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->cmpl, j ) ) ) {
+            /* already been completed without force complete */
+          } else {
+            /* force completeable */
+            fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
+            if( FD_LIKELY( fec_sig ) ) {
+              ulong          sig      = fd_ulong_load_8( fec_sig->sig );
+              ulong          tile_idx = sig % ctx->shred_tile_cnt;
+              uint           last_idx = j - i;
 
-            uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-            memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-            fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
-            fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-            ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-            blk->consumed_idx = j;
-            i = j + 1;
+              uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
+              memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
+              fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
+              fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
+              ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
+            }
           }
+          /* advance consumed */
+          blk->consumed_idx = j;
+          i = j + 1;
         }
       }
     }
