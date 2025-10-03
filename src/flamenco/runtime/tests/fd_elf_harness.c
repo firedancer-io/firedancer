@@ -94,7 +94,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->text_off = prog->text_off;
     elf_effects->entry_pc = prog->entry_pc;
 
-    pb_size_t max_calldests_sz = (pb_size_t) fd_sbpf_calldests_cnt( prog->calldests)+1UL;
+    pb_size_t max_calldests_sz = (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests)+1U;
     elf_effects->calldests = FD_SCRATCH_ALLOC_APPEND(l, 8UL, max_calldests_sz * sizeof(uint64_t));
     if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
