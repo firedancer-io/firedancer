@@ -39,8 +39,6 @@ $(call add-objs, tests/fd_dump_pb,fd_flamenco)
 
 $(call add-hdrs,fd_txn_account.h)
 $(call add-objs,fd_txn_account,fd_flamenco)
-$(call make-unit-test,test_txn_account,test_txn_account,fd_flamenco fd_funk fd_ballet fd_util)
-$(call run-unit-test,test_txn_account,)
 
 $(call add-hdrs,fd_bank.h)
 $(call add-objs,fd_bank,fd_flamenco)

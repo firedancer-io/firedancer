@@ -347,12 +347,13 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
                               int *                 exec_res ) {
 
   /* Setup the spad for account allocation */
-  uchar *             txn_ctx_mem        = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-  fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
-  txn_ctx->flags                         = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  *txn_ctx->funk                         = *slot_ctx->funk;
-  txn_ctx->bank_hash_cmp                 = NULL;
-  txn_ctx->fuzz_config.enable_vm_tracing = runner->enable_vm_tracing;
+  uchar *             txn_ctx_mem          = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  fd_writable_acc_buf_t * writable_acc_arr = fd_spad_alloc( runner->spad, alignof(fd_writable_acc_buf_t), sizeof(fd_writable_acc_buf_t) * FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION );
+  fd_exec_txn_ctx_t * txn_ctx              = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
+  txn_ctx->flags                           = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  *txn_ctx->funk                           = *slot_ctx->funk;
+  txn_ctx->bank_hash_cmp                   = NULL;
+  txn_ctx->fuzz_config.enable_vm_tracing   = runner->enable_vm_tracing;
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
       slot_ctx->banks,
@@ -360,6 +361,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
       txn_ctx,
       txn,
       runner->spad,
+      writable_acc_arr,
       NULL,
       0 );
 
