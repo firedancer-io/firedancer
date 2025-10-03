@@ -145,12 +145,11 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
    to fully load the program. */
 
 struct fd_sbpf_elf_info {
-  uint text_off;    /* File offset of .text section (overlaps rodata segment) */
-  uint text_cnt;    /* Instruction count */
-  ulong text_sz;    /* Length of text segment */
+  ulong bin_sz;   /* size of ELF binary */
 
-  uint rodata_sz;         /* size of rodata segment */
-  uint rodata_footprint;  /* size of ELF binary */
+  uint  text_off; /* File offset of .text section (overlaps rodata segment) */
+  uint  text_cnt; /* Instruction count */
+  ulong text_sz;  /* Length of text segment */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
@@ -178,10 +177,10 @@ typedef struct fd_sbpf_elf_info fd_sbpf_elf_info_t;
 
 /* fd_sbpf_program_t describes a loaded program in memory.
 
-   [rodata,rodata+rodata_sz) is an externally allocated buffer holding
+   [rodata,rodata+bin_sz) is an externally allocated buffer holding
    the read-only segment to be loaded into the VM.  WARNING: The rodata
-   area required doing load (rodata_footprint) is larger than the area
-   mapped into the VM (rodata_sz).
+   area required doing load (bin_sz) is larger than the area mapped into
+   the VM (rodata_sz).
 
    [text,text+8*text_cnt) is a sub-region of the read-only segment
    containing executable code. */
@@ -191,13 +190,13 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 
   /* rodata segment to be mapped into VM memory */
   void * rodata;     /* rodata segment data */
-  ulong  rodata_sz;  /* size of data */
+  ulong  rodata_sz;  /* size of read-only data */
 
   /* text section within rodata segment */
   ulong * text;
   ulong   text_cnt;  /* instruction count */
   ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
-  ulong   text_sz;   /* size of text segment */
+  ulong   text_sz;   /* size of text segment. Guaranteed to be <= bin_sz. */
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc - start_pc ]) ... FIXME: HMMMM ... CODE SEEMS TO USE TEXT[ ENTRY_PC ] */
 
   /* Bit vector of valid call destinations (bit count is text_sz). */

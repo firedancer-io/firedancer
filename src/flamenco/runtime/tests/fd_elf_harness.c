@@ -66,7 +66,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
       break;
     }
 
-    void *               rodata   = fd_spad_alloc_check( spad, FD_SBPF_PROG_RODATA_ALIGN, info.rodata_footprint );
+    void *               rodata   = fd_spad_alloc_check( spad, FD_SBPF_PROG_RODATA_ALIGN, info.bin_sz );
     fd_sbpf_program_t *  prog     = fd_sbpf_program_new( fd_spad_alloc_check( spad, fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
     fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc_check( spad, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
 

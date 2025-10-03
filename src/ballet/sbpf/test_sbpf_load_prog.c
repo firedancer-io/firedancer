@@ -73,7 +73,7 @@ main( int     argc,
 
   /* Allocate rodata segment */
 
-  void * rodata = malloc( elf_info.rodata_footprint );
+  void * rodata = malloc( elf_info.bin_sz );
   FD_TEST( rodata );
 
   /* Allocate objects */

@@ -64,7 +64,7 @@ fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
   l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->text_sz/8UL) );
-  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
+  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->bin_sz );
   l = FD_LAYOUT_FINI( l, alignof(fd_program_cache_entry_t) );
   return l;
 }

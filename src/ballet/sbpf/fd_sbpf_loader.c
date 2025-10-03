@@ -152,7 +152,7 @@ fd_sbpf_program_new( void *                     prog_mem,
     return NULL;
   }
 
-  if( FD_UNLIKELY( ((elf_info->rodata_footprint)>0U) & (!rodata)) ) {
+  if( FD_UNLIKELY( ((elf_info->bin_sz)>0U) & (!rodata)) ) {
     FD_LOG_WARNING(( "NULL rodata" ));
     return NULL;
   }
@@ -168,10 +168,10 @@ fd_sbpf_program_new( void *                     prog_mem,
   FD_SCRATCH_ALLOC_INIT( laddr, prog_mem );
   fd_sbpf_program_t * prog = FD_SCRATCH_ALLOC_APPEND( laddr, alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) );
 
+  /* Note that rodata_sz gets set during ro section parsing. */
   *prog = (fd_sbpf_program_t) {
     .info      = *elf_info,
     .rodata    = rodata,
-    .rodata_sz = elf_info->rodata_sz,
     .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
     .text_off  = elf_info->text_off,
     .text_cnt  = elf_info->text_cnt,
@@ -815,12 +815,11 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
      so there's nothing else to do.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L519 */
 
-  info->rodata_sz        = (uint)phdr[ 1 ].p_memsz;
-  info->rodata_footprint = (uint)bin_sz;
-  info->entry_pc         = (uint)entry_pc;
-  info->text_off         = (uint)phdr[ 0 ].p_offset;
-  info->text_sz          = (uint)phdr[ 0 ].p_memsz;
-  info->text_cnt         = (uint)( phdr[ 0 ].p_memsz / 8UL );
+  info->bin_sz   = bin_sz;
+  info->entry_pc = (uint)entry_pc;
+  info->text_off = (uint)phdr[ 0 ].p_offset;
+  info->text_sz  = (uint)phdr[ 0 ].p_memsz;
+  info->text_cnt = (uint)( phdr[ 0 ].p_memsz / 8UL );
 
   return 0;
 }
@@ -839,14 +838,13 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
                            ulong                bin_sz ) {
 
   /* This documents the values that will be set in this function */
-  info->rodata_sz        = (uint)bin_sz; // FIXME
-  info->rodata_footprint = (uint)bin_sz;
-  info->phndx_dyn        = -1;
-  info->shndx_dyn        = -1;
-  info->shndx_symtab     = -1;
-  info->shndx_strtab     = -1;
-  info->shndx_dynstr     = -1;
-  info->shndx_dynsymtab  = -1;
+  info->bin_sz          = bin_sz;
+  info->phndx_dyn       = -1;
+  info->shndx_dyn       = -1;
+  info->shndx_symtab    = -1;
+  info->shndx_strtab    = -1;
+  info->shndx_dynstr    = -1;
+  info->shndx_dynsymtab = -1;
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L149 */
   if( FD_UNLIKELY( bin_sz<sizeof(fd_elf64_ehdr) ) ) {
@@ -1325,7 +1323,7 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
     return FD_SBPF_ELF_ERR_ENTRYPOINT_OUT_OF_BOUNDS;
   }
 
-  /* Get text section file ranges to calculate the size */
+  /* Get text section file ranges to calculate the size. */
   ulong text_section_lo, text_section_hi;
   fd_shdr_get_file_range( text_shdr, &text_section_lo, &text_section_hi );
 
@@ -1423,22 +1421,21 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
 
   /* Initialize info struct */
   *info = (fd_sbpf_elf_info_t) {
-    .text_off         = 0U,
-    .text_cnt         = 0U,
-    .text_sz          = 0UL,
-    .rodata_sz        = 0U,
-    .rodata_footprint = 0U,
-    .shndx_text       = -1,
-    .shndx_symtab     = -1,
-    .shndx_strtab     = -1,
-    .shndx_dyn        = -1,
-    .shndx_dynstr     = -1,
-    .shndx_dynsymtab  = -1,
-    .phndx_dyn        = -1,
-    .dt_reloff        = 0UL,
-    .dt_relsz         = 0UL,
-    .entry_pc         = 0U,
-    .sbpf_version     = (uint)maybe_sbpf_version,
+    .bin_sz          = 0U,
+    .text_off        = 0U,
+    .text_cnt        = 0U,
+    .text_sz         = 0UL,
+    .shndx_text      = -1,
+    .shndx_symtab    = -1,
+    .shndx_strtab    = -1,
+    .shndx_dyn       = -1,
+    .shndx_dynstr    = -1,
+    .shndx_dynsymtab = -1,
+    .phndx_dyn       = -1,
+    .dt_reloff       = 0UL,
+    .dt_relsz        = 0UL,
+    .entry_pc        = 0U,
+    .sbpf_version    = (uint)maybe_sbpf_version,
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
   };
 
@@ -1453,7 +1450,9 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz );
 }
 
-/* Parses and concatenates the readonly data sections
+/* Parses and concatenates the readonly data sections. This function
+   also computes and sets the rodata_sz field inside the SBPF program
+   struct.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L812-L987 */
 static int
 fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
@@ -1652,7 +1651,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
   fd_elf64_shdr const *      shtext   = &shdrs[ elf_info->shndx_text ];
 
   /* Copy rodata segment */
-  fd_memcpy( rodata, elf->bin, prog->rodata_sz );
+  fd_memcpy( rodata, elf->bin, elf_info->bin_sz );
 
   /* Fixup all program counter relative call instructions
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1005-L1041 */
@@ -1836,7 +1835,11 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
      Note: info.sbpf_version is already set by fd_sbpf_program_parse()
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L403-L409 */
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers( prog->info.sbpf_version ) ) ) {
-    /* There is nothing else to do in the strict case */
+    /* There is nothing else to do in the strict case except updating
+       the prog->rodata_sz field from phdr[ 1 ].p_memsz. */
+    ulong         phdr_off = sizeof(fd_elf64_ehdr) + sizeof(fd_elf64_phdr);
+    fd_elf64_phdr phdr     = FD_LOAD( fd_elf64_phdr, bin+phdr_off );
+    prog->rodata_sz        = phdr.p_memsz;
     return FD_SBPF_ELF_SUCCESS;
   }
   int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config );
