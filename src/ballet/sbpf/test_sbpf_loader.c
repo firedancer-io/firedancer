@@ -64,8 +64,9 @@ void test_duplicate_entrypoint_entry( void ) {
 
   // end of boilerplate
 
-  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595 ) == 0 );
-  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 3920 ) == 1 );
+  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595UL )==0 );
+  FD_TEST( fd_sbpf_calldests_test( prog->calldests, 3920UL )==0 );
+  FD_TEST( prog->entry_pc==3920UL );
 
 }
 
