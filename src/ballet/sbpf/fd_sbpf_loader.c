@@ -1611,7 +1611,9 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L971-L976 */
-    uchar ro_section[ buf_len ]; fd_memset( ro_section, 0, buf_len );
+    // Initialize with original data
+    uchar ro_section[ buf_len ]; fd_memcpy( ro_section, rodata, buf_len );
+
     for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
       ulong sh_idx                       = ro_slices_shidxs[ i ];
       fd_elf64_shdr const * shdr         = &shdrs[ sh_idx ];
@@ -1630,7 +1632,7 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
         return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
       }
 
-      fd_memcpy( ro_section+buf_offset_start, rodata+slice_lo, slice_len );
+      fd_memcpy( ro_section+buf_offset_start, (unsigned char *)bin+slice_lo, slice_len );
     }
 
     /* Copy the rodata section back in. */
