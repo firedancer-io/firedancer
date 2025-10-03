@@ -87,8 +87,8 @@
 
 struct __attribute__((packed)) fd_repair_pong {
   fd_pubkey_t      from; /* pubkey of the validator responding with the pong */
-  fd_hash_t        hash; /* sha-256 hash generated from a ping hash */
-  fd_ed25519_sig_t sig;  /* from's signature over the preceding hash field */
+  fd_hash_t        hash; /* sha-256 hash generated from a appending SOLANA_PING_PONG and ping hash */
+  fd_ed25519_sig_t sig;  /* from's signature over the ping hash */
 };
 typedef struct fd_repair_pong fd_repair_pong_t;
 
@@ -253,7 +253,7 @@ fd_repair_sz( fd_repair_msg_t const * msg ) {
      case FD_REPAIR_KIND_SHRED:         return sizeof(uint) + sizeof(fd_repair_shred_req_t);
      case FD_REPAIR_KIND_HIGHEST_SHRED: return sizeof(uint) + sizeof(fd_repair_highest_shred_req_t);
      case FD_REPAIR_KIND_ORPHAN:        return sizeof(uint) + sizeof(fd_repair_orphan_req_t);
-     default:                           FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind ));
+     default:                           { __asm__("int $3"); FD_LOG_ERR(( "Unhandled repair kind %u", msg->kind )); }
    }
 }
 

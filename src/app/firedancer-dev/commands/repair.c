@@ -752,7 +752,7 @@ repair_cmd_fn_profiler_mode( args_t *   args,
       printf(" Repair Peers: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_PEERS ) ] );
       ulong slots_behind = turbine_slot0 > repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] ? turbine_slot0 - repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] : 0;
       printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ], turbine_slot0, slots_behind );
-      if( !slots_behind ) { catchup_finished = 1; }
+      if( turbine_slot0 && !slots_behind ) { catchup_finished = 1; }
       /* Print histogram buckets similar to Prometheus format */
       print_histogram_buckets( repair_metrics,
                                MIDX( HISTOGRAM, REPAIR, SLOT_COMPLETE_TIME ),
