@@ -189,13 +189,23 @@ typedef struct fd_fec_sig fd_fec_sig_t;
 #define SIGN_INIT_REQUEST  (1)
 #define SIGN_SHRED_REQUEST (2)
 struct fd_repair_pending_sign {
-  ulong       key;        /* map key, unique nonce */
-  ulong       buflen;
+  /* The pending sign must contain all the information needed to both
+     sign and send the message.  For shred requests all the information
+     is contained in the msg itself, but for the pong, we must save the
+     peer address and token. */
+
+  ulong key;
+  ulong buflen;
   union {
     uchar           buf[sizeof(fd_repair_msg_t)];
     fd_repair_msg_t msg;
   };
-  uchar           type;  /* SIGN_PONG, SIGN_INIT_REQUEST, SIGN_SHRED_REQUEST */
+  uchar           type;  /* SIGN_PONG, SIGN_INIT_REQUEST, SIGN_SHRED_REQUEST. Differs from discriminant in msg */
+
+  struct {
+    fd_ip4_port_t ping_peer_addr;
+    fd_hash_t   ping_token;
+  } pong_data;           /* populated only if this is a pong sign req */
 };
 typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 
@@ -206,6 +216,16 @@ typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 #define MAP_T            fd_repair_pending_sign_t
 #define MAP_MEMOIZE      0
 #include "../../util/tmpl/fd_map_dynamic.c"
+
+struct fd_signable_ping {
+  fd_repair_msg_t msg;
+  uchar           type;
+  struct {
+    fd_ip4_port_t ping_peer_addr;
+    fd_hash_t     ping_token;
+  } pong_data;
+};
+typedef struct fd_signable_ping fd_signable_ping_t;
 
 /* Because the sign tiles could be all busy when a contact info arrives,
    we need to save ping messages to be signed in a queue and dispatched
@@ -222,7 +242,7 @@ typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
    will retrigger it anyway. */
 
 #define QUEUE_NAME       fd_ping_signs_queue
-#define QUEUE_T          fd_repair_msg_t
+#define QUEUE_T          fd_signable_ping_t
 #define QUEUE_MAX        2*FD_ACTIVE_KEY_MAX
 #include "../../util/tmpl/fd_queue.c"
 
@@ -279,7 +299,7 @@ struct ctx {
 
   /* Pending sign requests for async operations */
   fd_repair_pending_sign_t * signs_map;
-  fd_repair_msg_t          * ping_queue;
+  fd_signable_ping_t       * ping_queue;
   uint                       pending_key_next;
 
   ushort net_id;
@@ -348,8 +368,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 fd_repair_pending_sign_t *
 pending_sign_request_insert( ctx_t *                  ctx,
                              fd_repair_msg_t const *  msg,
-                             uchar                    type ) {
-
+                             uchar                    type,
+                             fd_ip4_port_t *          opt_ping_to,
+                             fd_hash_t     *          opt_ping_token ) {
+# if DEBUG_LOGGING
+  if( FD_UNLIKELY( type==SIGN_PONG ) ) FD_TEST( opt_ping_to && opt_ping_token );
+  else                                 FD_TEST( !opt_ping_to && !opt_ping_token );
+# endif
   /* Check if there is any space for a new pending sign request. Should never fail as long as credit management is working. */
   if( FD_UNLIKELY( fd_signs_map_key_cnt( ctx->signs_map )==fd_signs_map_key_max( ctx->signs_map ) ) ) return NULL;
 
@@ -358,6 +383,9 @@ pending_sign_request_insert( ctx_t *                  ctx,
   pending->msg    = *msg;
   pending->buflen = fd_repair_sz( msg );
   pending->type   = type;
+
+  if( FD_LIKELY( type == SIGN_PONG && opt_ping_to ) )    pending->pong_data.ping_peer_addr = *opt_ping_to;
+  if( FD_LIKELY( type == SIGN_PONG && opt_ping_token ) ) pending->pong_data.ping_token = *opt_ping_token;
   return pending;
 }
 
@@ -377,31 +405,13 @@ pending_sign_request_remove( ctx_t * ctx,
 }
 
 /* Wrapper for keyguard client sign */
-static void
+static void FD_FN_UNUSED
 repair_signer_sync( ctx_t *       ctx,
                     uchar         signature[ static 64 ],
                     uchar const * buffer,
                     ulong         len,
                     int           sign_type ) {
   fd_keyguard_client_sign( ctx->keyguard_client, signature, buffer, len, sign_type );
-}
-
-/* Wrapper for publishing to the sign tile*/
-static void
-repair_signer_async( ctx_t *                    ctx,
-                     fd_repair_pending_sign_t * pending,
-                     int                        sign_type,
-                     out_ctx_t *                sign_out) {
-  ulong   preimage_sz = 0;
-  uchar * preimage    = preimage_req( &pending->msg, &preimage_sz );
-  uchar * dst         = fd_chunk_to_laddr( sign_out->mem, sign_out->chunk );
-  fd_memcpy( dst, preimage, preimage_sz );
-
-  ulong sig = ((ulong)pending->key << 32) | (uint)sign_type;
-  fd_stem_publish( ctx->stem, sign_out->idx, sig, sign_out->chunk, preimage_sz, 0UL, 0UL, 0UL );
-  sign_out->chunk = fd_dcache_compact_next( sign_out->chunk, preimage_sz, sign_out->chunk0, sign_out->wmark );
-
-  ctx->sign_request_seq = fd_seq_inc( ctx->sign_request_seq, 1UL );
 }
 
 static void
@@ -466,13 +476,28 @@ static void
 fd_repair_send_request_async( ctx_t                 * ctx,
                               out_ctx_t             * sign_out,
                               fd_repair_msg_t const * msg,
-                              uchar                   type ){
+                              uchar                   type,
+                              fd_ip4_port_t *         opt_ping_to,
+                              fd_hash_t   *           opt_ping_token ){
   /* Acquire and add a pending request from the pool */
-  fd_repair_pending_sign_t * pending = pending_sign_request_insert( ctx, msg, type );
+  fd_repair_pending_sign_t * pending = pending_sign_request_insert( ctx, msg, type, opt_ping_to, opt_ping_token );
   if( FD_UNLIKELY( !pending ) ) return;
 
-  /* Sign and prepare the message directly into the pending buffer */
-  repair_signer_async( ctx, pending, FD_KEYGUARD_SIGN_TYPE_ED25519, sign_out );
+  /* Sign and prepare the message directly into the pending buffer if
+     it's a shred req, otherwise put it in the preimage buffer */
+  uchar   pong_preimage[FD_REPAIR_PONG_PREIMAGE_SZ];
+  ulong   preimage_sz = sizeof(pong_preimage);
+  uchar * preimage    = ( pending->type == SIGN_PONG ) ? preimage_pong( &pending->pong_data.ping_token, pong_preimage, sizeof(pong_preimage) )
+                                                       : preimage_req( &pending->msg, &preimage_sz );
+  uchar * dst         = fd_chunk_to_laddr( sign_out->mem, sign_out->chunk );
+  fd_memcpy( dst, preimage, preimage_sz );
+
+  uint  sign_type = ( pending->type == SIGN_PONG ) ? FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 : FD_KEYGUARD_SIGN_TYPE_ED25519;
+  ulong sig       = ((ulong)pending->key << 32) | sign_type;
+  fd_stem_publish( ctx->stem, sign_out->idx, sig, sign_out->chunk, preimage_sz, 0UL, 0UL, 0UL );
+  sign_out->chunk = fd_dcache_compact_next( sign_out->chunk, preimage_sz, sign_out->chunk0, sign_out->wmark );
+
+  ctx->sign_request_seq = fd_seq_inc( ctx->sign_request_seq, 1UL );
 
   ctx->metrics->sent_pkt_types[metric_index[msg->kind]]++;
   sign_out->credits--;
@@ -589,10 +614,10 @@ after_contact( ctx_t * ctx, fd_gossip_update_message_t const * msg ) {
     fd_repair_msg_t * init     = fd_repair_shred( ctx->protocol, &contact_info->pubkey, (ulong)fd_log_wallclock()/1000000L, 0, 0, 0 );
     out_ctx_t *       sign_out = sign_avail_credits( ctx ); // totally could be null, TODO how to handle this? we don't want to lose the peer probably
     if( !sign_out ){
-      fd_ping_signs_queue_push( ctx->ping_queue, *init );
+      fd_ping_signs_queue_push( ctx->ping_queue, (fd_signable_ping_t){ .msg = *init, .type = SIGN_INIT_REQUEST }  );
       return;
     }
-    fd_repair_send_request_async( ctx, sign_out, init, SIGN_INIT_REQUEST );
+    fd_repair_send_request_async( ctx, sign_out, init, SIGN_INIT_REQUEST, NULL, NULL );
   }
 }
 
@@ -619,33 +644,41 @@ after_sign( ctx_t             * ctx,
 
   fd_repair_pending_sign_t * pending = pending_sign_request_query( ctx, pending_key );
   if( FD_LIKELY( pending ) ) {
+    if( pending->type == SIGN_PONG ) {
+      fd_memcpy( pending->buf + 4 + 64, pending->buf, 64UL ); /* copy into sig field in pong */
+      send_packet( ctx, stem, 1, pending->pong_data.ping_peer_addr.addr, pending->pong_data.ping_peer_addr.port, 0, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+      pending_sign_request_remove( ctx, pending_key );
+      return;
+    }
+
     fd_memcpy( pending->buf + 4, ctx->buffer, 64UL );
     uint  src_ip4 = 0U;
 
-    fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+    fd_pubkey_t * to = &pending->msg.shred.to;
+    fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, to );
     if( FD_UNLIKELY( !active ) ) {
       FD_LOG_INFO(( "Signed a message for %s, but it is no longer in the active peer list", FD_BASE58_ENC_32_ALLOCA( &pending->msg.shred.to ) ));
       /* Happens extremely rarely, so we can just pick a new peer and
          try to resign here.  The likelihood of this happening is pretty
          low, so if there is no sign tile available, it's ok we'll just
          re-request this shred 80ms later. */
-      fd_pubkey_t const * new_peer = fd_policy_peer_select( ctx->policy );
-      pending->msg.shred.to        = *new_peer;
-      out_ctx_t *         sign_out = sign_avail_credits( ctx );
-      FD_TEST( sign_out );
-      if( !sign_out ){
-        ctx->metrics->sign_tile_unavail++;
-        return;
-      }
-      fd_repair_send_request_async( ctx, sign_out, &pending->msg, SIGN_SHRED_REQUEST );
       return;
+      //fd_pubkey_t const * new_peer = fd_policy_peer_select( ctx->policy );
+      //pending->msg.shred.to        = *new_peer;
+      //out_ctx_t *         sign_out = sign_avail_credits( ctx );
+      //if( !sign_out ){
+        //ctx->metrics->sign_tile_unavail++;
+        //FD_LOG_ERR((" implement pending sign queue req for here"));
+        //return;
+      //}
+      //fd_repair_send_request_async( ctx, sign_out, &pending->msg, SIGN_SHRED_REQUEST, NULL, NULL );
+      //return;
     }
     if( FD_LIKELY( pending->type == SIGN_SHRED_REQUEST ) ) {
       fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to );
       fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
     }
     send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
-
     pending_sign_request_remove( ctx, pending_key );
   } else {
     FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
@@ -737,14 +770,21 @@ after_net( ctx_t * ctx,
     switch( res->kind ) {
     case FD_REPAIR_KIND_PING: {
       fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
-
-      uchar pre_image[FD_REPAIR_PONG_PREIMAGE_SZ];
-      preimage_pong( &res->ping.hash, pre_image, sizeof(pre_image) );
-      repair_signer_sync( ctx, (uchar *)&pong->pong.sig, pre_image, FD_REPAIR_PONG_PREIMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
-      send_packet( ctx, ctx->stem, 1, peer_addr.addr, peer_addr.port, ip4->daddr, (uchar *)pong, fd_repair_sz( pong ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      out_ctx_t * sign_out = sign_avail_credits( ctx );
+      if( FD_UNLIKELY( !sign_out ) ) {
+        fd_ping_signs_queue_push( ctx->ping_queue, (fd_signable_ping_t){ .msg = *pong, .type = SIGN_PONG, .pong_data = { .ping_peer_addr = peer_addr, .ping_token = res->ping.hash } } );
+        return;
+      }
+      fd_repair_send_request_async( ctx, sign_out, pong, SIGN_PONG, &peer_addr, &res->ping.hash );
       break;
+
+      //uchar pre_image[FD_REPAIR_PONG_PREIMAGE_SZ];
+      //preimage_pong( &res->ping.hash, pre_image, sizeof(pre_image) );
+      //repair_signer_sync( ctx, (uchar *)&pong->pong.sig, pre_image, FD_REPAIR_PONG_PREIMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
+      //send_packet( ctx, ctx->stem, 1, peer_addr.addr, peer_addr.port, ip4->daddr, (uchar *)pong, fd_repair_sz( pong ), fd_frag_meta_ts_comp( fd_tickcount() ) );
+      //break;
     }
-    default: FD_LOG_ERR(( "unhandled kind %u", (uint)res->kind ));
+    default: FD_LOG_WARNING(( "unhandled kind %u", (uint)res->kind ));
    }
   } else {
     FD_LOG_WARNING(( "Unexpectedly received packet for port %u", (uint)fd_ushort_bswap( dport ) ));
@@ -929,15 +969,16 @@ after_credit( ctx_t *             ctx,
     return;
   }
   if( FD_UNLIKELY( !fd_ping_signs_queue_empty( ctx->ping_queue ) ) ) {
-    fd_repair_msg_t msg = fd_ping_signs_queue_pop( ctx->ping_queue );
-    fd_repair_send_request_async( ctx, sign_out, &msg, msg.kind != FD_REPAIR_KIND_PONG ? SIGN_INIT_REQUEST : SIGN_PONG );
+    fd_signable_ping_t signable = fd_ping_signs_queue_pop( ctx->ping_queue );
+    fd_repair_msg_t *  msg      = &signable.msg;
+    fd_repair_send_request_async( ctx, sign_out, msg, signable.type, &signable.pong_data.ping_peer_addr, &signable.pong_data.ping_token );
     return;
   }
 
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot );
   if( FD_UNLIKELY( !cout ) ) return;
 
-  fd_repair_send_request_async( ctx, sign_out, cout, SIGN_SHRED_REQUEST );
+  fd_repair_send_request_async( ctx, sign_out, cout, SIGN_SHRED_REQUEST, NULL, NULL );
 
 }
 

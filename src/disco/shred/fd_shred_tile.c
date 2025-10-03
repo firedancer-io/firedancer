@@ -1036,12 +1036,11 @@ after_frag( fd_shred_ctx_t *    ctx,
       long shacq_start, shacq_end, shrel_end;
       fd_store_fec_t * fec = NULL;
       FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
+        FD_LOG_INFO(("inserting FEC set %lu into store with merkle root %s", last->slot, FD_BASE58_ENC_32_ALLOCA(ctx->out_merkle_roots[fset_k].hash) ) );
         fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
       } FD_STORE_SHARED_LOCK_END;
 
-      if( FD_UNLIKELY( !fec ) ) {
-        __asm__("int $3");
-      }
+      if( FD_UNLIKELY( !fec ) ) __asm__("int $3");
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );

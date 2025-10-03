@@ -87,8 +87,8 @@
 
 struct __attribute__((packed)) fd_repair_pong {
   fd_pubkey_t      from; /* pubkey of the validator responding with the pong */
-  fd_hash_t        hash; /* sha-256 hash generated from a ping hash */
-  fd_ed25519_sig_t sig;  /* from's signature over the preceding hash field */
+  fd_hash_t        hash; /* sha-256 hash generated from a appending SOLANA_PING_PONG and ping hash */
+  fd_ed25519_sig_t sig;  /* from's signature over the ping hash */
 };
 typedef struct fd_repair_pong fd_repair_pong_t;
 
