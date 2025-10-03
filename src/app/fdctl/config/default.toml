@@ -1004,12 +1004,15 @@ dynamic_port_range = "8900-9000"
         #   but suboptimal performance impact, especially to socket-based
         #   traffic.
         #
-        # "dedicated" (experimental)
+        # "dedicated"
         #   Reserves a dedicated hardware queue for each net tile.  For
         #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
         #   to route interesting packets based on UDP dst port.  This mode
-        #   is considered experimental and may not work with some network
-        #   device setups. This should not yet be used in production.
+        #   may not work with some network device setups.
+        #
+        # "auto"
+        #   Attempts to run in "dedicated" mode but automatically falls
+        #   back to "simple" mode if necessary.
         rss_queue_mode = "simple"
 
     [net.socket]

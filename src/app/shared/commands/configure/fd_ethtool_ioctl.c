@@ -209,14 +209,16 @@ fd_ethtool_ioctl_rxfh_get_table( fd_ethtool_ioctl_t * ioc,
     }
     return ret;
   }
-  if( FD_UNLIKELY( (rxfh.m.indir_size == 0) | (rxfh.m.indir_size > FD_ETHTOOL_MAX_RXFH_TABLE_CNT) |
-                   (rxfh.m.key_size   == 0) | (rxfh.m.key_size   > MAX_RXFH_KEY_SIZE) ) )
+  if( FD_UNLIKELY( (rxfh.m.indir_size > FD_ETHTOOL_MAX_RXFH_TABLE_CNT) |
+                   (rxfh.m.key_size   > MAX_RXFH_KEY_SIZE) ) )
     return EINVAL;
   *table_ele_cnt = rxfh.m.indir_size;
 
-  /* Now get the table contents itself. We also get the key bytes. */
-  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRSSH", &rxfh );
-  fd_memcpy( table, rxfh.m.rss_config, *table_ele_cnt * sizeof(uint) );
+  if( 0!=*table_ele_cnt ) {
+    /* Now get the table contents itself. We also get the key bytes. */
+    TRY_RUN_IOCTL( ioc, "ETHTOOL_GRSSH", &rxfh );
+    fd_memcpy( table, rxfh.m.rss_config, *table_ele_cnt * sizeof(uint) );
+  }
   return 0;
 }
 

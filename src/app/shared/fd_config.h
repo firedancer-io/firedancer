@@ -176,7 +176,7 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
-    char rss_queue_mode[ 16 ]; /* "simple" or "dedicated" */
+    char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
   } xdp;
 
   struct {
