@@ -324,17 +324,17 @@ union fd_quic_metrics {
     ulong conn_state_cnt[ 8 ];     /* current number of conns in each state */
 
     /* Packet metrics */
-    ulong pkt_net_hdr_err_cnt;      /* number of packets dropped due to weird IPv4/UDP headers */
-    ulong pkt_quic_hdr_err_cnt;     /* number of packets dropped due to weird QUIC header */
-    ulong pkt_undersz_cnt;          /* number of QUIC packets dropped due to being too small */
-    ulong pkt_oversz_cnt;           /* number of QUIC packets dropped due to being too large */
-    ulong pkt_decrypt_fail_cnt[4];  /* number of packets that failed decryption due to auth tag */
-    ulong pkt_no_key_cnt[4];        /* number of packets that failed decryption due to missing key */
-    ulong pkt_no_conn_cnt[4];       /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
-    ulong frame_tx_alloc_cnt[3];    /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
-    ulong pkt_verneg_cnt;           /* number of QUIC version negotiation packets or packets with wrong version */
-    ulong pkt_retransmissions_cnt;  /* number of pkt_meta retries */
-    ulong initial_token_len_cnt[3]; /* number of Initial packets grouped by token length */
+    ulong pkt_net_hdr_err_cnt;          /* number of packets dropped due to weird IPv4/UDP headers */
+    ulong pkt_quic_hdr_err_cnt;         /* number of packets dropped due to weird QUIC header */
+    ulong pkt_undersz_cnt;              /* number of QUIC packets dropped due to being too small */
+    ulong pkt_oversz_cnt;               /* number of QUIC packets dropped due to being too large */
+    ulong pkt_decrypt_fail_cnt[ 4 ];    /* number of packets that failed decryption due to auth tag */
+    ulong pkt_no_key_cnt[ 4 ];          /* number of packets that failed decryption due to missing key */
+    ulong pkt_no_conn_cnt[ 4 ];         /* number of packets with unknown conn ID (initial, retry, hs, 1-RTT) */
+    ulong frame_tx_alloc_cnt[ 3 ];      /* number of pkt_meta alloc successes, fails for empty pool, fails at conn max */
+    ulong pkt_verneg_cnt;               /* number of QUIC version negotiation packets or packets with wrong version */
+    ulong pkt_retransmissions_cnt[ 4 ]; /* number of pkt_meta retries */
+    ulong initial_token_len_cnt[ 3 ];   /* number of Initial packets grouped by token length */
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */

@@ -97,7 +97,7 @@ test_fibre_clock(void) {
 
 static void
 sync_clocks( fd_quic_t * x, fd_quic_t * y ) {
-  fd_quic_get_state( x )->now = fd_quic_get_state( y )->now = now; /* keep clocks synced */
+  fd_quic_sync_clocks( x, y, now );
 }
 
 struct client_args {
