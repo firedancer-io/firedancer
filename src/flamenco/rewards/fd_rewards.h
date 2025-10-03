@@ -28,9 +28,11 @@ FD_PROTOTYPES_BEGIN
      - ... update epoch rewards bank field ... */
 
 void
-fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *           slot_ctx,
-                              fd_stake_delegations_t const * stake_delegations,
+fd_begin_partitioned_rewards( fd_bank_t *                    bank,
+                              fd_funk_t *                    funk,
+                              fd_funk_txn_xid_t const *      xid,
                               fd_capture_ctx_t *             capture_ctx,
+                              fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch,
                               fd_spad_t *                    runtime_spad );
@@ -47,9 +49,12 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t *           slot_ctx,
            - calculate_stake_points_and_credits */
 
 void
-fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_capture_ctx_t *   capture_ctx,
-                                            fd_spad_t *          runtime_spad );
+fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
+                                            fd_bank_t *               bank,
+                                            fd_funk_t *               funk,
+                                            fd_funk_txn_xid_t const * xid,
+                                            fd_capture_ctx_t *        capture_ctx,
+                                            fd_spad_t *               runtime_spad );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
    accounts.  Called at the beginning of a few slots per epoch.
@@ -59,8 +64,10 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
      - for each stake account: distribute_epoch_reward_to_stake_acc */
 
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                         fd_capture_ctx_t *   capture_ctx );
+fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
+                                         fd_funk_t *               funk,
+                                         fd_funk_txn_xid_t const * xid,
+                                         fd_capture_ctx_t *        capture_ctx );
 
 FD_PROTOTYPES_END
 

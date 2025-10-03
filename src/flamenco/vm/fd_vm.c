@@ -1,6 +1,4 @@
 #include "fd_vm_private.h"
-#include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../features/fd_features.h"
 
 /* fd_vm_syscall_strerror() returns the error message corresponding to err,
    intended to be logged by log_collector, or an empty string if the error code

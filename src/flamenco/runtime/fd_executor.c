@@ -1368,26 +1368,25 @@ fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
 }
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        ctx,
-                                    fd_wksp_t const *          funk_wksp,
-                                    ulong                      funk_gaddr,
-                                    fd_bank_hash_cmp_t *       bank_hash_cmp ) {
-  ctx->xid[0] = slot_ctx->xid[0];
+fd_exec_txn_ctx_setup( fd_bank_t *               bank,
+                       fd_funk_t *               funk,
+                       fd_funk_txn_xid_t const * xid,
+                       fd_txncache_t *           status_cache,
+                       fd_exec_txn_ctx_t *       ctx,
+                       fd_bank_hash_cmp_t *      bank_hash_cmp ) {
+  ctx->funk[0] = *funk;
 
-  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, fd_wksp_laddr( funk_wksp, funk_gaddr ) ) ) ) {
-    FD_LOG_ERR(( "Could not find valid funk %lu", funk_gaddr ));
-  }
+  ctx->xid[0] = *xid;
 
-  ctx->status_cache = slot_ctx->status_cache;
+  ctx->status_cache = status_cache;
 
   ctx->bank_hash_cmp = bank_hash_cmp;
 
-  ctx->enable_exec_recording = !!( slot_ctx->bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
+  ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
 
-  ctx->bank = slot_ctx->bank;
+  ctx->bank = bank;
 
-  ctx->slot = fd_bank_slot_get( slot_ctx->bank );
+  ctx->slot = fd_bank_slot_get( bank );
 
   ctx->features = fd_bank_features_get( ctx->bank );
 }

@@ -3237,13 +3237,15 @@ done:
 /* Public API *********************************************************/
 
 static void
-write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * stake_config ) {
+write_stake_config( fd_funk_t *               funk,
+                    fd_funk_txn_xid_t const * xid,
+                    fd_stake_config_t const * stake_config ) {
   ulong                   data_sz  = fd_stake_config_size( stake_config );
   fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
 
   FD_TXN_ACCOUNT_DECL(rec);
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, slot_ctx->funk, slot_ctx->xid, 1, data_sz, &prepare );
+  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, funk, xid, 1, data_sz, &prepare );
   FD_TEST( !err );
 
   fd_txn_account_set_lamports( rec, 960480UL );
@@ -3257,17 +3259,18 @@ write_stake_config( fd_exec_slot_ctx_t * slot_ctx, fd_stake_config_t const * sta
 
   fd_txn_account_set_data( rec, stake_config, data_sz );
 
-  fd_txn_account_mutable_fini( rec, slot_ctx->funk, &prepare );
+  fd_txn_account_mutable_fini( rec, funk, &prepare );
 }
 
 void
-fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_stake_program_config_init( fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid ) {
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/config.rs#L26
   fd_stake_config_t stake_config = {
       .warmup_cooldown_rate = DEFAULT_WARMUP_COOLDOWN_RATE,
       .slash_penalty        = DEFAULT_SLASH_PENALTY,
   };
-  write_stake_config( slot_ctx, &stake_config );
+  write_stake_config( funk, xid, &stake_config );
 }
 
 int

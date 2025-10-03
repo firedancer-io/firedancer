@@ -2,10 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h
 
 #include "../../fd_flamenco_base.h"
-#include "../../runtime/fd_system_ids.h"
-#include "../../features/fd_features.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../fd_system_ids.h"
+#include "../fd_bank.h"
 #include "../fd_system_ids_pp.h"
 
 #define NO_ENABLE_FEATURE_ID ULONG_MAX
@@ -55,13 +52,19 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
 void
-fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_builtin_programs_init( fd_bank_t *               bank,
+                          fd_funk_t *               funk,
+                          fd_funk_txn_xid_t const * xid,
+                          fd_capture_ctx_t *        capture_ctx );
 
 void
-fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
-                          fd_pubkey_t const    pubkey,
-                          char const *         data,
-                          ulong                sz );
+fd_write_builtin_account( fd_bank_t  *              bank,
+                          fd_funk_t  *              funk,
+                          fd_funk_txn_xid_t const * xid,
+                          fd_capture_ctx_t *        capture_ctx,
+                          fd_pubkey_t const         pubkey,
+                          char const *              data,
+                          ulong                     sz );
 
 fd_builtin_program_t const *
 fd_builtins( void );

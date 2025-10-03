@@ -126,7 +126,9 @@ fd_sysvar_cache_delete( void * mem );
    include unexpected database error or sysvar deserialize failure. */
 
 int
-fd_sysvar_cache_restore( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_cache_restore( fd_bank_t *               bank,
+                         fd_funk_t *               funk,
+                         fd_funk_txn_xid_t const * xid );
 
 /* fd_sysvar_cache_restore_fuzz is a weaker version of the above for use
    with solfuzz/protosol conformance tooling.  This version works around
@@ -134,7 +136,9 @@ fd_sysvar_cache_restore( fd_exec_slot_ctx_t * slot_ctx );
    log warning. */
 
 void
-fd_sysvar_cache_restore_fuzz( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_cache_restore_fuzz( fd_bank_t *               bank,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid );
 
 /* Generic accessors for serialized sysvar account data. */
 

@@ -641,22 +641,17 @@ replay_block_start( fd_replay_tile_t *  ctx,
   bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
   int is_epoch_boundary = 0;
-  fd_exec_slot_ctx_t slot_ctx = {
-    .bank         = bank,
-    .banks        = ctx->banks,
-    .funk         = ctx->funk,
-    .xid[0]       = xid,
-    .status_cache = ctx->txncache,
-    .capture_ctx  = ctx->capture_ctx,
-  };
   fd_runtime_block_pre_execute_process_new_epoch(
-      &slot_ctx,
+      ctx->banks,
+      bank,
+      ctx->funk,
+      &xid,
       ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( &slot_ctx, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
@@ -738,16 +733,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank->idx ) );
 
   /* Do hashing and other end-of-block processing. */
-  fd_exec_slot_ctx_t slot_ctx = {
-    .bank         = bank,
-    .banks        = ctx->banks,
-    .funk         = ctx->funk,
-    .xid[0]       = xid,
-    .status_cache = ctx->txncache,
-    .silent       = 1,
-    .capture_ctx  = ctx->capture_ctx,
-  };
-  fd_runtime_block_execute_finalize( &slot_ctx );
+  fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
   /* Mark the bank as frozen. */
   bank->flags |= FD_BANK_FLAGS_FROZEN;
@@ -855,23 +841,18 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
 
   ctx->leader_bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
-  fd_exec_slot_ctx_t slot_ctx = {
-    .bank  = ctx->leader_bank,
-    .funk  = ctx->funk,
-    .banks = ctx->banks,
-    .xid   = {xid},
-    .capture_ctx  = ctx->capture_ctx,
-  };
-
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
-      &slot_ctx,
+      ctx->banks,
+      ctx->leader_bank,
+      ctx->funk,
+      &xid,
       ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( &slot_ctx, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
@@ -906,16 +887,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   }
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
 
-  fd_exec_slot_ctx_t slot_ctx = {
-    .funk         = ctx->funk,
-    .banks        = ctx->banks,
-    .bank         = ctx->leader_bank,
-    .xid          = {xid},
-    .status_cache = ctx->txncache,
-    .silent       = 1,
-    .capture_ctx  = ctx->capture_ctx,
-  };
-  fd_runtime_block_execute_finalize( &slot_ctx );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, 0 );
 
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0 );
 
@@ -975,16 +947,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_exec_slot_ctx_t slot_ctx = {
-    .bank         = bank,
-    .banks        = ctx->banks,
-    .funk         = ctx->funk,
-    .xid[0]       = xid,
-    .status_cache = ctx->txncache,
-    .silent       = 1,
-    .capture_ctx  = ctx->capture_ctx,
-  };
-  fd_rewards_recalculate_partitioned_rewards( &slot_ctx, ctx->capture_ctx, ctx->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
 
   ulong snapshot_slot = fd_bank_slot_get( bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -992,9 +955,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
-    fd_runtime_update_leaders( bank,
-                               fd_bank_slot_get( bank ),
-                               ctx->runtime_spad );
+    fd_runtime_update_leaders( bank, ctx->runtime_spad );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
     fd_hash_t * poh = fd_bank_poh_modify( bank );
@@ -1002,8 +963,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( &slot_ctx, ctx->runtime_spad ) == 0 );
-    fd_runtime_block_execute_finalize( &slot_ctx );
+    FD_TEST( fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) == 0 );
+    fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
 
@@ -1205,15 +1166,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   }
   fd_funk_txn_xid_t xid = { .ul = { 0UL, 0UL } };
 
-  fd_exec_slot_ctx_t slot_ctx = {
-    .bank         = bank,
-    .banks        = ctx->banks,
-    .funk         = ctx->funk,
-    .xid[0]       = xid,
-    .status_cache = ctx->txncache,
-    .capture_ctx  = ctx->capture_ctx,
-  };
-  fd_runtime_read_genesis( &slot_ctx, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
@@ -1327,17 +1280,12 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
     FD_TEST( bank->idx==0UL );
 
-    fd_exec_slot_ctx_t slot_ctx = {
-      .bank         = bank,
-      .banks        = ctx->banks,
-      .funk         = ctx->funk,
-      .xid[0]       = { .ul = { snapshot_slot, snapshot_slot } },
-      .status_cache = ctx->txncache,
-      .capture_ctx  = ctx->capture_ctx,
-    };
-    fd_features_restore( &slot_ctx );
 
-    fd_runtime_update_leaders( bank, fd_bank_slot_get( bank ), ctx->runtime_spad );
+    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, snapshot_slot } };
+
+    fd_features_restore( bank, ctx->funk, &xid );
+
+    fd_runtime_update_leaders( bank, ctx->runtime_spad );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     FD_TEST( block_id_ele );
@@ -1439,15 +1387,10 @@ replay( fd_replay_tile_t *  ctx,
     if( FD_UNLIKELY( !bank ) ) {
       FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", ready_txn->bank_idx ));
     }
-    fd_exec_slot_ctx_t slot_ctx = {
-      .bank         = bank,
-      .banks        = ctx->banks,
-      .funk         = ctx->funk,
-      .xid[0]       = { .ul = { ready_txn->slot, ready_txn->slot } },
-      .status_cache = ctx->txncache,
-      .capture_ctx  = ctx->capture_ctx,
-    };
-    fd_runtime_update_program_cache( &slot_ctx, txn_p, ctx->runtime_spad );
+
+    fd_funk_txn_xid_t xid = { .ul = { ready_txn->slot, ready_txn->slot } };
+
+    fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, ctx->runtime_spad );
 
     /* At this point, we are going to send the txn down the execution
         pipeline.  Increment the refcnt so we don't prematurely prune a

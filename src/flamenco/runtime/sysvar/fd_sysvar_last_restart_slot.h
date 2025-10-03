@@ -13,11 +13,17 @@ FD_PROTOTYPES_BEGIN
    state. */
 
 void
-fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_last_restart_slot_init( fd_bank_t *               bank,
+                                  fd_funk_t *               funk,
+                                  fd_funk_txn_xid_t const * xid,
+                                  fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_sysvar_last_restart_slot_write(
-    fd_exec_slot_ctx_t * slot_ctx,
+    fd_bank_t *                               bank,
+    fd_funk_t *                               funk,
+    fd_funk_txn_xid_t const *                 xid,
+    fd_capture_ctx_t *                        capture_ctx,
     fd_sol_sysvar_last_restart_slot_t const * sysvar
 );
 
@@ -28,8 +34,11 @@ fd_sysvar_last_restart_slot_write(
 
 void
 fd_sysvar_last_restart_slot_update(
-    fd_exec_slot_ctx_t * slot_ctx,
-    ulong                last_restart_slot
+    fd_bank_t *               bank,
+    fd_funk_t *               funk,
+    fd_funk_txn_xid_t const * xid,
+    fd_capture_ctx_t *        capture_ctx,
+    ulong                     last_restart_slot
 );
 
 /* fd_sysvar_last_restart_slot_read queries the last restart slot sysvar

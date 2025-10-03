@@ -86,14 +86,19 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
    lifetime of the partitions can exist beyond the rewards distribution period so that we don't have to push and pop
    spad frames in disjoint sections of the runtime. */
 void
-fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
+fd_dump_block_to_protobuf( fd_banks_t *                   banks,
+                           fd_bank_t *                    bank,
+                           fd_funk_t *                    funk,
+                           fd_funk_txn_xid_t const *      xid,
                            fd_capture_ctx_t const *       capture_ctx,
                            fd_spad_t *                    spad,
                            fd_exec_test_block_context_t * block_context_msg /* output */ );
 
 void
 fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
-                                   fd_exec_slot_ctx_t const *      slot_ctx,
+                                   fd_bank_t *                     bank,
+                                   fd_funk_t *                     funk,
+                                   fd_funk_txn_xid_t const *       xid,
                                    fd_capture_ctx_t const *        capture_ctx,
                                    fd_spad_t *                     spad,
                                    fd_exec_test_block_context_t *  block_context_msg );

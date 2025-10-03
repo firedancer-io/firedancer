@@ -332,7 +332,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_spad_push( ctx->exec_spad );
   uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  *ctx->txn_ctx->funk         = *ctx->funk;
+  ctx->txn_ctx->funk[0]       = *ctx->funk;
   ctx->txn_ctx->status_cache  = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   ctx->txn_ctx->spad          = ctx->exec_spad;

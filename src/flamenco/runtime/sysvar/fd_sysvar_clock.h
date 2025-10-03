@@ -22,7 +22,10 @@ FD_PROTOTYPES_BEGIN
 /* fd_sysvar_clock_init initializes the sysvar account to genesis state. */
 
 void
-fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_clock_init( fd_bank_t *               bank,
+                      fd_funk_t *               funk,
+                      fd_funk_txn_xid_t const * xid,
+                      fd_capture_ctx_t *        capture_ctx );
 
 /* fd_sysvar_clock_update updates the clock sysvar account.  Runs
    fd_calculate_stake_weighted_timestamp under the hood.  Should be
@@ -32,15 +35,21 @@ fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
    Crashes the process with FD_LOG_ERR on failure. */
 
 void
-fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx,
-                        fd_spad_t *          spad,
-                        ulong const *        parent_epoch );
+fd_sysvar_clock_update( fd_bank_t *               bank,
+                        fd_funk_t *               funk,
+                        fd_funk_txn_xid_t const * xid,
+                        fd_capture_ctx_t *        capture_ctx,
+                        fd_spad_t *               spad,
+                        ulong const *             parent_epoch );
 
 /* Writes the current value of the clock sysvar to funk. */
 
 void
-fd_sysvar_clock_write( fd_exec_slot_ctx_t *    slot_ctx,
-                       fd_sol_sysvar_clock_t * clock ) ;
+fd_sysvar_clock_write( fd_bank_t *               bank,
+                       fd_funk_t *               funk,
+                       fd_funk_txn_xid_t const * xid,
+                       fd_capture_ctx_t *        capture_ctx,
+                       fd_sol_sysvar_clock_t *   clock );
 
 /* fd_sysvar_clock_read reads the current value of the rent sysvar from
    funk. If the account doesn't exist in funk or if the account

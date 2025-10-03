@@ -3,10 +3,7 @@
 #include "../fd_runtime_err.h"
 #include "../fd_system_ids.h"
 #include "../fd_executor.h"
-#include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../../vm/fd_vm.h"
 #include "fd_builtin_programs.h"
 #include "../fd_compute_budget_details.h"
 

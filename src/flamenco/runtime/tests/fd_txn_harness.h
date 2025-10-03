@@ -20,10 +20,10 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
    Returns the spad-allocated transaction context. Writes the execution
    result to the `exec_res` pointer (assumed to be pre-allocated). */
 fd_exec_txn_ctx_t *
-fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t * runner,
-                              fd_exec_slot_ctx_t *  slot_ctx,
-                              fd_txn_p_t *          txn,
-                              int *                 exec_res );
+fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_txn_p_t *              txn,
+                              int *                     exec_res );
 
 FD_PROTOTYPES_END
 

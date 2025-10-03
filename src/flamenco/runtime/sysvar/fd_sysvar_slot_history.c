@@ -39,7 +39,10 @@ fd_sysvar_slot_history_set( fd_slot_history_global_t * history,
 FD_FN_UNUSED static const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
 void
-fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
+fd_sysvar_slot_history_write_history( fd_bank_t *                bank,
+                                      fd_funk_t *                funk,
+                                      fd_funk_txn_xid_t const *  xid,
+                                      fd_capture_ctx_t *         capture_ctx,
                                       fd_slot_history_global_t * history ) {
   ulong sz = slot_history_min_account_size;
   uchar enc[ sz ];
@@ -49,13 +52,17 @@ fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t *       slot_ctx,
   ctx.dataend = enc + sz;
   int err = fd_slot_history_encode_global( history, &ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_slot_history_id, enc, sz );
+  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_slot_history_id, enc, sz );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
 
 void
-fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+fd_sysvar_slot_history_init( fd_bank_t *               bank,
+                             fd_funk_t *               funk,
+                             fd_funk_txn_xid_t const * xid,
+                             fd_capture_ctx_t *        capture_ctx,
+                             fd_spad_t *               runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Create a new slot history instance */
 
@@ -67,7 +74,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   fd_slot_history_global_t * history = (fd_slot_history_global_t *)mem;
   ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
 
-  history->next_slot          = fd_bank_slot_get( slot_ctx->bank ) + 1UL;
+  history->next_slot          = fd_bank_slot_get( bank ) + 1UL;
   history->bits_bitvec_offset = (ulong)((uchar*)blocks - (uchar*)history);
   history->bits_len           = slot_history_max_entries;
   history->bits_bitvec_len    = blocks_len;
@@ -75,19 +82,22 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   memset( blocks, 0, sizeof(ulong) * blocks_len );
 
   /* TODO: handle slot != 0 init case */
-  fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
-  fd_sysvar_slot_history_write_history( slot_ctx, history );
+  fd_sysvar_slot_history_set( history, fd_bank_slot_get( bank ) );
+  fd_sysvar_slot_history_write_history( bank, funk, xid, capture_ctx, history );
   } FD_SPAD_FRAME_END;
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int
-fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_slot_history_update( fd_bank_t *               bank,
+                               fd_funk_t *               funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_capture_ctx_t *        capture_ctx ) {
   /* Set current_slot, and update next_slot */
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->funk, slot_ctx->xid );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, xid );
   if (err)
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly(slot_history) failed: %d", err ));
 
@@ -106,10 +116,10 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_slot_history_global_t * history = fd_slot_history_decode_global( mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
-  fd_sysvar_slot_history_set( history, fd_bank_slot_get( slot_ctx->bank ) );
-  history->next_slot = fd_bank_slot_get( slot_ctx->bank ) + 1;
+  fd_sysvar_slot_history_set( history, fd_bank_slot_get( bank ) );
+  history->next_slot = fd_bank_slot_get( bank ) + 1;
 
-  fd_sysvar_slot_history_write_history( slot_ctx, history );
+  fd_sysvar_slot_history_write_history( bank, funk, xid, capture_ctx, history );
 
   return 0;
 }
