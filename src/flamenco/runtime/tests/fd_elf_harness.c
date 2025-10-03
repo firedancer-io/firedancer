@@ -5,6 +5,11 @@
 #include "../program/fd_bpf_loader_program.h"
 #include "../../vm/fd_vm_base.h"
 
+#define SORT_NAME        sort_uint64_t
+#define SORT_KEY_T       uint64_t
+#define SORT_BEFORE(a,b) (a)<(b)
+#include "../../../util/tmpl/fd_sort.c"
+
 ulong
 fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
                            void const *          input_,
@@ -95,21 +100,28 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->entry_pc = prog->entry_pc;
 
     pb_size_t max_calldests_sz = (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests)+1U;
-    elf_effects->calldests = FD_SCRATCH_ALLOC_APPEND(l, 8UL, max_calldests_sz * sizeof(uint64_t));
+    elf_effects->calldests     = FD_SCRATCH_ALLOC_APPEND(l, 8UL, max_calldests_sz * sizeof(uint64_t));
     if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
     }
 
-    /* Add the entrypoint to the calldests if needed */
-    if( entrypoint!=ULONG_MAX ) {
-      fd_sbpf_calldests_insert( prog->calldests, entrypoint );
-    }
-
+    uchar add_entrypoint = entrypoint!=ULONG_MAX;
     for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
                         !fd_sbpf_calldests_const_iter_done(target_pc);
                target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
       elf_effects->calldests[elf_effects->calldests_count++] = target_pc;
+      if( FD_UNLIKELY( target_pc==entrypoint ) ) {
+        add_entrypoint = 0;
+      }
     }
+
+    /* Add the entrypoint to the calldests if needed */
+    if( add_entrypoint ) {
+      elf_effects->calldests[elf_effects->calldests_count++] = entrypoint;
+    }
+
+    /* Sort the calldests in ascending order */
+    sort_uint64_t_inplace( elf_effects->calldests, elf_effects->calldests_count );
   } while(0);
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );

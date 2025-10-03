@@ -133,7 +133,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   }
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->rodata_sz / 8UL ) ),  /* calldests bitmap */
+    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->text_sz/8UL ) ),  /* calldests bitmap */
     alignof(fd_sbpf_program_t) );
 }
 
@@ -184,8 +184,10 @@ fd_sbpf_program_new( void *                     prog_mem,
     prog->calldests_shmem = NULL;
     prog->calldests = NULL;
   } else {
-    /* Initialize calldests map */
-    ulong pc_max = elf_info->rodata_sz / 8UL;
+    /* Initialize calldests map. The text section may be empty, so we
+       should initialize the calldests set with at least 1 element
+       of capacity. */
+    ulong pc_max = fd_ulong_max( 1UL, elf_info->text_sz/8UL );
     prog->calldests_shmem = fd_sbpf_calldests_new(
           FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
                                           fd_sbpf_calldests_footprint( pc_max ) ),

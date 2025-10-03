@@ -31,7 +31,7 @@ fd_program_cache_entry_new( void *                     mem,
   cache_entry->calldests_shmem_off = l;
 
   /* rodata backing memory */
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->text_sz/8UL) );
   cache_entry->rodata_off = l;
 
   /* SBPF version */
@@ -63,7 +63,7 @@ ulong
 fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->text_sz/8UL) );
   l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
   l = FD_LAYOUT_FINI( l, alignof(fd_program_cache_entry_t) );
   return l;
@@ -336,7 +336,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   /* FIXME: Super expensive memcpy. */
-  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
+  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->text_sz/8UL ) );
 
   cache_entry->entry_pc            = prog->entry_pc;
   cache_entry->text_off            = prog->text_off;
