@@ -700,7 +700,18 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
   slot_info->transaction_count     = fd_bank_txn_count_get( bank );
+  slot_info->nonvote_txn_count     = fd_bank_nonvote_txn_count_get( bank );
+  slot_info->failed_txn_count      = fd_bank_failed_txn_count_get( bank );
+  slot_info->nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_get( bank );
+  slot_info->total_compute_units_used = fd_bank_total_compute_units_used_get( bank );
+  slot_info->execution_fees        = fd_bank_execution_fees_get( bank );
+  slot_info->priority_fees         = fd_bank_priority_fees_get( bank );
+  slot_info->tips                  = 0UL; /* todo ... tip accounts balance delta */
   slot_info->shred_count           = fd_bank_shred_cnt_get( bank );
+
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
+  slot_info->max_compute_units     = !!cost_tracker ? cost_tracker->block_cost_limit : ULONG_MAX;
+  fd_bank_cost_tracker_end_locking_query( bank );
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );

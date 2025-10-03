@@ -252,8 +252,8 @@ fd_gui_printf_turbine_slot( fd_gui_t * gui ) {
 void
 fd_gui_printf_slot_caught_up( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "slot_caught_up" );
-    if( FD_LIKELY( gui->summary.slot_caught_up  ) ) jsonp_ulong( gui->http, "value", gui->summary.slot_caught_up );
-    else                                            jsonp_null ( gui->http, "value" );
+    if( FD_LIKELY( gui->summary.slot_caught_up!=ULONG_MAX  ) ) jsonp_ulong( gui->http, "value", gui->summary.slot_caught_up );
+    else                                                       jsonp_null ( gui->http, "value" );
   jsonp_close_envelope( gui->http );
 }
 
@@ -281,12 +281,14 @@ void
 fd_gui_printf_skipped_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history" );
     jsonp_open_array( gui->http, "value" );
-      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1, FD_GUI_SLOTS_CNT ); i++ ) {
-        ulong _slot = gui->summary.slot_completed-i;
-        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+      if( FD_LIKELY( gui->summary.slot_completed!=ULONG_MAX ) ) {
+        for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1, FD_GUI_SLOTS_CNT ); i++ ) {
+          ulong _slot = gui->summary.slot_completed-i;
+          fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
-        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
-        if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+          if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+          if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+        }
       }
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -296,12 +298,14 @@ void
 fd_gui_printf_skipped_history_cluster( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history_cluster" );
     jsonp_open_array( gui->http, "value" );
-      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
-        ulong _slot = gui->summary.slot_completed-i;
-        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+      if( FD_LIKELY( gui->summary.slot_completed!=ULONG_MAX ) ) {
+        for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+          ulong _slot = gui->summary.slot_completed-i;
+          fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
-        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
-        if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+          if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+          if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+        }
       }
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -513,28 +517,21 @@ fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui ) {
 void
 fd_gui_printf_root_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "root_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_rooted );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_rooted==ULONG_MAX, 0UL, gui->summary.slot_rooted ) );
   jsonp_close_envelope( gui->http );
 }
 
 void
 fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "optimistically_confirmed_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_optimistically_confirmed );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_optimistically_confirmed==ULONG_MAX, 0UL, gui->summary.slot_optimistically_confirmed ) );
   jsonp_close_envelope( gui->http );
 }
 
 void
 fd_gui_printf_completed_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "completed_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_completed );
-  jsonp_close_envelope( gui->http );
-}
-
-void
-fd_gui_printf_estimated_slot( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui->http, "summary", "estimated_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_estimated );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_completed==ULONG_MAX, 0UL, gui->summary.slot_completed ) );
   jsonp_close_envelope( gui->http );
 }
 
@@ -1129,6 +1126,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
         else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
+        else                                           jsonp_ulong( gui->http, "shreds", slot->shred_cnt );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui->http, "transaction_fee" );
         else                                                  jsonp_ulong_as_str( gui->http, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui->http, "priority_fee" );
@@ -1255,6 +1254,8 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
+        else                                           jsonp_ulong( gui->http, "shreds", slot->shred_cnt );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui->http, "transaction_fee" );
         else                                                  jsonp_ulong( gui->http, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui->http, "priority_fee" );
@@ -1321,6 +1322,8 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
+        else                                           jsonp_ulong( gui->http, "shreds", slot->shred_cnt );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui->http, "transaction_fee" );
         else                                                  jsonp_ulong( gui->http, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui->http, "priority_fee" );
@@ -1522,6 +1525,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
+        if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
+        else                                           jsonp_ulong( gui->http, "shreds", slot->shred_cnt );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui->http, "transaction_fee" );
         else                                                  jsonp_ulong( gui->http, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui->http, "priority_fee" );
@@ -1849,4 +1854,77 @@ fd_gui_peers_printf_gossip_stats( fd_gui_peers_ctx_t *  peers ) {
       jsonp_close_object( peers->http );
     jsonp_close_object( peers->http );
   jsonp_close_envelope( peers->http );
+}
+
+void
+fd_gui_printf_shred_updates( fd_gui_t * gui ) {
+  ulong  _start_offset = gui->shreds.staged_next_broadcast;
+  ulong  _end_offset   = gui->shreds.staged_tail;
+
+  jsonp_open_envelope( gui->http, "slot", "live_shreds" );
+    jsonp_open_object( gui->http, "value" );
+        jsonp_open_array( gui->http, "slots" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].slot );
+        jsonp_close_array( gui->http );
+        jsonp_open_array( gui->http, "shred_idx" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) {
+            if( FD_LIKELY( gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].shred_idx );
+            else                                                                                        jsonp_null ( gui->http, NULL );
+          }
+        jsonp_close_array( gui->http );
+        jsonp_open_array( gui->http, "event" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) {
+            switch( gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].event ) {
+              case FD_GUI_SLOT_SHRED_REPAIR_REQUEST:         jsonp_string( gui->http, NULL, "repair_request" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE: jsonp_string( gui->http, NULL, "shred_received" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR:  jsonp_string( gui->http, NULL, "shred_received" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_REPLAYED:         jsonp_string( gui->http, NULL, "shred_replayed" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE:    jsonp_string( gui->http, NULL, "slot_complete"  ); break;
+              default: FD_LOG_ERR(("unreachable"));
+            }
+          }
+        jsonp_close_array( gui->http );
+        jsonp_open_array( gui->http, "event_ts" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_long_as_str( gui->http, NULL, gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ].timestamp );
+        jsonp_close_array( gui->http );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
+}
+
+void
+fd_gui_printf_slot_shred_updates( fd_gui_t * gui,
+                                  ulong      _slot,
+                                  ulong      id ) {
+  ulong  _start_offset = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->shreds.start_offset;
+  ulong  _end_offset   = gui->slots[ _slot % FD_GUI_SLOTS_CNT ]->shreds.end_offset;
+
+  jsonp_open_envelope( gui->http, "slot", "query_shreds" );
+    jsonp_ulong( gui->http, "id", id );
+    jsonp_open_object( gui->http, "value" );
+        jsonp_open_array( gui->http, "slots" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_ulong( gui->http, NULL, _slot );
+        jsonp_close_array( gui->http );
+        jsonp_open_array( gui->http, "shred_idx" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) {
+            if( FD_LIKELY( gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].shred_idx!=USHORT_MAX ) ) jsonp_ulong( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].shred_idx );
+            else                                                                                         jsonp_null ( gui->http, NULL );
+          }
+        jsonp_close_array( gui->http );
+        jsonp_open_array( gui->http, "event" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) {
+            switch( gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].event ) {
+              case FD_GUI_SLOT_SHRED_REPAIR_REQUEST:         jsonp_string( gui->http, NULL, "repair_request" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE: jsonp_string( gui->http, NULL, "shred_received" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR:  jsonp_string( gui->http, NULL, "shred_received" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_REPLAYED:         jsonp_string( gui->http, NULL, "shred_replayed" ); break;
+              case FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE:    jsonp_string( gui->http, NULL, "slot_complete"  ); break;
+              default: FD_LOG_ERR(("unreachable"));
+            }
+          }
+        jsonp_close_array( gui->http );
+        jsonp_open_array( gui->http, "event_ts" );
+          for( ulong i=_start_offset; i<_end_offset; i++ ) jsonp_long_as_str( gui->http, NULL, gui->shreds.history[ i % FD_GUI_SHREDS_HISTORY_SZ ].timestamp );
+        jsonp_close_array( gui->http );
+    jsonp_close_object( gui->http );
+  jsonp_close_envelope( gui->http );
 }
