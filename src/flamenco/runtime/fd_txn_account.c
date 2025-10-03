@@ -1,4 +1,5 @@
 #include "fd_txn_account.h"
+#include "fd_acc_mgr.h"
 #include "fd_runtime.h"
 
 void *
@@ -153,18 +154,11 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
                                         fd_funk_t const *         funk,
                                         fd_funk_txn_xid_t const * xid ) {
 
-  int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
       funk,
       xid,
-      pubkey,
-      NULL,
-      &err,
-      NULL );
-
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return err;
-  }
+      pubkey );
+  if( FD_UNLIKELY( !meta ) ) return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 
   if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
         acct,

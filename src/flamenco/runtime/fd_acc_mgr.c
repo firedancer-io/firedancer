@@ -5,41 +5,27 @@
 fd_account_meta_t const *
 fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
                                fd_funk_txn_xid_t const * xid,
-                               fd_pubkey_t const *       pubkey,
-                               fd_funk_rec_t const **    orec,
-                               int *                     opt_err,
-                               fd_funk_txn_t const **    txn_out ) {
+                               fd_pubkey_t const *       pubkey ) {
   fd_funk_rec_key_t id = fd_funk_acc_key( pubkey );
 
   /* When we access this pointer later on in the execution pipeline, we assume that
      nothing else will change that account. If the account is writable in the solana txn,
      then we copy the data. If the account is read-only, we do not. This is safe because of
      the read-write locks that the solana transaction holds on the account. */
-  for( ; ; ) {
 
-    fd_funk_rec_query_t   query[1];
-    fd_funk_txn_t const * dummy_txn_out[1];
-    if( !txn_out ) txn_out    = dummy_txn_out;
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &id, txn_out, query );
+  fd_funk_rec_query_t query[1];
+  fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &id, NULL, query );
 
-    if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
-      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
-      return NULL;
-    }
-    if( NULL != orec )
-      *orec = rec;
-
-    void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
-
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-    if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
-      return metadata;
-    }
-
+  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
+    return NULL;
   }
 
-  /* unreachable */
-  return NULL;
+  void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
+
+  fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+  FD_TEST( fd_funk_rec_query_test( query )==FD_FUNK_SUCCESS );
+
+  return metadata;
 }
 
 fd_account_meta_t *

@@ -225,7 +225,10 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
      }
 */
 
-int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
+static inline int
+fd_funk_rec_query_test( fd_funk_rec_query_t * query ) {
+  return fd_funk_rec_map_query_test( query );
+}
 
 /* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
    will query txn's ancestors for key from youngest to oldest if key is

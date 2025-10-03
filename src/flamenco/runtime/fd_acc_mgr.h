@@ -125,9 +125,6 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    On success:
    - loads the account data into in-memory cache
    - returns a pointer to it in the caller's local address space
-   - if out_rec!=NULL, sets *out_rec to a pointer to the funk rec.
-     This handle is suitable as opt_con_rec for fd_funk_get_acc_meta_readonly.
-   - notably, leaves *opt_err untouched, even if opt_err!=NULL
 
    First byte of returned pointer is first byte of fd_account_meta_t.
    To find data region of account, add sizeof(fd_account_meta_t).
@@ -135,18 +132,10 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    Lifetime of returned fd_funk_rec_t and account record pointers ends
    when user calls modify_data for same account, or tranasction ends.
 
-   On failure, returns NULL, and sets *opt_err if opt_err!=NULL.
-   Reasons for error include
-   - account not found
-   - internal database or user error (out of memory, attempting to view
-     record which has an active modify_data handle, etc.)
+   If the account was not found returns NULL.
 
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_funk_get_acc_meta_mutable to acquire a mutable handle.
-
-   if txn_out is supplied (non-null), the txn the key was found in
-   is returned. If *txn_out == NULL, the key was found in the root
-   context.
 
    IMPORTANT: fd_funk_get_acc_meta_readonly is only safe if it
    is guaranteed there are no other modifying accesses to the account. */
@@ -154,10 +143,7 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
 fd_account_meta_t const *
 fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
                                fd_funk_txn_xid_t const * xid,
-                               fd_pubkey_t const *       pubkey,
-                               fd_funk_rec_t const **    orec,
-                               int *                     opt_err,
-                               fd_funk_txn_t const **    txn_out ) ;
+                               fd_pubkey_t const *       pubkey ) ;
 
 /* fd_funk_get_acc_meta_mutable requests a writable handle to an account.
    Follows interface of fd_funk_get_account_meta_readonly with the following
