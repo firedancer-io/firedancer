@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_tower_fd_tower_tile_h
 
 #include "../../disco/topo/fd_topo.h"
+#include "../../choreo/tower/fd_tower.h"
 
 /* In response to finishing replay of a slot, the tower tile will
    generate an update to the vote state, and potentially advance
@@ -46,6 +47,11 @@ struct fd_tower_slot_done {
   ulong     reset_slot;
   fd_hash_t reset_block_id;
 
+  /* The slot history for this fork reset. The first slot is reset_slot,
+     followed by the parent of reset_slot, followed by the grandparent
+     of reset_slot and so on until the consensus root slot. */
+  ulong fork_history_sz;
+  ulong fork_history[ FD_TOWER_VOTE_MAX+1UL ];
 };
 
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;

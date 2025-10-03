@@ -887,6 +887,111 @@ fd_gui_printf_peer( fd_gui_t *    gui,
   jsonp_close_object( gui->http );
 }
 
+static void
+fd_gui_peers_printf_peer( fd_gui_peers_ctx_t * peers,
+                          ulong                contact_info_table_idx ) {
+  fd_gui_peers_node_t * peer = &peers->contact_info_table[ contact_info_table_idx ];
+
+  jsonp_open_object( peers->http, NULL );
+
+    char identity_base58[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( peer->contact_info.pubkey.uc, NULL, identity_base58 );
+    jsonp_string( peers->http, "identity_pubkey", identity_base58 );
+
+    jsonp_open_object( peers->http, "gossip" );
+
+      char version[ 32 ];
+      FD_TEST( fd_cstr_printf( version, sizeof( version ), NULL, "%u.%u.%u", peer->contact_info.version.major, peer->contact_info.version.minor, peer->contact_info.version.patch ) );
+      jsonp_string( peers->http, "version", version );
+      jsonp_ulong( peers->http, "feature_set", peer->contact_info.version.feature_set );
+      jsonp_long( peers->http, "wallclock", peer->contact_info.wallclock_nanos );
+      jsonp_ulong( peers->http, "shred_version", peer->contact_info.shred_version );
+      jsonp_open_object( peers->http, "sockets" );
+        for( ulong j=0UL; j<FD_CONTACT_INFO_SOCKET_CNT; j++ ) {
+          if( FD_LIKELY( !peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr && !peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ) ) continue;
+          char const * tag;
+          switch( j ) {
+            case FD_CONTACT_INFO_SOCKET_GOSSIP:            tag = "gossip";            break;
+            case FD_CONTACT_INFO_SOCKET_SERVE_REPAIR_QUIC: tag = "serve_repair_quic"; break;
+            case FD_CONTACT_INFO_SOCKET_RPC:               tag = "rpc";               break;
+            case FD_CONTACT_INFO_SOCKET_RPC_PUBSUB:        tag = "rpc_pubsub";        break;
+            case FD_CONTACT_INFO_SOCKET_SERVE_REPAIR:      tag = "serve_repair";      break;
+            case FD_CONTACT_INFO_SOCKET_TPU:               tag = "tpu";               break;
+            case FD_CONTACT_INFO_SOCKET_TPU_FORWARDS:      tag = "tpu_forwards";      break;
+            case FD_CONTACT_INFO_SOCKET_TPU_FORWARDS_QUIC: tag = "tpu_forwards_quic"; break;
+            case FD_CONTACT_INFO_SOCKET_TPU_QUIC:          tag = "tpu_quic";          break;
+            case FD_CONTACT_INFO_SOCKET_TPU_VOTE:          tag = "tpu_vote";          break;
+            case FD_CONTACT_INFO_SOCKET_TVU:               tag = "tvu";               break;
+            case FD_CONTACT_INFO_SOCKET_TVU_QUIC:          tag = "tvu_quic";          break;
+            case FD_CONTACT_INFO_SOCKET_TPU_VOTE_QUIC:     tag = "tpu_vote_quic";     break;
+            case FD_CONTACT_INFO_SOCKET_ALPENGLOW:         tag = "alpenglow";         break;
+          }
+          char line[ 64 ];
+          FD_TEST( fd_cstr_printf( line, sizeof( line ), NULL, FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr ), fd_ushort_bswap( peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].port ) ) );
+          jsonp_string( peers->http, tag, line );
+        }
+      jsonp_close_object( peers->http );
+
+    jsonp_close_object( peers->http );
+
+    if( FD_LIKELY( !peer->has_vote_info ) ) {
+      jsonp_open_array( peers->http, "vote" );
+      jsonp_close_array( peers->http );
+    } else {
+      jsonp_open_array( peers->http, "vote" );
+        jsonp_open_object( peers->http, NULL );
+          char vote_account_base58[ FD_BASE58_ENCODED_32_SZ ];
+          fd_base58_encode_32( peer->vote_info.vote_account.uc, NULL, vote_account_base58 );
+          jsonp_string( peers->http, "vote_account", vote_account_base58 );
+          jsonp_ulong_as_str( peers->http, "activated_stake", peer->vote_info.stake );
+          jsonp_ulong( peers->http, "last_vote", peer->vote_info.last_vote_slot );
+          jsonp_ulong( peers->http, "epoch_credits", peer->vote_info.epoch_credits );
+          jsonp_ulong( peers->http, "commission", peer->vote_info.commission );
+          jsonp_ulong( peers->http, "root_slot", 0UL );
+          jsonp_bool( peers->http,  "delinquent", 0 );
+        jsonp_close_object( peers->http );
+      jsonp_close_array( peers->http );
+    }
+
+    if( FD_UNLIKELY( !peer->has_val_info ) ) {
+      jsonp_string( peers->http, "info", NULL );
+    } else {
+      jsonp_open_object( peers->http, "info" );
+        jsonp_string( peers->http, "name", peer->name );
+        jsonp_string( peers->http, "details", peer->details );
+        jsonp_string( peers->http, "website", peer->website );
+        jsonp_string( peers->http, "icon_url", peer->icon_uri );
+      jsonp_close_object( peers->http );
+    }
+
+  jsonp_close_object( peers->http );
+}
+
+void
+fd_gui_peers_printf_gossip_update( fd_gui_peers_ctx_t * peers,
+                                   int                  action,
+                                   ulong                contact_info_table_idx ) {
+  jsonp_open_envelope( peers->http, "peers", "update" );
+    jsonp_open_object( peers->http, "value" );
+      jsonp_open_array( peers->http, "add" );
+        if( FD_UNLIKELY( action==FD_GUI_PEERS_NODE_ADD ) ) fd_gui_peers_printf_peer( peers, contact_info_table_idx );
+      jsonp_close_array( peers->http );
+
+      jsonp_open_array( peers->http, "update" );
+        if( FD_UNLIKELY( action==FD_GUI_PEERS_NODE_UPDATE ) ) fd_gui_peers_printf_peer( peers, contact_info_table_idx );
+      jsonp_close_array( peers->http );
+
+      jsonp_open_array( peers->http, "remove" );
+          jsonp_open_object( peers->http, NULL );
+            char identity_base58[ FD_BASE58_ENCODED_32_SZ ];
+            fd_base58_encode_32( peers->contact_info_table[ contact_info_table_idx ].contact_info.pubkey.uc, NULL, identity_base58 );
+            jsonp_string( peers->http, "identity_pubkey", identity_base58 );
+          jsonp_close_object( peers->http );
+      jsonp_close_array( peers->http );
+    jsonp_close_object( peers->http );
+  jsonp_close_envelope( peers->http );
+}
+
 void
 fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
                                    ulong const *       updated,
@@ -1570,7 +1675,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
       switch( gui->summary.boot_progress.phase ) {
         case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP:               jsonp_string( gui->http, "phase", "joining_gossip" );        break;
         case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:        jsonp_string( gui->http, "phase", "loading_full_snapshot" ); break;
-        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: jsonp_string( gui->http, "phase", "loading_incr_snapshot" ); break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: jsonp_string( gui->http, "phase", "loading_incremental_snapshot" ); break;
         case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP:                  jsonp_string( gui->http, "phase", "catching_up" );           break;
         case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING:                      jsonp_string( gui->http, "phase", "running" );               break;
         default: FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress.phase ));
