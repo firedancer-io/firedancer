@@ -1,7 +1,6 @@
 #include "fd_sysvar_recent_hashes.h"
 #include "../fd_acc_mgr.h"
 #include "fd_sysvar.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../fd_system_ids.h"
 
 /* Skips fd_types encoding preflight checks and directly serializes the
@@ -9,9 +8,9 @@
    recent blockhashes sysvar. */
 
 static void
-encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx,
-                                 uchar                out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
-  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( slot_ctx->bank );
+encode_rbh_from_blockhash_queue( fd_bank_t * bank,
+                                 uchar       out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
+  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
 
   ulong queue_sz = fd_blockhash_deq_cnt( bhq->d.deque );
   ulong out_max  = fd_ulong_min( queue_sz, FD_SYSVAR_RECENT_HASHES_CAP );
@@ -38,20 +37,23 @@ encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_recent_hashes_init( fd_bank_t *               bank,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_capture_ctx_t *        capture_ctx ) {
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
+  encode_rbh_from_blockhash_queue( bank, enc );
+  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_recent_block_hashes_id, enc, FD_SYSVAR_RECENT_HASHES_BINCODE_SZ );
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
 static void
-register_blockhash( fd_exec_slot_ctx_t * slot_ctx,
-                    fd_hash_t const *    hash ) {
-  fd_blockhashes_t * bhq = fd_bank_block_hash_queue_modify( slot_ctx->bank );
+register_blockhash( fd_bank_t *       bank,
+                    fd_hash_t const * hash ) {
+  fd_blockhashes_t * bhq = fd_bank_block_hash_queue_modify( bank );
   fd_blockhash_info_t * bh = fd_blockhashes_push_new( bhq, hash );
   bh->fee_calculator = (fd_fee_calculator_t){
-    .lamports_per_signature = fd_bank_lamports_per_signature_get( slot_ctx->bank )
+    .lamports_per_signature = fd_bank_lamports_per_signature_get( bank )
   };
 }
 
@@ -61,12 +63,15 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx,
    3. Manually serialize the recent blockhashes
    4. Set the sysvar account with the new data */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
-  register_blockhash( slot_ctx, fd_bank_poh_query( slot_ctx->bank ) );
+fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
+                                fd_funk_t *               funk,
+                                fd_funk_txn_xid_t const * xid,
+                                fd_capture_ctx_t *        capture_ctx ) {
+  register_blockhash( bank, fd_bank_poh_query( bank ) );
 
   uchar enc[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] = {0};
-  encode_rbh_from_blockhash_queue( slot_ctx, enc );
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_recent_block_hashes_id, enc, sizeof(enc) );
+  encode_rbh_from_blockhash_queue( bank, enc );
+  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_recent_block_hashes_id, enc, sizeof(enc) );
 }
 
 fd_recent_block_hashes_t *

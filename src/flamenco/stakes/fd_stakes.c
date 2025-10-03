@@ -1,7 +1,7 @@
 #include "fd_stakes.h"
 #include "../runtime/fd_acc_mgr.h"
+#include "../runtime/fd_bank.h"
 #include "../runtime/fd_system_ids.h"
-#include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "fd_stake_delegations.h"
@@ -28,9 +28,9 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 static void
 compute_stake_delegations( fd_bank_t *                    bank,
                            fd_stake_delegations_t const * stake_delegations,
-                           ulong const                    epoch,
                            fd_stake_history_t const *     history,
                            ulong *                        new_rate_activation_epoch ) {
+  ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
 
@@ -86,15 +86,14 @@ compute_stake_delegations( fd_bank_t *                    bank,
 
    https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
 void
-fd_refresh_vote_accounts( fd_exec_slot_ctx_t *           slot_ctx,
+fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch ) {
 
   compute_stake_delegations(
-      slot_ctx->bank,
+      bank,
       stake_delegations,
-      fd_bank_epoch_get( slot_ctx->bank ),
       history,
       new_rate_activation_epoch );
 }
@@ -161,7 +160,10 @@ fd_accumulate_stake_infos( ulong                          epoch,
 
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
+fd_stakes_activate_epoch( fd_bank_t *                    bank,
+                          fd_funk_t *                    funk,
+                          fd_funk_txn_xid_t const *      xid,
+                          fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch,
                           fd_spad_t *                    runtime_spad ) {
@@ -171,7 +173,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->xid, runtime_spad );
+  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   fd_stake_history_entry_t accumulator = {
@@ -182,7 +184,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
 
   /* Accumulate stats for stake accounts */
   fd_accumulate_stake_infos(
-      fd_bank_epoch_get( slot_ctx->bank ),
+      fd_bank_epoch_get( bank ),
       stake_delegations,
       history,
       new_rate_activation_epoch,
@@ -190,7 +192,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
   fd_epoch_stake_history_entry_pair_t new_elem = {
-    .epoch        = fd_bank_epoch_get( slot_ctx->bank ),
+    .epoch        = fd_bank_epoch_get( bank ),
     .entry        = {
       .effective    = accumulator.effective,
       .activating   = accumulator.activating,
@@ -198,7 +200,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
     }
   };
 
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem, runtime_spad );
+  fd_sysvar_stake_history_update( bank, funk, xid, capture_ctx, &new_elem, runtime_spad );
 
 }
 

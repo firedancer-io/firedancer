@@ -2,13 +2,15 @@
 #include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 #include <assert.h>
 
 void
-fd_sysvar_rent_write( fd_exec_slot_ctx_t * slot_ctx,
-                      fd_rent_t const *    rent ) {
+fd_sysvar_rent_write( fd_bank_t *               bank,
+                      fd_funk_t *               funk,
+                      fd_funk_txn_xid_t const * xid,
+                      fd_capture_ctx_t *        capture_ctx,
+                      fd_rent_t const *         rent ) {
 
   uchar enc[ 32 ];
 
@@ -22,13 +24,16 @@ fd_sysvar_rent_write( fd_exec_slot_ctx_t * slot_ctx,
   if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_rent_id, enc, sz );
+  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_rent_id, enc, sz );
 }
 
 void
-fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_rent_t const * rent = fd_bank_rent_query( slot_ctx->bank );
-  fd_sysvar_rent_write( slot_ctx, rent );
+fd_sysvar_rent_init( fd_bank_t *               bank,
+                     fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * xid,
+                     fd_capture_ctx_t *        capture_ctx ) {
+  fd_rent_t const * rent = fd_bank_rent_query( bank );
+  fd_sysvar_rent_write( bank, funk, xid, capture_ctx, rent );
 }
 
 fd_rent_t const *

@@ -278,9 +278,11 @@ fd_program_cache_get_account_programdata( fd_funk_t const *         funk,
    current funk transaction and acquire a blocking write lock on the
    cloned funk record. */
 void
-fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_pubkey_t const *  program_key,
-                                 fd_spad_t *          runtime_spad );
+fd_program_cache_update_program( fd_bank_t *               bank,
+                                 fd_funk_t *               funk,
+                                 fd_funk_txn_xid_t const * xid,
+                                 fd_pubkey_t const *       program_key,
+                                 fd_spad_t *               runtime_spad );
 
 /* Queues a single program account for reverification. This function
    queries the cache for an existing entry and queues it for

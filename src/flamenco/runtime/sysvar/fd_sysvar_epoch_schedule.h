@@ -31,7 +31,7 @@
    make various epoch-related calculations. */
 
 #include "../../fd_flamenco_base.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_bank.h"
 
 /* FD_EPOCH_LEN_MIN is a protocol constant specifying the smallest
    permitted epoch length.  This value is chosen to match
@@ -58,7 +58,10 @@ FD_PROTOTYPES_BEGIN
    account.  FIXME document what this actually does. */
 
 void
-fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
+                               fd_funk_t *               funk,
+                               fd_funk_txn_xid_t const * xid,
+                               fd_capture_ctx_t *        capture_ctx );
 
 /* fd_sysvar_epoch_schedule_read reads the current value of the rent
    sysvar from funk. If the account doesn't exist in funk or if the account
@@ -73,7 +76,10 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
    schedule sysvar to funk. */
 
 void
-fd_sysvar_epoch_schedule_write( fd_exec_slot_ctx_t *        slot_ctx,
+fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
+                                fd_funk_t *                 funk,
+                                fd_funk_txn_xid_t const *   xid,
+                                fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the

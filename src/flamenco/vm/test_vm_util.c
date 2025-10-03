@@ -1,5 +1,4 @@
 #include "test_vm_util.h"
-#include "../runtime/context/fd_exec_slot_ctx.h"
 #include "../runtime/context/fd_exec_txn_ctx.h"
 
 /* Generates a minimal instruction context to supply to fd_vm_t.

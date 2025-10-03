@@ -3,14 +3,16 @@
 #include "../fd_system_ids.h"
 #include "../fd_txn_account.h"
 #include "../fd_acc_mgr.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 /* Ensure that the size declared by our header matches the minimum size
    of the corresponding fd_types entry. */
 
 static void
-write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
-                     fd_stake_history_t * stake_history ) {
+write_stake_history( fd_bank_t *               bank,
+                     fd_funk_t *               funk,
+                     fd_funk_txn_xid_t const * xid,
+                     fd_capture_ctx_t *        capture_ctx,
+                     fd_stake_history_t *      stake_history ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
   uchar enc[16392] = {0};
 
@@ -20,7 +22,7 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_account_update( slot_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
+  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
 }
 
 fd_stake_history_t *
@@ -49,20 +51,26 @@ fd_sysvar_stake_history_read( fd_funk_t *               funk,
 }
 
 void
-fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_stake_history_init( fd_bank_t *               bank,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_capture_ctx_t *        capture_ctx ) {
   fd_stake_history_t stake_history;
   fd_stake_history_new( &stake_history );
-  write_stake_history( slot_ctx, &stake_history );
+  write_stake_history( bank, funk, xid, capture_ctx, &stake_history );
 }
 
 void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot_ctx,
+fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
+                                fd_funk_t *                                 funk,
+                                fd_funk_txn_xid_t const *                   xid,
+                                fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair,
                                 fd_spad_t *                                 runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   // Need to make this maybe zero copies of map...
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx->funk, slot_ctx->xid, runtime_spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
 
   if( stake_history->fd_stake_history_offset == 0 ) {
     stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
@@ -82,7 +90,7 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot
   stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;
   stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
 
-  write_stake_history( slot_ctx, stake_history );
+  write_stake_history( bank, funk, xid, capture_ctx, stake_history );
 
   } FD_SPAD_FRAME_END;
 }

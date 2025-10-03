@@ -22,11 +22,17 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the recent hashes sysvar account. */
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_recent_hashes_init( fd_bank_t *               bank,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_capture_ctx_t *        capture_ctx );
 
 /* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
+                                fd_funk_t *               funk,
+                                fd_funk_txn_xid_t const * xid,
+                                fd_capture_ctx_t *        capture_ctx );
 
 
 /* fd_sysvar_recent_hashes_read reads the recent hashes sysvar from funk.
@@ -34,7 +40,9 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
    lamports, this function returns NULL. */
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_xid_t const * xid, fd_spad_t * spad );
+fd_sysvar_recent_hashes_read( fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_spad_t *               spad );
 
 FD_PROTOTYPES_END
 

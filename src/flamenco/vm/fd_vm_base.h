@@ -674,15 +674,11 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 
 /* fd_vm_syscall_register_slot unmaps all syscalls in the current map
    (also ending any interest in the corresponding name cstr) and
-   registers all syscalls appropriate for the slot described by
-   slot_ctx.  Returns FD_VM_SUCCESS (0) on success and FD_VM_ERR code
-   (negative) on failure.  Reasons for failure include INVAL (NULL
-   syscalls) and FULL (tried to register too many system calls ...
-   compile time map size needs to be adjusted).  If slot_ctx is NULL,
-   will register all fd_vm syscall implementations (whether or not that
-   makes sense ... may change between Firedancer versions without
-   warning).  FIXME: probably better to pass the features for a slot
-   than pass the whole slot_ctx.
+   registers all syscalls appropriate for the slot.  Returns
+   FD_VM_SUCCESS (0) on success and FD_VM_ERR code (negative) on
+   failure.  Reasons for failure include INVAL (NULL syscalls) and FULL
+   (tried to register too many system calls ... compile time map size
+   needs to be adjusted).
 
    is_deploy should be 1 if the set of syscalls registered should be that
    used to verify programs before they are deployed, and 0 if it

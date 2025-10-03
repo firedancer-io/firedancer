@@ -2,7 +2,7 @@
 #include "fd_sysvar_cache_private.h"
 #include "test_sysvar_cache_util.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_bank.h"
 #include <errno.h>
 
 test_sysvar_cache_env_t *
@@ -18,10 +18,8 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_funk_t * funk      = fd_funk_join( env->funk, fd_funk_new( funk_mem, funk_tag, funk_seed, txn_max, rec_max ) );
   FD_TEST( funk );
   fd_bank_t * bank      = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
-  env->slot_ctx->magic  = FD_EXEC_SLOT_CTX_MAGIC;
-  env->slot_ctx->bank   = bank;
-  env->slot_ctx->funk   = funk;
-  env->slot_ctx->xid[0] = *fd_funk_last_publish( funk );
+  env->bank = bank;
+  env->xid  = *fd_funk_last_publish( funk );
   env->sysvar_cache     = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->sysvar_cache ) );
   return env;
 }
@@ -30,7 +28,7 @@ void
 test_sysvar_cache_env_destroy( test_sysvar_cache_env_t * env ) {
   FD_TEST( env );
   FD_TEST( fd_sysvar_cache_delete( fd_sysvar_cache_leave( env->sysvar_cache ) ) );
-  fd_wksp_free_laddr( env->slot_ctx->bank );
+  fd_wksp_free_laddr( env->bank );
   void * shfunk = NULL;
   FD_TEST( fd_funk_leave( env->funk, &shfunk ) );
   fd_funk_delete_fast( shfunk );
