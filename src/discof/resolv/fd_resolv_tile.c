@@ -253,7 +253,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
+    if( FD_UNLIKELY( !ctx->bank || true ) ) {
       FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
       return 0;
     }
@@ -475,7 +475,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
+    if( FD_UNLIKELY( !ctx->bank || true ) ) {
       FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
