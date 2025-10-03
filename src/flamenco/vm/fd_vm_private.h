@@ -303,7 +303,7 @@ fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
 
   while( left<right ) {
     mid = (left+right) / 2U;
-    if( offset>=vm->input_mem_regions[ mid ].vaddr_offset+vm->input_mem_regions[ mid ].region_sz ) {
+    if( offset>=vm->input_mem_regions[ mid ].vaddr_offset+vm->input_mem_regions[ mid ].address_space_reserved ) {
       left = mid + 1U;
     } else {
       right = mid;
