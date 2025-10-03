@@ -131,6 +131,8 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
   if( FD_UNLIKELY( !key   ) ) FD_LOG_CRIT(( "NULL key"   ));
   if( FD_UNLIKELY( !query ) ) FD_LOG_CRIT(( "NULL query" ));
 
+  /* Attach to the funk transaction */
+
   fd_funk_txn_map_query_t txn_query[1];
   fd_funk_txn_t * txn = fd_funk_rec_txn_borrow( funk, xid, txn_query );
 
@@ -142,16 +144,33 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_rec_key_set_pair( pair, xid, key );
 
-  fd_funk_rec_map_shmem_t * rec_map = funk->rec_map->map;
-  ulong hash = fd_funk_rec_map_key_hash( pair, rec_map->seed );
-  ulong chain_idx = (hash & (rec_map->chain_cnt-1UL) );
+  fd_funk_rec_map_t const * rec_map = funk->rec_map;
 
-  fd_funk_rec_map_shmem_private_chain_t * chain = fd_funk_rec_map_shmem_private_chain( rec_map, hash );
+  ulong hash = fd_funk_rec_map_key_hash( pair, rec_map->map->seed );
+  ulong chain_idx = (hash & (rec_map->map->chain_cnt-1UL) );
+  fd_funk_rec_map_shmem_private_chain_t * chain = fd_funk_rec_map_shmem_private_chain( rec_map->map, hash );
+
+  /* Start a speculative record map transaction */
+
+  struct {
+    fd_funk_rec_map_txn_t txn;
+    fd_funk_rec_map_txn_private_info_t lock[1];
+  } txn_mem;
+  fd_funk_rec_map_txn_t * rec_txn;
+  fd_funk_rec_t const * res;
+
+retry:
+  res = NULL;
+  rec_txn = fd_funk_rec_map_txn_init( &txn_mem.txn, (void *)rec_map, 1UL );
+  txn_mem.lock[ 0 ].chain = chain;
+  txn_mem.txn.spec_cnt++;
+  if( FD_UNLIKELY( fd_funk_rec_map_txn_try( rec_txn, FD_MAP_FLAG_BLOCKING )!=FD_MAP_SUCCESS ) ) {
+    FD_LOG_CRIT(( "fd_funk_rec_map_txn_try failed" ));
+  }
+
   query->ele     = NULL;
   query->chain   = chain;
-  query->ver_cnt = chain->ver_cnt; /* After unlock */
-
-  fd_funk_rec_t const * res = NULL;
+  query->ver_cnt = txn_mem.lock[0].ver_cnt;
 
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( funk->rec_map, chain_idx );
        !fd_funk_rec_map_iter_done( iter );
@@ -184,6 +203,7 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
   }
 
 found:
+  if( FD_UNLIKELY( fd_funk_rec_map_txn_test( rec_txn )!=FD_MAP_SUCCESS ) ) goto retry;
   if( FD_LIKELY( txn ) ) fd_funk_txn_xid_assert( txn, pair->xid );
   fd_funk_rec_txn_release( txn_query );
   return res;
