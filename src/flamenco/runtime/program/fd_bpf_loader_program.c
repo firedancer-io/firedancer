@@ -540,8 +540,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
        Edge case with error codes: if direct mapping is enabled, the EBPF error is an access violation,
        and the access type was a store, a different error code is returned to give developers more insight
        as to what caused the error.
-       https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1436-L1470 */
-    if( FD_UNLIKELY( direct_mapping && exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION &&
+       https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1556-L1618 */
+    if( FD_UNLIKELY( stricter_abi_and_runtime_constraints && exec_err==FD_VM_ERR_EBPF_ACCESS_VIOLATION &&
                      vm->segv_vaddr!=ULONG_MAX &&
                      vm->segv_access_type==FD_VM_ACCESS_TYPE_ST ) ) {
       /* vaddrs start at 0xFFFFFFFF + 1, so anything below it would not correspond to any account metadata. */
