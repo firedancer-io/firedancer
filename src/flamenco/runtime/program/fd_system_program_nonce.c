@@ -994,15 +994,12 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
             txn_ctx->funk,
             txn_ctx->xid,
-            &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
-            NULL,
-            &err,
-            NULL );
-        ulong acc_data_len = meta->dlen;
-
-        if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+            &txn_ctx->account_keys[ instr_accts[ 0UL ] ] );
+        if( FD_UNLIKELY( !meta ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
+
+        ulong acc_data_len = meta->dlen;
         fd_nonce_state_versions_t new_state = {
           .discriminant = fd_nonce_state_versions_enum_current,
           .inner = { .current = {
@@ -1024,9 +1021,6 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
-        }
-        if( FD_UNLIKELY( !meta ) ) {
-          FD_LOG_CRIT(( "Failed to get meta for nonce account" ));
         }
         fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
 

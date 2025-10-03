@@ -226,11 +226,6 @@ fd_funk_rec_query_copy( fd_funk_t *               funk,
   }
 }
 
-int
-fd_funk_rec_query_test( fd_funk_rec_query_t * query ) {
-  return fd_funk_rec_map_query_test( query );
-}
-
 fd_funk_rec_t *
 fd_funk_rec_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * xid,

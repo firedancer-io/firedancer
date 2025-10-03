@@ -477,37 +477,32 @@ fd_replay_out_vote_tower_from_funk(
   vote_tower_out->key   = *pubkey;
   vote_tower_out->stake = stake;
 
-  /* Speculatively copy out the raw vote account state from Funk */
-  for(;;) {
-    fd_memset( vote_tower_out->acc, 0, sizeof(vote_tower_out->acc) );
+  fd_memset( vote_tower_out->acc, 0, sizeof(vote_tower_out->acc) );
 
-    fd_funk_rec_query_t query;
-    fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &funk_key, NULL, &query );
-    if( FD_UNLIKELY( !rec ) ) {
-      FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-      return -1;
-    }
-
-    uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-
-    ulong data_sz = metadata->dlen;
-    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
-      FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
-        data_sz,
-        sizeof(vote_tower_out->acc) ));
-      return -1;
-    }
-
-    fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
-    vote_tower_out->acc_sz = data_sz;
-
-    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
-      break;
-    }
+  fd_funk_rec_query_t query;
+  fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
+  fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &funk_key, NULL, &query );
+  if( FD_UNLIKELY( !rec ) ) {
+    FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
+    return -1;
   }
+
+  uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
+  fd_account_meta_t const * metadata = fd_type_pun_const( raw );
+
+  ulong data_sz = metadata->dlen;
+  if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
+    FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
+      FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
+      data_sz,
+      sizeof(vote_tower_out->acc) ));
+    return -1;
+  }
+
+  fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
+  vote_tower_out->acc_sz = data_sz;
+
+  FD_TEST( fd_funk_rec_query_test( &query )==FD_FUNK_SUCCESS );
 
   return 0;
 }

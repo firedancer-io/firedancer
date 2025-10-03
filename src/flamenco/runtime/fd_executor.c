@@ -940,14 +940,11 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
   if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
     rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
   } else {
-    int err = FD_ACC_MGR_SUCCESS;
     fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
         txn_ctx->funk,
         txn_ctx->xid,
-        fee_payer_key,
-        NULL,
-        &err,
-        NULL );
+        fee_payer_key );
+    if( FD_UNLIKELY( !meta ) ) FD_LOG_CRIT(( "Missing fee payer account %s", FD_BASE58_ENC_32_ALLOCA( fee_payer_key->key ) ));
 
     ulong  data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
     void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
@@ -1401,22 +1398,12 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
 
   fd_pubkey_t * acc = &txn_ctx->account_keys[ idx ];
 
-  int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
       txn_ctx->funk,
       txn_ctx->xid,
-      acc,
-      NULL,
-      &err,
-      NULL );
+      acc );
 
   fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
-
-  /* If there is an error with a read from the accounts database, it is
-     unexpected unless the account does not exist. */
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
-  }
 
   int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
@@ -1448,7 +1435,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
        if the account does not exist, we need to initialize a new
        metadata. */
 
-    if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    if( FD_LIKELY( meta ) ) {
       account_meta = (fd_account_meta_t *)meta;
       data_wksp    = fd_funk_wksp( txn_ctx->funk );
     } else {
