@@ -652,7 +652,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snaprd_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snaprd_tile_t), sizeof(fd_snaprd_tile_t) );
-  FD_LOG_WARNING(( "FDS %d %d %d %d %d", ctx->local_out.dir_fd, ctx->local_out.full_snapshot_fd, ctx->local_out.incremental_snapshot_fd, ctx->local_in.full_snapshot_fd, ctx->local_in.incremental_snapshot_fd ));
   if( FD_LIKELY( -1!=ctx->local_out.dir_fd ) )                  out_fds[ out_cnt++ ] = ctx->local_out.dir_fd;
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
