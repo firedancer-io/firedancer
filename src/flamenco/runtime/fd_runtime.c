@@ -1183,6 +1183,8 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
+  txn_ctx->loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
+
   if( FD_LIKELY( txncache && txn_ctx->nonce_account_idx_in_txn==ULONG_MAX ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
        cache the same as any others, but this is only to serve RPC

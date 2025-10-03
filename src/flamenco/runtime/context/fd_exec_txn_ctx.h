@@ -69,6 +69,7 @@ struct fd_exec_txn_ctx {
 
   ulong                                paid_fees;
   ulong                                loaded_accounts_data_size;                   /* The actual transaction loaded data size */
+  ulong                                loaded_accounts_data_size_cost;              /* The cost of the loaded accounts data size in CUs */
   uint                                 custom_err;                                  /* When a custom error is returned, this is where the numeric value gets stashed */
   uchar                                instr_stack_sz;                              /* Current depth of the instruction execution stack. */
   fd_exec_instr_ctx_t                  instr_stack[FD_MAX_INSTRUCTION_STACK_DEPTH]; /* Instruction execution stack. */

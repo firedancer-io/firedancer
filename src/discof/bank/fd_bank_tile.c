@@ -194,7 +194,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
 
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
-    uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size);
+    uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
 
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
