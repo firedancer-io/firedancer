@@ -64,7 +64,7 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
-  fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* fec set idxs */
+  fd_forest_blk_idxs_t fecs[fd_forest_blk_idxs_word_cnt]; /* fec set idxs - 1, or the idx of the last shred in every FEC set */
   fd_forest_blk_idxs_t idxs[fd_forest_blk_idxs_word_cnt]; /* data shred idxs */
   fd_forest_blk_idxs_t cmpl[fd_forest_blk_idxs_word_cnt]; /* last shred idx of every FEC set that has been completed by shred_tile */
 
@@ -470,9 +470,6 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
         head->complete_idx != UINT_MAX && head->complete_idx == head->buffered_idx &&                   (all shreds of a slot have been received)
         0==memcmp( head->cmpl, head->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) (our fec completion record matches the observed FECs)
 
-        First we show that we must have a fec completion for each FEC in
-        slot `n` in order for the consumed frontier to move past `n`.
-
         If we have received all the shreds of `n`, we must have all FEC
         sets idxs of `n` recorded in the fecs bitset.  The cmpl bitset
         is updated only on fd_forest_fec_insert, which is only called on
@@ -511,7 +508,10 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
            will remove the idxs for the shreds from the bitset, and
            update the buffered_idx. This doesn't matter though! because
            we already have moved past slot n on the consumed frontier.
-           No need to request those shreds again. */
+           No need to request those shreds again.
+
+      Except 2) breaks a bit with in specific leader slot cases. See
+      fd_forest_fec_clear for more details. */
 
 void
 fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint max_shred_idx );

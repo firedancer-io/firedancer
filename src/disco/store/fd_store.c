@@ -157,7 +157,7 @@ fd_store_insert( fd_store_t * store,
   fd_store_fec_t * fec  = fd_store_pool_acquire( &pool, NULL, BLOCKING, &err );
 
   if( FD_UNLIKELY( err == FD_POOL_ERR_EMPTY   ) ) { FD_LOG_WARNING(( "store full %s",    fd_store_pool_strerror( err ) )); return NULL; } /* FIXME: eviction? max bound guaranteed for worst-case? */
-  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { FD_LOG_WARNING(( "store corrupt %s", fd_store_pool_strerror( err ) )); return NULL; }
+  if( FD_UNLIKELY( err == FD_POOL_ERR_CORRUPT ) ) { FD_LOG_CRIT   (( "store corrupt %s", fd_store_pool_strerror( err ) )); }
   FD_TEST( fec );
 
   fec->key.mr           = *merkle_root;
