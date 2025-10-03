@@ -309,12 +309,6 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
 void *
 fd_sbpf_program_delete( fd_sbpf_program_t * program );
 
-/* fd_csv_strerror: Returns a cstr describing the source line and error
-   kind after the last call to `fd_sbpf_program_load` from the same
-   thread returned non-zero.
-   Always returns a valid cstr, though the content is undefined in case
-   the last call to `fd_sbpf_program_load` returned zero (success). */
-
 /* SIMD-0189 */
 static inline int fd_sbpf_enable_stricter_elf_headers( ulong sbpf_version ) { return sbpf_version >= FD_SBPF_V3; }
 /* SIMD-0178 */
