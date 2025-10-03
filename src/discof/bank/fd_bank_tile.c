@@ -194,7 +194,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
 
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
-    uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size);
+    uint actual_acct_data_cus = (uint)(FD_COMPUTE_BUDGET_HEAP_COST * ( (txn_ctx->loaded_accounts_data_size + ( FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )) / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE ));
 
     int is_simple_vote = 0;
     if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
@@ -516,6 +516,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
   ctx->txn_ctx->spad          = ctx->exec_spad;
   ctx->txn_ctx->spad_wksp     = fd_wksp_containing( exec_spad );
+
   NONNULL( fd_funk_join( ctx->txn_ctx->funk, fd_topo_obj_laddr( topo, tile->bank.funk_obj_id ) ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
