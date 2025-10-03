@@ -302,6 +302,37 @@ fd_vm_syscall_cpi_check_instruction( fd_vm_t const * vm,
   return FD_VM_SUCCESS;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.1/syscalls/src/cpi.rs#L1134-L1169 */
+static inline int
+fd_vm_cpi_update_caller_account_region( fd_vm_t *                    vm,
+                                        ulong                       instr_acc_idx,
+                                        fd_vm_cpi_caller_account_t * caller_account,
+                                        fd_borrowed_account_t *      borrowed_account ) {
+  /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1141-L1148 */
+  ulong address_space_reserved_for_account = caller_account->orig_data_len;
+  if( !( vm->stricter_abi_and_runtime_constraints && vm->is_deprecated ) ) {
+    address_space_reserved_for_account = fd_ulong_sat_add( caller_account->orig_data_len, MAX_PERMITTED_DATA_INCREASE );
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1159-L1164 */
+  if( address_space_reserved_for_account > 0UL ) {
+    fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[instr_acc_idx];
+    fd_vm_input_region_t *    region          = &vm->input_mem_regions[acc_region_meta->region_idx];
+
+    /* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L1159-L1165 */
+    /* https://github.com/anza-xyz/agave/blob/master/program-runtime/src/serialization.rs#L27 */
+    region->region_sz = (uint)fd_borrowed_account_get_data_len( borrowed_account );
+
+    /* https://github.com/anza-xyz/agave/blob/master/program-runtime/src/serialization.rs#L28-L34 */
+    int err;
+    int is_writable = fd_borrowed_account_can_data_be_changed( borrowed_account, &err );
+
+    region->is_writable = (uchar)is_writable && ( err == FD_EXECUTOR_INSTR_SUCCESS );
+  }
+
+  return FD_VM_SUCCESS;
+}
+
 /**********************************************************************
   CROSS PROGRAM INVOCATION HELPERS
  **********************************************************************/
@@ -410,7 +441,7 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
   return (ulong) &(((fd_vm_rc_refcell_t *)rc_refcell_vaddr)->payload);
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L327
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L310-L316
  */
 FD_FN_CONST static inline
 ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
@@ -452,6 +483,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
   ulong * decl = FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_addr, alignof(ulong), sizeof(ulong) );
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L304 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl ) \
   ulong decl = acc_info->data_addr;
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl ) \
@@ -530,18 +562,25 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
     /* Extract the vaddr embedded in the RefCell */                                                                                              \
     ulong decl = *FD_EXPAND_THEN_CONCAT2(decl, _hptr_);
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                                                                     \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _vaddr_) =                                                                                                                  \
       *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )); \
     ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L184-L195 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
+    if( FD_UNLIKELY( vm->stricter_abi_and_runtime_constraints && acc_info->data_box_addr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {                 \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                                                          \
+      return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                                                                    \
+    }                                                                                                                                              \
     /* Translate the vaddr to the slice */                                                                                                         \
     fd_vm_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                     \
       FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
     /* Extract the vaddr embedded in the slice */                                                                                                  \
     ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;
 
+/* https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L212-L221 */
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR( vm, acc_info, decl ) \
     ulong decl = fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) );
 

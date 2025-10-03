@@ -5,7 +5,7 @@ $ op=71 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=00
 $ op=71 dst=1 src=2 off=0007 r2 =400000000 imm=01 : ok  r1=07
 $ op=71 dst=1 src=3 off=000f r3 =400000000 imm=02 : ok  r1=15
 $ op=71 dst=1 src=3 off=0010 r3 =400000000 imm=02 : err
-$ op=71 dst=1 src=3 off=1000 r3 =400000000 imm=02 : err 
+$ op=71 dst=1 src=3 off=1000 r3 =400000000 imm=02 : err
 $ op=71 dst=2 src=4 off=7fff r4 =3ffff8002 imm=03 : ok  r2=01
 $ op=71 dst=2 src=5 off=8000 r5 =400008003 imm=04 : ok  r2=03
 $ op=71 dst=2 src=6 off=ffff r6 =400000008 imm=05 : ok  r2=07
@@ -72,18 +72,18 @@ region_boundary=09
 region_boundary=10
 
 # ldxh reg, [reg+off]
-$ op=69 dst=1 src=1 off=0007 r1 =400000000 imm=00 : ok  r1=0807
-$ op=69 dst=1 src=1 off=0003 r1 =400000000 imm=00 : ok  r1=0403
+$ op=69 dst=1 src=1 off=0007 r1 =400000000 imm=00 : err
+$ op=69 dst=1 src=1 off=0003 r1 =400000000 imm=00 : err
 $ op=69 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=0100
 
 # ldxw reg, [reg+off]
 $ op=61 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=03020100
-$ op=61 dst=1 src=1 off=0001 r1 =400000000 imm=00 : ok  r1=04030201
-$ op=61 dst=1 src=1 off=0002 r1 =400000000 imm=00 : ok  r1=05040302
-$ op=61 dst=1 src=1 off=0007 r1 =400000000 imm=00 : ok  r1=10090807
-$ op=61 dst=1 src=1 off=0008 r1 =400000000 imm=00 : ok  r1=11100908
+$ op=61 dst=1 src=1 off=0001 r1 =400000000 imm=00 : err
+$ op=61 dst=1 src=1 off=0002 r1 =400000000 imm=00 : err
+$ op=61 dst=1 src=1 off=0007 r1 =400000000 imm=00 : err
+$ op=61 dst=1 src=1 off=0008 r1 =400000000 imm=00 : err
 
 # ldxdw reg, [reg+off]
-$ op=79 dst=1 src=1 off=0000 r1 =400000000 imm=00 : ok  r1=0706050403020100
-$ op=79 dst=1 src=1 off=0007 r1 =400000000 imm=00 : ok  r1=1413121110090807
+$ op=79 dst=1 src=1 off=0000 r1 =400000000 imm=00 : err
+$ op=79 dst=1 src=1 off=0007 r1 =400000000 imm=00 : err
 
