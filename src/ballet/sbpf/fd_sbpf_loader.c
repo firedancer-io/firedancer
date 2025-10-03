@@ -1581,6 +1581,8 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     ulong buf_offset_end   = fd_ulong_sat_sub( highest_addr, has_addr_file_offset ? addr_file_offset : 0UL );
 
     /* Set the rodata accordingly, and zero out the rest.
+       TODO: This is dead code and probably also incorrect, but will
+       get deleted pretty soon anyways.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L948 */
     memmove( rodata, rodata+buf_offset_start, buf_offset_end-buf_offset_start );
     fd_memset( rodata+buf_offset_end, 0, prog->rodata_sz-buf_offset_end );
