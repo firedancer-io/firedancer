@@ -88,6 +88,8 @@ struct fd_quic_tls_cfg {
 
   /* Ed25519 public key */
   uchar const * cert_public_key;
+
+  int authenticate_client; /* 1 if client auth is required */
 };
 
 /* structure for organising handshake data */
