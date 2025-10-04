@@ -62,6 +62,7 @@ typedef struct fd_exec_tile_ctx {
      TODO: These should probably be made read-only handles. */
   fd_banks_t *          banks;
   fd_funk_t             funk[ 1 ];
+  fd_progcache_t        progcache[1];
 
   fd_txncache_t *       txncache;
 
@@ -174,6 +175,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
       if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_runtime_finalize_txn(
             ctx->funk,
+            ctx->progcache,
             ctx->txncache,
             &xid,
             ctx->txn_ctx,
