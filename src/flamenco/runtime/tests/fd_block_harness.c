@@ -301,7 +301,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
 
   /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( bank, funk, xid, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
+  fd_runtime_fuzz_refresh_program_cache( bank, runner->progcache, funk, xid, test_ctx->acct_states, test_ctx->acct_states_count );
 
   /* Update vote cache for epoch T-1 */
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
@@ -476,7 +476,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_txn_p_t * txn = &txn_ptrs[i];
 
       /* Update the program cache */
-      fd_runtime_update_program_cache( runner->bank, runner->funk, xid, txn, runner->spad );
+      fd_runtime_update_program_cache( runner->bank, runner->progcache, runner->funk, xid, txn, runner->spad );
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
@@ -490,6 +490,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       /* Finalize the transaction */
       fd_runtime_finalize_txn(
           runner->funk,
+          runner->progcache,
           NULL,
           xid,
           txn_ctx,

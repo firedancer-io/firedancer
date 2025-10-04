@@ -20,7 +20,6 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "program/fd_program_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
 #include "sysvar/fd_sysvar_rent.h"
@@ -29,8 +28,6 @@
 #include "tests/fd_dump_pb.h"
 
 #include "../../ballet/base58/fd_base58.h"
-#include "../../disco/pack/fd_pack.h"
-#include "../../disco/pack/fd_pack_cost.h"
 
 #include "../../util/bits/fd_uwide.h"
 
