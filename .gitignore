@@ -79,4 +79,9 @@ deps-bundle.tar.zst
 
 # Python
 venv
+.venv
 *.pyc
+*.egg-info/
+
+# Agave cluster config
+contrib/agave-cluster/.ledger_config
