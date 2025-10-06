@@ -1,0 +1,9 @@
+| MetricsEnumAccess.c:94:5:94:17 | access to array | The IDX value (3) is greater than the arrays size (3). |
+| MetricsEnumAccess.c:101:9:101:33 | access to array | The CNT value (3) associated with the IDX macro and the array size (4) do not match and could result in under/over reads/writes. |
+| MetricsEnumAccess.c:101:9:101:33 | access to array | The enum name in the IDX macro does not match the one associated with the CNT macro (if any) in the array definition. |
+| MetricsEnumAccess.c:107:5:107:61 | access to array | The CNT value (5) associated with the IDX macro and the array size (3) do not match and could result in under/over reads/writes. |
+| MetricsEnumAccess.c:107:5:107:61 | access to array | The enum name in the IDX macro does not match the one associated with the CNT macro (if any) in the array definition. |
+| MetricsEnumAccess.c:114:5:114:51 | access to array | The CNT value (3) associated with the IDX macro and the array size (4) do not match and could result in under/over reads/writes. |
+| MetricsEnumAccess.c:114:5:114:51 | access to array | The enum name in the IDX macro does not match the one associated with the CNT macro (if any) in the array definition. |
+| MetricsEnumAccess.c:124:49:124:59 | access to array | The CNT value ((4UL)) associated with the IDX macro and the array size (2) do not match and could result in under/over reads/writes. |
+| MetricsEnumAccess.c:124:49:124:59 | access to array | The enum name in the IDX macro does not match the one associated with the CNT macro (if any) in the array definition. |
