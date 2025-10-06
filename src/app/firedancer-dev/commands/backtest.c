@@ -362,15 +362,21 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo );
 
-  int pipefd[2];
-  if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
   args_t watch_args;
-  watch_args.watch.drain_output_fd = pipefd[0];
-  if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int pipefd[2];
+  if( !args->backtest.no_watch ) {
+    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    watch_args.watch.drain_output_fd = pipefd[0];
+    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
-  watch_cmd_fn( &watch_args, config );
+  if( args->backtest.no_watch ) {
+    for(;;) pause();
+  } else {
+    watch_cmd_fn( &watch_args, config );
+  }
 }
 
 action_t fd_action_backtest = {

@@ -16,7 +16,7 @@ $(call make-unit-test,test_sol_compat,test_sol_compat,fd_flamenco_test fd_flamen
 $(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_flamenco fd_funk fd_ballet fd_util fd_disco,$(SECP256K1_LIBS) $(SOL_COMPAT_FLAGS))
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 
-run-runtime-backtest: $(OBJDIR)/bin/fd_ledger
+run-runtime-backtest: $(OBJDIR)/bin/fd_ledger $(OBJDIR)/bin/firedancer-dev
 	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh
 
 endif
