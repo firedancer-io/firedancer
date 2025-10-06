@@ -9,6 +9,20 @@
 /* the max supported versions we could receive in a version packet */
 #define FD_QUIC_MAX_VERSIONS 8
 
+#define FD_QUIC_HANDHOLDING 1
+#if FD_QUIC_HANDHOLDING
+#define FD_QUIC_INVARIANT(x, ...) do { \
+    if( FD_UNLIKELY( !(x) ) ) { \
+      FD_LOG_CRIT(( __VA_ARGS__ )); \
+    } \
+  } while(0)
+#else
+#define FD_QUIC_INVARIANT(x, ...) do { \
+  if( FD_UNLIKELY( !(x) ) ) { \
+    FD_LOG_WARNING(( __VA_ARGS__ )); \
+  } \
+} while(0)
+#endif
 
 /* forward decls */
 typedef struct fd_quic               fd_quic_t;

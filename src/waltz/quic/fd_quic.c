@@ -9,6 +9,7 @@
 #include "fd_quic_proto.h"
 #include "fd_quic_proto.c"
 #include "fd_quic_retry.h"
+#include "fd_quic_stream_pool.h"
 #include "fd_quic_svc_q.h"
 
 #define FD_TEMPL_FRAME_CTX fd_quic_frame_ctx_t
@@ -525,9 +526,6 @@ fd_quic_init( fd_quic_t * quic ) {
 
   fd_quic_transport_params_t * tp = &state->transport_params;
 
-  /* initial max streams is zero */
-  /* we will send max_streams and max_data frames later to allow the peer to */
-  /* send us data */
   ulong initial_max_streams_uni = quic->config.role==FD_QUIC_ROLE_SERVER ? 1UL<<60 : 0;
   ulong initial_max_stream_data = config->initial_rx_max_stream_data;
 
@@ -561,8 +559,7 @@ fd_quic_enc_level_to_pn_space( uint enc_level ) {
   /* TODO improve this map */
   static uchar const el2pn_map[] = { 0, 2, 1, 2 };
 
-  if( FD_UNLIKELY( enc_level >= 4U ) )
-    FD_LOG_ERR(( "fd_quic_enc_level_to_pn_space called with invalid enc_level" ));
+  FD_QUIC_INVARIANT( enc_level<4, "fd_quic_enc_level_to_pn_space called with invalid enc_level: %u", enc_level );
 
   return el2pn_map[ enc_level ];
 }
@@ -629,12 +626,13 @@ static inline void
 svc_cnt_eq_alloc_conn( fd_quic_svc_timers_t * timers, fd_quic_t * quic ) {
   ulong const event_cnt = fd_quic_svc_timers_cnt_events( timers );
   ulong const conn_cnt  = quic->metrics.conn_alloc_cnt;
-  if( FD_UNLIKELY( event_cnt != conn_cnt ) ) {
-    FD_LOG_CRIT(( "only %lu out of %lu connections are in timer", event_cnt, conn_cnt ));
-  }
+  FD_QUIC_INVARIANT( event_cnt == conn_cnt, "only %lu out of %lu connections are in timer", event_cnt, conn_cnt );
 }
 
-/* validates the free conn list doesn't cycle, point nowhere, leak, or point to live conn */
+/* 1. validates the free conn list doesn't cycle, point nowhere, leak,
+      or point to live conn
+   2. validates each stream is either in pool or in some conn map
+   3. validates each pkt_meta is either in pool or owned by some conn */
 static void
 fd_quic_conn_free_validate( fd_quic_t * quic ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
@@ -654,6 +652,8 @@ fd_quic_conn_free_validate( fd_quic_t * quic ) {
     FD_TEST( cnt <= quic->limits.conn_cnt );
   }
 
+  ulong stream_cnt   = 0UL;
+  ulong pkt_meta_cnt = 0UL;
   for( ulong j=0UL; j < quic->limits.conn_cnt; j++ ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, j );
     FD_TEST( conn->conn_idx==j );
@@ -661,8 +661,40 @@ fd_quic_conn_free_validate( fd_quic_t * quic ) {
       FD_TEST( conn->visited );
     } else {
       FD_TEST( !conn->visited );
+      stream_cnt += fd_quic_stream_map_key_cnt( conn->stream_map );
+      for( uint i=0; i<4; i++ ) {
+        pkt_meta_cnt += fd_quic_pkt_meta_ds_ele_cnt( &conn->pkt_meta_tracker.sent_pkt_metas[i] );
+      }
     }
   }
+
+  stream_cnt += fd_quic_stream_pool_avail( state->stream_pool );
+  ulong const total_stream_cnt = quic->limits.stream_pool_cnt;
+  FD_TEST( stream_cnt == total_stream_cnt );
+
+  ulong const pool_used = fd_quic_pkt_meta_pool_used( state->pkt_meta_pool );
+  FD_TEST( pkt_meta_cnt == pool_used );
+}
+
+/* validates that the tls_hs cache is ordered by non-decreasing birthtime
+   and that there are no handshake leaks */
+static void
+fd_quic_tls_hs_cache_validate( fd_quic_state_t * state ) {
+  fd_quic_tls_hs_cache_t const * dlist = &state->hs_cache;
+  fd_quic_tls_hs_t       const * pool = state->hs_pool;
+  ulong actual_used = 0UL;
+  long prev_time = 0UL;
+  for( fd_quic_tls_hs_cache_iter_t iter = fd_quic_tls_hs_cache_iter_fwd_init( dlist, pool );
+       !fd_quic_tls_hs_cache_iter_done( iter, dlist, pool );
+       iter = fd_quic_tls_hs_cache_iter_fwd_next( iter, dlist, pool ) ) {
+    fd_quic_tls_hs_t const * ele = fd_quic_tls_hs_cache_iter_ele_const( iter, dlist, pool );
+    FD_TEST( ele->birthtime >= prev_time );
+    prev_time = ele->birthtime;
+    actual_used++;
+  }
+
+  ulong const expected_used = fd_quic_tls_hs_pool_used( state->hs_pool );
+  FD_TEST( expected_used == actual_used );
 }
 
 void
@@ -671,9 +703,11 @@ fd_quic_state_validate( fd_quic_t * quic ) {
 
   /* init visited for svc_timers_validate to use */
   fd_quic_conn_validate_init( quic );
-  FD_TEST( fd_quic_svc_timers_validate( state->svc_timers, quic ) );
+  fd_quic_svc_timers_validate( state->svc_timers, quic, state->now, 0 );
 
   fd_quic_conn_free_validate( quic );
+
+  fd_quic_tls_hs_cache_validate( state );
 }
 
 /* Helpers for generating fd_quic_log entries */
@@ -710,8 +744,15 @@ fd_quic_set_conn_state( fd_quic_conn_t * conn,
   conn->quic->metrics.conn_state_cnt[ state     ]++;
   conn->state = state;
   FD_COMPILER_MFENCE();
-}
 
+  #if FD_QUIC_HANDHOLDING
+  ulong conn_sum = 0;
+  for( uint i=0; i<FD_QUIC_CONN_STATE_CNT; i++ ) conn_sum += conn->quic->metrics.conn_state_cnt[ i ];
+  FD_QUIC_INVARIANT( conn_sum == conn->quic->metrics.conn_alloc_cnt,
+                     "conn_sum %lu != conn_alloc_cnt %lu",
+                     conn_sum, conn->quic->metrics.conn_alloc_cnt );
+  #endif
+}
 
 /* fd_quic_conn_error sets the connection state to aborted.  This does
    not destroy the connection object.  Rather, it will eventually cause
@@ -817,7 +858,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
       }
       return ~0u;
 
-      /* TODO consider this optimization... but we want to ack all handshakes, even if there is stream_data */
+    /* TODO consider this optimization... but we want to ack all handshakes, even if there is stream_data */
     case FD_QUIC_CONN_STATE_ACTIVE:
       if( FD_LIKELY( !conn->tls_hs ) ) {
         /* optimization for case where we have stream data to send */
@@ -1024,8 +1065,6 @@ fd_quic_conn_new_stream( fd_quic_conn_t * conn ) {
 
   /* The user is responsible for calling this, for setting limits, */
   /* and for setting stream_pool size */
-  /* Only current use cases for QUIC client is for testing */
-  /* So leaving this question unanswered for now */
 
   /* peer imposed limit on streams */
   ulong peer_sup_stream_id = conn->tx_sup_stream_id;
@@ -2757,17 +2796,20 @@ fd_quic_tls_cb_handshake_complete( fd_quic_tls_hs_t * hs,
       return;
 
     case FD_QUIC_CONN_STATE_HANDSHAKE:
-      if( FD_UNLIKELY( !conn->transport_params_set ) ) { /* unreachable */
-        FD_LOG_WARNING(( "Handshake marked as completed but transport params are not set. This is a bug!" ));
-        fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
-        return;
-      }
-      conn->handshake_complete = 1;
-      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE );
+
+    FD_QUIC_INVARIANT( conn->transport_params_set, "Handshake marked as completed but transport params are not set. This is a bug!" );
+    #if !FD_QUIC_HANDHOLDING
+    if( FD_UNLIKELY( !conn->transport_params_set ) ) { /* unreachable */
+      fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
       return;
+    }
+    #endif
+    conn->handshake_complete = 1;
+    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE );
+    return;
 
     default:
-      FD_LOG_WARNING(( "handshake in unexpected state: %u", conn->state ));
+      FD_QUIC_INVARIANT( 0, "handshake in unexpected state: %u", conn->state );
   }
 }
 
@@ -2857,12 +2899,15 @@ fd_quic_svc_poll( fd_quic_t *      quic,
                   fd_quic_conn_t * conn,
                   long             now ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  FD_QUIC_INVARIANT( conn->state != FD_QUIC_CONN_STATE_INVALID, "Invalid conn in schedule" );
+  #if !FD_QUIC_HANDHOLDING
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
     /* connection shouldn't have been scheduled,
        and is now removed, so just continue */
-    FD_LOG_CRIT(( "Invalid conn in schedule" ));
     return 1;
   }
+  #endif
 
   if( FD_UNLIKELY( now >= conn->last_activity + ( conn->idle_timeout_ns / 2 ) ) ) {
     if( FD_UNLIKELY( now >= conn->last_activity + conn->idle_timeout_ns ) ) {
@@ -2931,10 +2976,19 @@ fd_quic_service( fd_quic_t * quic,
   svc_cnt_eq_alloc_conn( timers, quic );
   fd_quic_svc_event_t    next   = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
   if( FD_UNLIKELY( next.conn == NULL ) ) {
+    #if FD_QUIC_HANDHOLDING
+    /* validate ~1/16 of the time that we aren't working hard */
+    if( (now&0xf)==0xf ) fd_quic_state_validate( quic );
+    #endif
     return 0;
   }
 
   int cnt = fd_quic_svc_poll( quic, next.conn, now );
+
+  #if FD_QUIC_HANDHOLDING
+  /* O(1) timer validation */
+  fd_quic_svc_timers_validate( timers, quic, now, 1 );
+  #endif
 
   long delta_ticks = fd_tickcount() - now_ticks;
 
@@ -3050,10 +3104,8 @@ fd_quic_tx_buffered_raw(
   /* after send, reset tx_ptr and tx_sz */
   *tx_ptr_ptr = tx_buf;
 
-  quic->metrics.net_tx_pkt_cnt += aio_rc==FD_AIO_SUCCESS;
-  if( FD_LIKELY( aio_rc==FD_AIO_SUCCESS ) ) {
-    quic->metrics.net_tx_byte_cnt += aio_buf.buf_sz;
-  }
+  quic->metrics.net_tx_pkt_cnt  += aio_rc==FD_AIO_SUCCESS;
+  quic->metrics.net_tx_byte_cnt += fd_ulong_if( aio_rc==FD_AIO_SUCCESS, aio_buf.buf_sz, 0UL );
 
   return FD_QUIC_SUCCESS; /* success */
 }
@@ -3708,7 +3760,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
       }
 
       default:
-        FD_LOG_ERR(( "%s - logic error: unexpected enc_level", __func__ ));
+        FD_QUIC_INVARIANT( 0, "unexpected enc_level: %u", enc_level );
     }
 
     /* if we don't have reasonable amt of space for a new packet, tx to free space */
@@ -3743,7 +3795,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
     uchar * const frame_start = payload_ptr;
     payload_ptr = fd_quic_gen_frames( conn, frame_start, payload_end, pkt_meta_tmpl, now );
-    if( FD_UNLIKELY( payload_ptr < frame_start ) ) FD_LOG_CRIT(( "fd_quic_gen_frames failed" ));
+    FD_QUIC_INVARIANT( payload_ptr >= frame_start, "fd_quic_gen_frames failed" );
 
     /* did we add any frames? */
 
@@ -3950,7 +4002,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, long now ) {
     case FD_QUIC_CONN_STATE_INVALID:
       /* fall thru */
     default:
-      FD_LOG_CRIT(( "invalid conn state %u", conn->state ));
+      FD_QUIC_INVARIANT( 0, "invalid conn state %u", conn->state );
       return;
   }
 
@@ -3961,14 +4013,12 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, long now ) {
 void
 fd_quic_conn_free( fd_quic_t *      quic,
                    fd_quic_conn_t * conn ) {
+
   if( FD_UNLIKELY( !conn ) ) {
     FD_LOG_WARNING(( "NULL conn" ));
     return;
   }
-  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
-    FD_LOG_CRIT(( "double free detected" ));
-    return;
-  }
+  FD_QUIC_INVARIANT( conn->state != FD_QUIC_CONN_STATE_INVALID, "double free detected" );
 
   FD_COMPILER_MFENCE();
   fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
@@ -4012,8 +4062,8 @@ fd_quic_conn_free( fd_quic_t *      quic,
      but if a stream doesn't get cleaned up properly, this fixes
      the stream map */
   if( FD_UNLIKELY( conn->stream_map && fd_quic_stream_map_key_cnt( conn->stream_map ) > 0 ) ) {
-    FD_LOG_WARNING(( "stream_map not empty. cnt: %lu",
-          (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) ));
+    FD_QUIC_INVARIANT( 0, "stream_map not empty. cnt: %lu",
+      (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) );
     while( fd_quic_stream_map_key_cnt( conn->stream_map ) > 0 ) {
       int removed = 0;
       for( ulong j = 0; j < fd_quic_stream_map_slot_cnt( conn->stream_map ); ++j ) {
@@ -4023,11 +4073,9 @@ fd_quic_conn_free( fd_quic_t *      quic,
           j--; /* retry this entry */
         }
       }
-      if( !removed ) {
-        FD_LOG_WARNING(( "None removed. Remain: %lu",
-              (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) ));
-        break;
-      }
+      FD_QUIC_INVARIANT( removed, "None removed. Remain: %lu",
+        (ulong)fd_quic_stream_map_key_cnt( conn->stream_map ) );
+      if( !removed ) break;
     }
   }
 
@@ -4122,7 +4170,7 @@ fd_quic_connect( fd_quic_t * quic,
   /* Create a TLS handshake (free>0 validated above) */
 
   fd_quic_tls_hs_t * tls_hs = fd_quic_tls_hs_new(
-      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ),
+      fd_quic_tls_hs_pool_ele_acquire( state->hs_pool ), /* safe bc we checked free>0 above */
       state->tls,
       (void*)conn,
       0 /*is_server*/,
@@ -4174,15 +4222,9 @@ fd_quic_conn_create( fd_quic_t *               quic,
     quic->metrics.conn_err_no_slots_cnt++;
     return NULL;
   }
-  if( FD_UNLIKELY( conn_idx >= quic->limits.conn_cnt ) ) {
-    FD_LOG_ERR(( "Conn free list corruption detected" ));
-    return NULL;
-  }
+  FD_QUIC_INVARIANT( conn_idx < quic->limits.conn_cnt, "Conn free list corruption detected" );
   fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, conn_idx );
-  if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_INVALID ) ) {
-    FD_LOG_ERR(( "conn %p not free, this is a bug", (void *)conn ));
-    return NULL;
-  }
+  FD_QUIC_INVARIANT( conn->state==FD_QUIC_CONN_STATE_INVALID, "conn %p not free", (void *)conn );
 
   /* prune previous conn map entry */
   fd_quic_conn_map_t * entry = fd_quic_conn_query1( state->conn_map, conn->our_conn_id, NULL );
@@ -4217,7 +4259,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
     .udp_port = self_udp_port,
   };
   conn->conn_gen++;
-
 
   /* pkt_meta */
   fd_quic_pkt_meta_tracker_init( &conn->pkt_meta_tracker,
@@ -4292,7 +4333,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* idle timeout */
   conn->idle_timeout_ns      = config->idle_timeout;
   conn->last_activity        = state->now;
-  if( !conn->last_activity )   FD_LOG_CRIT(( "last activity: %ld", conn->last_activity ));
+  FD_QUIC_INVARIANT( conn->last_activity, "last activity 0?!:" );
   conn->let_die_time_ns      = LONG_MAX;
 
   /* update metrics */
@@ -5044,7 +5085,6 @@ fd_quic_tx_stream_free( fd_quic_t *        quic,
                         fd_quic_stream_t * stream,
                         int                code ) {
 
-  /* TODO rename FD_QUIC_NOTIFY_END to FD_QUIC_STREAM_NOTIFY_END et al */
   if( FD_LIKELY( stream->state != FD_QUIC_STREAM_STATE_UNUSED ) ) {
     fd_quic_cb_stream_notify( quic, stream, stream->context, code );
     stream->state = FD_QUIC_STREAM_STATE_UNUSED;

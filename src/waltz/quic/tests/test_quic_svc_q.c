@@ -185,7 +185,7 @@ test_multiple_connections( fd_quic_limits_t * limits ) {
     state->conn_sz         = conn_sz;
 
     fd_quic_conn_validate_init( quic );
-    FD_TEST( fd_quic_svc_timers_validate( timers, quic ) );
+    fd_quic_svc_timers_validate( timers, quic, now, 0 );
     free( quic );
   }
 

@@ -177,47 +177,60 @@ fd_quic_svc_timers_schedule( fd_quic_svc_timers_t * timers,
   }
 }
 
-int
+void
 fd_quic_svc_timers_validate( fd_quic_svc_timers_t * timers,
-                             fd_quic_t            * quic ) {
+                             fd_quic_t            * quic,
+                             long                   now,
+                             int                    cheap ) {
   fd_quic_state_t * state = fd_quic_get_state( quic );
+  ulong prq_cnt     = fd_quic_svc_queue_prq_cnt( timers->prq );
+  ulong instant_cnt = timers->instant.cnt;
+
+  /* If we're more than 1ms late, consider the conn starved */
+  #define STARVATION_THRESHOLD 1000000L /* 1ms */
+  if( prq_cnt ) FD_TEST( timers->prq[0].timeout >= now+STARVATION_THRESHOLD );
+  #undef STARVATION_THRESHOLD
+
+  if( cheap ) return;
 
   /* Validate DYNAMIC queue (heap) */
-  ulong prq_cnt = fd_quic_svc_queue_prq_cnt( timers->prq );
   for( ulong i=0; i<prq_cnt; i++ ) {
     fd_quic_svc_event_t * event = timers->prq + i;
     fd_quic_conn_t      * conn  = event->conn;
 
     /* conn and idx match for dynamic queue */
-    if( FD_UNLIKELY( conn->svc_meta.private.prq_idx != i ) ) return 0;
-    if( FD_UNLIKELY( conn->svc_meta.private.svc_type != FD_QUIC_SVC_DYNAMIC ) ) return 0;
+    FD_TEST( conn->svc_meta.private.prq_idx == i );
+    FD_TEST( conn->svc_meta.private.svc_type == FD_QUIC_SVC_DYNAMIC );
 
     /* conn in prq at most once */
-    if( FD_UNLIKELY( conn->visited ) ) return 0;
+    FD_TEST( !conn->visited );
     conn->visited = 1U;
   }
+
 
   /* Validate dlist */
-  ulong instant_cnt = 0U;
-  uint  curr        = timers->instant.head;
+  ulong instant_real_cnt = 0U;
+  uint  curr             = timers->instant.head;
   while( curr != FD_QUIC_SVC_DLIST_IDX_INVAL ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, curr );
-    if( FD_UNLIKELY( conn->svc_meta.private.svc_type != FD_QUIC_SVC_INSTANT ) ) return 0;
-    if( FD_UNLIKELY( conn->visited ) ) return 0;
+    FD_TEST( conn->svc_meta.private.svc_type == FD_QUIC_SVC_INSTANT );
+    FD_TEST( !conn->visited );
     conn->visited = 1U;
     curr = conn->svc_meta.private.dlist.next;
-    instant_cnt++;
+    instant_real_cnt++;
   }
-  if( instant_cnt != timers->instant.cnt ) return 0;
+  FD_TEST( instant_real_cnt == instant_cnt );
 
-  /* connections not in any queue should have INVALID idx */
+  /* connections not in any queue should have INVALID idx and INVALID state */
   ulong const conn_cnt = quic->limits.conn_cnt;
   for( ulong i=0; i<conn_cnt; i++ ) {
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, i );
-    if( !conn->visited && conn->svc_meta.private.prq_idx != FD_QUIC_SVC_PRQ_IDX_INVAL ) return 0;
+    if( !conn->visited ) {
+      FD_TEST( conn->svc_meta.private.prq_idx == FD_QUIC_SVC_PRQ_IDX_INVAL );
+      FD_TEST( conn->state == FD_QUIC_CONN_STATE_INVALID );
+    }
+    else FD_TEST( conn->state != FD_QUIC_CONN_STATE_INVALID );
   }
-
-  return 1;
 }
 
 fd_quic_svc_event_t

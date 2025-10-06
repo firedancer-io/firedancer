@@ -89,11 +89,15 @@ fd_quic_svc_timers_schedule( fd_quic_svc_timers_t * timers,
                              long                   now );
 
 /* fd_quic_svc_timers_validate checks that events and
-    connections point to each other
-   returns 1 if valid, 0 otherwise */
-int
+    connections point to each other, and all connections
+    are in valid state. Also confirms all dynamic is after
+    now (i.e. no starvation). Exits process if failed.
+    If cheap, only does O(1) checks. */
+void
 fd_quic_svc_timers_validate( fd_quic_svc_timers_t * timers,
-                             fd_quic_t            * quic );
+                             fd_quic_t            * quic,
+                             long                   now,
+                             int                    cheap );
 
 /* fd_quic_svc_cancel removes a connection from the service queue */
 void
