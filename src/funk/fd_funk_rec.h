@@ -12,17 +12,6 @@
 
 #define FD_FUNK_REC_ALIGN     (32UL)
 
-/* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
-   how records are to be interpreted.  The 5 most significant bytes of a
-   rec's flag are reserved to be used in conjunction with the ERASE flag.
-
-   - ERASE indicates a record in an in-preparation transaction should be
-   erased if and when the in-preparation transaction is published. If
-   set on a published record, it serves as a tombstone.
-   If set, there will be no value resources used by this record. */
-
-#define FD_FUNK_REC_FLAG_ERASE (1UL<<0)
-
 /* FD_FUNK_REC_IDX_NULL gives the map record idx value used to represent
    NULL.  This value also set a limit on how large rec_max can be. */
 
@@ -37,20 +26,23 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
   uint                   map_next; /* Internal use by map */
 
+  /* These fields are managed by the user */
+
+  uchar user[ 12 ];
+
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
 
-  uint  prev_idx;  /* Record map index of previous record in its transaction */
   uint  next_idx;  /* Record map index of next record in its transaction */
-
-  uint  tag;       /* Internal use only */
-  uint  flags;     /* Flags that indicate how to interpret a record */
+  uint  prev_idx;  /* Record map index of previous record in its transaction */
 
   /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
-     UINT_MAX. */
+     (1UL<<28)-1. */
 
-  uint  val_sz;    /* Num bytes in record value, in [0,val_max] */
-  uint  val_max;   /* Max byte  in record value, in [0,FD_FUNK_REC_VAL_MAX], 0 if erase flag set or val_gaddr is 0 */
+  ulong val_sz  : 28;  /* Num bytes in record value, in [0,val_max] */
+  ulong val_max : 28;  /* Max byte  in record value, in [0,FD_FUNK_REC_VAL_MAX], 0 if erase flag set or val_gaddr is 0 */
+  ulong erase   :  1;  /* Indicates a tombstone */
+  ulong tag     :  1;  /* Used for internal validation */
   ulong val_gaddr; /* Wksp gaddr on record value if any, 0 if erase flag set or val_max is 0
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record. The allocator is

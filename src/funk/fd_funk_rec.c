@@ -187,8 +187,7 @@ retry:
 
         if( FD_LIKELY( match ) ) {
           if( txn_out ) *txn_out = cur_txn;
-          query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL :
-                         (fd_funk_rec_t *)ele );
+          query->ele = ( FD_UNLIKELY( ele->erase ) ? NULL : (fd_funk_rec_t *)ele );
           res = query->ele;
           goto found;
         }
@@ -295,8 +294,8 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     prepare->rec_tail_idx = &txn->rec_tail_idx;
   }
   fd_funk_rec_key_copy( rec->pair.key, key );
-  rec->tag = 0;
-  rec->flags = 0;
+  rec->erase    = 0;
+  rec->tag      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
   fd_funk_rec_txn_release( txn_query );
@@ -479,15 +478,11 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   if( rec_out ) *rec_out = rec;
 
   /* Access the flags atomically */
-  uint old_flags;
-  for(;;) {
-    old_flags = rec->flags;
-    if( FD_UNLIKELY( old_flags & FD_FUNK_REC_FLAG_ERASE ) ) {
-      fd_funk_rec_txn_release( txn_query );
-      return FD_FUNK_SUCCESS;
-    }
-    if( FD_ATOMIC_CAS( &rec->flags, old_flags, old_flags | FD_FUNK_REC_FLAG_ERASE ) == old_flags ) break;
+  if( FD_UNLIKELY( rec->erase ) ) {
+    fd_funk_rec_txn_release( txn_query );
+    return FD_FUNK_SUCCESS;
   }
+  rec->erase = 1;
 
   /* Flush the value and leave a tombstone behind. In theory, this can
      lead to an unbounded number of records, but for application
@@ -542,15 +537,15 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   /* Clear record tags and then verify membership */
 
-  for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) rec_pool->ele[ rec_idx ].tag = 0U;
+  for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) rec_pool->ele[ rec_idx ].tag = 0;
 
   do {
     fd_funk_all_iter_t iter[1];
     for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
       fd_funk_rec_t * rec = fd_funk_all_iter_ele( iter );
       if( fd_funk_txn_xid_eq_root( rec->pair.xid ) ) {
-        TEST( rec->tag==0U );
-        rec->tag = 1U;
+        TEST( !rec->tag );
+        rec->tag = 1;
       }
     }
 
@@ -560,11 +555,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
       uint rec_idx = txn->rec_head_idx;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-        TEST( (rec_idx<rec_max) && rec_pool->ele[ rec_idx ].tag==0U );
-        rec_pool->ele[ rec_idx ].tag = 1U;
+        TEST( (rec_idx<rec_max) && !rec_pool->ele[ rec_idx ].tag );
+        rec_pool->ele[ rec_idx ].tag = 1;
         fd_funk_rec_query_t query[1];
         fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, &txn->xid, rec_pool->ele[ rec_idx ].pair.key, NULL, query );
-        if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+        if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].erase ) )
           TEST( rec2 == NULL );
         else
           TEST( rec2 == rec_pool->ele + rec_idx );
@@ -580,16 +575,22 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
     for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
       fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
 
-      uint rec_idx = txn->rec_tail_idx;
+      uint  rec_idx = txn->rec_tail_idx;
       while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
-        TEST( (rec_idx<rec_max) && rec_pool->ele[ rec_idx ].tag==1U );
-        rec_pool->ele[ rec_idx ].tag = 2U;
+        TEST( (rec_idx<rec_max) && rec_pool->ele[ rec_idx ].tag );
+        rec_pool->ele[ rec_idx ].tag = 0;
         uint prev_idx = rec_pool->ele[ rec_idx ].prev_idx;
         if( !fd_funk_rec_idx_is_null( prev_idx ) ) TEST( rec_pool->ele[ prev_idx ].next_idx==rec_idx );
         rec_idx = prev_idx;
       }
     }
   } while(0);
+
+  fd_funk_all_iter_t iter[1];
+  for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
+    fd_funk_rec_t const * rec = fd_funk_all_iter_ele( iter );
+    FD_TEST( rec->tag == fd_funk_txn_xid_eq_root( rec->pair.xid ) );
+  }
 
 # undef TEST
 

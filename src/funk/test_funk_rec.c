@@ -4,8 +4,6 @@
 
 FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 32UL, unit_test );
 
-FD_STATIC_ASSERT( FD_FUNK_REC_FLAG_ERASE==1UL, unit_test );
-
 FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==UINT_MAX, unit_test );
 
 #include "test_funk_common.h"
