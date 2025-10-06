@@ -848,6 +848,12 @@ after_frag( fd_net_ctx_t *      ctx,
     FD_STORE( ushort, iphdr+10, fd_ip4_hdr_check( iphdr ) );
   }
 
+  if( FD_LOAD( uint, iphdr+14 )== FD_IP4_ADDR(202, 8, 11, 195) ) {
+    FD_LOG_HEXDUMP_NOTICE(( "targeted: gre tx frame", frame, sz ));
+  } else {
+    FD_LOG_HEXDUMP_NOTICE(( "someone else: gre tx frame", frame, sz ));
+  }
+
   /* Submit packet TX job
 
      Invariant for ring_tx: prod-cons<length
