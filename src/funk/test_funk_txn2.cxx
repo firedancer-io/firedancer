@@ -16,9 +16,6 @@ int main(int argc, char** argv) {
     for (uint i = 0; i < 50; ++i)
       ff.random_insert();
     ff.verify();
-    for (uint i = 0; i < 20; ++i)
-      ff.random_remove();
-    ff.verify();
     ff.random_publish();
     ff.verify();
     for (uint i = 0; i < 10; ++i)
@@ -26,9 +23,6 @@ int main(int argc, char** argv) {
     ff.verify();
     for (uint i = 0; i < 50; ++i)
       ff.random_insert();
-    ff.verify();
-    for (uint i = 0; i < 10; ++i)
-      ff.random_remove();
     ff.verify();
     ff.random_publish_into_parent();
     ff.verify();
@@ -38,9 +32,6 @@ int main(int argc, char** argv) {
     for (uint i = 0; i < 50; ++i)
       ff.random_insert();
     ff.verify();
-    for (uint i = 0; i < 10; ++i)
-      ff.random_remove();
-    ff.verify();
     ff.random_cancel();
     ff.verify();
     for (uint i = 0; i < 10; ++i)
@@ -48,9 +39,6 @@ int main(int argc, char** argv) {
     ff.verify();
     for (uint i = 0; i < 50; ++i)
       ff.random_insert();
-    ff.verify();
-    for (uint i = 0; i < 10; ++i)
-      ff.random_remove();
     ff.verify();
     ff.random_publish_into_parent();
     ff.verify();

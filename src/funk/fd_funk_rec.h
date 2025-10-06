@@ -40,10 +40,9 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
      (1UL<<28)-1. */
 
   ulong val_sz  : 28;  /* Num bytes in record value, in [0,val_max] */
-  ulong val_max : 28;  /* Max byte  in record value, in [0,FD_FUNK_REC_VAL_MAX], 0 if erase flag set or val_gaddr is 0 */
-  ulong erase   :  1;  /* Indicates a tombstone */
+  ulong val_max : 28;  /* Max byte  in record value, in [0,FD_FUNK_REC_VAL_MAX], 0 if val_gaddr is 0 */
   ulong tag     :  1;  /* Used for internal validation */
-  ulong val_gaddr; /* Wksp gaddr on record value if any, 0 if erase flag set or val_max is 0
+  ulong val_gaddr; /* Wksp gaddr on record value if any, 0 if val_max is 0
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record. The allocator is
                       fd_funk_alloc(). IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
@@ -295,35 +294,6 @@ fd_funk_rec_clone( fd_funk_t *               funk,
                    fd_funk_rec_key_t const * key,
                    fd_funk_rec_prepare_t *   prepare,
                    int *                     opt_err );
-
-/* fd_funk_rec_remove removes the live record with the
-   given (xid,key) from funk. Returns FD_FUNK_SUCCESS (0) on
-   success and an FD_FUNK_ERR_* (negative) on failure.  Reasons for
-   failure include:
-
-     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL xid)
-
-     FD_FUNK_ERR_KEY - the record did not appear to be a live record.
-       Specifically, a record query of funk for rec's (xid,key) pair did
-       not return rec.
-
-   The record will cease to exist in that transaction and any of
-   transaction's subsequently created descendants (again, assuming no
-   subsequent insert of key).  This type of remove can be done on a
-   published record (assuming the last published transaction is
-   unfrozen). A tombstone is left in funk to track removals as they
-   are published or cancelled.
-
-   Any information in an erased record is lost.
-
-   This is a reasonably fast O(1) and fortified against memory
-   corruption. */
-
-int
-fd_funk_rec_remove( fd_funk_t *               funk,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_funk_rec_key_t const * key,
-                    fd_funk_rec_t **          rec_out );
 
 /* Misc */
 

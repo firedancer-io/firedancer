@@ -468,14 +468,6 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
       return -1;
     }
 
-    if( FD_UNLIKELY( rec->erase ) ) {
-      if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) {
-        return -1;
-      } else {
-        continue;
-      }
-    }
-
     void const * data = fd_funk_val_const( rec, fd_funk_wksp(funk) );
 
     *cache_entry = (fd_program_cache_entry_t const *)data;

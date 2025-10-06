@@ -141,7 +141,6 @@
      fd_funk_rec_prepare
      fd_funk_rec_publish
      fd_funk_rec_cancel
-     fd_funk_rec_remove
 */
 
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */

@@ -22,7 +22,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
     if( !txn_out ) txn_out    = dummy_txn_out;
     fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &id, txn_out, query );
 
-    if( FD_UNLIKELY( !rec || rec->erase ) )  {
+    if( FD_UNLIKELY( !rec ) )  {
       fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
       return NULL;
     }

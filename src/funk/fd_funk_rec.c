@@ -187,7 +187,7 @@ retry:
 
         if( FD_LIKELY( match ) ) {
           if( txn_out ) *txn_out = cur_txn;
-          query->ele = ( FD_UNLIKELY( ele->erase ) ? NULL : (fd_funk_rec_t *)ele );
+          query->ele = (fd_funk_rec_t *)ele;
           res = query->ele;
           goto found;
         }
@@ -294,7 +294,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
     prepare->rec_tail_idx = &txn->rec_tail_idx;
   }
   fd_funk_rec_key_copy( rec->pair.key, key );
-  rec->erase    = 0;
   rec->tag      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
@@ -437,63 +436,6 @@ fd_funk_rec_clone( fd_funk_t *               funk,
 }
 
 int
-fd_funk_rec_remove( fd_funk_t *               funk,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_funk_rec_key_t const * key,
-                    fd_funk_rec_t **          rec_out ) {
-  if( FD_UNLIKELY( !funk ) ) FD_LOG_CRIT(( "NULL funk" ));
-  if( FD_UNLIKELY( !xid  ) ) FD_LOG_CRIT(( "NULL xid"  ));
-  if( FD_UNLIKELY( !key  ) ) FD_LOG_CRIT(( "NULL key"  ));
-
-  fd_funk_txn_map_query_t txn_query[1];
-  fd_funk_txn_t * txn = fd_funk_rec_txn_borrow( funk, xid, txn_query );
-
-  fd_funk_xid_key_pair_t pair[1];
-  fd_funk_rec_key_set_pair( pair, xid, key );
-
-  if( !txn ) { /* Modifying last published */
-    if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
-      FD_LOG_ERR(( "fd_funk_rec_remove failed: txn %lu:%lu (last published) is frozen", xid->ul[0], xid->ul[1] ));
-    }
-    fd_funk_txn_xid_set_root( pair->xid );
-  } else {
-    if( FD_UNLIKELY( fd_funk_txn_is_frozen( txn ) ) ) {
-      FD_LOG_ERR(( "fd_funk_rec_remove failed: txn %p %lu:%lu is frozen", (void *)txn, xid->ul[0], xid->ul[1] ));
-    }
-  }
-
-  fd_funk_rec_query_t query[ 1 ];
-  for(;;) {
-    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
-    if( err == FD_MAP_SUCCESS   ) break;
-    if( err == FD_MAP_ERR_KEY   ) {
-      fd_funk_rec_txn_release( txn_query );
-      return FD_FUNK_ERR_KEY;
-    }
-    if( err == FD_MAP_ERR_AGAIN ) continue;
-    FD_LOG_CRIT(( "query returned err %d", err ));
-  }
-
-  fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
-  if( rec_out ) *rec_out = rec;
-
-  /* Access the flags atomically */
-  if( FD_UNLIKELY( rec->erase ) ) {
-    fd_funk_rec_txn_release( txn_query );
-    return FD_FUNK_SUCCESS;
-  }
-  rec->erase = 1;
-
-  /* Flush the value and leave a tombstone behind. In theory, this can
-     lead to an unbounded number of records, but for application
-     reasons, we need to remember what was deleted. */
-
-  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
-  fd_funk_rec_txn_release( txn_query );
-  return FD_FUNK_SUCCESS;
-}
-
-int
 fd_funk_rec_verify( fd_funk_t * funk ) {
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
@@ -559,10 +501,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         rec_pool->ele[ rec_idx ].tag = 1;
         fd_funk_rec_query_t query[1];
         fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, &txn->xid, rec_pool->ele[ rec_idx ].pair.key, NULL, query );
-        if( FD_UNLIKELY( rec_pool->ele[ rec_idx ].erase ) )
-          TEST( rec2 == NULL );
-        else
-          TEST( rec2 == rec_pool->ele + rec_idx );
+        TEST( rec2 == rec_pool->ele + rec_idx );
         uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;
