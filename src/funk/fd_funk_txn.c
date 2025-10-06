@@ -485,16 +485,13 @@ fd_funk_txn_cancel_all( fd_funk_t * funk ) {
    Transaction txn_idx will have an _empty_ record list.
 
    Updates in the transaction txn_idx are processed from oldest to
-   youngest.  If an update erases an existing record in dest, the record
-   to erase is removed from the destination records without perturbing
-   the order of remaining destination records.  If an update is to
-   update an existing record, the destination record value is updated
-   and the order of the destination records is unchanged.  If an update
-   is to create a new record, the record is appended to the list of
-   existing values as youngest without changing the order of existing
-   values.  If an update erases a record in an in-prep parent, the
-   erasure will be moved into the parent as the youngest without
-   changing the order of existing values. */
+   youngest.  If an update is to update an existing record, the
+   destination record value is updated and the order of the destination
+   records is unchanged.  If an update is to create a new record, the
+   record is appended to the list of existing values as youngest without
+   changing the order of existing values.  If an update erases a record
+   in an in-prep parent, the erasure will be moved into the parent as
+   the youngest without changing the order of existing values. */
 
 static void
 fd_funk_txn_update( fd_funk_t *               funk,

@@ -154,24 +154,6 @@ struct fake_funk {
       assert(fd_funk_val_sz(rec2) == rec->size());
     }
 
-    void random_remove() {
-      fake_txn * txn = pick_unfrozen_txn();
-      auto& recs = txn->_recs;
-      fake_rec* list[MAX_CHILDREN];
-      uint listlen = 0;
-      for (auto i : recs)
-        if (!i->_erased)
-          list[listlen++] = i;
-      if (!listlen) return;
-      auto* rec = list[((uint)lrand48())%listlen];
-
-      auto key = rec->real_id();
-      assert(fd_funk_rec_remove(_real, get_real_txn(txn), &key, NULL) == FD_FUNK_SUCCESS);
-
-      rec->_erased = true;
-      rec->_data.clear();
-    }
-
     void random_new_txn() {
       if (_txns.size() == MAX_TXNS)
         return;
@@ -322,24 +304,15 @@ struct fake_funk {
         auto j = std::find_if(recs.begin(), recs.end(), [key](auto * rec2) {return rec2->_key == key->ul[0];});
         assert(j != recs.end());
         auto * rec2 = *j;
-        if (rec2->_erased) {
-          assert(rec->erase);
-          assert(fd_funk_val_sz(rec) == 0);
-        } else {
-          assert(!rec->erase);
-          assert(fd_funk_val_sz(rec) == rec2->size());
-          assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
-        }
+        assert(fd_funk_val_sz(rec) == rec2->size());
+        assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
 
         fd_funk_txn_map_t * txn_map = fd_funk_txn_map( _real );
         fd_funk_txn_t * txn = fd_funk_txn_query( xid, txn_map );
         if( !txn ) xid = fd_funk_last_publish( _real );
         fd_funk_rec_query_t query[1];
         auto* rec3 = fd_funk_rec_query_try_global(_real, xid, rec->pair.key, NULL, query);
-        if( rec->erase )
-          assert(rec3 == NULL);
-        else
-          assert(rec == rec3);
+        assert(rec == rec3);
         assert(!fd_funk_rec_query_test( query ));
 
         assert(!rec2->_touched);
