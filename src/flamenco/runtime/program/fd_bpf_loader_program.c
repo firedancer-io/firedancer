@@ -6,6 +6,7 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../sysvar/fd_sysvar.h"
 #include "fd_bpf_loader_serialization.h"
+#include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
 #include "../fd_borrowed_account.h"
 
@@ -2478,6 +2479,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
          Program account and program data account discriminants get checked when loading in program accounts
          into the program cache. If the discriminants are incorrect, the program is marked as closed. */
       if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) ) {
+        /* https://github.com/anza-xyz/agave/tree/v3.0.5/programs/bpf_loader/src/lib.rs#L424-L433
+           Agave's program cache will add any non-migrating built-ins as built-in
+           accounts, even though they might be owned by the BPF loader. In these
+           cases, Agave does not log this message. Meanwhile, non-migrating
+           built-in programs do not use the BPF loader, by definition. */
+        if( !fd_is_non_migrating_builtin_program( program_id ) ) {
+          fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        }
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
