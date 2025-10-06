@@ -468,7 +468,7 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
       return -1;
     }
 
-    if( FD_UNLIKELY( !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+    if( FD_UNLIKELY( rec->erase ) ) {
       if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) {
         return -1;
       } else {
