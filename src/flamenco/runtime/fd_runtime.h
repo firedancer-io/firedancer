@@ -508,7 +508,6 @@ fd_runtime_update_program_cache( fd_bank_t *               bank,
                                  fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid,
                                  fd_txn_p_t const *        txn_p,
-                                 fd_spad_t *               runtime_spad,
                                  fd_runtime_mem_t *        runtime_mem );
 
 /* Offline Replay *************************************************************/

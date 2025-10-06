@@ -478,7 +478,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_txn_p_t * txn = &txn_ptrs[i];
 
       /* Update the program cache */
-      fd_runtime_update_program_cache( runner->bank, runner->funk, xid, txn, runner->spad, runner->runtime_mem );
+      fd_runtime_update_program_cache( runner->bank, runner->funk, xid, txn, runner->runtime_mem );
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;

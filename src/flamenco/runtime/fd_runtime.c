@@ -1599,11 +1599,8 @@ fd_runtime_update_program_cache( fd_bank_t *               bank,
                                  fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid,
                                  fd_txn_p_t const *        txn_p,
-                                 fd_spad_t *               runtime_spad,
                                  fd_runtime_mem_t *        runtime_mem ) {
   fd_txn_t const * txn_descriptor = TXN( txn_p );
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   /* Iterate over account keys referenced directly in the transaction first */
   fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
@@ -1644,8 +1641,6 @@ fd_runtime_update_program_cache( fd_bank_t *               bank,
       fd_program_cache_update_program( bank, funk, xid, account, runtime_mem );
     }
   }
-
-  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
