@@ -333,40 +333,6 @@ fd_funk_rec_remove( fd_funk_t *               funk,
                     fd_funk_rec_key_t const * key,
                     fd_funk_rec_t **          rec_out );
 
-/* fd_funk_all_iter_t iterators over all funk record objects in all funk
-   transactions.
-
-   Assumes that no other join is doing funk write accesses during the
-   lifetime of the iterator object.  This API is not optimized for
-   performance and has a high fixed cost (slow even for empty DBs).
-
-   Usage is:
-
-   fd_funk_all_iter_t iter[1];
-   for( fd_funk_all_iter_new( funk, iter ); !fd_funk_all_iter_done( iter ); fd_funk_all_iter_next( iter ) ) {
-     fd_funk_rec_t const * rec = fd_funk_all_iter_ele_const( iter );
-     ...
-   } */
-
-struct fd_funk_all_iter {
-  fd_funk_rec_map_t      rec_map;
-  ulong                  chain_cnt;
-  ulong                  chain_idx;
-  fd_funk_rec_map_iter_t rec_map_iter;
-};
-
-typedef struct fd_funk_all_iter fd_funk_all_iter_t;
-
-void fd_funk_all_iter_new( fd_funk_t * funk, fd_funk_all_iter_t * iter );
-
-int fd_funk_all_iter_done( fd_funk_all_iter_t * iter );
-
-void fd_funk_all_iter_next( fd_funk_all_iter_t * iter );
-
-fd_funk_rec_t const * fd_funk_all_iter_ele_const( fd_funk_all_iter_t * iter );
-
-fd_funk_rec_t * fd_funk_all_iter_ele( fd_funk_all_iter_t * iter );
-
 /* Misc */
 
 /* fd_funk_rec_verify verifies the record map.  Returns FD_FUNK_SUCCESS

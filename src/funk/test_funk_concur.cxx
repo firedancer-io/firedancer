@@ -1,4 +1,4 @@
-#include "test_funk_common.hpp"
+#include "test_funk_common.hxx"
 #include <cstdio>
 #include <pthread.h>
 

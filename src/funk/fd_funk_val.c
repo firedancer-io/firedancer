@@ -1,4 +1,4 @@
-#include "fd_funk.h"
+#include "fd_funk_private.h"
 
 void *
 fd_funk_val_truncate( fd_funk_rec_t * rec,
