@@ -1518,11 +1518,11 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   }
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( bank, funk, xid, capture_ctx, stake_delegations, new_rate_activation_epoch, runtime_spad );
+  fd_stakes_activate_epoch( bank, funk, xid, capture_ctx, stake_delegations, new_rate_activation_epoch, runtime_mem->stake_history_mem );
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_mem->stake_history_mem );
   if( FD_UNLIKELY( !history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
   }
@@ -1553,7 +1553,8 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                                 stake_delegations,
                                 &parent_blockhash,
                                 parent_epoch,
-                                runtime_spad );
+                                runtime_spad,
+                                runtime_mem );
 
 
   /* Update vote_states_prev_prev with vote_states_prev */
@@ -1668,7 +1669,8 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
                                    fd_funk_txn_xid_t const *          xid,
                                    fd_genesis_solana_global_t const * genesis_block,
                                    fd_hash_t const *                  genesis_hash,
-                                   fd_spad_t *                        runtime_spad ) {
+                                   fd_spad_t *                        runtime_spad,
+                                   fd_runtime_mem_t *                 runtime_mem ) {
 
   fd_bank_poh_set( bank, *genesis_hash );
 
@@ -1814,7 +1816,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
      the amount of stake that is delegated to each vote account. */
 
   ulong new_rate_activation_epoch = 0UL;
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_mem->stake_history_mem );
   fd_refresh_vote_accounts(
       bank,
       stake_delegations,
@@ -1936,7 +1938,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_runtime_init_bank_from_genesis( banks, bank, funk, xid, genesis_block, genesis_hash, runtime_spad );
+  fd_runtime_init_bank_from_genesis( banks, bank, funk, xid, genesis_block, genesis_hash, runtime_spad, runtime_mem );
 
   /* Write the native programs to the accounts db. */
 

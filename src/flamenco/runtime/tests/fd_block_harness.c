@@ -458,7 +458,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, runner->runtime_mem );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */

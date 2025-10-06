@@ -662,9 +662,10 @@ calculate_validator_rewards( fd_bank_t *                               bank,
                              ulong                                     rewarded_epoch,
                              ulong                                     rewards,
                              fd_calculate_validator_rewards_result_t * result,
-                             fd_spad_t *                               runtime_spad ) {
+                             fd_spad_t *                               runtime_spad,
+                             fd_runtime_mem_t *                        runtime_mem ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+  fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_mem->stake_history_mem );
     if( FD_UNLIKELY( !stake_history ) ) {
     FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
   }
@@ -774,7 +775,8 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     ulong                                  prev_epoch,
                                     const fd_hash_t *                      parent_blockhash,
                                     fd_partitioned_rewards_calculation_t * result,
-                                    fd_spad_t *                            runtime_spad ) {
+                                    fd_spad_t *                            runtime_spad,
+                                    fd_runtime_mem_t *                     runtime_mem ) {
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
   fd_prev_epoch_inflation_rewards_t rewards;
 
@@ -792,7 +794,8 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                prev_epoch,
                                rewards.validator_rewards,
                                validator_result,
-                               runtime_spad );
+                               runtime_spad,
+                               runtime_mem );
 
   fd_stake_reward_calculation_t * stake_reward_calculation = &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation;
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
@@ -831,7 +834,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                                fd_capture_ctx_t *             capture_ctx,
                                                ulong                          prev_epoch,
                                                fd_hash_t const *              parent_blockhash,
-                                               fd_spad_t *                    runtime_spad ) {
+                                               fd_spad_t *                    runtime_spad,
+                                               fd_runtime_mem_t *             runtime_mem ) {
 
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
@@ -843,7 +847,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
                                       prev_epoch,
                                       parent_blockhash,
                                       rewards_calc_result,
-                                      runtime_spad );
+                                      runtime_spad,
+                                      runtime_mem );
 
   /* Iterate over all the vote reward nodes */
   ulong distributed_rewards = 0UL;
@@ -1137,7 +1142,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
                               ulong                          parent_epoch,
-                              fd_spad_t *                    runtime_spad ) {
+                              fd_spad_t *                    runtime_spad,
+                              fd_runtime_mem_t *             runtime_mem ) {
 
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
   calculate_rewards_and_distribute_vote_rewards(
@@ -1148,7 +1154,8 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       capture_ctx,
       parent_epoch,
       parent_blockhash,
-      runtime_spad );
+      runtime_spad,
+      runtime_mem );
 
   /* https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L62 */
   ulong distribution_starting_block_height = fd_bank_block_height_get( bank ) + REWARD_CALCULATION_NUM_BLOCKS;
@@ -1184,7 +1191,8 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_funk_t *               funk,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_capture_ctx_t *        capture_ctx,
-                                            fd_spad_t *               runtime_spad ) {
+                                            fd_spad_t *               runtime_spad,
+                                            fd_runtime_mem_t *        runtime_mem ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
@@ -1221,7 +1229,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+    fd_stake_history_t const * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_mem->stake_history_mem );
     if( FD_UNLIKELY( !stake_history ) ) {
       FD_LOG_ERR(( "Unable to read and decode stake history sysvar" ));
     }

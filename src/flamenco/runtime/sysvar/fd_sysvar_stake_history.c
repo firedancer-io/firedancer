@@ -28,7 +28,7 @@ write_stake_history( fd_bank_t *               bank,
 fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_funk_t *               funk,
                               fd_funk_txn_xid_t const * xid,
-                              fd_spad_t *               spad ) {
+                              uchar *                   stake_history_mem ) {
   FD_TXN_ACCOUNT_DECL( stake_rec );
   int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -43,8 +43,9 @@ fd_sysvar_stake_history_read( fd_funk_t *               funk,
     return NULL;
   }
 
-  return fd_bincode_decode_spad(
-      stake_history, spad,
+  return fd_bincode_decode_static(
+      stake_history,
+      stake_history_mem,
       fd_txn_account_get_data( stake_rec ),
       fd_txn_account_get_data_len( stake_rec ),
       &err );
@@ -66,11 +67,10 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
                                 fd_funk_txn_xid_t const *                   xid,
                                 fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair,
-                                fd_spad_t *                                 runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+                                uchar *                                     stake_history_mem ) {
 
   // Need to make this maybe zero copies of map...
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, xid, stake_history_mem );
 
   if( stake_history->fd_stake_history_offset == 0 ) {
     stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
@@ -92,5 +92,4 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
 
   write_stake_history( bank, funk, xid, capture_ctx, stake_history );
 
-  } FD_SPAD_FRAME_END;
 }
