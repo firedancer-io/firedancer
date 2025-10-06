@@ -46,6 +46,10 @@ struct fd_tower_slot_done {
   ulong     reset_slot;
   fd_hash_t reset_block_id;
 
+  /* The closet ancestor of reset_slot such that its vote stake is
+     greater than 2/3 total epoch stake.  Might be ULONG_MAX at startup
+     when tower's history is tiny. */
+  ulong opt_confirmed_slot;
 };
 
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;

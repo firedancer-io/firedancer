@@ -1,7 +1,9 @@
 #ifndef HEADER_fd_src_disco_gui_fd_gui_h
 #define HEADER_fd_src_disco_gui_fd_gui_h
 
+#include "fd_gui_base.h"
 #include "fd_gui_peers.h"
+#include "fd_gui_forks.h"
 
 #include "../topo/fd_topo.h"
 
@@ -9,10 +11,10 @@
 #include "../../waltz/http/fd_http_server.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../discof/restore/fd_snaprd_tile.h"
-#include "../../util/fd_util_base.h"
-#include "../../util/hist/fd_histf.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../disco/fd_txn_p.h"
+#include "../../discof/tower/fd_tower_tile.h"
+#include "../../discof/replay/fd_replay_tile.h"
 
 /* frankendancer only */
 #define FD_GUI_MAX_PEER_CNT ( 40200UL)
@@ -90,7 +92,7 @@ struct fd_gui_validator_info {
 #define FD_GUI_SLOT_LEADER_ENDED     (2UL)
 
 #define FD_GUI_SLOTS_CNT                           (864000UL) /* 2x 432000 */
-#define FD_GUI_LEADER_CNT                          (21600UL) /* 5% of 432000 */
+#define FD_GUI_LEADER_CNT                          (4096UL)
 
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
@@ -218,65 +220,6 @@ struct fd_gui_validator_info {
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
 
-struct fd_gui_txn_waterfall {
-  struct {
-    ulong quic;
-    ulong udp;
-    ulong gossip;
-    ulong block_engine;
-    ulong pack_cranked;
-  } in;
-
-  struct {
-    ulong net_overrun;
-    ulong quic_overrun;
-    ulong quic_frag_drop;
-    ulong quic_abandoned;
-    ulong tpu_quic_invalid;
-    ulong tpu_udp_invalid;
-    ulong verify_overrun;
-    ulong verify_parse;
-    ulong verify_failed;
-    ulong verify_duplicate;
-    ulong dedup_duplicate;
-    ulong resolv_lut_failed;
-    ulong resolv_expired;
-    ulong resolv_ancient;
-    ulong resolv_no_ledger;
-    ulong resolv_retained;
-    ulong pack_invalid;
-    ulong pack_invalid_bundle;
-    ulong pack_expired;
-    ulong pack_retained;
-    ulong pack_wait_full;
-    ulong pack_leader_slow;
-    ulong bank_invalid;
-    ulong block_success;
-    ulong block_fail;
-  } out;
-};
-
-typedef struct fd_gui_txn_waterfall fd_gui_txn_waterfall_t;
-
-struct fd_gui_tile_stats {
-  long  sample_time_nanos;
-
-  ulong net_in_rx_bytes;           /* Number of bytes received by the net or sock tile*/
-  ulong quic_conn_cnt;             /* Number of active QUIC connections */
-  fd_histf_t bundle_rx_delay_hist; /* Histogram of bundle rx delay */
-  ulong bundle_rtt_smoothed_nanos; /* RTT (nanoseconds) moving average */
-  ulong verify_drop_cnt;           /* Number of transactions dropped by verify tiles */
-  ulong verify_total_cnt;          /* Number of transactions received by verify tiles */
-  ulong dedup_drop_cnt;            /* Number of transactions dropped by dedup tile */
-  ulong dedup_total_cnt;           /* Number of transactions received by dedup tile */
-  ulong pack_buffer_cnt;           /* Number of buffered transactions in the pack tile */
-  ulong pack_buffer_capacity;      /* Total size of the pack transaction buffer */
-  ulong bank_txn_exec_cnt;         /* Number of transactions processed by the bank tile */
-  ulong net_out_tx_bytes;          /* Number of bytes sent by the net or sock tile */
-};
-
-typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
-
 struct fd_gui_tile_timers {
   ulong caughtup_housekeeping_ticks;
   ulong processing_housekeeping_ticks;
@@ -339,46 +282,6 @@ struct fd_gui_leader_slot {
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
-
-
-struct fd_gui_slot {
-  ulong slot;
-  ulong parent_slot;
-  uint  max_compute_units;
-  long  completed_time;
-  int   mine;
-  int   skipped;
-  int   must_republish;
-  int   level;
-  uint  total_txn_cnt;
-  uint  vote_txn_cnt;
-  uint  failed_txn_cnt;
-  uint  nonvote_failed_txn_cnt;
-  uint  compute_units;
-  ulong transaction_fee;
-  ulong priority_fee;
-  ulong tips;
-
-  /* Some slot info is only tracked for our own leader slots. These
-     slots are kept in a separate buffer. */
-  ulong leader_history_tail;
-
-  fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
-  fd_gui_txn_waterfall_t waterfall_end[ 1 ];
-
-  fd_gui_tile_stats_t tile_stats_begin[ 1 ];
-  fd_gui_tile_stats_t tile_stats_end[ 1 ];
-
-  struct {
-    uint  shred_cnt;
-    ulong start_offset; /* gui->shreds.history[ start_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the first shred event in
-                           contiguous chunk of events in the shred history corresponding to this slot. */
-    ulong end_offset;   /* gui->shreds.history[ end_offset % FD_GUI_SHREDS_HISTORY_SZ ] is the last shred event in
-                           contiguous chunk of events in the shred history corresponding to this slot. */
-  } shreds;
-};
-
-typedef struct fd_gui_slot fd_gui_slot_t;
 
 struct fd_gui_slot_staged_shred_event {
   long   timestamp;
@@ -578,9 +481,13 @@ struct fd_gui {
     ulong bank_tile_cnt;
     ulong shred_tile_cnt;
 
-    ulong slot_rooted;
+    ulong     slot_rooted;
+    fd_hash_t block_id_rooted;
+
+    ulong     slot_completed;
+    fd_hash_t block_id_completed;
+
     ulong slot_optimistically_confirmed;
-    ulong slot_completed;
     ulong slot_estimated;
     ulong slot_caught_up;
 
@@ -603,8 +510,11 @@ struct fd_gui {
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
+
+  fd_gui_forks_ctx_t pslot[ 1 ];
+
   fd_gui_leader_slot_t leader_slots[ FD_GUI_LEADER_CNT ][ 1 ];
-  ulong leader_history_tail;
+  ulong leader_slots_tail;
 
   fd_gui_txn_t txs[ FD_GUI_TXN_HISTORY_SZ ][ 1 ];
   ulong pack_txn_idx; /* The pack index of the most recently received transaction */
@@ -759,44 +669,53 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
 
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
-                               fd_snaprd_update_t * msg );
+                               fd_snaprd_update_t const * msg );
+
+void
+fd_gui_handle_tower_update( fd_gui_t *                   gui,
+                            fd_tower_slot_done_t const * msg,
+                            long                         now );
+
+void
+fd_gui_handle_replay_update( fd_gui_t *                         gui,
+                             fd_replay_slot_completed_t const * msg,
+                             long                               now );
 
 static inline fd_gui_slot_t *
-fd_gui_get_slot( fd_gui_t * gui, ulong _slot ) {
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+fd_gui_get_slot( fd_gui_t const * gui, ulong _slot ) {
+  if( FD_UNLIKELY( gui->summary.is_full_client && _slot >= gui->summary.slot_rooted && gui->summary.slot_completed!=ULONG_MAX ) ) {
+    /* We want to get the slot with slot number _slot on the current fork */
+    fd_gui_forks_t * pslot = fd_gui_forks_slot_map_ele_query( gui->pslot->slot_map, &_slot, NULL, gui->pslot->pool );
+    if( FD_LIKELY( pslot ) ) {
+      return &pslot->slot;
+    }
+    return NULL;
+  }
+
+  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=_slot ) ) return NULL;
-  return slot;
+  return (fd_gui_slot_t *)slot;
 }
 
 static inline fd_gui_slot_t const *
 fd_gui_get_slot_const( fd_gui_t const * gui, ulong _slot ) {
-  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=_slot ) ) return NULL;
-  return slot;
+  return fd_gui_get_slot( gui, _slot );
 }
 
 static inline fd_gui_leader_slot_t *
-fd_gui_get_leader_slot( fd_gui_t * gui, ulong _slot ) {
-  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot==ULONG_MAX
-                || slot->slot!=_slot
+fd_gui_get_leader_slot( fd_gui_t const * gui, ulong _slot ) {
+  fd_gui_slot_t const * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot
                 || !slot->mine
                 || slot->leader_history_tail==ULONG_MAX
-                || slot->leader_history_tail + FD_GUI_LEADER_CNT < gui->leader_history_tail
+                || slot->leader_history_tail + FD_GUI_LEADER_CNT < gui->leader_slots_tail
                 || gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ]->slot!=_slot ) ) return NULL;
-  return gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ];
+  return (fd_gui_leader_slot_t *)gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ];
 }
 
 static inline fd_gui_leader_slot_t const *
 fd_gui_get_leader_slot_const( fd_gui_t const * gui, ulong _slot ) {
-  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot==ULONG_MAX
-                || slot->slot!=_slot
-                || !slot->mine
-                || slot->leader_history_tail==ULONG_MAX
-                || slot->leader_history_tail + FD_GUI_LEADER_CNT < gui->leader_history_tail
-                || gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ]->slot!=_slot ) ) return NULL;
-  return gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ];
+  return fd_gui_get_leader_slot( gui, _slot );
 }
 
 FD_PROTOTYPES_END

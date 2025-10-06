@@ -211,12 +211,17 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
     }
   }
 
+  if( FD_UNLIKELY( !msg->new_root ) ) {
+    msg->root_slot = FD_SLOT_NULL;
+    memset( msg->root_block_id.uc, 0, sizeof(fd_hash_t) );
+  }
+
   /* 3. Populate vote_txn with the current tower (regardless of whether
         there was a new vote slot or not). */
 
   fd_lockout_offset_t lockouts[ FD_TOWER_VOTE_MAX ];
   fd_txn_p_t txn[1];
-  fd_tower_to_vote_txn( ctx->tower, msg->root_slot, lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, txn );
+  fd_tower_to_vote_txn( ctx->tower, fd_ulong_if( msg->root_slot!=ULONG_MAX, msg->root_slot, fd_tower_votes_peek_head_const( ctx->tower )->slot ), lockouts, &slot_info->bank_hash, &slot_info->block_hash, ctx->identity_key, ctx->identity_key, ctx->vote_acc, txn );
   FD_TEST( !fd_tower_votes_empty( ctx->tower ) );
   FD_TEST( txn->payload_sz && txn->payload_sz<=FD_TPU_MTU );
   fd_memcpy( msg->vote_txn, txn->payload, txn->payload_sz );
@@ -226,6 +231,18 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   msg->reset_slot     = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
   msg->reset_block_id = *fd_ghost_hash( ctx->ghost, msg->reset_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
+
+  /* 5. Determine the latest optimistically confirmed slot */
+  msg->opt_confirmed_slot = ULONG_MAX;
+  fd_ghost_ele_t const * anc = fd_ghost_query_const( ctx->ghost, &msg->reset_block_id );
+  for( ulong i=0UL; i<FD_TOWER_VOTE_MAX; i++ ) {
+    if( FD_UNLIKELY( !anc ) ) break;
+    if( FD_LIKELY( 3 * anc->replay_stake > 2 * ctx->epoch->total_stake ) ) {
+      msg->opt_confirmed_slot = anc->slot;
+      break;
+    }
+    anc = fd_ghost_parent_const( ctx->ghost, anc );
+  }
 
   /* Publish the frag */
 

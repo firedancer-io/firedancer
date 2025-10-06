@@ -281,12 +281,16 @@ void
 fd_gui_printf_skipped_history( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history" );
     jsonp_open_array( gui->http, "value" );
-      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1, FD_GUI_SLOTS_CNT ); i++ ) {
-        ulong _slot = gui->summary.slot_completed-i;
-        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+      if( FD_LIKELY( gui->summary.slot_completed!=ULONG_MAX ) ) {
+        for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1, FD_GUI_SLOTS_CNT ); i++ ) {
+          ulong _slot = gui->summary.slot_completed-i;
+          fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
-        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
-        if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+          /* TODO: full client check pslot */
+
+          if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+          if( FD_UNLIKELY( slot->mine && slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+        }
       }
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -296,12 +300,16 @@ void
 fd_gui_printf_skipped_history_cluster( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "slot", "skipped_history_cluster" );
     jsonp_open_array( gui->http, "value" );
-      for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
-        ulong _slot = gui->summary.slot_completed-i;
-        fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+      if( FD_LIKELY( gui->summary.slot_completed!=ULONG_MAX ) ) {
+        for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+          ulong _slot = gui->summary.slot_completed-i;
+          fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
-        if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
-        if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+          /* TODO: full client check pslot */
+
+          if( FD_UNLIKELY( slot->slot!=_slot ) ) break;
+          if( FD_UNLIKELY( slot->skipped ) ) jsonp_ulong( gui->http, NULL, slot->slot );
+        }
       }
     jsonp_close_array( gui->http );
   jsonp_close_envelope( gui->http );
@@ -513,28 +521,28 @@ fd_gui_printf_estimated_slot_duration_nanos( fd_gui_t * gui ) {
 void
 fd_gui_printf_root_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "root_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_rooted );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_rooted!=ULONG_MAX, gui->summary.slot_rooted, 0UL ) );
   jsonp_close_envelope( gui->http );
 }
 
 void
 fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "optimistically_confirmed_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_optimistically_confirmed );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_optimistically_confirmed!=ULONG_MAX, gui->summary.slot_optimistically_confirmed, 0UL ) );
   jsonp_close_envelope( gui->http );
 }
 
 void
 fd_gui_printf_completed_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "completed_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_completed );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_completed!=ULONG_MAX, gui->summary.slot_completed, 0UL ) );
   jsonp_close_envelope( gui->http );
 }
 
 void
 fd_gui_printf_estimated_slot( fd_gui_t * gui ) {
   jsonp_open_envelope( gui->http, "summary", "estimated_slot" );
-    jsonp_ulong( gui->http, "value", gui->summary.slot_estimated );
+    jsonp_ulong( gui->http, "value", fd_ulong_if( gui->summary.slot_estimated!=ULONG_MAX, gui->summary.slot_estimated, 0UL ) );
   jsonp_close_envelope( gui->http );
 }
 
@@ -1081,7 +1089,7 @@ fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
 void
 fd_gui_printf_slot( fd_gui_t * gui,
                     ulong      _slot ) {
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
 
   char const * level;
   switch( slot->level ) {
@@ -1093,8 +1101,8 @@ fd_gui_printf_slot( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+  fd_gui_slot_t * parent_slot = fd_gui_get_slot( gui, slot->parent_slot );
+  if( FD_UNLIKELY( !parent_slot ) ) parent_slot = NULL;
 
   long duration_nanos = LONG_MAX;
   if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
@@ -1205,7 +1213,7 @@ void
 fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      _slot,
                             ulong      id ) {
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
 
   char const * level;
   switch( slot->level ) {
@@ -1217,8 +1225,8 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+  fd_gui_slot_t * parent_slot = fd_gui_get_slot( gui, slot->parent_slot );
+  if( FD_UNLIKELY( !parent_slot ) ) parent_slot = NULL;
 
   long duration_nanos = LONG_MAX;
   if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
@@ -1271,7 +1279,8 @@ void
 fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
                                          ulong      _slot,
                                          ulong      id ) {
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  FD_TEST( slot );
 
   char const * level;
   switch( slot->level ) {
@@ -1283,8 +1292,8 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+  fd_gui_slot_t * parent_slot = fd_gui_get_slot( gui, slot->parent_slot );
+  if( FD_UNLIKELY( !parent_slot ) ) parent_slot = NULL;
 
   long duration_nanos = LONG_MAX;
   if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
@@ -1329,15 +1338,14 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      fd_gui_leader_slot_t * lslot = gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ];
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
       int overwritten               = (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
-      int processed_all_microblocks = lslot->slot !=ULONG_MAX && lslot->slot==_slot &&
-                                      slot->slot!=ULONG_MAX && slot->slot==_slot &&
+      int processed_all_microblocks = lslot &&
                                       lslot->txs.microblocks_upper_bound!=USHORT_MAX &&
                                       lslot->txs.begin_microblocks==lslot->txs.end_microblocks &&
                                       lslot->txs.begin_microblocks==lslot->txs.microblocks_upper_bound;
 
-      if( FD_LIKELY( slot->leader_history_tail!=ULONG_MAX && !overwritten && processed_all_microblocks ) ) {
+      if( FD_LIKELY( !overwritten && processed_all_microblocks ) ) {
         ulong txn_cnt = lslot->txs.end_offset-lslot->txs.start_offset;
 
         jsonp_open_object( gui->http, "transactions" );
@@ -1474,7 +1482,7 @@ void
 fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
                                      ulong      _slot,
                                      ulong      id ) {
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
 
   char const * level;
   switch( slot->level ) {
@@ -1486,8 +1494,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
     default:                                         level = "unknown"; break;
   }
 
-  fd_gui_slot_t * parent_slot = gui->slots[ slot->parent_slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( parent_slot->slot!=slot->parent_slot ) ) parent_slot = NULL;
+  fd_gui_slot_t * parent_slot = fd_gui_get_slot( gui, slot->parent_slot );
+  if( FD_UNLIKELY( !parent_slot ) ) parent_slot = NULL;
 
   long duration_nanos = LONG_MAX;
   if( FD_LIKELY( slot->completed_time!=LONG_MAX && parent_slot && parent_slot->completed_time!=LONG_MAX ) ) {
@@ -1532,7 +1540,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      if( FD_LIKELY( gui->summary.slot_completed>_slot ) ) {
+      if( FD_LIKELY( gui->summary.slot_completed!=ULONG_MAX && gui->summary.slot_completed>_slot ) ) {
         fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
         fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
@@ -1568,7 +1576,7 @@ fd_gui_printf_boot_progress( fd_gui_t * gui ) {
       switch( gui->summary.boot_progress.phase ) {
         case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP:               jsonp_string( gui->http, "phase", "joining_gossip" );        break;
         case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:        jsonp_string( gui->http, "phase", "loading_full_snapshot" ); break;
-        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: jsonp_string( gui->http, "phase", "loading_incr_snapshot" ); break;
+        case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: jsonp_string( gui->http, "phase", "loading_incremental_snapshot" ); break;
         case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP:                  jsonp_string( gui->http, "phase", "catching_up" );           break;
         case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING:                      jsonp_string( gui->http, "phase", "running" );               break;
         default: FD_LOG_ERR(( "unknown phase %d", gui->summary.startup_progress.phase ));

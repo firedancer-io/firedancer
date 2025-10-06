@@ -432,11 +432,11 @@ read_http_data( fd_snaprd_tile_t *  ctx,
   char const * incremental_snapshot_name;
   fd_sshttp_snapshot_names( ctx->sshttp, &full_snapshot_name, &incremental_snapshot_name );
   char snapshot_path[ PATH_MAX+30UL ]; /* 30 is fd_cstr_nlen( "https://255.255.255.255:65536/", ULONG_MAX ) */
-  if( FD_LIKELY( !ctx->gui_full_path_published && !strcmp( full_snapshot_name, "" ) ) ) {
+  if( FD_LIKELY( !ctx->gui_full_path_published && strcmp( full_snapshot_name, "" ) ) ) {
     FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ), full_snapshot_name ) );
     snapshot_path_gui_publish( ctx, stem, snapshot_path, /* is_full */ 1 );
   }
-  if( FD_LIKELY( !ctx->gui_incremental_path_published && !strcmp( full_snapshot_name, "" ) ) ) {
+  if( FD_LIKELY( !ctx->gui_incremental_path_published && strcmp( incremental_snapshot_name, "" ) ) ) {
     FD_TEST( fd_cstr_printf_check( snapshot_path, sizeof(snapshot_path), NULL, "http://" FD_IP4_ADDR_FMT ":%hu/%s", FD_IP4_ADDR_FMT_ARGS( ctx->addr.addr ), fd_ushort_bswap( ctx->addr.port ), incremental_snapshot_name ) );
     snapshot_path_gui_publish( ctx, stem, snapshot_path, /* is_full */ 0 );
   }
