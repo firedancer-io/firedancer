@@ -67,7 +67,7 @@
 
    Prior to properly introducing staging lanes, we need to introduce two
    more concepts.  A block can be insert-ready, schedule-ready, neither,
-   or both.  A block must be insert-ready to call fd_rdisp_add_txn on
+   or both.  A block must be insert-ready to call add_txn on
    it; a block must be schedule-ready to call get_next_ready on it.
    Various functions either require or modify these properties of a
    block.  These properties are necessary but not sufficient for the
