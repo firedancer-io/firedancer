@@ -52,6 +52,8 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
 #define IN_KIND_SNAPRD       ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
+#define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
+#define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -208,11 +210,6 @@ during_frag( fd_gui_ctx_t * ctx,
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
-  /* There are multiple frags types sent on this link, the currently the
-     only way to distinguish them is to check sz.  We dont actually read
-     from the dcache  */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) return;
-
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
     if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
@@ -228,16 +225,17 @@ during_frag( fd_gui_ctx_t * ctx,
       FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
       sz = fd_stake_weight_msg_sz( staked_cnt );
     }
+  }
 
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof( ctx->buf ) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-    fd_memcpy( ctx->buf, src, sz );
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
+    /* There are multiple frags types sent on this link, the currently the
+     only way to distinguish them is to check sz.  We dont actually read
+     from the dcache.  */
     return;
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] or too large (%lu)", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
 
   fd_memcpy( ctx->buf, src, sz );
 }
@@ -258,6 +256,26 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_PLUGIN: {
       FD_TEST( !ctx->is_full_client );
       fd_gui_plugin_message( ctx->gui, sig, ctx->buf, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_REPLAY_OUT: {
+      if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+        fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)ctx->buf;
+        fd_gui_handle_replay_update( ctx->gui, replay, fd_clock_now( ctx->clock ) );
+      }
+
+      if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
+        fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
+        fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+      } else {
+        return;
+      }
+      break;
+    }
+    case IN_KIND_TOWER_OUT: {
+      FD_TEST( ctx->is_full_client );
+      fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)ctx->buf;
+      fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_SHRED_OUT: {
@@ -331,13 +349,11 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_POH_PACK: {
       FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
       fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-      fd_gui_became_leader( ctx->gui, now, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+      fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_POH: {
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-      fd_gui_unbecame_leader( ctx->gui, now, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_BANK: {
@@ -624,6 +640,8 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snaprd_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "repair_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;  /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
