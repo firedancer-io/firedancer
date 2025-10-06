@@ -112,7 +112,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( rent );
   fd_bank_rent_set( runner->bank, *rent );
 
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->runtime_mem->slot_hashes_mem );
   FD_TEST( slot_hashes );
 
   fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, runner->spad );

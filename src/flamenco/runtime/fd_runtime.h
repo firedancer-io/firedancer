@@ -438,7 +438,8 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
                                   fd_funk_t *               funk,
                                   fd_funk_txn_xid_t const * xid,
                                   fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad );
+                                  fd_spad_t *               runtime_spad,
+                                  fd_runtime_mem_t *        runtime_mem );
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,

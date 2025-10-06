@@ -14,6 +14,8 @@
 
 #define FD_SYSVAR_SLOT_HASHES_CAP   (512UL)
 
+#define FD_SYSVAR_SLOT_HASHES_DECODE_FOOTPRINT (20528UL)
+
 FD_PROTOTYPES_BEGIN
 
 ulong
@@ -55,7 +57,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
                               fd_funk_t *               funk,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx,
-                              fd_spad_t *               runtime_spad );
+                              uchar *                   slot_hashes_mem );
 
 /* fd_sysvar_slot_hashes_read reads the slot hashes sysvar from funk.
    If the account doesn't exist in funk or if the account has zero
@@ -63,7 +65,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
 fd_slot_hashes_global_t *
 fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
-                            fd_spad_t *               spad );
+                            uchar *                   slot_hashes_mem );
 
 FD_PROTOTYPES_END
 

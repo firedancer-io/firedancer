@@ -431,7 +431,8 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
                                             fd_funk_t *               funk,
                                             fd_funk_txn_xid_t const * xid,
                                             fd_capture_ctx_t *        capture_ctx,
-                                            fd_spad_t *               runtime_spad ) {
+                                            fd_spad_t *               runtime_spad,
+                                            fd_runtime_mem_t *        runtime_mem ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
@@ -447,7 +448,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
 
   // It has to go into the current txn previous info but is not in slot 0
   if( fd_bank_slot_get( bank ) != 0 ) {
-    fd_sysvar_slot_hashes_update( bank, funk, xid, capture_ctx, runtime_spad );
+    fd_sysvar_slot_hashes_update( bank, funk, xid, capture_ctx, runtime_mem->slot_hashes_mem );
   }
   fd_sysvar_last_restart_slot_update( bank, funk, xid, capture_ctx, fd_bank_last_restart_slot_get( bank ).slot );
 
@@ -691,7 +692,8 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
                                   fd_funk_t *               funk,
                                   fd_funk_txn_xid_t const * xid,
                                   fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad ) {
+                                  fd_spad_t *               runtime_spad,
+                                  fd_runtime_mem_t *        runtime_mem ) {
   fd_bank_execution_fees_set( bank, 0UL );
 
   fd_bank_priority_fees_set( bank, 0UL );
@@ -711,7 +713,7 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
-  int result = fd_runtime_block_sysvar_update_pre_execute( bank, funk, xid, capture_ctx, runtime_spad );
+  int result = fd_runtime_block_sysvar_update_pre_execute( bank, funk, xid, capture_ctx, runtime_spad, runtime_mem );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
@@ -1614,7 +1616,7 @@ fd_runtime_update_program_cache( fd_bank_t *               bank,
 
     /* Iterate over account keys referenced in ALUTs */
     fd_acct_addr_t alut_accounts[256];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, runtime_spad );
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, runtime_mem->slot_hashes_mem );
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       return;
     }

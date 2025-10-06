@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
+#include "sysvar/fd_sysvar_slot_hashes.h"
 #include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
@@ -51,6 +52,7 @@ struct fd_runtime_mem {
   uchar __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)))          syscalls_mem     [ FD_SBPF_SYSCALLS_FOOTPRINT ];
   uchar __attribute__((aligned(alignof(fd_sbpf_program_t))))      sbpf_program_mem [ FD_RUNTIME_ACC_SZ_MAX ]; /* FIXME: wait for sbpf rewrite constant*/
   uchar __attribute__((aligned(128UL)))                           stake_pool_mem   [ FD_RUNTIME_MAX_VOTE_ACCOUNTS * 64UL ]; /* TODO: Don't use magic number */
+  uchar __attribute__((aligned(128UL)))                           slot_hashes_mem  [ FD_SYSVAR_SLOT_HASHES_DECODE_FOOTPRINT ];
 };
 typedef struct fd_runtime_mem fd_runtime_mem_t;
 
