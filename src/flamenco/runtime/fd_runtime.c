@@ -116,9 +116,7 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 
 void
 fd_runtime_update_leaders( fd_bank_t * bank,
-                           fd_spad_t * runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+                           uchar *     epoch_weights_mem ) {
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
@@ -127,8 +125,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  ulong                    vote_acc_cnt          = fd_vote_states_cnt( vote_states_prev_prev ) ;
-  fd_vote_stake_weight_t * epoch_weights         = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t * epoch_weights         = fd_type_pun( epoch_weights_mem );
   ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
   fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
@@ -146,9 +143,8 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     }
 
     ulong vote_keyed_lsched = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( bank );
-    void * epoch_leaders_mem = fd_bank_epoch_leaders_locking_modify( bank );
     fd_epoch_leaders_t * leaders = fd_epoch_leaders_join( fd_epoch_leaders_new(
-        epoch_leaders_mem,
+        fd_bank_epoch_leaders_locking_modify( bank ),
         epoch,
         slot0,
         slot_cnt,
@@ -161,7 +157,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     }
     fd_bank_epoch_leaders_end_locking_modify( bank );
   }
-  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
@@ -1488,7 +1483,8 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx,
                               ulong                     parent_epoch,
-                              fd_spad_t *               runtime_spad ) {
+                              fd_spad_t *               runtime_spad,
+                              fd_runtime_mem_t *        runtime_mem ) {
   FD_LOG_NOTICE(( "fd_process_new_epoch start, epoch: %lu, slot: %lu", fd_bank_epoch_get( bank ), fd_bank_slot_get( bank ) ));
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -1574,7 +1570,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   /* Update current leaders using epoch_stakes (new T-2 stakes) */
 
-  fd_runtime_update_leaders( bank, runtime_spad );
+  fd_runtime_update_leaders( bank, runtime_mem->epoch_weights_mem );
 
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
@@ -1878,7 +1874,8 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
                                   fd_funk_t *               funk,
                                   fd_funk_txn_xid_t const * xid,
                                   fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad ) {
+                                  fd_spad_t *               runtime_spad,
+                                  fd_runtime_mem_t *        runtime_mem ) {
 
   fd_hash_t * poh = fd_bank_poh_modify( bank );
   ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
@@ -1904,7 +1901,7 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
 
   fd_sysvar_slot_history_update( bank, funk, xid, capture_ctx );
 
-  fd_runtime_update_leaders( bank, runtime_spad );
+  fd_runtime_update_leaders( bank, runtime_mem->epoch_weights_mem );
 
   fd_runtime_freeze( bank, funk, xid, capture_ctx );
 
@@ -1934,7 +1931,8 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_hash_t const *                  genesis_hash,
                          fd_lthash_value_t const *          genesis_lthash,
                          fd_genesis_solana_global_t const * genesis_block,
-                         fd_spad_t *                        runtime_spad ) {
+                         fd_spad_t *                        runtime_spad,
+                         fd_runtime_mem_t *                 runtime_mem ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
@@ -1966,7 +1964,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
      block. In practice, this updates some bank fields (notably the
      poh and bank hash). */
 
-  int err = fd_runtime_process_genesis_block( bank, funk, xid, capture_ctx, runtime_spad );
+  int err = fd_runtime_process_genesis_block( bank, funk, xid, capture_ctx, runtime_spad, runtime_mem );
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
 
   } FD_SPAD_FRAME_END;
@@ -1987,6 +1985,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_funk_txn_xid_t const * xid,
                                                 fd_capture_ctx_t *        capture_ctx,
                                                 fd_spad_t *               runtime_spad,
+                                                fd_runtime_mem_t *        runtime_mem,
                                                 int *                     is_epoch_boundary ) {
 
   ulong const slot = fd_bank_slot_get( bank );
@@ -2003,7 +2002,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
 
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary starting" ));
-      fd_runtime_process_new_epoch( banks, bank, funk, xid, capture_ctx, prev_epoch, runtime_spad );
+      fd_runtime_process_new_epoch( banks, bank, funk, xid, capture_ctx, prev_epoch, runtime_spad, runtime_mem );
       *is_epoch_boundary = 1;
     }
   } else {
