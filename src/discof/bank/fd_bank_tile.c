@@ -109,9 +109,9 @@ during_frag( fd_bank_ctx_t * ctx,
 
   fd_memcpy( dst, src, sz-sizeof(fd_microblock_bank_trailer_t) );
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
-  ctx->_bank_idx = trailer->bank_idx;
-  ctx->_pack_idx = trailer->pack_idx;
-  ctx->_txn_idx = trailer->pack_txn_idx;
+  ctx->_bank_idx  = trailer->bank_idx;
+  ctx->_pack_idx  = trailer->pack_idx;
+  ctx->_txn_idx   = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
 }
 
@@ -172,7 +172,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
     for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
-      writable_alt[ i ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
+      writable_alt[ i-txn_descriptor->acct_addr_cnt ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
     }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
