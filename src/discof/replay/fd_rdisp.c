@@ -80,7 +80,7 @@
    outgoing edges.  The type is actually a union of bitfield, but C
    bitfields are gross, so we just do it manually with macros.  If the
    high bit is set, that means the transaction storing this edge_t value
-   is it the last in this specific DAG, and the lower 31 bits of the
+   is the last in this specific DAG, and the lower 31 bits of the
    value are an index in the map_pool for the account pubkey for this
    DAG.  See the comments about the hidden edge outgoing from node 7 in
    the DAG at the top of this file for an example.
@@ -108,19 +108,19 @@
 typedef uint edge_t;
 
 
-/* txn_node_t is the representation of a transaction as a node in the
+/* fd_rdisp_txn is the representation of a transaction as a node in the
    DAG. */
 struct fd_rdisp_txn {
   /* in_degree: The total number of edges summed across all account DAGs
      with this node as their destination.  In the worst case, all the
      other transactions in the pool read from each of the max number of
      accounts that this transaction writes to,  so there are
-     MAX_ACCT_LOCKS*depth edges that come into this node, which fits in
+     MAX_ACCT_PER_TXN*depth edges that come into this node, which fits in
      about 30 bits, so we have some room for special values.  If
      in_degree is one of the following values, then
      the transaction is: */
 #define IN_DEGREE_FREE                (UINT_MAX   )
-#define IN_DEGREE_UNSTAGED            (UINT_MAX-1U)/* unstaged, not disptached */
+#define IN_DEGREE_UNSTAGED            (UINT_MAX-1U)/* unstaged, not dispatched */
 #define IN_DEGREE_DISPATCHED          (UINT_MAX-2U)/* staged,   dispatched */
 #define IN_DEGREE_UNSTAGED_DISPATCHED (UINT_MAX-3U)/* unstaged, dispatched */
   /* a transaction that is staged and dispatched is must have an
@@ -227,12 +227,12 @@ typedef struct fd_rdisp_txn fd_rdisp_txn_t;
 /* ACCT_INFO_FLAG: It's a bit unfortunate that we have to maintain these
    flags, but basically we need to be able to distinguish the case where
    there are only readers so that we don't increment in_degree when
-   adding a new txn_node.  If we have any writers, the only way to
+   adding a new fd_rdisp_txn.  If we have any writers, the only way to
    transition into a state where there are only readers is to complete
    the last writer.  We know we are in this case when the completed
    node's child doesn't have a child, and the completed node's child is
    a reader, as indicated by the LAST_REF_WAS_WRITE bit.
-   LAST_REFERENCE_WAS_WRITE also has the advantage of being easy to
+   LAST_REF_WAS_WRITE also has the advantage of being easy to
    maintain. */
 #define ACCT_INFO_FLAG_LAST_REF_WAS_WRITE(lane) (((uchar)1)<<(2*(lane)))
 #define ACCT_INFO_FLAG_ANY_WRITERS(       lane) (((uchar)2)<<(2*(lane)))
@@ -483,7 +483,8 @@ ulong fd_rdisp_align( void ) { return 128UL; }
 ulong
 fd_rdisp_footprint( ulong depth,
                     ulong block_depth ) {
-  if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH) | (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) ) ) return 0UL;
+  if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH)             | (depth<2UL) |
+                   (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return 0UL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
   ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
@@ -507,7 +508,8 @@ fd_rdisp_new( void * mem,
               ulong  depth,
               ulong  block_depth,
               ulong  seed ) {
-  if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH) | (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) ) ) return NULL;
+  if( FD_UNLIKELY( (depth>FD_RDISP_MAX_DEPTH)             | (depth<2UL) |
+                   (block_depth>FD_RDISP_MAX_BLOCK_DEPTH) | (block_depth<4UL) ) ) return 0UL;
 
   ulong chain_cnt      = block_map_chain_cnt_est( block_depth );
   ulong acct_depth     = depth*MAX_ACCT_PER_TXN;
