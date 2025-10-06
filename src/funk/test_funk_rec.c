@@ -2,7 +2,7 @@
 
 #if FD_HAS_HOSTED
 
-FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 64UL, unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 32UL, unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_FLAG_ERASE==1UL, unit_test );
 

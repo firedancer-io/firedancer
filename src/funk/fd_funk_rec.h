@@ -1,19 +1,7 @@
 #ifndef HEADER_fd_src_funk_fd_funk_rec_h
 #define HEADER_fd_src_funk_fd_funk_rec_h
 
-/* This provides APIs for managing funk records.  It is generally not
-   meant to be included directly.  Use fd_funk.h instead.
-
-   The following APIs are thread safe and can be interleaved arbirarily
-   across threads:
-     fd_funk_rec_query_try
-     fd_funk_rec_query_test
-     fd_funk_rec_query_try_global
-     fd_funk_rec_prepare
-     fd_funk_rec_publish
-     fd_funk_rec_cancel
-     fd_funk_rec_remove
-*/
+/* fd_funk_rec.h provides APIs for managing funk records */
 
 #include "fd_funk_txn.h" /* Includes fd_funk_base.h */
 
@@ -22,7 +10,7 @@
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
-#define FD_FUNK_REC_ALIGN     (64UL)
+#define FD_FUNK_REC_ALIGN     (32UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
    how records are to be interpreted.  The 5 most significant bytes of a
@@ -48,7 +36,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
   uint                   map_next; /* Internal use by map */
-  ulong                  map_hash; /* Internal use by map */
 
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
@@ -56,9 +43,8 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   uint  prev_idx;  /* Record map index of previous record in its transaction */
   uint  next_idx;  /* Record map index of next record in its transaction */
 
-  uint  txn_cidx;  /* Compressed transaction map index (or compressed FD_FUNK_TXN_IDX if this is in the last published) */
   uint  tag;       /* Internal use only */
-  ulong flags;     /* Flags that indicate how to interpret a record */
+  uint  flags;     /* Flags that indicate how to interpret a record */
 
   /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
      UINT_MAX. */
@@ -70,12 +56,11 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
                       has tag wksp_tag) and the owner of the region will be the record. The allocator is
                       fd_funk_alloc(). IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
-  /* Padding to FD_FUNK_REC_ALIGN here */
 };
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*FD_FUNK_REC_ALIGN, record size is wrong );
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
@@ -100,13 +85,9 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is 
 #define MAP_KEY_HASH(k0,seed) fd_funk_xid_key_pair_hash((k0),(seed))
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
-#define MAP_MEMO              map_hash
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
-#define MAP_MEMOIZE           1
 #define MAP_IMPL_STYLE        1
 #include "../util/tmpl/fd_map_chain_para.c"
-#undef  MAP_MEMOIZE
-#undef  MAP_HASH
 
 typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
 
