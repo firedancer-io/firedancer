@@ -82,10 +82,11 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   ulong const spad_max = FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ;
   ulong const bank_max = 1UL;
   ulong const fork_max = 1UL;
-  fd_solfuzz_runner_t * runner    = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),              wksp_tag );
-  void *                funk_mem  = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
-  void *                spad_mem  = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),            wksp_tag );
-  void *                banks_mem = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max ), wksp_tag );
+  fd_solfuzz_runner_t * runner      = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),              wksp_tag );
+  void *                funk_mem    = fd_wksp_alloc_laddr( wksp, fd_funk_align(),              fd_funk_footprint( txn_max, rec_max ),    wksp_tag );
+  void *                spad_mem    = fd_wksp_alloc_laddr( wksp, fd_spad_align(),              fd_spad_footprint( spad_max ),            wksp_tag );
+  void *                banks_mem   = fd_wksp_alloc_laddr( wksp, fd_banks_align(),             fd_banks_footprint( bank_max, fork_max ), wksp_tag );
+  void *                runtime_mem = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_mem_t), sizeof(fd_runtime_mem_t), wksp_tag );
   if( FD_UNLIKELY( !runner    ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(solfuzz_runner) failed" )); goto bail1; }
   if( FD_UNLIKELY( !funk_mem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(funk) failed"           )); goto bail1; }
   if( FD_UNLIKELY( !spad_mem  ) ) { FD_LOG_WARNING(( "fd_wksp_alloc(spad) failed (spad_max=%g)", (double)spad_max )); goto bail1; }
@@ -102,10 +103,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   runner->banks = fd_banks_join( fd_banks_new( banks_mem, bank_max, fork_max ) );
   if( FD_UNLIKELY( !runner->banks ) ) goto bail2;
   runner->bank = fd_banks_init_bank( runner->banks );
-  if( FD_UNLIKELY( !runner->bank ) ) {
-    FD_LOG_WARNING(( "fd_banks_init_bank failed" ));
-    goto bail2;
-  }
+  if( FD_UNLIKELY( !runner->bank ) ) goto bail2;
+  runner->runtime_mem = runtime_mem;
+  if( FD_UNLIKELY( !runner->runtime_mem ) ) goto bail2;
   fd_bank_slot_set( runner->bank, 0UL );
 
   runner->enable_vm_tracing = options->enable_vm_tracing;
@@ -119,6 +119,7 @@ bail1:
   fd_wksp_free_laddr( funk_mem  );
   fd_wksp_free_laddr( spad_mem  );
   fd_wksp_free_laddr( banks_mem );
+  fd_wksp_free_laddr( runtime_mem );
   fd_wksp_free_laddr( runner    );
   FD_LOG_WARNING(( "fd_solfuzz_runner_new failed" ));
   return NULL;

@@ -20,12 +20,13 @@ static fd_pubkey_t const test_program_pubkey = {
 static ulong const SPAD_MEM_MAX = 100UL << 20; /* 100MB */
 
 /* Test setup and teardown helpers */
-static fd_wksp_t *         test_wksp = NULL;
-static fd_funk_t *         test_funk = NULL;
-static fd_spad_t *         test_spad = NULL;
-static fd_bank_t *         test_bank = NULL;
-static fd_banks_t *        test_banks = NULL;
-static fd_funk_txn_xid_t   test_xid  = {0};
+static fd_wksp_t *         test_wksp        = NULL;
+static fd_funk_t *         test_funk        = NULL;
+static fd_spad_t *         test_spad        = NULL;
+static fd_bank_t *         test_bank        = NULL;
+static fd_banks_t *        test_banks       = NULL;
+static fd_runtime_mem_t *  test_runtime_mem = NULL;
+static fd_funk_txn_xid_t   test_xid         = {0};
 
 static void
 test_teardown( void ) {
@@ -117,7 +118,7 @@ test_account_does_not_exist( void ) {
   fd_pubkey_t const non_existent_pubkey = {0};
 
   /* This should return early without doing anything */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &non_existent_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &non_existent_pubkey, test_runtime_mem );
 
   /* Verify no cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -142,7 +143,7 @@ test_account_not_bpf_loader_owner( void ) {
                        1 );
 
   /* This should return early without doing anything */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify no cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -167,7 +168,7 @@ test_invalid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -196,7 +197,7 @@ test_valid_program_not_in_cache_first_time( void ) {
                        1 );
 
   /* This should create a cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -226,7 +227,7 @@ test_program_in_cache_needs_reverification( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -242,7 +243,7 @@ test_program_in_cache_needs_reverification( void ) {
   fd_bank_slot_set( test_bank, fd_bank_slot_get( test_bank ) + 432000UL );
 
   /* This should trigger reverification */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify the cache entry was updated */
   err = fd_program_cache_load_entry( test_funk, &test_xid, &test_program_pubkey, &valid_prog );
@@ -272,7 +273,7 @@ test_program_in_cache_queued_for_reverification( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -308,7 +309,7 @@ test_program_in_cache_queued_for_reverification( void ) {
   FD_TEST( valid_prog->last_slot_modified>original_slot );
 
   /* Reverify the cache entry at the future slot */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify the cache entry was updated */
   err = fd_program_cache_load_entry( test_funk, &test_xid, &test_program_pubkey, &valid_prog );
@@ -376,7 +377,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -417,7 +418,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( future_update_slot>future_slot );
 
   /* Now update the cache entry at the future slot */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify the cache entry was updated */
   err = fd_program_cache_load_entry( test_funk, &test_xid, &test_program_pubkey, &valid_prog );
@@ -447,7 +448,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -466,7 +467,7 @@ test_invalid_genesis_program_reverified_after_genesis( void ) {
   FD_TEST( future_slot>original_slot );
 
   /* Program invoked, update cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify the cache entry was updated */
   err = fd_program_cache_load_entry( test_funk, &test_xid, &test_program_pubkey, &valid_prog );
@@ -497,7 +498,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -516,7 +517,7 @@ test_valid_genesis_program_reverified_after_genesis( void ) {
   FD_TEST( future_slot>original_slot );
 
   /* Program invoked, update cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify the cache entry was updated */
   err = fd_program_cache_load_entry( test_funk, &test_xid, &test_program_pubkey, &valid_prog );
@@ -546,7 +547,7 @@ test_program_upgraded_with_larger_programdata( void ) {
                        1 );
 
   /* First call to create cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Verify cache entry was created */
   fd_program_cache_entry_t const * valid_prog = NULL;
@@ -589,7 +590,7 @@ test_program_upgraded_with_larger_programdata( void ) {
   FD_TEST( !fd_funk_rec_query_test( query ) );
 
   /* Program invoked, update cache entry */
-  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_runtime_mem );
 
   /* Get the new program cache funk record size, and make sure it's
      larger */
@@ -640,6 +641,9 @@ main( int     argc,
   ulong spad_footprint = fd_spad_footprint( SPAD_MEM_MAX );
   void * spad_mem = fd_wksp_alloc_laddr( test_wksp, spad_align, spad_footprint, TEST_WKSP_TAG );
   FD_TEST( spad_mem );
+
+  test_runtime_mem = fd_wksp_alloc_laddr( test_wksp, alignof(fd_runtime_mem_t), sizeof(fd_runtime_mem_t), TEST_WKSP_TAG );
+  FD_TEST( test_runtime_mem );
 
   test_spad = fd_spad_join( fd_spad_new( spad_mem, SPAD_MEM_MAX ) );
   FD_TEST( test_spad );

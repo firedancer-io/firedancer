@@ -3,6 +3,7 @@
 
 #include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -47,6 +48,8 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_runtime_mem {
   uchar __attribute__((aligned(alignof(fd_vote_stake_weight_t)))) epoch_weights_mem[ FD_RUNTIME_MAX_VOTE_ACCOUNTS * sizeof(fd_vote_stake_weight_t) ];
+  uchar __attribute__((aligned(FD_SBPF_SYSCALLS_ALIGN)))          syscalls_mem     [ FD_SBPF_SYSCALLS_FOOTPRINT ];
+  uchar __attribute__((aligned(alignof(fd_sbpf_program_t))))      sbpf_program_mem [ FD_RUNTIME_ACC_SZ_MAX ]; /* FIXME: wait for sbpf rewrite constant*/
   uchar __attribute__((aligned(128UL)))                           stake_pool_mem   [ FD_RUNTIME_MAX_VOTE_ACCOUNTS * 64UL ]; /* TODO: Don't use magic number */
 };
 typedef struct fd_runtime_mem fd_runtime_mem_t;

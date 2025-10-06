@@ -1394,7 +1394,7 @@ replay( fd_replay_tile_t *  ctx,
 
     fd_funk_txn_xid_t xid = { .ul = { ready_txn->slot, ready_txn->slot } };
 
-    fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, ctx->runtime_spad );
+    fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, ctx->runtime_spad, &ctx->runtime_mem );
 
     /* At this point, we are going to send the txn down the execution
         pipeline.  Increment the refcnt so we don't prematurely prune a
