@@ -1329,100 +1329,102 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      int overwritten               = (gui->pack_txn_idx - slot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
-      int processed_all_microblocks = slot->slot!=ULONG_MAX &&
-                                      slot->txs.microblocks_upper_bound!=USHORT_MAX &&
-                                      slot->txs.begin_microblocks==slot->txs.end_microblocks &&
-                                      slot->txs.begin_microblocks==slot->txs.microblocks_upper_bound;
+      fd_gui_leader_slot_t * lslot = gui->leader_slots[ slot->leader_history_tail % FD_GUI_LEADER_CNT ];
+      int overwritten               = (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
+      int processed_all_microblocks = lslot->slot !=ULONG_MAX && lslot->slot==_slot &&
+                                      slot->slot!=ULONG_MAX && slot->slot==_slot &&
+                                      lslot->txs.microblocks_upper_bound!=USHORT_MAX &&
+                                      lslot->txs.begin_microblocks==lslot->txs.end_microblocks &&
+                                      lslot->txs.begin_microblocks==lslot->txs.microblocks_upper_bound;
 
-      if( FD_LIKELY( !overwritten && processed_all_microblocks ) ) {
-        ulong txn_cnt = slot->txs.end_offset-slot->txs.start_offset;
+      if( FD_LIKELY( slot->leader_history_tail!=ULONG_MAX && !overwritten && processed_all_microblocks ) ) {
+        ulong txn_cnt = lslot->txs.end_offset-lslot->txs.start_offset;
 
         jsonp_open_object( gui->http, "transactions" );
-          jsonp_long_as_str( gui->http, "start_timestamp_nanos", slot->txs.leader_start_time );
-          jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", slot->txs.leader_end_time );
+          jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time );
+          jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_start_time );
           jsonp_open_array( gui->http, "txn_mb_start_timestamps_nanos" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui->http, NULL, slot->txs.reference_nanos + (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + (long)gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_mb_end_timestamps_nanos" );
             /* clamp end_ts to start_ts + 1 */
             for( ulong i=0UL; i<txn_cnt; i++) {
-              jsonp_long_as_str( gui->http, NULL, slot->txs.reference_nanos + fd_long_max( (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_end_nanos,
-                                                                                     (long)gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos + 1L ) );
+              jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + fd_long_max( (long)gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_end_nanos,
+                                                                                     (long)gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos + 1L ) );
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_compute_units_requested" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->compute_units_requested );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->compute_units_requested );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_compute_units_consumed" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->compute_units_consumed );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->compute_units_consumed );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_priority_fee" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->priority_fee );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->priority_fee );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_transaction_fee" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->transaction_fee );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->transaction_fee );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_error_code" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->error_code );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->error_code );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_from_bundle" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_FROM_BUNDLE );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_FROM_BUNDLE );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_is_simple_vote" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_bank_idx" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->bank_idx );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->bank_idx );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_preload_end_timestamps_nanos" );
             for( ulong i=0UL; i<txn_cnt; i++) {
-              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              fd_gui_txn_t * txn = gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_preload_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_preload_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui->http, NULL, slot->txs.reference_nanos + timestamp_delta_preload_end );
+              jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + timestamp_delta_preload_end );
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_start_timestamps_nanos" );
             for( ulong i=0UL; i<txn_cnt; i++) {
-              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              fd_gui_txn_t * txn = gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_validate_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_start_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui->http, NULL, slot->txs.reference_nanos + timestamp_delta_validate_end );
+              jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + timestamp_delta_validate_end );
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_load_end_timestamps_nanos" );
             for( ulong i=0UL; i<txn_cnt; i++) {
-              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              fd_gui_txn_t * txn = gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_load_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_load_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui->http, NULL, slot->txs.reference_nanos + timestamp_delta_load_end );
+              jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + timestamp_delta_load_end );
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_end_timestamps_nanos" );
             for( ulong i=0UL; i<txn_cnt; i++) {
-              fd_gui_txn_t * txn = gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
+              fd_gui_txn_t * txn = gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ];
               long microblock_duration = (long)txn->timestamp_delta_end_nanos - (long)txn->timestamp_delta_start_nanos;
               long timestamp_delta_exec_end = (long)txn->timestamp_delta_start_nanos + (long)((double)txn->txn_end_pct * (double)microblock_duration / (double)UCHAR_MAX);
-              jsonp_long_as_str( gui->http, NULL, slot->txs.reference_nanos + timestamp_delta_exec_end );
+              jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + timestamp_delta_exec_end );
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_arrival_timestamps_nanos" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_arrival_nanos );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_arrival_nanos );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_tips" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->tips );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong_as_str( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->tips );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_source_ipv4" );
             for( ulong i=0UL; i<txn_cnt; i++) {
               char addr[ 64 ];
-              fd_cstr_printf_check( addr, sizeof(addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_ipv4 ) );
+              fd_cstr_printf_check( addr, sizeof(addr), NULL, FD_IP4_ADDR_FMT, FD_IP4_ADDR_FMT_ARGS( gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_ipv4 ) );
               jsonp_string( gui->http, NULL, addr );
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_source_tpu" );
             for( ulong i=0UL; i<txn_cnt; i++) {
-              switch ( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_tpu ) {
+              switch ( gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->source_tpu ) {
                 case FD_TXN_M_TPU_SOURCE_QUIC: {
                   jsonp_string( gui->http, NULL, "quic");
                   break;
@@ -1448,20 +1450,20 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
             }
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_microblock_id" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->microblock_idx );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_ulong( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->microblock_idx );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_landed" );
-            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK );
+            for( ulong i=0UL; i<txn_cnt; i++) jsonp_bool( gui->http, NULL, gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->flags & FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK );
           jsonp_close_array( gui->http );
           jsonp_open_array( gui->http, "txn_signature" );
             for( ulong i=0UL; i<txn_cnt; i++) {
-              FD_BASE58_ENCODE_64_BYTES( gui->txs[ (slot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->signature, encoded_signature );
+              FD_BASE58_ENCODE_64_BYTES( gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->signature, encoded_signature );
               jsonp_string( gui->http, NULL, encoded_signature );
             }
           jsonp_close_array( gui->http );
         jsonp_close_object( gui->http );
       } else {
-        jsonp_null( gui->http, "compute_units" );
+        jsonp_null( gui->http, "transactions" );
       }
 
     jsonp_close_object( gui->http );
@@ -1530,14 +1532,15 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_ENDED ) ) {
+      if( FD_LIKELY( gui->summary.slot_completed>_slot ) ) {
         fd_gui_printf_waterfall( gui, slot->waterfall_begin, slot->waterfall_end );
 
-        if( FD_LIKELY( gui->summary.tile_timers_leader_history_slot[ slot->tile_timers_history_idx ]==_slot ) ) {
+        fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+        if( FD_LIKELY( lslot ) ) {
           jsonp_open_array( gui->http, "tile_timers" );
-            fd_gui_tile_timers_t const * prev_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ 0 ];
-            for( ulong i=1UL; i<gui->summary.tile_timers_leader_history_slot_sample_cnt[ slot->tile_timers_history_idx ]; i++ ) {
-              fd_gui_tile_timers_t const * cur_timer = gui->summary.tile_timers_leader_history[ slot->tile_timers_history_idx ][ i ];
+            fd_gui_tile_timers_t const * prev_timer = lslot->tile_timers[ 0 ];
+            for( ulong i=1UL; i<lslot->tile_timers_sample_cnt; i++ ) {
+              fd_gui_tile_timers_t const * cur_timer = lslot->tile_timers[ i ];
               fd_gui_printf_ts_tile_timers( gui, prev_timer, cur_timer );
               prev_timer = cur_timer;
             }

@@ -331,13 +331,11 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_POH_PACK: {
       FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
       fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-      fd_gui_became_leader( ctx->gui, now, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+      fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_POH: {
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-      fd_gui_unbecame_leader( ctx->gui, now, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_BANK: {
