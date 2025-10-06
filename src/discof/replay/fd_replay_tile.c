@@ -910,17 +910,36 @@ static void
 publish_root_advanced( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem ) {
 
+  /* FIXME: for now we want to send the child of the consensus root to
+     avoid data races with funk root advancing.  This is a temporary
+     hack because currently it is not safe to query against the xid for
+     the root that is being advanced in funk.  This doesn't eliminate
+     the data race that exists in funk, but reduces how often it occurs.
+
+     Case that causes a data race:
+     replay: we are advancing the root from slot A->B
+     resolv: we are resolving ALUTs against slot B */
+
   fd_bank_t * consensus_root_bank = fd_banks_bank_query( ctx->banks, ctx->consensus_root_bank_idx );
   if( FD_UNLIKELY( !consensus_root_bank ) ) {
     FD_LOG_CRIT(( "invariant violation: consensus root bank is NULL at bank index %lu", ctx->consensus_root_bank_idx ));
   }
 
+  if( FD_UNLIKELY( consensus_root_bank->child_idx==ULONG_MAX ) ) {
+    return;
+  }
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, consensus_root_bank->child_idx );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: consensus root bank child is NULL at bank index %lu", consensus_root_bank->child_idx ));
+  }
+
   /* Increment the reference count on the consensus root bank to account
      for the number of exec tiles that are waiting on it. */
-  consensus_root_bank->refcnt += ctx->resolv_tile_cnt;
+  bank->refcnt += ctx->resolv_tile_cnt;
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  msg->bank_idx = consensus_root_bank->idx;
+  msg->bank_idx = bank->idx;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_ROOT_ADVANCED, ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
