@@ -803,46 +803,6 @@ fd_funk_generate_xid(void) {
   return xid;
 }
 
-static void
-fd_funk_txn_all_iter_skip_nulls( fd_funk_txn_all_iter_t * iter ) {
-  if( iter->chain_idx == iter->chain_cnt ) return;
-  while( fd_funk_txn_map_iter_done( iter->txn_map_iter ) ) {
-    if( ++(iter->chain_idx) == iter->chain_cnt ) break;
-    iter->txn_map_iter = fd_funk_txn_map_iter( &iter->txn_map, iter->chain_idx );
-  }
-}
-
-void
-fd_funk_txn_all_iter_new( fd_funk_t *              funk,
-                          fd_funk_txn_all_iter_t * iter ) {
-  iter->txn_map = *funk->txn_map;
-  iter->chain_cnt = fd_funk_txn_map_chain_cnt( funk->txn_map );
-  iter->chain_idx = 0;
-  iter->txn_map_iter = fd_funk_txn_map_iter( funk->txn_map, 0 );
-  fd_funk_txn_all_iter_skip_nulls( iter );
-}
-
-int
-fd_funk_txn_all_iter_done( fd_funk_txn_all_iter_t * iter ) {
-  return ( iter->chain_idx == iter->chain_cnt );
-}
-
-void
-fd_funk_txn_all_iter_next( fd_funk_txn_all_iter_t * iter ) {
-  iter->txn_map_iter = fd_funk_txn_map_iter_next( iter->txn_map_iter );
-  fd_funk_txn_all_iter_skip_nulls( iter );
-}
-
-fd_funk_txn_t const *
-fd_funk_txn_all_iter_ele_const( fd_funk_txn_all_iter_t * iter ) {
-  return fd_funk_txn_map_iter_ele_const( iter->txn_map_iter );
-}
-
-fd_funk_txn_t *
-fd_funk_txn_all_iter_ele( fd_funk_txn_all_iter_t * iter ) {
-  return fd_funk_txn_map_iter_ele( iter->txn_map_iter );
-}
-
 int
 fd_funk_txn_verify( fd_funk_t * funk ) {
   fd_funk_txn_map_t *  txn_map  = funk->txn_map;

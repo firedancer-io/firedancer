@@ -1,4 +1,4 @@
-#include "test_funk_common.hpp"
+#include "test_funk_common.hxx"
 #include <stdio.h>
 
 int main(int argc, char** argv) {

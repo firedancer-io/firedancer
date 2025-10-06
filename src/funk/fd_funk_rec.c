@@ -1,6 +1,4 @@
-#include "fd_funk.h"
-#include "fd_funk_base.h"
-#include "fd_funk_txn.h"
+#include "fd_funk_private.h"
 #include "../util/racesan/fd_racesan_target.h"
 
 /* Provide the actual record map implementation */
@@ -502,45 +500,6 @@ fd_funk_rec_remove( fd_funk_t *               funk,
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   fd_funk_rec_txn_release( txn_query );
   return FD_FUNK_SUCCESS;
-}
-
-static void
-fd_funk_all_iter_skip_nulls( fd_funk_all_iter_t * iter ) {
-  if( iter->chain_idx == iter->chain_cnt ) return;
-  while( fd_funk_rec_map_iter_done( iter->rec_map_iter ) ) {
-    if( ++(iter->chain_idx) == iter->chain_cnt ) break;
-    iter->rec_map_iter = fd_funk_rec_map_iter( &iter->rec_map, iter->chain_idx );
-  }
-}
-
-void
-fd_funk_all_iter_new( fd_funk_t * funk, fd_funk_all_iter_t * iter ) {
-  iter->rec_map      = *funk->rec_map;
-  iter->chain_cnt    = fd_funk_rec_map_chain_cnt( &iter->rec_map );
-  iter->chain_idx    = 0;
-  iter->rec_map_iter = fd_funk_rec_map_iter( &iter->rec_map, 0 );
-  fd_funk_all_iter_skip_nulls( iter );
-}
-
-int
-fd_funk_all_iter_done( fd_funk_all_iter_t * iter ) {
-  return ( iter->chain_idx == iter->chain_cnt );
-}
-
-void
-fd_funk_all_iter_next( fd_funk_all_iter_t * iter ) {
-  iter->rec_map_iter = fd_funk_rec_map_iter_next( iter->rec_map_iter );
-  fd_funk_all_iter_skip_nulls( iter );
-}
-
-fd_funk_rec_t const *
-fd_funk_all_iter_ele_const( fd_funk_all_iter_t * iter ) {
-  return fd_funk_rec_map_iter_ele_const( iter->rec_map_iter );
-}
-
-fd_funk_rec_t *
-fd_funk_all_iter_ele( fd_funk_all_iter_t * iter ) {
-  return fd_funk_rec_map_iter_ele( iter->rec_map_iter );
 }
 
 int
