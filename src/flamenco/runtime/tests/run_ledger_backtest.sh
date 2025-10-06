@@ -110,6 +110,11 @@ while [[ $# -gt 0 ]]; do
         DEBUG=( gdb -q -x contrib/debug.gdb --args )
         shift
         ;;
+    --log)
+        LOG="$2"
+        shift
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
