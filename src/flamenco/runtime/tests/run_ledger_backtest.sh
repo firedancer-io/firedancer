@@ -23,10 +23,10 @@ HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 DEBUG=( )
-WATCH=""
+WATCH=( )
 
 if [[ -n "$CI" ]]; then
-  WATCH="--no-watch"
+  WATCH=( "--no-watch" )
 fi
 
 while [[ $# -gt 0 ]]; do
@@ -223,7 +223,7 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 sudo killall firedancer-dev || true
 
 set -x
-sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "$WATCH"
+sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
 { status=$?; set +x; } &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
