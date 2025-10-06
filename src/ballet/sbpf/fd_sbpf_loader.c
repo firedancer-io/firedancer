@@ -836,12 +836,12 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   /* Program headers
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L164-L165 */
 
-  ulong phdr_sz = sizeof(fd_elf64_phdr) * (ulong)( ehdr.e_phnum ); /* this can't overflow */
+  ulong phdr_sz    = (ulong)( ehdr.e_phnum )*sizeof(fd_elf64_phdr); /* this can't overflow */
   ulong phdr_start = ehdr.e_phoff;
-  ulong phdr_end = phdr_sz + ehdr.e_phoff;
+  ulong phdr_end;
   /* Elf64::parse_program_header_table() */
   {
-    if( FD_UNLIKELY( phdr_end < phdr_sz ) ) { /* add overflow */
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( ehdr.e_phoff, phdr_sz, &phdr_end ) ) ) {
       /* ArithmeticOverflow -> ElfParserError::OutOfBounds
         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L671-L675 */
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
@@ -852,22 +852,34 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       return FD_SBPF_ELF_PARSER_ERR_OVERLAP;
     }
 
-    /* Ensure program header table range lies within the file, like slice_from_bytes */
-    if( FD_UNLIKELY( phdr_end > bin_sz ) ) {
+    /* Ensure program header table range lies within the file, like
+       slice_from_bytes. Unfortunately the checks have to be split up
+       because Agave throws different error codes depending on which
+       condition fails...
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L302-L303 */
+    if( FD_UNLIKELY( phdr_sz%sizeof(fd_elf64_phdr)!=0UL ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
+    }
+
+    if( FD_UNLIKELY( phdr_end>bin_sz ) ) {
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+    }
+
+    if( FD_UNLIKELY( !fd_ulong_is_aligned( phdr_start, 8UL ) ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
     }
   }
 
   /* Section headers
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L167-L172 */
 
-  ulong shdr_sz = sizeof(fd_elf64_shdr) * (ulong)( ehdr.e_shnum ); /* this can't overflow */
+  ulong shdr_sz    = (ulong)( ehdr.e_shnum )*sizeof(fd_elf64_shdr); /* this can't overflow */
   ulong shdr_start = ehdr.e_shoff;
-  ulong shdr_end = shdr_sz + ehdr.e_shoff;
+  ulong shdr_end;
   /* Elf64::parse_section_header_table() */
   {
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L314-L317 */
-    if( FD_UNLIKELY( shdr_end < shdr_sz ) ) { /* add overflow */
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( ehdr.e_shoff, shdr_sz, &shdr_end ) ) ) {
       /* ArithmeticOverflow -> ElfParserError::OutOfBounds
         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L671-L675 */
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
@@ -907,10 +919,11 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       }
       continue;
     }
-    if( FD_UNLIKELY( phdr.p_vaddr < vaddr ) ) {
+    if( FD_UNLIKELY( phdr.p_vaddr<vaddr ) ) {
       return FD_SBPF_ELF_PARSER_ERR_INVALID_PROGRAM_HEADER;
     }
-    if( FD_UNLIKELY( phdr.p_offset + phdr.p_filesz < phdr.p_offset ) ) { /* add overflow */
+    ulong _offset_plus_size;
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( phdr.p_offset, phdr.p_filesz, &_offset_plus_size ) ) ) {
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
     }
     if( FD_UNLIKELY( phdr.p_offset + phdr.p_filesz > bin_sz ) ) {
@@ -925,7 +938,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   for( ulong i=0; i<ehdr.e_shnum; i++ ) {
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L200-L205 */
     fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
-    if( FD_UNLIKELY( shdr.sh_type == FD_ELF_SHT_NOBITS ) ) {
+    if( FD_UNLIKELY( shdr.sh_type==FD_ELF_SHT_NOBITS ) ) {
       continue;
     }
 
@@ -935,8 +948,8 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
     }
 
     ulong sh_start = shdr.sh_offset;
-    ulong sh_end = shdr.sh_offset + shdr.sh_size;
-    if( FD_UNLIKELY( sh_end < sh_start ) ) { /* add overflow */
+    ulong sh_end;
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( shdr.sh_offset, shdr.sh_size, &sh_end ) ) ) {
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
     }
 
@@ -1140,9 +1153,16 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L446-L448 */
-      if( FD_UNLIKELY( ( ( size % sizeof(fd_elf64_rel) ) != 0UL )
-                       | ( offset + size < offset )
-                       | ( offset + size > bin_sz ) ) ) {
+      ulong _offset_plus_size;
+      if( FD_UNLIKELY( __builtin_uaddl_overflow( offset, size, &_offset_plus_size ) ) ) {
+        return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+      }
+
+      /* slice_from_bytes checks that size is a multiple of the type
+         size and that the alignment of the bytes + offset is correct. */
+      if( FD_UNLIKELY( ( size%sizeof(fd_elf64_rel)!=0UL ) ||
+                       ( offset+size>bin_sz ) ||
+                       ( !fd_ulong_is_aligned( offset, 8UL ) ) ) ) {
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
 
@@ -1232,8 +1252,9 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
   /* We do a single iteration over the section header table, collect all info
      we need and return the errors later to match Agave. */
 
-  int shndx_text = -1;
+  int shndx_text    = -1;
   int writeable_err = 0;
+  int oob_err       = 0;
   for( ulong i=0; i<ehdr.e_shnum; i++ ) {
     /* Again... */
     fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + ehdr.e_shoff + i*sizeof(fd_elf64_shdr) );
@@ -1247,7 +1268,7 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L765-L775 */
     if( FD_UNLIKELY( fd_memeq( name, ".text", sizeof(".text") ) ) ) {
-      if( FD_UNLIKELY( shndx_text==-1 ) ) {
+      if( FD_LIKELY( shndx_text==-1 ) ) {
         *text_shdr = shdr;  /* Store the text section header */
         shndx_text = (int)i;
       } else {
@@ -1268,13 +1289,27 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
       writeable_err = 1;
     }
 
-    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L793-L802
-       Out of bound checkes were already done during elf_parse, so nothing to do here. */
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L793-L802 */
+    ulong shdr_end;
+    if( FD_UNLIKELY( __builtin_uaddl_overflow( shdr.sh_offset, shdr.sh_size, &shdr_end ) ||
+                     shdr_end>bin_sz ) ) {
+      oob_err = 1;
+    }
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L776-L778 */
+  if( FD_UNLIKELY( shndx_text==-1 ) ) {
+    return FD_SBPF_ELF_ERR_NOT_ONE_TEXT_SECTION;
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L786-L788 */
   if( FD_UNLIKELY( writeable_err ) ) {
     return FD_SBPF_ELF_ERR_WRITABLE_SECTION_NOT_SUPPORTED;
+  }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L798 */
+  if( FD_UNLIKELY( oob_err ) ) {
+    return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L804-L806 */
@@ -1302,9 +1337,10 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
    on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L593-L638 */
 static int
-fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t * info,
-                          void const *         bin,
-                          ulong                bin_sz ) {
+fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t *            info,
+                          void const *                    bin,
+                          ulong                           bin_sz,
+                          fd_sbpf_loader_config_t const * config ) {
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L607 */
   int res = fd_sbpf_lenient_elf_parse( info, bin, bin_sz );
@@ -1324,8 +1360,10 @@ fd_sbpf_elf_peek_lenient( fd_sbpf_elf_info_t * info,
     ulong text_section_vaddr = fd_ulong_sat_add( text_shdr.sh_addr, FD_SBPF_MM_RODATA_ADDR );
     ulong vaddr_end          = text_section_vaddr;
 
-    /* Validate bounds - reject broken ELFs */
-    if( FD_UNLIKELY( vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
+    /* Validate bounds and text section addrs / offsets.
+       https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L632-L638 */
+    if( FD_UNLIKELY( ( config->reject_broken_elfs && text_shdr.sh_addr!=text_shdr.sh_offset ) ||
+                       vaddr_end>FD_SBPF_MM_STACK_ADDR ) ) {
       return FD_SBPF_ELF_ERR_VALUE_OUT_OF_BOUNDS;
     }
   }
@@ -1405,7 +1443,7 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( info->sbpf_version ) ) ) {
     return fd_sbpf_elf_parser_err_to_elf_err( fd_sbpf_elf_peek_strict( info, bin, bin_sz ) );
   }
-  return fd_sbpf_elf_peek_lenient( info, bin, bin_sz );
+  return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
 
 /* Parses and concatenates the readonly data sections. This function
