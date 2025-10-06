@@ -22,6 +22,12 @@ HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
+DEBUG=( )
+WATCH=""
+
+if [[ -n "$CI" ]]; then
+  WATCH="--no-watch"
+fi
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -93,13 +99,17 @@ while [[ $# -gt 0 ]]; do
         shift
         ;;
     -v|--has-incremental)
-       HAS_INCREMENTAL="$2"
-       shift
-       ;;
+        HAS_INCREMENTAL="$2"
+        shift
+        ;;
     -nr|--no-redownload)
-       REDOWNLOAD=0
-       shift
-       ;;
+        REDOWNLOAD=0
+        shift
+        ;;
+    --debug)
+        DEBUG=( gdb -q -x contrib/debug.gdb --args )
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -212,13 +222,8 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 
 sudo killall firedancer-dev || true
 
-if [[ -n "$CI" ]]; then
-  set -x
-  sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml --no-watch
-else
-  set -x
-  sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml
-fi
+set -x
+sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "$WATCH"
 { status=$?; set +x; } &> /dev/null
 
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null

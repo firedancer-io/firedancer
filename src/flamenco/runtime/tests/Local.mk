@@ -17,7 +17,7 @@ $(call make-shared,libfd_exec_sol_compat.so,fd_sol_compat,fd_flamenco_test fd_fl
 $(call make-unit-test,test_sol_compat_so,test_sol_compat_so,fd_util)
 
 run-runtime-backtest: $(OBJDIR)/bin/fd_ledger $(OBJDIR)/bin/firedancer-dev
-	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh
+	OBJDIR=$(OBJDIR) src/flamenco/runtime/tests/run_backtest_ci.sh $(BACKTEST_ARGS)
 
 endif
 endif
