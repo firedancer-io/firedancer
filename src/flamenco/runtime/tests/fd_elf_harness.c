@@ -45,7 +45,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
 
   /* wrap the loader code in do-while(0) block so that we can exit
      immediately if execution fails at any point */
-
+  int err = FD_SBPF_ELF_SUCCESS;
   do{
     fd_features_t feature_set = {0};
     fd_runtime_fuzz_restore_features( &feature_set, &input->features );
@@ -59,10 +59,8 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
         UINT_MAX,
         &feature_set );
 
-    int err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
-
+    err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
     if( FD_UNLIKELY( err ) ) {
-      /* TODO: Capture error code */
       break;
     }
 
@@ -80,7 +78,6 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     ulong entrypoint;
     err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, &entrypoint );
     if( FD_UNLIKELY( err ) ) {
-      /* TODO: Capture error code */
       break;
     }
 
@@ -124,6 +121,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     sort_uint64_t_inplace( elf_effects->calldests, elf_effects->calldests_count );
   } while(0);
 
+  elf_effects->error = -err;
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
 
   *output = elf_effects;
