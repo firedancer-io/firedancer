@@ -137,8 +137,7 @@ FD_FN_CONST static inline int valcmp (VAL_T a, VAL_T b) {
 long
 get_timestamp_estimate( fd_bank_t *             bank,
                         fd_sol_sysvar_clock_t * clock,
-                        fd_spad_t *             spad ) {
-  FD_SPAD_FRAME_BEGIN( spad ) {
+                        uchar *                 pool_mem ) {
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       slot_duration  = (ulong)fd_bank_ns_per_slot_get( bank );
@@ -148,13 +147,12 @@ get_timestamp_estimate( fd_bank_t *             bank,
      This is to establish a mapping between each vote timestamp and the
      amount of stake associated with each timestamp. */
   stake_ts_treap_t   _treap[1];
-  stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
-  uchar *            pool_mem = fd_spad_alloc( spad, stake_ts_pool_align(), stake_ts_pool_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
-  stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
-  uint               txn_cnt  = (uint)fd_bank_transaction_count_get( bank );
+  stake_ts_treap_t * treap   = stake_ts_treap_join( stake_ts_treap_new( _treap, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  stake_ts_ele_t *   pool    = stake_ts_pool_join( stake_ts_pool_new( pool_mem, FD_RUNTIME_MAX_VOTE_ACCOUNTS ) );
+  uint               txn_cnt = (uint)fd_bank_transaction_count_get( bank );
 
   fd_rng_t           _rng[1];
-  fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, txn_cnt, 0UL ) );
+  fd_rng_t *         rng     = fd_rng_join( fd_rng_new( _rng, txn_cnt, 0UL ) );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
   uint128 total_stake = 0UL;
@@ -279,8 +277,6 @@ get_timestamp_estimate( fd_bank_t *             bank,
   }
 
   return estimate;
-
-  } FD_SPAD_FRAME_END;
 }
 
 /* TODO: This function should be called from genesis bootup as well with
@@ -291,7 +287,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
                         fd_funk_t *               funk,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
-                        fd_spad_t *               spad,
+                        uchar *                   ts_pool_mem,
                         ulong const *             parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
@@ -309,7 +305,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* TODO: Are we handling slot 0 correctly?
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2176-L2183 */
-  long timestamp_estimate = get_timestamp_estimate( bank, clock, spad );
+  long timestamp_estimate = get_timestamp_estimate( bank, clock, ts_pool_mem );
 
   /* If the timestamp was successfully calculated, use it. It not keep the old one. */
   if( FD_LIKELY( timestamp_estimate!=0L ) ) {

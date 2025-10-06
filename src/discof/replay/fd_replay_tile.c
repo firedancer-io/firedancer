@@ -654,7 +654,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad, &ctx->runtime_mem );
+  int res = fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, &ctx->runtime_mem );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
@@ -856,7 +856,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad, &ctx->runtime_mem );
+  int res = fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, &ctx->runtime_mem );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
@@ -967,7 +967,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad, &ctx->runtime_mem ) == 0 );
+    FD_TEST( fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, &ctx->runtime_mem ) == 0 );
     fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;

@@ -39,7 +39,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
                         fd_funk_t *               funk,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
-                        fd_spad_t *               spad,
+                        uchar *                   ts_pool_mem,
                         ulong const *             parent_epoch );
 
 /* Writes the current value of the clock sysvar to funk. */
