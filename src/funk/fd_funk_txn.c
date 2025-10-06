@@ -175,12 +175,11 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
 
     if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
-    if( FD_UNLIKELY( fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )!=txn_idx ) )
+    if( FD_UNLIKELY( !fd_funk_txn_xid_eq( rec_pool->ele[ rec_idx ].pair.xid, &txn->xid ) ) )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
 
     fd_funk_rec_t * rec = &rec_pool->ele[ rec_idx ];
     uint next_idx = rec->next_idx;
-    rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     for(;;) {
       fd_funk_rec_map_query_t rec_query[1];
@@ -444,10 +443,9 @@ fd_funk_txn_remove_published( fd_funk_t * funk ) {
       if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
 
       /* Sanity check: Record belongs to last published XID */
-      if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) ) {
+      if( FD_UNLIKELY( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) ) {
         FD_LOG_ERR(( "Failed to remove published txns: concurrent in-prep record detected" ));
       }
-
 
       /* Free rec resources */
       fd_funk_val_flush( rec, alloc, wksp );
@@ -502,7 +500,6 @@ static void
 fd_funk_txn_update( fd_funk_t *               funk,
                     uint *                    _dst_rec_head_idx, /* Pointer to the dst list head */
                     uint *                    _dst_rec_tail_idx, /* Pointer to the dst list tail */
-                    ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
                     fd_funk_txn_xid_t const * dst_xid,           /* dst xid */
                     ulong                     txn_idx ) {        /* Transaction index of the records to merge */
   fd_wksp_t *          wksp     = funk->wksp;
@@ -544,7 +541,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
       }
       /* Clean up value */
       fd_funk_val_flush( rec2, alloc, wksp );
-      rec2->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
       fd_funk_rec_pool_release( rec_pool, rec2, 1 );
       break;
     }
@@ -557,7 +553,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
        property. */
 
     rec->pair.xid[0] = *dst_xid;
-    rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
 
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     if( _dst_rec_head_idx ) {
@@ -591,7 +586,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t * const funk,
 
   /* Apply the updates in txn to the last published transactions */
 
-  fd_funk_txn_update( funk, NULL, NULL, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+  fd_funk_txn_update( funk, NULL, NULL, fd_funk_root( funk ), txn_idx );
 
   /* Cancel all competing transaction histories */
 
@@ -722,13 +717,13 @@ fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
   ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
   if( fd_funk_txn_idx_is_null( parent_idx ) ) {
     /* Publish to root */
-    fd_funk_txn_update( funk, NULL, NULL, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+    fd_funk_txn_update( funk, NULL, NULL, fd_funk_root( funk ), txn_idx );
     /* Inherit the children */
     funk->shmem->child_head_cidx = txn->child_head_cidx;
     funk->shmem->child_tail_cidx = txn->child_tail_cidx;
   } else {
     fd_funk_txn_t * parent_txn = &txn_pool->ele[ parent_idx ];
-    fd_funk_txn_update( funk, &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid, txn_idx );
+    fd_funk_txn_update( funk, &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, &parent_txn->xid, txn_idx );
     /* Inherit the children */
     parent_txn->child_head_cidx = txn->child_head_cidx;
     parent_txn->child_tail_cidx = txn->child_tail_cidx;
