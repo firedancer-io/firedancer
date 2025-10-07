@@ -180,9 +180,6 @@ fd_sbpf_program_new( void *                     prog_mem,
     .rodata    = rodata,
     .rodata_sz = 0UL,
     .text      = (ulong *)((ulong)rodata + elf_info->text_off), /* FIXME: WHAT IF MISALIGNED */
-    .text_off  = elf_info->text_off,
-    .text_cnt  = elf_info->text_cnt,
-    .text_sz   = elf_info->text_sz,
     .entry_pc  = ULONG_MAX,
   };
 

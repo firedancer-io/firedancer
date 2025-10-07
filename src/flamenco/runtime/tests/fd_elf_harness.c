@@ -94,8 +94,8 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->rodata->size = (pb_size_t) prog->rodata_sz;
     fd_memcpy( elf_effects->rodata->bytes, prog->rodata, prog->rodata_sz );
 
-    elf_effects->text_cnt = prog->text_cnt;
-    elf_effects->text_off = prog->text_off;
+    elf_effects->text_cnt = prog->info.text_cnt;
+    elf_effects->text_off = prog->info.text_off;
     elf_effects->entry_pc = prog->entry_pc;
 
     pb_size_t max_calldests_sz = (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests)+1U;

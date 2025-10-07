@@ -307,9 +307,9 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
                    prog->rodata,
                    prog->rodata_sz,
                    prog->text,
-                   prog->text_cnt,
-                   prog->text_off,
-                   prog->text_sz,
+                   prog->info.text_cnt,
+                   prog->info.text_off,
+                   prog->info.text_sz,
                    prog->entry_pc,
                    prog->calldests,
                    elf_info->sbpf_version,
@@ -336,12 +336,12 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
   }
 
   /* FIXME: Super expensive memcpy. */
-  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->text_cnt ) );
+  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->info.text_cnt ) );
 
   cache_entry->entry_pc            = prog->entry_pc;
-  cache_entry->text_off            = prog->text_off;
-  cache_entry->text_cnt            = prog->text_cnt;
-  cache_entry->text_sz             = prog->text_sz;
+  cache_entry->text_off            = prog->info.text_off;
+  cache_entry->text_cnt            = prog->info.text_cnt;
+  cache_entry->text_sz             = prog->info.text_sz;
   cache_entry->rodata_sz           = prog->rodata_sz;
   cache_entry->failed_verification = 0;
 

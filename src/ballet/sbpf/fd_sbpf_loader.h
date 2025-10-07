@@ -149,7 +149,7 @@ struct fd_sbpf_elf_info {
 
   uint  text_off; /* File offset of .text section (overlaps rodata segment) */
   uint  text_cnt; /* Instruction count */
-  ulong text_sz;  /* Length of text segment */
+  ulong text_sz;  /* size of text segment. Guaranteed to be <= bin_sz. */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
@@ -211,9 +211,6 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 
   /* text section within rodata segment */
   ulong * text;
-  ulong   text_cnt;  /* instruction count */
-  ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
-  ulong   text_sz;   /* size of text segment. Guaranteed to be <= bin_sz. */
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc ]). ULONG_MAX if not set. */
 
   /* Bit vector of valid call destinations (bit count is text_cnt). */
