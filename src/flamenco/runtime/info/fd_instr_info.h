@@ -109,11 +109,12 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                    fd_exec_txn_ctx_t *    txn_ctx,
                                    fd_txn_instr_t const * txn_instr );
 
+/* https://github.com/anza-xyz/solana-sdk/blob/589e6237f203c2719c300dc044f4e00f48e66a8f/message/src/versions/v0/loaded.rs#L152-L157 */
 FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
                               ushort                  idx ) {
   if( FD_UNLIKELY( idx>=instr->acct_cnt ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    return 0;
   }
 
   return !!(instr->accounts[idx].is_writable);
