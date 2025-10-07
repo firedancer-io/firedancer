@@ -78,6 +78,8 @@ print_catchup_stats( fd_repair_metrics_t * repair_metrics ) {
 
     /* incremental slot completion time */
     if( cur_slot <= repair_metrics->turbine_slot0 && slot_cmpl_ts - prev_slot_cmpl_ts > 0 ) {
+      /* drop any samples above 100ms */
+      FD_LOG_NOTICE(( "incremental slot completion time: %.2fms", (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)(slot_cmpl_ts - prev_slot_cmpl_ts)) / 1e6 ));
       incr_slot_cmpl_total += (slot_cmpl_ts - prev_slot_cmpl_ts);
     }
     prev_slot_cmpl_ts = slot_cmpl_ts;
