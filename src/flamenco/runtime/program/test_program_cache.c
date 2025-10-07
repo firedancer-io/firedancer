@@ -8,6 +8,7 @@
 /* Load in programdata for tests */
 FD_IMPORT_BINARY( valid_program_data, "src/ballet/sbpf/fixtures/hello_solana_program.so" );
 FD_IMPORT_BINARY( bigger_valid_program_data, "src/ballet/sbpf/fixtures/clock_sysvar_program.so" );
+FD_IMPORT_BINARY( zero_text_cnt_elf, "src/ballet/sbpf/fixtures/zero_text_cnt.elf" );
 
 static uchar const invalid_program_data[] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
 
@@ -611,6 +612,35 @@ test_program_upgraded_with_larger_programdata( void ) {
   fd_funk_txn_cancel( test_funk, &test_xid );
 }
 
+static void
+test_zero_text_cnt_program_account( void ) {
+  FD_LOG_NOTICE(( "Testing: Inserting an ELF with text_cnt=0 into the program cache" ));
+
+  test_xid = create_test_funk_txn();
+
+  /* Create a BPF loader account */
+  create_test_account( &test_program_pubkey,
+                       &fd_solana_bpf_loader_program_id,
+                       zero_text_cnt_elf,
+                       zero_text_cnt_elf_sz,
+                       1 );
+
+  /* VM validate checks should catch this */
+  fd_program_cache_update_program( test_bank, test_funk, &test_xid, &test_program_pubkey, test_spad );
+
+  /* Verify failed verification cache entry was created */
+  fd_program_cache_entry_t const * valid_prog = NULL;
+  int err = fd_program_cache_load_entry( test_funk, &test_xid, &test_program_pubkey, &valid_prog );
+  FD_TEST( !err ); /* Should exist */
+  FD_TEST( valid_prog );
+  FD_TEST( valid_prog->magic==FD_PROGRAM_CACHE_ENTRY_MAGIC );
+  FD_TEST( valid_prog->failed_verification );
+  FD_TEST( valid_prog->last_slot_verified==fd_bank_slot_get( test_bank ) );
+
+  fd_funk_txn_cancel( test_funk, &test_xid );
+}
+
+
 int
 main( int     argc,
       char ** argv ) {
@@ -680,6 +710,7 @@ main( int     argc,
     test_invalid_genesis_program_reverified_after_genesis();
     test_valid_genesis_program_reverified_after_genesis();
     test_program_upgraded_with_larger_programdata();
+    test_zero_text_cnt_program_account();
   } FD_SPAD_FRAME_END;
 
   test_teardown();

@@ -100,7 +100,11 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->text_off = prog->info.text_off;
     elf_effects->entry_pc = prog->entry_pc;
 
-    pb_size_t max_calldests_sz = (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests)+1U;
+    pb_size_t max_calldests_sz = 1U;
+    if( FD_LIKELY( prog->calldests ) ) {
+      max_calldests_sz += (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests);
+    }
+
     elf_effects->calldests     = FD_SCRATCH_ALLOC_APPEND(l, 8UL, max_calldests_sz * sizeof(uint64_t));
     if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
@@ -110,11 +114,13 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->calldests[elf_effects->calldests_count++] = prog->entry_pc;
 
     /* Add the rest of the calldests */
-    for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
-                        !fd_sbpf_calldests_const_iter_done(target_pc);
-               target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
-      if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
-        elf_effects->calldests[elf_effects->calldests_count++] = target_pc;
+    if( FD_LIKELY( prog->calldests ) ) {
+      for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
+                          !fd_sbpf_calldests_const_iter_done(target_pc);
+                target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
+        if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
+          elf_effects->calldests[elf_effects->calldests_count++] = target_pc;
+        }
       }
     }
 

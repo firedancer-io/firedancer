@@ -136,10 +136,9 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
       alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
       alignof(fd_sbpf_program_t) );
   }
-  ulong pc_max = fd_ulong_max( 1UL, info->text_cnt );
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( pc_max ) ),  /* calldests bitmap */
+    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->text_cnt ) ),  /* calldests bitmap */
     alignof(fd_sbpf_program_t) );
 }
 
@@ -183,15 +182,14 @@ fd_sbpf_program_new( void *                     prog_mem,
     .entry_pc  = ULONG_MAX,
   };
 
-  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) ) ) {
-    /* No calldests map in SBPF v3+ */
+  /* If the text section is empty, then we do not need a calldests map. */
+  ulong pc_max = elf_info->text_cnt;
+  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) || pc_max==0UL ) ) {
+    /* No calldests map in SBPF v3+ or if text_cnt is 0. */
     prog->calldests_shmem = NULL;
-    prog->calldests = NULL;
+    prog->calldests       = NULL;
   } else {
-    /* Initialize calldests map. The text section may be empty, so we
-       should initialize the calldests set with at least 1 element
-       of capacity (0-sized calldests is UB). */
-    ulong pc_max = fd_ulong_max( 1UL, elf_info->text_cnt );
+    /* Initialize calldests map. */
     prog->calldests_shmem = fd_sbpf_calldests_new(
           FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
                                           fd_sbpf_calldests_footprint( pc_max ) ),
@@ -205,7 +203,9 @@ fd_sbpf_program_new( void *                     prog_mem,
 void *
 fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
-  fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( mem->calldests ) );
+  if( FD_LIKELY( mem->calldests ) ) {
+    fd_sbpf_calldests_delete( fd_sbpf_calldests_leave( mem->calldests ) );
+  }
   fd_memset( mem, 0, sizeof(fd_sbpf_program_t) );
 
   return (void *)mem;
@@ -215,7 +215,7 @@ fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
 struct fd_sbpf_loader {
   /* External objects */
-  ulong *              calldests; /* owned by program */
+  ulong *              calldests; /* owned by program. NULL if text_cnt = 0 or SBPF v3+ */
   fd_sbpf_syscalls_t * syscalls;  /* owned by caller */
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
