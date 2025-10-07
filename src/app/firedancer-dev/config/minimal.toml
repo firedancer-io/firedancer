@@ -17,7 +17,6 @@ max_fork_width = 16
 [layout]
 verify_tile_count = 1
 exec_tile_count = 1
-writer_tile_count = 1
 
 [tiles.shred]
 max_pending_shred_sets = 512

@@ -27,7 +27,10 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
                           fd_vote_stake_weight_t * weights );
 
 void
-fd_stakes_activate_epoch( fd_exec_slot_ctx_t *           slot_ctx,
+fd_stakes_activate_epoch( fd_bank_t *                    bank,
+                          fd_funk_t *                    funk,
+                          fd_funk_txn_xid_t const *      xid,
+                          fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch,
                           fd_spad_t *                    runtime_spad );
@@ -49,7 +52,7 @@ write_stake_state( fd_txn_account_t *    stake_acc_rec,
                    fd_stake_state_v2_t * stake_state );
 
 void
-fd_refresh_vote_accounts( fd_exec_slot_ctx_t *           slot_ctx,
+fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_delegations_t const * stake_delegations,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );

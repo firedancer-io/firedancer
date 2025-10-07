@@ -7,18 +7,19 @@ $(call make-unit-test,test_funk,test_funk,fd_funk fd_util)
 $(call run-unit-test,test_funk)
 $(call make-unit-test,test_funk_concur,test_funk_concur,fd_funk fd_util)
 #$(call run-unit-test,test_funk_concur,)
-$(call make-unit-test,test_funk_concur2,test_funk_concur2,fd_funk fd_util)
-#$(call run-unit-test,test_funk_concur2,)
 $(call make-unit-test,test_funk_rec,test_funk_rec test_funk_common,fd_funk fd_util)
 $(call run-unit-test,test_funk_rec)
 $(call make-unit-test,test_funk_txn,test_funk_txn test_funk_common,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn)
 $(call make-unit-test,test_funk_val,test_funk_val test_funk_common,fd_funk fd_util)
 $(call run-unit-test,test_funk_val)
-$(call make-unit-test,test_funk_reconnect,test_funk_reconnect test_funk_common,fd_funk fd_util)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,test_funk_txn2,test_funk_txn2,fd_funk fd_util)
 $(call run-unit-test,test_funk_txn2)
 $(call make-unit-test,bench_funk_index,bench_funk_index,fd_funk fd_util)
+endif
+ifdef FD_HAS_RACESAN
+$(call make-unit-test,test_funk_race,test_funk_race,fd_funk fd_util)
+$(call run-unit-test,test_funk_race)
 endif
 endif

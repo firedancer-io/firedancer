@@ -1,12 +1,8 @@
-#include "../fd_executor.h"
 #include "fd_system_program.h"
-#include "../fd_acc_mgr.h"
+#include "../fd_executor.h"
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../fd_pubkey_utils.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../context/fd_exec_txn_ctx.h"
 
 
 /* The `Address` type in the Agave system program is logged in the format:
@@ -85,7 +81,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L191-L192 */
 
-  fd_guarded_borrowed_account_t from;
+  fd_guarded_borrowed_account_t from = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, from_acct_idx, &from );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L193-L196 */
@@ -116,7 +112,7 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L209-L210 */
 
-  fd_guarded_borrowed_account_t to;
+  fd_guarded_borrowed_account_t to = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_acct_idx, &to );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L211 */
@@ -279,7 +275,7 @@ fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
   do {
     /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L160-L161 */
 
-    fd_guarded_borrowed_account_t to;
+    fd_guarded_borrowed_account_t to = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_acct_idx, &to );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L162-L169 */
@@ -357,7 +353,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L383-L384 */
 
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L385-L391
@@ -451,7 +447,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L506-L507 */
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L508-L514
@@ -484,7 +480,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#524-525 */
 
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L526-L532 */
@@ -531,7 +527,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L544-L545 */
 
-  fd_guarded_borrowed_account_t account;
+  fd_guarded_borrowed_account_t account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &account );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L546-L552 */

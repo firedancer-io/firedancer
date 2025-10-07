@@ -63,7 +63,13 @@ Typical usage:
     ... column as a const cstr, the member of myrow_t which corresponds
     ... to the column being added, and a pure function that accepts two
     ... columns (as void* to members of myrow_t) and returns true if the
-    ... first compares less than the second.
+    ... first compares less than the second. The provided member may be
+    ... a nested member but may not use a field that is accessed through
+    ... a pointer dereference (due to an incompatibility with clang's
+    ... __builtin_offsetof)
+
+    ... OK:     LIVE_TABLE_COL_ENTRY("Column One", col1.a.b.c, col1_lt)
+    ... NOT OK: LIVE_TABLE_COL_ENTRY("Column One", col1->a.c,  col1_lt)
 
     ... LIVE_TABLE_MAX_SORT_KEY_CNT must be greater than or equal to 2.
 
@@ -218,10 +224,12 @@ FD_STATIC_ASSERT( LIVE_TABLE_MAX_SORT_KEY_CNT >= 2UL, "Requires at least 2 sort 
 
 #define LIVE_TABLE_(n) FD_EXPAND_THEN_CONCAT3(LIVE_TABLE_NAME,_,n)
 
-#define LIVE_TABLE_COL_ENTRY(col_id, field, lt_func) \
-    (LIVE_TABLE_(private_column_t)){ .col_name = col_id, .off = __builtin_offsetof(LIVE_TABLE_ROW_T, field), .lt = lt_func }
+#include <stddef.h> // offsetof
 
-#define LIVE_TABLE_COL_ARRAY(...) (LIVE_TABLE_(private_column_t)[]){ __VA_ARGS__ }
+#define LIVE_TABLE_COL_ENTRY(col_id, field, lt_func) \
+  (LIVE_TABLE_(private_column_t)){ .col_name = col_id, .off = offsetof( LIVE_TABLE_ROW_T , field ), .lt = lt_func }
+
+#define LIVE_TABLE_COL_ARRAY(...) { __VA_ARGS__ }
 
 #ifndef LIVE_TABLE_IMPL_STYLE
 #define LIVE_TABLE_IMPL_STYLE 0
@@ -271,7 +279,7 @@ LIVE_TABLE_(private_row_lt)(LIVE_TABLE_ROW_T const * a, LIVE_TABLE_ROW_T const *
   for( ulong i=0UL; i<LIVE_TABLE_COLUMN_CNT; i++ ) {
     if( FD_LIKELY( active_sort_key->dir[ i ]==0 ) ) continue;
 
-    LIVE_TABLE_(private_column_t) const * cols = LIVE_TABLE_COLUMNS;
+    LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
 
     void * col_a = ((uchar *)a) + cols[ active_sort_key->col[ i ] ].off;
     void * col_b = ((uchar *)b) + cols[ active_sort_key->col[ i ] ].off;
@@ -404,7 +412,7 @@ LIVE_TABLE_(active_sort_key_cnt)( LIVE_TABLE_(t) * join ) {
 FD_FN_CONST static inline ulong
 LIVE_TABLE_(col_name_to_idx)( LIVE_TABLE_(t) * join, char const * col_name ) {
   (void)join;
-  LIVE_TABLE_(private_column_t) const * cols = LIVE_TABLE_COLUMNS;
+  LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
   for( ulong i=0; i < LIVE_TABLE_COLUMN_CNT; i++ ) {
     if( FD_UNLIKELY( strcmp( cols[ i ].col_name, col_name ) ) ) continue;
     return i;
@@ -416,7 +424,7 @@ FD_FN_CONST static inline char const *
 LIVE_TABLE_(col_idx_to_name)( LIVE_TABLE_(t) * join, ulong col_idx ) {
   (void)join;
   if( FD_UNLIKELY( col_idx>=LIVE_TABLE_COLUMN_CNT ) ) return NULL;
-  LIVE_TABLE_(private_column_t) const * cols = LIVE_TABLE_COLUMNS;
+  LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
   return cols[ col_idx ].col_name;
 }
 
@@ -549,7 +557,8 @@ LIVE_TABLE_(new)( void * shmem, ulong max_rows ) {
   _table->count    = 0UL;
   for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) _table->treaps_is_active[ i ] = 0;
 
-  FD_TEST( LIVE_TABLE_COLUMN_CNT == sizeof((LIVE_TABLE_COLUMNS))/sizeof(LIVE_TABLE_(private_column_t)) );
+  LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
+  FD_TEST( LIVE_TABLE_COLUMN_CNT == sizeof(cols)/sizeof(LIVE_TABLE_(private_column_t)) );
 
   /* live_table_treap_new( ... ) not called since all treaps start as inactive */
 

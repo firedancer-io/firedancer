@@ -7,6 +7,8 @@
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
 #include "fd_program_cache.h"
+#include "../../features/fd_features.h"
+#include "../../types/fd_types.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -95,11 +97,13 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int
-fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_pubkey_t const *  program_key,
-                                     uchar const *        elf,
-                                     ulong                elf_sz,
-                                     fd_spad_t *          runtime_spad );
+fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
+                                     fd_funk_t *               funk,
+                                     fd_funk_txn_xid_t const * xid,
+                                     fd_pubkey_t const *       program_key,
+                                     uchar const *             elf,
+                                     ulong                     elf_sz,
+                                     fd_spad_t *               runtime_spad );
 
 FD_PROTOTYPES_END
 

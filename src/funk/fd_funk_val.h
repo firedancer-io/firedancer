@@ -8,7 +8,7 @@
 
 /* FD_FUNK_REC_VAL_MAX is the maximum size of a record value. */
 
-#define FD_FUNK_REC_VAL_MAX (UINT_MAX)
+#define FD_FUNK_REC_VAL_MAX ((1UL<<28)-1UL)
 #define FD_FUNK_VAL_ALIGN   (8UL)
 
 FD_PROTOTYPES_BEGIN

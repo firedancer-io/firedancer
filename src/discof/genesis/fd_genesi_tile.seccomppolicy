@@ -1,6 +1,6 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-unsigned int logfile_fd
+unsigned int logfile_fd, unsigned int genesis_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -16,3 +16,21 @@ write: (or (eq (arg 0) 2)
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
+
+# genesis: obtain information about the genesis file
+#
+# arg 0 is the file descriptor for the genesis file
+fstat: (eq (arg 0) genesis_fd)
+
+# genesis: close the file after we are done reading from it
+#
+# arg 0 is the file descriptor for the genesis file
+close: (eq (arg 0) genesis_fd)
+
+# read: read data in from the genesis file
+#
+# arg 0 is the file descriptor for the genesis file
+read: (eq (arg 0) genesis_fd)
+
+# shutdown: exit is called on shutdown
+exit: (eq (arg 0) 0)

@@ -505,14 +505,6 @@ fd_config_validate( fd_config_t const * config ) {
   CFG_HAS_NON_ZERO ( layout.bank_tile_count  );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
 
-  if( 0U!=config->firedancer.layout.writer_tile_count ) {
-    if( FD_UNLIKELY( config->firedancer.layout.writer_tile_count>config->firedancer.layout.exec_tile_count ) ) {
-      /* There can be at most 1 in-flight transaction per exec tile
-         awaiting finalization. */
-      FD_LOG_ERR(( "More writer tiles (%u) than exec tiles (%u)", config->firedancer.layout.writer_tile_count, config->firedancer.layout.exec_tile_count ));
-    }
-  }
-
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
@@ -524,8 +516,9 @@ fd_config_validate( fd_config_t const * config ) {
     if( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) {
       if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
         FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
-    } else if( 0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) ) {
-      FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\" or \"dedicated\"",
+    } else if( 0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) &&
+               0!=strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) {
+      FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
                    config->net.xdp.rss_queue_mode  ));
     }
   } else if( 0==strcmp( config->net.provider, "socket" ) ) {

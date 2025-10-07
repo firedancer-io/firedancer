@@ -22,6 +22,13 @@ HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
+SKIP_CHECKSUM=0
+DEBUG=( )
+WATCH=( )
+
+if [[ -n "$CI" ]]; then
+  WATCH=( "--no-watch" )
+fi
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -93,13 +100,26 @@ while [[ $# -gt 0 ]]; do
         shift
         ;;
     -v|--has-incremental)
-       HAS_INCREMENTAL="$2"
-       shift
-       ;;
+        HAS_INCREMENTAL="$2"
+        shift
+        ;;
     -nr|--no-redownload)
-       REDOWNLOAD=0
-       shift
-       ;;
+        REDOWNLOAD=0
+        shift
+        ;;
+    --debug)
+        DEBUG=( gdb -q -x contrib/debug.gdb --args )
+        shift
+        ;;
+    --skip-checksum)
+        SKIP_CHECKSUM=1
+        shift
+        ;;
+    --log)
+        LOG="$2"
+        shift
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
@@ -146,9 +166,13 @@ download_and_extract_ledger() {
 
 if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   download_and_extract_ledger
-  create_checksum
+  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
+    create_checksum
+  fi
 else
-  check_ledger_checksum_and_redownload
+  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
+    check_ledger_checksum_and_redownload
+  fi
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
@@ -189,10 +213,6 @@ echo "
 [runtime]
     max_live_slots = 32
     max_fork_width = 4
-[development]
-    sandbox = false
-    no_agave = true
-    no_clone = true
 [log]
     level_stderr = \"INFO\"
     path = \"$LOG\"
@@ -217,37 +237,24 @@ sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /de
 sudo killall firedancer-dev || true
 
 set -x
-sudo $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml &> /dev/null
+sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LEDGER}_backtest.toml "${WATCH[@]}"
 { status=$?; set +x; } &> /dev/null
 
-if [ "$status" -eq 139 ]; then
-  echo "Backtest crashed with a segmentation fault!" &> /dev/null
-fi
-
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
-
-echo_notice "Finished on-demand ingest and replay\n"
 
 echo "Log for ledger $LEDGER at $LOG"
 
 # check that the ledger is not corrupted after a run
-check_ledger_checksum
-
-if grep -q "Backtest playback done." $LOG && ! grep -q "Bank hash mismatch!" $LOG;
-then
-  exit 0
-  #   rm $LOG
-else
-  if [ -n "$TRASH_HASH" ]; then
-    echo "inverted test passed"
-    # rm $LOG
-    exit 0
-  fi
-
-  echo "LAST 40 LINES OF LOG:"
-  tail -40 $LOG
-  echo_error "backtest test failed: $*"
-  echo $LOG
-
-  exit 1
+if [[ $SKIP_CHECKSUM -eq 0 ]]; then
+  check_ledger_checksum
 fi
+
+if [ "$status" -eq 0 ]; then
+  echo_notice "Finished on-demand ingest and replay\n"
+  exit 0
+fi
+
+tail -n 10 $LOG
+echo "Failed with status: $status"
+
+exit $status

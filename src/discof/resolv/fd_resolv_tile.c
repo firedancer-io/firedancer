@@ -253,23 +253,25 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
+    if( FD_UNLIKELY( !ctx->bank ) ) {
+      FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
+      return 0;
+    }
+
     fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( ctx->bank );
     FD_TEST( sysvar_cache );
 
-    /* TODO: We really should use a specific transaction for the root
-       slot, not "NULL" which has TOCTOU issues with replay swapping
-       the funk root in the background.  If we took any reference to
-       the root slot number (e.g. ALUT cannot be closed before slot
-       "root" + 512 due to not currently closed), this could end up
-       being wrong. */
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
+
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
+
     int result = fd_runtime_load_txn_address_lookup_tables( txnt,
                                                             fd_txn_m_payload( txnm ),
                                                             ctx->funk,
-                                                            NULL, /* NULL is the root Funk transaction */
+                                                            &xid,
                                                             fd_bank_slot_get( ctx->bank ),
                                                             slot_hashes,
-                                                            fd_txn_m_alut( txnm) );
+                                                            fd_txn_m_alut( txnm ) );
     fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
     ctx->metrics.lut[ result ]++;
     if( FD_UNLIKELY( result ) ) return 0;
@@ -366,20 +368,19 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case REPLAY_SIG_ROOT_ADVANCED: {
         fd_replay_root_advanced_t const * msg = &ctx->_rooted_slot_msg;
 
-        ulong null_idx = fd_banks_pool_idx_null( fd_banks_get_bank_pool( ctx->banks ) );
-
         /* Replace current bank with new bank */
-        ulong prev_bank_idx = ctx->bank ? ctx->bank->idx : null_idx;
+        fd_bank_t * prev_bank = ctx->bank;
+
         ctx->bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         FD_TEST( ctx->bank );
 
-        /* Send slot completed message back to replay, so it can decrement
-           the refcount of the previous bank. */
-        if( FD_UNLIKELY( prev_bank_idx!=null_idx ) ) {
+        /* Send slot completed message back to replay, so it can
+           decrement the reference count of the previous bank. */
+        if( FD_LIKELY( prev_bank ) ) {
           ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
           fd_resolv_slot_exchanged_t * slot_exchanged =
             fd_type_pun( fd_chunk_to_laddr( ctx->out_replay->mem, ctx->out_replay->chunk ) );
-          slot_exchanged->bank_idx = prev_bank_idx;
+          slot_exchanged->bank_idx = prev_bank->idx;
           fd_stem_publish( stem, 1UL, 0UL, ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), 0UL, tsorig, tspub );
           ctx->out_replay->chunk = fd_dcache_compact_next( ctx->out_replay->chunk, sizeof(fd_resolv_slot_exchanged_t), ctx->out_replay->chunk0, ctx->out_replay->wmark );
         }
@@ -474,20 +475,26 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
+    if( FD_UNLIKELY( !ctx->bank ) ) {
+      FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+      return;
+    }
+
     fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( ctx->bank );
     FD_TEST( sysvar_cache );
     fd_slot_hash_t const * slot_hashes = fd_sysvar_cache_slot_hashes_join_const( sysvar_cache );
     FD_TEST( slot_hashes );
 
-    /* TODO: As above, should probably try and use a funk transaction
-       referencing the specific root slot. */
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( ctx->bank ), fd_bank_slot_get( ctx->bank ) } };
+
     int result = fd_runtime_load_txn_address_lookup_tables( txnt,
                                                             fd_txn_m_payload( txnm ),
                                                             ctx->funk,
-                                                            NULL, /* NULL is the root Funk transaction */
+                                                            &xid,
                                                             fd_bank_slot_get( ctx->bank ),
                                                             slot_hashes,
-                                                            fd_txn_m_alut( txnm) );
+                                                            fd_txn_m_alut( txnm ) );
     fd_sysvar_cache_slot_hashes_leave_const( sysvar_cache, slot_hashes );
     ctx->metrics.lut[ -fd_bank_lut_err_from_runtime_err( result ) ]++;
     if( FD_UNLIKELY( result ) ) {

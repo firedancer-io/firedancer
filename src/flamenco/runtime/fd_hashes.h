@@ -102,9 +102,6 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
    - signature_count is the number of signatures processed in the slot
 
    The resulting bank hash is written to hash_out.
-
-   slot_ctx contains the execution context with the bank to hash.  hash
-   points to where the computed bank hash will be written (32 bytes).
 */
 
 void

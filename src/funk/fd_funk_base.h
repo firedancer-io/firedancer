@@ -59,7 +59,6 @@
 #define FD_FUNK_ERR_REC    (-6) /* Failed due to record map issue (e.g. funk rec_max too small) */
 #define FD_FUNK_ERR_MEM    (-7) /* Failed due to wksp issue (e.g. wksp too small) */
 #define FD_FUNK_ERR_SYS    (-8) /* Failed system call (e.g. a file write) */
-#define FD_FUNK_ERR_PURIFY (-9) /* fd_funk_purify failed. */
 
 /* FD_FUNK_REC_KEY_{ALIGN,FOOTPRINT} describe the alignment and
    footprint of a fd_funk_rec_key_t.  ALIGN is a positive integer power
@@ -135,9 +134,6 @@ typedef struct fd_funk_shmem_private fd_funk_shmem_t;
 
 struct fd_funk_private;
 typedef struct fd_funk_private fd_funk_t;
-
-struct fd_funk_txn_private;
-typedef struct fd_funk_txn_private fd_funk_txn_t;
 
 FD_PROTOTYPES_BEGIN
 

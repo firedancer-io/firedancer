@@ -84,10 +84,12 @@ struct __attribute__((packed)) fd_elf64_rela_ {
 };
 typedef struct fd_elf64_rela_ fd_elf64_rela;
 
-/* fd_elf64_dyn: Dynamic section entry */
+/* fd_elf64_dyn: Dynamic section entry
+   NOTE: The ELF specification states that d_tag should be a signed
+   long, but the Solana ELF loader uses an unsigned long. */
 
 struct __attribute__((packed)) fd_elf64_dyn_ {
-  long d_tag;
+  ulong d_tag;
   union {
     ulong d_val;
     ulong d_ptr;

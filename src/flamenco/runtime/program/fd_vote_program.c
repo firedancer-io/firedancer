@@ -1669,7 +1669,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   fd_borrowed_account_drop( vote_account );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/vote/src/vote_state/mod.rs#L1020-L1021 */
-  fd_guarded_borrowed_account_t to;
+  fd_guarded_borrowed_account_t to = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, to_account_index, &to );
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1053
@@ -2240,7 +2240,7 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  fd_guarded_borrowed_account_t me;
+  fd_guarded_borrowed_account_t me = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0, &me );
 
   switch( rc ) {

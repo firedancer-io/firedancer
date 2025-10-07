@@ -104,7 +104,6 @@ struct fd_configf {
 
   struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
-    uint writer_tile_count;
     uint sign_tile_count;
     uint gossvf_tile_count;
   } layout;
@@ -122,6 +121,14 @@ struct fd_configf {
   struct {
 
     struct {
+
+      struct {
+        int enabled;
+      } entrypoints;
+
+      struct {
+        int enabled;
+      } gossip;
 
       struct {
         ulong            peers_cnt;
@@ -169,7 +176,7 @@ struct fd_config_net {
     uint xdp_rx_queue_size;
     uint xdp_tx_queue_size;
     uint flush_timeout_micros;
-    char rss_queue_mode[ 16 ]; /* "simple" or "dedicated" */
+    char rss_queue_mode[ 16 ]; /* "simple", "dedicated", or "auto" */
   } xdp;
 
   struct {

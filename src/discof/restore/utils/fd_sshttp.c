@@ -36,8 +36,8 @@ struct fd_sshttp_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-  char full_snapshot_name[ PATH_MAX ];
-  char incremental_snapshot_name[ PATH_MAX ];
+  char  full_snapshot_name[ PATH_MAX ];
+  char  incremental_snapshot_name[ PATH_MAX ];
 
   ulong content_len;
   ulong content_read;
@@ -54,7 +54,7 @@ FD_FN_CONST ulong
 fd_sshttp_footprint( void ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN,       sizeof(fd_sshttp_t) );
+  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
   return FD_LAYOUT_FINI( l, FD_SSHTTP_ALIGN );
 }
 
@@ -74,6 +74,8 @@ fd_sshttp_new( void * shmem ) {
   fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
 
   sshttp->state = FD_SSHTTP_STATE_INIT;
+  sshttp->full_snapshot_name[ 0 ] = '\0';
+  sshttp->incremental_snapshot_name[ 0 ] = '\0';
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( sshttp->magic ) = FD_SSHTTP_MAGIC;
@@ -134,7 +136,7 @@ fd_sshttp_init( fd_sshttp_t * http,
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
-    .sin_port   = addr.port,
+    .sin_port   = fd_ushort_bswap( addr.port ),
     .sin_addr   = { .s_addr = addr.addr }
   };
 
@@ -166,7 +168,7 @@ send_request( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long sent = send( http->sockfd, http->request+http->request_sent, http->request_len-http->request_sent, 0 );
+  long sent = sendto( http->sockfd, http->request+http->request_sent, http->request_len-http->request_sent, 0, NULL, 0 );
   if( FD_UNLIKELY( -1==sent && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==sent ) ) {
     fd_sshttp_cancel( http );
@@ -260,7 +262,7 @@ follow_redirect( fd_sshttp_t *        http,
   }
 
   FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
-                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
+                  FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), http->addr.port,
                   (int)headers[ 0 ].value_len, headers[ 0 ].value ));
 
   fd_sshttp_cancel( http );
@@ -280,7 +282,7 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_ERROR;
   }
 
-  long read = recv( http->sockfd, http->response+http->response_len, sizeof(http->response)-http->response_len, 0 );
+  long read = recvfrom( http->sockfd, http->response+http->response_len, sizeof(http->response)-http->response_len, 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return 0;
   else if( FD_UNLIKELY( -1==read ) ) {
     FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
@@ -313,7 +315,7 @@ read_response( fd_sshttp_t * http,
     return FD_SSHTTP_ADVANCE_AGAIN;
   }
 
-  int is_redirect = (status==301) | (status==303) | (status==304) | (status==307) | (status==308);
+  int is_redirect = (status==301) | (status==302) | (status==303) | (status==304) | (status==307) | (status==308);
   if( FD_UNLIKELY( is_redirect ) ) {
     return follow_redirect( http, headers, header_cnt, now );
   }
@@ -365,7 +367,7 @@ read_body( fd_sshttp_t * http,
   }
 
   FD_TEST( http->content_read<http->content_len );
-  long read = recv( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0 );
+  long read = recvfrom( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0, NULL, NULL );
   if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
     fd_sshttp_cancel( http );

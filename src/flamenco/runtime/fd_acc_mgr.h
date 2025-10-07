@@ -144,9 +144,8 @@ fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
    It is always wrong to cast return value to a non-const pointer.
    Instead, use fd_funk_get_acc_meta_mutable to acquire a mutable handle.
 
-   if txn_out is supplied (non-null), the txn the key was found in
-   is returned. If *txn_out == NULL, the key was found in the root
-   context.
+   If xid_out is supplied (non-null), sets *xid_out to the xid in which
+   the found record was created.
 
    IMPORTANT: fd_funk_get_acc_meta_readonly is only safe if it
    is guaranteed there are no other modifying accesses to the account. */
@@ -157,7 +156,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
                                fd_pubkey_t const *       pubkey,
                                fd_funk_rec_t const **    orec,
                                int *                     opt_err,
-                               fd_funk_txn_t const **    txn_out ) ;
+                               fd_funk_txn_xid_t *       xid_out ) ;
 
 /* fd_funk_get_acc_meta_mutable requests a writable handle to an account.
    Follows interface of fd_funk_get_account_meta_readonly with the following

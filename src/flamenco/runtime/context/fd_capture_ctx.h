@@ -5,7 +5,7 @@
 #include "../fd_runtime_const.h"
 
 /* fd_capture_ctx_account_update_msg_t is the message sent from
-   writer tile to replay tile that notifies the solcap writer that an
+   exec tile to replay tile that notifies the solcap writer that an
    account update has occurred. */
 
 struct __attribute__((packed)) fd_capture_ctx_account_update_msg {
@@ -13,6 +13,7 @@ struct __attribute__((packed)) fd_capture_ctx_account_update_msg {
   fd_solana_account_meta_t info;
   ulong                    data_sz;
   fd_hash_t                hash;
+  ulong                    bank_idx;
   /* Account data follows immediately after this struct */
 };
 typedef struct fd_capture_ctx_account_update_msg fd_capture_ctx_account_update_msg_t;
@@ -59,7 +60,7 @@ struct fd_capture_ctx {
   /* ELF Capture */
   int                      dump_elf_to_pb;
 
-  /* Account update buffer, account updates to be sent over the writer_replay link are buffered here
+  /* Account update buffer, account updates to be sent over the exec_replay link are buffered here
      to avoid passing stem down into the runtime.
 
      FIXME: write directly into the dcache to avoid the memory copy and allocation

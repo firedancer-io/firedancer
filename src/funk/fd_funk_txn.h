@@ -401,34 +401,6 @@ fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
 void
 fd_funk_txn_remove_published( fd_funk_t * funk );
 
-/* fd_funk_txn_all_iter_t iterators over all funk transaction objects.
-   Usage is:
-
-   fd_funk_txn_all_iter_t txn_iter[1];
-   for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
-     fd_funk_txn_t const * txn = fd_funk_txn_all_iter_ele_const( txn_iter );
-     ...
-   }
-*/
-
-struct fd_funk_txn_all_iter {
-  fd_funk_txn_map_t txn_map;
-  ulong chain_cnt;
-  ulong chain_idx;
-  fd_funk_txn_map_iter_t txn_map_iter;
-};
-
-typedef struct fd_funk_txn_all_iter fd_funk_txn_all_iter_t;
-
-void fd_funk_txn_all_iter_new( fd_funk_t * funk, fd_funk_txn_all_iter_t * iter );
-
-int fd_funk_txn_all_iter_done( fd_funk_txn_all_iter_t * iter );
-
-void fd_funk_txn_all_iter_next( fd_funk_txn_all_iter_t * iter );
-
-fd_funk_txn_t const * fd_funk_txn_all_iter_ele_const( fd_funk_txn_all_iter_t * iter );
-fd_funk_txn_t * fd_funk_txn_all_iter_ele( fd_funk_txn_all_iter_t * iter );
-
 /* Misc */
 
 /* fd_funk_txn_verify verifies a transaction map.  Returns

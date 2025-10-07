@@ -81,9 +81,9 @@ Linux has some undocumented problems with ethtool offloads like GRO and
 UDP segmentation.  Those speed up regular sockets I/O, so are often
 enabled by default, but cause packet corruption in XDP sockets.
 
-The number of NIC channels/queues is reduced to the number net tiles.
-This is because one XDP socket is required per NIC channel.  Multiple
-XDP sockets per net tile does not scale well.
+The NIC is configured to steer all Firedancer traffic to a single queue
+per net tile.  This is because one XDP socket is required per NIC
+channel.  Multiple XDP sockets per net tile does not scale well.
 
 In the future, the net tile may also reconfigure /sys/class/net params
 such as `gro_flush_timeout` and `napi_defer_hard_irqs`.  Those change
@@ -568,11 +568,6 @@ Firedancer v0.4 net tile. This list is likely to become out of date.
 - The net tile only supports simple route tables, see [Netlink](./netlink.md).
 - Running Firedancer is believed to cause a performance detriment to
   apps using Linux networking on the shared interfaces
-- Firedancer does not use hardware packet steering features
-  - Most datacenter network adapters (e.g. Intel X710, NVIDIA ConnectX)
-    can be configured to identify incoming packets targeting Firedancer
-    and steer them to separate queues
-  - Doing the above would avoid the need to reduce the channel count
 - The number of RX mcaches is `O(n*m)` where n is the number of net
   tiles and m is the number of app tiles.  It could be `O(max(n,m))`.
 - The tx_free ring is probably obsolete.  Buffers could be moved from

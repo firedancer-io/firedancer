@@ -139,7 +139,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L390-L393 */
-    fd_guarded_borrowed_account_t borrowed_caller_acct;
+    fd_guarded_borrowed_account_t borrowed_caller_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, instruction_account->index_in_caller, &borrowed_caller_acct );
 
     /* Check that the account is not read-only in the caller but writable in the callee */
@@ -191,7 +191,7 @@ fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
   /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found.
     Borrow the program account here.
     https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L436-L437 */
-  fd_guarded_borrowed_account_t borrowed_program_account;
+  fd_guarded_borrowed_account_t borrowed_program_account = {0};
   int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ushort)program_idx, &borrowed_program_account );
   if( FD_UNLIKELY( err ) ) {
     FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->instr_err_idx );

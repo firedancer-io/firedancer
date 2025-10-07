@@ -4,44 +4,6 @@
 
 #include "../../../util/log/fd_log.h"
 
-struct acc_vec_key {
-  ulong slot;
-  ulong id;
-};
-
-typedef struct acc_vec_key acc_vec_key_t;
-
-struct acc_vec {
-  acc_vec_key_t key;
-  ulong         file_sz;
-
-  ulong         map_next;
-  ulong         map_prev;
-
-  ulong         pool_next;
-};
-
-typedef struct acc_vec acc_vec_t;
-
-#define POOL_NAME  acc_vec_pool
-#define POOL_T     acc_vec_t
-#define POOL_NEXT  pool_next
-#define POOL_IDX_T ulong
-
-#include "../../../util/tmpl/fd_pool.c"
-
-#define MAP_NAME          acc_vec_map
-#define MAP_ELE_T         acc_vec_t
-#define MAP_KEY_T         acc_vec_key_t
-#define MAP_KEY           key
-#define MAP_IDX_T         ulong
-#define MAP_NEXT          map_next
-#define MAP_PREV          map_prev
-#define MAP_KEY_HASH(k,s) fd_hash( s, k, sizeof(acc_vec_key_t) )
-#define MAP_KEY_EQ(k0,k1) ( ((k0)->slot==(k1)->slot) && ((k0)->id==(k1)->id) )
-
-#include "../../../util/tmpl/fd_map_chain.c"
-
 #define SSMANIFEST_DEBUG 0
 
 #define STATE_BLOCKHASH_QUEUE_LAST_HASH_INDEX                                                         (  0)
@@ -384,11 +346,7 @@ struct fd_ssmanifest_parser_private {
   ulong acc_vec_id;
   ulong acc_vec_file_sz;
 
-  ulong max_acc_vecs;
   ulong seed;
-
-  acc_vec_map_t * acc_vec_map;
-  acc_vec_t *     acc_vec_pool;
 
   fd_snapshot_manifest_t * manifest;
 };
@@ -1381,28 +1339,30 @@ state_validate( fd_ssmanifest_parser_t * parser ) {
 }
 
 static inline int
-state_process( fd_ssmanifest_parser_t * parser ) {
+state_process( fd_ssmanifest_parser_t * parser,
+               acc_vec_map_t *         acc_vec_map,
+               acc_vec_t *             acc_vec_pool ) {
   fd_snapshot_manifest_t * manifest = parser->manifest;
 
   FD_TEST( parser->state!=STATE_DONE );
 
-  if( FD_UNLIKELY( parser->state==STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ && parser->acc_vec_map ) ) {
-    if( FD_UNLIKELY( !acc_vec_pool_free( parser->acc_vec_pool ) ) ) {
+  if( FD_UNLIKELY( parser->state==STATE_ACCOUNTS_DB_STORAGES_ACCOUNT_VECS_FILE_SZ && acc_vec_map && acc_vec_pool ) ) {
+    if( FD_UNLIKELY( !acc_vec_pool_free( acc_vec_pool ) ) ) {
       FD_LOG_WARNING(( "acc_vec_pool is full, cannot insert new account vec" ));
       return -1;
     }
 
     acc_vec_key_t key = { .slot=parser->acc_vec_slot, .id=parser->acc_vec_id };
-    if( FD_UNLIKELY( acc_vec_map_ele_query( parser->acc_vec_map, &key, NULL, parser->acc_vec_pool ) ) ) {
+    if( FD_UNLIKELY( acc_vec_map_ele_query( acc_vec_map, &key, NULL, acc_vec_pool ) ) ) {
       FD_LOG_WARNING(( "duplicate account vec with slot %lu and id %lu", parser->acc_vec_slot, parser->acc_vec_id ));
       return -1;
     }
 
-    acc_vec_t * acc_vec = acc_vec_pool_ele_acquire( parser->acc_vec_pool );
+    acc_vec_t * acc_vec = acc_vec_pool_ele_acquire( acc_vec_pool );
     acc_vec->key.id = parser->acc_vec_id;
     acc_vec->key.slot = parser->acc_vec_slot;
     acc_vec->file_sz = parser->acc_vec_file_sz;
-    acc_vec_map_ele_insert( parser->acc_vec_map, acc_vec, parser->acc_vec_pool );
+    acc_vec_map_ele_insert( acc_vec_map, acc_vec, acc_vec_pool );
   }
 
   if( FD_UNLIKELY( parser->state==STATE_EPOCH_STAKES_KEY ) ) {
@@ -1596,22 +1556,18 @@ state_process( fd_ssmanifest_parser_t * parser ) {
 
 FD_FN_CONST ulong
 fd_ssmanifest_parser_align( void ) {
-  return fd_ulong_max( alignof(fd_ssmanifest_parser_t), fd_ulong_max( acc_vec_pool_align(), acc_vec_map_align() ) );
+  return alignof(fd_ssmanifest_parser_t);
 }
 
 FD_FN_CONST ulong
-fd_ssmanifest_parser_footprint( ulong max_acc_vecs ) {
+fd_ssmanifest_parser_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)         );
-  l = FD_LAYOUT_APPEND( l, acc_vec_pool_align(),            acc_vec_pool_footprint( max_acc_vecs ) );
-  l = FD_LAYOUT_APPEND( l, acc_vec_map_align(),             acc_vec_map_footprint( max_acc_vecs )  );
-  return FD_LAYOUT_FINI( l, fd_ssmanifest_parser_align() );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t) );
+  return FD_LAYOUT_FINI( l, alignof(fd_ssmanifest_parser_t) );
 }
 
 void *
-fd_ssmanifest_parser_new( void * shmem,
-                          ulong  max_acc_vecs,
-                          ulong  seed ) {
+fd_ssmanifest_parser_new( void * shmem ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -1623,18 +1579,7 @@ fd_ssmanifest_parser_new( void * shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_ssmanifest_parser_t * parser = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)         );
-  void * _acc_vec_pool            = FD_SCRATCH_ALLOC_APPEND( l, acc_vec_pool_align(),            acc_vec_pool_footprint( max_acc_vecs ) );
-  void * _acc_vec_map             = FD_SCRATCH_ALLOC_APPEND( l, acc_vec_map_align(),             acc_vec_map_footprint( max_acc_vecs )  );
-
-  parser->acc_vec_pool = acc_vec_pool_join( acc_vec_pool_new( _acc_vec_pool, max_acc_vecs ) );
-  FD_TEST( parser->acc_vec_pool );
-
-  parser->acc_vec_map = acc_vec_map_join( acc_vec_map_new( _acc_vec_map, max_acc_vecs, seed ) );
-  FD_TEST( parser->acc_vec_map );
-
-  parser->max_acc_vecs = max_acc_vecs;
-  parser->seed         = seed;
+  fd_ssmanifest_parser_t * parser = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t) );
 
   return parser;
 }
@@ -1656,17 +1601,14 @@ fd_ssmanifest_parser_init( fd_ssmanifest_parser_t * parser,
 
   FD_SCRATCH_ALLOC_INIT( l, parser );
                          FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssmanifest_parser_t), sizeof(fd_ssmanifest_parser_t)                 );
-  void * _acc_vec_pool = FD_SCRATCH_ALLOC_APPEND( l, acc_vec_pool_align(),            acc_vec_pool_footprint( parser->max_acc_vecs ) );
-  void * _acc_vec_map  = FD_SCRATCH_ALLOC_APPEND( l, acc_vec_map_align(),             acc_vec_map_footprint( parser->max_acc_vecs )  );
-
-  acc_vec_pool_new( _acc_vec_pool, parser->max_acc_vecs );
-  acc_vec_map_new( _acc_vec_map, parser->max_acc_vecs, parser->seed );
 }
 
 int
 fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
                               uchar const *            buf,
-                              ulong                    bufsz ) {
+                              ulong                    bufsz,
+                              acc_vec_map_t *          acc_vec_map,
+                              acc_vec_t *              acc_vec_pool ) {
 #if SSMANIFEST_DEBUG
   int state = parser->state;
 #endif
@@ -1698,11 +1640,11 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
 #endif
       if( FD_UNLIKELY( -1==state_validate( parser ) ) ) {
         FD_LOG_WARNING(("state_validate failed"));
-        return -1;
+        return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
       }
-      if( FD_UNLIKELY( -1==state_process( parser ) ) ) {
+      if( FD_UNLIKELY( -1==state_process( parser, acc_vec_map, acc_vec_pool ) ) ) {
         FD_LOG_WARNING(("state_process failed"));
-        return -1;
+        return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
       }
       parser->dst     = state_dst( parser );
       parser->dst_sz  = state_size( parser );
@@ -1710,28 +1652,13 @@ fd_ssmanifest_parser_consume( fd_ssmanifest_parser_t * parser,
     }
 
     if( FD_UNLIKELY( parser->state==STATE_DONE ) ) break;
-    if( FD_UNLIKELY( !bufsz ) ) return 1;
+    if( FD_UNLIKELY( !bufsz ) ) return FD_SSMANIFEST_PARSER_ADVANCE_AGAIN;
   }
 
   if( FD_UNLIKELY( bufsz ) ) {
     FD_LOG_WARNING(( "excess data in buffer" ));
-    return -1;
+    return FD_SSMANIFEST_PARSER_ADVANCE_ERROR;
   }
 
-  return 0;
-}
-
-ulong
-fd_ssmanifest_acc_vec_sz( fd_ssmanifest_parser_t const * parser,
-                          ulong                          slot,
-                          ulong                          id ) {
-  acc_vec_key_t key = {
-    .slot = slot,
-    .id   = id
-  };
-
-  acc_vec_t * result = acc_vec_map_ele_query( parser->acc_vec_map, &key, NULL, parser->acc_vec_pool );
-  if( FD_UNLIKELY( !result ) ) return ULONG_MAX;
-
-  return result->file_sz;
+  return FD_SSMANIFEST_PARSER_ADVANCE_DONE;
 }

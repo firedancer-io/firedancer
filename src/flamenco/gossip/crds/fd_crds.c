@@ -1219,7 +1219,7 @@ fd_crds_bucket_add( fd_crds_t *   crds,
   make_contact_info_key( pubkey, key );
   fd_crds_entry_t * peer_ci = lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool );
   if( FD_UNLIKELY( !peer_ci ) ) {
-    FD_LOG_NOTICE(( "Sample peer not found in CRDS. Likely dropped." ));
+    FD_LOG_DEBUG(( "Sample peer not found in CRDS. Likely dropped." ));
     return;
   }
   wpeer_sampler_t * bucket_sampler = &crds->samplers->bucket_samplers[bucket];

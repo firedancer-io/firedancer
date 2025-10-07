@@ -5,11 +5,8 @@
 #include "../fd_pubkey_utils.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../sysvar/fd_sysvar.h"
-#include "../sysvar/fd_sysvar_rent.h"
-#include "../../vm/syscall/fd_vm_syscall.h"
-#include "../../vm/fd_vm.h"
-#include "../fd_executor.h"
 #include "fd_bpf_loader_serialization.h"
+#include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
 #include "../fd_borrowed_account.h"
 
@@ -181,7 +178,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Allocate rodata segment */
-  void * rodata = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, elf_info->rodata_footprint );
+  void * rodata = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, elf_info->bin_sz );
   if( FD_UNLIKELY( !rodata ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -191,7 +188,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   ulong  prog_footprint    = fd_sbpf_program_footprint( elf_info );
   fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc( spad, prog_align, prog_footprint ), elf_info, rodata );
   if( FD_UNLIKELY( !prog ) ) {
-    FD_LOG_ERR(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_ERR(( "fd_sbpf_program_new() failed" ));
   }
 
   /* Load program */
@@ -212,9 +209,9 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* rodata             */ prog->rodata,
     /* rodata_sz          */ prog->rodata_sz,
     /* text               */ prog->text,
-    /* text_cnt           */ prog->text_cnt,
-    /* text_off           */ prog->text_off, /* FIXME: What if text_off is not multiple of 8 */
-    /* text_sz            */ prog->text_sz,
+    /* text_cnt           */ prog->info.text_cnt,
+    /* text_off           */ prog->info.text_off, /* FIXME: What if text_off is not multiple of 8 */
+    /* text_sz            */ prog->info.text_sz,
     /* entry_pc           */ prog->entry_pc,
     /* calldests          */ prog->calldests,
     /* sbpf_version       */ elf_info->sbpf_version,
@@ -253,7 +250,7 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
   int err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L202 */
-  fd_guarded_borrowed_account_t program;
+  fd_guarded_borrowed_account_t program = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, instr_acc_idx, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L203 */
@@ -363,11 +360,11 @@ common_close_account( fd_pubkey_t * authority_address,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1324 */
-  fd_guarded_borrowed_account_t close_account;
+  fd_guarded_borrowed_account_t close_account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &close_account );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1326 */
-  fd_guarded_borrowed_account_t recipient_account;
+  fd_guarded_borrowed_account_t recipient_account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &recipient_account );
 
   err = fd_borrowed_account_checked_add_lamports( &recipient_account,
@@ -563,7 +560,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
          vm error based on the account's accesss permissions. */
       for( ushort i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1455 */
-        fd_guarded_borrowed_account_t instr_acc;
+        fd_guarded_borrowed_account_t instr_acc = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, i, &instr_acc );
 
         ulong idx = acc_region_metas[i].region_idx;
@@ -658,7 +655,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1379-L1381 */
-  fd_guarded_borrowed_account_t programdata_account;
+  fd_guarded_borrowed_account_t programdata_account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, PROGRAM_DATA_ACCOUNT_INDEX, &programdata_account );
   fd_pubkey_t * programdata_key = programdata_account.acct->pubkey;
 
@@ -675,7 +672,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1392-L1393 */
-  fd_guarded_borrowed_account_t program_account;
+  fd_guarded_borrowed_account_t program_account = {0};
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, PROGRAM_ACCOUNT_INDEX, &program_account );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1394-L1397 */
@@ -932,7 +929,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L479 */
-      fd_guarded_borrowed_account_t buffer;
+      fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &buffer );
       fd_bpf_upgradeable_loader_state_t * buffer_state = fd_bpf_loader_program_get_state( buffer.acct,
                                                                                           spad,
@@ -973,7 +970,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L497 */
-      fd_guarded_borrowed_account_t buffer;
+      fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &buffer );
 
        fd_bpf_upgradeable_loader_state_t * loader_state = fd_bpf_loader_program_get_state( buffer.acct,
@@ -1081,7 +1078,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_rent_t const *                   rent           = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L545 */
-      fd_guarded_borrowed_account_t program;
+      fd_guarded_borrowed_account_t program = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &program );
 
       loader_state = fd_bpf_loader_program_get_state( program.acct,
@@ -1118,7 +1115,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong programdata_len          = 0UL;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L564-L565 */
-      fd_guarded_borrowed_account_t buffer;
+      fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
       fd_bpf_upgradeable_loader_state_t * buffer_state = fd_bpf_loader_program_get_state( buffer.acct, spad, &err );
@@ -1191,11 +1188,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       do {
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L615 */
-        fd_guarded_borrowed_account_t payer;
+        fd_guarded_borrowed_account_t payer = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &payer );
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L613 */
-        fd_guarded_borrowed_account_t buffer;
+        fd_guarded_borrowed_account_t buffer = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
         err = fd_borrowed_account_checked_add_lamports( &payer, fd_borrowed_account_get_lamports( &buffer ) );
@@ -1289,7 +1286,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L669-L691 */
       do {
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L670-L671 */
-        fd_guarded_borrowed_account_t programdata;
+        fd_guarded_borrowed_account_t programdata = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &programdata );
 
         fd_bpf_upgradeable_loader_state_t programdata_loader_state = {
@@ -1324,7 +1321,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         ulong dst_slice_len = buffer_data_len;
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L683-L684 */
-        fd_guarded_borrowed_account_t buffer;
+        fd_guarded_borrowed_account_t buffer = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &buffer );
 
         if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ) {
@@ -1406,7 +1403,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Verify Program account */
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L719-L720 */
-      fd_guarded_borrowed_account_t program;
+      fd_guarded_borrowed_account_t program = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &program );
 
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L758-L765 */
@@ -1448,7 +1445,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong buffer_data_len    = 0UL;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L750-L751 */
-      fd_guarded_borrowed_account_t buffer;
+      fd_guarded_borrowed_account_t buffer = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
 
       fd_bpf_upgradeable_loader_state_t * buffer_state = fd_bpf_loader_program_get_state( buffer.acct, spad, &err );
@@ -1488,7 +1485,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       ulong                               programdata_balance_required = 0UL;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L778-L779 */
-      fd_guarded_borrowed_account_t programdata;
+      fd_guarded_borrowed_account_t programdata = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
       fd_rent_t const * rent = fd_bank_rent_query( instr_ctx->txn_ctx->bank );
@@ -1589,7 +1586,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         ulong   dst_slice_len = buffer_data_len;
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L863-L864 */
-        fd_guarded_borrowed_account_t buffer;
+        fd_guarded_borrowed_account_t buffer = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
 
         if( FD_UNLIKELY( buffer_data_offset>fd_borrowed_account_get_data_len( &buffer ) ) ){
@@ -1610,7 +1607,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 2UL, &buffer );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L880-L881 */
-      fd_guarded_borrowed_account_t spill;
+      fd_guarded_borrowed_account_t spill = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 3UL, &spill );
 
       ulong spill_addend = fd_ulong_sat_sub( fd_ulong_sat_add( fd_borrowed_account_get_lamports( &programdata ), buffer_lamports ),
@@ -1652,7 +1649,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L896-L897 */
-      fd_guarded_borrowed_account_t account;
+      fd_guarded_borrowed_account_t account = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &account );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L898-L900 */
@@ -1756,7 +1753,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L968-L969 */
-      fd_guarded_borrowed_account_t account;
+      fd_guarded_borrowed_account_t account = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &account );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L970-L975 */
@@ -1850,7 +1847,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1043-L1044 */
-      fd_guarded_borrowed_account_t close_account;
+      fd_guarded_borrowed_account_t close_account = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &close_account );
 
       fd_pubkey_t * close_key = close_account.acct->pubkey;
@@ -1868,7 +1865,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( fd_bpf_upgradeable_loader_state_is_uninitialized( close_account_state ) ) {
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1050-L1051 */
-        fd_guarded_borrowed_account_t recipient_account;
+        fd_guarded_borrowed_account_t recipient_account = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &recipient_account );
 
         err = fd_borrowed_account_checked_add_lamports( &recipient_account, fd_borrowed_account_get_lamports( &close_account ) );
@@ -1915,7 +1912,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_borrowed_account_drop( &close_account );
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1075-L1076 */
-        fd_guarded_borrowed_account_t program_account;
+        fd_guarded_borrowed_account_t program_account = {0};
         FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(instr_ctx, 3UL, &program_account );
 
         if( FD_UNLIKELY( !fd_borrowed_account_is_writable( &program_account ) ) ) {
@@ -2050,7 +2047,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Verify ProgramData account
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1362-L1363 */
-      fd_guarded_borrowed_account_t programdata;
+      fd_guarded_borrowed_account_t programdata = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &programdata );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1364-L1367 */
@@ -2100,7 +2097,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Verify Program account
          https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1404-L1406 */
-      fd_guarded_borrowed_account_t program;
+      fd_guarded_borrowed_account_t program = {0};
       FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 1UL, &program );
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1407-L1410 */
@@ -2394,7 +2391,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L403-L404 */
-    fd_guarded_borrowed_account_t program_account;
+    fd_guarded_borrowed_account_t program_account = {0};
     int err = fd_exec_instr_ctx_try_borrow_last_program_account( ctx, &program_account );
     if( FD_UNLIKELY( err ) ) {
       return err;
@@ -2482,7 +2479,14 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
          Program account and program data account discriminants get checked when loading in program accounts
          into the program cache. If the discriminants are incorrect, the program is marked as closed. */
       if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) ) {
-        fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        /* https://github.com/anza-xyz/agave/tree/v3.0.5/programs/bpf_loader/src/lib.rs#L424-L433
+           Agave's program cache will add any non-migrating built-ins as built-in
+           accounts, even though they might be owned by the BPF loader. In these
+           cases, Agave does not log this message. Meanwhile, non-migrating
+           built-in programs do not use the BPF loader, by definition. */
+        if( !fd_is_non_migrating_builtin_program( program_id ) ) {
+          fd_log_collector_msg_literal( ctx, "Program is not deployed" );
+        }
         if( FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -2597,22 +2601,22 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 /* Public APIs */
 
 int
-fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
-                                     fd_pubkey_t const *  program_key,
-                                     uchar const *        elf,
-                                     ulong                elf_sz,
-                                     fd_spad_t *          runtime_spad ) {
+fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
+                                     fd_funk_t *               funk,
+                                     fd_funk_txn_xid_t const * xid,
+                                     fd_pubkey_t const *       program_key,
+                                     uchar const *             elf,
+                                     ulong                     elf_sz,
+                                     fd_spad_t *               runtime_spad ) {
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx    = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
-  fd_funk_t *         funk       = slot_ctx->funk;
-  fd_wksp_t *         funk_wksp  = fd_funk_wksp( funk );
-  ulong               funk_gaddr = fd_wksp_gaddr( funk_wksp, funk->shmem );
+  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
 
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
-                                      txn_ctx,
-                                      funk_wksp,
-                                      funk_gaddr,
-                                      NULL );
+  fd_exec_txn_ctx_setup( bank,
+                         funk,
+                         xid,
+                         NULL,
+                         txn_ctx,
+                         NULL );
 
   fd_exec_txn_ctx_setup_basic( txn_ctx );
   txn_ctx->instr_stack_sz = 1;

@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_program_cache_h
 
-#include "../../fd_flamenco_base.h"
-#include "../fd_acc_mgr.h"
-#include "../context/fd_exec_slot_ctx.h"
-#include "../../vm/syscall/fd_vm_syscall.h"
-#include "../fd_system_ids.h"
+#include "../../types/fd_types_custom.h"
+#include "../../../funk/fd_funk_base.h"
+#include "../../../ballet/sbpf/fd_sbpf_loader.h"
 
 /* fd_program_cache contains the core logic for the program cache's
    behavior, including accesses, insertions, updates, and verifies.
@@ -133,11 +131,11 @@
       tiles. Furthermore, we are not allowed to insert / reverify a
       program cache entry more than once within a single slot. This
       guarantees that any read / write accesses for a particular program
-      in the program cache by the exec / writer tiles will occur after
-      the cache entries have been processed by the replay tile in any
-      given slot. Furthermore, if the program was upgraded, the writer
-      tile simply updates a single header in the existing program cache
-      entry `last_slot_modified`, which is behind a blocking write lock.
+      in the program cache by the exec tiles will occur after the cache
+      entries have been processed by the replay tile in any given slot.
+      Furthermore, if the program was upgraded, the exec tile simply
+      updates a single header in the existing program cache entry
+      `last_slot_modified`, which is behind a blocking write lock.
       Note that if there is read-write or write-write-contention
       between two transactions for any accounts, the scheduler will
       ensure that those two transactions are scheduled and finalized
@@ -280,9 +278,11 @@ fd_program_cache_get_account_programdata( fd_funk_t const *         funk,
    current funk transaction and acquire a blocking write lock on the
    cloned funk record. */
 void
-fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_pubkey_t const *  program_key,
-                                 fd_spad_t *          runtime_spad );
+fd_program_cache_update_program( fd_bank_t *               bank,
+                                 fd_funk_t *               funk,
+                                 fd_funk_txn_xid_t const * xid,
+                                 fd_pubkey_t const *       program_key,
+                                 fd_spad_t *               runtime_spad );
 
 /* Queues a single program account for reverification. This function
    queries the cache for an existing entry and queues it for
@@ -300,6 +300,25 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *               fun
                                                    fd_funk_txn_xid_t const * xid,
                                                    fd_pubkey_t const *       program_key,
                                                    ulong                     current_slot );
+
+/* fd_funk_rec_insert_para does thread-safe insertion of a funk record.
+
+   Detailed Behavior:
+
+   More specifically, first this function will query the transaction
+   stack to identify what the youngest transaction with the key is.
+   If a record is found in some ancestor txn or if the
+   record doesn't exist, we will allocate a new account record and add
+   this into the transaction. In either case, the record is set to the
+   given value. */
+
+int
+fd_funk_rec_insert_para( fd_funk_t *               funk,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_funk_rec_key_t const * key,
+                         ulong                     val_align,
+                         ulong                     val_sz,
+                         void *                    val );
 
 FD_PROTOTYPES_END
 

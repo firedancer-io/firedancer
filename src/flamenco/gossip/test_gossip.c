@@ -39,7 +39,7 @@ test_gossip_new_basic( void ) {
 
   ulong               entrypoints_len = 1UL;
   fd_ip4_port_t const entrypoints[1]  = { { .addr = 0x7f000001U, /* 127.0.0.1 */
-                                           .port = fd_ushort_bswap( (ushort)8001 ) } };
+                                            .port = fd_ushort_bswap( (ushort)8001 ) } };
 
   fd_contact_info_t my_ci = {0};
   for( ulong i=0UL; i<32UL; i++ ) my_ci.pubkey.uc[i] = (uchar)i;

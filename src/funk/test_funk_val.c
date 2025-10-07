@@ -4,7 +4,7 @@
 
 #include "test_funk_common.h"
 
-FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX==UINT_MAX, unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_VAL_MAX==268435455UL, unit_test );
 
 int
 main( int     argc,
@@ -88,22 +88,11 @@ main( int     argc,
 
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
 
-      if( rrec->erase ) {
+      FD_TEST( _val && FD_LOAD( uint, _val )==rrec->val );
 
-        FD_TEST( !_val );
-
-        FD_TEST( !fd_funk_val_sz   ( trec ) );
-        FD_TEST( !fd_funk_val_max  ( trec ) );
-        FD_TEST( !fd_funk_val_const( trec, wksp ) );
-
-      } else {
-
-        FD_TEST( _val && FD_LOAD( uint, _val )==rrec->val );
-
-        FD_TEST( fd_funk_val_sz   ( trec       )==sizeof(uint)       );
-        FD_TEST( fd_funk_val_max  ( trec       )>=sizeof(uint)       );
-        FD_TEST( fd_funk_val_const( trec, wksp )==(void const *)_val );
-      }
+      FD_TEST( fd_funk_val_sz   ( trec       )==sizeof(uint)       );
+      FD_TEST( fd_funk_val_max  ( trec       )>=sizeof(uint)       );
+      FD_TEST( fd_funk_val_const( trec, wksp )==(void const *)_val );
 
       rrec = rrec->map_next;
     }
@@ -151,25 +140,6 @@ main( int     argc,
       TEST_TAIL_PADDING( 4UL );
 
     } else if( op>=18UL ) { /* Remove and insert at same rate */
-
-      if( FD_UNLIKELY( !ref->rec_cnt ) ) continue;
-
-      ulong   idx = fd_rng_ulong_roll( rng, ref->rec_cnt );
-      rec_t * rrec = ref->rec_map_head; for( ulong rem=idx; rem; rem-- ) rrec = rrec->map_next;
-
-      ulong rxid;
-      if( rrec->txn ) {
-        if( txn_is_frozen( rrec->txn ) ) continue;
-        rxid = rrec->txn->xid;
-      } else {
-        if( funk_is_frozen( ref ) ) continue;
-        rxid = ref->last_publish;
-      }
-      ulong rkey = rrec->key;
-
-      rec_remove( ref, rrec );
-
-      FD_TEST( !fd_funk_rec_remove( tst, xid_set( txid, rxid ), key_set( tkey, rkey ), NULL ) );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 

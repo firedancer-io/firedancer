@@ -56,7 +56,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
 
   /* Allocate rodata segment */
 
-  void * rodata = malloc( elf_info.rodata_footprint );
+  void * rodata = malloc( elf_info.bin_sz );
   FD_TEST( rodata );
 
   /* Allocate program buffer */
@@ -75,7 +75,7 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
 
   /* Load program */
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config ) ) )
-    FD_LOG_ERR(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_ERR(( "fd_sbpf_program_load() failed" ));
 
   tool_prog->bin_buf  = bin_buf;
   tool_prog->prog     = prog;
@@ -101,13 +101,13 @@ cmd_disasm( char const * bin_path ) {
   /* FIXME: WOULD DISASM BENEFIT BY ANNOTATING THE ENTRY PC AND/OR THE
      CALLDESTS? */
 
-  ulong  out_max = 128UL*tool_prog.prog->text_cnt; /* FIXME: OVERFLOW */
+  ulong  out_max = 128UL*tool_prog.prog->info.text_cnt; /* FIXME: OVERFLOW */
   ulong  out_len = 0UL;
   char * out     = (char *)malloc( out_max ); /* FIXME: GROSS */
   if( FD_UNLIKELY( !out ) ) FD_LOG_ERR(( "malloc failed" ));
   out[0] = '\0';
 
-  int err = fd_vm_disasm_program( tool_prog.prog->text, tool_prog.prog->text_cnt, tool_prog.syscalls, out, out_max, &out_len );
+  int err = fd_vm_disasm_program( tool_prog.prog->text, tool_prog.prog->info.text_cnt, tool_prog.syscalls, out, out_max, &out_len );
 
   puts( out );
 
@@ -126,8 +126,8 @@ cmd_validate( char const * bin_path ) {
 
   fd_vm_t vm = {
     .text      = tool_prog.prog->text,
-    .text_cnt  = tool_prog.prog->text_cnt,
-    .text_off  = tool_prog.prog->text_off,
+    .text_cnt  = tool_prog.prog->info.text_cnt,
+    .text_off  = tool_prog.prog->info.text_off,
     .entry_pc  = tool_prog.prog->entry_pc,
     .calldests = tool_prog.prog->calldests,
     .syscalls  = tool_prog.syscalls,
@@ -216,7 +216,7 @@ cmd_trace( char const * bin_path,
     .rodata                = tool_prog.prog->rodata,
     .rodata_sz             = tool_prog.prog->rodata_sz,
     .text                  = tool_prog.prog->text,
-    .text_cnt              = tool_prog.prog->text_cnt,
+    .text_cnt              = tool_prog.prog->info.text_cnt,
     .text_off              = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
     .entry_pc              = tool_prog.prog->entry_pc,
     .calldests             = tool_prog.prog->calldests,
@@ -277,7 +277,7 @@ cmd_run( char const * bin_path,
     .rodata                = tool_prog.prog->rodata,
     .rodata_sz             = tool_prog.prog->rodata_sz,
     .text                  = tool_prog.prog->text,
-    .text_cnt              = tool_prog.prog->text_cnt,
+    .text_cnt              = tool_prog.prog->info.text_cnt,
     .text_off              = (ulong)tool_prog.prog->text - (ulong)tool_prog.prog->rodata,
     .entry_pc              = tool_prog.prog->entry_pc,
     .calldests             = tool_prog.prog->calldests,

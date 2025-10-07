@@ -175,12 +175,11 @@ fd_funk_txn_cancel_childless( fd_funk_t * funk,
   while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
 
     if( FD_UNLIKELY( rec_idx>=rec_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
-    if( FD_UNLIKELY( fd_funk_txn_idx( rec_pool->ele[ rec_idx ].txn_cidx )!=txn_idx ) )
+    if( FD_UNLIKELY( !fd_funk_txn_xid_eq( rec_pool->ele[ rec_idx ].pair.xid, &txn->xid ) ) )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
 
     fd_funk_rec_t * rec = &rec_pool->ele[ rec_idx ];
     uint next_idx = rec->next_idx;
-    rec->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     for(;;) {
       fd_funk_rec_map_query_t rec_query[1];
@@ -406,7 +405,12 @@ fd_funk_txn_cancel_children( fd_funk_t *               funk,
 
 void
 fd_funk_txn_remove_published( fd_funk_t * funk ) {
+  /* Prevent new funk txn objects from spawning */
+  if( FD_UNLIKELY( fd_funk_txn_pool_lock( funk->txn_pool, 1 )!=FD_POOL_SUCCESS ) ) {
+    FD_LOG_CRIT(( "Failed to remove published txns: fd_funk_txn_pool_lock failed" ));
+  }
   if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
+    fd_funk_txn_pool_unlock( funk->txn_pool );
     FD_LOG_ERR(( "Failed to remove published txns: there are still txns in preparation" ));
   }
 
@@ -418,33 +422,44 @@ fd_funk_txn_remove_published( fd_funk_t * funk ) {
   /* Iterate over all funk records and remove them */
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    /* FIXME: Chains could be locked while iterating if the remove API
+              supported  */
+    //ulong lock_seq[1] = {chain_idx};
+    //int lock_err = fd_funk_rec_map_iter_lock( rec_map, lock_seq, 1UL, FD_MAP_FLAG_BLOCKING );
+    //if( FD_UNLIKELY( lock_err!=FD_MAP_SUCCESS ) ) {
+    //  FD_LOG_CRIT(( "fd_funk_rec_map_iter_lock failed (%i-%s)", lock_err, fd_map_strerror( lock_err ) ));
+    //}
     for(
         fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
         !fd_funk_rec_map_iter_done( iter );
-        iter = fd_funk_rec_map_iter_next( iter )
     ) {
-      /* Get handle to rec object */
       fd_funk_rec_t * rec = fd_funk_rec_map_iter_ele( iter );
-
-      /* Sanity check: Record belongs to last published XID */
-      if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( rec->txn_cidx ) ) ) ) {
-        FD_LOG_ERR(( "Failed to remove published txns: concurrent in-prep record detected" ));
-      }
+      ulong next = fd_funk_rec_map_private_idx( rec->map_next );;
 
       /* Remove rec object from map */
       fd_funk_rec_map_query_t rec_query[1];
-      int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( iter.ele ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      int err = fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      fd_funk_rec_key_t key; fd_funk_rec_key_copy( &key, rec->pair.key );
       if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
 
+      /* Sanity check: Record belongs to last published XID */
+      if( FD_UNLIKELY( !fd_funk_txn_xid_eq_root( rec->pair.xid ) ) ) {
+        FD_LOG_ERR(( "Failed to remove published txns: concurrent in-prep record detected" ));
+      }
+
       /* Free rec resources */
-      fd_funk_val_flush( fd_funk_rec_map_iter_ele( iter ), alloc, wksp );
+      fd_funk_val_flush( rec, alloc, wksp );
       fd_funk_rec_pool_release( rec_pool, rec, 1 );
+      iter.ele_idx = next;
     }
+    //fd_funk_rec_map_iter_unlock( rec_map, lock_seq, 1UL );
   }
 
   /* Reset 'last published' XID to 'root' XID */
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
   fd_funk_last_publish_transition( funk->shmem, &root_xid );
+
+  fd_funk_txn_pool_unlock( funk->txn_pool );
 }
 
 /* Cancel all outstanding transactions */
@@ -470,22 +485,18 @@ fd_funk_txn_cancel_all( fd_funk_t * funk ) {
    Transaction txn_idx will have an _empty_ record list.
 
    Updates in the transaction txn_idx are processed from oldest to
-   youngest.  If an update erases an existing record in dest, the record
-   to erase is removed from the destination records without perturbing
-   the order of remaining destination records.  If an update is to
-   update an existing record, the destination record value is updated
-   and the order of the destination records is unchanged.  If an update
-   is to create a new record, the record is appended to the list of
-   existing values as youngest without changing the order of existing
-   values.  If an update erases a record in an in-prep parent, the
-   erasure will be moved into the parent as the youngest without
-   changing the order of existing values. */
+   youngest.  If an update is to update an existing record, the
+   destination record value is updated and the order of the destination
+   records is unchanged.  If an update is to create a new record, the
+   record is appended to the list of existing values as youngest without
+   changing the order of existing values.  If an update erases a record
+   in an in-prep parent, the erasure will be moved into the parent as
+   the youngest without changing the order of existing values. */
 
 static void
 fd_funk_txn_update( fd_funk_t *               funk,
                     uint *                    _dst_rec_head_idx, /* Pointer to the dst list head */
                     uint *                    _dst_rec_tail_idx, /* Pointer to the dst list tail */
-                    ulong                     dst_txn_idx,       /* Transaction index of the merge destination */
                     fd_funk_txn_xid_t const * dst_xid,           /* dst xid */
                     ulong                     txn_idx ) {        /* Transaction index of the records to merge */
   fd_wksp_t *          wksp     = funk->wksp;
@@ -493,13 +504,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
   fd_funk_rec_map_t *  rec_map  = funk->rec_map;
   fd_funk_rec_pool_t * rec_pool = funk->rec_pool;
   fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
-
-  int const critical = _dst_rec_head_idx==NULL;
-  if( critical ) {
-    /* If the root transaction is being updated, we need to mark
-       the beginning of a critical section becuase fd_funk_purify can't fix it */
-    fd_begin_crit( funk );
-  }
 
   fd_funk_txn_t * txn = &txn_pool->ele[ txn_idx ];
   fd_funk_txn_state_assert( txn, FD_FUNK_TXN_STATE_PUBLISH );
@@ -534,7 +538,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
       }
       /* Clean up value */
       fd_funk_val_flush( rec2, alloc, wksp );
-      rec2->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
       fd_funk_rec_pool_release( rec_pool, rec2, 1 );
       break;
     }
@@ -547,7 +550,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
        property. */
 
     rec->pair.xid[0] = *dst_xid;
-    rec->txn_cidx = fd_funk_txn_cidx( dst_txn_idx );
 
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     if( _dst_rec_head_idx ) {
@@ -566,10 +568,6 @@ fd_funk_txn_update( fd_funk_t *               funk,
 
   txn_pool->ele[ txn_idx ].rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn_pool->ele[ txn_idx ].rec_tail_idx = FD_FUNK_REC_IDX_NULL;
-
-  if( critical ) {
-    fd_end_crit( funk );
-  }
 }
 
 /* fd_funk_txn_publish_funk_child publishes a transaction that is known
@@ -585,7 +583,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t * const funk,
 
   /* Apply the updates in txn to the last published transactions */
 
-  fd_funk_txn_update( funk, NULL, NULL, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+  fd_funk_txn_update( funk, NULL, NULL, fd_funk_root( funk ), txn_idx );
 
   /* Cancel all competing transaction histories */
 
@@ -716,13 +714,13 @@ fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
   ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
   if( fd_funk_txn_idx_is_null( parent_idx ) ) {
     /* Publish to root */
-    fd_funk_txn_update( funk, NULL, NULL, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ), txn_idx );
+    fd_funk_txn_update( funk, NULL, NULL, fd_funk_root( funk ), txn_idx );
     /* Inherit the children */
     funk->shmem->child_head_cidx = txn->child_head_cidx;
     funk->shmem->child_tail_cidx = txn->child_tail_cidx;
   } else {
     fd_funk_txn_t * parent_txn = &txn_pool->ele[ parent_idx ];
-    fd_funk_txn_update( funk, &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid, txn_idx );
+    fd_funk_txn_update( funk, &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, &parent_txn->xid, txn_idx );
     /* Inherit the children */
     parent_txn->child_head_cidx = txn->child_head_cidx;
     parent_txn->child_tail_cidx = txn->child_tail_cidx;
@@ -795,46 +793,6 @@ fd_funk_generate_xid(void) {
     (++seq)*6208101967UL;
   xid.ul[1] = ((ulong)fd_tickcount())*2810745731UL;
   return xid;
-}
-
-static void
-fd_funk_txn_all_iter_skip_nulls( fd_funk_txn_all_iter_t * iter ) {
-  if( iter->chain_idx == iter->chain_cnt ) return;
-  while( fd_funk_txn_map_iter_done( iter->txn_map_iter ) ) {
-    if( ++(iter->chain_idx) == iter->chain_cnt ) break;
-    iter->txn_map_iter = fd_funk_txn_map_iter( &iter->txn_map, iter->chain_idx );
-  }
-}
-
-void
-fd_funk_txn_all_iter_new( fd_funk_t *              funk,
-                          fd_funk_txn_all_iter_t * iter ) {
-  iter->txn_map = *funk->txn_map;
-  iter->chain_cnt = fd_funk_txn_map_chain_cnt( funk->txn_map );
-  iter->chain_idx = 0;
-  iter->txn_map_iter = fd_funk_txn_map_iter( funk->txn_map, 0 );
-  fd_funk_txn_all_iter_skip_nulls( iter );
-}
-
-int
-fd_funk_txn_all_iter_done( fd_funk_txn_all_iter_t * iter ) {
-  return ( iter->chain_idx == iter->chain_cnt );
-}
-
-void
-fd_funk_txn_all_iter_next( fd_funk_txn_all_iter_t * iter ) {
-  iter->txn_map_iter = fd_funk_txn_map_iter_next( iter->txn_map_iter );
-  fd_funk_txn_all_iter_skip_nulls( iter );
-}
-
-fd_funk_txn_t const *
-fd_funk_txn_all_iter_ele_const( fd_funk_txn_all_iter_t * iter ) {
-  return fd_funk_txn_map_iter_ele_const( iter->txn_map_iter );
-}
-
-fd_funk_txn_t *
-fd_funk_txn_all_iter_ele( fd_funk_txn_all_iter_t * iter ) {
-  return fd_funk_txn_map_iter_ele( iter->txn_map_iter );
 }
 
 int

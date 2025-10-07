@@ -427,6 +427,7 @@ metric introduced.
 </enum>
 
 <tile name="resolf">
+    <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
@@ -778,7 +779,17 @@ metric introduced.
   <histogram name="StorePublishWork" min="0.00000001" max="0.001" converter="seconds">
     <summary>Time in seconds spent on publishing a new FEC set</summary>
   </histogram>
-  <counter name="MaxReplayedSlot"  summary="The largest slot that we have replayed" />
+
+  <gauge name="RootSlot" summary="The slot at which our node has most recently rooted" />
+  <gauge name="RootDistance" summary="The distance in slots between our current root and the current reset slot" />
+  <gauge name="LeaderSlot" summary="The slot at which we are currently leader, or 0 if none" />
+  <gauge name="NextLeaderSlot" summary="The slot at which we are next leader, or 0 if none. If we are currently leader, this is the same as the current leader slot" />
+  <gauge name="ResetSlot" summary="The slot at which we last reset the replay stage, or 0 if unknown" />
+  <gauge name="MaxLiveBanks" summary="The maximum number of banks we can have alive" />
+  <gauge name="LiveBanks" summary="The number of banks we currently have alive" />
+
+  <counter name="SlotsTotal" summary="Count of slots replayed successfully" />
+  <counter name="TransactionsTotal" summary="Count of transactions processed overall on the current fork" />
 </tile>
 
 <tile name="storei">
@@ -1013,6 +1024,9 @@ metric introduced.
     <gauge name="IncrementalBytesWritten" summary="Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
+    <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
+    <gauge name="GossipFreshCount" summary="Number of fresh gossip peers seen when collecting gossip peers. " />
+    <gauge name="GossipTotalCount" summary="Number of total gossip peers seen when collecting gossip peers. " />
 </tile>
 
 <tile name="snapdc">

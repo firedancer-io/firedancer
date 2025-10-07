@@ -2,11 +2,11 @@
 
 #include "../../../util/fd_util.h"
 
-static void
-entry_cb_no_err( void *                        _ctx,
-                fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
+typedef void
+(* entry_cb_t)( fd_sstxncache_entry_t const * entry );
 
+static void
+entry_cb_no_err( fd_sstxncache_entry_t const * entry ) {
   FD_TEST( entry->slot==1000UL );
   FD_TEST( entry->blockhash[0]==1 && entry->blockhash[1]==2 && entry->blockhash[2]==3 );
   FD_TEST( entry->txnhash[0]==4 && entry->txnhash[1]==5 && entry->txnhash[2]==6 );
@@ -14,10 +14,7 @@ entry_cb_no_err( void *                        _ctx,
 }
 
 static void
-entry_cb_with_txn_err( void *                    _ctx,
-                       fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_with_txn_err( fd_sstxncache_entry_t const * entry ) {
   FD_TEST( entry->slot==1000UL );
   FD_TEST( entry->blockhash[0]==1 && entry->blockhash[1]==2 && entry->blockhash[2]==3 );
   FD_TEST( entry->txnhash[0]==4 && entry->txnhash[1]==5 && entry->txnhash[2]==6 );
@@ -25,10 +22,7 @@ entry_cb_with_txn_err( void *                    _ctx,
 }
 
 static void
-entry_cb_with_txn_custom_err( void *                    _ctx,
-                              fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_with_txn_custom_err( fd_sstxncache_entry_t const * entry ) {
   FD_TEST( entry->slot==1000UL );
   FD_TEST( entry->blockhash[0]==1 && entry->blockhash[1]==2 && entry->blockhash[2]==3 );
   FD_TEST( entry->txnhash[0]==4 && entry->txnhash[1]==5 && entry->txnhash[2]==6 );
@@ -36,10 +30,7 @@ entry_cb_with_txn_custom_err( void *                    _ctx,
 }
 
 static void
-entry_cb_with_instr_err( void *                        _ctx,
-                         fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_with_instr_err( fd_sstxncache_entry_t const * entry ) {
   FD_TEST( entry->slot==1000UL );
   FD_TEST( entry->blockhash[0]==1 && entry->blockhash[1]==2 && entry->blockhash[2]==3 );
   FD_TEST( entry->txnhash[0]==4 && entry->txnhash[1]==5 && entry->txnhash[2]==6 );
@@ -47,10 +38,7 @@ entry_cb_with_instr_err( void *                        _ctx,
 }
 
 static void
-entry_cb_with_instr_custom_err( void *                        _ctx,
-                                fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_with_instr_custom_err( fd_sstxncache_entry_t const * entry ) {
   FD_TEST( entry->slot==1000UL );
   FD_TEST( entry->blockhash[0]==1 && entry->blockhash[1]==2 && entry->blockhash[2]==3 );
   FD_TEST( entry->txnhash[0]==4 && entry->txnhash[1]==5 && entry->txnhash[2]==6 );
@@ -58,10 +46,7 @@ entry_cb_with_instr_custom_err( void *                        _ctx,
 }
 
 static void
-entry_cb_with_instr_borsh_io_err( void *                        _ctx,
-                                  fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_with_instr_borsh_io_err( fd_sstxncache_entry_t const * entry ) {
   FD_TEST( entry->slot==1000UL );
   FD_TEST( entry->blockhash[0]==1 && entry->blockhash[1]==2 && entry->blockhash[2]==3 );
   FD_TEST( entry->txnhash[0]==4 && entry->txnhash[1]==5 && entry->txnhash[2]==6 );
@@ -69,10 +54,7 @@ entry_cb_with_instr_borsh_io_err( void *                        _ctx,
 }
 
 static void
-entry_cb_multiple( void *                        _ctx,
-                   fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_multiple( fd_sstxncache_entry_t const * entry ) {
   static uint call_cnt = 0U;
   if( FD_LIKELY( call_cnt<7 ) ) FD_TEST( entry->slot==1000UL );
   else                          FD_TEST( entry->slot==1001UL );
@@ -94,10 +76,7 @@ entry_cb_multiple( void *                        _ctx,
 }
 
 static void
-entry_cb_multiple_v2( void *                     _ctx,
-                   fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-
+entry_cb_multiple_v2( fd_sstxncache_entry_t const * entry ) {
   static uint call_cnt = 0U;
   if( FD_LIKELY( call_cnt<6 ) ) FD_TEST( entry->slot==1000UL );
   else                          FD_TEST( entry->slot==1002UL );
@@ -114,14 +93,6 @@ entry_cb_multiple_v2( void *                     _ctx,
 
   call_cnt++;
   if( FD_LIKELY( call_cnt==11U ) ) call_cnt=0U;
-}
-
-static void
-entry_cb_noop( void *                        _ctx,
-               fd_sstxncache_entry_t const * entry ) {
-  (void)_ctx;
-  (void)entry;
-  FD_TEST( 1==2 ); /* should not be called */
 }
 
 static void
@@ -317,120 +288,89 @@ mock_slot_delta_input( uchar * input,
 }
 
 static void
-consume_piecewise( fd_slot_delta_parser_t * parser,
-                   uchar const *            input,
-                   ulong                    input_sz,
-                   ulong                    chunk_sz,
-                   int                      expected_result ) {
+consume( fd_slot_delta_parser_t * parser,
+                   uchar const *  input,
+                   ulong          input_sz,
+                   entry_cb_t     cb,
+                   int            expect_err,
+                   int            expected_err_code ) {
+  fd_slot_delta_parser_advance_result_t result[1];
   ulong bytes = input_sz;
-  uchar const * p = input;
   while( bytes ) {
-    if( FD_LIKELY( bytes>chunk_sz ) ) {
-      FD_TEST( fd_slot_delta_parser_consume( parser, p, chunk_sz )==1 );
-      bytes -= chunk_sz;
-      p     += chunk_sz;
-    } else {
-      FD_TEST( fd_slot_delta_parser_consume( parser, p, bytes )==expected_result );
-      bytes = 0UL;
-      p    += bytes;
+    int res = fd_slot_delta_parser_consume( parser, input, bytes, result );
+
+    if( FD_LIKELY( res==FD_SLOT_DELTA_PARSER_ADVANCE_ENTRY ) ) {
+      cb( result->entry );
+    } else if( res==FD_SLOT_DELTA_PARSER_ADVANCE_DONE ) {
+      break;
+    } else if( res<0 ) {
+      FD_TEST( expect_err );
+      FD_TEST( res==expected_err_code );
+      return;
     }
+
+    input += result->bytes_consumed;
+    bytes -= result->bytes_consumed;
   }
 }
 
 static void
 test_one_entry( fd_slot_delta_parser_t * parser ) {
   uchar input[ 97UL ];
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_no_err, NULL );
-
+  fd_slot_delta_parser_init( parser );
   mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_NONE, 0 );
-
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  /* consume piece wise */
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_no_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 20UL, 0 );
-
-  /* consume piece wise */
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_no_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  consume( parser, input, sizeof(input), entry_cb_no_err, 0, 0 );
 }
 
 static void
 test_one_entry_not_root( fd_slot_delta_parser_t * parser ) {
   uchar input[ 97UL ];
   mock_one_input_with_error( input, sizeof(input), 0, 1000UL, MOCK_ERROR_TYPE_NONE, 0 );
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_no_err, NULL );
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==FD_SLOT_DELTA_PARSER_ERROR_SLOT_IS_NOT_ROOT );
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_no_err, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_IS_NOT_ROOT );
 }
 
 static void
 test_one_entry_with_txn_error( fd_slot_delta_parser_t * parser ) {
   uchar input[ 101UL ];
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_txn_err, NULL );
+  fd_slot_delta_parser_init( parser );
   mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_TXN, 42U );
-
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_txn_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  consume( parser, input, sizeof(input), entry_cb_with_txn_err, 0, 0 );
 }
 
 static void
 test_one_entry_with_txn_custom_error( fd_slot_delta_parser_t * parser ) {
   uchar input[ 102UL ];
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_txn_custom_err, NULL );
+  fd_slot_delta_parser_init( parser );
 
   mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_TXN_CUSTOM, 12U );
-
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_txn_custom_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  consume( parser, input, sizeof(input), entry_cb_with_txn_custom_err, 0, 0 );
 }
 
 static void
 test_one_entry_with_instr_error( fd_slot_delta_parser_t * parser ) {
   uchar input[ 106UL ];
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_instr_err, NULL );
+  fd_slot_delta_parser_init( parser );
 
   mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_INSTR, 15U );
-
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_instr_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  consume( parser, input, sizeof(input), entry_cb_with_instr_err, 0, 0 );
 }
 
 static void
 test_one_entry_with_instr_custom_error( fd_slot_delta_parser_t * parser ) {
   uchar input[ 110UL ];
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_instr_custom_err, NULL );
+  fd_slot_delta_parser_init( parser );
 
   mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_INSTR_CUSTOM, 16U );
-
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_instr_custom_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  consume( parser, input, sizeof(input), entry_cb_with_instr_custom_err, 0, 0 );
 }
 
 static void
 test_one_entry_with_instr_borsh_io_error( fd_slot_delta_parser_t * parser ) {
   uchar input[ 122UL ];
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_instr_borsh_io_err, NULL );
-
+  fd_slot_delta_parser_init( parser );
   mock_one_input_with_error( input, sizeof(input), 1, 1000UL, MOCK_ERROR_TYPE_INSTR_BORSH_IO, 0U );
-
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_with_instr_borsh_io_err, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  consume( parser, input, sizeof(input), entry_cb_with_instr_borsh_io_err, 0, 0 );
 }
 
 static void
@@ -444,13 +384,8 @@ test_multiple_entries( fd_slot_delta_parser_t * parser ) {
 
   uchar * p = mock_slot_delta_input( input, sizeof(input), 3UL, slots, num_statuses, num_cache_statuses, error_types, error_codes );
   FD_TEST( (ulong)(p - input)==627UL );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_multiple, NULL );
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_multiple, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_multiple, 0, 0 );
 }
 
 static void
@@ -464,13 +399,8 @@ test_multiple_entries_v2( fd_slot_delta_parser_t * parser ) {
 
   uchar * p = mock_slot_delta_input( input, sizeof(input), 3UL, slots, num_statuses, num_cache_statuses, error_types, error_codes );
   FD_TEST( (ulong)(p - input)==577UL );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_multiple_v2, NULL );
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_multiple_v2, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_multiple_v2, 0, 0 );
 }
 
 static void
@@ -482,13 +412,8 @@ test_multiple_slot_deltas_no_entries( fd_slot_delta_parser_t * parser ) {
 
   uchar * p = mock_slot_delta_input( input, sizeof(input), 3UL, slots, num_statuses, num_cache_statuses, NULL, NULL );
   FD_TEST( (ulong)(p - input)==203UL );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_noop, NULL );
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==0 );
-
-  fd_slot_delta_parser_init( parser, NULL, entry_cb_noop, NULL );
-  consume_piecewise( parser, input, sizeof(input), 3UL, 0 );
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_multiple_v2, 1, 0 );
 }
 
 static void
@@ -502,10 +427,8 @@ test_duplicate_slots( fd_slot_delta_parser_t * parser ) {
 
   uchar * p = mock_slot_delta_input( input, sizeof(input), 3UL, slots, num_statuses, num_cache_statuses, error_types, error_codes );
   FD_TEST( (ulong)(p - input)==577UL );
-
-  fd_slot_delta_parser_init( parser, NULL, NULL, NULL );
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==FD_SLOT_DELTA_PARSER_ERROR_SLOT_HASH_MULTIPLE_ENTRIES );
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_multiple_v2, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_SLOT_HASH_MULTIPLE_ENTRIES );
 }
 
 static void
@@ -521,10 +444,8 @@ test_too_many_entries( fd_slot_delta_parser_t * parser ) {
 
   uchar * p = mock_slot_delta_input( input, sizeof(input), 301UL, slots, num_statuses, NULL, NULL, NULL );
   FD_TEST( (ulong)(p - input)==5125UL );
-
-  fd_slot_delta_parser_init( parser, NULL, NULL, NULL );
-  /* consume all at once */
-  FD_TEST( fd_slot_delta_parser_consume( parser, input, sizeof(input) )==FD_SLOT_DELTA_PARSER_ERROR_TOO_MANY_ENTRIES );
+  fd_slot_delta_parser_init( parser );
+  consume( parser, input, sizeof(input), entry_cb_multiple_v2, 1, FD_SLOT_DELTA_PARSER_ADVANCE_ERROR_TOO_MANY_ENTRIES );
 }
 
 int main( int     argc,

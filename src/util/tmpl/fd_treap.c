@@ -220,11 +220,19 @@
      myele_t *       mytreap_ele_query      ( mytreap_t *       treap, char const * q, myele_t *       pool );
      myele_t const * mytreap_ele_query_const( mytreap_t const * treap, char const * q, myele_t const * pool );
 
-     // my_treap_idx_ge returns the index of the smallest element
-     // in the treap that is not less than q. If no such element exists,
-     // it returns idx_null
+     // my_treap_idx_{ge,gt} return the index of the smallest element
+     // in the treap that is {not less,strictly greater} than q.
+     // my_treap_idx_{le,lt} return the index of the largest element
+     // in the treap that is {not greater,strictly less} than q.
+     // If no such element exists, they return idx_null
+     // If the treap contains duplicate keys, any element with the
+     // key satisfying the query is returned. E.g. if treap contains
+     // {7,7,9}, lt(8) may return either of the 2 elements with key 7.
 
      ulong mytreap_idx_ge( mytreap_t const * treap, TREAP_QUERY_T * q, myele_t const * pool );
+     ulong mytreap_idx_gt( mytreap_t const * treap, TREAP_QUERY_T * q, myele_t const * pool );
+     ulong mytreap_idx_le( mytreap_t const * treap, TREAP_QUERY_T * q, myele_t const * pool );
+     ulong mytreap_idx_lt( mytreap_t const * treap, TREAP_QUERY_T * q, myele_t const * pool );
 
      // mytreap_idx_{insert,remove} inserts / removes element n/d into
      // the treap and returns treap.  Assumes treap is a current local
@@ -493,6 +501,9 @@ TREAP_STATIC /**/        void *      TREAP_(delete)   ( void *      shtreap     
 
 TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_query)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
 TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_ge)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
+TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_gt)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
+TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_le)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
+TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_lt)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
 
 TREAP_STATIC TREAP_(t) * TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * pool );
 TREAP_STATIC TREAP_(t) * TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * pool );
@@ -688,27 +699,42 @@ TREAP_(delete)( void * shtreap ) {
   return shtreap;
 }
 
-TREAP_STATIC ulong
-TREAP_(idx_ge)( TREAP_(t) const * treap,
-                TREAP_QUERY_T     q,
-                TREAP_T const *   pool ) {
-  ulong i         = (ulong)treap->root;
-  ulong candidate = TREAP_IDX_NULL;
+/* Template for binary search operations. Parameterized by:
+   - name: function suffix (ge/gt/le/lt)
+   - CMP: the corresponding comparator
 
-  while( FD_LIKELY( !TREAP_IDX_IS_NULL(i) ) ) {
-    ulong l = (ulong)pool[i].TREAP_LEFT;
-    ulong r = (ulong)pool[i].TREAP_RIGHT;
-    int   c = TREAP_(cmp)( q, pool + i );
-    if( FD_UNLIKELY( !c ) ) {
-      candidate = i;
-      break;
-    }
-
-    candidate = fd_ulong_if( c<0, i, candidate );
-    i         = fd_ulong_if( c<0, l, r         );
-  }
-  return candidate;
+  move_cmp is used to decide when to go left.
+    - If le or lt, go left if c<=0.
+    - Else, go left if c<0, which is equivalent to c<=-1 */
+#define TREAP_CMP_QUERY_IMPL(name, CMP)               \
+TREAP_STATIC ulong                                    \
+TREAP_(idx_##name)( TREAP_(t) const * treap,          \
+                    TREAP_QUERY_T     q,              \
+                    TREAP_T const *   pool ) {        \
+  int const allow_eq = 0 CMP 0;                       \
+  int const move_cmp = 0 - (1 CMP 0);                 \
+  ulong i         = (ulong)treap->root;               \
+  ulong candidate = TREAP_IDX_NULL;                   \
+                                                      \
+  while( FD_LIKELY( !TREAP_IDX_IS_NULL(i) ) ) {       \
+    ulong l = (ulong)pool[i].TREAP_LEFT;              \
+    ulong r = (ulong)pool[i].TREAP_RIGHT;             \
+    int   c = TREAP_(cmp)( q, pool + i );             \
+    if( allow_eq && FD_UNLIKELY( !c ) ) {             \
+      candidate = i;                                  \
+      break;                                          \
+    }                                                 \
+                                                      \
+    candidate = fd_ulong_if( 0 CMP c, i, candidate ); \
+    i         = fd_ulong_if( c<=move_cmp, l, r );     \
+  }                                                   \
+  return candidate;                                   \
 }
+
+TREAP_CMP_QUERY_IMPL(ge, >=)
+TREAP_CMP_QUERY_IMPL(gt, > )
+TREAP_CMP_QUERY_IMPL(le, <=)
+TREAP_CMP_QUERY_IMPL(lt, < )
 
 TREAP_STATIC ulong
 TREAP_(idx_query)( TREAP_(t) const * treap,

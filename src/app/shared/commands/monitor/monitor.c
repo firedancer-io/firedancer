@@ -576,7 +576,7 @@ monitor_cmd_fn( args_t *   args,
   allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
   allow_fds[ allow_fds_cnt++ ] = 1; /* stdout */
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
-  if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 && fd_log_private_logfile_fd()!=1 ) )
+  if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   if( FD_UNLIKELY( args->monitor.drain_output_fd!=-1 ) )
     allow_fds[ allow_fds_cnt++ ] = args->monitor.drain_output_fd; /* maybe we are interposing firedancer log output with the monitor */
@@ -592,6 +592,7 @@ monitor_cmd_fn( args_t *   args,
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       0,
                       0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */

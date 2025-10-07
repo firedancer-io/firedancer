@@ -18,7 +18,10 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the stake history sysvar account. */
 void
-fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_stake_history_init( fd_bank_t *               bank,
+                              fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              fd_capture_ctx_t *        capture_ctx );
 
 /* fd_sysvar_stake_history_read reads the stake history sysvar from funk.
    If the account doesn't exist in funk or if the account has zero
@@ -31,7 +34,10 @@ fd_sysvar_stake_history_read( fd_funk_t *               funk,
 
 /* Update the stake history sysvar account - called during epoch boundary */
 void
-fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *                        slot_ctx,
+fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
+                                fd_funk_t *                                 funk,
+                                fd_funk_txn_xid_t const *                   xid,
+                                fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair,
                                 fd_spad_t *                                 runtime_spad );
 

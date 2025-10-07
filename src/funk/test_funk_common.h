@@ -140,10 +140,6 @@ rec_insert( funk_t * funk,
             txn_t *  txn,
             ulong    key );
 
-void
-rec_remove( funk_t * funk,
-            rec_t *  rec );
-
 /* Mini funk API */
 
 funk_t *

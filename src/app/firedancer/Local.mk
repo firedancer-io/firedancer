@@ -1,8 +1,8 @@
 include src/app/firedancer/version.mk
-$(shell echo "#define FIREDANCER_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/firedancer/version2.h)
-$(shell echo "#define FIREDANCER_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/firedancer/version2.h)
-$(shell echo "#define FIREDANCER_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/firedancer/version2.h)
-$(shell echo "#define FIREDANCER_VERSION \"$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH)\"" >> src/app/firedancer/version2.h)
+$(shell echo "#define FIREDANCER_MAJOR_VERSION $(VERSION_MAJOR)"                          >  src/app/firedancer/version2.h)
+$(shell echo "#define FIREDANCER_MINOR_VERSION $(VERSION_MINOR)"                          >> src/app/firedancer/version2.h)
+$(shell echo "#define FIREDANCER_PATCH_VERSION $(VERSION_PATCH)"                          >> src/app/firedancer/version2.h)
+$(shell echo "#define FIREDANCER_VERSION \"$(VERSION_MAJOR).$(VERSION_MINOR).$(VERSION_PATCH)\"" >> src/app/firedancer/version2.h)
 $(shell echo '#define FIREDANCER_COMMIT_REF_CSTR "$(FIREDANCER_CI_COMMIT)"'                          >> src/app/firedancer/version2.h)
 $(shell echo "#define FIREDANCER_COMMIT_REF_U32 0x$(shell echo $(FIREDANCER_CI_COMMIT) | cut -c -8)" >> src/app/firedancer/version2.h)
 

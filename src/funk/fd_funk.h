@@ -141,7 +141,6 @@
      fd_funk_rec_prepare
      fd_funk_rec_publish
      fd_funk_rec_cancel
-     fd_funk_rec_remove
 */
 
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
@@ -327,16 +326,6 @@ fd_funk_t *
 fd_funk_join( fd_funk_t * ljoin,
               void *      shfunk );
 
-/* fd_funk_purify attempts to clean up a possibly corrupt funk
-   instance. The shfunk argument is what would normally be passed to
-   join, and purify should be used BEFORE calling join. As a side
-   effect, all pending transactions are aborted. Important note:
-   purify is very expensive. Do not use this API indiscriminately. It
-   is meant to be used after a process crash. An error is returned if
-   purify fails. */
-int
-fd_funk_purify( void * shfunk );
-
 /* fd_funk_leave leaves a funk join.  Returns the memory region used for
    join on success (caller has ownership on return and the caller is no
    longer joined) and NULL on failure (logs details).  Sets *opt_shfunk
@@ -432,7 +421,7 @@ fd_funk_last_publish_child_tail( fd_funk_t *          funk,
    current local join.  The value at this pointer will always be the
    root transaction id. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * funk ) { return funk->shmem->root; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t const * funk ) { return funk->shmem->root; }
 
 /* fd_funk_last_publish returns a pointer in the caller's address space
    to transaction id of the last published transaction.  Assumes funk is
@@ -440,7 +429,7 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * fu
    lifetime of the current local join.  The value at this pointer will
    be constant until the next transaction is published. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->shmem->last_publish; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t const * funk ) { return funk->shmem->last_publish; }
 
 /* fd_funk_is_frozen returns 1 if the records of the last published
    transaction are frozen (i.e. the funk has children) and 0 otherwise
@@ -486,19 +475,6 @@ fd_funk_rec_is_full( fd_funk_t * funk ) {
 static inline int
 fd_funk_txn_is_full( fd_funk_t * funk ) {
   return fd_funk_txn_pool_is_empty( funk->txn_pool );
-}
-
-/* fd_begin_crit and fd_end_crit are used to mark the beginning and end of a critical section.
-   They indicate that funk is in a state where fd_funk_purify doesn't work. */
-
-static inline void
-fd_begin_crit(fd_funk_t * funk) {
-   funk->shmem->magic = FD_FUNK_MAGIC+1;
-}
-
-static inline void
-fd_end_crit(fd_funk_t * funk) {
-   funk->shmem->magic = FD_FUNK_MAGIC;
 }
 
 /* Misc */

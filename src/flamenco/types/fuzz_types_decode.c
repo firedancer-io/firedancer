@@ -22,16 +22,6 @@ static const char *blacklist[] = {
   // fd_tower_sync_t encoding function is unimplemented
   "fd_tower_sync",
   "fd_tower_sync_switch",
-  // fd_flamenco_txn returns -1000001 when decoding if failed to parse txns
-  // skip anything that uses it as well as gossip_msg (cases: 0-2)
-  // FIXME: maybe add ability to load valid Txns
-  "fd_flamenco_txn",
-  "fd_gossip_vote",
-  "fd_crds_data",
-  "fd_crds_value",
-  "fd_gossip_pull_req",
-  "fd_gossip_pull_resp",
-  "fd_gossip_push_msg",
 };
 
 static int
@@ -182,11 +172,6 @@ LLVMFuzzerTestOneInput( uchar const * data,
     if (discriminant == 14 || discriminant == 15) {
       return -1;
     }
-  } else if( strcmp( "fd_gossip_msg", type_meta->name ) == 0 && size >= sizeof(uint)) {
-    uint discriminant = *(uint *)data;
-    if (discriminant == 0 || discriminant == 1 || discriminant == 2) {
-      return -1;
-    }
   }
 
   if( is_blacklisted( type_meta->name ) ) {
@@ -220,10 +205,6 @@ LLVMFuzzerCustomMutator( uchar * data,
     if( strcmp( "fd_vote_instruction", type_meta->name ) == 0 ) {
       uint discriminant = *(uint *)(data+1);
       use_generate = (discriminant == 14 || discriminant == 15) ? 1 : 0;
-    }
-    else if( strcmp( "fd_gossip_msg", type_meta->name ) == 0 ) {
-      uint discriminant = *(uint *)(data+1);
-      use_generate = (discriminant == 0 || discriminant == 1 || discriminant == 2) ? 1 : 0;
     }
 
     if( !use_generate ) return mutated_size;

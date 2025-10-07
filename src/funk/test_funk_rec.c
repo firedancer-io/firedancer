@@ -2,9 +2,7 @@
 
 #if FD_HAS_HOSTED
 
-FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 64UL, unit_test );
-
-FD_STATIC_ASSERT( FD_FUNK_REC_FLAG_ERASE==1UL, unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_ALIGN    == 32UL, unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_IDX_NULL==UINT_MAX, unit_test );
 
@@ -107,21 +105,9 @@ main( int     argc,
 
       rec_t *               rrec = rec_query_global( ref, NULL, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, fd_funk_last_publish( tst ), tkey, NULL, rec_query );
-      if( !rrec || rrec->erase ) FD_TEST( !trec );
-      else                       FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
+      if( !rrec ) FD_TEST( !trec );
+      else        FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
-
-// #ifdef FD_FUNK_HANDHOLDING
-//       FD_TEST( fd_funk_rec_remove( NULL, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
-//       FD_TEST( fd_funk_rec_remove( NULL, NULL, tkey, NULL )==FD_FUNK_ERR_INVAL );
-//       FD_TEST( fd_funk_rec_remove( tst, NULL, NULL, NULL )==FD_FUNK_ERR_INVAL );
-// #endif
-
-      // if( trec ) {
-      //   if( is_frozen ) {
-      //     FD_TEST( fd_funk_rec_remove( tst, fd_funk_last_publish( tst ), tkey, NULL )==FD_FUNK_ERR_FROZEN );
-      //   }
-      // }
 
 //       fd_funk_rec_prepare_t rec_prepare[1];
 //       int err;
@@ -192,21 +178,11 @@ main( int     argc,
 
       rec_t *               rrec = rec_query_global( ref, rtxn, rkey );
       fd_funk_rec_t const * trec = fd_funk_rec_query_try_global( tst, &ttxn->xid, tkey, NULL, rec_query );
-      if( !rrec || rrec->erase ) FD_TEST( !trec );
+      if( !rrec ) FD_TEST( !trec );
       else {
         FD_TEST( trec && xid_eq( fd_funk_rec_xid( trec ), rrec->txn ? rrec->txn->xid : ULONG_MAX ) );
       }
       FD_TEST( !fd_funk_rec_query_test( rec_query ) );
-
-// #ifdef FD_FUNK_HANDHOLDING
-//       FD_TEST( fd_funk_rec_remove( NULL, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
-//       FD_TEST( fd_funk_rec_remove( NULL, ttxn, tkey, NULL )==FD_FUNK_ERR_INVAL );
-//       FD_TEST( fd_funk_rec_remove( tst, ttxn, NULL, NULL )==FD_FUNK_ERR_INVAL );
-// #endif
-
-      // if( trec && ttxn_is_frozen ) {
-      //   FD_TEST( fd_funk_rec_remove( tst, &ttxn->xid, tkey, NULL )==FD_FUNK_ERR_FROZEN );
-      // }
 
 //       fd_funk_rec_prepare_t rec_prepare[1];
 //       int err;
@@ -335,18 +311,12 @@ main( int     argc,
       }
       ulong rkey = rrec->key;
 
-      rec_remove( ref, rrec );
-
       if( rxid ) xid_set( txid, rxid );
       else       fd_funk_txn_xid_copy( txid, fd_funk_last_publish( tst ) );
       fd_funk_rec_query_t query[1];
       fd_funk_rec_t const * trec = fd_funk_rec_query_try( tst, txid, key_set( tkey, rkey ), query );
       FD_TEST( trec );
       FD_TEST( !fd_funk_rec_query_test( query ) );
-
-      fd_funk_rec_t * trec2;
-      FD_TEST( !fd_funk_rec_remove( tst, txid, key_set( tkey, rkey ), &trec2 ) );
-      FD_TEST( trec == trec2 );
 
     } else if( op>=2 ) { /* Prepare 8x as publish and cancel combined */
 

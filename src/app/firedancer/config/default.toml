@@ -405,6 +405,21 @@ user = ""
     # you highly trust, and this is the default behavior of the
     # configuration.
     [snapshots.sources]
+        # Allow fetching of snapshots from peers specified in the gossip
+        # entrypoints.  Gossip entrypoints must be peers that are highly
+        # trusted as they are used to bootstrap your node.
+        [snapshots.sources.entrypoints]
+            enabled = false
+
+        # Allow fetching of snapshots from arbitrary gossip peers that
+        # are hosting a snapshot server.  This may allow faster snapshot
+        # download if a peer in a local data-center is serving a good
+        # snapshot, but it is extremely dangerous as the peer could
+        # serve you a specially crafted malicious snapshot with no way
+        # to tell.
+        [snapshots.sources.gossip]
+            enabled = false
+
         # If any HTTP peers are listed, the following paths will be
         # fetched from these peers to determine if they have a snapshot
         # available:
@@ -758,25 +773,13 @@ user = ""
     # faster, subject to Amdahl's law.  Empirically, we've found 8 exec
     # tiles to achieve near optimal replay speed on recent mainnet
     # blocks.
+    #
+    # Exec tiles are also responsible for writing account changes back
+    # to the accounts DB.  Since the accounts DB is designed to be
+    # highly concurrent, most of the time account writeback can be done
+    # in parallel without blocking.  Multiple exec tiles exploit this
+    # parallelism supported by the accounts DB.
     exec_tile_count = 8
-
-    # How many writer tiles to run.  Writer tiles are responsible for
-    # writing account changes made by the exec tiles back to the
-    # accounts DB.
-    #
-    # Since the accounts DB is designed to be highly concurrent, most of
-    # the time account writeback can be done in parallel without
-    # blocking.  Multiple writer tiles exploit this parallelism
-    # supported by the accounts DB.
-    #
-    # Defaults to 1 because empirically that's sufficient to service the
-    # default number of exec tiles.  If sufficient cores are available,
-    # one could increase the number of writer tiles for slightly better
-    # replay speed.  However, there's no reason for this to exceed the
-    # number of exec tiles, because the number of in-flight transactions
-    # between exec tiles and writer tiles is bounded by the number of
-    # exec tiles.
-    writer_tile_count = 1
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -985,20 +988,23 @@ user = ""
         # the correct queue(s).  The queue setup and initialization has the
         # following options:
         #
-        # "simple" (default)
+        # "simple"
         #   Reduces the total queue count to equal the number of net tiles.
         #   All packets (both interesting to Firedancer and not) are sharded
         #   amongst these queues.  Simple, reliable, and works everywhere
         #   but suboptimal performance impact, especially to socket-based
         #   traffic.
         #
-        # "dedicated" (experimental)
+        # "dedicated"
         #   Reserves a dedicated hardware queue for each net tile.  For
         #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
         #   to route interesting packets based on UDP dst port.  This mode
-        #   is considered experimental and may not work with some network
-        #   device setups. This should not yet be used in production.
-        rss_queue_mode = "simple"
+        #   may not work with some network device setups.
+        #
+        # "auto" (default)
+        #   Attempts to run in "dedicated" mode but automatically falls
+        #   back to "simple" mode if necessary.
+        rss_queue_mode = "auto"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.
@@ -1490,14 +1496,13 @@ user = ""
     # you want control of all the tiles under one inferior, so we also
     # support a development mode where tiles are run as threads instead
     # and the system operates inside a single process.  This does not
-    # impact performance and threads still get pinned.
+    # impact performance and threads still get pinned.  If no clone is
+    # enabled, the sandbox is automatically disabled as well.
     #
     # This option cannot be enabled in production.  In development, you
     # can also launch Firedancer as a single process for with the
     # `--no-clone` argument to `firedancer-dev`.
-    #
-    # TODO: No clone should not be on by default, fix sandbox.
-    no_clone = true
+    no_clone = false
 
     # As part of security sandboxing, the dumpable bit of each process
     # is cleared with prctl( PR_SET_DUMPABLE, 0 ).  This prevents other

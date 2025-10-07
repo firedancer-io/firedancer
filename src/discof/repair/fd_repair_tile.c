@@ -208,7 +208,6 @@ typedef struct fd_repair_pending_sign fd_repair_pending_sign_t;
 
 struct ctx {
   long tsdebug; /* timestamp for debug printing */
-  long tsprint; /* timestamp for printing */
 
   ulong repair_seed;
 
@@ -278,9 +277,6 @@ struct ctx {
     ulong sign_tile_unavail;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
-
-    /* diagnostics */
-    volatile ulong * last_replayed_slot;
   } metrics[ 1 ];
 
   /* Slot-level metrics */
@@ -618,6 +614,7 @@ after_sign( ctx_t             * ctx,
       ulong             preimage_sz = 0;
       uchar *           preimage    = preimage_req( init, &preimage_sz );
       repair_signer_sync( ctx, init->shred.sig, preimage, preimage_sz, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+      active                        = fd_policy_peer_query( ctx->policy, new_peer );
     }
     fd_inflights_request_insert( ctx->inflight, pending->nonce,  &pending->msg.shred.to );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
@@ -676,6 +673,8 @@ after_fec( ctx_t      * ctx,
 
   fd_forest_blk_t * ele = fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
   fd_forest_fec_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick );
+  fd_fec_sig_t * fec_sig = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | shred->fec_set_idx, NULL );
+  if( FD_LIKELY( fec_sig ) ) fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
   FD_TEST( ele ); /* must be non-empty */
 
   /* metrics for completed slots */
@@ -840,20 +839,26 @@ after_frag( ctx_t * ctx,
       uint i = blk->consumed_idx + 1;
       for( uint j = i; j < blk->buffered_idx + 1; j++ ) {
         if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->fecs, j ) ) ) {
-          fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
-          if( FD_LIKELY( fec_sig ) ) {
-            ulong          sig      = fd_ulong_load_8( fec_sig->sig );
-            ulong          tile_idx = sig % ctx->shred_tile_cnt;
-            uint           last_idx = j - i;
+          if( FD_UNLIKELY( fd_forest_blk_idxs_test( blk->cmpl, j ) ) ) {
+            /* already been completed without force complete */
+          } else {
+            /* force completeable */
+            fd_fec_sig_t * fec_sig  = fd_fec_sig_query( ctx->fec_sigs, (shred->slot << 32) | i, NULL );
+            if( FD_LIKELY( fec_sig ) ) {
+              ulong          sig      = fd_ulong_load_8( fec_sig->sig );
+              ulong          tile_idx = sig % ctx->shred_tile_cnt;
+              uint           last_idx = j - i;
 
-            uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
-            memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
-            fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
-            fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
-            ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
-            blk->consumed_idx = j;
-            i = j + 1;
+              uchar * chunk = fd_chunk_to_laddr( ctx->shred_out_ctx[tile_idx].mem, ctx->shred_out_ctx[tile_idx].chunk );
+              memcpy( chunk, fec_sig->sig, sizeof(fd_ed25519_sig_t) );
+              fd_fec_sig_remove( ctx->fec_sigs, fec_sig );
+              fd_stem_publish( stem, ctx->shred_out_ctx[tile_idx].idx, last_idx, ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), 0UL, 0UL, 0UL );
+              ctx->shred_out_ctx[tile_idx].chunk = fd_dcache_compact_next( ctx->shred_out_ctx[tile_idx].chunk, sizeof(fd_ed25519_sig_t), ctx->shred_out_ctx[tile_idx].chunk0, ctx->shred_out_ctx[tile_idx].wmark );
+            }
           }
+          /* advance consumed */
+          blk->consumed_idx = j;
+          i = j + 1;
         }
       }
     }
@@ -895,19 +900,6 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
-  if( FD_UNLIKELY( ctx->forest->root != ULONG_MAX && now - ctx->tsprint > (long)1e9 ) ) {
-    ulong replay_slot  = *ctx->metrics->last_replayed_slot;
-    ulong replay_diff  = ctx->metrics->current_slot - replay_slot;
-    ulong turbine_diff = ctx->metrics->current_slot - ctx->metrics->repaired_slots;
-    FD_LOG_NOTICE(( "\n\n[Firedancer]\n"
-                    "Replay:  %lu (-%lu)\n"
-                    "Repair:  %lu (-%lu)\n"
-                    "Shred:   %lu\n",
-                    replay_slot, replay_diff,
-                    ctx->metrics->repaired_slots, turbine_diff,
-                    ctx->metrics->current_slot ));
-    ctx->tsprint = now;
-  }
 
   *charge_busy = 1;
 
@@ -1118,13 +1110,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_IP4_ADDR_FMT_ARGS( ctx->repair_serve_addr.addr ), fd_ushort_bswap( ctx->repair_serve_addr.port ) ));
 
   memset( ctx->metrics, 0, sizeof(ctx->metrics) );
-  fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
-  if( FD_UNLIKELY( replay_tile == NULL || replay_tile->metrics == NULL ) ) {
-    ctx->metrics->last_replayed_slot = &ctx->metrics->repaired_slots;
-  } else {
-    ulong volatile * const replay_metrics = fd_metrics_tile( replay_tile->metrics );
-    ctx->metrics->last_replayed_slot = replay_metrics+MIDX( COUNTER, REPLAY, MAX_REPLAYED_SLOT );
-  }
 
   fd_histf_join( fd_histf_new( ctx->metrics->slot_compl_time, FD_MHIST_SECONDS_MIN( REPAIR, SLOT_COMPLETE_TIME ),
                                                               FD_MHIST_SECONDS_MAX( REPAIR, SLOT_COMPLETE_TIME ) ) );
@@ -1132,7 +1117,6 @@ unprivileged_init( fd_topo_t *      topo,
                                                                FD_MHIST_MAX( REPAIR, RESPONSE_LATENCY ) ) );
 
   ctx->tsdebug = fd_log_wallclock();
-  ctx->tsprint = fd_log_wallclock();
 }
 
 static ulong

@@ -485,7 +485,7 @@ main( int     argc,
     FD_TEST( !treap_verify( treap, pool ) );
 
     uint r  = fd_rng_uint( rng );
-    uint  op = r%5;
+    uint op = r&0x7;
     switch( op ) {
 
     case 0: { /* Test query */
@@ -566,18 +566,33 @@ main( int     argc,
       break;
     }
 
-    case 4: { /* Test lower bound */
+    case 4:
+    case 5:
+    case 6:
+    case 7:{ /* Test gt/ge/lt/le */
+      int strict = !!(op&1);
+      int less   = !!(op&2);
       int q = ((int)fd_rng_uint_roll( rng, 1U+(uint)ele_max )); /* q in [0,ele_max] */
-      ulong idx = treap_idx_ge( treap, (schar)q, pool );
-      if( q>=(int)ele_max ) {
+      ulong idx;
+      switch( op ) {
+        case 4: idx = treap_idx_ge( treap, (schar)q, pool ); FD_TEST( !strict && !less); break;
+        case 5: idx = treap_idx_gt( treap, (schar)q, pool ); FD_TEST( strict && !less); break;
+        case 6: idx = treap_idx_le( treap, (schar)q, pool ); FD_TEST( !strict && less); break;
+        case 7: idx = treap_idx_lt( treap, (schar)q, pool ); FD_TEST( strict && less); break;
+        default: FD_LOG_ERR(( "invalid op: %u", op )); break;
+      }
+
+      if( (less && q<0+strict) || (!less && q>=(int)ele_max-strict) ) {
         FD_TEST( treap_idx_is_null( idx ) );
         break;
       }
 
-      ulong left_options = ((ulong)(~0UL<<q)) & val_pmap;
-      if( !left_options ) FD_TEST( treap_idx_is_null( idx ) ); /* nothing >= q in map */
+      ulong less_mask = fd_ulong_if( q+!strict>=64, ~0UL, (1UL<<(q+!strict))-1UL );
+      ulong mask      = fd_ulong_if( less, less_mask, ~0UL<<(q+strict) );
+      ulong options   = mask & val_pmap;
+      if( !options ) FD_TEST( treap_idx_is_null( idx ) ); /* nothing satisfying query in map */
       else {
-        int check_val  = fd_ulong_find_lsb(left_options);
+        int check_val = fd_int_if( less, fd_ulong_find_msb(options), fd_ulong_find_lsb(options) );
         FD_TEST( (idx<ele_max) && check_val==(int)pool[idx].val );
       }
       break;

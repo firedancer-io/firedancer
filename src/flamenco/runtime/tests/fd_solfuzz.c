@@ -140,8 +140,7 @@ fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
     FD_LOG_CRIT(( "solfuzz leaked a spad frame (bump allocator)" ));
   }
 
-  fd_funk_txn_all_iter_t iter[1];
-  for( fd_funk_txn_all_iter_new( runner->funk, iter ); !fd_funk_txn_all_iter_done( iter ); fd_funk_txn_all_iter_next( iter ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->funk->shmem->child_head_cidx ) ) ) ) {
     FD_LOG_CRIT(( "solfuzz leaked a funk txn" ));
   }
 }

@@ -1217,6 +1217,7 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
     ulong w_cnt = (rtxn->edge_cnt_etc    ) & 0x7FU;
     ulong r_cnt = (rtxn->edge_cnt_etc>> 7) & 0x7FU;
     ulong lane  = (rtxn->edge_cnt_etc>>14) & 0x3U;
+    uint  tail_linear_block_num = (uint)(disp->lanes[lane].linear_block_number);
     ulong edge_idx = 0UL;
     for( ulong i=0UL; i<w_cnt+r_cnt; i++ ) {
       edge_t const * e = rtxn->edges+edge_idx;
@@ -1276,8 +1277,19 @@ fd_rdisp_complete_txn( fd_rdisp_t * disp,
           FD_TEST( child_txn->in_degree<IN_DEGREE_DISPATCHED );
 
           if( FD_UNLIKELY( 0U==(--(child_txn->in_degree)) ) ) {
+            /* We need an operation something like
+               fd_frag_meta_ts_decomp. child_txn has the low 16 bits,
+               and tail_linear_block_num has the full 32 bits, except
+               for tail_linear_block_num refers to a block < block_depth
+               later.  Since block_depth<2^16, that means we can resolve
+               this unambiguously.  Basically, we copy the high 16 bits
+               frorm tail_linear_block_num unless that would make
+               linear_block_num larger than tail_linear_block_num, in
+               which case, we subtract 2^16. */
+            uint low_16_bits = child_txn->edge_cnt_etc>>16;
+            uint linear_block_num = ((tail_linear_block_num & ~0xFFFFU) | low_16_bits) - (uint)((low_16_bits>(tail_linear_block_num&0xFFFFU))<<16);
             pending_prq_ele_t temp[1] = {{ .score               = child_txn->score,
-                                           .linear_block_number = child_txn->edge_cnt_etc>>16,
+                                           .linear_block_number = linear_block_num,
                                            .txn_idx             = (uint)(child_txn-disp->pool) }};
             pending_prq_insert( disp->lanes[ lane ].pending, temp );
           }

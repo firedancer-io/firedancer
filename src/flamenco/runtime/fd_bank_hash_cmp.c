@@ -23,6 +23,7 @@ fd_bank_hash_cmp_new( void * mem ) {
 
   laddr = fd_ulong_align_up( laddr, fd_bank_hash_cmp_map_align() );
   fd_bank_hash_cmp_map_new( (void *)laddr );
+  fd_bank_hash_cmp_set_map_offset( (fd_bank_hash_cmp_t *)mem, (uchar *)laddr );
   laddr += fd_bank_hash_cmp_map_footprint();
 
   laddr = fd_ulong_align_up( laddr, fd_bank_hash_cmp_align() );
@@ -46,8 +47,11 @@ fd_bank_hash_cmp_join( void * bank_hash_cmp ) {
   ulong laddr = (ulong)bank_hash_cmp;
   laddr += sizeof( fd_bank_hash_cmp_t );
 
-  fd_bank_hash_cmp_t * bank_hash_cmp_ = (fd_bank_hash_cmp_t *)bank_hash_cmp;
-  bank_hash_cmp_->map                 = fd_bank_hash_cmp_map_join( (void *)laddr );
+  fd_bank_hash_cmp_entry_t * map_entry = fd_bank_hash_cmp_map_join( (void *)laddr );
+  if( FD_UNLIKELY( !map_entry ) ) {
+    FD_LOG_WARNING(( "invalid entry map" ));
+    return NULL;
+  }
 
   return bank_hash_cmp;
 }
@@ -106,8 +110,10 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
                          fd_hash_t const *    hash,
                          int                  ours,
                          ulong                stake ) {
+  fd_bank_hash_cmp_entry_t * map = fd_bank_hash_cmp_get_map( bank_hash_cmp );
+
   if( FD_UNLIKELY( slot <= bank_hash_cmp->watermark ) ) { return; }
-  fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, slot, NULL );
+  fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( map, slot, NULL );
 
   if( !cmp ) {
 
@@ -116,16 +122,16 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
     if( FD_UNLIKELY( bank_hash_cmp->cnt == fd_bank_hash_cmp_map_key_max() ) ) {
       FD_LOG_WARNING( ( "Bank matches unexpectedly full. Clearing. " ) );
       for( ulong i = 0; i < fd_bank_hash_cmp_map_slot_cnt(); i++ ) {
-        fd_bank_hash_cmp_entry_t * entry = &bank_hash_cmp->map[i];
+        fd_bank_hash_cmp_entry_t * entry = &map[i];
         if( FD_LIKELY( !fd_bank_hash_cmp_map_key_inval( entry->slot ) &&
                        entry->slot < bank_hash_cmp->watermark ) ) {
-          fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, entry );
+          fd_bank_hash_cmp_map_remove( map, entry );
           bank_hash_cmp->cnt--;
         }
       }
     }
 
-    cmp      = fd_bank_hash_cmp_map_insert( bank_hash_cmp->map, slot );
+    cmp      = fd_bank_hash_cmp_map_insert( map, slot );
     cmp->cnt = 0;
     bank_hash_cmp->cnt++;
   }
@@ -170,7 +176,9 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
 
 int
 fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
-  fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, slot, NULL );
+  fd_bank_hash_cmp_entry_t * map = fd_bank_hash_cmp_get_map( bank_hash_cmp );
+
+  fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( map, slot, NULL );
 
   if( FD_UNLIKELY( !cmp ) ) return 0;
 
@@ -223,7 +231,7 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
                     FD_BASE58_ENC_32_ALLOCA( theirs->hash ),
                     pct * 100 ));
     }
-    fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
+    fd_bank_hash_cmp_map_remove( map, cmp );
     bank_hash_cmp->cnt--;
     return 1;
   }

@@ -385,20 +385,13 @@ struct fd_topo_tile {
       ulong max_live_slots;
 
       ulong capture_start_slot;
+      char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_instr_to_pb;
       int   dump_txn_to_pb;
       int   dump_syscall_to_pb;
       int   dump_elf_to_pb;
     } exec;
-
-    struct {
-      ulong max_live_slots;
-      ulong txncache_obj_id;
-      ulong funk_obj_id;
-      char  solcap_capture[ PATH_MAX ];
-      ulong capture_start_slot;
-    } writer;
 
     struct {
       ushort send_to_port;
@@ -508,21 +501,25 @@ struct fd_topo_tile {
     } shredcap;
 
     struct {
-      char  snapshots_path[ PATH_MAX ];
-      int   incremental_snapshot_fetch;
-      int   do_download;
-      uint  maximum_local_snapshot_age;
-      uint  minimum_download_speed_mib;
-      uint  maximum_download_retry_abort;
-      uint  max_full_snapshots_to_keep;
-      uint  max_incremental_snapshots_to_keep;
+      char snapshots_path[ PATH_MAX ];
+      int  incremental_snapshot_fetch;
+      int  do_download;
+      uint maximum_local_snapshot_age;
+      uint minimum_download_speed_mib;
+      uint maximum_download_retry_abort;
+      uint max_full_snapshots_to_keep;
+      uint max_incremental_snapshots_to_keep;
+
+      int entrypoints_enabled;
+      int gossip_peers_enabled;
+
+      ulong         gossip_entrypoints_cnt;
+      fd_ip4_port_t gossip_entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
       struct {
         ulong         peers_cnt;
         fd_ip4_port_t peers[ 16UL ];
       } http;
-
-      int diagnostics;
     } snaprd;
 
     struct {
@@ -607,6 +604,7 @@ typedef struct {
 
   int          keep_host_networking;
   int          allow_connect;
+  int          allow_renameat;
   ulong        rlimit_file_cnt;
   ulong        rlimit_address_space;
   ulong        rlimit_data;

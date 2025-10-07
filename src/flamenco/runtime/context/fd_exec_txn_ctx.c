@@ -183,10 +183,11 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
   ctx->executable_cnt            = 0UL;
   ctx->programs_to_reverify_cnt  = 0UL;
 
-  ctx->paid_fees                 = 0UL;
-  ctx->loaded_accounts_data_size = 0UL;
-  ctx->accounts_resize_delta     = 0UL;
-  ctx->collected_rent            = 0UL;
+  ctx->paid_fees                      = 0UL;
+  ctx->loaded_accounts_data_size      = 0UL;
+  ctx->loaded_accounts_data_size_cost = 0UL;
+  ctx->accounts_resize_delta          = 0UL;
+  ctx->collected_rent                 = 0UL;
 
   ctx->num_instructions = 0;
   memset( ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );

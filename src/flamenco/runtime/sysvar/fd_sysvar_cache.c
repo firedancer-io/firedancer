@@ -1,6 +1,5 @@
 #include "fd_sysvar_cache.h"
 #include "fd_sysvar_cache_private.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include <errno.h>
 
 void *

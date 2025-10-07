@@ -1,7 +1,9 @@
 #include "fd_program_cache.h"
 #include "fd_bpf_loader_program.h"
 #include "fd_loader_v4_program.h"
+#include "../../vm/fd_vm.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
+#include "../../../funk/fd_funk_rec.h"
 
 #include <assert.h>
 
@@ -29,7 +31,7 @@ fd_program_cache_entry_new( void *                     mem,
   cache_entry->calldests_shmem_off = l;
 
   /* rodata backing memory */
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->text_cnt) );
   cache_entry->rodata_off = l;
 
   /* SBPF version */
@@ -61,8 +63,8 @@ ulong
 fd_program_cache_entry_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t) );
-  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint(elf_info->rodata_sz/8UL) );
-  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->rodata_footprint );
+  l = FD_LAYOUT_APPEND( l, fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( elf_info->text_cnt ) );
+  l = FD_LAYOUT_APPEND( l, 8UL, elf_info->bin_sz );
   l = FD_LAYOUT_FINI( l, alignof(fd_program_cache_entry_t) );
   return l;
 }
@@ -92,15 +94,15 @@ fd_program_cache_key( fd_pubkey_t const * pubkey ) {
 
 /* Parse ELF info from programdata. */
 static int
-fd_program_cache_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
-                                 uchar const *              program_data,
-                                 ulong                      program_data_len,
-                                 fd_exec_slot_ctx_t const * slot_ctx ) {
+fd_program_cache_parse_elf_info( fd_bank_t *          bank,
+                                 fd_sbpf_elf_info_t * elf_info,
+                                 uchar const *        program_data,
+                                 ulong                program_data_len ) {
   uint min_sbpf_version, max_sbpf_version;
   fd_bpf_get_sbpf_versions( &min_sbpf_version,
                             &max_sbpf_version,
-                            fd_bank_slot_get( slot_ctx->bank ),
-                            fd_bank_features_query( slot_ctx->bank ) );
+                            fd_bank_slot_get( bank ),
+                            fd_bank_features_query( bank ) );
 
   fd_sbpf_loader_config_t config = { 0 };
   config.elf_deploy_checks = 0;
@@ -108,7 +110,7 @@ fd_program_cache_parse_elf_info( fd_sbpf_elf_info_t *       elf_info,
   config.sbpf_max_version = max_sbpf_version;
 
   if( FD_UNLIKELY( fd_sbpf_elf_peek( elf_info, program_data, program_data_len, &config )<0 ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed" ));
     return -1;
   }
   return 0;
@@ -249,7 +251,7 @@ fd_program_cache_get_account_programdata( fd_funk_t const *         funk,
    metadata, as well as the `last_slot_modified`, `last_slot_verified`,
    and `failed_verification` flags. */
 static int
-fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
+fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
                                         fd_sbpf_elf_info_t const * elf_info,
                                         uchar const *              program_data,
                                         ulong                      program_data_len,
@@ -274,15 +276,15 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   fd_vm_syscall_register_slot( syscalls,
-                               fd_bank_slot_get( slot_ctx->bank ),
-                               fd_bank_features_query( slot_ctx->bank ),
+                               fd_bank_slot_get( bank ),
+                               fd_bank_features_query( bank ),
                                0 );
 
   /* Load program. */
 
   fd_sbpf_loader_config_t config = { 0 };
   if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config ) ) ) {
-    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
+    FD_LOG_DEBUG(( "fd_sbpf_program_load() failed" ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );
     return -1;
@@ -296,7 +298,7 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_CRIT(( "fd_vm_new() or fd_vm_join() failed" ));
   }
 
-  int direct_mapping = FD_FEATURE_ACTIVE( fd_bank_slot_get( slot_ctx->bank ), fd_bank_features_query( slot_ctx->bank ), bpf_account_data_direct_mapping );
+  int direct_mapping = FD_FEATURE_ACTIVE( fd_bank_slot_get( bank ), fd_bank_features_query( bank ), bpf_account_data_direct_mapping );
 
   vm = fd_vm_init( vm,
                    NULL, /* OK since unused in `fd_vm_validate()` */
@@ -305,9 +307,9 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
                    prog->rodata,
                    prog->rodata_sz,
                    prog->text,
-                   prog->text_cnt,
-                   prog->text_off,
-                   prog->text_sz,
+                   prog->info.text_cnt,
+                   prog->info.text_off,
+                   prog->info.text_sz,
                    prog->entry_pc,
                    prog->calldests,
                    elf_info->sbpf_version,
@@ -334,12 +336,12 @@ fd_program_cache_validate_sbpf_program( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   /* FIXME: Super expensive memcpy. */
-  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->rodata_sz/8UL ) );
+  fd_memcpy( fd_program_cache_get_calldests_shmem( cache_entry ), prog->calldests_shmem, fd_sbpf_calldests_footprint( prog->info.text_cnt ) );
 
   cache_entry->entry_pc            = prog->entry_pc;
-  cache_entry->text_off            = prog->text_off;
-  cache_entry->text_cnt            = prog->text_cnt;
-  cache_entry->text_sz             = prog->text_sz;
+  cache_entry->text_off            = prog->info.text_off;
+  cache_entry->text_cnt            = prog->info.text_cnt;
+  cache_entry->text_sz             = prog->info.text_sz;
   cache_entry->rodata_sz           = prog->rodata_sz;
   cache_entry->failed_verification = 0;
 
@@ -376,17 +378,17 @@ fd_program_cache_publish_failed_verification_rec( fd_funk_t *             funk,
    fail. This is to prevent a DOS vector where an attacker could spam
    invocations to programs that failed verification. */
 static void
-fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
-                                     fd_txn_account_t const * program_acc,
-                                     fd_spad_t *              runtime_spad ) {
+fd_program_cache_create_cache_entry( fd_bank_t *               bank,
+                                     fd_funk_t *               funk,
+                                     fd_funk_txn_xid_t const * xid,
+                                     fd_txn_account_t const *  program_acc,
+                                     fd_spad_t *               runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    ulong current_slot = fd_bank_slot_get( slot_ctx->bank );
+    ulong current_slot = fd_bank_slot_get( bank );
 
     /* Prepare the funk record for the program cache. */
-    fd_pubkey_t const *       program_pubkey = program_acc->pubkey;
-    fd_funk_t *               funk           = slot_ctx->funk;
-    fd_funk_txn_xid_t const * xid            = slot_ctx->xid;
-    fd_funk_rec_key_t         id             = fd_program_cache_key( program_pubkey );
+    fd_pubkey_t const * program_pubkey = program_acc->pubkey;
+    fd_funk_rec_key_t   id             = fd_program_cache_key( program_pubkey );
 
     /* Try to get the programdata for the account. If it doesn't exist,
        simply return without publishing anything. The program could have
@@ -417,7 +419,7 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
     }
 
     fd_sbpf_elf_info_t elf_info = {0};
-    if( FD_UNLIKELY( fd_program_cache_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+    if( FD_UNLIKELY( fd_program_cache_parse_elf_info( bank, &elf_info, program_data, program_data_len ) ) ) {
       fd_program_cache_publish_failed_verification_rec( funk, prepare, rec, current_slot );
       return;
     }
@@ -439,7 +441,7 @@ fd_program_cache_create_cache_entry( fd_exec_slot_ctx_t *     slot_ctx,
        Since this record is fresh, we should set the last slot modified
        to 0. */
     fd_program_cache_entry_t * cache_entry = fd_program_cache_entry_new( val, &elf_info, 0UL, current_slot );
-    int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, cache_entry );
+    int res = fd_program_cache_validate_sbpf_program( bank, &elf_info, program_data, program_data_len, runtime_spad, cache_entry );
     if( FD_UNLIKELY( res ) ) {
       fd_program_cache_publish_failed_verification_rec( funk, prepare, rec, current_slot );
       return;
@@ -466,14 +468,6 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
       return -1;
     }
 
-    if( FD_UNLIKELY( !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
-      if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) {
-        return -1;
-      } else {
-        continue;
-      }
-    }
-
     void const * data = fd_funk_val_const( rec, fd_funk_wksp(funk) );
 
     *cache_entry = (fd_program_cache_entry_t const *)data;
@@ -493,9 +487,11 @@ fd_program_cache_load_entry( fd_funk_t const *                 funk,
 }
 
 void
-fd_program_cache_update_program( fd_exec_slot_ctx_t * slot_ctx,
-                                 fd_pubkey_t const *  program_key,
-                                 fd_spad_t *          runtime_spad ) {
+fd_program_cache_update_program( fd_bank_t *               bank,
+                                 fd_funk_t *               funk,
+                                 fd_funk_txn_xid_t const * xid,
+                                 fd_pubkey_t const *       program_key,
+                                 fd_spad_t *               runtime_spad ) {
 FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( exec_rec );
   fd_funk_rec_key_t id = fd_program_cache_key( program_key );
@@ -503,8 +499,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* No need to touch the cache if the account no longer exists. */
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( exec_rec,
                                                            program_key,
-                                                           slot_ctx->funk,
-                                                           slot_ctx->xid ) ) ) {
+                                                           funk,
+                                                           xid ) ) ) {
     return;
   }
 
@@ -519,9 +515,9 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      into the cache and update the entry's flags accordingly if it fails
      verification. */
   fd_program_cache_entry_t const * existing_entry = NULL;
-  int err = fd_program_cache_load_entry( slot_ctx->funk, slot_ctx->xid, program_key, &existing_entry );
+  int err = fd_program_cache_load_entry( funk, xid, program_key, &existing_entry );
   if( FD_UNLIKELY( err ) ) {
-    fd_program_cache_create_cache_entry( slot_ctx, exec_rec, runtime_spad );
+    fd_program_cache_create_cache_entry( bank, funk, xid, exec_rec, runtime_spad );
     return;
   }
 
@@ -537,10 +533,10 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
       We must reverify the program for the current epoch if it has not
       been reverified yet. Additionally, we cannot break the invariant
       that a program cache entry will get reverified more than once
-      per slot, otherwise the replay, exec, and writer tiles may race. */
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( slot_ctx->bank );
-  ulong current_slot                         = fd_bank_slot_get( slot_ctx->bank );
-  ulong current_epoch                        = fd_bank_epoch_get( slot_ctx->bank );
+      per slot, otherwise the replay and exec tiles may race. */
+  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
+  ulong current_slot                         = fd_bank_slot_get( bank );
+  ulong current_epoch                        = fd_bank_epoch_get( bank );
   ulong last_epoch_verified                  = fd_slot_to_epoch( epoch_schedule, existing_entry->last_slot_verified, NULL );
   ulong last_slot_modified                   = existing_entry->last_slot_modified;
   if( FD_LIKELY( last_epoch_verified==current_epoch &&
@@ -553,8 +549,8 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
      exist, there is no need to touch the cache - if someone tries to
      invoke this program, account loading checks will fail. */
   ulong         program_data_len = 0UL;
-  uchar const * program_data     = fd_program_cache_get_account_programdata( slot_ctx->funk,
-                                                                             slot_ctx->xid,
+  uchar const * program_data     = fd_program_cache_get_account_programdata( funk,
+                                                                             xid,
                                                                              exec_rec,
                                                                              &program_data_len );
   if( FD_UNLIKELY( program_data==NULL ) ) {
@@ -575,7 +571,7 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   uchar              failed_elf_parsing = 0;
   ulong              record_sz          = 0UL;
   fd_sbpf_elf_info_t elf_info           = {0};
-  if( FD_UNLIKELY( fd_program_cache_parse_elf_info( &elf_info, program_data, program_data_len, slot_ctx ) ) ) {
+  if( FD_UNLIKELY( fd_program_cache_parse_elf_info( bank, &elf_info, program_data, program_data_len ) ) ) {
     failed_elf_parsing = 1;
     record_sz          = fd_program_cache_failed_verification_entry_footprint();
   } else {
@@ -596,13 +592,13 @@ FD_SPAD_FRAME_BEGIN( runtime_spad ) {
        accordingly. We publish the funk record regardless of the return
        code. */
     writable_entry = fd_program_cache_entry_new( data, &elf_info, last_slot_modified, current_slot );
-    int res = fd_program_cache_validate_sbpf_program( slot_ctx, &elf_info, program_data, program_data_len, runtime_spad, writable_entry );
+    int res = fd_program_cache_validate_sbpf_program( bank, &elf_info, program_data, program_data_len, runtime_spad, writable_entry );
     if( FD_UNLIKELY( res ) ) {
       FD_LOG_DEBUG(( "fd_program_cache_validate_sbpf_program() failed" ));
     }
   }
 
-  fd_funk_rec_insert_para( slot_ctx->funk, slot_ctx->xid, &id, alignof(fd_program_cache_entry_t), record_sz, writable_entry );
+  fd_funk_rec_insert_para( funk, xid, &id, alignof(fd_program_cache_entry_t), record_sz, writable_entry );
 
 } FD_SPAD_FRAME_END;
 }
@@ -633,4 +629,53 @@ fd_program_cache_queue_program_for_reverification( fd_funk_t *               fun
   fd_program_cache_entry_t entry = *existing_entry;
   entry.last_slot_modified = current_slot;
   fd_funk_rec_insert_para( funk, xid, &id, alignof(fd_program_cache_entry_t), sizeof(fd_program_cache_entry_t), &entry );
+}
+
+int
+fd_funk_rec_insert_para( fd_funk_t *               funk,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_funk_rec_key_t const * key,
+                         ulong                     val_align,
+                         ulong                     val_sz,
+                         void *                    val ) {
+  if( FD_UNLIKELY( !funk           ) ) FD_LOG_ERR(( "NULL funk" ));
+  if( FD_UNLIKELY( !xid            ) ) FD_LOG_ERR(( "NULL xid"  ));
+  if( FD_UNLIKELY( !key            ) ) FD_LOG_ERR(( "NULL key"  ));
+  if( FD_UNLIKELY( !val && val_sz  ) ) FD_LOG_ERR(( "NULL val"  ));
+
+  fd_funk_xid_key_pair_t pair[1];
+  fd_funk_txn_xid_copy( pair->xid, xid );
+  fd_funk_rec_key_copy( pair->key, key );
+
+  for(;;) {
+    /* See if the record already exists. */
+    fd_funk_rec_query_t query[1];
+    int err = fd_funk_rec_map_query_try( funk->rec_map, pair, NULL, query, 0 );
+    if( err == FD_MAP_SUCCESS ) {
+      fd_funk_rec_t * rec = fd_funk_rec_map_query_ele( query );
+      /* Set the value of the record */
+      if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
+        FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
+        return err;
+      }
+      memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), val, val_sz );
+      return FD_FUNK_SUCCESS;
+    }
+
+    /* The record doesn't exist. Create it. */
+    fd_funk_rec_prepare_t prepare[1];
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, xid, key, prepare, &err );
+    if( FD_UNLIKELY( !rec ) ) {
+      FD_LOG_CRIT(( "fd_funk_rec_prepare returned err=%d", err ));
+      return err;
+    }
+    /* Set the value of the record */
+    if( !fd_funk_val_truncate( rec, fd_funk_alloc( funk ), fd_funk_wksp( funk ), val_align, val_sz, &err ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate() failed (out of memory?)" ));
+      return err;
+    }
+    memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), val, val_sz );
+    fd_funk_rec_publish( funk, prepare );
+    return FD_FUNK_SUCCESS;
+  }
 }

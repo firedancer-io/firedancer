@@ -2,25 +2,24 @@
    rocksdb (or other sources TBD) and reproduce the behavior of replay tile.
 
    The smaller topology is:
-           shred_out             replay_exec       exec_writer
-   backtest-------------->replay------------->exec------------->writer
-     ^                    |^ | |                                   ^
-     |____________________|| | |___________________________________|
-          replay_out       | |
+           shred_out             replay_exec
+   backtest-------------->replay------------->exec
+     ^                    |^ | ^                |
+     |____________________|| | |________________|
+          replay_out       | |   exec_replay
                            | |------------------------------>no consumer
     no producer-------------  stake_out, send_out, poh_out
                 store_replay
 
 */
-
+#define _GNU_SOURCE
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
 #include "../../shared/commands/run/run.h" /* initialize_workspaces */
+#include "../../shared/commands/watch/watch.h"
 #include "../../shared/fd_config.h" /* config_t */
-#include "../../platform/fd_sys_util.h"
 #include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../disco/metrics/fd_metrics.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_tile.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
@@ -29,15 +28,20 @@
 
 #include "../main.h"
 
-#include <unistd.h> /* pause */
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 fd_topo_run_tile_t fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
 backtest_topo( config_t * config ) {
+
+  config->development.sandbox  = 0;
+  config->development.no_clone = 1;
+
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
-  ulong writer_tile_cnt = config->firedancer.layout.writer_tile_count;
 
   int disable_snap_loader = !config->gossip.entrypoints_cnt;
   int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
@@ -78,13 +82,7 @@ backtest_topo( config_t * config ) {
   /**********************************************************************/
   fd_topob_wksp( topo, "exec" );
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
-  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec",   "exec",   "metric_in", cpu_idx++, 0, 0 );
-
-  /**********************************************************************/
-  /* Add the writer tiles to topo                                       */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "writer" );
-  FOR(writer_tile_cnt) fd_topob_tile( topo, "writer",  "writer",  "metric_in",  cpu_idx++, 0, 0 );
+  FOR(exec_tile_cnt) fd_topob_tile( topo, "exec", "exec", "metric_in", cpu_idx++, 0, 0 );
 
   /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
@@ -128,11 +126,12 @@ backtest_topo( config_t * config ) {
     fd_topob_wksp( topo, "snapdc_rd" );
     fd_topob_wksp( topo, "snapin_rd" );
     fd_topob_wksp( topo, "snap_out" );
-    fd_topob_wksp( topo, "replay_manif" );
+    fd_topob_wksp( topo, "snaprd_rp" );
     /* TODO: Should be depth of 1 or 2, not 4, but it causes backpressure
       from the replay tile parsing the manifest, remove when this is
       fixed. */
-    fd_topob_link( topo, "snap_out", "snap_out", 4UL, sizeof(fd_snapshot_manifest_t), 1UL );
+    fd_topob_link( topo, "snap_out",  "snap_out",  4UL,   sizeof(fd_snapshot_manifest_t), 1UL );
+    fd_topob_link( topo, "snaprd_rp", "snaprd_rp", 128UL, 0UL,                            1UL )->permit_no_consumers = 1;
 
     fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,  1UL );
     fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
@@ -145,6 +144,7 @@ backtest_topo( config_t * config ) {
     fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in",   "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_out( topo, "snapin", 0UL, "snap_out",  0UL );
     fd_topob_tile_in ( topo, "replay", 0UL, "metric_in",   "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snaprd", 0UL, "snaprd_rp", 0UL );
 
     fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
@@ -214,31 +214,22 @@ backtest_topo( config_t * config ) {
   }
 
   /**********************************************************************/
-  /* Setup exec->writer links in topo                                   */
-  /**********************************************************************/
-  fd_topob_wksp( topo, "exec_writer" );
-  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_writer", "exec_writer", 128UL, FD_EXEC_WRITER_MTU, 1UL );
-  FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_writer", i );
-  FOR(writer_tile_cnt) for( ulong j=0UL; j<exec_tile_cnt; j++ )
-    fd_topob_tile_in( topo, "writer", i, "metric_in", "exec_writer", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-  /**********************************************************************/
-  /* Setup writer->replay links in topo, to send solcap account updates
+  /* Setup exec->replay links in topo, to send solcap account updates
      so that they are serialized, and to notify replay tile that a txn
-     has been finalized by the writer tile. */
+     has been finalized by the exec tile. */
   /**********************************************************************/
-  fd_topob_wksp( topo, "writ_repl" );
-  FOR(writer_tile_cnt) fd_topob_link( topo, "writ_repl", "writ_repl", 16384UL, sizeof(fd_writer_replay_txn_finalized_msg_t), 1UL );
-  FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer", i, "writ_repl", i );
-  FOR(writer_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "writ_repl", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_wksp( topo, "exec_replay" );
+  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_replay_txn_finalized_msg_t), 1UL );
+  FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_replay", i );
+  FOR(exec_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "exec_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
   if( FD_UNLIKELY( solcap_enabled ) ) {
     /* Capture account updates, whose updates must be centralized in the replay tile as solcap is currently not thread-safe.
       TODO: remove this when solcap v2 is here. */
     fd_topob_wksp( topo, "capt_replay" );
-    FOR(writer_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
-    FOR(writer_tile_cnt) fd_topob_tile_out( topo, "writer",      i,                               "capt_replay", i );
-    FOR(writer_tile_cnt) fd_topob_tile_in(  topo, "replay",      0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(exec_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec",        i,                               "capt_replay", i );
+    FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",      0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   /**********************************************************************/
@@ -251,41 +242,26 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  /* banks_obj shared by replay, exec and writer tiles */
+  /* banks_obj shared by replay and exec tiles */
   fd_topob_wksp( topo, "banks" );
   fd_topo_obj_t * banks_obj = setup_topo_banks( topo, "banks", config->firedancer.runtime.max_live_slots, config->firedancer.runtime.max_fork_width );
   fd_topob_tile_uses( topo, replay_tile, banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(writer_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
-  /* bank_hash_cmp_obj shared by replay, exec and writer tiles */
+  /* bank_hash_cmp_obj shared by replay and exec tiles */
   fd_topob_wksp( topo, "bh_cmp" );
   fd_topo_obj_t * bank_hash_cmp_obj = setup_topo_bank_hash_cmp( topo, "bh_cmp" );
   fd_topob_tile_uses( topo, replay_tile, bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
 
-  /* exec_spad_obj shared by replay, exec and writer tiles */
+  /* exec_spad_obj used by exec tiles */
   fd_topob_wksp( topo, "exec_spad" );
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    for( ulong j=0UL; j<writer_tile_cnt; j++ ) {
-      /* For txn_ctx. */
-      fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", j ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
-    }
     FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-  }
-
-  /* writer_fseq_obj shared by replay and writer tiles */
-  fd_topob_wksp( topo, "writer_fseq" );
-  for( ulong i=0UL; i<writer_tile_cnt; i++ ) {
-    fd_topo_obj_t * writer_fseq_obj = fd_topob_obj( topo, "fseq", "writer_fseq" );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "writer", i ) ], writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, writer_fseq_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, writer_fseq_obj->id, "writer_fseq.%lu", i ) );
   }
 
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
@@ -313,14 +289,7 @@ backtest_topo( config_t * config ) {
   }
 
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    /* Replay decoded manifest dcache topo obj */
-    fd_topo_obj_t * replay_manifest_dcache = fd_topob_obj( topo, "dcache", "replay_manif" );
-    fd_pod_insertf_ulong( topo->props, 2UL << 30UL, "obj.%lu.data_sz", replay_manifest_dcache->id );
-    fd_pod_insert_ulong(  topo->props, "manifest_dcache", replay_manifest_dcache->id );
-
     fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, snapin_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    fd_topob_tile_uses( topo, replay_tile, replay_manifest_dcache, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -366,6 +335,13 @@ configure_args( void ) {
 }
 
 void
+backtest_cmd_args( int *    pargc,
+                   char *** pargv,
+                   args_t * args ) {
+  args->backtest.no_watch = fd_env_strip_cmdline_contains( pargc, pargv, "--no-watch" );
+}
+
+void
 backtest_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                    fd_cap_chk_t *   chk,
                    config_t const * config ) {
@@ -380,95 +356,33 @@ backtest_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   args_t c_args = configure_args();
   configure_cmd_fn( &c_args, config );
 
-  run_firedancer_init( config, 1, 0 );
+  initialize_workspaces( config );
+  initialize_stacks( config );
 
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( &config->topo );
 
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  double ns_per_tick = 1.0/tick_per_ns;
+  args_t watch_args;
+  int pipefd[2];
+  if( !args->backtest.no_watch ) {
+    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  long start = fd_log_wallclock();
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
-
-  fd_topo_t * topo = &config->topo;
-  int disable_snap_loader = !config->gossip.entrypoints_cnt;
-  if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topo_tile_t * snaprd_tile = &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ];
-    fd_topo_tile_t * snapdc_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapdc", 0UL ) ];
-    fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
-
-    ulong volatile * const snaprd_metrics = fd_metrics_tile( snaprd_tile->metrics );
-    ulong volatile * const snapdc_metrics = fd_metrics_tile( snapdc_tile->metrics );
-    ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
-
-    ulong total_off_old    = 0UL;
-    ulong snaprd_backp_old = 0UL;
-    ulong snaprd_wait_old  = 0UL;
-    ulong snapdc_backp_old = 0UL;
-    ulong snapdc_wait_old  = 0UL;
-    ulong snapin_backp_old = 0UL;
-    ulong snapin_wait_old  = 0UL;
-    ulong acc_cnt_old      = 0UL;
-    sleep( 1 );
-    puts( "-------------backp=(snaprd,snapdc,snapin) busy=(snaprd,snapdc,snapin)---------------" );
-    long next = start+1000L*1000L*1000L;
-    for(;;) {
-      ulong snaprd_status = FD_VOLATILE_CONST( snaprd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-      ulong snapdc_status = FD_VOLATILE_CONST( snapdc_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-      ulong snapin_status = FD_VOLATILE_CONST( snapin_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
-
-      if( FD_UNLIKELY( snaprd_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) break;
-
-      long cur = fd_log_wallclock();
-      if( FD_UNLIKELY( cur<next ) ) {
-        long sleep_nanos = fd_long_min( 1000L*1000L, next-cur );
-        FD_TEST( !fd_sys_util_nanosleep(  (uint)(sleep_nanos/(1000L*1000L*1000L)), (uint)(sleep_nanos%(1000L*1000L*1000L)) ) );
-        continue;
-      }
-
-      ulong total_off    = snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ] +
-                           snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ];
-      ulong snaprd_backp = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-      ulong snaprd_wait  = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
-                           snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snaprd_backp;
-      ulong snapdc_backp = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-      ulong snapdc_wait  = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
-                           snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapdc_backp;
-      ulong snapin_backp = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-      ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_PREFRAG    ) ] +
-                           snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
-
-      ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
-      printf( "bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
-              (double)( total_off-total_off_old )/1e6,
-              ( (double)( snaprd_backp-snaprd_backp_old )*ns_per_tick )/1e7,
-              ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
-              ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7,
-              100-( ( (double)( snaprd_wait-snaprd_wait_old  )*ns_per_tick )/1e7 ),
-              100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
-              100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ),
-              (double)( acc_cnt-acc_cnt_old  )/1e6 );
-      fflush( stdout );
-      total_off_old    = total_off;
-      snaprd_backp_old = snaprd_backp;
-      snaprd_wait_old  = snaprd_wait;
-      snapdc_backp_old = snapdc_backp;
-      snapdc_wait_old  = snapdc_wait;
-      snapin_backp_old = snapin_backp;
-      snapin_wait_old  = snapin_wait;
-      acc_cnt_old      = acc_cnt;
-
-      next+=1000L*1000L*1000L;
-    }
+    watch_args.watch.drain_output_fd = pipefd[0];
+    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  for(;;) pause();
+  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  if( args->backtest.no_watch ) {
+    for(;;) pause();
+  } else {
+    watch_cmd_fn( &watch_args, config );
+  }
 }
 
 action_t fd_action_backtest = {
   .name = "backtest",
+  .args = backtest_cmd_args,
   .fn   = backtest_cmd_fn,
   .perm = backtest_cmd_perm,
   .topo = backtest_cmd_topo,
