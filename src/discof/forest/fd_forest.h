@@ -79,7 +79,7 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
 
   fd_forest_blk_idxs_t code[fd_forest_blk_idxs_word_cnt]; /* code shred idxs */
   long first_shred_ts; /* timestamp of first shred rcved in slot != complete_idx */
-  long first_req_ts;   /* timestamp of first request received in slot != complete_idx */
+  long first_req_ts;   /* tick of first request received in slot != complete_idx */
   uint turbine_cnt;    /* number of shreds received from turbine */
   uint repair_cnt;     /* number of data shreds received from repair */
   uint recovered_cnt;  /* number of shreds recovered from reedsol recovery */
