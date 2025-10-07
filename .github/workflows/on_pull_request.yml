@@ -22,7 +22,7 @@ jobs:
     uses: ./.github/workflows/backtest.yml
     secrets: inherit
   benchmark:
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event_name == 'pull_request'
     uses: ./.github/workflows/benchmark.yml
     secrets: inherit
   build_checks_1:

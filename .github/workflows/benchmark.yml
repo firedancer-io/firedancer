@@ -18,7 +18,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: [self-hosted, 512G]
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       CC: gcc
       MACHINE: ${{ inputs.machine }}
