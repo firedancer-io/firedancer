@@ -7,7 +7,7 @@
 #include "../fd_bank.h"
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/nanopb/pb_encode.h"
-#include "../program/fd_program_cache.h"
+#include "../../progcache/fd_prog_load.h"
 
 
 #include <stdio.h> /* fopen */
@@ -1238,10 +1238,8 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
-  uchar const * program_data     = fd_program_cache_get_account_programdata( txn_ctx->funk,
-                                                                             txn_ctx->xid,
-                                                                             program_acc,
-                                                                             &program_data_len );
+  uchar const * program_data     =
+      fd_prog_load_elf( txn_ctx->funk, txn_ctx->xid, program_acc, &program_data_len, NULL );
   if( program_data==NULL ) {
     return;
   }

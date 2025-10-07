@@ -585,7 +585,7 @@ fd_vm_init(
    ulong text_off,
    ulong text_sz,
    ulong entry_pc,
-   ulong * calldests,
+   ulong const * calldests,
    ulong sbpf_version,
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,

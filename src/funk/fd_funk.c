@@ -109,6 +109,8 @@ fd_funk_new( void * shmem,
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
+  for( ulong i=0UL; i<txn_max; i++ ) fd_rwlock_new( txn_join->ele[ i ].lock );
+
   fd_funk_txn_xid_set_root( funk->root         );
   fd_funk_txn_xid_set_root( funk->last_publish );
 

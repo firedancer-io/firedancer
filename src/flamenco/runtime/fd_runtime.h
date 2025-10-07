@@ -464,6 +464,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_progcache_t *          progcache,
                          fd_txncache_t *           txncache,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
@@ -488,22 +489,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_capture_ctx_t *        capture_ctx,
                                                 fd_spad_t *               runtime_spad,
                                                 int *                     is_epoch_boundary );
-
-/* `fd_runtime_update_program_cache()` is responsible for updating the
-   program cache with any programs referenced in the current
-   transaction. See fd_program_cache.h for more details.
-
-   Note that ALUTs must be resolved because programs referenced in ALUTs
-   can be invoked via CPI.
-
-   TODO: We need to remove the ALUT resolution from this function
-   because it is redundant (ALUTs get resolved again in the exec tile). */
-void
-fd_runtime_update_program_cache( fd_bank_t *               bank,
-                                 fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * xid,
-                                 fd_txn_p_t const *        txn_p,
-                                 fd_spad_t *               runtime_spad );
 
 /* Offline Replay *************************************************************/
 

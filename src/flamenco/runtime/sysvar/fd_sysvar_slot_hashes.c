@@ -129,7 +129,6 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
         .hash = fd_bank_bank_hash_get( bank ), // parent hash?
         .slot = fd_bank_parent_slot_get( bank ),   // parent_slot
       };
-      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 
       if( deq_fd_slot_hash_t_full( hashes ) )
         memset( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), 0, sizeof(fd_slot_hash_t) );
