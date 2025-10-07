@@ -20,7 +20,7 @@ test_sysvar_cache_env_create( test_sysvar_cache_env_t * env,
   fd_bank_t * bank      = fd_wksp_alloc_laddr( wksp, alignof(fd_bank_t), sizeof(fd_bank_t), wksp_tag );
   env->bank = bank;
   env->xid  = *fd_funk_last_publish( funk );
-  env->sysvar_cache     = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->sysvar_cache ) );
+  env->sysvar_cache     = fd_sysvar_cache_join( fd_sysvar_cache_new( bank->non_cow.sysvar_cache ) );
   return env;
 }
 
