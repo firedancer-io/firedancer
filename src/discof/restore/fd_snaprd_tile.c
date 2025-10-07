@@ -598,6 +598,20 @@ rename_snapshots( fd_snaprd_tile_t * ctx ) {
   }
 }
 
+static void
+remove_temp_files( fd_snaprd_tile_t * ctx ) {
+  if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) return;
+
+  if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) ) {
+    if( FD_UNLIKELY( -1==unlinkat( ctx->local_out.dir_fd, "snapshot.tar.bz2-partial", 0 ) ) )
+      FD_LOG_ERR(( "unlinkat(snapshot.tar.bz2-partial) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) {
+    if( FD_UNLIKELY( -1==unlinkat( ctx->local_out.dir_fd, "incremental-snapshot.tar.bz2-partial", 0 ) ) )
+      FD_LOG_ERR(( "unlinkat(incremental-snapshot.tar.bz2-partial) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+}
+
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
@@ -797,6 +811,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
       }
 
       ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
+      remove_temp_files( ctx );
       metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
@@ -824,6 +839,7 @@ after_credit( fd_snaprd_tile_t *  ctx,
 
       if( FD_LIKELY( !ctx->config.incremental_snapshot_fetch ) ) {
         ctx->state = FD_SNAPRD_STATE_SHUTDOWN;
+        remove_temp_files( ctx );
         metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
         fd_stem_publish( stem, ctx->out_snapctl.idx, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
