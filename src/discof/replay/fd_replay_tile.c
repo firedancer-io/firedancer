@@ -323,7 +323,8 @@ struct fd_replay_tile {
 
   fd_multi_epoch_leaders_t * mleaders;
 
-  fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
+  fd_pubkey_t   _identity_pubkey[1]; /* TODO: Keyswitch */
+  fd_pubkey_t * identity_pubkey; /* NULL for anonymous replay */
 
   /* When we transition to becoming leader, we can only unbecome the
      leader if we have received a block id from the FEC reassembler, and
@@ -1161,6 +1162,16 @@ publish_reset( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+static ulong
+next_leader_slot( fd_replay_tile_t const * ctx,
+                  ulong                    start_slot ) {
+  if( ctx->identity_pubkey ) {
+    return fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, start_slot, ctx->identity_pubkey );
+  } else {
+    return ULONG_MAX; /* never */
+  }
+}
+
 static void
 boot_genesis( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
@@ -1223,7 +1234,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   ctx->reset_slot            = 0UL;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
-  ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+  ctx->next_leader_slot      = next_leader_slot( ctx, 1UL );
 
   ctx->is_booted = 1;
   maybe_become_leader( ctx, stem );
@@ -1294,7 +1305,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     ctx->reset_slot            = snapshot_slot;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
-    ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+    ctx->next_leader_slot      = next_leader_slot( ctx, 1UL );
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
     FD_TEST( bank->idx==0UL );
@@ -1748,7 +1759,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
-  ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  ctx->next_leader_slot = next_leader_slot( ctx, min_leader_slot );
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
@@ -1947,9 +1958,11 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_t), sizeof(fd_replay_tile_t) );
 
-  if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
-
-  ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
+  if( FD_UNLIKELY( tile->replay.identity_key_path[0] ) ) {
+    uchar const * pubkey = fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 );
+    memcpy( ctx->_identity_pubkey->uc, pubkey, sizeof(fd_pubkey_t) );
+    ctx->identity_pubkey = ctx->_identity_pubkey;
+  }
 }
 
 static void
