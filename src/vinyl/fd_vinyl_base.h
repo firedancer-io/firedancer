@@ -300,6 +300,6 @@ typedef union fd_vinyl_info fd_vinyl_info_t;
    where the adjustment make it possible create a vinyl_data sizeclass
    whose val_max is exactly FD_VINYL_VAL_MAX. */
 
-#define FD_VINYL_VAL_MAX (10486192UL)
+#define FD_VINYL_VAL_MAX (10486200UL)
 
 #endif /* HEADER_fd_src_vinyl_fd_vinyl_base_h */
