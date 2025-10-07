@@ -1,5 +1,5 @@
 var _a2;
-import { r as p, R as D, a as yr, b as bl, u as Pl, p as El, j as Vi, g as Dl, c as Ml, d as xl } from "./index-DPqtm5ur.js";
+import { r as p, R as D, a as yr, b as bl, u as Pl, p as El, j as Vi, g as Dl, c as Ml, d as xl } from "./index-BNE2PWJE.js";
 var Ut = class {
   constructor() {
     this.allSyncListeners = /* @__PURE__ */ new Map(), this.allAsyncListeners = /* @__PURE__ */ new Map(), this.globalSyncListeners = /* @__PURE__ */ new Set(), this.globalAsyncListeners = /* @__PURE__ */ new Set(), this.asyncFunctionsQueue = [], this.scheduled = false, this.firedEvents = {};
@@ -22545,7 +22545,7 @@ var sS = class extends R {
     });
   }
 }, Ho = "32.3.4", wl = { version: Ho, moduleName: `${ht.CsvExportModule}-core`, beans: [eS, sS] }, oS = { version: Ho, moduleName: `${ht.CsvExportModule}-api`, apiFunctions: { getDataAsCsv: tS, exportDataAsCsv: iS }, dependantModules: [wl] }, rS = { version: Ho, moduleName: ht.CsvExportModule, dependantModules: [wl, oS] };
-const nS = "_grid_f48q6_1", lS = { grid: nS };
+const nS = "_grid_9qncm_1", lS = { grid: nS };
 Ue.registerModules([Yv, rS]);
 function aS(e) {
   return e.data.pubkey;
@@ -22567,7 +22567,7 @@ function dS() {
   return Vi.jsx("div", { className: `ag-theme-quartz-dark ${lS.grid}`, style: { height: "100%" }, children: Vi.jsx(Mv, { rowData: t, columnDefs: uS, getRowId: aS }) });
 }
 function mS() {
-  return Vi.jsx(xl, { direction: "column", gap: "4", flexGrow: "1", flexShrink: "1", height: "100%", children: Vi.jsx(dS, {}) });
+  return Vi.jsx(xl, { direction: "column", gap: "4", style: { padding: "4px 12px" }, height: "calc(100vh - var(--header-height))", children: Vi.jsx(dS, {}) });
 }
 export {
   mS as default
