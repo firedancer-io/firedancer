@@ -4,6 +4,7 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../../vm/fd_vm_base.h"
+#include "../../progcache/fd_prog_load.h"
 
 #define SORT_NAME        sort_ulong
 #define SORT_KEY_T       ulong
@@ -53,11 +54,11 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     fd_sbpf_loader_config_t config = {
       .elf_deploy_checks = input->deploy_checks,
     };
-    fd_bpf_get_sbpf_versions(
-        &config.sbpf_min_version,
-        &config.sbpf_max_version,
-        UINT_MAX,
-        &feature_set );
+
+    fd_prog_versions_t versions[1];
+    fd_prog_versions( &feature_set, UINT_MAX );
+    config.sbpf_min_version = versions->min_sbpf_version;
+    config.sbpf_max_version = versions->max_sbpf_version;
 
     int err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
 

@@ -127,6 +127,7 @@ struct fd_replay_tile {
   int tx_metadata_storage;
 
   fd_funk_t funk[1];
+  fd_progcache_t progcache[1];
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
@@ -612,7 +613,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid );
+  fd_funk_txn_prepare( ctx->funk,            &parent_xid, &xid );
+  fd_funk_txn_prepare( ctx->progcache->funk, &parent_xid, &xid );
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -821,7 +823,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  fd_funk_txn_prepare( ctx->funk, &parent_xid, &xid );
+  fd_funk_txn_prepare( ctx->funk,            &parent_xid, &xid );
+  fd_funk_txn_prepare( ctx->progcache->funk, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
@@ -945,6 +948,43 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_root_advanced_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 }
 
+/* init_funk performs pre-flight checks for the account database and
+   program cache.  Ensures that the account database was set up
+   correctly by bootstrap components (e.g. genesis or snapshot loader).
+   Mirrors the account database's fork tree down to the program cache. */
+
+static void
+init_funk( fd_replay_tile_t * ctx,
+           ulong              bank_slot ) {
+  /* Ensure that the loaded bank root corresponds to the account
+     database's root. */
+  if( FD_UNLIKELY( !ctx->funk->shmem ) ) {
+    FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to database shared memory objects" ));
+  }
+  fd_funk_txn_xid_t const * accdb_pub = fd_funk_last_publish( ctx->funk );
+  if( FD_UNLIKELY( accdb_pub->ul[0]!=bank_slot ) ) {
+    FD_LOG_CRIT(( "failed to initialize account database: accdb is at slot %lu, but chain state is at slot %lu\n"
+                  "This is a bug in startup components.",
+                  accdb_pub->ul[0], bank_slot ));
+  }
+  if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
+    FD_LOG_CRIT(( "failed to initialize account database: accdb fork graph is not clean.\n"
+                  "The account database should only contain state for the root slot at this point,\n"
+                  "but there are incomplete database transactions leftover.\n"
+                  "This is a bug in startup components."  ));
+  }
+
+  /* The program cache tracks the account database's fork graph at all
+     times.  Perform initial synchronization: pivot from funk 'root' (a
+     sentinel XID) to 'last publish' (the bootstrap root slot). */
+  if( FD_UNLIKELY( !ctx->progcache->funk->shmem ) ) {
+    FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
+  }
+  fd_progcache_clear( ctx->progcache );
+  fd_funk_txn_prepare( ctx->progcache->funk, fd_funk_root( ctx->progcache->funk ), fd_funk_last_publish( ctx->funk ) );
+  fd_funk_txn_publish( ctx->progcache->funk, fd_funk_last_publish( ctx->funk ) );
+}
+
 static void
 init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* Now that the snapshot has been loaded in, we have to refresh the
@@ -957,9 +997,10 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
   }
 
-  fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
-
   fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), fd_bank_slot_get( bank ) } };
+  init_funk( ctx, fd_bank_slot_get( bank ) );
+
+  fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
 
   fd_stake_delegations_refresh( root_delegations, ctx->funk, &xid );
 
@@ -1409,7 +1450,7 @@ replay( fd_replay_tile_t *  ctx,
 
     fd_funk_txn_xid_t xid = { .ul = { ready_txn->slot, ready_txn->slot } };
 
-    fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, ctx->runtime_spad );
+    fd_runtime_update_program_cache( bank, ctx->progcache, ctx->funk, &xid, txn_p, ctx->runtime_spad );
 
     /* At this point, we are going to send the txn down the execution
         pipeline.  Increment the refcnt so we don't prematurely prune a
@@ -1561,7 +1602,8 @@ funk_publish( fd_replay_tile_t * ctx,
   /* This is the standard case.  Publish all transactions up to and
      including the watermark.  This will publish any in-prep ancestors
      of root_txn as well. */
-  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to funk publish slot %lu", slot ));
+  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk,            &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(accdb) failed",     slot ));
+  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->progcache->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(progcache) failed", slot ));
 }
 
 static int
@@ -2010,6 +2052,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
+  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

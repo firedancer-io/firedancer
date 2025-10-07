@@ -853,19 +853,18 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         return rc;
       }
 
-      /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
-         https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-      fd_program_cache_entry_t const * cache_entry = NULL;
-      if( FD_UNLIKELY( fd_program_cache_load_entry( instr_ctx->txn_ctx->funk,
-                                                    instr_ctx->txn_ctx->xid,
-                                                    program_id,
-                                                    &cache_entry )!=0 ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
+      fd_progcache_rec_t const * cache_entry =
+          fd_progcache_peek( instr_ctx->txn_ctx->progcache,
+                             instr_ctx->txn_ctx->xid,
+                             program_id );
+      if( FD_UNLIKELY( !cache_entry ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
 
       /* The program may be in the cache but could have failed verification in the current epoch. */
-      if( FD_UNLIKELY( cache_entry->failed_verification ) ) {
+      if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }

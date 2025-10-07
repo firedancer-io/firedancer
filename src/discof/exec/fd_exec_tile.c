@@ -61,7 +61,10 @@ typedef struct fd_exec_tile_ctx {
      fd_funk_t.
      TODO: These should probably be made read-only handles. */
   fd_banks_t *          banks;
-  fd_funk_t             funk[ 1 ];
+  void *                shfunk;
+  void *                shprogcache;
+  fd_funk_t             funk[1];
+  fd_progcache_t        progcache[1];
 
   fd_txncache_t *       txncache;
 
@@ -174,6 +177,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
       if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_runtime_finalize_txn(
             ctx->funk,
+            ctx->progcache,
             ctx->txncache,
             &xid,
             ctx->txn_ctx,
@@ -309,15 +313,15 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join bank hash cmp" ));
   }
 
-  /********************************************************************/
-  /* funk-specific setup                                              */
-  /********************************************************************/
+  void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
 
-  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ) ) );
-
-  /********************************************************************/
-  /* setup txncache                                                   */
-  /********************************************************************/
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
+  if( FD_UNLIKELY( !fd_progcache_join( ctx->progcache, shprogcache ) ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->exec.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -332,7 +336,13 @@ unprivileged_init( fd_topo_t *      topo,
   fd_spad_push( ctx->exec_spad );
   uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  ctx->txn_ctx->funk[0]       = *ctx->funk;
+  if( FD_UNLIKELY( !fd_funk_join( ctx->txn_ctx->funk, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
+  ctx->txn_ctx->progcache = fd_progcache_join( ctx->txn_ctx->_progcache, shprogcache );
+  if( FD_UNLIKELY( !ctx->txn_ctx->progcache ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+  }
   ctx->txn_ctx->status_cache  = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   ctx->txn_ctx->spad          = ctx->exec_spad;

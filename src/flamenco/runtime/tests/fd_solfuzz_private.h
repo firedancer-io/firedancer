@@ -30,11 +30,11 @@ fd_runtime_fuzz_restore_features( fd_features_t *                    features,
 
 void
 fd_runtime_fuzz_refresh_program_cache( fd_bank_t *                       bank,
-                                       fd_funk_t *                       funk,
+                                       fd_progcache_t *                  progcache,
+                                       fd_funk_t *                       accdb,
                                        fd_funk_txn_xid_t const *         xid,
                                        fd_exec_test_acct_state_t const * acct_states,
-                                       ulong                             acct_states_count,
-                                       fd_spad_t *                       runtime_spad );
+                                       ulong                             acct_states_count );
 
 typedef ulong( exec_test_run_fn_t )( fd_solfuzz_runner_t *,
                                      void const *,
