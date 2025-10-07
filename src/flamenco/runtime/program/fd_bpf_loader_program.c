@@ -355,7 +355,9 @@ common_close_account( fd_pubkey_t * authority_address,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L1319-L1322 */
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL, &err ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!err ) ) return err;
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -757,7 +759,9 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1468-L1471 */
-      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, AUTHORITY_ACCOUNT_INDEX ) ) ) {
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, AUTHORITY_ACCOUNT_INDEX, &err ) ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+        if( FD_UNLIKELY( !!err ) ) return err;
         fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       }
@@ -997,7 +1001,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &err ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1129,7 +1135,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer and upgrade authority don't match" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 7UL ) ) ) {
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 7UL, &err ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1458,7 +1466,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer and upgrade authority don't match" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 6UL ) ) ) {
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 6UL, &err ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1524,7 +1534,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 6UL ) ) ) {
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 6UL, &err ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1684,7 +1696,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &err ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1709,7 +1723,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &err ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!err ) ) return err;
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1780,11 +1796,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+        int instr_err_code = 0;
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &instr_err_code ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
+        instr_err_code = 0;
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL, &instr_err_code ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
           fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
@@ -1803,11 +1825,17 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
           return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+        int instr_err_code = 0;
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &instr_err_code ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }
-        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
+        instr_err_code = 0;
+        if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL, &instr_err_code ) ) ) {
+          /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+          if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
           fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
           return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
         }

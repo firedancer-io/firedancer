@@ -2195,7 +2195,7 @@ process_authorize_with_seed_instruction(
     return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L33
-  if( fd_instr_acc_is_signer_idx( ctx->instr, 2 ) ) {
+  if( fd_instr_acc_is_signer_idx( ctx->instr, 2, &rc ) ) {
 
     // https://github.com/anza-xyz/agave/blob/v2.1.14/programs/vote/src/vote_processor.rs#L34
     fd_pubkey_t const * base_pubkey = NULL;
@@ -2411,7 +2411,9 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L116
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3 ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3, &rc ) ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+      if( FD_UNLIKELY( !!rc ) ) break;
       // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L117
       rc = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
@@ -2744,7 +2746,10 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L239
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3 ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3, &rc ) ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+      if( FD_UNLIKELY( !!rc ) ) break;
+
       rc = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
       break;
     }

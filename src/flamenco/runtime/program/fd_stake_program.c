@@ -1362,7 +1362,7 @@ authorize_with_seed( fd_exec_instr_ctx_t const *   ctx,
   int                 rc;
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {0};
   fd_pubkey_t         out                     = {0};
-  if( FD_LIKELY( fd_instr_acc_is_signer_idx( ctx->instr, authority_base_index ) ) ) {
+  if( FD_LIKELY( fd_instr_acc_is_signer_idx( ctx->instr, authority_base_index, NULL ) ) ) {
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L289
     fd_pubkey_t const * base_pubkey = NULL;
@@ -1934,7 +1934,7 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
     int rc;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L145-L153
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( invoke_context->instr, stake_authority_index ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( invoke_context->instr, stake_authority_index, NULL ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
@@ -2251,7 +2251,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L813
-  int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, withdraw_authority_index );
+  int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, withdraw_authority_index, NULL );
   if( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L817
@@ -2333,7 +2333,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   fd_pubkey_t custodian_pubkey_ = {0};
   fd_pubkey_t const * custodian_pubkey  = &custodian_pubkey_;
   if( custodian_index ) {
-    int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, *custodian_index );
+    int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, *custodian_index, NULL );
     if( is_signer ) {
       int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, *custodian_index, &custodian_pubkey );
       if( FD_UNLIKELY( err ) ) return err;
@@ -2490,7 +2490,7 @@ get_optional_pubkey( fd_exec_instr_ctx_t *          ctx,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L32
   if( FD_LIKELY( acc_idx<ctx->instr->acct_cnt ) ) {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L33
-    if( FD_UNLIKELY( should_be_signer && !fd_instr_acc_is_signer_idx( ctx->instr, acc_idx ) ) ) {
+    if( FD_UNLIKELY( should_be_signer && !fd_instr_acc_is_signer_idx( ctx->instr, acc_idx, NULL ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L39
@@ -2961,7 +2961,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L237
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3 ) ) )
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3, NULL ) ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L241
     fd_stake_authorized_t authorized = { .staker     = *staker_pubkey,
@@ -3013,7 +3013,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L257
-    int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, 3 );
+    int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, 3, NULL );
     if( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L260
     fd_pubkey_t const * custodian_pubkey = NULL;
@@ -3067,7 +3067,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L281
-    int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, 3 );
+    int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, 3, NULL );
     if( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L284
     fd_pubkey_t const * custodian_pubkey = NULL;
