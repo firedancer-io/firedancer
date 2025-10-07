@@ -22,10 +22,9 @@
 /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2110-L2117 */
 static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
-  /* TODO: genesis_creation_time needs to be a long in the bank. */
   return fd_long_sat_add(
-      (long)fd_bank_genesis_creation_time_get( bank ),
-      (long)( fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ) ) / NS_IN_S ) );
+      fd_bank_genesis_creation_time_get( bank ),
+      (long)(fd_uint128_sat_mul( fd_bank_slot_get( bank ), fd_bank_ns_per_slot_get( bank ) ) / NS_IN_S ) );
 }
 
 void
@@ -303,6 +302,9 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2159 */
   long unix_timestamp = clock->unix_timestamp;
+
+  ulong epoch               = !!parent_epoch ? *parent_epoch : clock->epoch;
+  ulong first_slot_in_epoch = fd_epoch_slot0( epoch_schedule, epoch );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2175 */
   long ancestor_timestamp = clock->unix_timestamp;

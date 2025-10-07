@@ -135,7 +135,7 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   fd_bank_max_tick_height_set( bank, manifest->max_tick_height );
   fd_bank_ns_per_slot_set( bank, manifest->ns_per_slot );
   fd_bank_ticks_per_slot_set( bank, manifest->ticks_per_slot );
-  fd_bank_genesis_creation_time_set( bank, manifest->creation_time_millis );
+  fd_bank_genesis_creation_time_set( bank, (long)manifest->creation_time_millis );
   fd_bank_slots_per_year_set( bank, manifest->slots_per_year );
   fd_bank_block_height_set( bank, manifest->block_height );
   fd_bank_execution_fees_set( bank, manifest->collector_fees );

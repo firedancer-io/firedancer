@@ -1721,7 +1721,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
   fd_bank_ticks_per_slot_set( bank, genesis_block->ticks_per_slot );
 
-  fd_bank_genesis_creation_time_set( bank, genesis_block->creation_time );
+  fd_bank_genesis_creation_time_set( bank, (long)genesis_block->creation_time );
 
   fd_bank_slots_per_year_set( bank, SECONDS_PER_YEAR * (1000000000.0 / (double)target_tick_duration) / (double)genesis_block->ticks_per_slot );
 

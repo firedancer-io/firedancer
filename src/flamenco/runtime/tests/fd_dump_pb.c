@@ -460,7 +460,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     .foundation      = inflation->foundation,
     .foundation_term = inflation->foundation_term,
   };
-  block_context->epoch_ctx.genesis_creation_time      = fd_bank_genesis_creation_time_get( bank );
+  block_context->epoch_ctx.genesis_creation_time      = (ulong)fd_bank_genesis_creation_time_get( bank );
 
   /* Dumping stake accounts for this epoch */
 

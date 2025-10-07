@@ -217,7 +217,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_ns_per_slot_set( bank, 400000000 ); // TODO: restore from input
 
-  fd_bank_genesis_creation_time_set( bank, test_ctx->epoch_ctx.genesis_creation_time );
+  fd_bank_genesis_creation_time_set( bank, (long)test_ctx->epoch_ctx.genesis_creation_time );
 
   fd_bank_slots_per_year_set( bank, test_ctx->epoch_ctx.slots_per_year );
 
