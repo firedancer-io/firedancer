@@ -15,13 +15,13 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "../progcache/fd_progcache_user.h"
 
 #include "context/fd_exec_txn_ctx.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
 #include "program/fd_vote_program.h"
-#include "program/fd_program_cache.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_address_lookup_table_program.h"
 
@@ -1086,6 +1086,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_progcache_t *          progcache,
                          fd_txncache_t *           txncache,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
@@ -1160,7 +1161,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       ulong current_slot = fd_bank_slot_get( bank );
       for( uchar i=0; i<txn_ctx->programs_to_reverify_cnt; i++ ) {
         fd_pubkey_t const * program_key = &txn_ctx->programs_to_reverify[i];
-        fd_program_cache_queue_program_for_reverification( funk, xid, program_key, current_slot );
+        fd_progcache_invalidate( progcache, xid, program_key, current_slot );
       }
   }
 
@@ -1569,71 +1570,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
-
-  } FD_SPAD_FRAME_END;
-}
-
-/******************************************************************************/
-/* Block Parsing                                                              */
-/******************************************************************************/
-
-/* Block iteration and parsing */
-
-/* As a note, all of the logic in this section is used by the full firedancer
-   client. The store tile uses these APIs to help parse raw (micro)blocks
-   received from the network. */
-
-/* Helpers */
-
-void
-fd_runtime_update_program_cache( fd_bank_t *               bank,
-                                 fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * xid,
-                                 fd_txn_p_t const *        txn_p,
-                                 fd_spad_t *               runtime_spad ) {
-  fd_txn_t const * txn_descriptor = TXN( txn_p );
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  /* Iterate over account keys referenced directly in the transaction first */
-  fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
-  for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
-    fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
-    fd_program_cache_update_program( bank, funk, xid, account, runtime_spad );
-  }
-
-  if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
-
-    /* Iterate over account keys referenced in ALUTs */
-    fd_acct_addr_t alut_accounts[256];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, runtime_spad );
-    if( FD_UNLIKELY( !slot_hashes_global ) ) {
-      return;
-    }
-
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-
-    /* TODO: This is done twice, once in the replay tile and once in the
-       exec tile. We should consolidate the account resolution into a
-       single place, but also keep in mind from a conformance
-       perspective that these ALUT resolution checks happen after some
-       things like compute budget instruction parsing */
-    if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables(
-          txn_descriptor,
-          txn_p->payload,
-          funk,
-          xid,
-          fd_bank_slot_get( bank ),
-          slot_hash,
-          alut_accounts ) ) ) {
-      return;
-    }
-
-    for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
-      fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
-      fd_program_cache_update_program( bank, funk, xid, account, runtime_spad );
-    }
-  }
 
   } FD_SPAD_FRAME_END;
 }

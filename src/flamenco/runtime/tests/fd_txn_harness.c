@@ -40,6 +40,7 @@ fd_runtime_fuzz_xid_cancel( fd_solfuzz_runner_t * runner,
                             fd_funk_txn_xid_t *   xid ) {
   if( FD_UNLIKELY( !xid ) ) return; // This shouldn't be false either
   fd_funk_txn_cancel( runner->funk, xid );
+  fd_progcache_clear( runner->progcache_admin );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -55,7 +56,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk, &parent_xid, &xid );
+  fd_funk_txn_prepare     ( funk,                    &parent_xid, &xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, &xid );
 
   /* Set up slot context */
   fd_banks_clear_bank( runner->banks, runner->bank );
@@ -202,9 +204,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->funk, &xid );
 
-  /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, runner->funk, &xid, test_ctx->account_shared_data, test_ctx->account_shared_data_count, runner->spad );
-
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   ulong        msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->tx );
@@ -340,10 +339,17 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
                               int *                     exec_res ) {
 
   /* Setup the spad for account allocation */
-  uchar *             txn_ctx_mem        = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  uchar *             txn_ctx_mem        = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
   txn_ctx->flags                         = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  txn_ctx->funk[0]                       = *runner->funk;
+  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->funk->shmem ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join failed" ));
+  }
+  uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  txn_ctx->progcache = fd_progcache_join( txn_ctx->_progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join failed" ));
+  }
   txn_ctx->bank_hash_cmp                 = NULL;
   txn_ctx->fuzz_config.enable_vm_tracing = runner->enable_vm_tracing;
   txn_ctx->xid[0]                        = *xid;

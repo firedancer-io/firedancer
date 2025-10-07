@@ -92,16 +92,7 @@ FD_FN_PURE static inline fd_funk_rec_key_t
 fd_funk_acc_key( fd_pubkey_t const * pubkey ) {
   fd_funk_rec_key_t key = {0};
   memcpy( key.uc, pubkey, sizeof(fd_pubkey_t) );
-  key.uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
   return key;
-}
-
-/* fd_funk_key_is_acc returns 1 if given fd_funk key is an account
-   and 0 otherwise. */
-
-FD_FN_PURE static inline int
-fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
-  return id->uc[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
 }
 
 /* Account Access from Funk APIs *************************************************/

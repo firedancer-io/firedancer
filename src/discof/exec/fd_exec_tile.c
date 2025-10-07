@@ -60,7 +60,10 @@ typedef struct fd_exec_tile_ctx {
      fd_funk_t.
      TODO: These should probably be made read-only handles. */
   fd_banks_t *          banks;
-  fd_funk_t             funk[ 1 ];
+  void *                shfunk;
+  void *                shprogcache;
+  fd_funk_t             funk[1];
+  fd_progcache_t        progcache[1];
 
   fd_txncache_t *       txncache;
 
@@ -81,7 +84,19 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t)                         );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint()                         );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT                     );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void
+metrics_write( fd_exec_tile_ctx_t * ctx ) {
+  fd_progcache_t * progcache = ctx->progcache;
+  FD_MCNT_SET( EXEC, PROGCACHE_MISSES,        progcache->metrics->miss_cnt       );
+  FD_MCNT_SET( EXEC, PROGCACHE_HITS,          progcache->metrics->hit_cnt        );
+  FD_MCNT_SET( EXEC, PROGCACHE_FILLS,         progcache->metrics->fill_cnt       );
+  FD_MCNT_SET( EXEC, PROGCACHE_FILL_TOT_SZ,   progcache->metrics->fill_tot_sz    );
+  FD_MCNT_SET( EXEC, PROGCACHE_INVALIDATIONS, progcache->metrics->invalidate_cnt );
+  FD_MCNT_SET( EXEC, PROGCACHE_DUP_INSERTS,   progcache->metrics->dup_insert_cnt );
 }
 
 static inline int
@@ -117,7 +132,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), fd_bank_slot_get( bank ) } };
-          fd_runtime_finalize_txn( ctx->funk, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
+          fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
         }
 
         /* Notify replay. */
@@ -157,6 +172,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
   void * capture_ctx_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
+  uchar * pc_scratch       = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   ulong  scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
@@ -239,15 +255,15 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join bank hash cmp" ));
   }
 
-  /********************************************************************/
-  /* funk-specific setup                                              */
-  /********************************************************************/
+  void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
 
-  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ) ) );
-
-  /********************************************************************/
-  /* setup txncache                                                   */
-  /********************************************************************/
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
+  if( FD_UNLIKELY( !fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->exec.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -262,7 +278,13 @@ unprivileged_init( fd_topo_t *      topo,
   fd_spad_push( ctx->exec_spad );
   uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  ctx->txn_ctx->funk[0]       = *ctx->funk;
+  if( FD_UNLIKELY( !fd_funk_join( ctx->txn_ctx->funk, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
+  ctx->txn_ctx->progcache = fd_progcache_join( ctx->txn_ctx->_progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  if( FD_UNLIKELY( !ctx->txn_ctx->progcache ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+  }
   ctx->txn_ctx->status_cache  = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   ctx->txn_ctx->spad          = ctx->exec_spad;
@@ -413,16 +435,17 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 #define STEM_CALLBACK_AFTER_CREDIT    after_credit
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_execor = {
-    .name                     = "exec",
-    .loose_footprint          = 0UL,
-    .populate_allowed_seccomp = populate_allowed_seccomp,
-    .populate_allowed_fds     = populate_allowed_fds,
-    .scratch_align            = scratch_align,
-    .scratch_footprint        = scratch_footprint,
-    .unprivileged_init        = unprivileged_init,
-    .run                      = stem_run,
+  .name                     = "exec",
+  .loose_footprint          = 0UL,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };
