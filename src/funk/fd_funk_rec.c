@@ -121,7 +121,7 @@ fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_xid_t const * xid,
                               fd_funk_rec_key_t const * key,
-                              fd_funk_txn_t const **    txn_out,
+                              fd_funk_txn_xid_t *       txn_out,
                               fd_funk_rec_query_t *     query ) {
   if( FD_UNLIKELY( !funk  ) ) FD_LOG_CRIT(( "NULL funk"  ));
   if( FD_UNLIKELY( !key   ) ) FD_LOG_CRIT(( "NULL key"   ));
@@ -186,7 +186,9 @@ retry:
           fd_funk_txn_xid_eq_root( ele->pair.xid );
 
         if( FD_LIKELY( match ) ) {
-          if( txn_out ) *txn_out = cur_txn;
+          if( txn_out ) {
+            *txn_out = *( cur_txn ? &cur_txn->xid : fd_funk_last_publish( funk ) );
+          }
           query->ele = (fd_funk_rec_t *)ele;
           res = query->ele;
           goto found;

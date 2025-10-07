@@ -421,7 +421,7 @@ fd_funk_last_publish_child_tail( fd_funk_t *          funk,
    current local join.  The value at this pointer will always be the
    root transaction id. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * funk ) { return funk->shmem->root; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t const * funk ) { return funk->shmem->root; }
 
 /* fd_funk_last_publish returns a pointer in the caller's address space
    to transaction id of the last published transaction.  Assumes funk is
@@ -429,7 +429,7 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_root( fd_funk_t * fu
    lifetime of the current local join.  The value at this pointer will
    be constant until the next transaction is published. */
 
-FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t * funk ) { return funk->shmem->last_publish; }
+FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_last_publish( fd_funk_t const * funk ) { return funk->shmem->last_publish; }
 
 /* fd_funk_is_frozen returns 1 if the records of the last published
    transaction are frozen (i.e. the funk has children) and 0 otherwise
