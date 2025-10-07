@@ -462,7 +462,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
-static void
+__attribute__((unused)) static void
 process_account_header( fd_snapin_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t const*)result->account_header.pubkey );
@@ -516,7 +516,7 @@ process_account_header( fd_snapin_tile_t *            ctx,
   if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( ctx->funk, prepare );
 }
 
-static void
+__attribute__((unused)) static void
 process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
   if( FD_UNLIKELY( !ctx->acc_data ) ) {

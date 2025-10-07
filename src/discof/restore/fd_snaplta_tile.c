@@ -32,6 +32,7 @@ struct fd_snaplta_tile {
   fd_ssparse_t *    ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
   fd_lthash_value_t running_lthash;
+  ulong num_accounts_seen;
 
   struct {
     uchar pubkey[ FD_HASH_FOOTPRINT ];
@@ -109,7 +110,8 @@ transition_malformed( fd_snaplta_tile_t * ctx,
 static int
 should_hash_account( fd_snaplta_tile_t * ctx,
                      uchar const         pubkey[ static FD_HASH_FOOTPRINT ] ) {
-  return fd_hash( pubkey[ 4UL ], pubkey, sizeof(fd_pubkey_t) )%ctx->num_hash_tiles==ctx->hash_tile_idx;
+  (void)pubkey;
+  return ctx->num_accounts_seen%ctx->num_hash_tiles==ctx->hash_tile_idx;
 }
 
 static int
@@ -158,15 +160,16 @@ handle_data_frag( fd_snaplta_tile_t * ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
+        ctx->num_accounts_seen++;
         if( FD_LIKELY( should_hash_account( ctx, result->account_header.pubkey) && result->account_header.lamports!=0UL ) ) {
           FD_TEST( ctx->acc_data_sz==0UL );
           ctx->hash_account = 1;
-          fd_blake3_init( ctx->b3 );
-          fd_blake3_append( ctx->b3, &result->account_header.lamports, sizeof( ulong ) );
-          fd_memcpy( ctx->account_hdr.pubkey, result->account_header.pubkey, FD_HASH_FOOTPRINT );
-          fd_memcpy( ctx->account_hdr.owner,  result->account_header.owner,  FD_HASH_FOOTPRINT );
+          // fd_blake3_init( ctx->b3 );
+          // fd_blake3_append( ctx->b3, &result->account_header.lamports, sizeof( ulong ) );
+          // fd_memcpy( ctx->account_hdr.pubkey, result->account_header.pubkey, FD_HASH_FOOTPRINT );
+          // fd_memcpy( ctx->account_hdr.owner,  result->account_header.owner,  FD_HASH_FOOTPRINT );
           ctx->account_hdr.data_len   = result->account_header.data_len;
-          ctx->account_hdr.executable = result->account_header.executable;
+          // ctx->account_hdr.executable = result->account_header.executable;
           // ctx->account_hdr.lamports   = result->account_header.lamports;
         }
         break;
@@ -187,16 +190,16 @@ handle_data_frag( fd_snaplta_tile_t * ctx,
 
     ctx->in.pos += result->bytes_consumed;
     if( FD_LIKELY( ctx->hash_account && ctx->acc_data_sz==ctx->account_hdr.data_len ) ) {
-      fd_lthash_value_t account_lthash[1];
-      fd_lthash_zero( account_lthash );
+      //fd_lthash_value_t account_lthash[1];
+      // fd_lthash_zero( account_lthash );
 
-      uchar executable_flag = ctx->account_hdr.executable & 0x1;
-      fd_blake3_append( ctx->b3, &executable_flag, sizeof(uchar) );
-      fd_blake3_append( ctx->b3, ctx->account_hdr.owner, FD_HASH_FOOTPRINT );
-      fd_blake3_append( ctx->b3, ctx->account_hdr.pubkey,  FD_HASH_FOOTPRINT );
-      fd_blake3_fini_2048( ctx->b3, account_lthash->bytes );
+      // uchar executable_flag = ctx->account_hdr.executable & 0x1;
+      // fd_blake3_append( ctx->b3, &executable_flag, sizeof(uchar) );
+      // fd_blake3_append( ctx->b3, ctx->account_hdr.owner, FD_HASH_FOOTPRINT );
+      // fd_blake3_append( ctx->b3, ctx->account_hdr.pubkey,  FD_HASH_FOOTPRINT );
+      // fd_blake3_fini_2048( ctx->b3, account_lthash->bytes );
 
-      fd_lthash_add( &ctx->running_lthash, account_lthash );
+      // fd_lthash_add( &ctx->running_lthash, account_lthash );
       // fd_lthash_adder_push_solana_account( ctx->adder,
       //                                      &ctx->running_lthash,
       //                                      ctx->account_hdr.pubkey,
@@ -382,6 +385,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hash_account            = 0;
   ctx->num_hash_tiles          = fd_topo_tile_name_cnt( topo, "snaplta" );
   ctx->hash_tile_idx           = tile->kind_id;
+  ctx->num_accounts_seen       = 0UL;
   FD_LOG_WARNING(("hashing accounts for tile %lu out of %lu", ctx->hash_tile_idx, ctx->num_hash_tiles ));
 
   fd_lthash_zero( &ctx->running_lthash );
