@@ -646,6 +646,8 @@ before_frag( fd_net_ctx_t * ctx,
   uint net_tile_id  = ctx->net_tile_id;
   uint dst_ip       = fd_disco_netmux_sig_ip( sig );
 
+  if( dst_ip!=FD_IP4_ADDR( 64,130,44,108 ) ) return 1;
+
   ctx->tx_op.use_gre          = 0;
   ctx->tx_op.gre_outer_dst_ip = 0;
   ctx->tx_op.gre_outer_src_ip = 0;
@@ -848,11 +850,7 @@ after_frag( fd_net_ctx_t *      ctx,
     FD_STORE( ushort, iphdr+10, fd_ip4_hdr_check( iphdr ) );
   }
 
-  if( FD_LOAD( uint, iphdr+14 )== FD_IP4_ADDR(202, 8, 11, 195) ) {
-    FD_LOG_HEXDUMP_NOTICE(( "targeted: gre tx frame", frame, sz ));
-  } else {
-    FD_LOG_HEXDUMP_NOTICE(( "someone else: gre tx frame", frame, sz ));
-  }
+  FD_LOG_HEXDUMP_NOTICE(( "gre tx frame", frame, sz ));
 
   /* Submit packet TX job
 
