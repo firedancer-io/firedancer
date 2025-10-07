@@ -10,7 +10,7 @@ FD_STATIC_ASSERT( FD_FUNK_ERR_REC               ==-6,                           
 FD_STATIC_ASSERT( FD_FUNK_ERR_MEM               ==-7,                              unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_ALIGN         ==8UL,                             unit_test );
-FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==40UL,                            unit_test );
+FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==32UL,                            unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_ALIGN         ==alignof(fd_funk_rec_key_t),      unit_test );
 FD_STATIC_ASSERT( FD_FUNK_REC_KEY_FOOTPRINT     ==sizeof (fd_funk_rec_key_t),      unit_test );
@@ -22,7 +22,7 @@ FD_STATIC_ASSERT( FD_FUNK_TXN_XID_ALIGN         ==alignof(fd_funk_txn_xid_t),   
 FD_STATIC_ASSERT( FD_FUNK_TXN_XID_FOOTPRINT     ==sizeof (fd_funk_txn_xid_t),      unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_ALIGN    ==8UL,                             unit_test );
-FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_FOOTPRINT==56UL,                            unit_test );
+FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_FOOTPRINT==48UL,                            unit_test );
 
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_ALIGN    ==alignof(fd_funk_xid_key_pair_t), unit_test );
 FD_STATIC_ASSERT( FD_FUNK_XID_KEY_PAIR_FOOTPRINT==sizeof (fd_funk_xid_key_pair_t), unit_test );
@@ -39,7 +39,6 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
 # else
   key->ul[3] = 0UL;
 # endif
-  key->ul[4] = ~key->ul[0];
   return key;
 }
 

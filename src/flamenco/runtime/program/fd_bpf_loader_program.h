@@ -6,9 +6,10 @@
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
-#include "fd_program_cache.h"
+#include "../../progcache/fd_progcache_rec.h"
 #include "../../features/fd_features.h"
 #include "../../types/fd_types.h"
+#include "../../../funk/fd_funk_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L67-L69 */
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -65,12 +66,6 @@ fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
                                  fd_spad_t *              spad,
                                  int *                    opt_err );
 
-void
-fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
-                          uint *                sbpf_max_version,
-                          ulong                 slot,
-                          fd_features_t const * features );
-
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    fd_pubkey_t const *   program_key,
@@ -79,9 +74,9 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    fd_spad_t *           spad );
 
 int
-fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
-                fd_program_cache_entry_t const * cache_entry,
-                uchar                            is_deprecated );
+fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
+                fd_progcache_rec_t const * program,
+                uchar                      is_deprecated );
 
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
@@ -98,7 +93,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int
 fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
-                                     fd_funk_t *               funk,
+                                     void *                    accdb_shfunk,
                                      fd_funk_txn_xid_t const * xid,
                                      fd_pubkey_t const *       program_key,
                                      uchar const *             elf,

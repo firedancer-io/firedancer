@@ -10,6 +10,17 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+void *
+fd_topo_obj_laddr( fd_topo_t const * topo,
+                   ulong             obj_id ) {
+  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  if( FD_UNLIKELY( obj_id==ULONG_MAX ) ) FD_LOG_CRIT(( "invalid obj_id ULONG_MAX" ));
+  if( FD_UNLIKELY( obj_id>=FD_TOPO_MAX_OBJS ) ) FD_LOG_CRIT(( "invalid obj_id %lu", obj_id ));
+  FD_TEST( obj->id == obj_id );
+  FD_TEST( obj->offset );
+  return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
+}
+
 void
 fd_topo_join_workspace( fd_topo_t *      topo,
                         fd_topo_wksp_t * wksp,

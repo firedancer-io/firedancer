@@ -424,7 +424,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
   err = fd_directly_invoke_loader_v3_deploy( bank,
-                                             funk,
+                                             funk->shmem,
                                              &migration_xid,
                                              builtin_program_id,
                                              fd_txn_account_get_data( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE,

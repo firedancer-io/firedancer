@@ -533,6 +533,17 @@ user = ""
     # max_fork_width, the client will crash.
     max_fork_width = 32
 
+    # The program cache pre-loads frequently executed programs for
+    # faster transaction execution.
+    [runtime.program_cache]
+        # The size of the loaded program cache in MiB.
+        heap_size_mib = 1024
+
+        # The mean expected heap utilization of a cache entry.  Controls
+        # the size of metadata structures (e.g. cache entry table).  It
+        # is not recommended to change this setting.
+        mean_cache_entry_size_kib = 131072
+
 # This section configures the "groove" persistent account database.
 # [groove]
 # ...
