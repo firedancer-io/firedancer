@@ -282,6 +282,9 @@ metrics_write( fd_snaprd_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPRD, INCREMENTAL_BYTES_TOTAL,       ctx->metrics.incremental.bytes_total );
   FD_MGAUGE_SET( SNAPRD, INCREMENTAL_DOWNLOAD_RETRIES,  ctx->metrics.incremental.num_retries );
 
+  FD_MGAUGE_SET( SNAPRD, GOSSIP_FRESH_COUNT,            ctx->gossip.fresh_cnt );
+  FD_MGAUGE_SET( SNAPRD, GOSSIP_TOTAL_COUNT,            ctx->gossip.total_cnt );
+
   FD_MGAUGE_SET( SNAPRD, PREDICTED_SLOT,                ctx->predicted_incremental.slot );
 
   FD_MGAUGE_SET( SNAPRD, STATE, (ulong)ctx->state );
