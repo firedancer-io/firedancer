@@ -168,9 +168,10 @@ FD_PROTOTYPES_BEGIN
    failed.
 
    If lock_pages is 1, the mapped region will be locked to physical DRAM
-   when it is mapped in, ensuring that the memory pages will not be swapped
-   out.  Most callers of this function should lock their pages, unless the
-   region is larger than the physical memory available.
+   when it is mapped in, ensuring that the memory pages will not be
+   swapped out.  Most callers of this function should lock their pages,
+   unless the region is larger than the physical memory available.
+   (FIXME: THIS PROBABLY SHOULD BE ADDED AS A FLAG TO MODE)
 
    IMPORTANT: not locking pages can lead to unexpected behaviour and
    performance degradation, so is is highly recommended to lock pages. */
@@ -577,4 +578,3 @@ fd_shmem_private_halt( void );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_h */
-
