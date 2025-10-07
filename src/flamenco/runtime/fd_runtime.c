@@ -705,15 +705,17 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
   fd_bank_total_compute_units_used_set( bank, 0UL );
 
   /* Setup cost tracker */
-  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_cost_tracker_new(
-      fd_bank_cost_tracker_locking_modify( bank ),
-      fd_bank_features_query( bank ),
-      fd_bank_slot_get( bank ),
-      999UL /* TODO: Needs real seed */ ) );
-  if( FD_UNLIKELY( !cost_tracker ) ) {
-    FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
+  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+    fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_cost_tracker_new(
+        fd_bank_cost_tracker_locking_modify( bank ),
+        fd_bank_features_query( bank ),
+        fd_bank_slot_get( bank ),
+        999UL /* TODO: Needs real seed */ ) );
+    if( FD_UNLIKELY( !cost_tracker ) ) {
+      FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
+    }
+    fd_bank_cost_tracker_end_locking_modify( bank );
   }
-  fd_bank_cost_tracker_end_locking_modify( bank );
 
   int result = fd_runtime_block_sysvar_update_pre_execute( bank, funk, xid, capture_ctx, runtime_spad );
   if( FD_UNLIKELY( result != 0 ) ) {

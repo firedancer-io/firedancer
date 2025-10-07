@@ -41,7 +41,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_Q );
   fd_bank_slot_set( bank_Q, 101UL );
   bank_Q->refcnt = 1UL; /* Q(1) */
-  bank_Q->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_Q );
   FD_TEST( fd_banks_bank_query( banks, bank_idx_Q ) == bank_Q );
 
   /* Create A branch from P - this is on the rooted fork. */
@@ -50,7 +50,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_A );
   fd_bank_slot_set( bank_A, 102UL );
   bank_A->refcnt = 0UL; /* A(0) */
-  bank_A->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_A );
 
   /* Create X branch from A. */
   ulong bank_idx_X = fd_banks_new_bank( banks, bank_idx_A )->idx;
@@ -58,7 +58,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_X );
   fd_bank_slot_set( bank_X, 103UL );
   bank_X->refcnt = 0UL; /* X(0) */
-  bank_X->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_X );
 
   /* Create Y branch from X. */
   ulong bank_idx_Y = fd_banks_new_bank( banks, bank_idx_X )->idx;
@@ -66,7 +66,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_Y );
   fd_bank_slot_set( bank_Y, 104UL );
   bank_Y->refcnt = 0UL; /* Y(0) */
-  bank_Y->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_Y );
 
   /* Create B branch from A - this is on the rooted fork. */
   ulong bank_idx_B = fd_banks_new_bank( banks, bank_idx_A )->idx;
@@ -74,7 +74,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_B );
   fd_bank_slot_set( bank_B, 105UL );
   bank_B->refcnt = 0UL; /* B(0) */
-  bank_B->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_B );
 
   /* Create C branch from A. */
   ulong bank_idx_C = fd_banks_new_bank( banks, bank_idx_A )->idx;
@@ -82,7 +82,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_C );
   fd_bank_slot_set( bank_C, 106UL );
   bank_C->refcnt = 0UL; /* C(0) */
-  bank_C->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_C );
 
   /* Create M branch from B - this is on the rooted fork. */
   ulong bank_idx_M = fd_banks_new_bank( banks, bank_idx_B )->idx;
@@ -90,7 +90,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_M );
   fd_bank_slot_set( bank_M, 107UL );
   bank_M->refcnt = 0UL; /* M(0) */
-  bank_M->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_M );
 
   /* Create R branch from B. */
   ulong bank_idx_R = fd_banks_new_bank( banks, bank_idx_B )->idx;
@@ -98,7 +98,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_R );
   fd_bank_slot_set( bank_R, 108UL );
   bank_R->refcnt = 0UL; /* R(0) */
-  bank_R->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_R );
 
   /* Create D branch from M. */
   ulong bank_idx_D = fd_banks_new_bank( banks, bank_idx_M )->idx;
@@ -106,7 +106,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_D );
   fd_bank_slot_set( bank_D, 109UL );
   bank_D->refcnt = 2UL; /* D(2) */
-  bank_D->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_D );
 
   /* Create T branch from M - this is on the rooted fork. */
   ulong bank_idx_T = fd_banks_new_bank( banks, bank_idx_M )->idx;
@@ -114,7 +114,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_T );
   fd_bank_slot_set( bank_T, 110UL );
   bank_T->refcnt = 0UL; /* T(0) */
-  bank_T->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_T );
 
   /* Create J branch from R. */
   ulong bank_idx_J = fd_banks_new_bank( banks, bank_idx_R )->idx;
@@ -122,7 +122,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_J );
   fd_bank_slot_set( bank_J, 111UL );
   bank_J->refcnt = 0UL; /* J(0) */
-  bank_J->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_J );
 
   /* Create L branch from R. */
   ulong bank_idx_L = fd_banks_new_bank( banks, bank_idx_R )->idx;
@@ -130,7 +130,7 @@ test_bank_advancing( void * mem ) {
   FD_TEST( bank_L );
   fd_bank_slot_set( bank_L, 112UL );
   bank_L->refcnt = 0UL; /* L(0) */
-  bank_L->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( banks, bank_L );
 
   /* Verify all banks exist. */
   FD_TEST( fd_banks_bank_query( banks, bank_idx_P ) == bank_P );
@@ -330,7 +330,6 @@ main( int argc, char ** argv ) {
   ulong bank_idx2 = fd_banks_new_bank( banks, bank_idx )->idx;
   fd_bank_t * bank2 = fd_banks_clone_from_parent( banks, bank_idx2, bank_idx );
   fd_bank_slot_set( bank2, 2UL );
-  bank2->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( bank2 );
   FD_TEST( fd_bank_capitalization_get( bank2 ) == 1000UL );
   /* At this point, the first epoch leaders has been allocated from the
@@ -372,10 +371,11 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 100UL );
 
+  fd_banks_mark_bank_frozen( banks, bank2 );
+
   ulong bank_idx3 = fd_banks_new_bank( banks, bank_idx )->idx;
   fd_bank_t * bank3 = fd_banks_clone_from_parent( banks, bank_idx3, bank_idx );
   FD_TEST( bank3 );
-  bank3->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank3 ) == 1000UL );
   fd_bank_capitalization_set( bank3, 2000UL );
   FD_TEST( fd_bank_capitalization_get( bank3 ) == 2000UL );
@@ -407,10 +407,11 @@ main( int argc, char ** argv ) {
   FD_TEST( epoch_leaders2 );
   fd_bank_epoch_leaders_end_locking_modify( bank3 );
 
+  fd_banks_mark_bank_frozen( banks, bank3 );
+
   ulong bank_idx4 = fd_banks_new_bank( banks, bank_idx3 )->idx;
   fd_bank_t * bank4 = fd_banks_clone_from_parent( banks, bank_idx4, bank_idx3 );
   FD_TEST( bank4 );
-  bank4->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank4 ) == 2000UL );
 
   /* Trying to allocate a new epoch leaders should fail because the pool
@@ -418,27 +419,30 @@ main( int argc, char ** argv ) {
 
   FD_TEST( !fd_bank_epoch_leaders_pool_free( fd_bank_get_epoch_leaders_pool( bank4 ) ) );
 
+  fd_banks_mark_bank_frozen( banks, bank4 );
+
   ulong bank_idx5 = fd_banks_new_bank( banks, bank_idx4 )->idx;
   fd_bank_t * bank5 = fd_banks_clone_from_parent( banks, bank_idx5, bank_idx4 );
   FD_TEST( bank5 );
-  bank5->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank5 ) == 2000UL );
   fd_bank_capitalization_set( bank5, 3000UL );
   FD_TEST( fd_bank_capitalization_get( bank5 ) == 3000UL );
 
+  fd_banks_mark_bank_frozen( banks, bank5 );
+
   ulong bank_idx6 = fd_banks_new_bank( banks, bank_idx2 )->idx;
   fd_bank_t * bank6 = fd_banks_clone_from_parent( banks, bank_idx6, bank_idx2 );
   FD_TEST( bank6 );
-  bank6->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 1000UL );
   fd_bank_capitalization_set( bank6, 2100UL );
   fd_bank_slot_set( bank6, 6UL );
   FD_TEST( fd_bank_capitalization_get( bank6 ) == 2100UL );
 
+  fd_banks_mark_bank_frozen( banks, bank6 );
+
   ulong bank_idx7 = fd_banks_new_bank( banks, bank_idx6 )->idx;
   fd_bank_t * bank7 = fd_banks_clone_from_parent( banks, bank_idx7, bank_idx6 );
   FD_TEST( bank7 );
-  bank7->flags |= FD_BANK_FLAGS_FROZEN;
   fd_bank_slot_set( bank7, 7UL );
   FD_TEST( fd_bank_capitalization_get( bank7 ) == 2100UL );
 
@@ -462,6 +466,8 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 100UL );
 
+  fd_banks_mark_bank_frozen( banks, bank7 );
+
   /* At this point there are these forks:
      1. 1 -> 2 -> 6 -> 7
      2. 1 -> 3 -> 4
@@ -470,7 +476,6 @@ main( int argc, char ** argv ) {
   ulong bank_idx8 = fd_banks_new_bank( banks, bank_idx7 )->idx;
   fd_bank_t * bank8 = fd_banks_clone_from_parent( banks, bank_idx8, bank_idx7 );
   FD_TEST( bank8 );
-  bank8->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank8 ) == 2100UL );
 
   stake_delegations = fd_bank_stake_delegations_delta_locking_modify( bank8 );
@@ -483,10 +488,11 @@ main( int argc, char ** argv ) {
   FD_TEST( stake_delegation );
   FD_TEST( stake_delegation->stake == 4UL );
 
+  fd_banks_mark_bank_frozen( banks, bank8 );
+
   ulong bank_idx9 = fd_banks_new_bank( banks, bank_idx7 )->idx;
   fd_bank_t * bank9 = fd_banks_clone_from_parent( banks, bank_idx9, bank_idx7 );
   FD_TEST( bank9 );
-  bank9->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank9 ) == 2100UL );
 
   /* Ensure that the child-most bank is able to correctly query the
@@ -515,6 +521,8 @@ main( int argc, char ** argv ) {
   fd_vote_states_t * keys2 = fd_bank_vote_states_prev_locking_modify( bank9 );
   keys2->magic = 101UL;
   fd_bank_vote_states_prev_end_locking_modify( bank9 );
+
+  fd_banks_mark_bank_frozen( banks, bank9 );
 
   /* Verify that the bank is published and that it is indeed bank7.
      Also, verify that the stake delegations have been correctly
@@ -562,7 +570,6 @@ main( int argc, char ** argv ) {
   ulong bank_idx10 = fd_banks_new_bank( banks, bank_idx7 )->idx;
   fd_bank_t * bank10 = fd_banks_clone_from_parent( banks, bank_idx10, bank_idx7 );
   FD_TEST( bank10 );
-  bank10->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank10 ) == 2100UL );
 
   /* At this point, there should be an epoch leader pool element that is
@@ -572,10 +579,11 @@ main( int argc, char ** argv ) {
   FD_TEST( epoch_leaders3 );
   fd_bank_epoch_leaders_end_locking_modify( bank10 );
 
+  fd_banks_mark_bank_frozen( banks, bank10 );
+
   ulong bank_idx11 = fd_banks_new_bank( banks, bank_idx9 )->idx;
   fd_bank_t * bank11 = fd_banks_clone_from_parent( banks, bank_idx11, bank_idx9 );
   FD_TEST( bank11 );
-  bank11->flags |= FD_BANK_FLAGS_FROZEN;
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 2100UL );
   fd_bank_slot_set( bank11, 11UL );
 
@@ -643,23 +651,9 @@ main( int argc, char ** argv ) {
 
   /* Set the cost tracker to some non-zero values. */
 
-  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank11 );
-  cost_tracker->block_cost = 100UL;
-  cost_tracker->vote_cost  = 200UL;
-  FD_TEST( bank11->cost_tracker_dirty == 1 );
-  fd_bank_cost_tracker_end_locking_modify( bank11 );
-
   fd_banks_clear_bank( banks, bank11 );
   FD_TEST( fd_bank_slot_get( bank11 ) == 0UL );
   FD_TEST( fd_bank_capitalization_get( bank11 ) == 0UL );
-
-  /* Make sure that the cost tracker is now not dirty, but the backing
-     memory has not changed at all. */
-
-  FD_TEST( bank11->cost_tracker_dirty == 0 );
-  cost_tracker = (fd_cost_tracker_t *)bank11->cost_tracker;
-  FD_TEST( cost_tracker->block_cost == 100UL );
-  FD_TEST( cost_tracker->vote_cost == 200UL );
 
   keys3 = fd_bank_vote_states_prev_locking_query( bank11 );
   FD_TEST( keys3->magic == 101UL );

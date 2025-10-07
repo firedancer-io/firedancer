@@ -736,7 +736,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
   /* Mark the bank as frozen. */
-  bank->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( ctx->banks, bank );
 
   publish_slot_completed( ctx, stem, bank, 0 );
 
@@ -873,8 +873,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   FD_TEST( ctx->recv_block_id );
   FD_TEST( ctx->recv_poh );
 
-  FD_TEST( !(ctx->leader_bank->flags&FD_BANK_FLAGS_FROZEN) );
-  ctx->leader_bank->flags |= FD_BANK_FLAGS_FROZEN;
+  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx );
 
@@ -1238,8 +1237,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
-  bank->flags |= FD_BANK_FLAGS_FROZEN;
-
   publish_slot_completed( ctx, stem, bank, 1 );
   publish_root_advanced( ctx, stem );
   publish_reset( ctx, stem, bank );
@@ -1315,8 +1312,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     /* We call this after fd_runtime_read_genesis, which sets up the
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx );
-
-    bank->flags |= FD_BANK_FLAGS_FROZEN;
 
     publish_slot_completed( ctx, stem, bank, 1 );
     publish_root_advanced( ctx, stem );
@@ -1717,9 +1712,13 @@ process_txn_finalized( fd_replay_tile_t *                         ctx,
      eligible for pruning as in-flight transactions retire from the
      execution pipeline. */
 
-  /* Abort bad blocks. */
-  if( FD_UNLIKELY( fd_banks_is_bank_dead( bank ) ) ) {
+  /* Abort bad blocks.  Stop scheduling out work on dead blocks and
+     freeze the bank if possible. */
+  if( FD_UNLIKELY( bank->flags&FD_BANK_FLAGS_DEAD ) ) {
     fd_sched_block_abandon( ctx->sched, bank->idx );
+    if( FD_UNLIKELY( bank->refcnt==0UL ) ) {
+      fd_banks_mark_bank_frozen( ctx->banks, bank );
+    }
   }
 }
 
