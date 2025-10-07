@@ -11,7 +11,7 @@
 struct fd_slot_metrics {
   ulong slot;
   long  first_ts;
-  long  slot_complete_ts;
+  long  slot_complete_ts; /* tick */
 
   uint repair_cnt;
   uint turbine_cnt;
