@@ -318,7 +318,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
     return 0;
   }
 
-  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction );
+  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction, NULL );
 }
 
 /* fd_borrowed_account_is_writer mirrors the Agave function

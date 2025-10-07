@@ -92,7 +92,11 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L75-L78 */
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, err ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!(*err) ) ) {
+      return NULL;
+    }
     fd_log_collector_msg_literal( instr_ctx, "Authority did not sign" );
     *err = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     return NULL;
@@ -314,7 +318,9 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L205-L208 */
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &err ) ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+      if( FD_UNLIKELY( !!err ) ) return err;
       fd_log_collector_msg_literal( instr_ctx, "Authority did not sign" );
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
@@ -639,7 +645,9 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L414-L417 */
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL, &err ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!err ) ) return err;
     fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }

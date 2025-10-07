@@ -127,7 +127,7 @@ fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
                                fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] ) {
   ulong j = 0UL;
   for( ushort i=0; i<ctx->instr->acct_cnt && j<FD_TXN_SIG_MAX; i++ )
-    if( fd_instr_acc_is_signer_idx( ctx->instr, i ) ) {
+    if( fd_instr_acc_is_signer_idx( ctx->instr, i, NULL ) ) {
       ushort idx_in_txn = ctx->instr->accounts[i].index_in_transaction;
       int err = fd_exec_txn_ctx_get_key_of_account_at_index( ctx->txn_ctx,
                                                              idx_in_txn,
@@ -146,7 +146,7 @@ fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,
   for( ushort j=0; j<ctx->instr->acct_cnt; j++ ) {
     ushort idx_in_txn = ctx->instr->accounts[ j ].index_in_transaction;
     is_signer |=
-      ( ( !!fd_instr_acc_is_signer_idx( ctx->instr, j ) ) &
+        ( ( !!fd_instr_acc_is_signer_idx( ctx->instr, j, NULL ) ) &
         ( 0==memcmp( pubkey->key, ctx->txn_ctx->account_keys[ idx_in_txn ].key, sizeof(fd_pubkey_t) ) ) );
   }
   return is_signer;

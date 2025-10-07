@@ -249,7 +249,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L465 */
       fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &view_acc );
 
-      uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i );
+      uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i, NULL );
       FD_STORE( uchar, serialized_params, is_signer );
       serialized_params += sizeof(uchar);
 
@@ -540,7 +540,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
 
       fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &view_acc );
 
-      uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i );
+      uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i, NULL );
       FD_STORE( uchar, serialized_params, is_signer );
       serialized_params += sizeof(uchar);
 
