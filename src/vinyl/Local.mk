@@ -1,0 +1,5 @@
+$(call make-lib,fd_vinyl)
+$(call add-hdrs,fd_vinyl_base.h)
+$(call add-objs,fd_vinyl_base,fd_vinyl)
+$(call make-unit-test,test_vinyl_base,test_vinyl_base,fd_vinyl fd_tango fd_util)
+$(call run-unit-test,test_vinyl_base)
