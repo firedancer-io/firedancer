@@ -233,8 +233,14 @@ write_snapshots( config_t const * config,
 
   ulong bytes_read = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ];
   ulong bytes_total = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ];
+
+  ulong gossip_fresh_count = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, GOSSIP_FRESH_COUNT ) ];
+  ulong gossip_total_count = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, GOSSIP_TOTAL_COUNT ) ];
+
   double progress = 0.0;
   if( FD_LIKELY( bytes_total>0UL ) ) progress = 100.0 * (double)bytes_read / (double)bytes_total;
+  else if( FD_LIKELY( gossip_total_count>0UL ) ) progress = 100.0 * (1.0 - (double)gossip_fresh_count / (double)gossip_total_count );
+  else progress = 0.0;
 
   ulong snap_rx_sum = 0UL;
   ulong num_snap_rx_samples = fd_ulong_min( snapshot_rx_idx, sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0]) );

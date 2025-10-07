@@ -32,20 +32,23 @@
 static inline const char *
 fd_snaprd_state_str( ulong state ) {
   switch( state ) {
-    case FD_SNAPRD_STATE_WAITING_FOR_PEERS:         return "waiting_for_peers";
-    case FD_SNAPRD_STATE_COLLECTING_PEERS:          return "collecting_peers";
-    case FD_SNAPRD_STATE_READING_FULL_FILE:         return "reading_full_file";
-    case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:        return "flushing_full_file";
-    case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:  return "flushing_full_file_reset";
-    case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:  return "reading_incremental_file";
-    case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE: return "flushing_incremental_file";
-    case FD_SNAPRD_STATE_READING_FULL_HTTP:         return "reading_full_http";
-    case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:        return "flushing_full_http";
-    case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:  return "flushing_full_http_reset";
-    case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:  return "reading_incremental_http";
-    case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP: return "flushing_incremental_http";
-    case FD_SNAPRD_STATE_SHUTDOWN:                  return "shutdown";
-    default:                                        return "unknown";
+    case FD_SNAPRD_STATE_WAITING_FOR_PEERS:               return "waiting_for_peers";
+    case FD_SNAPRD_STATE_WAITING_FOR_PEERS_INCREMENTAL:   return "waiting_for_peers_incremental";
+    case FD_SNAPRD_STATE_COLLECTING_PEERS:                return "collecting_peers";
+    case FD_SNAPRD_STATE_COLLECTING_PEERS_INCREMENTAL:    return "collecting_peers_incremental";
+    case FD_SNAPRD_STATE_READING_FULL_FILE:               return "reading_full_file";
+    case FD_SNAPRD_STATE_FLUSHING_FULL_FILE:              return "flushing_full_file";
+    case FD_SNAPRD_STATE_FLUSHING_FULL_FILE_RESET:        return "flushing_full_file_reset";
+    case FD_SNAPRD_STATE_READING_INCREMENTAL_FILE:        return "reading_incremental_file";
+    case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE:       return "flushing_incremental_file";
+    case FD_SNAPRD_STATE_READING_FULL_HTTP:               return "reading_full_http";
+    case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP:              return "flushing_full_http";
+    case FD_SNAPRD_STATE_FLUSHING_FULL_HTTP_RESET:        return "flushing_full_http_reset";
+    case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP_RESET: return "flushing_incremental_http_reset";
+    case FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP:        return "reading_incremental_http";
+    case FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP:       return "flushing_incremental_http";
+    case FD_SNAPRD_STATE_SHUTDOWN:                        return "shutdown";
+    default:                                              return "unknown";
   }
 }
 
