@@ -647,6 +647,7 @@ static inline void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
                    ulong             obj_id ) {
   fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
+  if( FD_UNLIKELY( obj_id>=FD_TOPO_MAX_OBJS ) ) FD_LOG_CRIT(( "obj_id out of bounds: %lu", obj_id ));
   FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
   FD_TEST( obj->id == obj_id );
   FD_TEST( obj->offset );

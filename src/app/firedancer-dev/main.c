@@ -97,6 +97,7 @@ extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_backtest;
+extern fd_topo_run_tile_t fd_tile_eqvoctest;
 extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
@@ -141,6 +142,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_shredcap,
 #if FD_HAS_ROCKSDB
   &fd_tile_backtest,
+  &fd_tile_eqvoctest,
 #endif
   &fd_tile_bencho,
   &fd_tile_benchg,
@@ -181,6 +183,7 @@ extern action_t fd_action_wksp;
 extern action_t fd_action_gossip;
 extern action_t fd_action_sim;
 extern action_t fd_action_backtest;
+extern action_t fd_action_eqvoctest;
 extern action_t fd_action_snapshot_load;
 extern action_t fd_action_repair;
 extern action_t fd_action_shred_version;
@@ -215,6 +218,7 @@ action_t * ACTIONS[] = {
   &fd_action_gossip,
   &fd_action_sim,
   &fd_action_backtest,
+  &fd_action_eqvoctest,
   &fd_action_snapshot_load,
   &fd_action_repair,
   &fd_action_shred_version,

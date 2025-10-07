@@ -71,7 +71,7 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
 
   fd_funk_txn_map_query_t query[1];
   if( FD_UNLIKELY( fd_funk_txn_map_query_try( funk->txn_map, xid, NULL, query, 0 ) != FD_MAP_ERR_KEY ) ) {
-    FD_LOG_ERR(( "fd_funk_txn_prepare failed: xid %lu:%lu already in use",
+    FD_LOG_CRIT(( "fd_funk_txn_prepare failed: xid %lu:%lu already in use",
                  xid->ul[0], xid->ul[1] ));
   }
 

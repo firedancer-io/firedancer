@@ -243,7 +243,14 @@ link( fd_reasm_t     * reasm,
     parent->child = pool_idx( reasm->pool, child ); /* set as left-child. */
   } else {
     fd_reasm_fec_t * curr = pool_ele( reasm->pool, parent->child );
-    while( curr->sibling != pool_idx_null( reasm->pool ) ) curr = pool_ele( reasm->pool, curr->sibling );
+    while( curr ) {
+      if( FD_UNLIKELY( curr->slot == child->slot ) ) {
+        FD_LOG_WARNING(( "equivocating block_id for FEC slot: %lu fec_set_idx: %u, mr %s", child->slot, child->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( &child->key ) )); /* it's possible there's equivocation... */
+        child->eqvoc = 1;
+      }
+      if( curr->sibling == pool_idx_null( reasm->pool ) ) break;
+      curr = pool_ele( reasm->pool, curr->sibling );
+    }
     curr->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
     if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* set to equivocating */
   }

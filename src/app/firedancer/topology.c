@@ -1078,7 +1078,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     strncpy( tile->archiver.rocksdb_path, config->tiles.archiver.rocksdb_path, sizeof(tile->archiver.rocksdb_path) );
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "backt" ) ||
+                          !strcmp( tile->name, "eqvoct" ) ) ) {
 
     tile->archiver.end_slot = config->tiles.archiver.end_slot;
     strncpy( tile->archiver.ingest_mode, config->tiles.archiver.ingest_mode, sizeof(tile->archiver.ingest_mode) );

@@ -46,6 +46,10 @@ union fdctl_args {
   } dev;
 
   struct {
+    int  idk;
+  } eqvoctest;
+
+  struct {
     int no_watch;
   } backtest;
 

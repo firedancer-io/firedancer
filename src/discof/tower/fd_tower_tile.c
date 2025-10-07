@@ -15,7 +15,7 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#define LOGGING 0
+#define LOGGING 1
 
 #define IN_KIND_GENESIS (0)
 #define IN_KIND_SNAP    (1)
@@ -228,6 +228,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
   msg->reset_block_id = *fd_ghost_hash( ctx->ghost, msg->reset_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
 
   /* Publish the frag */
+
+  FD_LOG_NOTICE(("TOWER: publishing frag %lu, %s", msg->vote_slot, FD_BASE58_ENC_32_ALLOCA( &msg->reset_block_id ) ));
 
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );

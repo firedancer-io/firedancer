@@ -77,6 +77,7 @@ struct fd_sched_fec {
                                            parser should ignore trailing bytes at the end of a batch. */
   uint             is_last_in_block:1;  /* Set if this is the last FEC set in the block. */
   uint             is_first_in_block:1; /* Set if this is the first FEC set in the block. */
+  uint             is_equivocating:1;   /* Set if the FEC set is equivocating. */
 
   fd_sched_alut_ctx_t alut_ctx[ 1 ];
 };
