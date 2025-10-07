@@ -22,7 +22,7 @@
 
    - Optional lockfree O(1) metadata queries.  E.g. hot-or-not query in
      sig-verify with I/O cost aware downstream packing.
-     
+
    - Always in memory application specific metadata.  E.g. expirations,
      balances, etc are always available fast O(1).
 
@@ -61,14 +61,14 @@
    ==========   +----------+   ==============  vinyl_io  +--------------------+
    = client =-->| vinyl_rq |-->= vinyl_tile = <--------> | non-volatile store |
    ==========   +----------+   ==============            +--------------------+
-     ^    ^                      |        ^ 
+     ^    ^                      |        ^
      |    |     +----------+     |        |
      |    +-----| vinyl_cq |-----+        |
      |          +----------+              |
-     |                                    | 
+     |                                    |
      |         +------------+             |
      +-------->| vinyl_data |<------------+
-               +------------+ 
+               +------------+
 
    - To interact with a vinyl instance, a client joins the vinyl
      command-and-control (cnc), vinyl data cache (vinyl_data) and (if
