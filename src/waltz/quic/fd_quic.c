@@ -2263,6 +2263,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
+    if( FD_UNLIKELY( !conn ) ) {
+      FD_LOG_WARNING(( "app data no conn for conn_id %lu from peer " FD_IP4_ADDR_FMT ":%u", dst_conn_id, FD_IP4_ADDR_FMT_ARGS( pkt->ip4->saddr ), pkt->udp->net_sport ));
+    }
     rc = fd_quic_handle_v1_one_rtt( quic, conn, pkt, cur_ptr, cur_sz );
 
     fd_quic_svc_timers_schedule( state->svc_timers, conn, state->now );
@@ -2858,13 +2861,16 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             "... the connection is silently closed and its state is discarded
             when it remains idle for longer than the minimum of the
             max_idle_timeout value advertised by both endpoints." */
-        FD_DEBUG( FD_LOG_WARNING(("%s  conn %p  conn_idx: %u  closing due to idle timeout=%gms last_activity=%ld now=%ld",
+        FD_LOG_WARNING(("%s  conn %p at idx %u with conn_id %lu (their conn_id %lu) closing due to idle timeout=%gus last_activity=%ld now=%ld"
+                        " with peer " FD_IP4_ADDR_FMT ":%u",
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx,
-            (double)conn->idle_timeout_ns / 1e6,
+            conn->our_conn_id, FD_LOAD( ulong, conn->peer_cids->conn_id),
+            (double)conn->idle_timeout_ns / 1e3,
             conn->last_activity,
-            now
-        )); )
+            now,
+            FD_IP4_ADDR_FMT_ARGS( conn->peer[0].ip_addr ), conn->peer[0].udp_port
+        ));
 
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
