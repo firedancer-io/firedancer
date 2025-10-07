@@ -115,6 +115,23 @@ FD_FN_PURE ulong
 fd_cstr_nlen( char const * s,
               ulong        m );
 
+/* fd_cstr_ncpy is a safe version of strncpy.  d is the destination cstr
+   and s is the source cstr.  d and s should not overlap.  Assumes d has
+   space for up to m bytes.  Always returns d.  All bytes of d will be
+   initialized.  Further, if m is not zero, d will _always_ be properly
+   '\0' terminated.
+
+   Specifically, if m is 0 (i.e. d has zero bytes of storage), this
+   returns d.  Otherwise, if s is NULL, this will zero out all m bytes
+   of d and return d.  Otherwise, this will copy up to m-1 of the
+   leading non-zero bytes in s into d.  All remaining bytes of d (there
+   will be at least 1) will be initialized to zero. */
+
+char *
+fd_cstr_ncpy( char *       d,
+              char const * s,
+              ulong        m );
+
 /* cstr output ********************************************************/
 
 /* fd_cstr_printf printf a cstr into the sz byte memory region pointed
