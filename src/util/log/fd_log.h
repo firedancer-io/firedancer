@@ -266,6 +266,38 @@
 
 #define FD_TEST_CUSTOM(c,err) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", (err) )); } while(0)
 
+/* FD_PARANOID / FD_CRIT / FD_ALERT:
+
+   FD_PARANOID configures the FD_CRIT / FD_ALERT runtime checks.
+
+   If FD_PARANOID is set: FD_CRIT / FD_ALERT will FD_LOG_CRIT /
+   FD_LOG_ALERT the application if c evaluates to false with a
+   descriptive error that includes the user message m (m should evaluate
+   to a cstr when c is false).
+
+   If not set: FD_CRIT will evaluate c (such that any side effects of c
+   will still happen), the false code path will be marked as unreachable
+   (such that the optimizer will treat the code following the FD_CRIT
+   the same as when paranoid was set) and m will not be evaluated.
+   FD_ALERT will not evaluate c or m.
+
+   In short, use FD_ALERT when c is expensive to evalute but has no side
+   effects.  Use FD_CRIT for all other cases.
+
+   FIXME: probably should rename FD_TEST_CUSTOM to FD_ERR. */
+
+#ifndef FD_PARANOID
+#define FD_PARANOID 1
+#endif
+
+#if FD_PARANOID
+#define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_CRIT (( "FAIL: %s (%s)", #c, (m) )); } while(0)
+#define FD_ALERT(c,m) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ALERT(( "FAIL: %s (%s)", #c, (m) )); } while(0)
+#else
+#define FD_CRIT( c,m) do { if( FD_UNLIKELY( !(c) ) ) __builtin_unreachable(); } while(0)
+#define FD_ALERT(c,m) do {                                                    } while(0)
+#endif
+
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.
 
