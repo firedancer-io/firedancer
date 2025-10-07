@@ -1,0 +1,2 @@
+| NonBinaryIsFunction.c:24:9:24:49 | return ... | The function $@ is named like an `is` function but returns a value with bounds [-33, -33]. | NonBinaryIsFunction.c:19:5:19:30 | fd_instr_acc_is_signer_idx | fd_instr_acc_is_signer_idx |
+| NonBinaryIsFunction.c:33:5:33:44 | return ... | The function $@ is named like an `is` function but returns a value with bounds [0, 8]. | NonBinaryIsFunction.c:31:1:31:21 | fd_banks_is_bank_dead | fd_banks_is_bank_dead |
