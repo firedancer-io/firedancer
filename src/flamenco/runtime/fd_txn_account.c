@@ -30,8 +30,6 @@ fd_txn_account_new( void *              mem,
 
   fd_memcpy( txn_account->pubkey, pubkey, sizeof(fd_pubkey_t) );
 
-  fd_wksp_t * wksp = fd_wksp_containing( meta );
-
   txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
 
   txn_account->starting_dlen     = meta->dlen;
@@ -39,17 +37,7 @@ fd_txn_account_new( void *              mem,
 
   uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
-  txn_account->meta_gaddr = fd_wksp_gaddr( wksp, meta );
-  if( FD_UNLIKELY( !txn_account->meta_gaddr ) ) {
-    FD_LOG_WARNING(( "meta_gaddr is 0" ));
-    return NULL;
-  }
-
-  txn_account->data_gaddr = fd_wksp_gaddr( wksp, data );
-  if( FD_UNLIKELY( !txn_account->data_gaddr ) ) {
-    FD_LOG_WARNING(( "data_gaddr is 0" ));
-    return NULL;
-  }
+  txn_account->meta_soff = (long)( (ulong)meta - (ulong)mem );
 
   txn_account->meta       = meta;
   txn_account->data       = data;
@@ -82,22 +70,12 @@ fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( txn_account->meta_gaddr==0UL ) ) {
-    FD_LOG_WARNING(( "`meta gaddr is 0" ));
-    return NULL;
+  if( FD_UNLIKELY( txn_account->meta_soff==0UL ) ) {
+    FD_LOG_CRIT(( "invalid meta_soff" ));
   }
 
-  txn_account->meta = fd_wksp_laddr( data_wksp, txn_account->meta_gaddr );
-  if( FD_UNLIKELY( !txn_account->meta ) ) {
-    FD_LOG_WARNING(( "meta is NULL" ));
-    return NULL;
-  }
-
-  txn_account->data = fd_wksp_laddr( data_wksp, txn_account->data_gaddr );
-  if( FD_UNLIKELY( !txn_account->data && txn_account->meta->dlen ) ) {
-    FD_LOG_WARNING(( "data is NULL" ));
-    return NULL;
-  }
+  txn_account->meta = (void *)( (ulong)mem + (ulong)txn_account->meta_soff );
+  txn_account->data = (void *)( (ulong)txn_account->meta + sizeof(fd_account_meta_t) );
 
   return txn_account;
 }

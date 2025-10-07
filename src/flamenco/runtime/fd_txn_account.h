@@ -36,9 +36,7 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   uchar *                         data;
 
   int                             is_mutable;
-
-  ulong                           meta_gaddr;
-  ulong                           data_gaddr;
+  long                            meta_soff;
 
   ulong                           starting_dlen;
   ulong                           starting_lamports;
