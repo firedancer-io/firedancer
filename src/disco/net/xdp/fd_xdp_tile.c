@@ -376,7 +376,7 @@ net_load_netdev_tbl( fd_net_ctx_t * ctx ) {
   if( FD_UNLIKELY( !fd_dbl_buf_read( ctx->netdev_dbl_buf, ctx->netdev_buf_sz, ctx->netdev_buf, NULL ) ) ) return;
 
   /* Join local copy */
-  if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_dbl_buf, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
+  if( FD_UNLIKELY( !fd_netdev_tbl_join( &ctx->netdev_tbl, ctx->netdev_buf ) ) ) FD_LOG_ERR(("netdev table join failed"));
 }
 
 /* Query the netdev table. Return a fd_netdev_t pointer to the net device of the
