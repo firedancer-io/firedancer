@@ -311,18 +311,20 @@ typedef struct fd_gui_slot_ranking fd_gui_slot_ranking_t;
 #include "../../util/tmpl/fd_sort.c"
 
 struct fd_gui_slot_rankings {
-  fd_gui_slot_ranking_t largest_tips          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t largest_fees          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t largest_rewards       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t largest_duration      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t largest_compute_units [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t largest_skipped       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t smallest_tips         [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t smallest_fees         [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t smallest_rewards      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t smallest_duration     [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t smallest_compute_units[ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
-  fd_gui_slot_ranking_t smallest_skipped      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_tips           [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_fees           [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_rewards        [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_duration       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_compute_units  [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_skipped        [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t largest_rewards_per_cu [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_tips          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_fees          [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_rewards       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_rewards_per_cu[ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_duration      [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_compute_units [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
+  fd_gui_slot_ranking_t smallest_skipped       [ FD_GUI_SLOT_RANKINGS_SZ+1UL ];
 };
 
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
