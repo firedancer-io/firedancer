@@ -30,13 +30,15 @@ fd_get_resolv_conf( fd_resolvconf_t * conf ) {
   fd_io_buffered_istream_init( istream, fd_etc_resolv_conf_fd, rbuf, sizeof(rbuf) );
 
   char line[256];
-  int err;
-  while( fd_io_fgets( line, sizeof(line), istream, &err ) ) {
+  int fgets_err = 0;
+  while( fgets_err!=-1 &&
+         fd_io_fgets( line, sizeof(line), istream, &fgets_err ) ) {
     char * p, * z;
-    if( !strchr( line, '\n' ) && err==0 ) {
+    if( !strchr( line, '\n' ) && fgets_err==0 ) {
       /* Ignore lines that get truncated rather than
        * potentially misinterpreting them. */
       int c;
+      int err;
       do c = fd_io_fgetc( istream, &err );
       while( c!='\n' && c!=-1 );
       continue;
