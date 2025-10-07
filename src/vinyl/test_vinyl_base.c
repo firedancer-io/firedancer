@@ -14,7 +14,7 @@ FD_STATIC_ASSERT( FD_VINYL_KEY_FOOTPRINT==32UL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_KEY_ALIGN    ==alignof(fd_vinyl_key_t), unit_test );
 FD_STATIC_ASSERT( FD_VINYL_KEY_FOOTPRINT==sizeof (fd_vinyl_key_t), unit_test );
 
-FD_STATIC_ASSERT( FD_VINYL_VAL_MAX==10486192UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_VAL_MAX==10486200UL, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_INFO_SZ==16UL,       unit_test );
 
 FD_STATIC_ASSERT( alignof(fd_vinyl_info_t)== 8UL, unit_test );

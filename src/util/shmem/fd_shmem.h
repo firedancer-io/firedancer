@@ -544,4 +544,3 @@ fd_shmem_private_halt( void );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_shmem_fd_shmem_h */
-
