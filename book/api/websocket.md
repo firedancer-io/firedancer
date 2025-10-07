@@ -1729,14 +1729,15 @@ response value will be `null`.
 :::
 
 **`SlotRankings`**
-| Field                                         | Type       | Description |
-|-----------------------------------------------|------------|-------------|
-| {slots|vals}_{smallest|largest}_tips          | `number[]` | Rankings for the {smallest|largest} tips this epoch |
-| {slots|vals}_{smallest|largest}_fees          | `number[]` | Rankings for the {smallest|largest} fees this epoch |
-| {slots|vals}_{smallest|largest}_rewards       | `number[]` | Rankings for the {smallest|largest} rewards this epoch |
-| {slots|vals}_{smallest|largest}_duration      | `number[]` | Rankings for the {smallest|largest} slot durations this epoch |
-| {slots|vals}_{smallest|largest}_compute_units | `number[]` | Rankings for the {smallest|largest} compute units this epoch |
-| {slots|vals}_{smallest|largest}_skipped       | `number[]` | Rankings for the {earliest|latest} skipped slots this epoch |
+| Field                                          | Type       | Description |
+|------------------------------------------------|------------|-------------|
+| {slots|vals}_{smallest|largest}_tips           | `number[]` | Rankings for the {smallest|largest} tips this epoch |
+| {slots|vals}_{smallest|largest}_fees           | `number[]` | Rankings for the {smallest|largest} fees this epoch |
+| {slots|vals}_{smallest|largest}_rewards        | `number[]` | Rankings for the {smallest|largest} rewards this epoch |
+| {slots|vals}_{smallest|largest}_rewards_per_cu | `number[]` | Rankings for the {smallest|largest} rewards/cu ratio this epoch |
+| {slots|vals}_{smallest|largest}_duration       | `number[]` | Rankings for the {smallest|largest} slot durations this epoch |
+| {slots|vals}_{smallest|largest}_compute_units  | `number[]` | Rankings for the {smallest|largest} compute units this epoch |
+| {slots|vals}_{smallest|largest}_skipped        | `number[]` | Rankings for the {earliest|latest} skipped slots this epoch |
 
 Each metric in this message will have four associated arrays.
 
