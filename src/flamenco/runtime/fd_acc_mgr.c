@@ -8,7 +8,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
                                fd_pubkey_t const *       pubkey,
                                fd_funk_rec_t const **    orec,
                                int *                     opt_err,
-                               fd_funk_txn_t const **    txn_out ) {
+                               fd_funk_txn_xid_t *       out_xid ) {
   fd_funk_rec_key_t id = fd_funk_acc_key( pubkey );
 
   /* When we access this pointer later on in the execution pipeline, we assume that
@@ -18,9 +18,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
   for( ; ; ) {
 
     fd_funk_rec_query_t   query[1];
-    fd_funk_txn_t const * dummy_txn_out[1];
-    if( !txn_out ) txn_out    = dummy_txn_out;
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &id, txn_out, query );
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &id, out_xid, query );
 
     if( FD_UNLIKELY( !rec ) )  {
       fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );

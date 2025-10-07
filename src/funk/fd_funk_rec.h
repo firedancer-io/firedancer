@@ -203,8 +203,8 @@ int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
    will query txn's ancestors for key from youngest to oldest if key is
    not part of txn.  As such, the txn of the returned record may not
    match txn but will be the txn of most recent ancestor with the key
-   otherwise. *txn_out is set to the transaction where the record was
-   found.
+   otherwise.   If xid_out!=NULLL, *xid_out is set to the XID in which
+   the record was created.
 
    This is reasonably fast O(in_prep_ancestor_cnt).
 
@@ -217,7 +217,7 @@ fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_txn_xid_t const * xid,
                               fd_funk_rec_key_t const * key,
-                              fd_funk_txn_t const **    txn_out,
+                              fd_funk_txn_xid_t *       xid_out,
                               fd_funk_rec_query_t *     query );
 
 /* fd_funk_rec_query_copy queries the in-preparation transaction pointed to
