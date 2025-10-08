@@ -105,7 +105,7 @@
    - Advanced optimizations support out-of-band completions, ignoring
      completions, and cut-through batch processing without waiting for a
      completion.  Likewise, a rq can be shared by multiple vinyl
-     instanced (e.g.  sharding the store over multiple vinyl instances).
+     instances (e.g. sharding the store over multiple vinyl instances).
      Further, a cq can be shared by multiple clients (and not
      necessarily the same clients issuing requests) to support advanced
      thread modelings (e.g. read pipelining).
@@ -291,13 +291,13 @@ union fd_vinyl_info {
 
 typedef union fd_vinyl_info fd_vinyl_info_t;
 
-/* FD_VINYL_VAL_MAX is the maximum decoded byte size of a pair val.  The
-   value below is:
+/* FD_VINYL_VAL_MAX is the maximum encoded and decoded byte size of a
+   pair val.  The value below is:
 
      10MiB + block_sz - sizeof(ctl) - sizeof(key) - sizeof(info) - sizeof(ftr)
-               512           8            32            24             16
+               512           8            32            16             16
 
-   where the adjustment make it possible create a vinyl_data sizeclass
+   where the adjustments make it possible create a vinyl_data sizeclass
    whose val_max is exactly FD_VINYL_VAL_MAX. */
 
 #define FD_VINYL_VAL_MAX (10486200UL)
