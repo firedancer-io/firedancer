@@ -136,25 +136,50 @@ typedef struct fd_peer fd_peer_t;
 #define DLIST_PREV  prev
 #include "../../util/tmpl/fd_dlist.c"
 
+
 /* fd_policy_peers implements the data structures and bookkeeping for
    selecting repair peers via round-robin. */
 
 struct fd_policy_peers {
-  fd_peer_dlist_t *    dlist; /* doubly-linked list of repair peer pubkeys in insertion order */
-  fd_peer_t *          pool;  /* memory pool of repair peer pubkeys */
-  fd_policy_peer_t *   map;   /* map of pubkey->peer */
-  fd_peer_dlist_iter_t iter;   /* round-robin index of next peer */
+  fd_peer_t        * pool;  /* memory pool of repair peer pubkeys, contains both dlist entries */
+  fd_peer_dlist_t  * best;  /* 0->60ms latency      FD_POLICY_LATENCY_BEST */
+  fd_peer_dlist_t  * worst; /* 60->infinity latency FD_POLICY_LATENCY_WORST */
+  fd_policy_peer_t * map;   /* map dynamic of pubkey->peer */
+  struct {
+     uint stage;                  /* < sizeof(bucket_stages)        */
+     fd_peer_dlist_iter_t iter;   /* round-robin index of next peer */
+  } select;
 };
 typedef struct fd_policy_peers fd_policy_peers_t;
 
-struct fd_policy {
-  fd_policy_dedup_t dedup; /* dedup cache of already sent requests */
-  fd_policy_peers_t peers; /* round-robin strategy for selecting repair peers */
-  long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
-  long              tsref; /* reference timestamp for resetting DFS */
+#define FD_POLICY_LATENCY_BEST  1
+#define FD_POLICY_LATENCY_WORST 3
 
-  fd_forest_iter_t  iterf; /* forest iterator */
-  ulong             tsreset; /* ms timestamp of last reset of iterf */
+#define FD_POLICY_LATENCY_THRESH 30e6L /* less than this is a BEST peer, otherwise a WORST peer */
+#define FD_POLICY_DEDUP_TIMEOUT  50e6L /* how long wait to request the same shred */
+
+/* Round robins through ALL the worst peers once, then round robins
+   through ALL the best peers once, then round robins through ALL the
+   best peers again, etc. All peers are initially added to the worst
+   bucket, and moved once round trip times have been recorded. */
+
+static const uint bucket_stages[7] = {
+   FD_POLICY_LATENCY_WORST, /* do a cycle through worst peers 1/7 times to see if any improvements are made */
+   FD_POLICY_LATENCY_BEST,
+   FD_POLICY_LATENCY_BEST,
+   FD_POLICY_LATENCY_BEST,
+   FD_POLICY_LATENCY_BEST,
+   FD_POLICY_LATENCY_BEST,
+   FD_POLICY_LATENCY_BEST,
+};
+struct fd_policy {
+  fd_policy_dedup_t   dedup; /* dedup cache of already sent requests */
+  fd_policy_peers_t   peers; /* round-robin strategy for selecting repair peers */
+  long                tsmax; /* maximum time for an iteration before resetting the DFS to root */
+  long                tsref; /* reference timestamp for resetting DFS */
+
+  fd_forest_iter_t    iterf; /* forest iterator */
+  ulong               tsreset; /* ms timestamp of last reset of iterf */
 
   ulong turbine_slot0;
   uint nonce;
@@ -183,6 +208,7 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_policy_t),         sizeof(fd_policy_t)                           ),
       fd_policy_dedup_map_align(),  fd_policy_dedup_map_footprint ( dedup_max   ) ),
@@ -190,6 +216,7 @@ fd_policy_footprint( ulong dedup_max, ulong peer_max ) {
       fd_policy_dedup_lru_align(),  fd_policy_dedup_lru_footprint (             ) ),
       fd_policy_peer_map_align(),   fd_policy_peer_map_footprint  ( lg_peer_max ) ),
       fd_peer_pool_align(),         fd_peer_pool_footprint        ( peer_max    ) ),
+      fd_peer_dlist_align(),        fd_peer_dlist_footprint       (             ) ),
       fd_peer_dlist_align(),        fd_peer_dlist_footprint       (             ) ),
     fd_policy_align() );
 }
@@ -245,6 +272,12 @@ fd_policy_peer_select( fd_policy_t * policy );
 
 void
 fd_policy_peer_request_update( fd_policy_t * policy, fd_pubkey_t const * to );
+
+static inline fd_peer_dlist_t *
+fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ulong res_cnt ) {
+   if( res_cnt == 0 || (long)(total_rtt / (long)res_cnt) > FD_POLICY_LATENCY_THRESH ) return policy->peers.worst;
+   return policy->peers.best;
+}
 
 void
 fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, long rtt );

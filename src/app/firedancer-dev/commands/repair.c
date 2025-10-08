@@ -151,8 +151,6 @@ repair_topo( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL );
 
-  /**/                 fd_topob_link( topo, "ping_sign",    "repair_sign",  128UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
-  /**/                 fd_topob_link( topo, "sign_ping",    "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
@@ -246,7 +244,6 @@ repair_topo( config_t * config ) {
     /**/               fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "sign_shred",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",    i                                                    );
   }
-
   FOR(gossvf_tile_cnt) fd_topob_tile_in ( topo, "gossvf",   i,            "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
 
   /**/                 fd_topob_tile_in ( topo, "gossip",   0UL,          "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -256,19 +253,13 @@ repair_topo( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "replay_stake",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
                        fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "snap_out",      0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "repair", 0UL,                        "repair_shred",  i                                                    );
+  FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "repair", 0UL,                        "repair_sign",   i                                                    );
+  FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "sign",   i+1,           "metric_in", "repair_sign",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+  FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "sign",   i+1,                        "sign_repair",   i                                                    );
+  FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_repair",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
 
-  /**/                 fd_topob_tile_in(  topo, "sign",   0UL,         "metric_in",  "ping_sign",    0UL,    FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  /**/                 fd_topob_tile_out( topo, "repair", 0UL,                       "ping_sign",    0UL                                            );
-  FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "repair", 0UL,                       "repair_shred", i                                              );
-  /**/                 fd_topob_tile_out( topo, "sign",   0UL,                       "sign_ping",    0UL                                            );
-
-  FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "repair", 0UL,                        "repair_sign",  i                                              );
-  FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "sign",   i+1,           "metric_in", "repair_sign",  i,      FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
-  FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "sign",   i+1,                        "sign_repair",  i                                              );
-  FOR(sign_tile_cnt-1) fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_repair",  i,      FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-    /**/               fd_topob_tile_in ( topo, "repair", 0UL,           "metric_in", "sign_ping",    0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
-
-    /**/               fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",  0UL,    FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+  /**/                 fd_topob_tile_in ( topo, "gossip", 0UL,           "metric_in", "sign_gossip",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
 
   if( 1 ) {
     fd_topob_wksp( topo, "scap" );
@@ -451,7 +442,7 @@ static fd_location_info_t * location_table;
 static fd_pubkey_t peers_copy[ FD_ACTIVE_KEY_MAX ];
 
 static ulong
-sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_dlist, fd_peer_t * peers_arr ) {
+sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_dlist, fd_peer_dlist_t * peers_wlist, fd_peer_t * peers_arr ) {
   ulong i = 0;
   fd_peer_dlist_iter_t iter = fd_peer_dlist_iter_fwd_init( peers_dlist, peers_arr );
   while( !fd_peer_dlist_iter_done( iter, peers_dlist, peers_arr ) ) {
@@ -461,6 +452,16 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_
     if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
     iter = fd_peer_dlist_iter_fwd_next( iter, peers_dlist, peers_arr );
   }
+  FD_LOG_NOTICE(( "best peers cnt: %lu", i ));
+  iter = fd_peer_dlist_iter_fwd_init( peers_wlist, peers_arr );
+  while( !fd_peer_dlist_iter_done( iter, peers_wlist, peers_arr ) ) {
+    fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, peers_wlist, peers_arr );
+    if( FD_UNLIKELY( !peer ) ) break;
+    peers_copy[ i++ ] = peer->identity;
+    if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
+    iter = fd_peer_dlist_iter_fwd_next( iter, peers_wlist, peers_arr );
+  }
+  FD_LOG_NOTICE(( "worst peers cnt: %lu", i ));
 
   ulong peer_cnt = i;
   for( uint i = 0; i < peer_cnt - 1; i++ ) {
@@ -494,12 +495,14 @@ print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
   fd_policy_t *      policy        = fd_wksp_laddr     ( repair_tile_wksp, policy_gaddr );
   ulong              peermap_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.map  );
   ulong              peerarr_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.pool );
-  ulong              peerlst_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.dlist );
+  ulong              peerlst_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.best );
+  ulong              peerwst_gaddr = fd_wksp_gaddr_fast( tile_ctx->wksp, policy->peers.worst );
   fd_policy_peer_t * peers_map     = (fd_policy_peer_t *)fd_wksp_laddr( repair_tile_wksp, peermap_gaddr );
   fd_peer_dlist_t *  peers_dlist   = (fd_peer_dlist_t *)fd_wksp_laddr( repair_tile_wksp, peerlst_gaddr );
+  fd_peer_dlist_t *  peers_wlist   = (fd_peer_dlist_t *)fd_wksp_laddr( repair_tile_wksp, peerwst_gaddr );
   fd_peer_t *        peers_arr     = (fd_peer_t *)fd_wksp_laddr( repair_tile_wksp, peerarr_gaddr );
 
-  ulong peer_cnt = sort_peers_by_latency( peers_map, peers_dlist, peers_arr );
+  ulong peer_cnt = sort_peers_by_latency( peers_map, peers_dlist, peers_wlist, peers_arr );
   printf("\nPeer Location/Latency Information\n");
   printf( "| %-46s | %-7s | %-8s | %-8s | %-7s | %12s | %s\n", "Pubkey", "Req Cnt", "Req B/s", "Rx B/s", "Rx Rate", "Avg Latency", "Location Info" );
   for( uint i = 0; i < peer_cnt; i++ ) {
@@ -752,7 +755,7 @@ repair_cmd_fn_profiler_mode( args_t *   args,
       printf(" Repair Peers: %lu\n", repair_metrics[ MIDX( COUNTER, REPAIR, REQUEST_PEERS ) ] );
       ulong slots_behind = turbine_slot0 > repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] ? turbine_slot0 - repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ] : 0;
       printf(" Repaired slots: %lu/%lu  (slots behind: %lu)\n", repair_metrics[ MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ], turbine_slot0, slots_behind );
-      if( !slots_behind ) { catchup_finished = 1; }
+      if( turbine_slot0 && !slots_behind ) { catchup_finished = 1; }
       /* Print histogram buckets similar to Prometheus format */
       print_histogram_buckets( repair_metrics,
                                MIDX( HISTOGRAM, REPAIR, SLOT_COMPLETE_TIME ),
