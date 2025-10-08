@@ -12,6 +12,7 @@
                 store_replay
 
 */
+//TODO-AM
 #define _GNU_SOURCE
 #include "../../firedancer/topology.h"
 #include "../../shared/commands/configure/configure.h"
@@ -124,7 +125,7 @@ backtest_topo( config_t * config ) {
   /* Setup snapshot links in topo                                       */
   /**********************************************************************/
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_wksp( topo, "snap_zstd" );
+    fd_topob_wksp( topo, "snapld_dc" );
     fd_topob_wksp( topo, "snap_stream");
     fd_topob_wksp( topo, "snapdc_rd" );
     fd_topob_wksp( topo, "snapin_rd" );
@@ -136,13 +137,13 @@ backtest_topo( config_t * config ) {
     fd_topob_link( topo, "snap_out",  "snap_out",  4UL,   sizeof(fd_snapshot_manifest_t), 1UL );
     fd_topob_link( topo, "snaprd_rp", "snaprd_rp", 128UL, 0UL,                            1UL )->permit_no_consumers = 1;
 
-    fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,  1UL );
+    fd_topob_link( topo, "snapld_dc",   "snapld_dc",   8192UL, 16384UL,  1UL );
     fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
     fd_topob_link( topo, "snapdc_rd", "snapdc_rd", 128UL, 0UL, 1UL );
     fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
 
-    fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd",   0UL );
-    fd_topob_tile_in ( topo, "snapdc", 0UL, "metric_in",   "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snaprd", 0UL, "snapld_dc",   0UL );
+    fd_topob_tile_in ( topo, "snapdc", 0UL, "metric_in",   "snapld_dc", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
     fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
     fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in",   "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_out( topo, "snapin", 0UL, "snap_out",  0UL );

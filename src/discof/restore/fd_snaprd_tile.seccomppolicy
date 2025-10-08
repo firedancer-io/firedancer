@@ -1,6 +1,6 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
-uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd, uint in_full_fd, uint in_inc_fd
+uint logfile_fd, uint dir_fd, uint out_full_fd, uint out_inc_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -20,13 +20,6 @@ write: (or (eq (arg 0) 2)
 #
 # arg 0 is the file descriptor to fsync.
 fsync: (eq (arg 0) logfile_fd)
-
-# snapshot: need to be able to read from an open file for snapshot
-# loading
-#
-# arg 0 is the file descriptor that we want to read from
-read: (or (eq (arg 0) in_full_fd)
-          (eq (arg 0) in_inc_fd))
 
 # snapshot: establish connections when initializing client for snapshot
 # download and for pinging peers.  Also establish connections to receive
@@ -48,9 +41,7 @@ connect: (not (or (eq (arg 0) 2)
                   (eq (arg 0) logfile_fd)
                   (eq (arg 0) dir_fd)
                   (eq (arg 0) out_full_fd)
-                  (eq (arg 0) out_inc_fd)
-                  (eq (arg 0) in_full_fd)
-                  (eq (arg 0) in_inc_fd)))
+                  (eq (arg 0) out_inc_fd)))
 
 # snapshot: need to close sockets that were opened when calls to connect
 # fail.
@@ -62,9 +53,7 @@ close: (not (or (eq (arg 0) 2)
                 (eq (arg 0) logfile_fd)
                 (eq (arg 0) dir_fd)
                 (eq (arg 0) out_full_fd)
-                (eq (arg 0) out_inc_fd)
-                (eq (arg 0) in_full_fd)
-                (eq (arg 0) in_inc_fd)))
+                (eq (arg 0) out_inc_fd)))
 
 # snapshot: we need to be able to poll existing connections that we want
 # to download snapshots and resolve snapshots from
@@ -80,9 +69,7 @@ sendto: (not (or (eq (arg 0) 2)
                  (eq (arg 0) logfile_fd)
                  (eq (arg 0) dir_fd)
                  (eq (arg 0) out_full_fd)
-                 (eq (arg 0) out_inc_fd)
-                 (eq (arg 0) in_full_fd)
-                 (eq (arg 0) in_inc_fd)))
+                 (eq (arg 0) out_inc_fd)))
 
 # snapshot: we need to be able to receive responses for any requests
 # that were sent out for snapshot download or slot resolution.
@@ -94,9 +81,7 @@ recvfrom: (not (or (eq (arg 0) 2)
                    (eq (arg 0) logfile_fd)
                    (eq (arg 0) dir_fd)
                    (eq (arg 0) out_full_fd)
-                   (eq (arg 0) out_inc_fd)
-                   (eq (arg 0) in_full_fd)
-                   (eq (arg 0) in_inc_fd)))
+                   (eq (arg 0) out_inc_fd)))
 
 # snapshot: we need to be able to configure out socket connection from
 # the peer that we download our snapshot from or resolve slot
@@ -109,9 +94,7 @@ setsockopt: (and (not (or (eq (arg 0) 2)
                           (eq (arg 0) logfile_fd)
                           (eq (arg 0) dir_fd)
                           (eq (arg 0) out_full_fd)
-                          (eq (arg 0) out_inc_fd)
-                          (eq (arg 0) in_full_fd)
-                          (eq (arg 0) in_inc_fd)))
+                          (eq (arg 0) out_inc_fd)))
                  (eq (arg 1) SOL_TCP)
                  (eq (arg 2) TCP_NODELAY))
 
