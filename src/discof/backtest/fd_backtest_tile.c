@@ -389,9 +389,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( !strcmp( link->name, "snap_out"   ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "genesi_out" ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    if(      !strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
   }
 

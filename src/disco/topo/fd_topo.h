@@ -525,6 +525,10 @@ struct fd_topo_tile {
     } snaprd;
 
     struct {
+      char snapshots_path[ PATH_MAX ];
+    } snapld;
+
+    struct {
       ulong max_live_slots;
       ulong funk_obj_id;
       ulong txncache_obj_id;

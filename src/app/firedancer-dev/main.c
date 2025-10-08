@@ -103,6 +103,7 @@ extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
 
 extern fd_topo_run_tile_t fd_tile_snaprd;
+extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
 
@@ -148,6 +149,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_pktgen,
   &fd_tile_udpecho,
   &fd_tile_snaprd,
+  &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
   &fd_tile_genesi,

@@ -6,7 +6,7 @@
 #define FD_METRICS_GAUGE_SNAPRD_STATE_OFF  (16UL)
 #define FD_METRICS_GAUGE_SNAPRD_STATE_NAME "snaprd_state"
 #define FD_METRICS_GAUGE_SNAPRD_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPRD_STATE_DESC "State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done."
+#define FD_METRICS_GAUGE_SNAPRD_STATE_DESC "State of the tile"
 #define FD_METRICS_GAUGE_SNAPRD_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_SNAPRD_FULL_NUM_RETRIES_OFF  (17UL)
