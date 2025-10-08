@@ -12,7 +12,7 @@ PB_BIND(FD_EXEC_TEST_COST_TRACKER, fd_exec_test_cost_tracker_t, AUTO)
 PB_BIND(FD_EXEC_TEST_BLOCK_CONTEXT, fd_exec_test_block_context_t, 2)
 
 
-PB_BIND(FD_EXEC_TEST_BLOCK_EFFECTS, fd_exec_test_block_effects_t, AUTO)
+PB_BIND(FD_EXEC_TEST_BLOCK_EFFECTS, fd_exec_test_block_effects_t, 2)
 
 
 PB_BIND(FD_EXEC_TEST_BLOCK_FIXTURE, fd_exec_test_block_fixture_t, 2)

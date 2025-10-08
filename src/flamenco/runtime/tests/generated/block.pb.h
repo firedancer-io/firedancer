@@ -47,6 +47,13 @@ typedef struct fd_exec_test_block_effects {
     /* The cost tracker */
     bool has_cost_tracker;
     fd_exec_test_cost_tracker_t cost_tracker;
+    /* Leader schedule */
+    uint64_t leaders_epoch;
+    uint64_t leaders_slot0;
+    uint64_t leaders_slot_cnt;
+    uint64_t leader_pub_cnt;
+    uint64_t leaders_sched_cnt;
+    pb_byte_t leader_schedule_hash[1024]; /* optional field */
 } fd_exec_test_block_effects_t;
 
 typedef struct fd_exec_test_block_fixture {
@@ -68,11 +75,11 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0, 0}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, 0, 0, 0, 0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0, 0}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO, 0, 0, 0, 0, 0, {0}}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -87,6 +94,12 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_EFFECTS_SLOT_CAPITALIZATION_TAG 2
 #define FD_EXEC_TEST_BLOCK_EFFECTS_BANK_HASH_TAG 3
 #define FD_EXEC_TEST_BLOCK_EFFECTS_COST_TRACKER_TAG 4
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADERS_EPOCH_TAG 5
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADERS_SLOT0_TAG 6
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADERS_SLOT_CNT_TAG 7
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADER_PUB_CNT_TAG 8
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADERS_SCHED_CNT_TAG 9
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADER_SCHEDULE_HASH_TAG 10
 #define FD_EXEC_TEST_BLOCK_FIXTURE_METADATA_TAG  1
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INPUT_TAG     2
 #define FD_EXEC_TEST_BLOCK_FIXTURE_OUTPUT_TAG    3
@@ -115,7 +128,13 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         5)
 X(a, STATIC,   SINGULAR, BOOL,     has_error,         1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot_capitalization,   2) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  cost_tracker,      4)
+X(a, STATIC,   OPTIONAL, MESSAGE,  cost_tracker,      4) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_epoch,     5) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_slot0,     6) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_slot_cnt,   7) \
+X(a, STATIC,   SINGULAR, UINT64,   leader_pub_cnt,    8) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_sched_cnt,   9) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, leader_schedule_hash,  10)
 #define FD_EXEC_TEST_BLOCK_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_BLOCK_EFFECTS_DEFAULT NULL
 #define fd_exec_test_block_effects_t_cost_tracker_MSGTYPE fd_exec_test_cost_tracker_t
@@ -144,7 +163,7 @@ extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          71
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          1153
 #define FD_EXEC_TEST_COST_TRACKER_SIZE           22
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
 

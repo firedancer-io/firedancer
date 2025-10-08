@@ -510,6 +510,19 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
   return res;
 }
 
+void fd_hash_epoch_leaders(
+  const fd_epoch_leaders_t * leaders,
+  ulong seed,
+  uchar out[16] ) {
+  /* Append pubkey array */
+  ulong h = fd_hash(seed, leaders->pub, leaders->pub_cnt * sizeof(fd_pubkey_t));
+  fd_memcpy(out, &h, sizeof(ulong));
+
+  /* Append schedule array */
+  h = fd_hash(seed, leaders->sched, leaders->sched_cnt * sizeof(uint));
+  fd_memcpy(out + sizeof(ulong), &h, sizeof(ulong));
+}
+
 ulong
 fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
                       void const *          input_,
@@ -562,6 +575,22 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
       .vote_cost  = cost_tracker ? cost_tracker->vote_cost : 0UL,
     };
     fd_bank_cost_tracker_end_locking_query( runner->bank );
+
+    /* Capture leader schedule */
+    fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( runner->bank );
+    if( FD_LIKELY( leaders ) ) {
+      /* Populate tmp with exiting fields */
+      effects->leaders_epoch = leaders->epoch;
+      effects->leaders_slot0 = leaders->slot0;
+      effects->leaders_slot_cnt = leaders->slot_cnt;
+      effects->leader_pub_cnt = leaders->pub_cnt;
+      effects->leaders_sched_cnt = leaders->sched_cnt;
+      fd_hash_epoch_leaders(
+        leaders,
+        0xDEADFACE, /* Seed */
+        effects->leader_schedule_hash );
+      fd_bank_epoch_leaders_end_locking_query( runner->bank );
+    }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_runtime_fuzz_block_ctx_destroy( runner );
