@@ -112,10 +112,10 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( rent );
   fd_bank_rent_set( runner->bank, *rent );
 
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->runtime_mem->slot_hashes_mem );
   FD_TEST( slot_hashes );
 
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, runner->spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, runner->runtime_mem->stake_history_mem );
   FD_TEST( stake_history );
 
   fd_sol_sysvar_clock_t clock_[1];
@@ -203,7 +203,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->funk, &xid );
 
   /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, runner->funk, &xid, test_ctx->account_shared_data, test_ctx->account_shared_data_count, runner->spad );
+  fd_runtime_fuzz_refresh_program_cache( runner->bank, runner->funk, &xid, test_ctx->account_shared_data, test_ctx->account_shared_data_count, runner->runtime_mem );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );

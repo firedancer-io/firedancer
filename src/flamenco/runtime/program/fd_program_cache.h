@@ -282,7 +282,7 @@ fd_program_cache_update_program( fd_bank_t *               bank,
                                  fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid,
                                  fd_pubkey_t const *       program_key,
-                                 fd_spad_t *               runtime_spad );
+                                 fd_runtime_mem_t *        runtime_mem );
 
 /* Queues a single program account for reverification. This function
    queries the cache for an existing entry and queues it for

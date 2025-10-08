@@ -166,14 +166,14 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch,
-                          fd_spad_t *                    runtime_spad ) {
+                          uchar *                        stake_history_mem ) {
 
   /* Current stake delegations: list of all current delegations in stake_delegations
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
   /* Add a new entry to the Stake History sysvar for the previous epoch
      https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
 
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, stake_history_mem );
   if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
 
   fd_stake_history_entry_t accumulator = {
@@ -200,7 +200,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     }
   };
 
-  fd_sysvar_stake_history_update( bank, funk, xid, capture_ctx, &new_elem, runtime_spad );
+  fd_sysvar_stake_history_update( bank, funk, xid, capture_ctx, &new_elem, stake_history_mem );
 
 }
 

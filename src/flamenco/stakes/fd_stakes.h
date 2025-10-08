@@ -33,7 +33,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
                           ulong *                        new_rate_activation_epoch,
-                          fd_spad_t *                    runtime_spad );
+                          uchar *                        stake_history_mem );
 
 fd_stake_history_entry_t
 stake_and_activating( fd_delegation_t const * delegation,

@@ -250,7 +250,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, funk, xid, test_ctx->accounts, test_ctx->accounts_count, runner->spad );
+  fd_runtime_fuzz_refresh_program_cache( runner->bank, funk, xid, test_ctx->accounts, test_ctx->accounts_count, runner->runtime_mem );
 
   /* Load instruction accounts */
 

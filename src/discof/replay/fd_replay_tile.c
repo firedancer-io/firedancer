@@ -315,6 +315,8 @@ struct fd_replay_tile {
      TODO: Should be replaced by tile-level allocations. */
   fd_spad_t * runtime_spad;
 
+  fd_runtime_mem_t runtime_mem;
+
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
   ulong             vote_tower_out_idx; /* index of vote tower to publish next */
@@ -648,10 +650,11 @@ replay_block_start( fd_replay_tile_t *  ctx,
       &xid,
       ctx->capture_ctx,
       ctx->runtime_spad,
+      &ctx->runtime_mem,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, &ctx->runtime_mem );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
@@ -762,10 +765,10 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
       break;
     }
     int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
-    switch ( rc ) {
+    switch( rc ) {
       case -1:
         /* Mismatch */
-        FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+        FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu.", cmp_slot ));
         break;
       case 0:
         /* Not ready */
@@ -849,10 +852,11 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
       &xid,
       ctx->capture_ctx,
       ctx->runtime_spad,
+      &ctx->runtime_mem,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
+  int res = fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, &ctx->runtime_mem );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_CRIT(( "block prep execute failed" ));
   }
@@ -965,7 +969,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad, &ctx->runtime_mem );
 
   ulong snapshot_slot = fd_bank_slot_get( bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -973,7 +977,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
-    fd_runtime_update_leaders( bank, ctx->runtime_spad );
+    fd_runtime_update_leaders( bank, ctx->runtime_mem.epoch_weights_mem );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
     fd_hash_t * poh = fd_bank_poh_modify( bank );
@@ -981,7 +985,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) == 0 );
+    FD_TEST( fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, &ctx->runtime_mem ) == 0 );
     fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
@@ -1184,7 +1188,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   }
   fd_funk_txn_xid_t xid = { .ul = { 0UL, 0UL } };
 
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad, &ctx->runtime_mem );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
@@ -1301,7 +1305,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     fd_features_restore( bank, ctx->funk, &xid );
 
-    fd_runtime_update_leaders( bank, ctx->runtime_spad );
+    fd_runtime_update_leaders( bank, ctx->runtime_mem.epoch_weights_mem );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     FD_TEST( block_id_ele );
@@ -1404,7 +1408,7 @@ replay( fd_replay_tile_t *  ctx,
 
     fd_funk_txn_xid_t xid = { .ul = { ready_txn->slot, ready_txn->slot } };
 
-    fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, ctx->runtime_spad );
+    fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, &ctx->runtime_mem );
 
     /* At this point, we are going to send the txn down the execution
         pipeline.  Increment the refcnt so we don't prematurely prune a
@@ -1540,7 +1544,6 @@ process_fec_set( fd_replay_tile_t * ctx,
   fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->funk ) );
   sched_fec->alut_ctx->funk         = ctx->funk;
   sched_fec->alut_ctx->els          = ctx->published_root_slot;
-  sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, fd_banks_bank_query( ctx->banks, sched_fec->bank_idx ) );

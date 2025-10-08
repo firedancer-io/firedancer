@@ -168,6 +168,7 @@ fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
    Returns block_info on success and NULL on failure. */
 static fd_runtime_block_info_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
+                                  fd_runtime_mem_t *                   runtime_mem,
                                   fd_exec_test_block_context_t const * test_ctx ) {
   fd_funk_t *  funk  = runner->funk;
   fd_bank_t *  bank  = runner->bank;
@@ -301,7 +302,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
 
   /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( bank, funk, xid, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
+  fd_runtime_fuzz_refresh_program_cache( bank, funk, xid, test_ctx->acct_states, test_ctx->acct_states_count, runner->runtime_mem );
 
   /* Update vote cache for epoch T-1 */
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
@@ -320,7 +321,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( bank, runner->spad );
+  fd_runtime_update_leaders( bank, runtime_mem->epoch_weights_mem );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
@@ -438,6 +439,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
    and executes it against the runtime. Returns the execution result. */
 static int
 fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
+                                fd_runtime_mem_t *         runtime_mem,
                                 fd_funk_txn_xid_t const *  xid,
                                 fd_runtime_block_info_t *  block_info ) {
   int res = 0;
@@ -456,14 +458,14 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, runner->runtime_mem );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, runtime_mem, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, capture_ctx, runner->spad );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, capture_ctx, runner->runtime_mem );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -476,7 +478,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       fd_txn_p_t * txn = &txn_ptrs[i];
 
       /* Update the program cache */
-      fd_runtime_update_program_cache( runner->bank, runner->funk, xid, txn, runner->spad );
+      fd_runtime_update_program_cache( runner->bank, runner->funk, xid, txn, runner->runtime_mem );
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
@@ -520,8 +522,9 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_block_effects_t **      output = fd_type_pun( output_ );
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
+
     /* Set up the block execution context */
-    fd_runtime_block_info_t * block_info = fd_runtime_fuzz_block_ctx_create( runner, input );
+    fd_runtime_block_info_t * block_info = fd_runtime_fuzz_block_ctx_create( runner, runner->runtime_mem, input );
     if( block_info==NULL ) {
       fd_runtime_fuzz_block_ctx_destroy( runner );
       return 0;
@@ -530,7 +533,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), fd_bank_slot_get( runner->bank ) } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, block_info );
+    int res = fd_runtime_fuzz_block_ctx_exec( runner, runner->runtime_mem, &xid, block_info );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

@@ -2,11 +2,12 @@
 #define HEADER_fd_src_discof_replay_fd_sched_h
 
 #include "fd_rdisp.h"
-#include "../../disco/store/fd_store.h" /* for fd_store_fec_t */
+#include "../../disco/store/fd_store.h"     /* for fd_store_fec_t */
 #include "../../disco/pack/fd_microblock.h" /* for fd_txn_p_t */
 
-#include "../../funk/fd_funk_base.h" /* for ALUTs */
-#include "../../util/spad/fd_spad.h" /* for ALUTs */
+#include "../../funk/fd_funk_base.h"                             /* for ALUTs */
+#include "../../util/spad/fd_spad.h"                             /* for ALUTs */
+#include "../../flamenco/runtime/sysvar/fd_sysvar_slot_hashes.h" /* for ALUTs*/
 
 /* fd_sched wraps all the smarts and mechanical chores around scheduling
    transactions for replay execution.  It is built on top of the
@@ -58,7 +59,7 @@ struct fd_sched_alut_ctx {
   fd_funk_t *       funk;
   fd_funk_txn_xid_t xid[1];
   ulong             els; /* Effective lookup slot. */
-  fd_spad_t *       runtime_spad;
+  uchar             slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_DECODE_FOOTPRINT ];
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 
