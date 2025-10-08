@@ -287,7 +287,7 @@
    FIXME: probably should rename FD_TEST_CUSTOM to FD_ERR. */
 
 #ifndef FD_PARANOID
-#define FD_PARANOID 1
+#define FD_PARANOID 0
 #endif
 
 #if FD_PARANOID
