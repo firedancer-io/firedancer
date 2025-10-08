@@ -173,17 +173,16 @@ ulong
 fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
                                   ulong                       slot ) {
 
-  if( slot < schedule->first_normal_slot )
+  if( FD_UNLIKELY( slot<schedule->first_normal_slot ) ) {
     return fd_slot_to_epoch( schedule, slot, NULL ) + 1UL;
-
-  /* These variable names ... sigh */
+  }
 
   ulong new_slots_since_first_normal_slot =
-    slot - schedule->first_normal_slot;
+      slot - schedule->first_normal_slot;
   ulong new_first_normal_leader_schedule_slot =
-    new_slots_since_first_normal_slot + schedule->leader_schedule_slot_offset;
+      new_slots_since_first_normal_slot + schedule->leader_schedule_slot_offset;
   ulong new_epochs_since_first_normal_leader_schedule =
-    new_first_normal_leader_schedule_slot / schedule->slots_per_epoch;
+      new_first_normal_leader_schedule_slot / schedule->slots_per_epoch;
 
   return schedule->first_normal_epoch + new_epochs_since_first_normal_leader_schedule;
 }

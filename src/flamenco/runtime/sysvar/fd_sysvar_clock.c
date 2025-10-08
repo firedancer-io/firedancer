@@ -1,25 +1,50 @@
 #include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
-#include "fd_sysvar_rent.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
-#define MAX_ALLOWABLE_DRIFT_FAST ( 25 )
+/* Syvar Clock Possible Values:
+  slot:
+  [0, ULONG_MAX]
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L16 */
-#define MAX_ALLOWABLE_DRIFT_SLOW ( 150 )
+  epoch:
+  [0, slot/432000UL]
 
-/* Do all intermediate calculations at nanosecond precision, to mirror Solana's behaviour. */
+  epoch_start_timestamp:
+  [0, ULONG_MAX]
+
+  unix_timestamp:
+  This value is bounded by the slot distance from the
+  epoch_start_timestamp.
+  The protocol allows for a maximum drift (either fast or slow) from the
+  start of the epoch's timestamp.  The expected time is called the PoH
+  offset.  This offset is calculated by (epoch_start_timestamp + slots
+  since epoch * slot_duration). The drift is then bounded by the
+  max_allowable_drift_{slow,fast}.  The stake weighted offset can be
+  150% more than the PoH offset and 25% less than the PoH offset.
+  So, the bounds for the unix_timestamp can be calculated by:
+  upper bound = epoch_start_timestamp + (slots since epoch * slot_duration) * 2.5
+  lower bound = epoch_start_timestamp + (slots since epoch * slot_duration) * 0.75
+
+  leader_schedule_epoch:
+  This is the value of the epoch used for the leader schedule.  It is
+  computed based on the values of the epoch schedule (first_normal_slot,
+  leader_schedule_slot_offset, slots_per_epoch).  It is always equal to
+  ((slot - first_normal_slot) + leader_schedule_slot_offset) / schedule->slots_per_epoch
+*/
+
+/* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L14 */
+#define MAX_ALLOWABLE_DRIFT_FAST_PERCENT ( 25U )
+
+/* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L15 */
+#define MAX_ALLOWABLE_DRIFT_SLOW_PERCENT ( 150U )
+
+/* Do all intermediate calculations at nanosecond precision, to mirror
+   Solana's behavior. */
 #define NS_IN_S ((long)1e9)
 
-/* The target tick duration, derived from the target tick rate.
- https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/poh_config.rs#L32
-  */
-#define DEFAULT_TARGET_TICK_DURATION_NS ( NS_IN_S / FD_SYSVAR_CLOCK_DEFAULT_HASHES_PER_TICK )
-
-/* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2110-L2117 */
+/* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamps.rs#L2110-L2117 */
 static inline long
 unix_timestamp_from_genesis( fd_bank_t * bank ) {
   /* TODO: genesis_creation_time needs to be a long in the bank. */
@@ -34,16 +59,16 @@ fd_sysvar_clock_write( fd_bank_t *               bank,
                        fd_funk_txn_xid_t const * xid,
                        fd_capture_ctx_t *        capture_ctx,
                        fd_sol_sysvar_clock_t *   clock ) {
-  ulong sz = fd_sol_sysvar_clock_size( clock );
-  uchar enc[sz];
-  memset( enc, 0, sz );
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = enc;
-  ctx.dataend = enc + sz;
-  if( fd_sol_sysvar_clock_encode( clock, &ctx ) )
-    FD_LOG_ERR(("fd_sol_sysvar_clock_encode failed"));
+  uchar enc[ sizeof(fd_sol_sysvar_clock_t) ];
+  fd_bincode_encode_ctx_t ctx = {
+    .data    = enc,
+    .dataend = enc + sizeof(fd_sol_sysvar_clock_t),
+  };
+  if( FD_UNLIKELY( fd_sol_sysvar_clock_encode( clock, &ctx ) ) ) {
+    FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
+  }
 
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_clock_id, enc, sz );
+  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
 }
 
 
@@ -171,40 +196,45 @@ get_timestamp_estimate( fd_bank_t *             bank,
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
        !fd_vote_states_iter_done( iter );
        fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state      = fd_vote_states_iter_ele( iter );
-    fd_vote_state_ele_t const * vote_state_prev = fd_vote_states_query_const( vote_states_prev_prev, &vote_state->vote_account );
-    if( !vote_state_prev ) {
-      /* Don't count vote accounts that didn't have stake at the end of
-         epoch E-2. */
-      continue;
-    }
-    ulong vote_stake     = vote_state_prev->stake;
-    ulong vote_timestamp = (ulong)vote_state->last_vote_timestamp;
-    ulong vote_slot      = vote_state->last_vote_slot;
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
 
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2445 */
     ulong slot_delta;
-    int err = fd_ulong_checked_sub( current_slot, vote_slot, &slot_delta );
+    int err = fd_ulong_checked_sub( current_slot, vote_state->last_vote_slot, &slot_delta );
     if( FD_UNLIKELY( err ) ) {
+      /* Don't count vote accounts with a last vote slot that is greater
+         than the current slot.*/
+      continue;
+    }
+
+    fd_vote_state_ele_t const * vote_state_prev = fd_vote_states_query_const( vote_states_prev_prev, &vote_state->vote_account );
+    if( FD_UNLIKELY( !vote_state_prev ) ) {
+      /* Don't count vote accounts that didn't have stake at the end of
+         epoch E-2. */
       continue;
     }
 
     /* Don't count vote accounts that haven't voted in the past 432k
        slots (length of an epoch).
        https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/bank.rs#L2446-L2447 */
-    if( slot_delta>epoch_schedule->slots_per_epoch ) {
+    if( FD_UNLIKELY( slot_delta>epoch_schedule->slots_per_epoch ) ) {
       continue;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
-    ulong offset   = fd_ulong_sat_mul(slot_duration, slot_delta);
-    long  estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
+    /* Calculate the timestamp estimate by taking the last vote
+       timestamp and adding the estimated time since the last vote
+       (delta from last vote slot to current slot * slot duration).
+       https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L44-L45 */
+    ulong offset   = fd_ulong_sat_mul( slot_duration, slot_delta );
+    long  estimate = vote_state->last_vote_timestamp + (long)(offset / NS_IN_S);
 
-    /* Get the vote account stake and upsert it to the treap.
+    /* For each timestamp, accumulate the stake from E-2.  If the entry
+       for the timestamp doesn't exist yet, insert it.  Otherwise,
+       update the existing entry.
        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
-    if ( FD_LIKELY( treap_idx < ULONG_MAX ) ) {
-      pool[ treap_idx ].stake += vote_stake;
+    if( FD_LIKELY( treap_idx!=stake_ts_treap_idx_null() ) ) {
+      pool[ treap_idx ].stake += vote_state_prev->stake;
     } else {
       if( FD_UNLIKELY( stake_ts_pool_free( pool )==0UL ) ){
         FD_LOG_ERR(( "stake_ts_pool is empty" ));
@@ -212,12 +242,12 @@ get_timestamp_estimate( fd_bank_t *             bank,
       ulong idx = stake_ts_pool_idx_acquire( pool );
       pool[ idx ].prio_cidx = fd_rng_ulong( rng );
       pool[ idx ].timestamp = estimate;
-      pool[ idx ].stake     = vote_stake;
+      pool[ idx ].stake     = vote_state_prev->stake;
       stake_ts_treap_idx_insert( treap, idx, pool );
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
-    total_stake += vote_stake;
+    total_stake += vote_state_prev->stake;
   }
   fd_bank_vote_states_end_locking_query( bank );
   fd_bank_vote_states_prev_prev_end_locking_query( bank );
@@ -242,8 +272,6 @@ get_timestamp_estimate( fd_bank_t *             bank,
     }
   }
 
-  FD_LOG_DEBUG(( "stake weighted timestamp: %ld total stake %lu", estimate, (ulong)total_stake ));
-
   int const fix_estimate_into_u64 = FD_FEATURE_ACTIVE_BANK( bank, warp_timestamp_again );
 
   /* Bound estimate by `max_allowable_drift` since the start of the epoch
@@ -263,16 +291,16 @@ get_timestamp_estimate( fd_bank_t *             bank,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L78-L81 */
-  ulong max_allowable_drift_fast = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST ) / 100UL;
-  ulong max_allowable_drift_slow = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW ) / 100UL;
+  ulong max_allowable_drift_fast = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST_PERCENT ) / 100UL;
+  ulong max_allowable_drift_slow = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW_PERCENT ) / 100UL;
   FD_LOG_DEBUG(( "poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_allowable_drift_fast, max_allowable_drift_slow ));
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L82-L98 */
-  if( estimate_offset>poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset)>max_allowable_drift_slow ) {
+  if( estimate_offset>poh_estimate_offset && fd_ulong_sat_sub( estimate_offset, poh_estimate_offset )>max_allowable_drift_slow ) {
     estimate = fd_long_sat_add(
         epoch_start_timestamp,
         fd_long_sat_add( (long)poh_estimate_offset / NS_IN_S, (long)max_allowable_drift_slow / NS_IN_S ) );
-  } else if( estimate_offset<poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset)>max_allowable_drift_fast ) {
+  } else if( estimate_offset<poh_estimate_offset && fd_ulong_sat_sub( poh_estimate_offset, estimate_offset )>max_allowable_drift_fast ) {
     estimate = fd_long_sat_sub(
         fd_long_sat_add( epoch_start_timestamp, (long)poh_estimate_offset / NS_IN_S ),
         (long)max_allowable_drift_fast / NS_IN_S );
@@ -322,7 +350,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2191-L2197 */
-  long epoch_start_timestamp = ( parent_epoch!=NULL && *parent_epoch!=current_epoch ) ?
+  long epoch_start_timestamp = (parent_epoch!=NULL && *parent_epoch!=current_epoch) ?
       unix_timestamp :
       clock->epoch_start_timestamp;
 
