@@ -8,7 +8,7 @@
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
 #include "../../../funk/fd_funk.h"
-#include "../../progcache/fd_progcache.h"
+#include "../../progcache/fd_progcache_user.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
 

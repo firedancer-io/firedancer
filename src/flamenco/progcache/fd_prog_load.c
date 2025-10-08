@@ -1,6 +1,7 @@
 #include "fd_prog_load.h"
 #include "../runtime/program/fd_bpf_loader_program.h"
 #include "../runtime/program/fd_loader_v4_program.h"
+#include "../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 /* Similar to the below function, but gets the executable program content for the v4 loader.
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
@@ -166,4 +167,18 @@ fd_prog_versions( fd_features_t const * features,
     v.max_sbpf_version = FD_SBPF_V0;
   }
   return v;
+}
+
+
+fd_prog_load_env_t *
+fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
+                            fd_bank_t const *    bank ) {
+  *env = (fd_prog_load_env_t) {
+    .features      = fd_bank_features_query( bank ),
+    .slot          = fd_bank_slot_get      ( bank ),
+    .epoch         = fd_bank_epoch_get     ( bank ),
+    .epoch_slot0   = fd_epoch_slot0( fd_bank_epoch_schedule_query( bank ), fd_bank_epoch_get( bank ) ),
+    .gen           = 1UL,
+  };
+  return env;
 }

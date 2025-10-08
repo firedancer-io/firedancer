@@ -1,7 +1,8 @@
+
 #ifndef HEADER_fd_src_flamenco_fd_progcache_h
 #define HEADER_fd_src_flamenco_fd_progcache_h
 
-/* fd_progcache.h provides an API for managing a cache of loaded
+/* fd_progcache_user.h provides an API for managing a cache of loaded
    Solana on-chain program.
 
    ### Background
@@ -48,19 +49,20 @@
    1. a database fork is cancelled (e.g. slot is rooted and competing
       history dies, or consensus layer prunes a fork)
    2. a cache entry is orphaned (updated or invalidated by an epoch
-      boundary)
+      boundary) */
 
-   ### Concurrency
-
-   fd_progcache does not support concurrent access.  This may change in
-   the future. */
-
-#include "../fd_flamenco_base.h"
 #include "fd_progcache_rec.h"
+#include "fd_prog_load.h"
 #include "../../funk/fd_funk.h"
+
+#define FD_PROGCACHE_DEPTH_MAX (128UL)
 
 struct fd_progcache {
   fd_funk_t funk[1];
+
+  /* Current fork cache */
+  fd_funk_txn_xid_t fork[ FD_PROGCACHE_DEPTH_MAX ];
+  ulong             fork_depth;
 };
 
 typedef struct fd_progcache fd_progcache_t;
@@ -79,14 +81,6 @@ FD_PROTOTYPES_BEGIN
 extern FD_TL fd_progcache_metrics_t   fd_progcache_metrics_default;
 extern FD_TL fd_progcache_metrics_t * fd_progcache_metrics_cur; /* = &fd_progcache_metrics_default; */
 
-/* fd_progcache_est_rec_max estimates the fd_funk rec_max parameter
-   given the cache's wksp footprint and mean cache entry heap
-   utilization. */
-
-ulong
-fd_progcache_est_rec_max( ulong wksp_footprint,
-                          ulong mean_cache_entry_size );
-
 /* fd_progcache_join joins the caller to a program cache funk instance. */
 
 fd_progcache_t *
@@ -99,27 +93,29 @@ void *
 fd_progcache_leave( fd_progcache_t * cache,
                     void **          opt_shfunk );
 
+/* Record-level operations ********************************************/
+
 /* fd_progcache_peek queries the program cache for an existing cache
    entry.  Does not fill the cache.  Returns a pointer to the entry on
    cache hit (invalidated by the next non-const API call).  Returns NULL
    on cache miss. */
 
 fd_progcache_rec_t const *
-fd_progcache_peek( fd_progcache_t const *    cache,
+fd_progcache_peek( fd_progcache_t *          cache,
                    fd_funk_txn_xid_t const * xid,
-                   void const *              prog_addr );
+                   void const *              prog_addr,
+                   ulong                     epoch_slot0 );
 
 /* fd_progcache_pull does a cache fill (on cache miss) or returns an
    existing cache entry (on cache hit).  Returns a pointer to the cache
    entry (invalidated by an API call with a higher gen number). */
 
 fd_progcache_rec_t const *
-fd_progcache_pull( fd_progcache_t *          cache,
-                   fd_funk_t *               accdb,
-                   fd_funk_txn_xid_t const * xid,
-                   void const *              prog_addr,
-                   ulong                     gen,
-                   fd_bank_t const *         bank );
+fd_progcache_pull( fd_progcache_t *           cache,
+                   fd_funk_t *                accdb,
+                   fd_funk_txn_xid_t const *  xid,
+                   void const *               prog_addr,
+                   fd_prog_load_env_t const * opt );
 
 /* fd_progcache_invalidate marks the program at the given address as
    invalidated (typically due to a change of program content).  This
@@ -131,18 +127,6 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
                          void const *              prog_addr,
                          ulong                     slot,
                          ulong                     gen );
-
-/* fd_progcache_flush removes all cache entries while leaving the txn
-   graph intact. */
-
-void
-fd_progcache_reset( fd_progcache_t * cache );
-
-/* fd_progcache_clear removes all cache entries and destroys the txn
-   graph. */
-
-void
-fd_progcache_clear( fd_progcache_t * cache );
 
 FD_PROTOTYPES_END
 

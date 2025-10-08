@@ -537,7 +537,7 @@ user = ""
     # faster transaction execution.
     [runtime.program_cache]
         # The size of the loaded program cache in MiB.
-        heap_size_mib = 1024
+        heap_size_mib = 4096
 
         # The mean expected heap utilization of a cache entry.  Controls
         # the size of metadata structures (e.g. cache entry table).  It

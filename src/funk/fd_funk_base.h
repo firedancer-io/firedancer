@@ -45,6 +45,10 @@
 #include "../util/fd_util.h"
 #include "../util/valloc/fd_valloc.h"
 
+#if FD_HAS_X86
+#include <immintrin.h>
+#endif
+
 /* FD_FUNK_SUCCESS is used by various APIs to indicate the operation
    successfully completed.  This will be 0.  FD_FUNK_ERR_* gives a
    number of error codes used by fd_funk APIs.  These will be negative
@@ -88,7 +92,7 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
    of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_TXN_XID_ALIGN     (8UL)
+#define FD_FUNK_TXN_XID_ALIGN     (16UL)
 #define FD_FUNK_TXN_XID_FOOTPRINT (16UL)
 
 /* A fd_funk_txn_xid_t identifies a funk transaction currently in
@@ -103,6 +107,12 @@ typedef union fd_funk_rec_key fd_funk_rec_key_t;
 union __attribute__((aligned(FD_FUNK_TXN_XID_ALIGN))) fd_funk_txn_xid {
   uchar uc[ FD_FUNK_TXN_XID_FOOTPRINT ];
   ulong ul[ FD_FUNK_TXN_XID_FOOTPRINT / sizeof(ulong) ];
+#if FD_HAS_INT128
+  uint128 uf[1];
+#endif
+#if FD_HAS_X86
+  __m128i xmm[1];
+#endif
 };
 
 typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
@@ -112,7 +122,7 @@ typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
    power of 2.  FOOTPRINT is a multiple of ALIGN.  These are provided to
    facilitate compile time declarations. */
 
-#define FD_FUNK_XID_KEY_PAIR_ALIGN     (8UL)
+#define FD_FUNK_XID_KEY_PAIR_ALIGN     (16UL)
 #define FD_FUNK_XID_KEY_PAIR_FOOTPRINT (48UL)
 
 /* A fd_funk_xid_key_pair_t identifies a funk record.  It is just
@@ -275,6 +285,32 @@ fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
   ulong *       d = xd->ul;
   ulong const * s = xs->ul;
   d[0] = s[0]; d[1] = s[1];
+  return xd;
+}
+
+static inline fd_funk_txn_xid_t *
+fd_funk_txn_xid_st_atomic( fd_funk_txn_xid_t *       xd,
+                           fd_funk_txn_xid_t const * xs ) {
+# if FD_HAS_X86
+  FD_VOLATILE( xd->xmm[0] ) = xs->xmm[0];
+# elif FD_HAS_INT128
+  FD_VOLATILE( xd->uf[0] ) = xs->uf[0];
+# else
+  fd_funk_txn_xid_copy( xd, xs );
+# endif
+  return xd;
+}
+
+static inline fd_funk_txn_xid_t *
+fd_funk_txn_xid_ld_atomic( fd_funk_txn_xid_t *       xd,
+                           fd_funk_txn_xid_t const * xs ) {
+# if FD_HAS_X86
+  xd->xmm[0] = FD_VOLATILE_CONST( xs->xmm[0] );
+# elif FD_HAS_INT128
+  xd->uf[0] = FD_VOLATILE_CONST( xs->uf[0] );
+# else
+  fd_funk_txn_xid_copy( xd, xs );
+# endif
   return xd;
 }
 

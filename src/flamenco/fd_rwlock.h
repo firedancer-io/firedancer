@@ -15,6 +15,12 @@ struct fd_rwlock {
 
 typedef struct fd_rwlock fd_rwlock_t;
 
+static inline fd_rwlock_t *
+fd_rwlock_new( fd_rwlock_t * lock ) {
+  lock->value = 0;
+  return 0;
+}
+
 static inline void
 fd_rwlock_write( fd_rwlock_t * lock ) {
 # if FD_HAS_THREADS

@@ -18,6 +18,7 @@
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
+#include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -132,7 +133,7 @@ struct fd_replay_tile {
   int tx_metadata_storage;
 
   fd_funk_t funk[1];
-  fd_progcache_t progcache[1];
+  fd_progcache_admin_t progcache_admin[1];
 
   fd_txncache_t * txncache;
   fd_store_t *    store;
@@ -663,8 +664,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  fd_funk_txn_prepare( ctx->funk,            &parent_xid, &xid );
-  fd_funk_txn_prepare( ctx->progcache->funk, &parent_xid, &xid );
+  fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
+  fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -895,8 +896,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   /* prepare the funk transaction for the leader bank */
   fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
-  fd_funk_txn_prepare( ctx->funk,            &parent_xid, &xid );
-  fd_funk_txn_prepare( ctx->progcache->funk, &parent_xid, &xid );
+  fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
+  fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
@@ -1050,12 +1051,12 @@ init_funk( fd_replay_tile_t * ctx,
   /* The program cache tracks the account database's fork graph at all
      times.  Perform initial synchronization: pivot from funk 'root' (a
      sentinel XID) to 'last publish' (the bootstrap root slot). */
-  if( FD_UNLIKELY( !ctx->progcache->funk->shmem ) ) {
+  if( FD_UNLIKELY( !ctx->progcache_admin->funk->shmem ) ) {
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
-  fd_progcache_clear( ctx->progcache );
-  fd_funk_txn_prepare( ctx->progcache->funk, fd_funk_root( ctx->progcache->funk ), fd_funk_last_publish( ctx->funk ) );
-  fd_funk_txn_publish( ctx->progcache->funk, fd_funk_last_publish( ctx->funk ) );
+  fd_progcache_clear( ctx->progcache_admin );
+  fd_progcache_txn_prepare( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->funk ) );
+  fd_progcache_txn_publish( ctx->progcache_admin, fd_funk_last_publish( ctx->funk ) );
 }
 
 static void
@@ -1484,9 +1485,6 @@ dispatch_task( fd_replay_tile_t *  ctx,
          have to loop over all accounts a second time. */
       /* Insert or reverify invoked programs for this epoch, if needed. */
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->txn_exec->bank_idx );
-      fd_funk_txn_xid_t xid = { .ul = { task->txn_exec->slot, task->txn_exec->slot } };
-      fd_runtime_update_program_cache( bank, ctx->progcache, ctx->funk, &xid, txn_p, ctx->runtime_spad );
-
       bank->refcnt++;
 
       if( FD_UNLIKELY( !bank->first_transaction_scheduled_nanos ) ) bank->first_transaction_scheduled_nanos = fd_log_wallclock();
@@ -1696,8 +1694,8 @@ funk_publish( fd_replay_tile_t * ctx,
   /* This is the standard case.  Publish all transactions up to and
      including the watermark.  This will publish any in-prep ancestors
      of root_txn as well. */
-  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk,            &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(accdb) failed",     slot ));
-  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->progcache->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(progcache) failed", slot ));
+  if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(accdb) failed",     slot ));
+  fd_progcache_txn_publish( ctx->progcache_admin, &xid );
 }
 
 static int
@@ -2204,7 +2202,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_features_enable_one_offs( features, one_off_features, (uint)tile->replay.enable_features_cnt, 0UL );
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->replay.funk_obj_id ) ) );
-  FD_TEST( fd_progcache_join( ctx->progcache, fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
+  FD_TEST( fd_progcache_admin_join(
+      ctx->progcache_admin,
+      fd_topo_obj_laddr( topo, tile->replay.progcache_obj_id ) ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->replay.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

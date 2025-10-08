@@ -104,6 +104,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   if( FD_UNLIKELY( !fd_funk_join     ( runner->funk,      funk_mem   ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;

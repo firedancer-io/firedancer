@@ -40,7 +40,7 @@ fd_runtime_fuzz_xid_cancel( fd_solfuzz_runner_t * runner,
                             fd_funk_txn_xid_t *   xid ) {
   if( FD_UNLIKELY( !xid ) ) return; // This shouldn't be false either
   fd_funk_txn_cancel( runner->funk, xid );
-  fd_progcache_clear( runner->progcache );
+  fd_progcache_clear( runner->progcache_admin );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -56,8 +56,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Set up the funk transaction */
   fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk,                    &parent_xid, &xid );
-  fd_funk_txn_prepare( runner->progcache->funk, &parent_xid, &xid );
+  fd_funk_txn_prepare     ( funk,                    &parent_xid, &xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, &xid );
 
   /* Set up slot context */
   fd_banks_clear_bank( runner->banks, runner->bank );
@@ -203,9 +203,6 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Restore sysvars from account context */
   fd_sysvar_cache_restore_fuzz( runner->bank, runner->funk, &xid );
-
-  /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, runner->progcache, runner->funk, &xid, test_ctx->account_shared_data, test_ctx->account_shared_data_count );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );

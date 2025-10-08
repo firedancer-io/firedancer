@@ -162,7 +162,7 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_funk_txn_cancel_all( runner->funk );
-  fd_progcache_clear( runner->progcache );
+  fd_progcache_clear( runner->progcache_admin );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
@@ -182,8 +182,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk,                    &parent_xid, xid );
-  fd_funk_txn_prepare( runner->progcache->funk, &parent_xid, xid );
+  fd_funk_txn_prepare( funk, &parent_xid, xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, xid );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -301,10 +301,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_epoch_set( bank, fd_slot_to_epoch( epoch_schedule, slot, NULL ) );
 
-
-  /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( bank, runner->progcache, funk, xid, test_ctx->acct_states, test_ctx->acct_states_count );
-
   /* Update vote cache for epoch T-1 */
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
   fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_states_prev,
@@ -349,8 +345,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
-  fd_funk_txn_prepare( funk,                    xid, &fork_xid );
-  fd_funk_txn_prepare( runner->progcache->funk, xid, &fork_xid );
+  fd_funk_txn_prepare( funk, xid, &fork_xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, xid, &fork_xid );
   xid[0] = fork_xid;
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
@@ -477,9 +473,6 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
     /* Sequential transaction execution */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = &txn_ptrs[i];
-
-      /* Update the program cache */
-      fd_runtime_update_program_cache( runner->bank, runner->progcache, runner->funk, xid, txn, runner->spad );
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;

@@ -42,4 +42,24 @@ fd_prog_versions( fd_features_t const * features,
 
 FD_PROTOTYPES_END
 
+struct fd_prog_load_env {
+  fd_features_t const * features;
+
+  ulong slot;         /* current slot */
+  ulong epoch;        /* current epoch */
+  ulong epoch_slot0;  /* slot0 of current epoch */
+
+  ulong gen;
+};
+
+typedef struct fd_prog_load_env fd_prog_load_env_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_prog_load_env_t *
+fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
+                            fd_bank_t const *    bank );
+
+FD_PROTOTYPES_END
+
 #endif /* HEADER_fd_src_flamenco_fd_progcache_fd_prog_load_h */

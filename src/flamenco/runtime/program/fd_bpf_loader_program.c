@@ -2550,26 +2550,13 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
     }
 
-    /* Sadly, we have to tie the cache in with consensus. We tried our
-       best to avoid this, but Agave's program loading logic is too
-       complex to solely rely on checks without significant redundancy.
-
-       For example, devnet and testnet have older programs that were
-       deployed before stricter ELF / VM validation checks were put in
-       place, causing these older programs to fail newer validation
-       checks and be unexecutable. At the instruction level, we have no
-       way of checking if this validation passed or not here without
-       querying our program cache, otherwise we would have to copy-paste
-       all of our validation checks here.
-
-       Any failures here would indicate an attempt to interact with a
-       deployed programs that either failed to load or failed bytecode
-       verification. This applies for v1, v2, and v3 programs. This
-       could also theoretically cause some currently-deployed programs
-       to fail in the future if ELF / VM checks are eventually made
-       stricter. */
+    fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, ctx->txn_ctx->bank );
     fd_progcache_rec_t const * cache_entry =
-        fd_progcache_peek( ctx->txn_ctx->progcache, ctx->txn_ctx->xid, program_id );
+        fd_progcache_pull( ctx->txn_ctx->progcache,
+                           ctx->txn_ctx->funk,
+                           ctx->txn_ctx->xid,
+                           program_id,
+                           load_env );
     if( FD_UNLIKELY( !cache_entry ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not cached" );
 

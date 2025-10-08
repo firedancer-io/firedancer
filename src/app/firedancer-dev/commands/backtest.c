@@ -28,7 +28,7 @@
 #include "../../../ballet/lthash/fd_lthash.h"
 #include "../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
-#include "../../../flamenco/progcache/fd_progcache.h"
+#include "../../../flamenco/progcache/fd_progcache_admin.h"
 
 #include "../main.h"
 
