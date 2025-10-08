@@ -579,17 +579,21 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     /* Capture leader schedule */
     fd_epoch_leaders_t const * leaders = fd_bank_epoch_leaders_locking_query( runner->bank );
     if( FD_LIKELY( leaders ) ) {
-      /* Populate tmp with exiting fields */
-      effects->leaders_epoch = leaders->epoch;
-      effects->leaders_slot0 = leaders->slot0;
-      effects->leaders_slot_cnt = leaders->slot_cnt;
-      effects->leader_pub_cnt = leaders->pub_cnt;
-      effects->leaders_sched_cnt = leaders->sched_cnt;
+      effects->has_leader_schedule = true;
+      effects->leader_schedule = (fd_exec_test_leader_schedule_effects_t) {
+        .leaders_epoch = leaders->epoch,
+        .leaders_slot0 = leaders->slot0,
+        .leaders_slot_cnt = leaders->slot_cnt,
+        .leader_pub_cnt = leaders->pub_cnt,
+        .leaders_sched_cnt = leaders->sched_cnt,
+      };
       fd_hash_epoch_leaders(
         leaders,
         0xDEADFACE, /* Seed */
-        effects->leader_schedule_hash );
+        effects->leader_schedule.leader_schedule_hash );
       fd_bank_epoch_leaders_end_locking_query( runner->bank );
+    } else {
+      effects->has_leader_schedule = false;
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
