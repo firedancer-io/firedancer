@@ -138,7 +138,7 @@ fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
   }
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->text_cnt ) ),  /* calldests bitmap */
+    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->bin_sz/8UL ) ),  /* calldests bitmap */
     alignof(fd_sbpf_program_t) );
 }
 
@@ -183,7 +183,7 @@ fd_sbpf_program_new( void *                     prog_mem,
   };
 
   /* If the text section is empty, then we do not need a calldests map. */
-  ulong pc_max = elf_info->text_cnt;
+  ulong pc_max = elf_info->bin_sz/8UL;
   if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) || pc_max==0UL ) ) {
     /* No calldests map in SBPF v3+ or if text_cnt is 0. */
     prog->calldests_shmem = NULL;
