@@ -638,7 +638,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "net_gossvf" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "snaprd_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snaprd_gui" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "repair_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;  /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT; /* full client only */

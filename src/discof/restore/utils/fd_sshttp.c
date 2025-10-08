@@ -129,11 +129,6 @@ fd_sshttp_init( fd_sshttp_t * http,
   http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
-  int optval = 1;
-  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
-    FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
     .sin_port   = fd_ushort_bswap( addr.port ),

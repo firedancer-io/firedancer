@@ -437,9 +437,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "genesi_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
-    else if( FD_LIKELY( !strcmp( link->name, "snap_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    if( FD_LIKELY( !strcmp( link->name, "genesi_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
+    else if( FD_LIKELY( !strcmp( link->name, "snapin_manif" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

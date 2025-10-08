@@ -22,6 +22,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/replay/fd_replay_tile.h"
+#include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../discof/tower/fd_tower_tile.h"
 #include "../../../discof/replay/fd_exec.h"
@@ -101,12 +102,15 @@ backtest_topo( config_t * config ) {
   fd_topo_tile_t * snapin_tile = NULL;
   if( FD_UNLIKELY( !disable_snap_loader ) ) {
     fd_topob_wksp( topo, "snaprd" );
+    fd_topob_wksp( topo, "snapld" );
     fd_topob_wksp( topo, "snapdc" );
     fd_topob_wksp( topo, "snapin" );
     fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd",  "snaprd",  "metric_in",  cpu_idx++, 0, 0 );
+    fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld",  "snapld",  "metric_in",  cpu_idx++, 0, 0 );
     fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  cpu_idx++, 0, 0 );
-    snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
+                     snapin_tile = fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  cpu_idx++, 0, 0 );
     snaprd_tile->allow_shutdown = 1;
+    snapld_tile->allow_shutdown = 1;
     snapdc_tile->allow_shutdown = 1;
     snapin_tile->allow_shutdown = 1;
   } else {
@@ -132,35 +136,32 @@ backtest_topo( config_t * config ) {
   /* Setup snapshot links in topo                                       */
   /**********************************************************************/
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_wksp( topo, "snap_zstd" );
-    fd_topob_wksp( topo, "snap_stream");
-    fd_topob_wksp( topo, "snapdc_rd" );
-    fd_topob_wksp( topo, "snapin_rd" );
-    fd_topob_wksp( topo, "snap_out" );
-    fd_topob_wksp( topo, "snaprd_rp" );
-    /* TODO: Should be depth of 1 or 2, not 4, but it causes backpressure
-      from the replay tile parsing the manifest, remove when this is
-      fixed. */
-    fd_topob_link( topo, "snap_out",  "snap_out",  4UL,   sizeof(fd_snapshot_manifest_t), 1UL );
-    fd_topob_link( topo, "snaprd_rp", "snaprd_rp", 128UL, 0UL,                            1UL )->permit_no_consumers = 1;
+    fd_topob_wksp( topo, "snaprd_ld"    );
+    fd_topob_wksp( topo, "snapld_dc"    );
+    fd_topob_wksp( topo, "snapdc_in"    );
+    fd_topob_wksp( topo, "snapin_rd"    );
+    fd_topob_wksp( topo, "snapin_manif" );
+    fd_topob_wksp( topo, "snaprd_repr"  );
 
-    fd_topob_link( topo, "snap_zstd",   "snap_zstd",   8192UL, 16384UL,  1UL );
-    fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
-    fd_topob_link( topo, "snapdc_rd", "snapdc_rd", 128UL, 0UL, 1UL );
-    fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
+    fd_topob_link( topo, "snaprd_ld",    "snaprd_ld",    128UL,   sizeof(fd_ssctrl_init_t),       1UL );
+    fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL, USHORT_MAX,                     1UL );
+    fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL, USHORT_MAX,                     1UL );
+    fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,   0UL,                            1UL );
+    fd_topob_link( topo, "snapin_manif", "snapin_manif", 4UL,     sizeof(fd_snapshot_manifest_t), 1UL ); /* TODO: Should be depth 1 or 2 but replay backpressures */
+    fd_topob_link( topo, "snaprd_repr",  "snaprd_repr",  128UL,   0UL,                            1UL )->permit_no_consumers = 1;
 
-    fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd",   0UL );
-    fd_topob_tile_in ( topo, "snapdc", 0UL, "metric_in",   "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
-    fd_topob_tile_in ( topo, "snapin", 0UL, "metric_in",   "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
-    fd_topob_tile_out( topo, "snapin", 0UL, "snap_out",  0UL );
-    fd_topob_tile_in ( topo, "replay", 0UL, "metric_in",   "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snaprd", 0UL, "snaprd_rp", 0UL );
-
-    fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
-    fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
+    fd_topob_tile_in ( topo, "snaprd",  0UL, "metric_in", "snapin_rd",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_in ( topo, "snaprd",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snaprd",  0UL,              "snaprd_ld",    0UL                                       );
+    fd_topob_tile_out( topo, "snaprd",  0UL,              "snaprd_repr",  0UL                                       );
+    fd_topob_tile_in ( topo, "snapld",  0UL, "metric_in", "snaprd_ld",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snapld",  0UL,              "snapld_dc",    0UL                                       );
+    fd_topob_tile_in ( topo, "snapdc",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snapdc",  0UL,              "snapdc_in",    0UL                                       );
+    fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "snapdc_in",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_rd",    0UL                                       );
+    fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
+    fd_topob_tile_in ( topo, "replay",  0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED   );
   } else {
     fd_topob_wksp( topo, "genesi_out" );
     fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
@@ -209,7 +210,7 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_out( topo, "replay", 0UL, "replay_out", 0UL );
   fd_topob_tile_in ( topo, "backt", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_tile_in ( topo, "backt", 0UL, "metric_in", "snap_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_tile_in ( topo, "backt", 0UL, "metric_in", "snapin_manif", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   } else {
     fd_topob_tile_in ( topo, "backt", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }

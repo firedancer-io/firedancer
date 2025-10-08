@@ -6,7 +6,7 @@
 #define FD_METRICS_GAUGE_SNAPIN_STATE_OFF  (16UL)
 #define FD_METRICS_GAUGE_SNAPIN_STATE_NAME "snapin_state"
 #define FD_METRICS_GAUGE_SNAPIN_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPIN_STATE_DESC "State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done."
+#define FD_METRICS_GAUGE_SNAPIN_STATE_DESC "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN"
 #define FD_METRICS_GAUGE_SNAPIN_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPIN_FULL_BYTES_READ_OFF  (17UL)

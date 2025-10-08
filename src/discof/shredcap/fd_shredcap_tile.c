@@ -779,7 +779,7 @@ unprivileged_init( fd_topo_t *      topo,
     memset( ctx->stake_out, 0, sizeof(out_link_t) );
   }
 
-  ctx->snap_out->idx          = fd_topo_find_tile_out_link( topo, tile, "snap_out", 0 );
+  ctx->snap_out->idx          = fd_topo_find_tile_out_link( topo, tile, "snapin_manif", 0 );
   if( FD_LIKELY( ctx->snap_out->idx!=ULONG_MAX ) ) {
     fd_topo_link_t * snap_out = &topo->links[tile->out_link_id[ctx->snap_out->idx]];
     ctx->snap_out->mem        = topo->workspaces[topo->objs[snap_out->dcache_obj_id].wksp_id].wksp;

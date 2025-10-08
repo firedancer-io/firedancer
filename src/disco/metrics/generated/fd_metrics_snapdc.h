@@ -6,7 +6,7 @@
 #define FD_METRICS_GAUGE_SNAPDC_STATE_OFF  (16UL)
 #define FD_METRICS_GAUGE_SNAPDC_STATE_NAME "snapdc_state"
 #define FD_METRICS_GAUGE_SNAPDC_STATE_TYPE (FD_METRICS_TYPE_GAUGE)
-#define FD_METRICS_GAUGE_SNAPDC_STATE_DESC "State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = done."
+#define FD_METRICS_GAUGE_SNAPDC_STATE_DESC "State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN"
 #define FD_METRICS_GAUGE_SNAPDC_STATE_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_GAUGE_SNAPDC_FULL_COMPRESSED_BYTES_READ_OFF  (17UL)

@@ -128,7 +128,7 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "shred"        );
   fd_topob_wksp( topo, "repair"       );
   fd_topob_wksp( topo, "fec_sets"     );
-  fd_topob_wksp( topo, "snap_out"     );
+  fd_topob_wksp( topo, "snapin_manif" );
 
   fd_topob_wksp( topo, "slot_fseqs"   ); /* fseqs for marked slots eg. turbine slot */
 
@@ -158,7 +158,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TXN_MTU,                    1UL );
 
-  /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
+  /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
 
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   FOR(net_tile_cnt) fd_topos_net_rx_link( topo, "net_quic",   i, config->net.ingress_buffer_size );
@@ -251,7 +251,7 @@ repair_topo( config_t * config ) {
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "replay_stake",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
-                       fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "snap_out",      0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+                       fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "snapin_manif",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "shred_out",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   FOR(shred_tile_cnt)  fd_topob_tile_out( topo, "repair", 0UL,                        "repair_shred",  i                                                    );
   FOR(sign_tile_cnt-1) fd_topob_tile_out( topo, "repair", 0UL,                        "repair_sign",   i                                                    );
@@ -277,7 +277,7 @@ repair_topo( config_t * config ) {
 
     fd_topob_tile_uses( topo, scap_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     fd_topob_tile_out( topo, "scap", 0UL, "replay_stake", 0UL );
-    fd_topob_tile_out( topo, "scap", 0UL, "snap_out",     0UL );
+    fd_topob_tile_out( topo, "scap", 0UL, "snapin_manif", 0UL );
   }
 
   FD_TEST( fd_link_permit_no_producers( topo, "quic_net"     ) == quic_tile_cnt );
