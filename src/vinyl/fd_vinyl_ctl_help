@@ -1,0 +1,91 @@
+
+Usage: fd_vinyl_ctl [cmd] [cmd args] [cmd] [cmd args] ...
+
+Commands are:
+
+help
+- Prints this message.
+
+set [key] [val]
+- Set the [key] to [val].  keys include:
+
+    key               | val type | default            | notes
+    ------------------+----------+--------------------+-----------------------------------------------------------
+    wksp_tag          | ulong    | 0xfdc12113c597a600 | allocation tag used for vinyl wksp allocs
+    pod_max           | ulong    | 4KiB               | byte size for the vinyl pod
+    cfg_path          | cstr     | NULL               | path to the vinyl cfg in the vinyl pod (NULL use pod root)
+    cnc_app_sz        | ulong    | vinyl tile minimum | -
+    spad_max          | ulong    | 32MiB              | io append scratch pad byte size
+    exec_max          | ulong    | 2UL                | vinyl tile max request executed per run loop iteration
+    async_min         | ulong    | 2UL                | min run loop iterations per async handling
+    async_max         | ulong    | 4UL                | max run loop iterations per async handling
+    part_thresh       | ulong    | 1GiB               | target partition size
+    gc_thresh         | ulong    | 8GiB               | min bstream past size to consider compaction
+    gc_eager          | int      | 2                  | target less than <~2^-gc_eager garbage items
+    style             | cstr     | "lz4"              | preferred bstream pair encoding ("raw" and "lz4" are supported)
+    level             | int      | 1                  | preferred reset level at startup (0 soft, 1 hard)
+    obj_footprint_avg | ulong    | 1KiB + 9B          | marginal byte cost of object in the data cache
+
+alloc-memory wksp page_cnt page_sz cpu_idx_seq mode
+
+- Create a workspace named wksp from page_cnt page_sz pages distributed
+  over numa nodes near cpu_idx_seq.  The region will have the unix
+  permissions specified by mode (assumed octal).  See fd_shmem_ctl help
+  for more details how the pages will be distributed over numa nodes.
+
+- The purpose of this is to create a workspace which can be used to hold
+  the memory regions needed by a vinyl tile.  Since this is a normal
+  workspace though, it can be used for other application allocations.
+  (Or vice versa.)
+
+- This is identical to fd_wksp_ctl new and provided here as a
+  convenience.
+
+free-memory wksp
+
+- Delete a workspace named wksp.  If multiple shmem regions exist with
+  same name, try to use the shmem region backed by the largest page size
+
+- This is identical to fd_wksp_ctl delete and provided here as a
+  convenience and for symmetry with alloc-memory.
+
+alloc-storage path sz_in_GiB mode
+
+- Create a file at path with the given sz filled with zeros.  The file
+  will have the permissions specified by mode (assumed octal).  Fails
+  if the file already exists.
+
+- The purpose of this is create a file which can be used to hold
+  the bstream needed by a vinyl tile.  There is no requirement to use
+  this though.
+
+- This is provided as a convenience.  The user is free to create bstream
+  storage via whatever means suits them.  This includes using
+  pre-existing block devices directly.
+
+free-storage path
+
+- Destroys the file at path.  Fails if the file could not be destroyed.
+
+- This is provided here as a convenience and for symmetry with
+  alloc-storage.
+
+new wksp pair_max sz_in_GiB
+
+- Allocate memory resources needed for a vinyl tile in the workspace
+  wksp.  The vinyl tile will be able to track up to pair_max key-val
+  pairs total.  The target amount of wksp memory to devote to the vinyl
+  tile should be sz_in_GiB.
+
+- One of these memory resources will be a pod.  The locations of these
+  memory resources will be stashed in in this pod as wksp cstr gaddrs
+  (along with other vinyl tile configurations).
+
+- The wksp cstr of this pod will be printed to stdout.
+
+delete pod
+
+- Frees all memory resources allocated for a vinyl tile.  The location
+  of the resources are given by pod.  This includes freeing the pod
+  itself.  The tile should not be running when this is done.
+
