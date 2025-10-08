@@ -41,7 +41,7 @@ test_insert( fd_wksp_t * wksp ) {
   fd_hash_t mr3_32[1] = {{{ 6 }}};
   fd_hash_t mr3_64[1] = {{{ 7 }}};
 
-  fd_reasm_init( reasm, mr0_64, 0 );
+  fd_reasm_insert( reasm, mr0_64, NULL, 0, 0, 0, 0, 0, 0, 0 );
   fd_reasm_fec_t * f0_64 = fd_reasm_query( reasm, mr0_64 );
   FD_TEST( f0_64 );
   FD_TEST( frontier_ele_query( frontier, &f0_64->key, NULL, pool ) == f0_64 );
@@ -85,7 +85,7 @@ test_insert( fd_wksp_t * wksp ) {
       f3_64->key,
   };
   fd_reasm_fec_t * fec = NULL; ulong i = 0;
-  while( FD_LIKELY( fec = fd_reasm_next( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
+  while( FD_LIKELY( fec = fd_reasm_out( reasm ) ) ) { FD_TEST( 0==memcmp( &fec->key, &order[i], sizeof(fd_hash_t) ) ); i++; }
   FD_TEST( i==sizeof(order) / sizeof(fd_hash_t) );
 
   /* Equivocating last FEC set for slot 3 (mr3_64a), child (3, 64) of
@@ -136,7 +136,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   /* Set the root (snapshot slot). */
 
-  fd_reasm_init( reasm, mr0, 0 );
+  fd_reasm_insert( reasm, mr0, NULL, 0, 0, 0, 0, 0, 1, 0 );
 
   /* Typical startup behavior, turbine orphan FECs added. */
 
@@ -154,9 +154,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * fec = NULL;
   while( FD_LIKELY( fec ) ) {
-    int has_next = fd_reasm_has_next( reasm );
-    fec = fd_reasm_next( reasm );
-    FD_TEST( (!!fec)==has_next );
+    fec = fd_reasm_out( reasm );
     FD_TEST( 0==memcmp( &fec->key, &mr0, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr1, sizeof(fd_hash_t) ) );
     FD_TEST( 0==memcmp( &fec->key, &mr2, sizeof(fd_hash_t) ) );
@@ -169,7 +167,7 @@ test_publish( fd_wksp_t * wksp ) {
 
   fd_reasm_fec_t * oldr = fd_reasm_root( reasm );
   FD_TEST( oldr );
-  fd_reasm_advance_root( reasm, mr2 );
+  fd_reasm_publish( reasm, mr2 );
   fd_reasm_fec_t * newr = fd_reasm_root( reasm );
   FD_TEST( newr );
   FD_TEST( 0==memcmp( newr, mr2, sizeof(fd_hash_t) ) );
@@ -204,7 +202,7 @@ test_slot_mr( fd_wksp_t * wksp ) {
   fd_hash_t mr3[1] = {{{ 3 }}};
   fd_hash_t mr4[1] = {{{ 4 }}};
 
-  fd_reasm_init( reasm, mr1, 1 );
+  fd_reasm_insert( reasm, mr1, NULL, 1, 0, 0, 0, 0, 1, 0 ); /* set root */
   fd_reasm_fec_t * fec1 = fd_reasm_query( reasm, mr1 );
   FD_TEST( fec1 );
   FD_TEST( frontier_ele_query( frontier, &fec1->key, NULL, pool ) == fec1 );
@@ -240,8 +238,6 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_disco_repair_replay_sig_parent_off( sig ) == 1 );
   FD_TEST( fd_disco_repair_replay_sig_data_cnt( sig ) == 32 );
   FD_TEST( fd_disco_repair_replay_sig_slot_complete( sig ) == 1 );
-
-  FD_LOG_NOTICE(( "pass" ));
 
   fd_halt();
   return 0;

@@ -1,6 +1,8 @@
 #include "fd_reasm.h"
 #include "fd_reasm_private.h"
 
+#define LOGGING 0
+
 FD_FN_CONST ulong
 fd_reasm_align( void ) {
   return alignof(fd_reasm_t);
@@ -137,76 +139,29 @@ fd_reasm_delete( void * shreasm ) {
   return reasm;
 }
 
-fd_reasm_t *
-fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot ) {
-# if FD_REASM_USE_HANDHOLDING
-  FD_TEST( pool_free( reasm->pool )==pool_max( reasm->pool ) );
-  FD_TEST( reasm->root==pool_idx_null( reasm->pool )         );
-# endif
-
-  fd_reasm_fec_t * pool = reasm->pool;
-  ulong            null = pool_idx_null( pool );
-
-  fd_reasm_fec_t * fec = pool_ele_acquire( pool );
-  fec->key             = *merkle_root;
-  fec->cmr             = *merkle_root; /* chains to itself */
-  fec->next            = null;
-  fec->parent          = null;
-  fec->child           = null;
-  fec->sibling         = null;
-  fec->slot            = slot;
-  fec->parent_off      = 0;
-  fec->fec_set_idx     = 0;
-  fec->data_cnt        = 0;
-  fec->data_complete   = 0;
-  fec->slot_complete   = 1;
-  fec->bank_idx        = 0UL;
-  fec->parent_bank_idx = null;
-  fec->leader          = 0;
-
-  slot_mr_t * slot_mr = slot_mr_insert( reasm->slot_mr, slot );
-  slot_mr->block_id   = fec->key;
-
-  /* Set this dummy FEC as the root and add it to the frontier. */
-
-  reasm->root  = pool_idx( pool, fec );
-  reasm->slot0 = slot;
-  frontier_ele_insert( reasm->frontier, fec, pool );
-
-  return reasm;
-}
-
-int
-fd_reasm_has_next( fd_reasm_t * reasm ) {
-  return !out_empty( reasm->out );
-}
-
-fd_reasm_fec_t *
-fd_reasm_next( fd_reasm_t * reasm ) {
-  if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
-  /* We assign the parent_fork_index for the outgoing FEC set becaue
-     the parent FEC's current bank index is populated by the downstream
-     consumer of fd_reasm_next. */
-  return pool_ele( reasm->pool, out_pop_head( reasm->out ) );
-}
-
-ulong
-fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec ) {
-  fd_reasm_fec_t * parent = pool_ele( reasm->pool, fec->parent );
-  if( FD_UNLIKELY( !parent ) ) {
-    FD_LOG_CRIT(( "invariant violation: fec has invalid parent (%lu)", fec->parent ));
-  }
-  return parent->bank_idx;
-}
-
-fd_reasm_fec_t *
-fd_reasm_root( fd_reasm_t * reasm ) {
-  return pool_ele( reasm->pool, reasm->root );
-}
+fd_reasm_fec_t       * fd_reasm_root         ( fd_reasm_t       * reasm                                 ) { return pool_ele      ( reasm->pool, reasm->root      ); }
+fd_reasm_fec_t const * fd_reasm_root_const   ( fd_reasm_t const * reasm                                 ) { return pool_ele_const( reasm->pool, reasm->root      ); }
+fd_reasm_fec_t       * fd_reasm_parent       ( fd_reasm_t       * reasm, fd_reasm_fec_t       * child   ) { return pool_ele      ( reasm->pool, child->parent    ); }
+fd_reasm_fec_t const * fd_reasm_parent_const ( fd_reasm_t const * reasm, fd_reasm_fec_t const * child   ) { return pool_ele_const( reasm->pool, child->parent    ); }
+fd_reasm_fec_t       * fd_reasm_child        ( fd_reasm_t       * reasm, fd_reasm_fec_t       * parent  ) { return pool_ele      ( reasm->pool, parent->child    ); }
+fd_reasm_fec_t const * fd_reasm_child_const  ( fd_reasm_t const * reasm, fd_reasm_fec_t const * parent  ) { return pool_ele_const( reasm->pool, parent->child    ); }
+fd_reasm_fec_t       * fd_reasm_sibling      ( fd_reasm_t       * reasm, fd_reasm_fec_t       * sibling ) { return pool_ele      ( reasm->pool, sibling->sibling ); }
+fd_reasm_fec_t const * fd_reasm_sibling_const( fd_reasm_t const * reasm, fd_reasm_fec_t const * sibling ) { return pool_ele_const( reasm->pool, sibling->sibling ); }
 
 ulong
 fd_reasm_slot0( fd_reasm_t * reasm ) {
   return reasm->slot0;
+}
+
+ulong
+fd_reasm_free( fd_reasm_t * reasm ) {
+  return pool_free( reasm->pool );
+}
+
+fd_reasm_fec_t *
+fd_reasm_out( fd_reasm_t * reasm ) {
+  if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
+  return pool_ele( reasm->pool, out_pop_head( reasm->out ) );
 }
 
 fd_reasm_fec_t *
@@ -249,11 +204,6 @@ link( fd_reasm_t     * reasm,
   }
 }
 
-int
-fd_reasm_full( fd_reasm_t * reasm ) {
-  return pool_free( reasm->pool )==0UL;
-}
-
 fd_reasm_fec_t *
 fd_reasm_insert( fd_reasm_t *      reasm,
                  fd_hash_t const * merkle_root,
@@ -265,7 +215,10 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               data_complete,
                  int               slot_complete,
                  int               leader ) {
-  // FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ), data_cnt, data_complete, slot_complete ));
+
+# if LOGGING
+  FD_LOG_NOTICE(( "inserting (%lu %u) %s %s. %u %d %d", slot, fec_set_idx, FD_BASE58_ENC_32_ALLOCA( merkle_root ), FD_BASE58_ENC_32_ALLOCA( chained_merkle_root ), data_cnt, data_complete, slot_complete ));
+# endif
 
 # if FD_REASM_USE_HANDHOLDING
   FD_TEST( pool_free( reasm->pool ) );
@@ -285,7 +238,6 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   fd_reasm_fec_t * fec = pool_ele_acquire( pool );
   fec->key             = *merkle_root;
-  fec->cmr             = *chained_merkle_root;
   fec->next            = null;
   fec->parent          = null;
   fec->child           = null;
@@ -298,8 +250,20 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->slot_complete   = slot_complete;
   fec->leader          = leader;
   fec->eqvoc           = 0;
-  fec->bank_idx        = ULONG_MAX;
-  fec->parent_bank_idx = ULONG_MAX;
+  fec->bank_idx        = null;
+  fec->parent_bank_idx = null;
+
+  if( FD_UNLIKELY( !chained_merkle_root ) ) { /* initialize the reasm with the root */
+    FD_TEST( reasm->root==pool_idx_null( reasm->pool )         );
+    slot_mr_t * slot_mr = slot_mr_insert( reasm->slot_mr, slot );
+    slot_mr->block_id   = fec->key;
+    reasm->root         = pool_idx( pool, fec );
+    reasm->slot0        = slot;
+    frontier_ele_insert( reasm->frontier, fec, pool );
+    return fec;
+  }
+
+  fec->cmr = *chained_merkle_root;
 
   /* This is a gross case reasm needs to handle because Agave currently
      does not validate chained merkle roots across slots ie. if a leader
@@ -422,7 +386,7 @@ maps_remove( fd_reasm_t * reasm,
 }
 
 fd_reasm_fec_t *
-fd_reasm_advance_root( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
+fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 # if FD_REASM_USE_HANDHOLDING
   if( FD_UNLIKELY( !pool_ele( reasm->pool, reasm->root ) ) ) { FD_LOG_WARNING(( "missing root"                                                     )); return NULL; }
   if( FD_UNLIKELY( !fd_reasm_query( reasm, merkle_root ) ) ) { FD_LOG_WARNING(( "merkle root %s not found", FD_BASE58_ENC_32_ALLOCA( merkle_root ) )); return NULL; }

@@ -1489,7 +1489,7 @@ user = ""
     #
     # In development, you can disable the sandbox for testing and
     # debugging with the `--no-sandbox` argument to `firedancer-dev`.
-    sandbox = true
+    sandbox = false
 
     # As part of the security sandboxing, Firedancer will run every tile
     # in a separate process.  This can be annoying for debugging where
@@ -1515,7 +1515,7 @@ user = ""
     # This option can be enabled in production if a crash cannot be
     # easily reproduced, but it decreases security and should not be
     # enabled during routine running of the validator.
-    core_dump = false
+    core_dump = true
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local

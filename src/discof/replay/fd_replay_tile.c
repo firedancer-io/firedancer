@@ -1227,7 +1227,9 @@ boot_genesis( fd_replay_tile_t *  ctx,
   maybe_become_leader( ctx, stem );
 
   fd_hash_t initial_block_id = { .ul = { FD_RUNTIME_INITIAL_BLOCK_ID } };
-  fd_reasm_init( ctx->reasm, &initial_block_id, 0UL );
+  fd_reasm_fec_t * fec       = fd_reasm_insert( ctx->reasm, &initial_block_id, NULL, 0 /* genesis slot */, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+  fec->bank_idx              = 0UL;
+
 
   fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
   FD_TEST( block_id_ele );
@@ -1315,7 +1317,8 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_slot_completed( ctx, stem, bank, 1 );
     publish_root_advanced( ctx, stem );
 
-    fd_reasm_init( ctx->reasm, &manifest_block_id, snapshot_slot );
+    fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
+    fec->bank_idx        = 0UL;
     return;
   }
 
@@ -1450,7 +1453,7 @@ process_fec_set( fd_replay_tile_t * ctx,
      a bank index for the FEC and it just needs to be propagated to the
      reasm_fec. */
 
-  reasm_fec->parent_bank_idx = fd_reasm_parent_bank_idx( ctx->reasm, reasm_fec );
+  reasm_fec->parent_bank_idx = fd_reasm_parent( ctx->reasm, reasm_fec )->bank_idx;
 
   if( FD_UNLIKELY( reasm_fec->leader ) ) {
     /* If we are the leader we just need to copy in the bank index that
@@ -1603,7 +1606,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
   fd_banks_advance_root( ctx->banks, advanceable_root_idx );
-  fd_reasm_advance_root( ctx->reasm, &advanceable_root_ele->block_id );
+  fd_reasm_publish( ctx->reasm, &advanceable_root_ele->block_id );
 
   ctx->published_root_slot     = advanceable_root_slot;
   ctx->published_root_bank_idx = advanceable_root_idx;
@@ -1642,10 +1645,11 @@ after_credit( fd_replay_tile_t *  ctx,
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
 
-  if( FD_LIKELY( fd_reasm_has_next( ctx->reasm ) && fd_sched_can_ingest( ctx->sched ) && !fd_banks_is_full( ctx->banks ) ) ) {
+  fd_reasm_fec_t * fec;
+  if( FD_LIKELY( fd_sched_can_ingest( ctx->sched ) && !fd_banks_is_full( ctx->banks ) && (fec = fd_reasm_out( ctx->reasm )) ) ) {
     /* If sched is full or there are no free banks, we cannot ingest any
        more FEC sets into the scheduler. */
-    process_fec_set( ctx, fd_reasm_next( ctx->reasm ) );
+    process_fec_set( ctx, fec );
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
@@ -1682,7 +1686,7 @@ before_frag( fd_replay_tile_t * ctx,
        not consume any frags from shred_out until reasm can process more
        FEC sets. */
 
-    if( FD_UNLIKELY( fd_reasm_full( ctx->reasm ) ) ) {
+    if( FD_UNLIKELY( !fd_reasm_free( ctx->reasm ) ) ) {
       return -1;
     }
   }
@@ -1851,16 +1855,7 @@ process_fec_complete( fd_replay_tile_t * ctx,
   if( FD_UNLIKELY( shred->slot - shred->data.parent_off == fd_reasm_slot0( ctx->reasm ) && shred->fec_set_idx == 0) ) {
     chained_merkle_root = &fd_reasm_root( ctx->reasm )->key;
   }
-  FD_TEST( fd_reasm_insert( ctx->reasm,
-                            merkle_root,
-                            chained_merkle_root,
-                            shred->slot,
-                            shred->fec_set_idx,
-                            shred->data.parent_off,
-                            (ushort)(shred->idx - shred->fec_set_idx + 1),
-                            data_complete,
-                            slot_complete,
-                            is_leader_fec ) );
+  FD_TEST( fd_reasm_insert( ctx->reasm, merkle_root, chained_merkle_root, shred->slot, shred->fec_set_idx, shred->data.parent_off, (ushort)(shred->idx - shred->fec_set_idx + 1), data_complete, slot_complete, is_leader_fec ) );
 }
 
 static void
