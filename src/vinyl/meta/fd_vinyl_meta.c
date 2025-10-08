@@ -51,7 +51,7 @@ fd_vinyl_meta_query_fast( fd_vinyl_meta_ele_t const * ele0,
   return err;
 }
 
-//#include "../line/fd_vinyl_line.h" /* FIXME: gross (maybe make line below meta in the API hierarchy?) */
+#include "../line/fd_vinyl_line.h" /* FIXME: gross (maybe make line below meta in the API hierarchy?) */
 
 void
 fd_vinyl_meta_remove_fast( fd_vinyl_meta_ele_t * ele0,
@@ -140,10 +140,9 @@ fd_vinyl_meta_remove_fast( fd_vinyl_meta_ele_t * ele0,
            ((hole_idx>ele_idx) & ((hole_idx<start_idx) | (start_idx<=ele_idx))) ) ) {
 
       ulong line_idx = ele0[ ele_idx ].line_idx;
-      if( FD_LIKELY( line_idx< line_cnt  ) ) {
-        (void)line;
-//      FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
-//      line[ line_idx ].ele_idx = hole_idx;
+      if( FD_LIKELY( line_idx<line_cnt ) ) {
+        FD_CRIT( line[ line_idx ].ele_idx==ele_idx, "corruption detected" );
+        line[ line_idx ].ele_idx = hole_idx;
       } else {
         FD_CRIT( line_idx==ULONG_MAX, "corruption detected" );
       }
