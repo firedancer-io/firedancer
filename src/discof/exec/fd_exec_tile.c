@@ -115,12 +115,15 @@ during_frag( fd_exec_tile_ctx_t * ctx,
     if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
       fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
 
+
+
+      /* Keep spad frame until txn is finalized (per txn spad frame) */
+      fd_spad_push( ctx->exec_spad );
       ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
           ctx->banks,
           txn->bank_idx,
           ctx->txn_ctx,
           &txn->txn,
-          ctx->exec_spad,
           ctx->capture_ctx,
           1 );
     } else {
@@ -183,6 +186,9 @@ after_frag( fd_exec_tile_ctx_t * ctx,
         /* This means that we should mark the block as dead. */
         fd_banks_mark_bank_dead( ctx->banks, bank );
       }
+
+      /* Pop the per txn spad frame */
+      fd_spad_pop( ctx->exec_spad );
 
       /* Notify the replay tile that we are done with this txn. */
       ctx->pending_txn_finalized_msg = 1;
