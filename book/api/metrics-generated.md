@@ -164,6 +164,9 @@
 | <span class="metrics-name">quic_&#8203;ack_&#8203;tx</span><br/>{quic_&#8203;ack_&#8203;tx="<span class="metrics-enum">cancel</span>"} | counter | ACK events (ACK suppressed by handler) |
 | <span class="metrics-name">quic_&#8203;service_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent in service |
 | <span class="metrics-name">quic_&#8203;receive_&#8203;duration_&#8203;seconds</span> | histogram | Duration spent processing packets |
+| <span class="metrics-name">quic_&#8203;idle_&#8203;grace_&#8203;nanos</span> | histogram | Delay between timing out and intended timeout |
+| <span class="metrics-name">quic_&#8203;svc_&#8203;delay_&#8203;nanos</span> | histogram | Delay between intended svc time and actual svc time |
+| <span class="metrics-name">quic_&#8203;saved_&#8203;from_&#8203;timeout</span> | counter | Number of times last_activity was updated after intended timeout |
 | <span class="metrics-name">quic_&#8203;frame_&#8203;fail_&#8203;parse</span> | counter | Number of QUIC frames failed to parse. |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Number of packets that failed decryption. (initial) |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;crypto_&#8203;failed</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Number of packets that failed decryption. (early data) |

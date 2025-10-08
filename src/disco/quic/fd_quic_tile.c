@@ -176,6 +176,10 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MHIST_COPY( QUIC, SERVICE_DURATION_SECONDS, ctx->quic->metrics.service_duration );
   FD_MHIST_COPY( QUIC, RECEIVE_DURATION_SECONDS, ctx->quic->metrics.receive_duration );
+
+  FD_MHIST_COPY( QUIC, IDLE_GRACE_NANOS,   ctx->quic->metrics.idle_grace_nanos       );
+  FD_MHIST_COPY( QUIC, SVC_DELAY_NANOS,    ctx->quic->metrics.svc_delay_nanos        );
+  FD_MCNT_SET( QUIC,   SAVED_FROM_TIMEOUT, ctx->quic->metrics.saved_from_timeout_cnt );
 }
 
 static int
@@ -624,6 +628,10 @@ unprivileged_init( fd_topo_t *      topo,
                                                                     FD_MHIST_SECONDS_MAX( QUIC, SERVICE_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->quic->metrics.receive_duration, FD_MHIST_SECONDS_MIN( QUIC, RECEIVE_DURATION_SECONDS ),
                                                                     FD_MHIST_SECONDS_MAX( QUIC, RECEIVE_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->quic->metrics.idle_grace_nanos, FD_MHIST_MIN( QUIC, IDLE_GRACE_NANOS ),
+                                                                    FD_MHIST_MAX( QUIC, IDLE_GRACE_NANOS ) ) );
+  fd_histf_join( fd_histf_new( ctx->quic->metrics.svc_delay_nanos, FD_MHIST_MIN( QUIC, SVC_DELAY_NANOS ),
+                                                                    FD_MHIST_MAX( QUIC, SVC_DELAY_NANOS ) ) );
 }
 
 static ulong

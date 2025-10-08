@@ -245,6 +245,16 @@ metric introduced.
       <summary>Duration spent processing packets</summary>
     </histogram>
 
+
+    <histogram name="IdleGraceNanos" min="1" max="1000000000" converter="None">
+      <summary>Delay between timing out and intended timeout</summary>
+    </histogram>
+    <histogram name="SvcDelayNanos" min="0" max="1000000000" converter="None">
+      <summary>Delay between intended svc time and actual svc time</summary>
+    </histogram>
+    <counter name="SavedFromTimeout" summary="Number of times last_activity was updated after intended timeout" />
+
+
     <counter name="FrameFailParse" summary="Number of QUIC frames failed to parse." />
     <counter name="PktCryptoFailed" enum="QuicEncLevel" summary="Number of packets that failed decryption." />
     <counter name="PktNoKey" enum="QuicEncLevel" summary="Number of packets that failed decryption due to missing key." />

@@ -355,9 +355,13 @@ union fd_quic_metrics {
     /* ACK metrics */
     ulong ack_tx[ 5 ];
 
+    ulong saved_from_timeout_cnt;      /* number of times last_activity was updated after intended timeout */
+
     /* Performance metrics */
     fd_histf_t service_duration[ 1 ]; /* time spent in service */
     fd_histf_t receive_duration[ 1 ]; /* time spent in process_packet calls */
+    fd_histf_t idle_grace_nanos[ 1 ]; /* delay between timing out and intended timeout */
+    fd_histf_t svc_delay_nanos [ 1 ]; /* delay between intended svc time and actual svc time */
   };
 };
 typedef union fd_quic_metrics fd_quic_metrics_t;

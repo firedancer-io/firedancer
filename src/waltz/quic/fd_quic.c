@@ -1749,6 +1749,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   }
 
   /* update last activity */
+  quic->metrics.saved_from_timeout_cnt += (state->now > conn->last_activity+conn->idle_timeout_ns);
   conn->last_activity = state->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
@@ -1903,7 +1904,8 @@ fd_quic_handle_v1_handshake(
   }
 
   /* update last activity */
-  conn->last_activity = fd_quic_get_state( quic )->now;
+  quic->metrics.saved_from_timeout_cnt += (state->now > conn->last_activity+conn->idle_timeout_ns);
+  conn->last_activity = state->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
   /* update expected packet number */
@@ -2162,7 +2164,8 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 
   /* update last activity */
-  conn->last_activity = fd_quic_get_state( quic )->now;
+  quic->metrics.saved_from_timeout_cnt += (state->now > conn->last_activity+conn->idle_timeout_ns);
+  conn->last_activity = state->now;
 
   /* update expected packet number */
   conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
@@ -2867,6 +2870,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
 
         fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
         quic->metrics.conn_timeout_cnt++;
+        fd_histf_sample( quic->metrics.idle_grace_nanos, (ulong)(now - (conn->last_activity + conn->idle_timeout_ns)) );
       }
     } else if( quic->config.keep_alive & !!(conn->let_die_time_ns > now) ) {
       /* send PING */
@@ -2919,6 +2923,9 @@ fd_quic_service( fd_quic_t * quic,
   if( FD_UNLIKELY( next.conn == NULL ) ) {
     return 0;
   }
+
+  FD_TEST( now >= next.timeout );
+  fd_histf_sample( quic->metrics.svc_delay_nanos, (ulong)(now - next.timeout) );
 
   int cnt = fd_quic_svc_poll( quic, next.conn, now );
 
