@@ -151,7 +151,9 @@ fd_slice_exec_slot_complete( fd_slice_exec_t const * slice_exec_ctx ) {
 
 /**********************************************************************/
 
-#define EXEC_NEW_TXN_SIG (0x777777UL)
+#define FD_REPLAY_EXEC_NEW_TXN_SIG       (0x777777UL)
+#define FD_EXEC_REPLAY_TXN_FINALIZED_SIG (0x888888UL)
+#define FD_EXEC_REPLAY_SOLCAP_UPDATE_SIG (0x999999UL)
 
 /* fd_exec_txn_msg_t is the message that is sent from the replay tile to
    the exec tiles.  This represents all of the information that is needed
