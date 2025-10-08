@@ -485,18 +485,18 @@ process_account_header( fd_snapin_tile_t *            ctx,
 
     if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
       ctx->acc_data = NULL;
-      // fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-      // fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
-      // fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
-      // ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+      fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+      fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
+      fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
       return;
     }
 
-    // fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-    // fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
-    // fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
-    // fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
-    // ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
+    fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
+    fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
   }
 
   if( FD_LIKELY( rec->val_sz<sizeof(fd_account_meta_t)+result->account_header.data_len ) ) {
@@ -520,10 +520,10 @@ static void
 process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
   if( FD_UNLIKELY( !ctx->acc_data ) ) {
-    // uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-    // fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
-    // fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
-    // ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
+    fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
     return;
   }
 
@@ -547,7 +547,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     return 0;
   }
 
-  uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
+  for(;;) {
+    if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
+    uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
 
   fd_ssparse_advance_result_t result[1];
   int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
@@ -629,6 +631,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   ctx->in.pos += result->bytes_consumed;
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
   else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
+  }
 
   int reprocess_frag = ctx->in.pos<sz;
   if( FD_LIKELY( !reprocess_frag ) ) ctx->in.pos = 0UL;

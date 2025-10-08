@@ -48,6 +48,19 @@ fd_stem_publish( fd_stem_context_t * stem,
   *seqp = fd_seq_inc( seq, 1UL );
 }
 
+static inline void
+fd_stem_blocking_publish( fd_stem_context_t * stem,
+                          ulong               out_idx,
+                          ulong               sig,
+                          ulong               chunk,
+                          ulong               sz,
+                          ulong               ctl,
+                          ulong               tsorig,
+                          ulong               tspub ) {
+  ulong * seqp = &stem->seqs[ out_idx ];
+  ulong   seq  = *seqp;
+}
+
 static inline ulong
 fd_stem_advance( fd_stem_context_t * stem,
                  ulong               out_idx ) {
