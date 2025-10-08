@@ -20,6 +20,8 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/tower/fd_tower_tile.h"
+#include "../../../discof/replay/fd_replay_tile.h"
+#include "../../../discof/repair/fd_repair.h" /* FD_REPAIR_MAX_PREIMAGE_SZ */
 #include "../../../discof/replay/fd_exec.h" /* FD_RUNTIME_PUBLIC_ACCOUNT_UPDATE_MSG_MTU */
 
 #include "../main.h"
@@ -73,7 +75,7 @@ eqvoctest_topo( config_t * config ) {
   genesi_tile->allow_shutdown = 1;
 
   /**********************************************************************/
-  /* Setup eqvoctest->replay link (shred_out) in topo                 */
+  /* Setup replay out link (shred_out) in topo                          */
   /**********************************************************************/
 
   /* The repair tile is replaced by the backtest tile for the repair to
@@ -82,18 +84,18 @@ eqvoctest_topo( config_t * config ) {
      batches from the CLI-specified source (eg. RocksDB). */
 
   fd_topob_wksp( topo, "replay_out" );
-  fd_topob_link( topo, "replay_out", "replay_out", 65536UL, FD_SHRED_OUT_MTU, 2UL );
+  fd_topob_link( topo, "replay_out", "replay_out", 8192UL, sizeof(fd_replay_message_t), 6UL );
   fd_topob_tile_out( topo, "eqvoct", 0UL, "replay_out", 0UL );
 
   /**********************************************************************/
-  /* Setup snapshot links in topo                                       */
+  /* Setup genesis out links in topo                                    */
   /**********************************************************************/
   fd_topob_wksp( topo, "genesi_out" );
   fd_topob_link( topo, "genesi_out", "genesi_out", 2UL, 10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
   fd_topob_tile_out( topo, "genesi", 0UL, "genesi_out", 0UL );
 
   /**********************************************************************/
-  /* More backtest->replay links in topo                                */
+  /* tower_out link                                                     */
   /**********************************************************************/
 
   fd_topob_wksp( topo, "tower_out" );
@@ -101,13 +103,13 @@ eqvoctest_topo( config_t * config ) {
   fd_topob_tile_out( topo, "tower", 0UL, "tower_out", 0UL );
 
   /**********************************************************************/
-  /* Setup replay->backtest link (replay_notif) in topo                 */
+  /* Setup in links                              in topo                 */
   /**********************************************************************/
 
-  fd_topob_tile_in ( topo, "tower",  0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in ( topo, "tower",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in ( topo, "eqvoct", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_in ( topo, "repair", 0UL, "metric_in", "tower_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED  );
+  fd_topob_tile_in( topo, "tower",  0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "tower",  0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "eqvoct", 0UL, "metric_in", "genesi_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_tile_in( topo, "repair", 0UL, "metric_in", "tower_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED  );
 
   /**********************************************************************/
   /* Setup the shared objs                                              */
@@ -118,10 +120,6 @@ eqvoctest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, eqvoct_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, store_obj->id, "store" ) );
 
-  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
-    fd_topo_configure_tile( tile, config );
-  }
 
   fd_topob_wksp( topo, "funk" );
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
@@ -131,10 +129,27 @@ eqvoctest_topo( config_t * config ) {
       config->firedancer.funk.lock_pages );
   fd_topob_tile_uses( topo, genesi_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  /* dangling repair links */
+  fd_topob_wksp( topo, "repair_net" );
+  fd_topob_link( topo, "repair_net", "repair_net", 2048UL, FD_NET_MTU, 1UL );
+  fd_topob_tile_out( topo, "repair", 0UL, "repair_net", 0UL );
+  fd_topob_tile_in( topo, "eqvoct", 0UL, "metric_in", "repair_net", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
 
+  fd_topob_wksp( topo, "repair_sign" );
+  fd_topob_link( topo, "repair_sign", "repair_sign", 128, FD_REPAIR_MAX_PREIMAGE_SZ, 1UL )->permit_no_consumers = 1;
+  fd_topob_tile_out( topo, "repair", 0UL, "repair_sign", 0UL );
+
+  fd_topob_link( topo, "sign_repair", "repair_sign", 128, sizeof(fd_ed25519_sig_t), 1UL )->permit_no_producers = 1;
+  fd_topob_tile_in( topo, "repair", 0UL, "metric_in", "sign_repair", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_configure_tile( tile, config );
+  }
   /**********************************************************************/
   /* Finish and print out the topo information                          */
   /**********************************************************************/
+
   fd_topob_finish( topo, CALLBACKS );
 }
 

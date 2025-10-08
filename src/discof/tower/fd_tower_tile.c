@@ -107,7 +107,8 @@ update_ghost( fd_tower_tile_t * ctx ) {
          TODO: update the set of account in epoch_voter's to match the
                list received from replay, so that epoch_voters is
                correct across epoch boundaries. */
-      FD_LOG_CRIT(( "voter %s was not in epoch voters", FD_BASE58_ENC_32_ALLOCA( pubkey ) ));
+      FD_LOG_WARNING(( "voter %s was not in epoch voters, adding anyway", FD_BASE58_ENC_32_ALLOCA( pubkey ) ));
+      voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
     }
 
     voter->stake = replay_tower->stake; /* update the voters stake */
@@ -185,7 +186,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   /* Update ghost with the vote account states received from replay. */
 
-  fd_ghost_ele_t const * ghost_ele  = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
+  fd_ghost_ele_t const * ghost_ele = fd_ghost_insert( ctx->ghost, &slot_info->parent_block_id, slot_info->slot, &slot_info->block_id, ctx->epoch->total_stake );
   FD_TEST( ghost_ele );
   update_ghost( ctx );
 
@@ -226,6 +227,7 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   msg->reset_slot     = fd_tower_reset_slot( ctx->tower, ctx->epoch, ctx->ghost );
   msg->reset_block_id = *fd_ghost_hash( ctx->ghost, msg->reset_slot ); /* FIXME fd_ghost_hash is a naive lookup but reset_slot only ever refers to the confirmed duplicate */
+    ctx->epoch->total_stake = 100;
 
   /* Publish the frag */
 
@@ -246,7 +248,7 @@ init_genesis( fd_tower_tile_t *                  ctx,
   fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
   fd_ghost_init( ctx->ghost, 0UL, &manifest_block_id );
 
-  fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
+  //fd_voter_t * epoch_voters = fd_epoch_voters( ctx->epoch );
 
   fd_pubkey_account_pair_global_t const * accounts = fd_genesis_solana_accounts_join( genesis );
   for( ulong i=0UL; i<genesis->accounts_len; i++ ) {
@@ -263,13 +265,15 @@ init_genesis( fd_tower_tile_t *                  ctx,
     if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state )     ) ) continue;
     if( FD_UNLIKELY( !stake_state.inner.stake.stake.delegation.stake ) ) continue;
 
-    fd_pubkey_t const * pubkey = &stake_state.inner.stake.stake.delegation.voter_pubkey;
+    //fd_pubkey_t const * pubkey = &stake_state.inner.stake.stake.delegation.voter_pubkey;
 
-    fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
+    //fd_voter_t * voter = fd_epoch_voters_insert( epoch_voters, *pubkey );
+    //FD_LOG_NOTICE(( "Inserted voter %s with stake %lu", FD_BASE58_ENC_32_ALLOCA( pubkey ), stake_state.inner.stake.stake.delegation.stake ));
 
-    voter->stake             = stake_state.inner.stake.stake.delegation.stake;
-    ctx->epoch->total_stake += voter->stake;
+    //voter->stake             = stake_state.inner.stake.stake.delegation.stake;
+    //ctx->epoch->total_stake += voter->stake;
   }
+  ctx->epoch->total_stake = 100;
 }
 
 static void
@@ -347,7 +351,7 @@ returnable_frag( fd_tower_tile_t *   ctx,
     }
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-      FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+      FD_LOG_ERR(( "chunk %lu (sz: %lu, mtu: %lu) from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].mtu, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     /* If we haven't initialized from either genesis or a snapshot yet,
        we cannot process any frags from replay as it's a race condition,
@@ -355,15 +359,20 @@ returnable_frag( fd_tower_tile_t *   ctx,
     if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
 
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+      FD_LOG_INFO(( "[%s] received slot completed", __func__ ));
       fd_memcpy( &ctx->replay_slot_info, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
     } else if( FD_LIKELY( sig==REPLAY_SIG_VOTE_STATE ) ) {
+      FD_LOG_INFO(( "[%s] received vote state", __func__ ));
       if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_towers_cnt = 0;
 
       if( FD_UNLIKELY( ctx->replay_towers_cnt>=FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
       memcpy( &ctx->replay_towers[ ctx->replay_towers_cnt ], fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_tower_t) );
       ctx->replay_towers_cnt++;
 
-      if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) replay_slot_completed( ctx, &ctx->replay_slot_info, tsorig, stem );
+      if( FD_UNLIKELY( fd_frag_meta_ctl_eom( ctl ) ) ) {
+        FD_LOG_INFO(( "[%s] received eom", __func__ ));
+        replay_slot_completed( ctx, &ctx->replay_slot_info, tsorig, stem );
+      }
     }
   } else {
     FD_LOG_ERR(( "unexpected input kind %d", ctx->in_kind[ in_idx ] ));

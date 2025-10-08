@@ -359,7 +359,7 @@ STEM_(run1)( ulong                        in_cnt,
   /* housekeeping init */
 
   if( lazy<=0L ) lazy = fd_tempo_lazy_default( cr_max );
-  if( FD_UNLIKELY( lazy>(long)1e9 ) ) FD_LOG_ERR(( "excessive stem lazy value: %li", lazy ));
+  if( FD_UNLIKELY( lazy>(long)1e9 ) ) FD_LOG_ERR(( "excessive stem lazy value: %li, cr_max %lu", lazy, cr_max ));
   FD_LOG_INFO(( "Configuring housekeeping (lazy %li ns)", lazy ));
 
   /* Initialize the initial event sequence to immediately update

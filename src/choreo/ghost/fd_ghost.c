@@ -616,6 +616,7 @@ print( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele, int space, const ch
   fd_ghost_ele_t const * pool = fd_ghost_pool_const( ghost );
 
   if( ele == NULL ) return;
+  ulong bid_str = ele->key.ul[1];
 
   if( space > 0 ) printf( "\n" );
   for( int i = 0; i < space; i++ )
@@ -627,9 +628,9 @@ print( fd_ghost_t const * ghost, fd_ghost_ele_t const * ele, int space, const ch
   } else {
     double pct = ( (double)ele->weight / (double)total ) * 100;
     if( FD_UNLIKELY( pct < 0.99 )) {
-      printf( "%s%lu (%.0lf%%, %lu)", prefix, ele->slot, pct, ele->weight );
+      printf( "%s%lu '%lu' (%.0lf%%, %lu)", prefix, ele->slot, bid_str, pct, ele->weight );
     } else {
-      printf( "%s%lu (%.0lf%%)", prefix, ele->slot, pct );
+      printf( "%s%lu '%lu' (%.0lf%%)", prefix, ele->slot, bid_str, pct );
     }
   }
 

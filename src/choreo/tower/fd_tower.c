@@ -1072,5 +1072,6 @@ fd_tower_from_vote_acc_data( uchar const * data,
       FD_LOG_CRIT(( "[%s] unknown vote state version. discriminant %u", __func__, state->kind ));
     }
     fd_tower_votes_push_tail( tower_out, vote );
+    //FD_LOG_INFO(( "[%s] pushed vote %lu %lu", __func__, vote.slot, vote.conf ));
   }
 }
