@@ -66,7 +66,7 @@
    facilitate compile time declarations. */
 
 #define FD_FUNK_REC_KEY_ALIGN     (8UL)
-#define FD_FUNK_REC_KEY_FOOTPRINT (40UL) /* 32 byte hash + 8 byte meta */
+#define FD_FUNK_REC_KEY_FOOTPRINT (32UL)
 
 /* A fd_funk_rec_key_t identifies a funk record.  Compact binary keys
    are encouraged but a cstr can be used so long as it has
@@ -77,8 +77,8 @@
 
 union __attribute__((aligned(FD_FUNK_REC_KEY_ALIGN))) fd_funk_rec_key {
   uchar uc[ FD_FUNK_REC_KEY_FOOTPRINT ];
-  uint  ui[ 10 ];
-  ulong ul[  5 ];
+  uint  ui[ 8 ];
+  ulong ul[ 4 ];
 };
 
 typedef union fd_funk_rec_key fd_funk_rec_key_t;
@@ -113,7 +113,7 @@ typedef union fd_funk_txn_xid fd_funk_txn_xid_t;
    facilitate compile time declarations. */
 
 #define FD_FUNK_XID_KEY_PAIR_ALIGN     (8UL)
-#define FD_FUNK_XID_KEY_PAIR_FOOTPRINT (56UL)
+#define FD_FUNK_XID_KEY_PAIR_FOOTPRINT (48UL)
 
 /* A fd_funk_xid_key_pair_t identifies a funk record.  It is just
    xid and key packed into the same structure. */
@@ -183,7 +183,6 @@ fd_funk_rec_key_hash1( uchar const key[ 32 ],
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
-  seed ^= k->ul[4];
   /* tons of ILP */
   return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
          (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) );
@@ -211,7 +210,7 @@ fd_funk_rec_key_hash1( uchar const key[ 32 ],
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
-  return fd_funk_rec_key_hash1( k->uc, k->ul[4], seed );
+  return fd_funk_rec_key_hash1( k->uc, 0UL, seed );
 }
 
 #endif /* FD_HAS_INT128 */
@@ -222,10 +221,10 @@ fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
 
 FD_FN_UNUSED FD_FN_PURE static int /* Workaround -Winline */
 fd_funk_rec_key_eq( fd_funk_rec_key_t const * ka,
-                       fd_funk_rec_key_t const * kb ) {
+                    fd_funk_rec_key_t const * kb ) {
   ulong const * a = ka->ul;
   ulong const * b = kb->ul;
-  return !( ((a[0]^b[0]) | (a[1]^b[1])) | ((a[2]^b[2]) | (a[3]^b[3])) | (a[4]^b[4]) ) ;
+  return !( ((a[0]^b[0]) | (a[1]^b[1])) | ((a[2]^b[2]) | (a[3]^b[3])) ) ;
 }
 
 /* fd_funk_rec_key_copy copies the key pointed to by ks into the key
@@ -234,10 +233,10 @@ fd_funk_rec_key_eq( fd_funk_rec_key_t const * ka,
 
 static inline fd_funk_rec_key_t *
 fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
-                         fd_funk_rec_key_t const * ks ) {
+                      fd_funk_rec_key_t const * ks ) {
   ulong *       d = kd->ul;
   ulong const * s = ks->ul;
-  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3]; d[4] = s[4];
+  d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = s[3];
   return kd;
 }
 
@@ -250,7 +249,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
 
 FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
 fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
-                         ulong                     seed ) {
+                      ulong                     seed ) {
   return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ); /* tons of ILP */
 }
 
@@ -260,7 +259,7 @@ fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
 
 FD_FN_PURE static inline int
 fd_funk_txn_xid_eq( fd_funk_txn_xid_t const * xa,
-                       fd_funk_txn_xid_t const * xb ) {
+                    fd_funk_txn_xid_t const * xb ) {
   ulong const * a = xa->ul;
   ulong const * b = xb->ul;
   return !( (a[0]^b[0]) | (a[1]^b[1]) );
@@ -272,7 +271,7 @@ fd_funk_txn_xid_eq( fd_funk_txn_xid_t const * xa,
 
 static inline fd_funk_txn_xid_t *
 fd_funk_txn_xid_copy( fd_funk_txn_xid_t *       xd,
-                         fd_funk_txn_xid_t const * xs ) {
+                      fd_funk_txn_xid_t const * xs ) {
   ulong *       d = xd->ul;
   ulong const * s = xs->ul;
   d[0] = s[0]; d[1] = s[1];

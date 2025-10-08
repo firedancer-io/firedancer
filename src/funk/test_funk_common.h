@@ -178,7 +178,6 @@ __attribute__((noinline)) static FD_FN_UNUSED fd_funk_rec_key_t *
 key_set( fd_funk_rec_key_t * key,
          ulong               _key ) {
   key->ul[0] = _key; key->ul[1] = _key+_key; key->ul[2] = _key*_key; key->ul[3] = -_key;
-  key->ul[4] = _key*3U;
   return key;
 }
 

@@ -8,6 +8,7 @@
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
 #include "../../../funk/fd_funk.h"
+#include "../../progcache/fd_progcache.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
 
@@ -55,6 +56,8 @@ struct fd_exec_txn_ctx {
   int                                  enable_exec_recording;
   fd_bank_hash_cmp_t *                 bank_hash_cmp;
   fd_funk_t                            funk[1];
+  fd_progcache_t *                     progcache;
+  fd_progcache_t                       _progcache[1];
   fd_funk_txn_xid_t                    xid[1];
   ulong                                slot;
   ulong                                bank_idx;

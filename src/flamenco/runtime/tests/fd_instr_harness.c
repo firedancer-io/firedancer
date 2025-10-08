@@ -33,7 +33,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk, &parent_xid, xid );
+  fd_funk_txn_prepare( funk,                    &parent_xid, xid );
+  fd_funk_txn_prepare( runner->progcache->funk, &parent_xid, xid );
 
   /* Allocate contexts */
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
@@ -76,7 +77,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
 
   fd_exec_txn_ctx_setup( runner->bank,
-                         runner->funk,
+                         runner->funk->shmem,
+                         runner->progcache->funk->shmem,
                          xid,
                          NULL,
                          txn_ctx,
@@ -250,7 +252,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, funk, xid, test_ctx->accounts, test_ctx->accounts_count, runner->spad );
+  fd_runtime_fuzz_refresh_program_cache( runner->bank, runner->progcache, funk, xid, test_ctx->accounts, test_ctx->accounts_count );
 
   /* Load instruction accounts */
 
@@ -308,7 +310,8 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Refresh the setup from the updated slot and epoch ctx. */
   fd_exec_txn_ctx_setup( runner->bank,
-                         runner->funk,
+                         runner->funk->shmem,
+                         runner->progcache->funk->shmem,
                          xid,
                          NULL,
                          txn_ctx,
@@ -327,6 +330,7 @@ fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_funk_txn_cancel_all( runner->funk );
+  fd_progcache_clear( runner->progcache );
 }
 
 

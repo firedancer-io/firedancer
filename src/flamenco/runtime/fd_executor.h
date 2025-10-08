@@ -134,7 +134,8 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
 
 void
 fd_exec_txn_ctx_setup( fd_bank_t *               bank,
-                       fd_funk_t *               funk,
+                       void *                    accdb_shfunk,
+                       void *                    progcache_shfunk,
                        fd_funk_txn_xid_t const * xid,
                        fd_txncache_t *           status_cache,
                        fd_exec_txn_ctx_t *       ctx,

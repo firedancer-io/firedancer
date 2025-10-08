@@ -353,6 +353,7 @@ struct fd_topo_tile {
       int   tx_metadata_storage;
       ulong funk_obj_id;
       ulong txncache_obj_id;
+      ulong progcache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
       char  cluster_version[ 32 ];
@@ -381,6 +382,7 @@ struct fd_topo_tile {
     struct {
       ulong funk_obj_id;
       ulong txncache_obj_id;
+      ulong progcache_obj_id;
 
       ulong max_live_slots;
 
@@ -543,6 +545,7 @@ struct fd_topo_tile {
 
       ulong txncache_obj_id;
       ulong funk_obj_id;
+      ulong progcache_obj_id;
     } bank;
 
     struct {
@@ -643,15 +646,9 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-static inline void *
+void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
-                   ulong             obj_id ) {
-  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
-  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
-  FD_TEST( obj->id == obj_id );
-  FD_TEST( obj->offset );
-  return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
-}
+                   ulong             obj_id );
 
 /* Returns a pointer in the local address space to the base address of
    the workspace out of which the given object was allocated. */
