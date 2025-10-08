@@ -65,8 +65,7 @@
 #define IN_KIND_RESOLV  (3)
 #define IN_KIND_POH     (4)
 #define IN_KIND_EXEC    (5)
-#define IN_KIND_CAPTURE (6)
-#define IN_KIND_SHRED   (7)
+#define IN_KIND_SHRED   (6)
 
 #define DEBUG_LOGGING 0
 
@@ -1416,7 +1415,8 @@ replay( fd_replay_tile_t *  ctx,
     fd_exec_txn_msg_t *    exec_msg = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
     memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
     exec_msg->bank_idx = ready_txn->bank_idx;
-    fd_stem_publish( stem, exec_out->idx, (EXEC_NEW_TXN_SIG<<32) | (ulong)exec_idx, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
+    fd_stem_publish( stem, exec_out->idx,
+      (FD_REPLAY_EXEC_NEW_TXN_SIG<<32) | (ulong)exec_idx, exec_out->chunk, sizeof(fd_exec_txn_msg_t), 0UL, 0UL, 0UL );
     exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_exec_txn_msg_t), exec_out->chunk0, exec_out->wmark );
   }
 
@@ -1818,6 +1818,24 @@ process_tower_update( fd_replay_tile_t *           ctx,
 }
 
 static void
+on_exec_message( fd_replay_tile_t * ctx,
+                 ulong               in_idx,
+                 ulong               chunk,
+                 ulong               sig ) {
+  switch( sig ) {
+    case FD_EXEC_REPLAY_TXN_FINALIZED_SIG:
+      process_txn_finalized( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      break;
+    case FD_EXEC_REPLAY_SOLCAP_UPDATE_SIG:
+      process_solcap_account_update( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      break;
+    default:
+      FD_LOG_ERR(( "invariant violation: unhandled sig %lu", sig ));
+      break;
+  }
+}
+
+static void
 process_fec_complete( fd_replay_tile_t * ctx,
                       uchar const *      shred_buf ) {
   fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( shred_buf );
@@ -1880,11 +1898,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
       break;
     case IN_KIND_EXEC: {
-      process_txn_finalized( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
-      break;
-    }
-    case IN_KIND_CAPTURE: {
-      process_solcap_account_update( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      on_exec_message( ctx, in_idx, chunk, sig );
       break;
     }
     case IN_KIND_POH: {
@@ -2110,7 +2124,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "snap_out"     ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "exec_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
-    else if( !strcmp( link->name, "capt_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_CAPTURE;
     else if( !strcmp( link->name, "poh_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;

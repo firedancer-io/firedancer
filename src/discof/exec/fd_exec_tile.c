@@ -35,8 +35,7 @@ typedef struct fd_exec_tile_ctx {
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            send_in[ 1 ];
-  link_ctx_t            exec_replay_out[ 1 ];    /* TODO: Remove with solcap v2 */
-  link_ctx_t            capture_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
@@ -112,7 +111,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
                    ctx->replay_in->chunk0,
                    ctx->replay_in->wmark ));
     }
-    if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
+    if( FD_LIKELY( (sig>>32)==FD_REPLAY_EXEC_NEW_TXN_SIG ) ) {
       fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
 
       ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
@@ -151,7 +150,7 @@ after_frag( fd_exec_tile_ctx_t * ctx,
             ulong                tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *  stem   FD_PARAM_UNUSED ) {
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
-    if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
+    if( FD_LIKELY( (sig>>32)==FD_REPLAY_EXEC_NEW_TXN_SIG ) ) {
       /* At this point we can assume that the transaction is done
          executing.  Commit the transaction back to funk. */
 
@@ -256,15 +255,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->exec_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->exec_replay_out->mem, exec_replay_link->dcache );
     ctx->exec_replay_out->wmark  = fd_dcache_compact_wmark( ctx->exec_replay_out->mem, exec_replay_link->dcache, exec_replay_link->mtu );
     ctx->exec_replay_out->chunk  = ctx->exec_replay_out->chunk0;
-  }
-
-  ctx->capture_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "capt_replay", ctx->tile_idx );
-  if( FD_UNLIKELY( ctx->capture_replay_out->idx!=ULONG_MAX ) ) {
-    fd_topo_link_t * capture_replay_link = &topo->links[ tile->out_link_id[ ctx->capture_replay_out->idx ] ];
-    ctx->capture_replay_out->mem    = topo->workspaces[ topo->objs[ capture_replay_link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->capture_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->capture_replay_out->mem, capture_replay_link->dcache );
-    ctx->capture_replay_out->wmark  = fd_dcache_compact_wmark( ctx->capture_replay_out->mem, capture_replay_link->dcache, capture_replay_link->mtu );
-    ctx->capture_replay_out->chunk  = ctx->capture_replay_out->chunk0;
   }
 
   /********************************************************************/
@@ -388,8 +378,8 @@ publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
   }
 
   /* Copy the account update event to the buffer */
-  ulong chunk     = ctx->capture_replay_out->chunk;
-  uchar * out_ptr = fd_chunk_to_laddr( ctx->capture_replay_out->mem, chunk );
+  ulong chunk     = ctx->exec_replay_out->chunk;
+  uchar * out_ptr = fd_chunk_to_laddr( ctx->exec_replay_out->mem, chunk );
   fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
   memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
   ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
@@ -403,12 +393,12 @@ publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
 
   /* Stem publish the account update event */
   ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
-  fd_stem_publish( stem, ctx->capture_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
-  ctx->capture_replay_out->chunk = fd_dcache_compact_next(
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, FD_EXEC_REPLAY_SOLCAP_UPDATE_SIG, chunk, msg_sz, 0UL, 0UL, 0UL );
+  ctx->exec_replay_out->chunk = fd_dcache_compact_next(
     chunk,
     msg_sz,
-    ctx->capture_replay_out->chunk0,
-    ctx->capture_replay_out->wmark );
+    ctx->exec_replay_out->chunk0,
+    ctx->exec_replay_out->wmark );
 
   /* Advance the number of account updates flushed */
   ctx->account_updates_flushed++;
@@ -434,7 +424,7 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   fd_stem_publish(
     stem,
     ctx->exec_replay_out->idx,
-    0UL,
+    FD_EXEC_REPLAY_TXN_FINALIZED_SIG,
     ctx->exec_replay_out->chunk,
     sizeof(fd_exec_replay_txn_finalized_msg_t),
     0UL,

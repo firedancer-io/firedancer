@@ -212,7 +212,6 @@ fd_topo_initialize( config_t * config ) {
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
-  int solcap_enabled = strcmp( "", config->capture.solcap_capture );
 
   fd_topo_t * topo = fd_topob_new( &config->topo, config->name );
 
@@ -646,15 +645,6 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec",      i,                               "exec_replay", i );
   FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,    "metric_in", "exec_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "exec",      i,      "metric_in", "send_txns", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-  if( FD_UNLIKELY( solcap_enabled ) ) {
-    /* Capture account updates, whose updates must be centralized in the replay tile as solcap is currently not thread-safe.
-      TODO: remove this when solcap v2 is here. */
-    fd_topob_wksp( topo, "capt_replay" );
-    FOR(exec_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
-    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec",      i,                               "capt_replay", i );
-    FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui" );

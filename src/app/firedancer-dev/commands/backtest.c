@@ -219,18 +219,19 @@ backtest_topo( config_t * config ) {
      has been finalized by the exec tile. */
   /**********************************************************************/
   fd_topob_wksp( topo, "exec_replay" );
-  FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_replay_txn_finalized_msg_t), 1UL );
+
+  /* If solcap is enabled, we need to overload this link to also send
+     solcap account updates to the replay tile. We can't use a separate
+     link for this without introducing a race. This will get removed with solcap V2. */
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    /* TODO: remove this with solcap V2 */
+    FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 1024UL, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
+  } else {
+    FOR(exec_tile_cnt) fd_topob_link( topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_replay_txn_finalized_msg_t), 1UL );
+  }
+
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "exec_replay", i );
   FOR(exec_tile_cnt) fd_topob_tile_in( topo, "replay", 0UL, "metric_in", "exec_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-  if( FD_UNLIKELY( solcap_enabled ) ) {
-    /* Capture account updates, whose updates must be centralized in the replay tile as solcap is currently not thread-safe.
-      TODO: remove this when solcap v2 is here. */
-    fd_topob_wksp( topo, "capt_replay" );
-    FOR(exec_tile_cnt) fd_topob_link(     topo, "capt_replay", "capt_replay", FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES, FD_CAPTURE_CTX_ACCOUNT_UPDATE_MSG_FOOTPRINT, 1UL );
-    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec",        i,                               "capt_replay", i );
-    FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",      0UL,         "metric_in",        "capt_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  }
 
   /**********************************************************************/
   /* Setup the shared objs used by replay and exec tiles                */
