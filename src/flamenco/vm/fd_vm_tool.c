@@ -129,13 +129,16 @@ cmd_validate( char const * bin_path ) {
   fd_vm_tool_prog_create( &tool_prog, bin_path );
 
   fd_vm_t vm = {
-    .text      = tool_prog.prog->text,
-    .text_cnt  = tool_prog.prog->info.text_cnt,
-    .text_off  = tool_prog.prog->info.text_off,
-    .entry_pc  = tool_prog.prog->entry_pc,
-    .calldests = tool_prog.prog->calldests,
-    .syscalls  = tool_prog.syscalls,
-    .trace     = NULL
+    .rodata                = tool_prog.prog->rodata,
+    .rodata_sz             = tool_prog.prog->rodata_sz,
+    .text                  = tool_prog.prog->text,
+    .text_cnt              = tool_prog.prog->info.text_cnt,
+    .text_sz               = tool_prog.prog->info.text_sz,
+    .text_off              = tool_prog.prog->info.text_off,
+    .entry_pc              = tool_prog.prog->entry_pc,
+    .calldests             = tool_prog.prog->calldests,
+    .syscalls              = tool_prog.syscalls,
+    .trace                 = NULL
   };
 
   /* FIXME: DO WE REALLY NEED THE WHOLE VM TO VALIDATE? */
