@@ -339,11 +339,13 @@ struct fd_replay_tile {
   int         recv_poh;
   int         recv_block_id;
   ulong       next_leader_slot;
+  long        next_leader_tickcount;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
   double      slot_duration_nanos;
+  double      slot_duration_ticks;
   ulong       max_active_descendant;
   fd_bank_t * leader_bank; /* ==NULL if not currently the leader */
 
@@ -1084,18 +1086,15 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 }
 
-static int
+static inline int
 maybe_become_leader( fd_replay_tile_t *  ctx,
                      fd_stem_context_t * stem ) {
   FD_TEST( ctx->is_booted );
-  if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return 0;
-  if( FD_UNLIKELY( ctx->is_leader || ctx->next_leader_slot==ULONG_MAX ) ) return 0;
-  if( FD_UNLIKELY( !ctx->has_identity_vote_rooted ) ) return 0;
+  if( FD_LIKELY( ctx->next_leader_slot==ULONG_MAX || ctx->is_leader || !ctx->has_identity_vote_rooted || ctx->replay_out->idx==ULONG_MAX ) ) return 0;
 
   FD_TEST( ctx->next_leader_slot>ctx->reset_slot );
-  long now = fd_log_wallclock();
-  long next_leader_timestamp = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_nanos) + ctx->reset_timestamp_nanos;
-  if( FD_UNLIKELY( now<next_leader_timestamp ) ) return 0;
+  long now = fd_tickcount();
+  if( FD_LIKELY( now<ctx->next_leader_tickcount ) ) return 0;
 
   /* TODO:
   if( FD_UNLIKELY( ctx->halted_switching_key ) ) return 0; */
@@ -1106,7 +1105,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
      is a reasonable default here, although any value between 0 and 1.6
      seconds could be considered reasonable.  This is arbitrary and
      chosen due to intuition. */
-  if( FD_UNLIKELY( now<next_leader_timestamp+(long)(3.0*ctx->slot_duration_nanos) ) ) {
+  if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*ctx->slot_duration_ticks) ) ) {
     /* If the max_active_descendant is >= next_leader_slot, we waited
        too long and a leader after us started publishing to try and skip
        us.  Just start our leader slot immediately, we might win ... */
@@ -1176,6 +1175,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->next_leader_slot = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
 
   return 1;
 }
@@ -1295,6 +1295,11 @@ boot_genesis( fd_replay_tile_t *  ctx,
   ctx->reset_slot            = 0UL;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+  if( FD_LIKELY( ctx->next_leader_slot ) ) {
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+  } else {
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
 
   ctx->is_booted = 1;
   maybe_become_leader( ctx, stem );
@@ -1366,6 +1371,11 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_slot            = snapshot_slot;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
+    if( FD_LIKELY( ctx->next_leader_slot ) ) {
+      ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+    } else {
+      ctx->next_leader_tickcount = LONG_MAX;
+    }
 
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
     FD_TEST( bank->idx==0UL );
@@ -1877,6 +1887,11 @@ process_tower_update( fd_replay_tile_t *           ctx,
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
+  if( FD_LIKELY( ctx->next_leader_slot ) ) {
+    ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
+  } else {
+    ctx->next_leader_tickcount = LONG_MAX;
+  }
 
   fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->reset_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
@@ -2214,8 +2229,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reset_block_id        = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
+  ctx->next_leader_tickcount = LONG_MAX;
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->slot_duration_nanos   = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
+  ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
   ctx->max_active_descendant = 0UL; /* TODO: Update this properly ... */
   ctx->leader_bank           = NULL;
 
