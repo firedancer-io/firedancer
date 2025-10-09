@@ -81,6 +81,7 @@ fd_reasm_new( void * shmem, ulong fec_max, ulong seed ) {
   reasm->frontier = frontier_new ( frontier, fec_max, seed );
   reasm->orphaned = orphaned_new ( orphaned, fec_max, seed );
   reasm->subtrees = subtrees_new ( subtrees, fec_max, seed );
+  /*             */ subtreel_new ( reasm->_subtrlf         );
   reasm->bfs      = bfs_new      ( bfs,      fec_max       );
   reasm->out      = out_new      ( out,      fec_max       );
   reasm->slot_mr  = slot_mr_new  ( slot_mr,  lgf_max       );
@@ -102,6 +103,7 @@ fd_reasm_join( void * shreasm ) {
   reasm->frontier = frontier_join( reasm->frontier );
   reasm->orphaned = orphaned_join( reasm->orphaned );
   reasm->subtrees = subtrees_join( reasm->subtrees );
+  reasm->subtreel = subtreel_join( reasm->_subtrlf );
   reasm->bfs      = bfs_join     ( reasm->bfs      );
   reasm->out      = out_join     ( reasm->out      );
   reasm->slot_mr  = slot_mr_join ( reasm->slot_mr  );
@@ -279,6 +281,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   frontier_t * frontier = reasm->frontier;
   orphaned_t * orphaned = reasm->orphaned;
   subtrees_t * subtrees = reasm->subtrees;
+  subtreel_t * subtreel = reasm->subtreel;
 
   ulong * bfs = reasm->bfs;
   ulong * out = reasm->out;
@@ -341,7 +344,8 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   } else if( FD_LIKELY( parent = subtrees_ele_query ( subtrees, &fec->cmr, NULL, pool ) ) ) { /* parent is orphaned root     */
     orphaned_ele_insert( orphaned, fec, pool );
   } else {                                                                                    /* parent not found            */
-    subtrees_ele_insert( subtrees, fec, pool );
+    subtrees_ele_insert   ( subtrees, fec, pool );
+    subtreel_ele_push_tail( subtreel, fec, pool );
   }
 
   if( FD_LIKELY( parent ) ) link( reasm, parent, fec );
@@ -354,10 +358,10 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      need to search the orphan tree roots (vs. all orphaned nodes). */
 
   FD_TEST( bfs_empty( bfs ) );
-  for( subtrees_iter_t iter = subtrees_iter_init(       subtrees, pool );
-                             !subtrees_iter_done( iter, subtrees, pool );
-                       iter = subtrees_iter_next( iter, subtrees, pool ) ) {
-    bfs_push_tail( bfs, subtrees_iter_idx( iter, subtrees, pool ) );
+  for( subtreel_iter_t iter = subtreel_iter_fwd_init(       subtreel, pool );
+                             !subtreel_iter_done    ( iter, subtreel, pool );
+                       iter = subtreel_iter_fwd_next( iter, subtreel, pool ) ) {
+    bfs_push_tail( bfs, subtreel_iter_idx( iter, subtreel, pool ) );
   }
 
   /* connects subtrees to the new FEC */
@@ -367,6 +371,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
       link( reasm, fec, orphan_root );
       subtrees_ele_remove( subtrees, &orphan_root->key, NULL, pool );
+      subtreel_ele_remove( subtreel, orphan_root,             pool );
       orphaned_ele_insert( orphaned, orphan_root,             pool );
     }
   }
@@ -412,12 +417,10 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 }
 
 static fd_reasm_fec_t *
-maps_remove( fd_reasm_t * reasm,
-             fd_hash_t const * merkle_root ) {
-  fd_reasm_fec_t * fec = frontier_ele_remove( reasm->frontier, merkle_root, NULL, reasm->pool );
-  fec = fd_ptr_if( !fec, ancestry_ele_remove( reasm->ancestry, merkle_root, NULL, reasm->pool ), fec );
-  fec = fd_ptr_if( !fec, orphaned_ele_remove( reasm->orphaned, merkle_root, NULL, reasm->pool ), fec );
-  fec = fd_ptr_if( !fec, subtrees_ele_remove( reasm->subtrees, merkle_root, NULL, reasm->pool ), fec );
+publish_remove( fd_reasm_t *      reasm,
+                fd_hash_t const * merkle_root ) {
+  fd_reasm_fec_t *          fec = ancestry_ele_remove( reasm->ancestry, merkle_root, NULL, reasm->pool );
+  if( FD_UNLIKELY( !fec ) ) fec = frontier_ele_remove( reasm->frontier, merkle_root, NULL, reasm->pool );
   return fec;
 }
 
@@ -436,22 +439,22 @@ fd_reasm_advance_root( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
   /* First, remove the previous root, and push it as the first element
      of the BFS queue. */
 
-  fd_reasm_fec_t * head = maps_remove( reasm, &oldr->key ); /* initialize BFS queue */
-  head->next            = null;                             /* clear map next */
-  fd_reasm_fec_t * tail = head;                             /* tail of BFS queue */
+  fd_reasm_fec_t * head = publish_remove( reasm, &oldr->key ); /* initialize BFS queue */
+  head->next            = null;                                /* clear map next */
+  fd_reasm_fec_t * tail = head;                                /* tail of BFS queue */
 
   /* Second, BFS down the tree, pruning all of root's ancestors and also
      any descendants of those ancestors. */
 
   while( FD_LIKELY( head ) ) {
-    fd_reasm_fec_t * child = pool_ele( pool, head->child );               /* left-child */
-    while( FD_LIKELY( child ) ) {                                         /* iterate over children */
-      if( FD_LIKELY( child != newr ) ) {                                  /* stop at new root */
-        tail->next = pool_idx( pool, maps_remove( reasm, &child->key ) ); /* remove node from map to reuse `.next` */
-        tail       = pool_ele( pool, tail->next );                        /* push onto BFS queue (so descendants can be pruned) */
-        tail->next = null;                                                /* clear map next */
+    fd_reasm_fec_t * child = pool_ele( pool, head->child );                  /* left-child */
+    while( FD_LIKELY( child ) ) {                                            /* iterate over children */
+      if( FD_LIKELY( child != newr ) ) {                                     /* stop at new root */
+        tail->next = pool_idx( pool, publish_remove( reasm, &child->key ) ); /* remove node from map to reuse `.next` */
+        tail       = pool_ele( pool, tail->next );                           /* push onto BFS queue (so descendants can be pruned) */
+        tail->next = null;                                                   /* clear map next */
       }
-      child = pool_ele( pool, child->sibling );                           /* right-sibling */
+      child = pool_ele( pool, child->sibling );                              /* right-sibling */
     }
     slot_mr_t * slot_mr = slot_mr_query( reasm->slot_mr, head->slot, NULL );
     if( FD_UNLIKELY( slot_mr ) ) slot_mr_remove( reasm->slot_mr, slot_mr  ); /* only first FEC */

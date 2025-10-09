@@ -132,6 +132,10 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong parent;  /* pool idx of the parent */
   ulong child;   /* pool idx of the left-child */
   ulong sibling; /* pool idx of the right-sibling */
+  /* When it's in the subtrees map, it's also in the subtreel dlist,
+     which uses these two pointers. */
+  ulong dlist_prev;
+  ulong dlist_next;
 
   /* Data */
 
