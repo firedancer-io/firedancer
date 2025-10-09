@@ -140,6 +140,11 @@ struct fd_exec_txn_ctx {
   fd_instr_info_t             cpi_instr_infos[FD_MAX_INSTRUCTION_TRACE_LENGTH];
   ulong                       cpi_instr_info_cnt;
 
+  /* Contains hashes of the VM memory state after instruction execution, used for
+     differential fuzzing */
+  ulong                       instr_vm_hashes[FD_MAX_INSTRUCTION_TRACE_LENGTH];
+  ulong                       instr_vm_hashes_cnt;
+
   /* Each instr info within `instr_trace` may refer to an `instr_infos` or `cpi_instr_infos`
      entry. */
   fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
