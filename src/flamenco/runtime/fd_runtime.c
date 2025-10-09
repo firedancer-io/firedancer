@@ -1558,6 +1558,8 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   long f = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_begin_partitioned_rewards took %ld ns", f - e));
 
+  long g = fd_log_wallclock();
+
   /* Update vote_states_prev_prev with vote_states_prev */
 
   fd_update_vote_states_prev_prev( bank );
@@ -1573,7 +1575,11 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
   long end = fd_log_wallclock();
-  FD_LOG_CRIT(("fd_process_new_epoch took %ld ns", end - start));
+
+  long h = fd_log_wallclock();
+  FD_LOG_NOTICE(("fd_update_vote_states_prev took %ld ns", h - g));
+
+  FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
 
   } FD_SPAD_FRAME_END;
 }
