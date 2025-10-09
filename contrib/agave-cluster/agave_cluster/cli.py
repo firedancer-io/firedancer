@@ -961,6 +961,7 @@ def validators(ctx):
         vote_account_to_validator[vote_pubkey] = validator_name
 
     # Iterate over validators and print their information along with associated stake accounts
+    undelegated_stake_accounts = set()
     for validator_name in os.listdir(keys_path):
         id_key = os.path.join(keys_path, validator_name, 'id.json')
         vote_key = os.path.join(keys_path, validator_name, 'vote.json')
@@ -1015,6 +1016,10 @@ def validators(ctx):
                         delegated_stake = delegated_stake_line.split(':')[1].strip()
 
                         stake_account_details.append((stake_account_pubkey, balance, active_stake, delegated_stake))
+                else:
+                    balance_line = next(line for line in output.splitlines() if line.startswith('Balance:'))
+                    balance = balance_line.split(':')[1].strip()
+                    undelegated_stake_accounts.add((stake_account_pubkey, balance))
 
         # Sort stake accounts by pubkey
         stake_account_details.sort(key=lambda x: x[0])
@@ -1023,6 +1028,10 @@ def validators(ctx):
         for stake_account_pubkey, balance, active_stake, delegated_stake in stake_account_details:
             click.echo(f"    {stake_account_pubkey}: Balance: {balance}, Active Stake: {active_stake}, Delegated Stake: {delegated_stake}")
         click.echo("")
+
+    for stake_account_pubkey, balance in sorted(undelegated_stake_accounts):
+        click.echo(f"  Undelegated Stake Account: {stake_account_pubkey}, Balance: {balance}")
+
 
 
 @main.command('leader-stats')
