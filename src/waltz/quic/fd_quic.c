@@ -4604,7 +4604,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
     /* already moved to another enc_level */
     if( enc_level < peer_enc_level ) {
-      cnt_freed += fd_quic_abandon_enc_level( conn, peer_enc_level );
+      cnt_freed += fd_quic_abandon_enc_level( conn, enc_level );
       continue;
     }
 
