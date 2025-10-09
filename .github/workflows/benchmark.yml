@@ -31,12 +31,11 @@ jobs:
     steps:
     - name: Checkout current commit
       uses: actions/checkout@v5
-      with:
-        submodules: recursive
 
     - uses: ./.github/actions/deps
       with:
         extras: +dev
+
     - uses: ./.github/actions/hugepages
       with:
         count_gigantic: 398
@@ -51,10 +50,8 @@ jobs:
       uses: actions/checkout@v5
       with:
         ref: main
-        submodules: recursive
-    - uses: ./.github/actions/deps
-      with:
-        extras: +dev
+        clean: false
+
     - run: make -j
 
     - name: Run baseline benchmarks
@@ -81,10 +78,8 @@ jobs:
     - name: Checkout new changes
       uses: actions/checkout@v5
       with:
-        submodules: recursive
-    - uses: ./.github/actions/deps
-      with:
-        extras: +dev
+        clean: false
+
     - run: make -j
 
     - name: Run new benchmarks
