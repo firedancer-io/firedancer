@@ -138,6 +138,9 @@ typedef struct fd_exec_test_txn_result {
     fd_exec_test_fee_details_t fee_details;
     /* Loaded accounts data size */
     uint64_t loaded_accounts_data_size;
+    /* VM memory hashes after each instruction execution */
+    pb_size_t instr_vm_hashes_count;
+    uint64_t instr_vm_hashes[64];
 } fd_exec_test_txn_result_t;
 
 /* Txn fixtures */
@@ -167,7 +170,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_DEFAULT    {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT    {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT     {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_DEFAULT, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_DEFAULT, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_DEFAULT    {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_TXN_RESULT_INIT_DEFAULT}
 #define FD_EXEC_TEST_MESSAGE_HEADER_INIT_ZERO    {0, 0, 0}
 #define FD_EXEC_TEST_COMPILED_INSTRUCTION_INIT_ZERO {0, 0, NULL, NULL}
@@ -178,7 +181,7 @@ extern "C" {
 #define FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO   {0, NULL, 0, NULL, 0}
 #define FD_EXEC_TEST_RENT_DEBITS_INIT_ZERO       {{0}, 0}
 #define FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO       {0, 0}
-#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0}
+#define FD_EXEC_TEST_TXN_RESULT_INIT_ZERO        {0, 0, false, FD_EXEC_TEST_RESULTING_STATE_INIT_ZERO, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_FEE_DETAILS_INIT_ZERO, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
 #define FD_EXEC_TEST_TXN_FIXTURE_INIT_ZERO       {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_TXN_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_TXN_RESULT_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -225,6 +228,7 @@ extern "C" {
 #define FD_EXEC_TEST_TXN_RESULT_EXECUTED_UNITS_TAG 11
 #define FD_EXEC_TEST_TXN_RESULT_FEE_DETAILS_TAG  12
 #define FD_EXEC_TEST_TXN_RESULT_LOADED_ACCOUNTS_DATA_SIZE_TAG 13
+#define FD_EXEC_TEST_TXN_RESULT_INSTR_VM_HASHES_TAG 14
 #define FD_EXEC_TEST_TXN_FIXTURE_METADATA_TAG    1
 #define FD_EXEC_TEST_TXN_FIXTURE_INPUT_TAG       2
 #define FD_EXEC_TEST_TXN_FIXTURE_OUTPUT_TAG      3
@@ -319,7 +323,8 @@ X(a, STATIC,   SINGULAR, UINT32,   custom_error,      9) \
 X(a, POINTER,  SINGULAR, BYTES,    return_data,      10) \
 X(a, STATIC,   SINGULAR, UINT64,   executed_units,   11) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  fee_details,      12) \
-X(a, STATIC,   SINGULAR, UINT64,   loaded_accounts_data_size,  13)
+X(a, STATIC,   SINGULAR, UINT64,   loaded_accounts_data_size,  13) \
+X(a, STATIC,   REPEATED, UINT64,   instr_vm_hashes,  14)
 #define FD_EXEC_TEST_TXN_RESULT_CALLBACK NULL
 #define FD_EXEC_TEST_TXN_RESULT_DEFAULT NULL
 #define fd_exec_test_txn_result_t_resulting_state_MSGTYPE fd_exec_test_resulting_state_t
