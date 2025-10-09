@@ -153,10 +153,17 @@ write_account( fd_borrowed_account_t *   account,
     /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L170-L186 */
     if( FD_LIKELY( !is_loader_v1 ) ) {
       ulong align_offset = fd_ulong_align_up( dlen, FD_BPF_ALIGN_OF_U128 ) - dlen;
-      fd_memset( *serialized_params, 0, align_offset );
-      *serialized_params += align_offset;
-      return align_offset;
+      if( !direct_mapping ) {
+        fd_memset( *serialized_params, 0, align_offset );
+        *serialized_params += align_offset;
+      } else {
+        fd_memset( *serialized_params, 0, FD_BPF_ALIGN_OF_U128 );
+        *serialized_params += FD_BPF_ALIGN_OF_U128;
+        *serialized_params_start += fd_ulong_sat_sub( FD_BPF_ALIGN_OF_U128, align_offset );
+      }
     }
+
+    return (ulong)(*serialized_params - *serialized_params_start);
   }
 
   return 0UL;
