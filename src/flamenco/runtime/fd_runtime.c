@@ -56,7 +56,7 @@ fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank ) {
     /* Return the first epoch if activated at genesis
        https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6153-L6157 */
     ulong activation_slot = fd_bank_features_query( bank )->enable_vote_address_leader_schedule;
-    if( activation_slot==0UL ) return 0;
+    if( activation_slot==0UL ) return 1; /* effective_epoch=0, current_epoch >= effective_epoch always true */
 
     /* Calculate the epoch that the feature became activated in
        https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6159-L6160 */
