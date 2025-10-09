@@ -152,7 +152,13 @@ FD_FN_CONST ulong
 fd_txncache_align( void );
 
 FD_FN_CONST ulong
-fd_txncache_footprint( ulong max_live_slots );
+fd_txncache_footprint_ext( ulong max_live_slots,
+                           ulong max_blockhash_distance );
+
+FD_FN_CONST static inline ulong
+fd_txncache_footprint( ulong max_live_slots ) {
+  return fd_txncache_footprint_ext( max_live_slots, FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE );
+}
 
 void *
 fd_txncache_new( void *                ljoin,

@@ -30,12 +30,15 @@ fd_racesan_async_hook( void * ctx,
 
 static void
 fd_racesan_async_target( fd_racesan_async_t * async ) {
-  fd_racesan_t racesan[1];
-  fd_racesan_new( racesan, async );
-  fd_racesan_inject_default( racesan, fd_racesan_async_hook );
+  static fd_racesan_t racesan[1];
+  FD_ONCE_BEGIN {
+    fd_racesan_new( racesan, NULL );
+    fd_racesan_inject_default( racesan, fd_racesan_async_hook );
+  }
+  FD_ONCE_END;
+  racesan->hook_ctx = async;
   fd_racesan_enter( racesan );
   async->fn( async->fn_ctx );
-  fd_racesan_delete( racesan );
 
   async->done = 1;
   fd_racesan_async_yield( async );

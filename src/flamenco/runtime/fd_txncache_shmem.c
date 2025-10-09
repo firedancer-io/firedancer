@@ -72,12 +72,15 @@ fd_txncache_shmem_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_txncache_shmem_footprint( ulong max_live_slots,
-                             ulong max_txn_per_slot ) {
+fd_txncache_shmem_footprint_ext( ulong max_live_slots,
+                                 ulong max_blockhash_distance,
+                                 ulong max_txn_per_slot ) {
   if( FD_UNLIKELY( max_live_slots<1UL ) ) return 0UL;
+  if( FD_UNLIKELY( max_blockhash_distance<1UL ) ) return 0UL;
   if( FD_UNLIKELY( max_txn_per_slot<1UL ) ) return 0UL;
 
-  ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
+  if( !max_blockhash_distance ) max_blockhash_distance = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE;
+  ulong max_active_slots = max_blockhash_distance+max_live_slots;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
 
   /* To save memory, txnpages are referenced as ushort which is enough
@@ -102,9 +105,10 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
 }
 
 void *
-fd_txncache_shmem_new( void * shmem,
-                       ulong  max_live_slots,
-                       ulong  max_txn_per_slot ) {
+fd_txncache_shmem_new_ext( void * shmem,
+                           ulong  max_live_slots,
+                           ulong  max_blockhash_distance,
+                           ulong  max_txn_per_slot ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -117,8 +121,9 @@ fd_txncache_shmem_new( void * shmem,
 
   if( FD_UNLIKELY( !max_live_slots ) ) return NULL;
   if( FD_UNLIKELY( !max_txn_per_slot ) ) return NULL;
+  if( !max_blockhash_distance ) max_blockhash_distance = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE;
 
-  ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
+  ulong max_active_slots = max_blockhash_distance+max_live_slots;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
 
   ushort _max_txnpages               = fd_txncache_max_txnpages( max_active_slots, max_txn_per_slot );
@@ -149,6 +154,7 @@ fd_txncache_shmem_new( void * shmem,
   tc->lock->value = 0;
 
   tc->txn_per_slot_max           = max_txn_per_slot;
+  tc->blockhash_distance_max     = max_blockhash_distance;
   tc->active_slots_max           = max_active_slots;
   tc->txnpages_per_blockhash_max = _max_txnpages_per_blockhash;
   tc->max_txnpages               = _max_txnpages;

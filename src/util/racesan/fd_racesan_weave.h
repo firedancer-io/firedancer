@@ -5,7 +5,7 @@
 
 #include "fd_racesan_async.h"
 
-#define FD_RACESAN_WEAVE_MAX (16UL)
+#define FD_RACESAN_WEAVE_MAX (256UL)
 
 struct fd_racesan_weave {
   fd_racesan_async_t * async[ FD_RACESAN_WEAVE_MAX ];
