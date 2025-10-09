@@ -1,3 +1,6 @@
+#!/bin/bash
+set -e
+
 source contrib/test/ledger_common.sh
 
 DUMP=${DUMP:="./dump"}

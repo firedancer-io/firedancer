@@ -1780,6 +1780,12 @@ static void
 process_exec_task_done( fd_replay_tile_t *        ctx,
                         fd_exec_task_done_msg_t * msg,
                         ulong                     sig ) {
+  if( FD_UNLIKELY( sig==0UL ) ) {
+    // FIXME remove this branch with new solcap
+    process_solcap_account_update( ctx, fd_type_pun( msg ) );
+    return;
+  }
+
   ulong exec_tile_idx = sig&0xFFFFFFFFUL;
   FD_TEST( !fd_ulong_extract_bit( ctx->exec_ready_bitset, (int)exec_tile_idx ) );
   ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, (int)exec_tile_idx );
@@ -1825,11 +1831,6 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       if( FD_UNLIKELY( (bank->flags&FD_BANK_FLAGS_DEAD) && bank->refcnt==0UL ) ) {
         fd_banks_mark_bank_frozen( ctx->banks, bank );
       }
-      break;
-    }
-    case 0: {
-      // FIXME remove this branch with new solcap
-      process_solcap_account_update( ctx, fd_type_pun( msg ) );
       break;
     }
     default: FD_LOG_CRIT(( "unexpected sig 0x%lx", sig ));
