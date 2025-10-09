@@ -1489,7 +1489,7 @@ user = ""
     #
     # In development, you can disable the sandbox for testing and
     # debugging with the `--no-sandbox` argument to `firedancer-dev`.
-    sandbox = false
+    sandbox = true
 
     # As part of the security sandboxing, Firedancer will run every tile
     # in a separate process.  This can be annoying for debugging where
