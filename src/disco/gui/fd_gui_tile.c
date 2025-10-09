@@ -479,7 +479,7 @@ gui_ws_open( ulong  conn_id,
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
   fd_gui_ws_open( ctx->gui, conn_id );
-  fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
+  if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
 }
 
 static void
@@ -488,7 +488,7 @@ gui_ws_close( ulong  conn_id,
               void * _ctx ) {
   (void) reason;
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
-  fd_gui_peers_ws_close( ctx->peers, conn_id );
+  if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_close( ctx->peers, conn_id );
 }
 
 static void
@@ -499,7 +499,7 @@ gui_ws_message( ulong         ws_conn_id,
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
   int reason = fd_gui_ws_message( ctx->gui, ws_conn_id, data, data_len );
-  if( reason==FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD ) reason = fd_gui_peers_ws_message( ctx->peers, ws_conn_id, data, data_len );
+  if( FD_UNLIKELY( ctx->is_full_client && reason==FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD ) ) reason = fd_gui_peers_ws_message( ctx->peers, ws_conn_id, data, data_len );
 
   if( FD_UNLIKELY( reason<0 ) ) fd_http_server_ws_close( ctx->gui_server, ws_conn_id, reason );
 }
