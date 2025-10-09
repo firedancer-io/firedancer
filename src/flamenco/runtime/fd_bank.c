@@ -1,6 +1,5 @@
 #include "fd_bank.h"
 #include "fd_runtime_const.h"
-#include "sysvar/fd_sysvar_epoch_schedule.h"
 
 ulong
 fd_bank_align( void ) {
@@ -521,6 +520,10 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->flags |= FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
+  bank->first_fec_set_received_nanos      = fd_log_wallclock();
+  bank->first_transaction_scheduled_nanos = 0L;
+  bank->last_transaction_finished_nanos   = 0L;
+
   /* Now that the node is inserted, update the root */
 
   banks->root_idx = bank->idx;
@@ -1016,7 +1019,8 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
 
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
-                   ulong        parent_bank_idx ) {
+                   ulong        parent_bank_idx,
+                   long         now ) {
 
   fd_rwlock_write( &banks->rwlock );
 
@@ -1085,6 +1089,10 @@ fd_banks_new_bank( fd_banks_t * banks,
 
     curr_bank->sibling_idx = child_bank_idx;
   }
+
+  child_bank->first_fec_set_received_nanos = now;
+  child_bank->first_transaction_scheduled_nanos = 0L;
+  child_bank->last_transaction_finished_nanos = 0L;
 
   fd_rwlock_unwrite( &banks->rwlock );
   return child_bank;

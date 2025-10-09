@@ -213,6 +213,27 @@ static ulong snapshot_acc_samples[ 100UL ];
   }))
 
 static void
+write_backtest( config_t const * config,
+                ulong const *    cur_tile ) {
+  ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
+  ulong start_slot = cur_tile[ backt_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, BACKT, START_SLOT ) ];
+  ulong final_slot = cur_tile[ backt_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, BACKT, FINAL_SLOT ) ];
+
+  ulong replay_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  ulong current_slot = cur_tile[ replay_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_SLOT ) ];
+  current_slot = current_slot ? current_slot : start_slot;
+
+  ulong total_slots = final_slot-start_slot;
+  ulong completed_slots = current_slot-start_slot;
+
+  double progress = 0.0;
+  if( FD_LIKELY( total_slots>0UL ) ) progress = 100.0 * (double)completed_slots / (double)total_slots;
+  else progress = 100.0;
+
+  PRINT( "🧪 \033[1m\033[92mBACKTEST....\033[0m\033[22m \033[1mPCT\033[22m %.1f %% (%lu/%lu)\033[K\n", progress, completed_slots, total_slots );
+}
+
+static void
 write_snapshots( config_t const * config,
                  ulong const *    cur_tile,
                  ulong const *    prev_tile ) {
@@ -358,12 +379,18 @@ write_summary( config_t const * config,
   if( FD_UNLIKELY( !snap_shutdown_time && shutdown  ) ) snap_shutdown_time = 2L; /* Was shutdown on boot */
   if( FD_UNLIKELY( snap_shutdown_time==1L && shutdown  ) ) snap_shutdown_time = fd_log_wallclock();
 
+  lines_printed = 4UL;
+
+  ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
+  if( FD_UNLIKELY( backt_idx!=ULONG_MAX ) ) {
+    lines_printed++;
+    write_backtest( config, cur_tile );
+  }
+
   long now = fd_log_wallclock();
   if( FD_UNLIKELY( snap_shutdown_time==1L || now<snap_shutdown_time+(long)2e9 ) ) {
-    lines_printed = 5UL;
+    lines_printed++;
     write_snapshots( config, cur_tile, prev_tile );
-  } else {
-    lines_printed = 4UL;
   }
 
   write_gossip( config, cur_tile, cur_link, prev_link );

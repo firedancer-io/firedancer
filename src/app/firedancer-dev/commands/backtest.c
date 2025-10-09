@@ -196,7 +196,7 @@ backtest_topo( config_t * config ) {
   /* Setup replay->backtest link (replay_notif) in topo                 */
   /**********************************************************************/
 
-  fd_topob_wksp( topo, "replay_out"   );
+  fd_topob_wksp( topo, "replay_out" );
   fd_topob_link( topo, "replay_out", "replay_out", 8192UL, sizeof( fd_replay_message_t ), 1UL );
   fd_topob_tile_out( topo, "replay", 0UL, "replay_out", 0UL );
   fd_topob_tile_in ( topo, "backt", 0UL, "metric_in", "replay_out", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
@@ -300,7 +300,6 @@ backtest_topo( config_t * config ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
     fd_topo_configure_tile( tile, config );
 
-    /* Override */
     if( !strcmp( tile->name, "replay" ) ) {
       tile->replay.enable_bank_hash_cmp = 0;
       tile->replay.enable_features_cnt = config->tiles.replay.enable_features_cnt;
@@ -310,9 +309,7 @@ backtest_topo( config_t * config ) {
     }
   }
 
-  /**********************************************************************/
-  /* Finish and print out the topo information                          */
-  /**********************************************************************/
+  // fd_topob_auto_layout( topo, 0 );
   fd_topob_finish( topo, CALLBACKS );
 }
 

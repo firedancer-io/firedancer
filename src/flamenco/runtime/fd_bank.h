@@ -375,6 +375,13 @@ struct fd_bank {
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
 
+  /* Timestamps written and read only by replay */
+
+  long first_fec_set_received_nanos;
+  long preparation_begin_nanos;
+  long first_transaction_scheduled_nanos;
+  long last_transaction_finished_nanos;
+
   /* First, layout all non-CoW fields contiguously. This is done to
      allow for cloning the bank state with a simple memcpy. Each
      non-CoW field is just represented as a byte array. */
@@ -933,7 +940,8 @@ fd_banks_mark_bank_frozen( fd_banks_t * banks,
 
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
-                   ulong        parent_bank_idx );
+                   ulong        parent_bank_idx,
+                   long         now );
 
 
 /* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */
