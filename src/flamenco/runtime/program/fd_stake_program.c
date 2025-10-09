@@ -564,7 +564,7 @@ stake_and_activating( fd_delegation_t const *    self,
 }
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L641
-static fd_stake_activation_status_t
+static inline fd_stake_activation_status_t
 stake_activating_and_deactivating( fd_delegation_t const *    self,
                                    ulong                      target_epoch,
                                    fd_stake_history_t const * stake_history,

@@ -3,6 +3,7 @@
 
 #include "../runtime/fd_runtime_const.h"
 #include "fd_rewards_base.h"
+#include <netinet/in.h>
 
 FD_PROTOTYPES_BEGIN
 
@@ -63,12 +64,14 @@ FD_STATIC_ASSERT( FD_REWARDS_MAX_PARTITIONS <= FD_RUNTIME_SLOTS_PER_EPOCH / MAX_
 #define FD_EPOCH_REWARDS_MAGIC (0x122400081001UL)
 
 struct fd_epoch_stake_reward {
-  ulong       prev;
-  ulong       next;
-  ulong       parent;
   fd_pubkey_t stake_pubkey;
   ulong       credits_observed;
   ulong       lamports;
+  /* Pointers used for dlist, map, and pool*/
+  ulong       prev;
+  ulong       next;
+  ulong       parent;
+  ulong       next_;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
@@ -79,6 +82,15 @@ typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 #define DLIST_NAME  fd_epoch_stake_reward_dlist
 #define DLIST_ELE_T fd_epoch_stake_reward_t
 #include "../../util/tmpl/fd_dlist.c"
+
+#define MAP_NAME               fd_epoch_stake_reward_map
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_ELE_T              fd_epoch_stake_reward_t
+#define MAP_KEY                stake_pubkey
+#define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
+#define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
+#define MAP_NEXT               next_
+#include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_epoch_rewards {
   ulong magic;
@@ -102,6 +114,10 @@ struct fd_epoch_rewards {
   /* Stake rewards that still need to be distributed, grouped by
      partition */
   uint128 total_points_;
+
+  ulong pool_offset_;
+  ulong dlist_offset_;
+  ulong map_offset_;
 
   /* This will be followed by a pool of fd_epoch_stake_reward_t. This
      pool will be sized out to FD_BANKS_MAX_STAKE_ACCOUNTS. */
@@ -158,6 +174,23 @@ fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, 
 
 fd_epoch_stake_reward_t *
 fd_epoch_rewards_get_stake_reward_pool( fd_epoch_rewards_t const * epoch_rewards );
+
+/* fd_epoch_rewards_insert inserts a stake reward into the epoch rewards
+   struct. */
+
+fd_epoch_stake_reward_map_t *
+fd_epoch_rewards_get_stake_reward_map( fd_epoch_rewards_t const * epoch_rewards );
+
+void
+fd_epoch_rewards_insert( fd_epoch_rewards_t * epoch_rewards,
+                         fd_pubkey_t const *  pubkey,
+                         ulong                credits,
+                         ulong                lamports );
+
+void
+fd_epoch_rewards_hash_all( fd_epoch_rewards_t * epoch_rewards,
+                           fd_hash_t const *    parent_blockhash,
+                           ulong                num_partitions );
 
 /* fd_epoch_rewards_hash_and_insert determines the hash partition that
    the stake pubkey belongs in and stores the pubkey along with the

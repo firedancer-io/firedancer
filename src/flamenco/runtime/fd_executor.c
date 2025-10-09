@@ -1575,7 +1575,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
     int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-      if ( txn_ctx->instr_err_idx==INT_MAX ) {
+      if( txn_ctx->instr_err_idx==INT_MAX ) {
         txn_ctx->instr_err_idx = i;
       }
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;

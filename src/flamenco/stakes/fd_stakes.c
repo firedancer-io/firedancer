@@ -98,66 +98,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
       new_rate_activation_epoch );
 }
 
-static void
-accumulate_stake_cache_delegations( fd_stake_delegations_t const * stake_delegations,
-                                    fd_stake_history_t const *     history,
-                                    ulong *                        new_rate_activation_epoch,
-                                    fd_stake_history_entry_t *     accumulator,
-                                    ulong                          epoch ) {
-
-  ulong effective    = 0UL;
-  ulong activating   = 0UL;
-  ulong deactivating = 0UL;
-
-  fd_stake_delegations_iter_t iter_[1];
-  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
-       !fd_stake_delegations_iter_done( iter );
-       fd_stake_delegations_iter_next( iter ) ) {
-    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
-
-    fd_delegation_t delegation = {
-      .voter_pubkey         = stake_delegation->vote_account,
-      .stake                = stake_delegation->stake,
-      .activation_epoch     = stake_delegation->activation_epoch,
-      .deactivation_epoch   = stake_delegation->deactivation_epoch,
-      .warmup_cooldown_rate = stake_delegation->warmup_cooldown_rate,
-    };
-
-    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
-        &delegation,
-        epoch,
-        history,
-        new_rate_activation_epoch );
-    effective    += new_entry.effective;
-    activating   += new_entry.activating;
-    deactivating += new_entry.deactivating;
-  }
-
-  accumulator->effective    += effective;
-  accumulator->activating   += activating;
-  accumulator->deactivating += deactivating;
-
-}
-
-/* Accumulates information about epoch stakes into `temp_info`, which is a temporary cache
-   used to save intermediate state about stake and vote accounts to avoid them from having to
-   be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
-void
-fd_accumulate_stake_infos( ulong                          epoch,
-                           fd_stake_delegations_t const * stake_delegations,
-                           fd_stake_history_t const *     history,
-                           ulong *                        new_rate_activation_epoch,
-                           fd_stake_history_entry_t *     accumulator ) {
-
-  accumulate_stake_cache_delegations(
-      stake_delegations,
-      history,
-      new_rate_activation_epoch,
-      accumulator,
-      epoch );
-
-}
-
 /* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
@@ -182,13 +122,31 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     .deactivating = 0UL
   };
 
-  /* Accumulate stats for stake accounts */
-  fd_accumulate_stake_infos(
-      fd_bank_epoch_get( bank ),
-      stake_delegations,
-      history,
-      new_rate_activation_epoch,
-      &accumulator );
+  ulong epoch = fd_bank_epoch_get( bank );
+
+  fd_stake_delegations_iter_t iter_[1];
+  for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
+       !fd_stake_delegations_iter_done( iter );
+       fd_stake_delegations_iter_next( iter ) ) {
+    fd_stake_delegation_t const * stake_delegation = fd_stake_delegations_iter_ele( iter );
+
+    fd_delegation_t delegation = {
+      .voter_pubkey         = stake_delegation->vote_account,
+      .stake                = stake_delegation->stake,
+      .activation_epoch     = stake_delegation->activation_epoch,
+      .deactivation_epoch   = stake_delegation->deactivation_epoch,
+      .warmup_cooldown_rate = stake_delegation->warmup_cooldown_rate,
+    };
+
+    fd_stake_history_entry_t new_entry = fd_stake_activating_and_deactivating(
+        &delegation,
+        epoch,
+        history,
+        new_rate_activation_epoch );
+    accumulator.effective    += new_entry.effective;
+    accumulator.activating   += new_entry.activating;
+    accumulator.deactivating += new_entry.deactivating;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
   fd_epoch_stake_history_entry_pair_t new_elem = {
@@ -248,20 +206,18 @@ fd_stakes_upsert_stake_delegation( fd_txn_account_t * stake_account,
 
   fd_stake_state_v2_t stake_state;
   int err = fd_stake_get_state( stake_account, &stake_state );
-  if( FD_UNLIKELY( err != 0 ) ) {
+  if( FD_UNLIKELY( err!=0 ) ) {
     FD_LOG_WARNING(( "Failed to get stake state" ));
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
-    FD_LOG_WARNING(( "Not a valid stake" ));
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
 
   if( FD_UNLIKELY( stake_state.inner.stake.stake.delegation.stake==0UL ) ) {
-    FD_LOG_WARNING(( "Stake is empty" ));
     fd_bank_stake_delegations_delta_end_locking_modify( bank );
     return;
   }
