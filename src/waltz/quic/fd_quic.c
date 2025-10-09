@@ -4395,7 +4395,13 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
 
     /* already moved to another enc_level */
     if( enc_level < conn->peer_enc_level ) {
-      fd_quic_abandon_enc_level( conn, enc_level );
+      /* treat the original packet as-if it were ack'ed */
+      fd_quic_reclaim_pkt_meta( conn,
+        pkt_meta,
+        enc_level );
+
+      fd_quic_pkt_meta_remove( &tracker->sent_pkt_metas[enc_level], pool, pkt_meta );
+
       continue;
     };
 
