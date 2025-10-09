@@ -25,17 +25,6 @@ watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,
     fd_cap_chk_cap( chk, "watch", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
 }
 
-static void
-save_cursor( void ) {
-  char * save_cursor = "\033[s";
-  long save_written = 0L;
-  while( save_written<3L ) {
-    long w = write( STDOUT_FILENO, save_cursor+save_written, 3UL-(ulong)save_written );
-    if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
-    else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    save_written += w;
-  }
-}
 
 ulong lines_printed = 5UL;
 int ended_on_newline = 1;
@@ -53,18 +42,19 @@ drain( int fd ) {
     if( FD_LIKELY( !needs_reprint ) ) {
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
       char erase[ 128UL ];
+      ulong term_len = 0UL;
       if( FD_UNLIKELY( !ended_on_newline ) ) {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[1A\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
       }
 
-      long erase_written = 0L;
-      while( erase_written<13L ) {
-        long w = write( STDOUT_FILENO, erase+erase_written, 13UL-(ulong)erase_written );
+      ulong erase_written = 0L;
+      while( erase_written<term_len ) {
+        long w = write( STDOUT_FILENO, erase+erase_written, term_len-erase_written );
         if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
         else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        erase_written += w;
+        erase_written += (ulong)w;
       }
     }
     needs_reprint = 1;
@@ -79,8 +69,6 @@ drain( int fd ) {
 
     ended_on_newline = buf[ (ulong)result-1UL ]=='\n';
   }
-
-  if( FD_UNLIKELY( needs_reprint ) ) save_cursor();
 
   return needs_reprint;
 }
@@ -444,7 +432,6 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
-  save_cursor();
   write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -471,17 +458,18 @@ run( config_t const * config,
 
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
       char erase[ 128UL ];
+      ulong term_len = 0UL;
       if( FD_UNLIKELY( !ended_on_newline ) ) {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[1A\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
       }
-      long erase_written = 0L;
-      while( erase_written<13L ) {
-        long w = write( STDOUT_FILENO, erase+erase_written, 13UL-(ulong)erase_written );
+      ulong erase_written = 0UL;
+      while( erase_written<term_len ) {
+        long w = write( STDOUT_FILENO, erase+erase_written, term_len-(ulong)erase_written );
         if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
         else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        erase_written += w;
+        erase_written += (ulong)w;
       }
 
       write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
