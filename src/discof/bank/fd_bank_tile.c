@@ -161,88 +161,92 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, ctx->exec_spad, NULL, 0 );
-    if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+    int err = FD_RUNTIME_EXECUTE_SUCCESS;
+    FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
+        err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, 0 );
+
+      if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+        ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
+        continue;
+      }
+
+      /* The account keys in the transaction context are laid out such
+        that first the non-alt accounts are laid out, then the writable
+        alt accounts, and finally the read-only alt accounts. */
+      fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
+      for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
+        writable_alt[ i-txn_descriptor->acct_addr_cnt ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
+      }
+
+      txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+
+      uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
+      uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
+
+      /* Assume failure, set below if success.  If it doesn't land in the
+        block, rebate the non-execution CUs too. */
+      txn->bank_cu.actual_consumed_cus = 0U;
+      txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+      txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+      /* Stash the result in the flags value so that pack can inspect it. */
+      /* TODO: Need to translate the err to a hacky Frankendancer style err
+              that pack and GUI expect ... */
+      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-err)<<24);
+
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
-      continue;
-    }
 
-    /* The account keys in the transaction context are laid out such
-       that first the non-alt accounts are laid out, then the writable
-       alt accounts, and finally the read-only alt accounts. */
-    fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
-    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
-      writable_alt[ i-txn_descriptor->acct_addr_cnt ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
-    }
+      uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
+      uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
 
-    txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+      int is_simple_vote = 0;
+      if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
+        /* Simple votes are charged fixed amounts of compute regardless of
+          the real cost they incur.  Unclear what cost is returned by
+          fd_execute txn, however, so we override it here. */
+        actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+        actual_acct_data_cus = 0U;
+      }
 
-    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
-    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
+      /* FeesOnly transactions are transactions that failed to load
+        before they even reach the VM stage. They have zero execution
+        cost but do charge for the account data they are able to load.
+        FeesOnly votes are charged the fixed voe cost. */
+      txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+      txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
-    /* Assume failure, set below if success.  If it doesn't land in the
-       block, rebate the non-execution CUs too. */
-    txn->bank_cu.actual_consumed_cus = 0U;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
-    txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+      /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
+        the block.  It's a bit of a misnomer now that there are fee-only
+        transactions. */
+      FD_TEST( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
+      txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    /* Stash the result in the flags value so that pack can inspect it. */
-    /* TODO: Need to translate the err to a hacky Frankendancer style err
-             that pack and GUI expect ... */
-    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-err)<<24);
+      /* The VM will stop executing and fail an instruction immediately if
+        it exceeds its requested CUs.  A transaction which requests less
+        account data than it actually consumes will fail in the account
+        loading stage. */
+      if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus>requested_exec_plus_acct_data_cus ) ) {
+        FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+        FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
+                    "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
+                    actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
+                    err ));
+      }
 
-    ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
+      /* Commit must succeed so no failure path.  Once commit is called,
+        the transactions MUST be mixed into the PoH otherwise we will
+        fork and diverge, so the link from here til PoH mixin must be
+        completely reliable with nothing dropped.
 
-    uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
-    uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
-
-    int is_simple_vote = 0;
-    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      /* Simple votes are charged fixed amounts of compute regardless of
-         the real cost they incur.  Unclear what cost is returned by
-         fd_execute txn, however, so we override it here. */
-      actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      actual_acct_data_cus = 0U;
-    }
-
-    /* FeesOnly transactions are transactions that failed to load
-       before they even reach the VM stage. They have zero execution
-       cost but do charge for the account data they are able to load.
-       FeesOnly votes are charged the fixed voe cost. */
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-
-    /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
-       the block.  It's a bit of a misnomer now that there are fee-only
-       transactions. */
-    FD_TEST( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
-    txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-
-    /* The VM will stop executing and fail an instruction immediately if
-       it exceeds its requested CUs.  A transaction which requests less
-       account data than it actually consumes will fail in the account
-       loading stage. */
-    if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus>requested_exec_plus_acct_data_cus ) ) {
-      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-      FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
-                   "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
-                   actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
-                   err ));
-    }
-
-    /* Commit must succeed so no failure path.  Once commit is called,
-       the transactions MUST be mixed into the PoH otherwise we will
-       fork and diverge, so the link from here til PoH mixin must be
-       completely reliable with nothing dropped.
-
-       fd_runtime_finalize_txn checks if the transaction fits into the
-       block with the cost tracker.  If it doesn't fit, flags is set to
-       zero.  A key invariant of the leader pipeline is that pack
-       ensures all transactions must fit already, so it is a fatal error
-       if that happens.  We cannot reject the transaction here as there
-       would be no way to undo the partially applied changes to the bank
-       in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+        fd_runtime_finalize_txn checks if the transaction fits into the
+        block with the cost tracker.  If it doesn't fit, flags is set to
+        zero.  A key invariant of the leader pipeline is that pack
+        ensures all transactions must fit already, so it is a fatal error
+        if that happens.  We cannot reject the transaction here as there
+        would be no way to undo the partially applied changes to the bank
+        in finalize anyway. */
+      fd_runtime_finalize_txn( ctx->txn_ctx->funk, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+    } FD_SPAD_FRAME_END;
     FD_TEST( txn->flags );
   }
 
@@ -326,7 +330,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... bank manager ?
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, NULL, 0 ); /* TODO ... */
+    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, 0 ); /* TODO ... */
 
     transaction_err[ i ] = err;
     if( FD_UNLIKELY( err ) ) {
