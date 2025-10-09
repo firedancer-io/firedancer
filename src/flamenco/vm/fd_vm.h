@@ -206,7 +206,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   int   direct_mapping;                       /* If direct mapping feature flag is enabled */
   int   stricter_abi_and_runtime_constraints; /* If stricter_abi_and_runtime_constraints feature flag is enabled */
-  
+
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
      - (If direct mapping is enabled) determining the instruction error
