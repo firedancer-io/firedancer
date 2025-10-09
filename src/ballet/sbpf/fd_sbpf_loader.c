@@ -268,7 +268,11 @@ fd_sbpf_lenient_get_string_in_section( uchar const *         elf_bytes,
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L477-L482 */
-  ulong offset_in_file     = fd_ulong_sat_add( section_header->sh_offset, offset_in_section );
+  ulong offset_in_file;
+  if( FD_UNLIKELY( __builtin_uaddl_overflow( section_header->sh_offset, offset_in_section, &offset_in_file ) ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+
   ulong string_range_start = offset_in_file;
   ulong string_range_end   = fd_ulong_min( section_header->sh_offset+section_header->sh_size, offset_in_file+maximum_length );
   if( FD_UNLIKELY( string_range_end>elf_bytes_len ) ) {
@@ -872,12 +876,14 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
 
   /* Program headers
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L164-L165 */
-
-  ulong phdr_sz    = fd_ulong_sat_mul( ehdr.e_phnum, sizeof(fd_elf64_phdr) );
   ulong phdr_start = ehdr.e_phoff;
-  ulong phdr_end;
+  ulong phdr_end, phdr_sz;
   /* Elf64::parse_program_header_table() */
   {
+    if( FD_UNLIKELY( __builtin_umull_overflow( ehdr.e_phnum, sizeof(fd_elf64_phdr), &phdr_sz ) ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+    }
+
     if( FD_UNLIKELY( __builtin_uaddl_overflow( ehdr.e_phoff, phdr_sz, &phdr_end ) ) ) {
       /* ArithmeticOverflow -> ElfParserError::OutOfBounds
         https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L671-L675 */
@@ -910,11 +916,14 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   /* Section headers
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L167-L172 */
 
-  ulong shdr_sz    = fd_ulong_sat_mul( ehdr.e_shnum, sizeof(fd_elf64_shdr) );
   ulong shdr_start = ehdr.e_shoff;
-  ulong shdr_end;
+  ulong shdr_end, shdr_sz;
   /* Elf64::parse_section_header_table() */
   {
+    if( FD_UNLIKELY( __builtin_umull_overflow( ehdr.e_shnum, sizeof(fd_elf64_shdr), &shdr_sz ) ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+    }
+
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L314-L317 */
     if( FD_UNLIKELY( __builtin_uaddl_overflow( ehdr.e_shoff, shdr_sz, &shdr_end ) ) ) {
       /* ArithmeticOverflow -> ElfParserError::OutOfBounds
