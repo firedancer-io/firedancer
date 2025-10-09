@@ -299,7 +299,7 @@ guess_packet_size( uchar const * data,
       /* No support for 0-RTT yet */
       return 0UL;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
 
   } else {  /* short header */

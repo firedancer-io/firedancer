@@ -43,7 +43,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   } else if( lamports_before==lamports_after ) {
     /* no balance change */
   } else {
-    __builtin_unreachable();
+    FD_UNREACHABLE();
   }
 
   fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );

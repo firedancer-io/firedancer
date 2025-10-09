@@ -1050,7 +1050,7 @@ fd_tls_extract_cert_pubkey_( fd_tls_extract_cert_pubkey_res_t * res,
   }
 
   default:
-    __builtin_unreachable();
+    FD_UNREACHABLE();
 
   } /* end switch */
 }
