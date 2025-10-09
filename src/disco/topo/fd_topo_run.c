@@ -105,7 +105,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
   }
 
 
-  struct sock_filter seccomp_filter[ 128UL ];
+  struct sock_filter seccomp_filter[ 256UL ];
   ulong seccomp_filter_cnt = 0UL;
   if( FD_LIKELY( tile_run->populate_allowed_seccomp ) ) {
     seccomp_filter_cnt = tile_run->populate_allowed_seccomp( topo,
