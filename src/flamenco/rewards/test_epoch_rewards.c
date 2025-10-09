@@ -90,10 +90,6 @@ int main( int argc, char * * argv ) {
   fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
   FD_TEST( stake_reward_pool );
 
-  /* Try to get stake reward pool before setting any. */
-
-  FD_TEST( !fd_epoch_rewards_get_stake_reward_pool( NULL ) );
-
   /* Hash some accounts */
 
   fd_hash_t   parent_blockhash = { .hash = { 5 } };

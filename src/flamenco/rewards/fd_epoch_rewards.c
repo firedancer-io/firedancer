@@ -8,9 +8,12 @@ fd_epoch_rewards_align( void ) {
 
 ulong
 fd_epoch_rewards_footprint( ulong stake_account_max ) {
+  ulong chain_cnt_est = fd_epoch_stake_reward_map_chain_cnt_est( stake_account_max );
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
   l = FD_LAYOUT_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( stake_account_max ) );
+  l = FD_LAYOUT_APPEND( l, fd_epoch_stake_reward_map_align(), fd_epoch_stake_reward_map_footprint( chain_cnt_est ) );
   l = FD_LAYOUT_APPEND( l, fd_epoch_stake_reward_dlist_align(), fd_epoch_stake_reward_dlist_footprint() * FD_REWARDS_MAX_PARTITIONS );
   return FD_LAYOUT_FINI( l, fd_epoch_rewards_align() );
 }
@@ -37,6 +40,13 @@ fd_epoch_rewards_new( void * shmem, ulong stake_account_max ) {
     return NULL;
   }
 
+  ulong chain_cnt_est = fd_epoch_stake_reward_map_chain_cnt_est( stake_account_max );
+  void * map = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_map_align(), fd_epoch_stake_reward_map_footprint( chain_cnt_est ) );
+  if( FD_UNLIKELY( !fd_epoch_stake_reward_map_new( map, chain_cnt_est, 0UL ) ) ) {
+    FD_LOG_WARNING(( "bad map" ));
+    return NULL;
+  }
+
   for( ulong i=0UL; i<FD_REWARDS_MAX_PARTITIONS; i++ ) {
     void * dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_dlist_align(), fd_epoch_stake_reward_dlist_footprint() );
     if( FD_UNLIKELY( !fd_epoch_stake_reward_dlist_new( dlist ) ) ) {
@@ -52,8 +62,14 @@ fd_epoch_rewards_new( void * shmem, ulong stake_account_max ) {
 
   memset( epoch_rewards, 0, sizeof(fd_epoch_rewards_t) );
 
-  epoch_rewards->magic             = FD_EPOCH_REWARDS_MAGIC;
+  FD_COMPILER_MFENCE();
+  epoch_rewards->magic = FD_EPOCH_REWARDS_MAGIC;
+  FD_COMPILER_MFENCE();
+
   epoch_rewards->stake_account_max = stake_account_max;
+
+  epoch_rewards->pool_offset = (ulong)pool - (ulong)shmem;
+  epoch_rewards->map_offset  = (ulong)map - (ulong)shmem;
 
   return shmem;
 }
@@ -80,6 +96,13 @@ fd_epoch_rewards_join( void * shmem ) {
     return NULL;
   }
 
+  ulong chain_cnt_est = fd_epoch_stake_reward_map_chain_cnt_est( stake_account_max );
+  void * map = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_map_align(), fd_epoch_stake_reward_map_footprint( chain_cnt_est ) );
+  if( FD_UNLIKELY( !fd_epoch_stake_reward_map_join( map ) ) ) {
+    FD_LOG_WARNING(( "bad map" ));
+    return NULL;
+  }
+
   for( ulong i=0UL; i<FD_REWARDS_MAX_PARTITIONS; i++ ) {
     void * dlist = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_dlist_align(), fd_epoch_stake_reward_dlist_footprint() );
     if( FD_UNLIKELY( !fd_epoch_stake_reward_dlist_join( dlist ) ) ) {
@@ -88,7 +111,7 @@ fd_epoch_rewards_join( void * shmem ) {
     }
   }
 
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_epoch_rewards_align() ) != (ulong)shmem+fd_epoch_rewards_footprint( stake_account_max ) ) ) {
+  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_epoch_rewards_align() )!=(ulong)shmem+fd_epoch_rewards_footprint( stake_account_max ) ) ) {
     FD_LOG_WARNING(( "bad footprint" ));
     return NULL;
   }
@@ -140,6 +163,7 @@ fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, 
   FD_SCRATCH_ALLOC_INIT( l, epoch_rewards );
   FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
   FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_map_align(), fd_epoch_stake_reward_map_footprint( fd_epoch_stake_reward_map_chain_cnt_est( epoch_rewards->stake_account_max ) ) );
   for( ulong i=0UL; i<idx; i++ ) {
     FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_dlist_align(), fd_epoch_stake_reward_dlist_footprint() );
   }
@@ -155,20 +179,12 @@ fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, 
 
 fd_epoch_stake_reward_t *
 fd_epoch_rewards_get_stake_reward_pool( fd_epoch_rewards_t const * epoch_rewards ) {
-  if( FD_UNLIKELY( !epoch_rewards ) ) {
-    FD_LOG_WARNING(( "NULL epoch_rewards" ));
-    return NULL;
-  }
+  return fd_epoch_stake_reward_pool_join( (uchar *)epoch_rewards + epoch_rewards->pool_offset );
+}
 
-  FD_SCRATCH_ALLOC_INIT( l, epoch_rewards );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
-  void * pool = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max ) );
-  fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_stake_reward_pool_join( pool );
-  if( FD_UNLIKELY( !stake_reward_pool ) ) {
-    FD_LOG_WARNING(( "bad stake_reward_pool" ));
-    return NULL;
-  }
-  return stake_reward_pool;
+fd_epoch_stake_reward_map_t *
+fd_epoch_rewards_get_stake_reward_map( fd_epoch_rewards_t const * epoch_rewards ) {
+  return fd_epoch_stake_reward_map_join( (uchar *)epoch_rewards + epoch_rewards->map_offset );
 }
 
 int
