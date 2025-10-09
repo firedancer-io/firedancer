@@ -52,8 +52,8 @@ fd_epoch_rewards_new( void * shmem, ulong stake_account_max ) {
 
   memset( epoch_rewards, 0, sizeof(fd_epoch_rewards_t) );
 
-  epoch_rewards->magic              = FD_EPOCH_REWARDS_MAGIC;
-  epoch_rewards->stake_account_max_ = stake_account_max;
+  epoch_rewards->magic             = FD_EPOCH_REWARDS_MAGIC;
+  epoch_rewards->stake_account_max = stake_account_max;
 
   return shmem;
 }
@@ -72,7 +72,7 @@ fd_epoch_rewards_join( void * shmem ) {
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_epoch_rewards_t * epoch_rewards = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
-  ulong stake_account_max = epoch_rewards->stake_account_max_;
+  ulong stake_account_max = epoch_rewards->stake_account_max;
 
   void * pool = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( stake_account_max ) );
   if( FD_UNLIKELY( !fd_epoch_stake_reward_pool_join( pool ) ) ) {
@@ -132,14 +132,14 @@ fd_epoch_rewards_delete( void * epoch_rewards_shmem ) {
 
 fd_epoch_stake_reward_dlist_t *
 fd_epoch_rewards_get_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong idx ) {
-  if( FD_UNLIKELY( idx >= epoch_rewards->num_partitions_ ) ) {
-    FD_LOG_WARNING(( "idx: %lu is greater than num_partitions: %lu", idx, epoch_rewards->num_partitions_ ));
+  if( FD_UNLIKELY( idx >= epoch_rewards->num_partitions ) ) {
+    FD_LOG_WARNING(( "idx: %lu is greater than num_partitions: %lu", idx, epoch_rewards->num_partitions ));
     return NULL;
   }
 
   FD_SCRATCH_ALLOC_INIT( l, epoch_rewards );
   FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
-  FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max_ ) );
+  FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max ) );
   for( ulong i=0UL; i<idx; i++ ) {
     FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_dlist_align(), fd_epoch_stake_reward_dlist_footprint() );
   }
@@ -162,7 +162,7 @@ fd_epoch_rewards_get_stake_reward_pool( fd_epoch_rewards_t const * epoch_rewards
 
   FD_SCRATCH_ALLOC_INIT( l, epoch_rewards );
   FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_rewards_align(), sizeof(fd_epoch_rewards_t) );
-  void * pool = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max_ ) );
+  void * pool = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_stake_reward_pool_align(), fd_epoch_stake_reward_pool_footprint( epoch_rewards->stake_account_max ) );
   fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_stake_reward_pool_join( pool );
   if( FD_UNLIKELY( !stake_reward_pool ) ) {
     FD_LOG_WARNING(( "bad stake_reward_pool" ));
@@ -202,7 +202,7 @@ fd_epoch_rewards_hash_and_insert( fd_epoch_rewards_t * epoch_rewards,
   ulong hash64 = fd_siphash13_fini( hasher );
 
   /* Now get the correct dlist based on the hash. */
-  ulong partition_index = (ulong)((uint128)epoch_rewards->num_partitions_ * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
+  ulong partition_index = (ulong)((uint128)epoch_rewards->num_partitions * (uint128) hash64 / ((uint128)ULONG_MAX + 1));
 
   fd_epoch_stake_reward_dlist_t * partition_dlist = fd_epoch_rewards_get_partition_index( epoch_rewards, partition_index );
   if( FD_UNLIKELY( !partition_dlist ) ) {

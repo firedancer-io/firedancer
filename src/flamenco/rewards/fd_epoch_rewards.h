@@ -84,24 +84,24 @@ struct fd_epoch_rewards {
   ulong magic;
 
   /* Data representing the partitioned stake rewards */
-  int   is_active_;
-  ulong stake_account_max_;
-  ulong starting_block_height_;
-  ulong num_partitions_;
-  ulong partitions_lengths_[FD_REWARDS_MAX_PARTITIONS];
+  int   is_active;
+  ulong stake_account_max;
+  ulong starting_block_height;
+  ulong num_partitions;
+  ulong partitions_lengths[FD_REWARDS_MAX_PARTITIONS];
 
   /* Result of total rewards distribution */
 
   /* Total rewards for the epoch (including both vote rewards and stake
      rewards) */
-  ulong total_rewards_;
+  ulong total_rewards;
   /* total rewards points calculated for the current epoch, where points
      equals the sum of (delegated stake * credits observed) for all
      delegations */
-  ulong distributed_rewards_;
+  ulong distributed_rewards;
   /* Stake rewards that still need to be distributed, grouped by
      partition */
-  uint128 total_points_;
+  uint128 total_points;
 
   /* This will be followed by a pool of fd_epoch_stake_reward_t. This
      pool will be sized out to FD_BANKS_MAX_STAKE_ACCOUNTS. */
@@ -176,77 +176,9 @@ fd_epoch_rewards_hash_and_insert( fd_epoch_rewards_t * epoch_rewards,
 ulong
 fd_epoch_rewards_get_distribution_partition_index( fd_epoch_rewards_t const * epoch_rewards, ulong curr_block_height );
 
-/* Simple inline mutator functions */
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_active( fd_epoch_rewards_t * epoch_rewards, int is_active ) {
-  epoch_rewards->is_active_ = is_active;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_starting_block_height( fd_epoch_rewards_t * epoch_rewards, ulong block_height ) {
-  epoch_rewards->starting_block_height_ = block_height;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_num_partitions( fd_epoch_rewards_t * epoch_rewards, ulong num_partitions ) {
-  if( FD_UNLIKELY( num_partitions>FD_REWARDS_MAX_PARTITIONS ) ) {
-    FD_LOG_WARNING(( "num_partitions: %lu is greater than FD_REWARDS_MAX_PARTITIONS: %lu", num_partitions, FD_REWARDS_MAX_PARTITIONS ));
-    return;
-  }
-  epoch_rewards->num_partitions_ = num_partitions;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_distributed_rewards( fd_epoch_rewards_t * epoch_rewards, ulong distributed_rewards ) {
-  epoch_rewards->distributed_rewards_ = distributed_rewards;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_total_rewards( fd_epoch_rewards_t * epoch_rewards, ulong total_rewards ) {
-  epoch_rewards->total_rewards_ = total_rewards;
-}
-
-static void FD_FN_UNUSED
-fd_epoch_rewards_set_total_points( fd_epoch_rewards_t * epoch_rewards, uint128 total_points ) {
-  epoch_rewards->total_points_ = total_points;
-}
-
-/* Simple inline accessor functions */
-
-static int FD_FN_UNUSED
-fd_epoch_rewards_is_active( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->is_active_;
-}
-
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_num_partitions( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->num_partitions_;
-}
-
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_starting_block_height( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->starting_block_height_;
-}
-
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_epoch_rewards_get_exclusive_ending_block_height( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->starting_block_height_ + epoch_rewards->num_partitions_;
-}
-
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_distributed_rewards( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->distributed_rewards_;
-}
-
-static uint128 FD_FN_UNUSED
-fd_epoch_rewards_get_total_points( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->total_points_;
-}
-
-static ulong FD_FN_UNUSED
-fd_epoch_rewards_get_total_rewards( fd_epoch_rewards_t const * epoch_rewards ) {
-  return epoch_rewards->total_rewards_;
+  return epoch_rewards->starting_block_height + epoch_rewards->num_partitions;
 }
 
 FD_PROTOTYPES_END

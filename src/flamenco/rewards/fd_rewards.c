@@ -731,7 +731,7 @@ hash_rewards_into_partitions( fd_bank_t *                     bank,
   if( FD_UNLIKELY( !epoch_rewards ) ) {
     FD_LOG_CRIT(( "failed to join epoch rewards" ));
   }
-  fd_epoch_rewards_set_num_partitions( epoch_rewards, num_partitions );
+  epoch_rewards->num_partitions = num_partitions;
 
   /* Iterate over all the stake rewards, moving references to them into the appropiate partitions.
       IMPORTANT: after this, we cannot use the original stake rewards dlist anymore. */
@@ -907,9 +907,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   fd_bank_capitalization_set( bank, fd_bank_capitalization_get( bank ) + distributed_rewards );
 
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_locking_modify( bank );
-  fd_epoch_rewards_set_distributed_rewards( epoch_rewards, distributed_rewards );
-  fd_epoch_rewards_set_total_rewards( epoch_rewards, rewards_calc_result->point_value.rewards );
-  fd_epoch_rewards_set_total_points( epoch_rewards, rewards_calc_result->point_value.points );
+  epoch_rewards->distributed_rewards = distributed_rewards;
+  epoch_rewards->total_rewards       = rewards_calc_result->point_value.rewards;
+  epoch_rewards->total_points        = rewards_calc_result->point_value.points;
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
@@ -1004,10 +1004,10 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
 static void
 set_epoch_reward_status_inactive( fd_bank_t * bank ) {
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_locking_modify( bank );
-  if( fd_epoch_rewards_is_active( epoch_rewards ) ) {
+  if( epoch_rewards->is_active ) {
     FD_LOG_NOTICE(( "Done partitioning rewards for current epoch" ));
   }
-  fd_epoch_rewards_set_active( epoch_rewards, 0 );
+  epoch_rewards->is_active = 0;
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
@@ -1022,8 +1022,8 @@ set_epoch_reward_status_active( fd_bank_t * bank,
 
   fd_epoch_rewards_t * epoch_rewards = fd_bank_epoch_rewards_locking_modify( bank );
 
-  fd_epoch_rewards_set_active( epoch_rewards, 1 );
-  fd_epoch_rewards_set_starting_block_height( epoch_rewards, distribution_starting_block_height );
+  epoch_rewards->is_active             = 1;
+  epoch_rewards->starting_block_height = distribution_starting_block_height;
   fd_bank_epoch_rewards_end_locking_modify( bank );
 }
 
@@ -1079,19 +1079,19 @@ fd_distribute_partitioned_epoch_rewards( fd_bank_t *               bank,
 
   fd_epoch_rewards_t const * epoch_rewards = fd_bank_epoch_rewards_locking_query( bank );
 
-  if( !fd_epoch_rewards_is_active( epoch_rewards ) ) {
+  if( !epoch_rewards->is_active ) {
     fd_bank_epoch_rewards_end_locking_query( bank );
     return;
   }
 
   ulong height                             = fd_bank_block_height_get( bank );
-  ulong distribution_starting_block_height = fd_epoch_rewards_get_starting_block_height( epoch_rewards );
+  ulong distribution_starting_block_height = epoch_rewards->starting_block_height;
   ulong distribution_end_exclusive         = fd_epoch_rewards_get_exclusive_ending_block_height( epoch_rewards );
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       epoch          = fd_bank_epoch_get( bank );
 
-  if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= fd_epoch_rewards_get_num_partitions( epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( get_slots_in_epoch( epoch, epoch_schedule ) <= epoch_rewards->num_partitions ) ) {
     FD_LOG_CRIT(( "Should not be distributing rewards" ));
   }
 
@@ -1164,11 +1164,11 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       funk,
       xid,
       capture_ctx,
-      fd_epoch_rewards_get_distributed_rewards( epoch_rewards ),
+      epoch_rewards->distributed_rewards,
       distribution_starting_block_height,
-      fd_epoch_rewards_get_num_partitions( epoch_rewards ),
-      fd_epoch_rewards_get_total_rewards( epoch_rewards ),
-      fd_epoch_rewards_get_total_points( epoch_rewards ),
+      epoch_rewards->num_partitions,
+      epoch_rewards->total_rewards,
+      epoch_rewards->total_points,
       parent_blockhash );
   fd_bank_epoch_rewards_end_locking_query( bank );
 }
