@@ -1241,11 +1241,12 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
     }
 
     fd_accumulate_stake_infos(
-        epoch,
+        bank,
         stake_delegations,
         stake_history,
         new_warmup_cooldown_rate_epoch,
-        &_accumulator );
+        &_accumulator,
+        1 /* is_recalculation */ );
 
     /* Make sure is_recalculation is ==1 since we are booting up in the
        middle of rewards distribution (so we should use the epoch

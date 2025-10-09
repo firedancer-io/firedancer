@@ -564,15 +564,15 @@ stake_and_activating( fd_delegation_t const *    self,
 }
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L641
-static fd_stake_activation_status_t
-stake_activating_and_deactivating( fd_delegation_t const *    self,
-                                   ulong                      target_epoch,
-                                   fd_stake_history_t const * stake_history,
-                                   ulong *                    new_rate_activation_epoch ) {
+fd_stake_activation_status_t
+fd_stake_activating_and_deactivating( fd_delegation_t const *    delegation,
+                                      ulong                      target_epoch,
+                                      fd_stake_history_t const * stake_history,
+                                      ulong *                    new_rate_activation_epoch ) {
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L648
   effective_activating_t effective_activating =
-      stake_and_activating( self, target_epoch, stake_history, new_rate_activation_epoch );
+      stake_and_activating( delegation, target_epoch, stake_history, new_rate_activation_epoch );
 
   ulong effective_stake  = effective_activating.effective;
   ulong activating_stake = effective_activating.activating;
@@ -580,7 +580,7 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
   fd_stake_history_entry_t const * cluster_stake_at_deactivation_epoch = NULL;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/stake/state.rs#L652
-  if( target_epoch<self->deactivation_epoch ) {
+  if( target_epoch<delegation->deactivation_epoch ) {
     // if is bootstrap
     if( activating_stake==0 ) {
       return ( fd_stake_history_entry_t ){
@@ -589,14 +589,14 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
       return ( fd_stake_history_entry_t ){
           .effective = effective_stake, .deactivating = 0, .activating = activating_stake };
     }
-  } else if( target_epoch==self->deactivation_epoch ) {
+  } else if( target_epoch==delegation->deactivation_epoch ) {
     // https://github.com/anza-xyz/agave/blob/be16321eb0db3e12a57a32f59febbf54b92ebb7c/sdk/program/src/stake/state.rs#L662
     return ( fd_stake_history_entry_t ){
         .effective = effective_stake, .deactivating = effective_stake, .activating = 0 };
   } else if( stake_history &&
-             ( cluster_stake_at_deactivation_epoch = fd_stake_history_ele_query_const( stake_history, self->deactivation_epoch ) ) ) {
+             ( cluster_stake_at_deactivation_epoch = fd_stake_history_ele_query_const( stake_history, delegation->deactivation_epoch ) ) ) {
     // https://github.com/anza-xyz/agave/blob/be16321eb0db3e12a57a32f59febbf54b92ebb7c/sdk/program/src/stake/state.rs#L665
-    ulong                      prev_epoch         = self->deactivation_epoch;
+    ulong prev_epoch = delegation->deactivation_epoch;
     fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_deactivation_epoch;
 
     ulong current_epoch;
@@ -646,8 +646,7 @@ delegation_stake( fd_delegation_t const *    self,
                   ulong                      epoch,
                   fd_stake_history_t const * history,
                   ulong *                    new_rate_activation_epoch ) {
-  return stake_activating_and_deactivating( self, epoch, history, new_rate_activation_epoch )
-      .effective;
+  return fd_stake_activating_and_deactivating( self, epoch, history, new_rate_activation_epoch ).effective;
 }
 
 /**********************************************************************/
@@ -842,10 +841,10 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1108
     fd_stake_history_entry_t status =
-        stake_activating_and_deactivating( &stake->delegation,
-                                           clock->epoch,
-                                           stake_history,
-                                           fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
+        fd_stake_activating_and_deactivating( &stake->delegation,
+                                              clock->epoch,
+                                              stake_history,
+                                              fd_ptr_if( is_some, &new_rate_activation_epoch, NULL ) );
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1115
     if( status.effective==0 && status.activating==0 && status.deactivating==0 ) {
@@ -1160,7 +1159,7 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
   if( FD_UNLIKELY( err ) ) return err;
 
   fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history_join_const( sysvar_cache );
-  *out = stake_activating_and_deactivating(
+  *out = fd_stake_activating_and_deactivating(
       &stake->delegation,
       clock->epoch,
       stake_history,
@@ -3277,13 +3276,4 @@ int
 fd_stake_get_state( fd_txn_account_t const * self,
                     fd_stake_state_v2_t *         out ) {
   return get_state( self, out );
-}
-
-fd_stake_history_entry_t
-fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
-                                      ulong                      target_epoch,
-                                      fd_stake_history_t const * stake_history,
-                                      ulong *                    new_rate_activation_epoch ) {
-  return stake_activating_and_deactivating(
-    self, target_epoch, stake_history, new_rate_activation_epoch );
 }

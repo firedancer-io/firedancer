@@ -1526,24 +1526,15 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
     new_rate_activation_epoch = NULL;
   }
 
-  /* Updates stake history sysvar accumulated values. */
+  /* The first thing that needs to be done is to calculate the value of
+     the stake history entry that needs to be inserted into the stake
+     history sysvar.  At this point, we need to calculate the stakes for
+      */
   fd_stakes_activate_epoch( bank, funk, xid, capture_ctx, stake_delegations, new_rate_activation_epoch, runtime_spad );
-
-  /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
-    https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
-  if( FD_UNLIKELY( !history ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
-  }
 
   /* Now increment the epoch */
 
   fd_bank_epoch_set( bank, fd_bank_epoch_get( bank ) + 1UL );
-
-  fd_refresh_vote_accounts( bank,
-                            stake_delegations,
-                            history,
-                            new_rate_activation_epoch );
 
   /* Distribute rewards */
 
@@ -1555,6 +1546,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
     parent_blockhash = *bhq_last;
   }
 
+  long e = fd_log_wallclock();
   fd_begin_partitioned_rewards( bank,
                                 funk,
                                 xid,
@@ -1563,7 +1555,8 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
                                 &parent_blockhash,
                                 parent_epoch,
                                 runtime_spad );
-
+  long f = fd_log_wallclock();
+  FD_LOG_NOTICE(("fd_begin_partitioned_rewards took %ld ns", f - e));
 
   /* Update vote_states_prev_prev with vote_states_prev */
 
@@ -1580,7 +1573,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
   long end = fd_log_wallclock();
-  FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
+  FD_LOG_CRIT(("fd_process_new_epoch took %ld ns", end - start));
 
   } FD_SPAD_FRAME_END;
 }

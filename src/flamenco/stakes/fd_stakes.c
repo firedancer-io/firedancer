@@ -84,30 +84,36 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
-  FD_LOG_CRIT(("TOTAL STAKE %lu %lu", fd_bank_epoch_get( bank ), total_stake));
-
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* Accumulate stake information for this epoch into a stake history
    entry which gets inserted into the stake history sysvar.  Unlike in
    the Agave client, the total amount of stake on each vote account is
-   not updated as stake accounts are updated/inserted/removed.  Because,
-   we are already iterating through all of the stake accounts,
-   update the stake information for each vote accoutn as well. */
+   not updated as stake accounts are updated/inserted/removed and is
+   instead done at the end of an epoch.  */
 
 void
-fd_accumulate_stake_infos( ulong                          epoch,
+fd_accumulate_stake_infos( fd_bank_t *                    bank,
                            fd_stake_delegations_t const * stake_delegations,
                            fd_stake_history_t const *     history,
                            ulong *                        new_rate_activation_epoch,
-                           fd_stake_history_entry_t *     accumulator ) {
+                           fd_stake_history_entry_t *     accumulator,
+                           int                            is_recalculation ) {
 
-  ulong effective    = 0UL;
-  ulong activating   = 0UL;
-  ulong deactivating = 0UL;
+  /* This represents the total amount of activated stake for the epoch
+     after the epoch boundary. */
+  ulong total_stake = 0UL;
 
-  FD_LOG_WARNING(("TIMESTAMP %lu", fd_log_wallclock()));
+  ulong epoch = fd_bank_epoch_get( bank );
+
+  fd_vote_states_t * vote_states = NULL;
+  if( !is_recalculation ) {
+    vote_states = fd_bank_vote_states_locking_modify( bank );
+    if( FD_UNLIKELY( !vote_states ) ) {
+      FD_LOG_CRIT(( "vote_states is NULL" ));
+    }
+  }
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -128,19 +134,34 @@ fd_accumulate_stake_infos( ulong                          epoch,
         epoch,
         history,
         new_rate_activation_epoch );
-    effective    += new_entry.effective;
-    activating   += new_entry.activating;
-    deactivating += new_entry.deactivating;
+
+    if( !is_recalculation ) {
+      fd_stake_history_entry_t next_epoch_entry = fd_stake_activating_and_deactivating(
+          &delegation,
+          epoch+1UL,
+          history,
+          new_rate_activation_epoch );
+
+      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
+      if( FD_LIKELY( vote_state ) ) {
+        total_stake       += next_epoch_entry.effective;
+        vote_state->stake += next_epoch_entry.effective;
+      }
+    }
+
+    accumulator->effective    += new_entry.effective;
+    accumulator->activating   += new_entry.activating;
+    accumulator->deactivating += new_entry.deactivating;
   }
 
-  FD_LOG_WARNING(("TIMESTAMP2 %lu", fd_log_wallclock()));
-
-  accumulator->effective    += effective;
-  accumulator->activating   += activating;
-  accumulator->deactivating += deactivating;
+  if( !is_recalculation ) {
+    /* Store the total amount of activated stake for the new epoch.*/
+    fd_bank_total_epoch_stake_set( bank, total_stake );
+    fd_bank_vote_states_end_locking_modify( bank );
+  }
 }
 
-/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
+/* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/stakes.rs#L280 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           fd_funk_t *                    funk,
@@ -150,13 +171,14 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
                           ulong *                        new_rate_activation_epoch,
                           fd_spad_t *                    runtime_spad ) {
 
-  /* Current stake delegations: list of all current delegations in stake_delegations
-     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
-  /* Add a new entry to the Stake History sysvar for the previous epoch
-     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
+  /* This function is responsible for updating the stake history sysvar
+     with the stake information for the current epoch and computing
+     stake values for the next epoch. */
 
   fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  if( FD_UNLIKELY( !history ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  }
 
   fd_stake_history_entry_t accumulator = {
     .effective    = 0UL,
@@ -164,15 +186,14 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     .deactivating = 0UL
   };
 
-  /* Accumulate stats for stake accounts */
   fd_accumulate_stake_infos(
-      fd_bank_epoch_get( bank ),
+      bank,
       stake_delegations,
       history,
       new_rate_activation_epoch,
-      &accumulator );
+      &accumulator,
+      0 /* is_recalculation */ );
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
   fd_epoch_stake_history_entry_pair_t new_elem = {
     .epoch = fd_bank_epoch_get( bank ),
     .entry = {
@@ -181,8 +202,6 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
       .deactivating = accumulator.deactivating
     }
   };
-
-  FD_LOG_WARNING(("EFFECTIVE STAKE EFFECTIVE STAKE %lu %lu", fd_bank_epoch_get( bank ),  new_elem.entry.effective));
 
   fd_sysvar_stake_history_update( bank, funk, xid, capture_ctx, &new_elem, runtime_spad );
 
