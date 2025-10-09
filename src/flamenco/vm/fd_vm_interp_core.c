@@ -272,7 +272,9 @@
   shadow[ frame_cnt ].r10 = reg[10];                                                                         \
   shadow[ frame_cnt ].pc  = pc;                                                                              \
   if( FD_UNLIKELY( ++frame_cnt>=frame_max ) ) goto sigstack; /* Note: untaken branches don't consume BTB */ \
-  if( !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) ) reg[10] += vm->stack_frame_size;
+  if( !fd_sbpf_dynamic_stack_frames_enabled( sbpf_version ) ) { \
+reg[10] += FD_VM_STACK_FRAME_SZ * 2UL; /* Stack frame gap */ \
+  }
 
   /* We subtract the heap cost in the BPF loader */
 

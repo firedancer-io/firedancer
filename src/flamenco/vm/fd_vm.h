@@ -206,8 +206,7 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   int   direct_mapping;                       /* If direct mapping feature flag is enabled */
   int   stricter_abi_and_runtime_constraints; /* If stricter_abi_and_runtime_constraints feature flag is enabled */
-  ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
-
+  
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
      - (If direct mapping is enabled) determining the instruction error
@@ -233,7 +232,7 @@ FD_PROTOTYPES_BEGIN
    integer power of 2.  FOOTPRINT is a multiple of align.
    These are provided to facilitate compile time declarations. */
 #define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
-#define FD_VM_FOOTPRINT (527840UL)
+#define FD_VM_FOOTPRINT (527824UL)
 
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
