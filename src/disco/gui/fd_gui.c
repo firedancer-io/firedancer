@@ -2183,7 +2183,7 @@ fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
 
 static void
 fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
-  ulong unstaged_cnt = 0UL;
+  // ulong unstaged_cnt = 0UL;
   for( ulong i=0UL; i<fd_ulong_min( root_slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = root_slot - i;
 
@@ -2195,32 +2195,33 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
     }
     if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
 
-    /* archive root shred events */
-    slot->shreds.start_offset = gui->shreds.history_tail;
-    for( ulong i=gui->shreds.staged_head; i<gui->shreds.staged_tail; i++ ) {
-      if( FD_UNLIKELY( gui->shreds.staged[ i ].slot==slot->slot ) ) {
-        /* move event to history */
-        gui->shreds.history[ gui->shreds.history_tail ].timestamp = gui->shreds.staged[ i ].timestamp;
-        gui->shreds.history[ gui->shreds.history_tail ].shred_idx = gui->shreds.staged[ i ].shred_idx;
-        gui->shreds.history[ gui->shreds.history_tail ].event     = gui->shreds.staged[ i ].event;
-        gui->shreds.history_tail++;
+    /* TODO: commented out due to being too slow */
+    // /* archive root shred events */
+    // slot->shreds.start_offset = gui->shreds.history_tail;
+    // for( ulong i=gui->shreds.staged_head; i<gui->shreds.staged_tail; i++ ) {
+    //   if( FD_UNLIKELY( gui->shreds.staged[ i ].slot==slot->slot ) ) {
+    //     /* move event to history */
+    //     gui->shreds.history[ gui->shreds.history_tail ].timestamp = gui->shreds.staged[ i ].timestamp;
+    //     gui->shreds.history[ gui->shreds.history_tail ].shred_idx = gui->shreds.staged[ i ].shred_idx;
+    //     gui->shreds.history[ gui->shreds.history_tail ].event     = gui->shreds.staged[ i ].event;
+    //     gui->shreds.history_tail++;
 
-        gui->shreds.staged[ i ].slot = ULONG_MAX;
-        unstaged_cnt++;
-      }
+    //     gui->shreds.staged[ i ].slot = ULONG_MAX;
+    //     unstaged_cnt++;
+    //   }
 
-      /* evict older slots staged also */
-      if( FD_UNLIKELY( gui->shreds.staged[ i ].slot<slot->slot ) ) {
-        gui->shreds.staged[ i ].slot = ULONG_MAX;
-        unstaged_cnt++;
-      }
-    }
-    slot->shreds.end_offset = gui->shreds.history_tail;
+    //   /* evict older slots staged also */
+    //   if( FD_UNLIKELY( gui->shreds.staged[ i ].slot<slot->slot ) ) {
+    //     gui->shreds.staged[ i ].slot = ULONG_MAX;
+    //     unstaged_cnt++;
+    //   }
+    // }
+    // slot->shreds.end_offset = gui->shreds.history_tail;
 
-    /* change notarization levels and rebroadcast */
-    slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
-    fd_gui_printf_slot( gui, parent_slot );
-    fd_http_server_ws_broadcast( gui->http );
+    // /* change notarization levels and rebroadcast */
+    // slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    // fd_gui_printf_slot( gui, parent_slot );
+    // fd_http_server_ws_broadcast( gui->http );
   }
 
   /* The entries from the staging area are evicted by setting their
@@ -2228,15 +2229,15 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
 
       IMPORTANT: this sort needs to be stable since we always keep
       valid un-broadcast events at the end of the ring buffer */
-  if( FD_LIKELY( unstaged_cnt ) ) {
-    fd_gui_slot_staged_shred_event_sort_insert( &gui->shreds.staged[ gui->shreds.staged_head ], gui->shreds.staged_tail-gui->shreds.staged_head );
-    gui->shreds.staged_head += unstaged_cnt;
-  }
+  // if( FD_LIKELY( unstaged_cnt ) ) {
+  //   fd_gui_slot_staged_shred_event_sort_insert( &gui->shreds.staged[ gui->shreds.staged_head ], gui->shreds.staged_tail-gui->shreds.staged_head );
+  //   gui->shreds.staged_head += unstaged_cnt;
+  // }
 
-  /* In the rare case that we are archiving any shred events that have
-      not yet been broadcast, we'll increment
-      gui->shreds.staged_next_broadcast to keep it in bounds. */
-  gui->shreds.staged_next_broadcast = fd_ulong_max( gui->shreds.staged_head, gui->shreds.staged_next_broadcast );
+  // /* In the rare case that we are archiving any shred events that have
+  //     not yet been broadcast, we'll increment
+  //     gui->shreds.staged_next_broadcast to keep it in bounds. */
+  // gui->shreds.staged_next_broadcast = fd_ulong_max( gui->shreds.staged_head, gui->shreds.staged_next_broadcast );
 
   gui->summary.slot_rooted = root_slot;
   fd_gui_printf_root_slot( gui );
