@@ -220,19 +220,47 @@ struct fd_sbpf_loader {
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
-/* Queries a single string from a section which is marked as SHT_STRTAB.
-   Returns an ElfParserError on failure. On success, returns 0 and
-   writes the queried string into out_str, which should be a
-   pre-allocated buffer of at least maximum_length bytes. The resulting
-   string is guaranteed to be null-terminated on success.
+/* fd_sbpf_slice_cstr_eq is a helper method for checking equality
+   between a slice of memory to a null-terminated C-string.  Unlike
+   strcmp, this function does not include the null-terminator in the
+   comparison.  Returns 1 if the first slice_len bytes of the slice and
+   cstr are equal, and 0 otherwise. */
+static inline int
+fd_sbpf_slice_cstr_eq( uchar const * slice,
+                       ulong         slice_len,
+                       char const *  cstr ) {
+  return !!(slice_len==strlen( cstr ) && fd_memeq( slice, cstr, slice_len ));
+}
+
+/* fd_sbpf_slice_cstr_start_with is a helper method for checking that a
+   null-terminated C-string is a prefix of a slice of memory.  Returns 1
+   if the first strlen(cstr) bytes of cstr is a prefix of slice, and 0
+   otherwise. */
+static inline int
+fd_sbpf_slice_cstr_start_with( uchar const * slice,
+                               ulong         slice_len,
+                               char const *  cstr ) {
+  ulong cstr_len = strlen( cstr );
+  return !!(slice_len>=cstr_len && fd_memeq( slice, cstr, cstr_len ));
+}
+
+/* fd_sbpf_lenient_get_string_in_section queries a single string from a
+   section which is marked as SHT_STRTAB.  Returns an ElfParserError on
+   failure, and leaves *out_slice and *out_slice_len in an undefined
+   state.  On success, returns 0 and sets *out_slice to a pointer into
+   elf_bytes corresponding to the beginning of the string within the
+   section.  *out_slice_len is set to the length of the resulting slice.
+   Note that *out_slice_len does not include the null-terminator of the
+   resulting string.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L467-L496 */
 int
-fd_sbpf_lenient_get_string_in_section( void const *          elf_bytes,
+fd_sbpf_lenient_get_string_in_section( uchar const *         elf_bytes,
                                        ulong                 elf_bytes_len,
                                        fd_elf64_shdr const * section_header,
                                        uint                  offset_in_section,
                                        ulong                 maximum_length,
-                                       char *                out_str ) {
+                                       uchar const **        out_slice,
+                                       ulong *               out_slice_len ) {
   /* This could be checked only once outside the loop, but to keep the code the same...
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L474-L476 */
   if( FD_UNLIKELY( section_header->sh_type!=FD_ELF_SHT_STRTAB ) ) {
@@ -240,7 +268,7 @@ fd_sbpf_lenient_get_string_in_section( void const *          elf_bytes,
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L477-L482 */
-  ulong offset_in_file     = section_header->sh_offset+(ulong)offset_in_section; /* can't overflow */
+  ulong offset_in_file     = fd_ulong_sat_add( section_header->sh_offset, offset_in_section );
   ulong string_range_start = offset_in_file;
   ulong string_range_end   = fd_ulong_min( section_header->sh_offset+section_header->sh_size, offset_in_file+maximum_length );
   if( FD_UNLIKELY( string_range_end>elf_bytes_len ) ) {
@@ -253,12 +281,14 @@ fd_sbpf_lenient_get_string_in_section( void const *          elf_bytes,
   }
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L486-L495 */
-  if( FD_UNLIKELY( memchr( (uchar const *)elf_bytes+string_range_start, 0, string_range_end-string_range_start )==NULL ) ) {
+  uchar * null_terminator_ptr = memchr( (uchar const *)elf_bytes+string_range_start, 0, string_range_end-string_range_start );
+  if( FD_UNLIKELY( null_terminator_ptr==NULL ) ) {
     return FD_SBPF_ELF_PARSER_ERR_STRING_TOO_LONG;
   }
 
-  /* Write the string to the output buffer. */
-  memcpy( out_str, (uchar const *)elf_bytes+string_range_start, string_range_end-string_range_start );
+  *out_slice     = elf_bytes+string_range_start;
+  *out_slice_len = (ulong)(null_terminator_ptr-*out_slice);
+
   return FD_SBPF_ELF_SUCCESS;
 }
 
@@ -292,12 +322,13 @@ fd_sbpf_lenient_get_string_in_section( void const *          elf_bytes,
 static int
 fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
                                          fd_sbpf_program_t * prog,
-                                         char const *        name,
+                                         uchar const *       name,
+                                         ulong               name_len,
                                          ulong               target_pc,
                                          uint *              opt_out_pc_hash ) {
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L156-L160 */
   uint pc_hash;
-  uchar is_entrypoint = strcmp( name, "entrypoint" )==0 ||
+  uchar is_entrypoint = fd_sbpf_slice_cstr_eq( name, name_len, "entrypoint" ) ||
                         target_pc==FD_SBPF_ENTRYPOINT_PC;
   if( FD_UNLIKELY( is_entrypoint ) ) {
     if( FD_UNLIKELY( prog->entry_pc!=ULONG_MAX && prog->entry_pc!=target_pc  ) ) {
@@ -635,8 +666,9 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
 
   /* Verify symbol name.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1261-L1263 */
-  char name[ FD_SBPF_SYMBOL_NAME_SZ_MAX ];
-  if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( elf, elf_sz, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SYMBOL_NAME_SZ_MAX, name ) ) ) {
+  uchar const * name;
+  ulong         name_len;
+  if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( elf->bin, elf_sz, dyn_section_names_shdr, symbol->st_name, FD_SBPF_SYMBOL_NAME_SZ_MAX, &name, &name_len ) ) ) {
     return FD_SBPF_ELF_ERR_UNKNOWN_SYMBOL;
   }
 
@@ -656,14 +688,14 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t *              loader,
 
       /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1270-L1279 */
       ulong target_pc = fd_ulong_sat_sub( symbol->st_value, sh_text->sh_addr ) / 8UL;
-      int err = fd_sbpf_register_function_hashed_legacy( loader, prog, name, target_pc, &key );
+      int err = fd_sbpf_register_function_hashed_legacy( loader, prog, name, name_len, target_pc, &key );
       if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
         return err;
       }
     } else {
       /* Else, it's a syscall. Ensure that the syscall can be resolved.
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1281-L1294 */
-      key = fd_murmur3_32(name, strlen( name ), 0UL );
+      key = fd_murmur3_32(name, name_len, 0UL );
       if( FD_UNLIKELY( config->reject_broken_elfs &&
                        fd_sbpf_syscalls_query( loader->syscalls, key, NULL )==NULL ) ) {
         return FD_SBPF_ELF_ERR_UNRESOLVED_SYMBOL;
@@ -841,7 +873,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   /* Program headers
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L164-L165 */
 
-  ulong phdr_sz    = (ulong)( ehdr.e_phnum )*sizeof(fd_elf64_phdr); /* this can't overflow */
+  ulong phdr_sz    = fd_ulong_sat_mul( ehdr.e_phnum, sizeof(fd_elf64_phdr) );
   ulong phdr_start = ehdr.e_phoff;
   ulong phdr_end;
   /* Elf64::parse_program_header_table() */
@@ -878,7 +910,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
   /* Section headers
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L167-L172 */
 
-  ulong shdr_sz    = (ulong)( ehdr.e_shnum )*sizeof(fd_elf64_shdr); /* this can't overflow */
+  ulong shdr_sz    = fd_ulong_sat_mul( ehdr.e_shnum, sizeof(fd_elf64_shdr) );
   ulong shdr_start = ehdr.e_shoff;
   ulong shdr_end;
   /* Elf64::parse_section_header_table() */
@@ -1005,8 +1037,9 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       /* Again... */
       fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + shdr_start + i*sizeof(fd_elf64_shdr) );
 
-      char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
-      int res = fd_sbpf_lenient_get_string_in_section( bin, bin_sz, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, name );
+      uchar const * name;
+      ulong         name_len;
+      int res = fd_sbpf_lenient_get_string_in_section( bin, bin_sz, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len );
       if( FD_UNLIKELY( res < 0 ) ) {
         return res;
       }
@@ -1024,18 +1057,20 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
                 ...
                 _ => {}
             }
+         Note that the number of bytes compared should not include the
+         null-terminator.
         */
-      if(        fd_memeq( name, ".symtab", sizeof(".symtab") ) ) {
+      if( fd_sbpf_slice_cstr_eq( name, name_len, ".symtab" ) ) {
         if( FD_UNLIKELY( info->shndx_symtab != -1 ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         info->shndx_symtab = (int)i;
-      } else if( fd_memeq( name, ".strtab", sizeof(".strtab") ) ) {
+      } else if( fd_sbpf_slice_cstr_eq( name, name_len, ".strtab" ) ) {
         if( FD_UNLIKELY( info->shndx_strtab != -1 ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         info->shndx_strtab = (int)i;
-      } else if( fd_memeq( name, ".dynstr", sizeof(".dynstr") ) ) {
+      } else if( fd_sbpf_slice_cstr_eq( name, name_len, ".dynstr" ) ) {
         if( FD_UNLIKELY( info->shndx_dynstr != -1 ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
@@ -1260,19 +1295,20 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
   int shndx_text    = -1;
   int writeable_err = 0;
   int oob_err       = 0;
-  for( ulong i=0; i<ehdr.e_shnum; i++ ) {
+  for( ulong i=0UL; i<ehdr.e_shnum; i++ ) {
     /* Again... */
     fd_elf64_shdr shdr = FD_LOAD( fd_elf64_shdr, bin + ehdr.e_shoff + i*sizeof(fd_elf64_shdr) );
 
-    char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
-    int res = fd_sbpf_lenient_get_string_in_section( bin, bin_sz, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, name );
-    if( FD_UNLIKELY( res < 0 ) ) {
+    uchar const * name;
+    ulong         name_len;
+    int res = fd_sbpf_lenient_get_string_in_section( bin, bin_sz, &section_names_shdr, shdr.sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len );
+    if( FD_UNLIKELY( res ) ) {
       /* this can never fail because it was checked above, but safer to keep it */
       return fd_sbpf_elf_parser_err_to_elf_err( res );
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L765-L775 */
-    if( FD_UNLIKELY( fd_memeq( name, ".text", sizeof(".text") ) ) ) {
+    if( FD_UNLIKELY( fd_sbpf_slice_cstr_eq( name, name_len, ".text" ) ) ) {
       if( FD_LIKELY( shndx_text==-1 ) ) {
         *text_shdr = shdr;  /* Store the text section header */
         shndx_text = (int)i;
@@ -1282,14 +1318,10 @@ fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L780-L791 */
-    if( FD_UNLIKELY(
-      fd_memeq( name, ".bss", sizeof(".bss")-1UL ) /* starts with */
-      || (
-        ( ( shdr.sh_flags & (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) ) == (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) )
-        &&  fd_memeq( name, ".data", sizeof(".data")-1UL ) /* starts with */
-        && !fd_memeq( name, ".data.rel", sizeof(".data.rel")-1UL ) /* starts with */
-      )
-    ) ) {
+    if( FD_UNLIKELY( fd_sbpf_slice_cstr_start_with( name, name_len, ".bss" ) ||
+                     ( ( ( shdr.sh_flags & (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) ) == (FD_ELF_SHF_ALLOC | FD_ELF_SHF_WRITE) ) &&
+                           fd_sbpf_slice_cstr_start_with( name, name_len, ".data" ) &&
+                           !fd_sbpf_slice_cstr_start_with( name, name_len, ".data.rel" ) ) ) ) {
       /* to match Agave return error we can't fail here */
       writeable_err = 1;
     }
@@ -1482,15 +1514,16 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
 
     /* Match the section name.
        https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L838-L845 */
-    char name[ FD_SBPF_SECTION_NAME_SZ_MAX ];
-    if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( bin, bin_sz, section_names_shdr, section_header->sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, name ) ) ) {
+    uchar const * name;
+    ulong         name_len;
+    if( FD_UNLIKELY( fd_sbpf_lenient_get_string_in_section( bin, bin_sz, section_names_shdr, section_header->sh_name, FD_SBPF_SECTION_NAME_SZ_MAX, &name, &name_len ) ) ) {
       continue;
     }
 
-    if( FD_UNLIKELY( strncmp( name, ".text", sizeof(".text") ) &&
-                     strncmp( name, ".rodata", sizeof(".rodata") ) &&
-                     strncmp( name, ".data.rel.ro", sizeof(".data.rel.ro") ) &&
-                     strncmp( name, ".eh_frame", sizeof(".eh_frame") ) ) ) {
+    if( FD_UNLIKELY( !fd_sbpf_slice_cstr_eq( name, name_len, ".text" ) &&
+                     !fd_sbpf_slice_cstr_eq( name, name_len, ".rodata" ) &&
+                     !fd_sbpf_slice_cstr_eq( name, name_len, ".data.rel.ro" ) &&
+                     !fd_sbpf_slice_cstr_eq( name, name_len, ".eh_frame" ) ) ) {
       continue;
     }
 
@@ -1649,7 +1682,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
       /* Update the calldests
          https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L1027-L1032 */
       uint pc_hash;
-      int err = fd_sbpf_register_function_hashed_legacy( loader, prog, "", (ulong)target_pc, &pc_hash );
+      int err = fd_sbpf_register_function_hashed_legacy( loader, prog, NULL, 0UL, (ulong)target_pc, &pc_hash );
       if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
         return err;
       }
@@ -1763,7 +1796,8 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
   err = fd_sbpf_register_function_hashed_legacy(
       loader,
       prog,
-      "entrypoint",
+      (uchar const *)"entrypoint",
+      strlen( "entrypoint" ),
       entry_pc,
       NULL );
   if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
