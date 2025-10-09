@@ -462,11 +462,11 @@ def create_staked_keys(ctx, validator_name, sol, percentage):
     subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key])
 
 
-@main.command('stake-node')
+@main.command('delegate-stake')
 @click.argument('vote-key', type=str)
 @click.argument('amount', type=int)
 @click.pass_context
-def stake_node(ctx, vote_key, amount):
+def delegate_stake(ctx, vote_key, amount):
     """Stake a node."""
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -486,6 +486,30 @@ def stake_node(ctx, vote_key, amount):
 
     subprocess.run([solana, "-u", f"http://{ip()}:8899", "create-stake-account", "-k", faucet_key, "--stake-authority", authority_key, "--withdraw-authority", faucet_key, stake_key, f"{amount}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run([solana, "-u", f"http://{ip()}:8899", "delegate-stake", "-k", faucet_key, "--stake-authority", authority_key, stake_key, vote_key])
+
+
+@main.command('deactivate-stake')
+@click.argument('stake-key', type=str)
+@click.pass_context
+def deactivate_stake(ctx, stake_key):
+    """Deactivate a stake."""
+    cluster_path = str(get_ledger_directory())
+    faucet_key = os.path.join(cluster_path, 'faucet.json')
+    authority_key = os.path.join(cluster_path, 'authority.json')
+
+    stake_keys_path = os.path.join(cluster_path, 'stake-accounts')
+    for stake_key_path in os.listdir(stake_keys_path):
+        current_stake_key = get_pubkey(os.path.join(stake_keys_path, stake_key_path))
+        if current_stake_key == stake_key:
+            stake_key_path = os.path.join(stake_keys_path, stake_key_path)
+            break
+    else:
+        click.echo(f"Error: Stake key does not exist: {stake_key}")
+        return
+    click.echo(f"Deactivating stake key: {stake_key_path}")
+
+    solana = solana_binary('solana')
+    subprocess.run([solana, "-u", f"http://{ip()}:8899", "deactivate-stake", stake_key_path, "-k", faucet_key, "--stake-authority", authority_key])
 
 
 @main.command('stop-node')
