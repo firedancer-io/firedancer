@@ -13,9 +13,9 @@ add_peer( fd_sspeer_selector_t * selector,
       .full = { .slot = full_slot },
       .incremental = { .base_slot = full_slot, .slot = incremental_slot }
     };
-    return fd_sspeer_selector_add( selector, addr, latency, &ssinfo );
+    return fd_sspeer_selector_add( selector, addr, NULL, latency, &ssinfo );
   } else {
-    return fd_sspeer_selector_add( selector, addr, latency, NULL );
+    return fd_sspeer_selector_add( selector, addr, NULL, latency, NULL );
   }
 }
 

@@ -1,10 +1,11 @@
 #include "fd_sspeer_selector.h"
 
 struct fd_sspeer_private {
-  fd_ip4_port_t addr;
-  fd_ssinfo_t   ssinfo;
-  ulong         latency;
-  ulong         score;
+  fd_ip4_port_t            addr;
+  fd_sspeer_meta_t const * meta;
+  fd_ssinfo_t              ssinfo;
+  ulong                    latency;
+  ulong                    score;
 
   struct {
     ulong next;
@@ -264,10 +265,11 @@ fd_sspeer_selector_update( fd_sspeer_selector_t * selector,
 }
 
 ulong
-fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
-                        fd_ip4_port_t          addr,
-                        ulong                  latency,
-                        fd_ssinfo_t const *    ssinfo ) {
+fd_sspeer_selector_add( fd_sspeer_selector_t *   selector,
+                        fd_ip4_port_t            addr,
+                        fd_sspeer_meta_t const * meta,
+                        ulong                    latency,
+                        fd_ssinfo_t const *      ssinfo ) {
   fd_sspeer_private_t * peer = peer_map_ele_query( selector->map, &addr, NULL, selector->pool );
   if( FD_LIKELY( peer ) ) {
     fd_sspeer_selector_update( selector, peer, latency, ssinfo );
@@ -285,6 +287,7 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
     }
 
     peer->addr    = addr;
+    peer->meta    = meta;
     peer->latency = latency;
     peer->score   = fd_sspeer_selector_score( selector, latency, ssinfo );
     peer_map_ele_insert( selector->map, peer, selector->pool );
@@ -320,15 +323,17 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
                    (!incremental ||
                    (incremental && peer->ssinfo.incremental.base_slot==base_slot) ) ) ) {
       return (fd_sspeer_t){
-        .addr    = peer->addr,
-        .ssinfo  = peer->ssinfo,
-        .score   = peer->score,
+        .addr   = peer->addr,
+        .meta   = peer->meta,
+        .ssinfo = peer->ssinfo,
+        .score  = peer->score,
       };
     }
   }
 
   return (fd_sspeer_t){
     .addr={ .l=0UL },
+    .meta=NULL,
     .ssinfo={ .full={ .slot=ULONG_MAX }, .incremental={ .base_slot=ULONG_MAX, .slot=ULONG_MAX } },
     .score=ULONG_MAX,
   };
@@ -368,6 +373,7 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
     shadow_peer->latency = peer->latency;
     shadow_peer->ssinfo  = peer->ssinfo;
     shadow_peer->addr    = peer->addr;
+    shadow_peer->meta    = peer->meta;
     shadow_peer->score   = fd_sspeer_selector_score( selector, shadow_peer->latency, &shadow_peer->ssinfo );
     score_treap_ele_insert( selector->shadow_score_treap, shadow_peer, selector->pool );
     selector->peer_idx_list[ idx++ ] = peer_pool_idx( selector->pool, peer );

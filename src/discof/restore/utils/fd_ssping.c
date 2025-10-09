@@ -25,8 +25,9 @@
 #define FD_SSPING_RATE_LIMIT (64UL) /* Only ping up to 64 peers at a time */
 
 struct fd_ssping_peer {
-  ulong         refcnt;
-  fd_ip4_port_t addr;
+  ulong                    refcnt;
+  fd_ip4_port_t            addr;
+  fd_sspeer_meta_t const * meta;
 
   struct {
     ulong next;
@@ -200,16 +201,18 @@ fd_ssping_join( void * shping ) {
 }
 
 void
-fd_ssping_add( fd_ssping_t * ssping,
-               fd_ip4_port_t addr ) {
+fd_ssping_add( fd_ssping_t *            ssping,
+               fd_ip4_port_t            addr,
+               fd_sspeer_meta_t const * meta ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
   if( FD_LIKELY( !peer ) ) {
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
     peer = peer_pool_ele_acquire( ssping->pool );
     FD_TEST( peer );
-    peer->refcnt        = 0UL;
-    peer->state         = PEER_STATE_UNPINGED;
-    peer->addr          = addr;
+    peer->refcnt = 0UL;
+    peer->state  = PEER_STATE_UNPINGED;
+    peer->addr   = addr;
+    peer->meta   = meta;
     peer->latency_nanos = ULONG_MAX;
     peer_map_ele_insert( ssping->map, peer, ssping->pool );
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
@@ -366,7 +369,7 @@ poll_advance( fd_ssping_t * ssping,
       deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
       remove_ping_fd( ssping, i );
 
-      ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->latency_nanos );
+      ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->meta, peer->latency_nanos );
 
       /* fds_len could have decreased if we removed a ping fd */
       next_poll_idx = fd_ulong_min( next_poll_idx, ssping->fds_len );

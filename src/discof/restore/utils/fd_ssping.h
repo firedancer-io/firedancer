@@ -28,10 +28,14 @@ typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
 struct fd_ssping_private;
 typedef struct fd_ssping_private fd_ssping_t;
 
+struct fd_sspeer_meta;
+typedef struct fd_sspeer_meta fd_sspeer_meta_t;
+
 typedef void
-(* fd_ssping_on_ping_fn_t)( void *        _ctx,
-                            fd_ip4_port_t addr,
-                            ulong         latency );
+(* fd_ssping_on_ping_fn_t)( void *                   _ctx,
+                            fd_ip4_port_t            addr,
+                            fd_sspeer_meta_t const * meta,
+                            ulong                    latency );
 
 FD_PROTOTYPES_BEGIN
 
@@ -63,8 +67,9 @@ fd_ssping_join( void * shping );
    being tracked, trying to add a new peer is a no-op. */
 
 void
-fd_ssping_add( fd_ssping_t * ssping,
-               fd_ip4_port_t addr );
+fd_ssping_add( fd_ssping_t *            ssping,
+               fd_ip4_port_t            addr,
+               fd_sspeer_meta_t const * meta );
 
 /* Remove a peer from tracking by the snapshot pinger.  Peers are
    reference counted, so this will only remove the peer only if the

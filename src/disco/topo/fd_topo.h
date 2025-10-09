@@ -500,6 +500,7 @@ struct fd_topo_tile {
       int slices_fd;
     } shredcap;
 
+#define FD_TOPO_SNAPRD_HTTP_PEERS_MAX 32UL
     struct {
       char snapshots_path[ PATH_MAX ];
       int  incremental_snapshot_fetch;
@@ -518,7 +519,12 @@ struct fd_topo_tile {
 
       struct {
         ulong         peers_cnt;
-        fd_ip4_port_t peers[ 16UL ];
+
+        struct {
+          fd_ip4_port_t addr;
+          char          hostname[ 256UL ];
+          int           is_https;
+        } peers[ FD_TOPO_SNAPRD_HTTP_PEERS_MAX ];
       } http;
     } snaprd;
 

@@ -6,6 +6,13 @@ typedef struct fd_sshttp_private fd_sshttp_t;
 
 #include "../../../util/net/fd_net_headers.h"
 
+struct fd_sspeer_meta {
+  char const *  hostname;
+  ulong         hostname_len;
+  int           is_https;
+};
+typedef struct fd_sspeer_meta fd_sspeer_meta_t;
+
 #define FD_SSHTTP_ALIGN (8UL)
 
 #define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
@@ -24,6 +31,12 @@ fd_sshttp_new( void * shmem );
 fd_sshttp_t *
 fd_sshttp_join( void * sshttp );
 
+void *
+fd_sshttp_leave( fd_sshttp_t * http );
+
+void *
+fd_sshttp_delete( fd_sshttp_t * http );
+
 void
 fd_sshttp_snapshot_names( fd_sshttp_t const * http,
                           char const **       full_snapshot_name,
@@ -33,11 +46,12 @@ ulong
 fd_sshttp_content_len( fd_sshttp_t const * http );
 
 void
-fd_sshttp_init( fd_sshttp_t * http,
-                fd_ip4_port_t addr,
-                char const *  path,
-                ulong         path_len,
-                long          now );
+fd_sshttp_init( fd_sshttp_t *            http,
+                fd_ip4_port_t            addr,
+                fd_sspeer_meta_t const * meta,
+                char const *             path,
+                ulong                    path_len,
+                long                     now );
 
 void
 fd_sshttp_cancel( fd_sshttp_t * http );
