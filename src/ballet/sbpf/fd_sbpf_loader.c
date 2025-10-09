@@ -1019,18 +1019,20 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
                 ...
                 _ => {}
             }
-        */
-      if(        fd_memeq( name, ".symtab", sizeof(".symtab") ) ) {
+
+        Note that strcmp is safe because name is guaranteed to be
+        null-terminated if the string parsing above was successful. */
+      if( !strcmp( name, ".symtab" ) ) {
         if( FD_UNLIKELY( info->shndx_symtab != -1 ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         info->shndx_symtab = (int)i;
-      } else if( fd_memeq( name, ".strtab", sizeof(".strtab") ) ) {
+      } else if( !strcmp( name, ".strtab" ) ) {
         if( FD_UNLIKELY( info->shndx_strtab != -1 ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         info->shndx_strtab = (int)i;
-      } else if( fd_memeq( name, ".dynstr", sizeof(".dynstr") ) ) {
+      } else if( !strcmp( name, ".dynstr" ) ) {
         if( FD_UNLIKELY( info->shndx_dynstr != -1 ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
