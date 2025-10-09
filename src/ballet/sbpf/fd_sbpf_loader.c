@@ -322,8 +322,13 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
   }
 
   /* Insert the target PC into the calldests set if it's not the
-     entrypoint. */
-  if( FD_LIKELY( !is_entrypoint ) ) {
+     entrypoint. Due to the nature of our calldests, we also want to
+     make sure that target_pc <= text_cnt, otherwise the insertion is
+     UB. It's fine to skip inserting these entries because the calldests
+     are write-only in the SBPF loader and only queried from the VM. */
+  if( FD_LIKELY( !is_entrypoint &&
+                  loader->calldests &&
+                  fd_sbpf_calldests_valid_idx( loader->calldests, target_pc ) ) ) {
     fd_sbpf_calldests_insert( loader->calldests, target_pc );
   }
 
