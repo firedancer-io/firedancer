@@ -136,11 +136,11 @@ fetch () {
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.7"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
-  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.5.0"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.6.0"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.7.0"
   if [[ $DEVMODE == 1 ]]; then
     checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.2.1"
+    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.5.1"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
   fi
 }
@@ -538,11 +538,7 @@ install_rocksdb () {
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make clean
-
-  # Fix a random build failure
-  git checkout HEAD -- db/blob/blob_file_meta.h
-  git apply <(echo -e "diff --git a/db/blob/blob_file_meta.h b/db/blob/blob_file_meta.h\nindex d7c8a12..8cfff9b 100644\n--- a/db/blob/blob_file_meta.h\n+++ b/db/blob/blob_file_meta.h\n@@ -5,6 +5,7 @@\n \n #pragma once\n \n+#include <cstdint>\n #include <cassert>\n #include <iosfwd>\n #include <memory>\n")
+  make clean-ext-libraries-all clean-rocks
 
   ROCKSDB_DISABLE_NUMA=1 \
   ROCKSDB_DISABLE_ZLIB=1 \
