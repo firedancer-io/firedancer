@@ -1046,3 +1046,14 @@
 | <span class="metrics-name">resolf_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 </div>
+
+## Backt Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">backt_&#8203;final_&#8203;slot</span> | gauge | The slot after which the backtest will complete |
+| <span class="metrics-name">backt_&#8203;start_&#8203;slot</span> | gauge | The slot at which the backtest started |
+
+</div>

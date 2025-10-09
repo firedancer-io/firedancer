@@ -1057,4 +1057,9 @@ metric introduced.
     <counter name="BytesWritten" summary="The total number of bytes written to all connections to the ipecho service" />
 </tile>
 
+<tile name="backt">
+    <gauge name="FinalSlot" summary="The slot after which the backtest will complete" />
+    <gauge name="StartSlot" summary="The slot at which the backtest started" />
+</tile>
+
 </metrics>

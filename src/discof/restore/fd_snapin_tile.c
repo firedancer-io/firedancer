@@ -124,7 +124,7 @@ typedef struct fd_snapin_tile fd_snapin_tile_t;
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPIN_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.1f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
+    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.3f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
   }
   return ctx->state==FD_SNAPIN_STATE_SHUTDOWN;
 }
