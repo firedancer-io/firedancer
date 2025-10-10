@@ -31,8 +31,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
   void * elf_bin = NULL;
   if( FD_LIKELY( input->elf.data ) ) {
     elf_sz  = input->elf.data->size;
-    elf_bin = fd_spad_alloc_check( spad, 8UL, elf_sz );
-    fd_memcpy( elf_bin, input->elf.data->bytes, elf_sz );
+    elf_bin = input->elf.data->bytes;
   }
 
   // Allocate space for captured effects
