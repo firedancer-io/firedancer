@@ -11,10 +11,8 @@
 #include "../features/fd_features.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "info/fd_runtime_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../../disco/pack/fd_microblock.h"
-#include "info/fd_microblock_info.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../vm/fd_vm_base.h"
 

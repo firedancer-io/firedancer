@@ -24,6 +24,8 @@
 #include "../../flamenco/fd_flamenco_base.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
+#include "../../flamenco/runtime/tests/fd_dump_pb.h"
+
 #include <errno.h>
 
 /* Replay concepts:
@@ -355,6 +357,9 @@ struct fd_replay_tile {
 
   fd_replay_out_link_t stake_out[1];
 
+  /* For dumping blocks to protobuf. For backtest only. */
+  fd_block_dump_ctx_t * block_dump_ctx;
+
   struct {
     fd_histf_t store_read_wait[ 1 ];
     fd_histf_t store_read_work[ 1 ];
@@ -376,7 +381,6 @@ FD_FN_CONST static inline ulong
 scratch_align( void ) {
   return 128UL;
 }
-
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong chain_cnt = fd_block_id_map_chain_cnt_est( tile->replay.max_live_slots );
@@ -391,7 +395,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(),             fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
-  l = FD_LAYOUT_FINI  ( l, scratch_align() );
+
+  if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
+    l = FD_LAYOUT_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
+  }
+
+  l = FD_LAYOUT_FINI( l, scratch_align() );
+
   return l;
 }
 
@@ -844,6 +854,13 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      though we could technically do this before the hash cmp and vote
      tower stuff. */
   publish_slot_completed( ctx, stem, bank, 0 );
+
+  /* If enabled, dump the block to a file and reset the dumping
+     context state */
+  if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+    fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->funk, ctx->capture_ctx );
+    fd_block_dump_context_reset( ctx->block_dump_ctx );
+  }
 }
 
 /**********************************************************************/
@@ -1432,6 +1449,13 @@ dispatch_task( fd_replay_tile_t *  ctx,
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->txn_exec->bank_idx );
       fd_funk_txn_xid_t xid = { .ul = { task->txn_exec->slot, task->txn_exec->slot } };
       fd_runtime_update_program_cache( bank, ctx->funk, &xid, txn_p, ctx->runtime_spad );
+
+      /* Add the transaction to the block dumper if necessary. This
+         logic doesn't need to be fork-aware since it's only meant to
+         be used in backtest. */
+      if( FD_UNLIKELY( ctx->capture_ctx && ctx->capture_ctx->dump_block_to_pb ) ) {
+        fd_dump_block_to_protobuf_collect_tx( ctx->block_dump_ctx, txn_p );
+      }
 
       bank->refcnt++;
 
@@ -2104,6 +2128,10 @@ unprivileged_init( fd_topo_t *      topo,
   void * vote_tracker_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
   void * _capture_ctx      = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * spad_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),             fd_spad_footprint( tile->replay.heap_size_gib<<30 ) );
+  void * block_dump_ctx    = NULL;
+  if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
+    block_dump_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_block_dump_context_align(), fd_block_dump_context_footprint() );
+  }
 
   ulong store_obj_id = fd_pod_query_ulong( topo->props, "store", ULONG_MAX );
   FD_TEST( store_obj_id!=ULONG_MAX );
@@ -2173,6 +2201,12 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
     ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
     if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
+  }
+
+  if( FD_UNLIKELY( tile->replay.dump_block_to_pb ) ) {
+    ctx->block_dump_ctx = fd_block_dump_context_join( fd_block_dump_context_new( block_dump_ctx ) );
+  } else {
+    ctx->block_dump_ctx = NULL;
   }
 
   ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
