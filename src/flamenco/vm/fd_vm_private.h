@@ -358,6 +358,10 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
 
     /* Resize the region
        https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L569-L570 */
+vm->instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_sub(
+      fd_ulong_sat_add( vm->instr_ctx->txn_ctx->accounts_resize_delta, new_region_sz ),
+      region->region_sz );
+
     fd_memset( (void *)(region->haddr + region->region_sz), 0, new_region_sz - region->region_sz );
     region->region_sz = (uint)new_region_sz;
   }
