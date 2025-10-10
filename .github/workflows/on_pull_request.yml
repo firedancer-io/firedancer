@@ -24,6 +24,8 @@ jobs:
   benchmark:
     if: github.event.pull_request.draft == false && github.event_name == 'pull_request'
     uses: ./.github/workflows/benchmark.yml
+    with:
+      github-token: ${{ github.token }}
     secrets: inherit
   build_checks_1:
     if: github.event.pull_request.draft == false
