@@ -1020,7 +1020,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x96\x30\x7a\x11\x82\xf7\xe4\xee\x64\x9d\xe0\x5b\x0f\xcc\xe5\x25\x7b\x93\x34\x69\x52\xaa\x5a\x1d\x8f\xd1\x2f\x90\xa6\x98\x75\x98"},
                                  /* B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq */
     .name                      = "deplete_cu_meter_on_vm_failure",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, bpf_account_data_direct_mapping)>>3,

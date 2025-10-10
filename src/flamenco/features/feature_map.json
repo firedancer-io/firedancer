@@ -145,7 +145,7 @@
   {"name":"prevent_rent_paying_rent_recipients","pubkey": "Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"delay_visibility_of_program_deployment","pubkey": "GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"apply_cost_tracker_during_replay","pubkey": "2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj","cleaned_up":[2,3,0],"hardcode_for_fuzzing":1},
-  {"name":"deplete_cu_meter_on_vm_failure","pubkey": "B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq","hardcode_for_fuzzing":1},
+  {"name":"deplete_cu_meter_on_vm_failure","pubkey": "B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq","hardcode_for_fuzzing":1,"cleaned_up":[3,0,0]},
   {"name":"bpf_account_data_direct_mapping","pubkey": "AjX3A4Nv2rzUuATEUWLP4rrBaBropyUnHxEvFDj1dKbx","old": "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq"},
   {"name":"add_set_tx_loaded_accounts_data_size_instruction","pubkey": "G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6","cleaned_up":[1,18,0],"hardcode_for_fuzzing":1},
   {"name":"switch_to_new_elf_parser","pubkey": "Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD","cleaned_up":[2,1,0],"hardcode_for_fuzzing":1},
