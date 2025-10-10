@@ -13,6 +13,8 @@ device.
 segmentation offload on the network device.
 * **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
+* **irq-affinity** Removes CPU cores used by Firedancer from IRQ handler
+CPU affinities where possible.
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
@@ -30,9 +32,9 @@ where `mode` is one of:
  - `fini` Unconfigure (reverse) the stage if it is reversible.
 
 `stage` can be one or more of `hugetlbfs`, `sysctl`, `hyperthreads`,
-`ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`, and
-`snapshots` and these stages are described below. You can also use the
-stage `all` which will configure everything.
+`ethtool-channels`, `ethtool-offloads`, `ethtool-loopback`,
+`irq-affinity`, and `snapshots` and these stages are described below.
+You can also use the stage `all` which will configure everything.
 
 Stages have different privilege requirements, which you can see by
 trying to run the stage without privileges. The `check` mode never
@@ -218,6 +220,35 @@ Firedancer. It has no dependencies on any other stage.
 
 Changing device settings with `ethtool-loopback` requires root privileges,
 and cannot be performed with capabilities.
+
+## irq-affinity
+The Linux kernel uses IRQ (interrupt request) handlers to service many
+kinds of events, such as incoming network packets. These routines have
+a CPU affinity mask associated with them that determines the set of CPU
+cores where they may run. Other processes (including Firedancer) may be
+context switched by the IRQ handler.
+
+In order to increase performance, Firedancer attempts to isolate the CPU
+cores needed for its tiles from all IRQ affinities. This is done by
+reading and writing the `/proc/irq/<num>/smp_affinity` files. Some IRQs
+do not allow their affinities to be changed and these failures will be
+ignored (for example, some NVME drivers automatically manage CPU
+affinity and do not allow outside changes).
+
+Many Linux distributions enable by default `irqbalance`, a daemon that
+tries to load balance interrupts across CPUs. This service can
+inadvertently undo the configuration done by this stage. So, the stage
+will attempt to determine if irqbalance is running and if so, check the
+current "ban list" to see if it is compatible with Firedancer. If not a
+warning is logged and the operator can resolve it if so desired.
+
+This stage has no dependencies on any other stage, but it is dependent
+on the topology specified in your configuration. It is recommended that
+you disable irqbalance or configure it as mentioned in the warning log
+for optimal performance.
+
+Writing to IRQ affinity files and interacting with irqbalance requires
+root privileges, and cannot be performed with capabilities.
 
 ## snapshots
 When starting up, validators must load a snapshot to catch up to the
