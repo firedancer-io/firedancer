@@ -64,14 +64,14 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
                          fd_bank_t               * bank,
                          fd_capture_ctx_t        * capture_ctx ) {
 
-  /* Subtract the old hash of the account from the bank lthash */
-  fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
-  fd_lthash_sub( bank_lthash, prev_account_hash );
-
   /* Hash the new version of the account */
   fd_lthash_value_t new_hash[1];
   fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
   fd_hashes_account_lthash( account->pubkey, meta, fd_txn_account_get_data( account ), new_hash );
+
+  /* Subtract the old hash of the account from the bank lthash */
+  fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );
+  fd_lthash_sub( bank_lthash, prev_account_hash );
 
   /* Add the new hash of the account to the bank lthash */
   fd_lthash_add( bank_lthash, new_hash );
