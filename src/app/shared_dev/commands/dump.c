@@ -339,6 +339,9 @@ dump_cmd_fn( args_t      * args,
                NULL,         /* _cons_out */
                NULL,         /* _cons_fseq */
                0UL,          /* burst */
+               NULL,
+               NULL,
+               NULL,
                0UL,          /* lazy */
                rng,          /* rng */
                scratch,      /* scratch */

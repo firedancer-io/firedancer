@@ -103,6 +103,6 @@ struct fd_snapshot_existing_account {
 typedef struct fd_snapshot_existing_account fd_snapshot_existing_account_t;
 
 #define FD_MAX_SNAPLTA_TILES (16UL)
-#define FD_MAX_SNAPLTS_TILES (1UL)
+#define FD_MAX_SNAPLTS_TILES (16UL)
 
 #endif /* HEADER_fd_src_discof_restore_utils_fd_ssctrl_h */

@@ -3,6 +3,7 @@
 #include "../../../../waltz/quic/log/fd_quic_log_user.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static int
 before_frag( void * _ctx   FD_FN_UNUSED,
@@ -79,6 +80,9 @@ fd_quic_trace_log_tile( fd_quic_trace_ctx_t  * ctx,
              /* cons_out   */ NULL,
              /* cons_fseq  */ NULL,
              /* stem_burst */ 1UL,
+             NULL,
+             NULL,
+             NULL,
              /* stem_lazy  */ 0L,
              /* rng        */ rng,
              /* scratch    */ scratch,

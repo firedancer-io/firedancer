@@ -27,6 +27,8 @@ struct fd_snaplts_tile {
   fd_blake3_t b3[1];
   ulong       acc_data_sz;
   int         hash_account;
+  ulong num_hash_tiles;
+  ulong hash_tile_idx;
 
   uchar in_kind[ MAX_IN_LINKS ];
 
@@ -91,6 +93,12 @@ metrics_write( fd_snaplts_tile_t * ctx ) {
   FD_MGAUGE_SET( SNAPLTS, STATE,                       (ulong)(ctx->state) );
 }
 
+static int
+should_hash_account( fd_snaplts_tile_t * ctx,
+                     uchar const         pubkey[ static FD_HASH_FOOTPRINT ] ) {
+  return fd_hash( pubkey[ 4UL ], pubkey, sizeof(fd_pubkey_t) )%ctx->num_hash_tiles==ctx->hash_tile_idx;
+}
+
 static void
 handle_data_frag( fd_snaplts_tile_t *  ctx,
                   ulong                sig,
@@ -101,32 +109,35 @@ handle_data_frag( fd_snaplts_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_HASH_MSG_SUB: {
       fd_snapshot_existing_account_t const * prev_acc = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
-      fd_lthash_value_t prev_lthash[1];
-      fd_hashes_account_lthash_simple( prev_acc->hdr.pubkey,
-                                       prev_acc->hdr.owner,
-                                       prev_acc->hdr.lamports,
-                                       prev_acc->hdr.executable,
-                                       prev_acc->data,
-                                       prev_acc->hdr.data_len,
-                                       prev_lthash );
-      fd_lthash_add( &ctx->running_lthash, prev_lthash );
 
-      if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
-      else                         ctx->metrics.incremental.accounts_hashed++;
+      if( should_hash_account( ctx, prev_acc->hdr.pubkey ) ) {
+        fd_lthash_value_t prev_lthash[1];
+        fd_hashes_account_lthash_simple( prev_acc->hdr.pubkey,
+                                         prev_acc->hdr.owner,
+                                         prev_acc->hdr.lamports,
+                                         prev_acc->hdr.executable,
+                                         prev_acc->data,
+                                         prev_acc->hdr.data_len,
+                                         prev_lthash );
+        fd_lthash_add( &ctx->running_lthash, prev_lthash );
+
+        if( FD_LIKELY( ctx->full ) ) ctx->metrics.full.accounts_hashed++;
+        else                         ctx->metrics.incremental.accounts_hashed++;
+      }
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_SUB_HDR: {
       fd_snapshot_account_t const * acc = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
 
-      if( acc->lamports==0UL ) break;
-
-      ctx->hash_account = 1;
-      fd_blake3_init( ctx->b3 );
-      fd_blake3_append( ctx->b3, &acc->lamports, sizeof(ulong) );
-      ctx->account_hdr.data_len = acc->data_len;
-      ctx->account_hdr.executable = acc->executable;
-      memcpy( ctx->account_hdr.owner, acc->owner, FD_HASH_FOOTPRINT );
-      memcpy( ctx->account_hdr.pubkey, acc->pubkey, FD_HASH_FOOTPRINT );
+      if( should_hash_account( ctx, acc->pubkey ) && acc->lamports!=0UL ) {
+        ctx->hash_account = 1;
+        fd_blake3_init( ctx->b3 );
+        fd_blake3_append( ctx->b3, &acc->lamports, sizeof(ulong) );
+        ctx->account_hdr.data_len = acc->data_len;
+        ctx->account_hdr.executable = acc->executable;
+        memcpy( ctx->account_hdr.owner, acc->owner, FD_HASH_FOOTPRINT );
+        memcpy( ctx->account_hdr.pubkey, acc->pubkey, FD_HASH_FOOTPRINT );
+      }
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_SUB_DATA: {
@@ -182,6 +193,7 @@ handle_control_frag( fd_snaplts_tile_t *  ctx,
       ctx->metrics.incremental.accounts_hashed = 0UL;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL: {
+      FD_LOG_WARNING(("hashed %lu accounts in full snapshot", ctx->metrics.full.accounts_hashed));
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_SUB, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
@@ -192,6 +204,7 @@ handle_control_frag( fd_snaplts_tile_t *  ctx,
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
+      FD_LOG_WARNING(("hashed %lu accounts in incremental snapshot", ctx->metrics.incremental.accounts_hashed));
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_SUB, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
@@ -305,6 +318,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->state                      = FD_SNAPLTS_STATE_HASHING;
   ctx->full                       = 1;
   ctx->hash_account               = 0;
+  ctx->num_hash_tiles             = fd_topo_tile_name_cnt( topo, "snaplts" );
+  ctx->hash_tile_idx              = tile->kind_id;
 
   fd_lthash_zero( &ctx->running_lthash );
 }

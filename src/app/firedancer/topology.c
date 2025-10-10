@@ -212,6 +212,7 @@ fd_topo_initialize( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
   ulong sign_tile_cnt   = config->firedancer.layout.sign_tile_count;
   ulong lta_tile_cnt    = config->firedancer.layout.snaplta_tile_count;
+  ulong lts_tile_cnt    = config->firedancer.layout.snaplts_tile_count;
 
   int snapshots_enabled = !!config->gossip.entrypoints_cnt;
   int solcap_enabled = strcmp( "", config->capture.solcap_capture );
@@ -340,8 +341,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
   FOR(lta_tile_cnt)    fd_topob_link( topo, "snaplta_rd",   "snaplta_rd",   128UL,                                    0UL,                           1UL );
   FOR(lta_tile_cnt)    fd_topob_link( topo, "snaplta_in",   "snaplta_in",   128UL,                                    sizeof(fd_lthash_value_t),     1UL );
-  /**/                 fd_topob_link( topo, "snaplts_rd",   "snaplts_rd",   128UL,                                    0UL,                           1UL );
-  /**/                 fd_topob_link( topo, "snaplts_in",   "snaplts_in",   128UL,                                    sizeof(fd_lthash_value_t),     1UL );
+  FOR(lts_tile_cnt)    fd_topob_link( topo, "snaplts_rd",   "snaplts_rd",   128UL,                                    0UL,                           1UL );
+  FOR(lts_tile_cnt)    fd_topob_link( topo, "snaplts_in",   "snaplts_in",   128UL,                                    sizeof(fd_lthash_value_t),     1UL );
   /**/                 fd_topob_link( topo, "snapin_lts",   "snapin_lts",   128UL,                                    sizeof(fd_snapshot_existing_account_t),   1UL );
   if( FD_LIKELY( config->tiles.gui.enabled ) ) /* the gui, which is optional, is the only consumer of snaprd_out */
                        fd_topob_link( topo, "snaprd_out",   "snaprd",       128UL,                                    sizeof(fd_snaprd_update_t),    1UL );
@@ -429,7 +430,7 @@ fd_topo_initialize( config_t * config ) {
                        fd_topob_tile( topo, "snapdc",  "snapdc",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
                        fd_topob_tile( topo, "snapin",  "snapin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
     FOR(lta_tile_cnt)  fd_topob_tile( topo, "snaplta", "snaplta", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
-    /**/               fd_topob_tile( topo, "snaplts", "snaplts", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
+    FOR(lts_tile_cnt)  fd_topob_tile( topo, "snaplts", "snaplts", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
   }
 
   /**/                 fd_topob_tile( topo, "genesi",  "genesi",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 )->allow_shutdown = 1;
@@ -507,12 +508,12 @@ fd_topo_initialize( config_t * config ) {
   FOR(lta_tile_cnt)   fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "snaplta_rd",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(lta_tile_cnt)   fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snaplta_in",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(lta_tile_cnt)   fd_topob_tile_in (    topo, "snaplta", i,            "metric_in", "snap_stream",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                fd_topob_tile_out(    topo, "snaplts", 0UL,          "snaplts_in",                0UL                                                );
-                      fd_topob_tile_out(    topo, "snaplts", 0UL,          "snaplts_rd",                0UL                                                );
-                      fd_topob_tile_in (    topo, "snaplts", 0UL,          "metric_in", "snapin_lts",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
-                      fd_topob_tile_out(    topo, "snapin",  0UL,          "snapin_lts",                0UL                                                );
-                      fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "snaplts_rd",   0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
-                      fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snaplts_in",   0UL,         FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
+  FOR(lts_tile_cnt)   fd_topob_tile_out(    topo, "snaplts", i,            "snaplts_in",                i                                                );
+  FOR(lts_tile_cnt)   fd_topob_tile_out(    topo, "snaplts", i,            "snaplts_rd",                i                                                );
+  FOR(lts_tile_cnt)   fd_topob_tile_in (    topo, "snaplts", i,            "metric_in", "snapin_lts",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
+  /**/                fd_topob_tile_out(    topo, "snapin",  0UL,          "snapin_lts",                0UL                                                );
+  FOR(lts_tile_cnt)   fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "snaplts_rd",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
+  FOR(lts_tile_cnt)   fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snaplts_in",   i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED  );
     if( FD_LIKELY( config->tiles.gui.enabled ) ) /* the gui, which is optional, is the only consumer of snaprd_out */
                       fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snaprd_out",   0UL                                                );
   }

@@ -812,7 +812,8 @@ user = ""
     # duplicated accounts.  Once the hash of the accounts in a snapshot
     # is calculated, if it does not match the validator will abort with
     # an error.
-    snaplta_tile_count = 4
+    snaplta_tile_count = 8
+    snaplts_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic

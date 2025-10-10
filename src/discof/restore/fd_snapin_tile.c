@@ -64,7 +64,7 @@ typedef struct blockhash_group blockhash_group_t;
 
 #define IN_KIND_SNAPDC (0)
 #define IN_KIND_HASH   (1)
-#define MAX_IN_LINKS   (13)
+#define MAX_IN_LINKS   (35)
 
 struct fd_snapin_tile {
   int full;
@@ -90,6 +90,7 @@ struct fd_snapin_tile {
     int               enabled;
     ulong             received_lthashes;
     ulong             num_lta_tiles;
+    ulong             num_lts_tiles;
     fd_lthash_value_t expected_lthash;
     fd_lthash_value_t calculated_lthash;
   } hash_info;
@@ -468,9 +469,39 @@ process_account_header( fd_snapin_tile_t *            ctx,
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t const*)result->account_header.pubkey );
   fd_funk_rec_query_t query[1];
   fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
+  fd_funk_rec_t const * existing_rec = rec;
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
+  if( FD_LIKELY( !existing_rec && !ctx->full ) ) {
+    /* An existing record may exist in an ancestor transaction when
+       loading the incremental snapshot. */
+    existing_rec = fd_funk_rec_clone( ctx->funk, ctx->xid, &id, prepare, NULL );
+  }
+  if( FD_LIKELY( existing_rec ) ) {
+    fd_account_meta_t * meta = fd_funk_val( existing_rec, ctx->funk->wksp );
+    if( FD_UNLIKELY( meta ) ) {
+      /* Reaching here means the existing value is a duplicate account.
+         We need to hash the existing account and subtract that hash from
+         the running lthash. */
+
+      if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
+        ctx->acc_data = NULL;
+        fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+        fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
+        fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
+        ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+        return;
+      }
+
+      fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+      fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
+      fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
+      fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    }
+  }
+
   if( FD_LIKELY( !rec ) ) {
     should_publish = 1;
     rec = fd_funk_rec_prepare( ctx->funk, ctx->xid, &id, prepare, NULL );
@@ -478,27 +509,6 @@ process_account_header( fd_snapin_tile_t *            ctx,
   }
 
   fd_account_meta_t * meta = fd_funk_val( rec, ctx->funk->wksp );
-  if( FD_UNLIKELY( meta ) ) {
-    /* Reaching here means the existing value is a duplicate account.
-       We need to hash the existing account and subtract that hash from
-       the running lthash. */
-
-    if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
-      ctx->acc_data = NULL;
-      fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-      fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
-      fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
-      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-      return;
-    }
-
-    fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-    fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
-    fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
-    fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-  }
-
   if( FD_LIKELY( rec->val_sz<sizeof(fd_account_meta_t)+result->account_header.data_len ) ) {
     meta = fd_funk_val_truncate( (fd_funk_rec_t*)rec, ctx->funk->alloc, ctx->funk->wksp, 0UL, sizeof(fd_account_meta_t)+result->account_header.data_len, NULL );
     FD_TEST( meta );
@@ -522,7 +532,7 @@ process_account_data( fd_snapin_tile_t *            ctx,
   if( FD_UNLIKELY( !ctx->acc_data ) ) {
     uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
     fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
-    fd_stem_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
+    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
     return;
   }
@@ -758,18 +768,15 @@ handle_hash_frag( fd_snapin_tile_t *  ctx,
                   fd_stem_context_t * stem ) {
   switch( sig ) {
     case FD_SNAPSHOT_HASH_MSG_RESULT_ADD: {
-      FD_LOG_WARNING(("in idx is %lu, in offset is %lu", in_idx, ctx->in_offset[in_idx]));
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
       fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->hash_in_add[ ctx->in_offset[ in_idx ] ].wksp, chunk );
       fd_lthash_add( &ctx->hash_info.calculated_lthash, result );
       FD_LOG_WARNING(("received add lthash %s", FD_LTHASH_ENC_32_ALLOCA( result ) ));
       ctx->hash_info.received_lthashes++;
 
-      if( FD_LIKELY( ctx->hash_info.received_lthashes!=ctx->hash_info.num_lta_tiles ) ) break;
       break;
     }
     case FD_SNAPSHOT_HASH_MSG_RESULT_SUB: {
-      FD_LOG_WARNING(("in idx is %lu, in offset is %lu", in_idx, ctx->in_offset[in_idx]));
       FD_TEST( sz==sizeof(fd_lthash_value_t) );
       fd_lthash_value_t const * result = fd_chunk_to_laddr_const( ctx->hash_in_sub[ ctx->in_offset[ in_idx ] ].wksp, chunk );
       fd_lthash_sub( &ctx->hash_info.calculated_lthash, result );
@@ -782,7 +789,7 @@ handle_hash_frag( fd_snapin_tile_t *  ctx,
       break;
   }
 
-  if( FD_LIKELY( ctx->hash_info.received_lthashes==ctx->hash_info.num_lta_tiles+1UL ) ) {
+  if( FD_LIKELY( ctx->hash_info.received_lthashes==ctx->hash_info.num_lta_tiles+ctx->hash_info.num_lts_tiles ) ) {
     if( FD_UNLIKELY( memcmp( &ctx->hash_info.expected_lthash, &ctx->hash_info.calculated_lthash, sizeof(fd_lthash_value_t) ) ) ) {
       FD_LOG_WARNING(( "calculated accounts lthash %s does not match accounts lthash %s in snapshot manifest",
                        FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_info.calculated_lthash ),
@@ -974,6 +981,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->hash_info.received_lthashes = 0UL;
   ctx->hash_info.num_lta_tiles     = fd_topo_tile_name_cnt( topo, "snaplta" );
+  ctx->hash_info.num_lts_tiles     = fd_topo_tile_name_cnt( topo, "snaplts" );
 }
 
 #define STEM_BURST 4UL /* For control fragments, one acknowledgement, and one malformed message */

@@ -107,6 +107,7 @@ struct fd_configf {
     uint sign_tile_count;
     uint gossvf_tile_count;
     uint snaplta_tile_count;
+    uint snaplts_tile_count;
   } layout;
 
   struct {
