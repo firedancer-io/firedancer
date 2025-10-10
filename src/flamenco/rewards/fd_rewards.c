@@ -403,20 +403,11 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
                                       ulong *                                    new_warmup_cooldown_rate_epoch,
                                       fd_point_value_t *                         point_value,
                                       fd_calculate_stake_vote_rewards_result_t * result,
-                                      fd_spad_t *                                spad,
                                       int                                        is_recalculation ) {
-
-  FD_SPAD_FRAME_BEGIN( spad ) {
 
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
   ulong total_stake_rewards      = 0UL;
-  ulong dlist_additional_cnt     = 0UL;
   ulong stake_delegation_cnt     = fd_stake_delegations_cnt( stake_delegations );
-
-  /* Build a local vote reward map */
-  fd_vote_reward_t_mapnode_t * vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc(
-      spad, fd_vote_reward_t_map_align(), fd_vote_reward_t_map_footprint( stake_delegation_cnt ) ), stake_delegation_cnt ) );
-  fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
 
   fd_vote_states_t const * vote_states = NULL;
   if( !is_recalculation ) {
@@ -476,24 +467,18 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
           (long)calculated_stake_rewards->new_credits_observed );
     }
 
-    // Find and update the vote reward node in the local map
     fd_vote_reward_t_mapnode_t vote_map_key[1];
     vote_map_key->elem.pubkey = *voter_acc;
-    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
-    if( FD_UNLIKELY( vote_reward_node==NULL ) ) {
-      FD_LOG_WARNING(( "vote account is missing from the vote rewards pool" ));
-      continue;
-    }
 
-    vote_reward_node = fd_vote_reward_t_map_find( vote_reward_map_pool, vote_reward_map_root, vote_map_key );
+    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
 
     if( vote_reward_node==NULL ) {
-      vote_reward_node                    = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
+      vote_reward_node                    = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
       vote_reward_node->elem.pubkey       = *voter_acc;
       vote_reward_node->elem.commission   = vote_state_ele->commission;
       vote_reward_node->elem.vote_rewards = calculated_stake_rewards->voter_rewards;
       vote_reward_node->elem.needs_store  = 1;
-      fd_vote_reward_t_map_insert( vote_reward_map_pool, &vote_reward_map_root, vote_reward_node );
+      fd_vote_reward_t_map_insert( result->vote_reward_map_pool, &result->vote_reward_map_root, vote_reward_node );
     } else {
       vote_reward_node->elem.vote_rewards += calculated_stake_rewards->voter_rewards;
     }
@@ -503,7 +488,7 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
 
     /* Update the total stake rewards */
     total_stake_rewards += calculated_stake_rewards->staker_rewards;
-    dlist_additional_cnt++;
+    result->stake_reward_calculation.stake_rewards_len++;
   }
 
   fd_bank_epoch_rewards_end_locking_modify( bank );
@@ -514,22 +499,7 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
     fd_bank_vote_states_prev_end_locking_query( bank );
   }
 
-  /* Merge vote rewards with result after */
-  for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( vote_reward_map_pool, vote_reward_map_root );
-        vote_reward_node;
-        vote_reward_node = fd_vote_reward_t_map_successor( vote_reward_map_pool, vote_reward_node ) ) {
-
-    fd_vote_reward_t_mapnode_t * result_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_reward_node );
-    result_reward_node->elem.commission    = vote_reward_node->elem.commission;
-    result_reward_node->elem.vote_rewards += vote_reward_node->elem.vote_rewards;
-    result_reward_node->elem.needs_store   = 1;
-  }
-
   result->stake_reward_calculation.total_stake_rewards_lamports += total_stake_rewards;
-  result->stake_reward_calculation.stake_rewards_len            += dlist_additional_cnt;
-
-  } FD_SPAD_FRAME_END;
-
 
 }
 
@@ -593,20 +563,6 @@ calculate_stake_vote_rewards( fd_bank_t *                                bank,
                                                                                       vote_account_cnt ) );
   result->vote_reward_map_root = NULL;
 
-  /* Pre-fill the vote pubkeys in the vote rewards map pool */
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-
-    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
-
-    vote_reward_node->elem.pubkey       = vote_state->vote_account;
-    vote_reward_node->elem.vote_rewards = 0UL;
-    vote_reward_node->elem.needs_store  = 0;
-
-    fd_vote_reward_t_map_insert( result->vote_reward_map_pool, &result->vote_reward_map_root, vote_reward_node );
-  }
-
   if( !is_recalculation ) {
     fd_bank_vote_states_end_locking_query( bank );
   } else {
@@ -624,7 +580,6 @@ calculate_stake_vote_rewards( fd_bank_t *                                bank,
       new_warmup_cooldown_rate_epoch,
       point_value,
       result,
-      runtime_spad,
       is_recalculation );
 }
 
