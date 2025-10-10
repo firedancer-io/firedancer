@@ -1,5 +1,6 @@
 #include "fd_program_cache.h"
 #include "../fd_bank.h"
+#include "../fd_system_ids.h"
 
 #if FD_HAS_HOSTED
 
