@@ -10,6 +10,31 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <stdio.h> // Include for snprintf
+
+static inline void
+replace( char *       in,
+         const char * pat,
+         const char * sub ) {
+  char * replace = strstr( in, pat );
+  if( FD_LIKELY( replace ) ) {
+    ulong pat_len = strlen( pat );
+    ulong sub_len = strlen( sub );
+    ulong in_len  = strlen( in );
+    if( FD_UNLIKELY( pat_len > in_len ) ) return;
+
+    ulong total_len = in_len - pat_len + sub_len;
+    if( FD_UNLIKELY( total_len >= PATH_MAX ) )
+      FD_LOG_ERR(( "configuration scratch directory path too long: `%s`", in ));
+
+    uchar after[PATH_MAX] = {0};
+    fd_memcpy( after, replace + pat_len, strlen( replace + pat_len ) );
+    fd_memcpy( replace, sub, sub_len );
+    ulong after_len = strlen( ( const char * ) after );
+    fd_memcpy( replace + sub_len, after, after_len );
+    in[ total_len ] = '\0';
+  }
+}
 
 extern action_t * ACTIONS[];
 extern fd_topo_run_tile_t * TILES[];
@@ -121,6 +146,19 @@ determine_override_config( int *                      pargc,
 
     if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no mainnet config found" ));
   }
+
+  int backtest = fd_env_strip_cmdline_contains( pargc, pargv, "--backtest" );
+  if( FD_UNLIKELY( backtest ) ) {
+    for( ulong i=0UL; configs[ i ]; i++ ) {
+      if( FD_UNLIKELY( !strcmp( configs[ i ]->name, "backtest" ) ) ) {
+        *override_config = (char const *)configs[ i ]->data;
+        *override_config_path = configs[ i ]->name;
+        *override_config_sz = configs[ i ]->data_sz;
+        break;
+      }
+    }
+    if( FD_UNLIKELY( !override_config ) ) FD_LOG_ERR(( "no backtest config found" ));
+  }
 }
 
 void
@@ -148,6 +186,7 @@ fd_main_init( int *                      pargc,
        they can coordinate on metrics measurement. */
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
+    FD_LOG_NOTICE(( "fd_main_init: else" ));
     char * user_config = NULL;
     ulong user_config_sz = 0UL;
     if( FD_LIKELY( opt_user_config_path ) ) {
@@ -184,6 +223,18 @@ fd_main_init( int *                      pargc,
     thread = "main";
     if( FD_UNLIKELY( log_path ) )
       strncpy( config->log.path, log_path, sizeof( config->log.path ) - 1 );
+  }
+
+  const char *ledger = fd_env_strip_cmdline_cstr(pargc, pargv, "--ledger", NULL, NULL);
+  ulong end_slot = fd_env_strip_cmdline_ulong(pargc, pargv, "--end-slot", NULL, ULONG_MAX);
+
+  if ( end_slot && end_slot!=ULONG_MAX ) {
+    config->tiles.archiver.end_slot = end_slot;
+
+    FD_LOG_WARNING(("ledger: %s", ledger));
+    strncpy(config->paths.snapshots, ledger, sizeof(config->paths.snapshots) - 1);
+
+    snprintf(config->tiles.archiver.rocksdb_path, sizeof(config->tiles.archiver.rocksdb_path), "%s/rocksdb", ledger);
   }
 
   char * shmem_args[ 3 ];
