@@ -31,7 +31,7 @@ ipecho_topo( fd_topo_t *  topo,
   tile->ipecho.bind_port    = 12008;
   fd_topob_tile_out( topo, "ipecho", 0UL, "ipecho_out", 0UL );
 
-  fd_topob_auto_layout( topo, 0 );
+  fd_topob_auto_layout( topo, 0, 1 );
   fd_topob_finish( topo, CALLBACKS );
 }
 
