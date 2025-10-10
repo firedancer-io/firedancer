@@ -8,6 +8,10 @@ on:
       extras:
         type: string
         default: "handholding"
+      github-token:
+        type: string
+        required: true
+        description: 'GitHub token for posting comments'
   workflow_dispatch:
 
 permissions:
@@ -153,7 +157,7 @@ jobs:
         name: "Ledger Backtest Benchmark"
         tool: "customSmallerIsBetter"
         output-file-path: benchmark.json
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+        github-token: ${{ inputs.github-token || github.token }}
         skip-fetch-gh-pages: true
         auto-push: false
         alert-threshold: "0%"
@@ -164,6 +168,7 @@ jobs:
       if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
       uses: actions/github-script@v6
       with:
+        github-token: ${{ inputs.github-token || github.token }}
         script: |
           const baseline_sps = parseFloat(process.env.SPS_BASELINE);
           const newval_sps = parseFloat(process.env.SPS_NEWVAL);
