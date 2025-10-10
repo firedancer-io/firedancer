@@ -1,9 +1,6 @@
 #include "fd_vm_syscall.h"
-#include "../../../ballet/ed25519/fd_curve25519.h"
-#include "../../../util/bits/fd_uwide.h"
 #include "../../runtime/fd_borrowed_account.h"
-#include "../../runtime/fd_executor.h"
-#include <stdio.h>
+#include "../../runtime/fd_system_ids.h"
 
 /* FIXME: ALGO EFFICIENCY */
 static inline int
