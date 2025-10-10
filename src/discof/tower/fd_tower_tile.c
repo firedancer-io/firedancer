@@ -359,10 +359,8 @@ returnable_frag( fd_tower_tile_t *   ctx,
     if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
 
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
-      FD_LOG_INFO(( "[%s] received slot completed", __func__ ));
       fd_memcpy( &ctx->replay_slot_info, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
     } else if( FD_LIKELY( sig==REPLAY_SIG_VOTE_STATE ) ) {
-      FD_LOG_INFO(( "[%s] received vote state", __func__ ));
       if( FD_UNLIKELY( fd_frag_meta_ctl_som( ctl ) ) ) ctx->replay_towers_cnt = 0;
 
       if( FD_UNLIKELY( ctx->replay_towers_cnt>=FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
