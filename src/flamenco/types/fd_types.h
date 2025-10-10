@@ -968,12 +968,11 @@ struct fd_stake_reward {
 typedef struct fd_stake_reward fd_stake_reward_t;
 #define FD_STAKE_REWARD_ALIGN alignof(fd_stake_reward_t)
 
-/* Encoded Size: Fixed (42 bytes) */
+/* Encoded Size: Fixed (41 bytes) */
 struct fd_vote_reward {
   fd_pubkey_t pubkey;
   ulong vote_rewards;
   uchar commission;
-  uchar needs_store;
 };
 typedef struct fd_vote_reward fd_vote_reward_t;
 #define FD_VOTE_REWARD_ALIGN alignof(fd_vote_reward_t)
@@ -1008,17 +1007,17 @@ fd_vote_reward_t_map_join_new( void * * alloc_mem, ulong len ) {
   return fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( map_mem, len ) );
 }
 /* Encoded Size: Dynamic */
-struct fd_calculate_stake_vote_rewards_result {
+struct fd_vote_rewards {
   fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
   fd_vote_reward_t_mapnode_t * vote_reward_map_root;
 };
-typedef struct fd_calculate_stake_vote_rewards_result fd_calculate_stake_vote_rewards_result_t;
-#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN alignof(fd_calculate_stake_vote_rewards_result_t)
+typedef struct fd_vote_rewards fd_vote_rewards_t;
+#define FD_VOTE_REWARDS_ALIGN alignof(fd_vote_rewards_t)
 
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102 */
 /* Encoded Size: Dynamic */
 struct fd_calculate_validator_rewards_result {
-  fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result;
+  fd_vote_rewards_t vote_rewards;
   fd_point_value_t point_value;
 };
 typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewards_result_t;
@@ -1035,7 +1034,6 @@ struct fd_partitioned_rewards_calculation {
   double foundation_rate;
   double prev_epoch_duration_in_years;
   ulong capitalization;
-  fd_point_value_t point_value;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 #define FD_PARTITIONED_REWARDS_CALCULATION_ALIGN alignof(fd_partitioned_rewards_calculation_t)
@@ -2669,11 +2667,11 @@ void * fd_stake_reward_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 static inline void fd_vote_reward_new( fd_vote_reward_t * self ) { fd_memset( self, 0, sizeof(fd_vote_reward_t) ); }
 int fd_vote_reward_encode( fd_vote_reward_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_vote_reward_walk( void * w, fd_vote_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_vote_reward_size( fd_vote_reward_t const * self ) { (void)self; return 42UL; }
+static inline ulong fd_vote_reward_size( fd_vote_reward_t const * self ) { (void)self; return 41UL; }
 static inline ulong fd_vote_reward_align( void ) { return FD_VOTE_REWARD_ALIGN; }
 static inline int fd_vote_reward_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   *total_sz += sizeof(fd_vote_reward_t);
-  if( (ulong)ctx->data + 42UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  if( (ulong)ctx->data + 41UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   return 0;
 }
 void * fd_vote_reward_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
@@ -2690,13 +2688,13 @@ static inline int fd_point_value_decode_footprint( fd_bincode_decode_ctx_t * ctx
 }
 void * fd_point_value_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_calculate_stake_vote_rewards_result_new( fd_calculate_stake_vote_rewards_result_t * self );
-int fd_calculate_stake_vote_rewards_result_encode( fd_calculate_stake_vote_rewards_result_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_calculate_stake_vote_rewards_result_walk( void * w, fd_calculate_stake_vote_rewards_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_calculate_stake_vote_rewards_result_size( fd_calculate_stake_vote_rewards_result_t const * self );
-static inline ulong fd_calculate_stake_vote_rewards_result_align( void ) { return FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN; }
-int fd_calculate_stake_vote_rewards_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_calculate_stake_vote_rewards_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_vote_rewards_new( fd_vote_rewards_t * self );
+int fd_vote_rewards_encode( fd_vote_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_vote_rewards_walk( void * w, fd_vote_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
+ulong fd_vote_rewards_size( fd_vote_rewards_t const * self );
+static inline ulong fd_vote_rewards_align( void ) { return FD_VOTE_REWARDS_ALIGN; }
+int fd_vote_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_vote_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
 void fd_calculate_validator_rewards_result_new( fd_calculate_validator_rewards_result_t * self );
 int fd_calculate_validator_rewards_result_encode( fd_calculate_validator_rewards_result_t const * self, fd_bincode_encode_ctx_t * ctx );

@@ -708,8 +708,7 @@
       "fields": [
         { "name": "pubkey",       "type": "pubkey" },
         { "name": "vote_rewards", "type": "ulong" },
-        { "name": "commission",   "type": "uchar" },
-        { "name": "needs_store",  "type": "uchar" }
+        { "name": "commission",   "type": "uchar" }
       ]
     },
     {
@@ -722,7 +721,7 @@
       "comment": "https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21"
     },
     {
-      "name": "calculate_stake_vote_rewards_result",
+      "name": "vote_rewards",
       "type": "struct",
       "fields": [
         { "name": "vote_reward_map", "type": "map", "element": "vote_reward", "key": "pubkey", "minalloc":15000 }
@@ -732,7 +731,7 @@
       "name": "calculate_validator_rewards_result",
       "type": "struct",
       "fields": [
-        { "name": "calculate_stake_vote_rewards_result", "type": "calculate_stake_vote_rewards_result" },
+        { "name": "vote_rewards", "type": "vote_rewards" },
         { "name": "point_value", "type": "point_value" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102"
@@ -747,8 +746,7 @@
         { "name": "validator_rate",               "type": "double" },
         { "name": "foundation_rate",              "type": "double" },
         { "name": "prev_epoch_duration_in_years", "type": "double" },
-        { "name": "capitalization",               "type": "ulong" },
-        { "name": "point_value",                  "type": "point_value" }
+        { "name": "capitalization",               "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118"
     },
