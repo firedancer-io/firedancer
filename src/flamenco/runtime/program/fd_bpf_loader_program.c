@@ -552,9 +552,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
         return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
       }
 
-      /* Find the account meta corresponding to the vaddr */
-      ulong vaddr_offset = vm->segv_vaddr & FD_VM_OFFSET_MASK;
-
       /* If the vaddr doesn't live in the input region, then we don't need to
          bother trying to iterate through all of the borrowed accounts. */
       if( FD_VADDR_TO_REGION( vm->segv_vaddr )!=FD_VM_INPUT_REGION ) {
@@ -571,15 +568,23 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
            https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1566-L1617 */
         ulong idx = acc_region_metas[i].region_idx;
         fd_vm_input_region_t const * input_mem_region = &input_mem_regions[idx];
-        if( ( vaddr_offset >= input_mem_region->vaddr_offset ) &&
-            ( vaddr_offset <= input_mem_regions[idx].vaddr_offset+input_mem_regions[idx].address_space_reserved ) ) {
+        fd_vm_acc_region_meta_t const * acc_region_meta = &acc_region_metas[i];
+
+        /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1484-L1492 */
+        ulong region_data_vaddr_start = FD_VM_MEM_MAP_INPUT_REGION_START + input_mem_region->vaddr_offset + input_mem_region->region_sz;
+        ulong region_data_vaddr_end   = fd_ulong_sat_add( region_data_vaddr_start, acc_region_meta->original_data_len );
+        if( !is_deprecated ) {
+          region_data_vaddr_end       = fd_ulong_sat_add( region_data_vaddr_end, MAX_PERMITTED_DATA_INCREASE );
+        }
+
+        if( vm->segv_vaddr >= region_data_vaddr_start && vm->segv_vaddr <= region_data_vaddr_end ) {
 
           /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1575-L1616 */
           fd_guarded_borrowed_account_t instr_acc = {0};
           FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, i, &instr_acc );
 
           /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1581-L1616 */
-          if( fd_ulong_sat_add( vaddr_offset, vm->segv_access_len ) <= input_mem_regions[idx].vaddr_offset+input_mem_regions[idx].address_space_reserved ) {
+          if( fd_ulong_sat_add( vm->segv_vaddr, vm->segv_access_len ) <= region_data_vaddr_end ) {
             /* https://github.com/anza-xyz/agave/blob/v3.0.4/programs/bpf_loader/src/lib.rs#L1592-L1601 */
             if( vm->segv_access_type == FD_VM_ACCESS_TYPE_ST ) {
               int borrow_err = FD_EXECUTOR_INSTR_SUCCESS;
