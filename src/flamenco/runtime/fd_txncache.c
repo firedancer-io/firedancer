@@ -1,6 +1,7 @@
 #include "fd_txncache.h"
 #include "fd_txncache_private.h"
 #include "../../util/log/fd_log.h"
+#include "program/fd_bpf_loader_program.h"
 
 struct blockcache {
   fd_txncache_blockcache_shmem_t * shmem;
@@ -38,8 +39,11 @@ fd_txncache_align( void ) {
 }
 
 FD_FN_CONST ulong
-fd_txncache_footprint( ulong max_live_slots ) {
-  ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
+fd_txncache_footprint_ext( ulong max_live_slots,
+                           ulong max_blockhash_distance ) {
+  if( !max_live_slots         ) return 0UL;
+  if( !max_blockhash_distance ) return 0UL;
+  ulong max_active_slots = max_blockhash_distance+max_live_slots;
 
   ulong l;
   l = FD_LAYOUT_INIT;
@@ -151,7 +155,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
 
   if( FD_UNLIKELY( page_cnt==tc->shmem->txnpages_per_blockhash_max ) ) return NULL;
   if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->pages[ page_cnt ], UINT_MAX, UINT_MAX-1UL )==UINT_MAX ) ) {
-    ulong txnpages_free_cnt = tc->shmem->txnpages_free_cnt;
+    ulong txnpages_free_cnt = FD_VOLATILE_CONST( tc->shmem->txnpages_free_cnt );
     for(;;) {
       if( FD_UNLIKELY( !txnpages_free_cnt ) ) return NULL;
       ulong old_txnpages_free_cnt = FD_ATOMIC_CAS( &tc->shmem->txnpages_free_cnt, (ushort)txnpages_free_cnt, (ushort)(txnpages_free_cnt-1UL) );
@@ -171,7 +175,7 @@ fd_txncache_ensure_txnpage( fd_txncache_t * tc,
   } else {
     uint txnpage_idx = blockcache->pages[ page_cnt ];
     while( FD_UNLIKELY( txnpage_idx>=UINT_MAX-1UL ) ) {
-      txnpage_idx = blockcache->pages[ page_cnt ];
+      txnpage_idx = FD_VOLATILE_CONST( blockcache->pages[ page_cnt ] );
       FD_SPIN_PAUSE();
     }
     return &tc->txnpages[ txnpage_idx ];
@@ -187,7 +191,7 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
   ulong txnpage_idx = (ulong)(txnpage - tc->txnpages);
 
   for(;;) {
-    ushort txnpage_free = txnpage->free;
+    ushort txnpage_free = FD_VOLATILE_CONST( txnpage->free );
     if( FD_UNLIKELY( !txnpage_free ) ) return 0;
     if( FD_UNLIKELY( FD_ATOMIC_CAS( &txnpage->free, txnpage_free, txnpage_free-1UL )!=txnpage_free ) ) {
       FD_SPIN_PAUSE();
@@ -202,7 +206,7 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
 
     ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
     for(;;) {
-      uint head = blockcache->heads[ txn_bucket ];
+      uint head = FD_VOLATILE_CONST( blockcache->heads[ txn_bucket ] );
       txnpage->txns[ txn_idx ]->blockcache_next = head;
       FD_COMPILER_MFENCE();
       if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->heads[ txn_bucket ], head, (uint)(FD_TXNCACHE_TXNS_PER_PAGE*txnpage_idx+txn_idx) )==head ) ) break;

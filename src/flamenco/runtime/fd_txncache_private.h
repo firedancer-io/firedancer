@@ -10,13 +10,7 @@
    and returning pages to the pool, but not so high that the memory
    wasted from blockhashes with only one transaction is significant. */
 
-#define FD_TXNCACHE_TXNS_PER_PAGE (16384UL)
-
-/* The maximum distance a transaction blockhash reference can be
-   (inclusive).  For example, if no slots were skipped, and the value is
-   151, slot 300 is allowed to reference blockhashes from slots
-   [149, 300). */
-#define FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE (151UL)
+#define FD_TXNCACHE_TXNS_PER_PAGE (4UL)
 
 struct fd_txncache_single_txn {
   uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
@@ -118,6 +112,7 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   fd_rwlock_t lock[ 1 ] __attribute__((aligned(128UL)));
 
   ulong  txn_per_slot_max;
+  ulong  blockhash_distance_max;
   ulong  active_slots_max;
   ushort txnpages_per_blockhash_max;
   ushort max_txnpages;
