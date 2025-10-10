@@ -9,20 +9,25 @@ test_notar_simple( fd_wksp_t * wksp ) {
   FD_TEST( mem );
   fd_notar_t * notar = fd_notar_join( fd_notar_new( mem, blk_max ) );
 
-  ulong slot = 368778153;
+  fd_hash_t block_id  = { .ul = { slot } };
+  ulong     slot      = 368778153;
+  fd_hash_t bank_hash = { .ul = { slot } };
 
-  fd_notar_blk_t * blk = fd_notar_blk_insert( notar->blks, slot );
-  blk->parent_slot = slot - 1;
-  memset( &blk->bank_hash, 0, sizeof(fd_hash_t) );
-  blk->bank_hash.ul[0] = slot;
+  fd_notar_blk_t * blk = fd_notar_blk_insert( notar->blk, block_id );
+  blk->parent_slot     = slot - 1;
+  blk->bank_hash       = bank_hash;
+  blk->block_id        = block_id;
   blk->stake           = 0;
+  blk->pro_conf        = 0;
+  blk->dup_conf        = 0;
+  blk->opt_conf        = 0;
 
   fd_pubkey_t pubkeys[4] = { { .key = { 1 } },
                              { .key = { 2 } },
                              { .key = { 3 } },
                              { .key = { 4 } } };
   for( ulong i = 0; i < sizeof(pubkeys) / sizeof(fd_pubkey_t); i++ ) {
-    fd_notar_vtr_t * vtr = fd_notar_vtr_insert( notar->vtrs, pubkeys[i] );
+    fd_notar_vtr_t * vtr = fd_notar_vtr_insert( notar->vtr, pubkeys[i] );
     vtr->bit = i;
   }
 
@@ -33,7 +38,7 @@ test_notar_simple( fd_wksp_t * wksp ) {
   fd_tower_t * tower = fd_tower_join( fd_tower_new( mem ) );
   fd_tower_vote( tower, 368778153 );
 
-  fd_notar_vote( notar, &pubkeys[3], stakes[3], tower, NULL ); /* first valid vote */
+  fd_notar_vote( notar, &pubkeys[3], tower,  ); /* first valid vote */
 
   fd_wksp_free_laddr( fd_notar_delete( fd_notar_leave( notar ) ) );
 }

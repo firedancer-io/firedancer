@@ -3,6 +3,7 @@
 
 #include "../poh/fd_poh_tile.h"
 #include "../../disco/tiles.h"
+#include "../../flamenco/runtime/program/fd_vote_program.h"
 #include "../../flamenco/types/fd_types_custom.h"
 
 #define REPLAY_SIG_SLOT_COMPLETED (0)
@@ -59,24 +60,23 @@ typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 #define FD_REPLAY_TOWER_VOTE_ACC_MAX (4096UL)
 #define FD_REPLAY_TOWER_ACC_DATA_MAX (4096UL)
 
-/* The minimal information Tower needs about a vote account at the end of a slot */
-struct fd_replay_tower {
-  fd_pubkey_t key;
+/* The replay tile sends the tower tile a copy of all the vote states
+   (which contain towers) after each slot to run the TowerBFT rules. */
 
+struct fd_replay_vote_state {
+  fd_pubkey_t pubkey;
   ulong       stake;
-
-  uchar       acc[ FD_REPLAY_TOWER_ACC_DATA_MAX ];
+  uchar       acc[ FD_VOTE_STATE_V3_SZ ];
   ulong       acc_sz;
 };
-
-typedef struct fd_replay_tower fd_replay_tower_t;
+typedef struct fd_replay_vote_state fd_replay_vote_state_t;
 
 union fd_replay_message {
   fd_replay_slot_completed_t slot_completed;
   fd_replay_root_advanced_t  root_advanced;
   fd_poh_reset_t             reset;
   fd_became_leader_t         became_leader;
-  fd_replay_tower_t          tower;
+  fd_replay_vote_state_t     vote_state;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

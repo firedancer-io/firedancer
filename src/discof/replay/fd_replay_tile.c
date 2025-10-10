@@ -291,7 +291,7 @@ struct fd_replay_tile {
      node, that is chaining off of the rooted fork, because the
      consensus root is always an ancestor of the actively replaying tip.
      */
-  fd_hash_t consensus_root;          /* The most recent block to have reached max lockout in the tower. */
+  fd_hash_t consensus_root_block_id; /* most recent block to have reached max lockout in the tower. */
   ulong     consensus_root_slot;     /* slot number of the above. */
   ulong     consensus_root_bank_idx; /* bank index of the above. */
   ulong     published_root_slot;     /* slot number of the published root. */
@@ -324,7 +324,7 @@ struct fd_replay_tile {
      tile. */
   ulong             vote_tower_out_idx; /* index of vote tower to publish next */
   ulong             vote_tower_out_len; /* number of vote towers in the buffer */
-  fd_replay_tower_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  fd_replay_vote_state_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 
   fd_multi_epoch_leaders_t * mleaders;
 
@@ -518,10 +518,10 @@ fd_replay_out_vote_tower_from_funk(
   fd_funk_txn_xid_t const * xid,
   fd_pubkey_t const *       pubkey,
   ulong                     stake,
-  fd_replay_tower_t *       vote_tower_out ) {
+  fd_replay_vote_state_t *       vote_tower_out ) {
 
-  fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
-  vote_tower_out->key   = *pubkey;
+  fd_memset( vote_tower_out, 0, sizeof(fd_replay_vote_state_t) );
+  vote_tower_out->pubkey   = *pubkey;
   vote_tower_out->stake = stake;
 
   /* Speculatively copy out the raw vote account state from Funk */
@@ -605,10 +605,10 @@ publish_next_vote_tower( fd_replay_tile_t *  ctx,
   int som = ctx->vote_tower_out_idx==0;
   int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
 
-  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
+  fd_replay_vote_state_t * vote_state = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   *vote_state = ctx->vote_tower_out[ ctx->vote_tower_out_idx ];
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_VOTE_STATE, ctx->replay_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_tower_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_VOTE_STATE, ctx->replay_out->chunk, sizeof(fd_replay_vote_state_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_vote_state_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->vote_tower_out_idx++;
 }
@@ -1286,7 +1286,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   fd_bank_block_height_set( bank, 1UL );
 
-  ctx->consensus_root          = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->consensus_root_block_id = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->consensus_root_slot     = 0UL;
   ctx->consensus_root_bank_idx = 0UL;
   ctx->published_root_slot     = 0UL;
@@ -1362,7 +1362,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     publish_stake_weights( ctx, stem, bank, 0 );
     publish_stake_weights( ctx, stem, bank, 1 );
 
-    ctx->consensus_root          = manifest_block_id;
+    ctx->consensus_root_block_id          = manifest_block_id;
     ctx->consensus_root_slot     = snapshot_slot;
     ctx->consensus_root_bank_idx = 0UL;
     ctx->published_root_slot     = ctx->consensus_root_slot;
@@ -1661,9 +1661,9 @@ funk_publish( fd_replay_tile_t * ctx,
 static int
 advance_published_root( fd_replay_tile_t * ctx ) {
 
-  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root, NULL, ctx->block_id_arr );
+  fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &ctx->consensus_root_block_id, NULL, ctx->block_id_arr );
   if( FD_UNLIKELY( !block_id_ele ) ) {
-    FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root ) ));
+    FD_LOG_CRIT(( "invariant violation: block id ele not found for consensus root %s", FD_BASE58_ENC_32_ALLOCA( &ctx->consensus_root_block_id ) ));
   }
   ulong target_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
@@ -1940,11 +1940,12 @@ process_tower_update( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( msg->new_root ) ) {
 
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
+    ctx->consensus_root_slot = msg->root_slot;
+
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
     FD_TEST( block_id_ele );
 
-    ctx->consensus_root_slot     = msg->root_slot;
-    ctx->consensus_root          = msg->root_block_id;
+    ctx->consensus_root_block_id = msg->root_block_id;
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
@@ -2142,9 +2143,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( bank );
   FD_TEST( bank->idx==FD_REPLAY_BOOT_BANK_IDX );
 
-  ctx->consensus_root_slot = ULONG_MAX;
-  ctx->consensus_root      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
-  ctx->published_root_slot = ULONG_MAX;
+  ctx->consensus_root_slot     = ULONG_MAX;
+  ctx->consensus_root_block_id = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
+  ctx->published_root_slot     = ULONG_MAX;
 
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */

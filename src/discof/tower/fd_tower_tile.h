@@ -15,17 +15,7 @@ struct fd_tower_slot_done {
      by the vote sending tile to do some internal book-keeping related
      to leader targeting. */
 
-  ulong     vote_slot;
-
-  /* Sometimes, finshing replay of a slot may cause a new slot to be
-     rooted.  If this happens, new root will be 1 and both root_slot and
-     root_block_id will be set to the new root values accordingly.
-     Otherwise, `new_root` will be 0 and root_slot will be ULONG_MAX and
-     root_block_id will be all 32-bytes of all 0s (Base58 111...). */
-
-  ulong     root_slot;
-  fd_hash_t root_block_id;
-  int       new_root;
+  ulong vote_slot;
 
   /* This always contains a vote transaction with our current tower,
      regardless of whether there is a new vote slot or not (ie. vote
@@ -46,9 +36,31 @@ struct fd_tower_slot_done {
   ulong     reset_slot;
   fd_hash_t reset_block_id;
 
-};
+  /* Sometimes, finishing replay of a slot may cause a new slot to be
+     rooted.  If this happens, new root will be 1 and both root_slot and
+     root_block_id will be set to the new root values accordingly.
+     Otherwise, new_root will be 0 and root_slot and root_block_id will
+     be undefined.  Note it is possible tower emits a new root slot but
+     the new root slot's block_id is unavailable (eg. it is an old tower
+     vote that precedes the snapshot slot).  In this case new_root will
+     _not_ be set to 1. */
 
+  int       new_root;
+  ulong     root_slot;
+  fd_hash_t root_block_id;
+};
 typedef struct fd_tower_slot_done fd_tower_slot_done_t;
+
+struct fd_tower_slot_confirmed {
+  fd_hash_t block_id;
+};
+typedef struct fd_tower_slot_confirmed fd_tower_slot_confirmed_t;
+
+union fd_tower_msg {
+  fd_tower_slot_done_t      slot_done;
+  fd_tower_slot_confirmed_t slot_confirmed;
+};
+typedef union fd_tower_msg fd_tower_msg_t;
 
 extern fd_topo_run_tile_t fd_tile_tower;
 

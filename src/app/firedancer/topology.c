@@ -1,14 +1,7 @@
 #include "topology.h"
 
 #include "../../ballet/lthash/fd_lthash.h"
-#include "../../discof/reasm/fd_reasm.h"
-#include "../../discof/poh/fd_poh.h"
-#include "../../discof/replay/fd_exec.h"
-#include "../../discof/gossip/fd_gossip_tile.h"
-#include "../../discof/tower/fd_tower_tile.h"
-#include "../../discof/resolv/fd_resolv_tile.h"
-#include "../../discof/repair/fd_repair.h"
-#include "../../discof/replay/fd_replay_tile.h"
+#include "../../choreo/fd_choreo_base.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/fd_snaprd_tile.h"
 #include "../../disco/quic/fd_tpu.h"
@@ -16,12 +9,20 @@
 #include "../../disco/tiles.h"
 #include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_cpu_topo.h"
-#include "../../util/pod/fd_pod_format.h"
-#include "../../util/tile/fd_tile_private.h"
+#include "../../discof/gossip/fd_gossip_tile.h"
+#include "../../discof/poh/fd_poh.h"
+#include "../../discof/reasm/fd_reasm.h"
+#include "../../discof/repair/fd_repair.h"
+#include "../../discof/replay/fd_exec.h"
+#include "../../discof/replay/fd_replay_tile.h"
+#include "../../discof/resolv/fd_resolv_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../discof/tower/fd_tower_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../funk/fd_funk.h" /* funk_footprint() */
+#include "../../util/pod/fd_pod_format.h"
+#include "../../util/tile/fd_tile_private.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -371,7 +372,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Also pending_fec_shreds_depth? Seems wrong */
-  /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_slot_done_t),  1UL );
+  /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    FD_BLOCK_MAX,                             sizeof(fd_tower_msg_t),        1UL );
   /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TPU_RAW_MTU,                1UL ); /* TODO: Horribly named. Rename to indicate tile and where its going */
 
                        fd_topob_link( topo, "replay_exec",  "replay_exec",  16384UL,                                  sizeof(fd_exec_task_msg_t),    1UL );
@@ -510,7 +511,8 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "tower",  0UL,           "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -940,8 +942,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
 
-    strncpy( tile->tower.identity_key_path, config->paths.identity_key, sizeof(tile->tower.identity_key_path) );
-    strncpy( tile->tower.vote_acc_path, config->paths.vote_account, sizeof(tile->tower.vote_acc_path) );
+    strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
+    strncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     strncpy( tile->tower.ledger_path, config->paths.ledger, sizeof(tile->tower.ledger_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "send" ) ) ) {
