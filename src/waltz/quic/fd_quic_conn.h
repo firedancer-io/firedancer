@@ -21,8 +21,10 @@
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
 #define FD_QUIC_CONN_STATE_CNT                8
 
-FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_CNT == sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt)/sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt[0]),
+FD_STATIC_ASSERT( FD_QUIC_CONN_STATE_CNT              == sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt)/sizeof(((fd_quic_metrics_t*)0)->conn_state_cnt[0]),
                   "metrics conn_state_cnt is the wrong size" );
+FD_STATIC_ASSERT( FD_METRICS_ENUM_QUIC_CONN_STATE_CNT == FD_QUIC_CONN_STATE_CNT,
+                  "quic_conn_state_cnt_mismatch"             );
 
 #define FD_QUIC_REASON_CODES(X,SEP) \
   X(NO_ERROR                     , 0x00  , "No error"                                  ) SEP \
