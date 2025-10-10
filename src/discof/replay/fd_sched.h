@@ -112,12 +112,14 @@ struct fd_sched_txn_exec {
   ulong bank_idx;
   ulong slot;
   ulong txn_idx;
+  ulong exec_idx;
 };
 typedef struct fd_sched_txn_exec fd_sched_txn_exec_t;
 
 struct fd_sched_txn_sigverify {
   ulong bank_idx;
   ulong txn_idx;
+  ulong exec_idx;
 };
 typedef struct fd_sched_txn_sigverify fd_sched_txn_sigverify_t;
 
@@ -142,7 +144,7 @@ ulong fd_sched_align    ( void );
 ulong fd_sched_footprint( ulong block_cnt_max );
 
 void *
-fd_sched_new( void * mem, ulong block_cnt_max );
+fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt );
 
 fd_sched_t *
 fd_sched_join( void * mem, ulong block_cnt_max );
@@ -210,13 +212,13 @@ fd_sched_can_ingest( fd_sched_t * sched );
    the scheduler tries to exploit idle cycles in the exec tiles during
    times of low parallelism critical path progression. */
 ulong
-fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_tile_cnt );
+fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out );
 
 /* Mark a task as complete.  For transaction execution, this means that
    the effects of the execution are now visible on any core that could
    execute a subsequent transaction. */
 void
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx );
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx );
 
 /* Abandon a block.  This means that we are no longer interested in
    executing the block.  This also implies that any block which chains
