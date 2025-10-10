@@ -82,6 +82,7 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
   CFG_POP      ( uint,   layout.snaplta_tile_count                           );
+  CFG_POP      ( uint,   layout.snaplts_tile_count                           );
 
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );

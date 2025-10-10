@@ -246,10 +246,14 @@ STEM_(run1)( ulong                        in_cnt,
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
              ulong                        burst,
+             ulong *                      cons_cnt_arr,
+             ulong **                     cons_fseq_ordered,
+             ulong *                      cons_offset,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
              STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
+  (void)cons_cnt_arr; (void)cons_fseq_ordered; (void)cons_offset;
   /* in frag stream state */
   ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
@@ -509,6 +513,9 @@ STEM_(run1)( ulong                        in_cnt,
       .cr_avail            = cr_avail,
       .min_cr_avail        = &min_cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+      .cons_cnt            = cons_cnt_arr,
+      .cons_fseq_ordered   = cons_fseq_ordered,
+      .cons_offset         = cons_offset,
     };
 #endif
 
@@ -765,6 +772,28 @@ STEM_(run)( fd_topo_t *      topo,
     }
   }
 
+  ulong * cons_fseq_ordered[ FD_TOPO_MAX_LINKS ];
+  ulong cons_cnt_arr[ FD_TOPO_MAX_LINKS ];
+  ulong cons_offset[ FD_TOPO_MAX_LINKS ];
+  ulong cons_offset_accum = 0UL;
+  ulong num_cons = 0UL;
+  for( ulong i=0UL; i<tile->out_cnt; i++ ) {
+    ulong out_cons_cnt = 0UL;
+    cons_offset[ i ] = cons_offset_accum;
+    for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
+      fd_topo_tile_t * consumer_tile = &topo->tiles[ j ];
+      for( ulong k=0UL; k<consumer_tile->in_cnt; k++ ) {
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ k ]==tile->out_link_id[ i ] && consumer_tile->in_link_reliable[ k ] ) ) {
+          cons_fseq_ordered[ num_cons ] = consumer_tile->in_link_fseq[ k ];
+          out_cons_cnt++;
+          num_cons++;
+        }
+      }
+    }
+    cons_cnt_arr[ i ] = out_cons_cnt;
+    cons_offset_accum += out_cons_cnt;
+  }
+
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, 0, 0UL ) ) );
 
@@ -779,6 +808,9 @@ STEM_(run)( fd_topo_t *      topo,
                cons_out,
                cons_fseq,
                STEM_BURST,
+               cons_cnt_arr,
+               cons_fseq_ordered,
+               cons_offset,
                STEM_LAZY,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),

@@ -13,6 +13,10 @@ struct fd_stem_context {
    ulong *           cr_avail;
    ulong *           min_cr_avail;
    ulong             cr_decrement_amount;
+
+   ulong *           cons_cnt;
+   ulong **          cons_fseq_ordered;
+   ulong *           cons_offset;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
@@ -57,8 +61,23 @@ fd_stem_blocking_publish( fd_stem_context_t * stem,
                           ulong               ctl,
                           ulong               tsorig,
                           ulong               tspub ) {
+  while( stem->cr_avail[ out_idx]<stem->cr_decrement_amount ) {
+    ulong new_cr_avail = stem->depths[ out_idx ];
+    for( ulong i=0UL; i<stem->cons_cnt[ out_idx ]; i++ ) {
+      ulong cons_idx = stem->cons_offset[ out_idx ] + i;
+      ulong cons_cr_avail = (ulong)fd_long_max( (long)stem->depths[ out_idx ]-fd_long_max( fd_seq_diff( stem->seqs[ out_idx ], fd_fseq_query( stem->cons_fseq_ordered[ cons_idx ] ) ), 0L ), 0L );
+      new_cr_avail = fd_ulong_min( new_cr_avail, cons_cr_avail );
+    }
+    stem->cr_avail[ out_idx ] = new_cr_avail;
+    FD_SPIN_PAUSE();
+  }
+
   ulong * seqp = &stem->seqs[ out_idx ];
   ulong   seq  = *seqp;
+  fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
+  stem->cr_avail[ out_idx ] -= stem->cr_decrement_amount;
+  *stem->min_cr_avail        = fd_ulong_min( stem->cr_avail[ out_idx ], *stem->min_cr_avail );
+  *seqp = fd_seq_inc( seq, 1UL );
 }
 
 static inline ulong
