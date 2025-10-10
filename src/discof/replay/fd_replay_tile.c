@@ -148,14 +148,13 @@ struct fd_replay_tile {
   fd_reasm_t * reasm;
 
   /* Replay state machine. */
-  fd_sched_t *          sched;
-  uint                  enable_bank_hash_cmp:1;
-  fd_bank_hash_cmp_t *  bank_hash_cmp;
-  ulong                 exec_cnt;
-  ulong                 exec_ready_bitset; /* Bit i set if exec tile i is idle */
-  fd_replay_out_link_t  exec_out[ 1 ];     /* Sending work down to exec tiles */
+  fd_sched_t *         sched;
+  uint                 enable_bank_hash_cmp:1;
+  fd_bank_hash_cmp_t * bank_hash_cmp;
+  ulong                exec_cnt;
+  fd_replay_out_link_t exec_out[ 1 ]; /* Sending work down to exec tiles */
 
-  fd_vote_tracker_t *   vote_tracker;
+  fd_vote_tracker_t *  vote_tracker;
 
   /* A note on publishing ...
 
@@ -1037,9 +1036,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
-
-    /* Now setup exec tiles for execution */
-    ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
   }
 
   /* Initialize consensus structures post-snapshot */
@@ -1056,10 +1052,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   bank_hash_cmp->watermark = snapshot_slot;
 
   fd_bank_vote_states_end_locking_query( bank );
-
-  /* Now that the snapshot(s) are done loading, we can mark all of the
-     exec tiles as ready. */
-  ctx->exec_ready_bitset = fd_ulong_mask_lsb( (int)ctx->exec_cnt );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 }
@@ -1401,9 +1393,6 @@ static void
 dispatch_task( fd_replay_tile_t *  ctx,
                fd_stem_context_t * stem,
                fd_sched_task_t *   task ) {
-  /* Find an exec tile and mark it busy. */
-  int exec_idx = fd_ulong_find_lsb( ctx->exec_ready_bitset );
-  ctx->exec_ready_bitset = fd_ulong_pop_lsb( ctx->exec_ready_bitset );
 
   switch( task->task_type ) {
     case FD_SCHED_TT_TXN_EXEC: {
@@ -1423,7 +1412,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
-      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | (ulong)exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     }
@@ -1438,7 +1427,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_sigverify->bank_idx;
       exec_msg->txn_idx  = task->txn_sigverify->txn_idx;
-      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32) | (ulong)exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32) | task->txn_sigverify->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     };
@@ -1456,36 +1445,34 @@ replay( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !ctx->is_booted ) ) return 0;
 
   int charge_busy = 0;
-  if( FD_LIKELY( ctx->exec_ready_bitset ) ) {
-    fd_sched_task_t task[ 1 ];
-    if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task, (ulong)fd_ulong_popcnt( ctx->exec_ready_bitset ) ) ) ) {
-      return charge_busy; /* Nothing to execute or do. */
+  fd_sched_task_t task[ 1 ];
+  if( FD_UNLIKELY( !fd_sched_task_next_ready( ctx->sched, task ) ) ) {
+    return charge_busy; /* Nothing to execute or do. */
+  }
+
+  charge_busy = 1;
+
+  switch( task->task_type ) {
+    case FD_SCHED_TT_BLOCK_START: {
+      replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX );
+      break;
     }
-
-    charge_busy = 1;
-
-    switch( task->task_type ) {
-      case FD_SCHED_TT_BLOCK_START: {
-        replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
-        fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX );
-        break;
-      }
-      case FD_SCHED_TT_BLOCK_END: {
-        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
-        if( FD_LIKELY( !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
-        fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX );
-        break;
-      }
-      case FD_SCHED_TT_TXN_EXEC:
-      case FD_SCHED_TT_TXN_SIGVERIFY: {
-        /* Likely/common case: we have a transaction we actually need to
-           execute. */
-        dispatch_task( ctx, stem, task );
-        break;
-      }
-      default: {
-        FD_LOG_CRIT(( "unexpected task type %lu", task->task_type ));
-      }
+    case FD_SCHED_TT_BLOCK_END: {
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
+      if( FD_LIKELY( !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX );
+      break;
+    }
+    case FD_SCHED_TT_TXN_EXEC:
+    case FD_SCHED_TT_TXN_SIGVERIFY: {
+      /* Likely/common case: we have a transaction we actually need to
+         execute. */
+      dispatch_task( ctx, stem, task );
+      break;
+    }
+    default: {
+      FD_LOG_CRIT(( "unexpected task type %lu", task->task_type ));
     }
   }
 
@@ -1739,6 +1726,7 @@ after_credit( fd_replay_tile_t *  ctx,
   }
 
   *charge_busy = replay( ctx, stem );
+  *opt_poll_in = !*charge_busy;
 }
 
 static int
@@ -1781,8 +1769,6 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
                         fd_exec_task_done_msg_t * msg,
                         ulong                     sig ) {
   ulong exec_tile_idx = sig&0xFFFFFFFFUL;
-  FD_TEST( !fd_ulong_extract_bit( ctx->exec_ready_bitset, (int)exec_tile_idx ) );
-  ctx->exec_ready_bitset = fd_ulong_set_bit( ctx->exec_ready_bitset, (int)exec_tile_idx );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
   bank->refcnt--;
@@ -1800,7 +1786,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
           *fd_bank_has_identity_vote_modify( bank ) += 1;
         }
       }
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_EXEC, msg->txn_exec->txn_idx, exec_tile_idx );
       if( FD_UNLIKELY( msg->txn_exec->err && !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead.  Also freeze the
@@ -1814,7 +1800,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
       break;
     }
     case FD_EXEC_TT_TXN_SIGVERIFY: {
-      fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx );
+      fd_sched_task_done( ctx->sched, FD_SCHED_TT_TXN_SIGVERIFY, msg->txn_sigverify->txn_idx, exec_tile_idx );
       if( FD_UNLIKELY( msg->txn_sigverify->err && !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) {
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
@@ -2159,13 +2145,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( ctx->exec_cnt>FD_PACK_MAX_BANK_TILES ) ) FD_LOG_ERR(( "replay tile has too many exec tiles %lu", ctx->exec_cnt ));
 
-  ctx->exec_ready_bitset = 0UL;
   ctx->is_booted = 0;
 
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, 0 ) );
   FD_TEST( ctx->reasm );
 
-  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots ), tile->replay.max_live_slots );
+  ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots, ctx->exec_cnt ), tile->replay.max_live_slots );
   FD_TEST( ctx->sched );
 
   ctx->enable_bank_hash_cmp = !!tile->replay.enable_bank_hash_cmp;
