@@ -316,7 +316,7 @@ fd_vm_get_input_mem_region_idx( fd_vm_t const * vm, ulong offset ) {
 static inline void
 fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
                                    ulong           offset,
-ulong           sz,
+                                   ulong           sz,
                                    ulong           region_idx,
                                    uchar           write ) {
   /* If stricter_abi_and_runtime_constraints is not enabled, we don't need to do anything */
