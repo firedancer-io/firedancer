@@ -3,6 +3,7 @@
 
 #include "../../capture/fd_solcap_writer.h"
 #include "../fd_runtime_const.h"
+#include "../../capture/fd_capture_tile.h"
 
 /* fd_capture_ctx_account_update_msg_t is the message sent from
    exec tile to replay tile that notifies the solcap writer that an
@@ -28,17 +29,12 @@ typedef struct fd_capture_ctx_account_update_msg fd_capture_ctx_account_update_m
 struct fd_capture_ctx {
   ulong magic; /* ==FD_CAPTURE_CTX_MAGIC */
 
+  fd_capctx_buf_t *        capctx_buf;
+
   /* Solcap */
   ulong                    solcap_start_slot;
-  int                      trace_dirfd;
-  int                      trace_mode;
   fd_solcap_writer_t *     capture;
-  int                      capture_txns; /* Capturing txns can add significant time */
 
-  /* Checkpointing */
-  ulong                    checkpt_freq;    /* Must be a rooted slot */
-  char const *             checkpt_path;    /* Wksp checkpoint format */
-  char const *             checkpt_archive; /* Funk archive format */
 
   /*======== PROTOBUF ========*/
   char const *             dump_proto_output_dir;
@@ -60,14 +56,6 @@ struct fd_capture_ctx {
   /* ELF Capture */
   int                      dump_elf_to_pb;
 
-  /* Account update buffer, account updates to be sent over the exec_replay link are buffered here
-     to avoid passing stem down into the runtime.
-
-     FIXME: write directly into the dcache to avoid the memory copy and allocation
-     TODO: remove this when solcap v2 is here. */
-  uchar *                    account_updates_buffer;
-  uchar *                    account_updates_buffer_ptr;
-  ulong                      account_updates_len;
 };
 typedef struct fd_capture_ctx fd_capture_ctx_t;
 

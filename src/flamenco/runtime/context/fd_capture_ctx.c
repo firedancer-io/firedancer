@@ -18,12 +18,10 @@ fd_capture_ctx_new( void * mem ) {
 
   /* TODO: use layout macros */
   fd_capture_ctx_t * self = (fd_capture_ctx_t *) mem;
-  self->capture = (fd_solcap_writer_t *)((uchar *)mem + sizeof(fd_capture_ctx_t));
-  fd_solcap_writer_new( self->capture );
 
-  self->account_updates_buffer     = (uchar *)mem + sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint();
-  self->account_updates_buffer_ptr = self->account_updates_buffer;
-  self->account_updates_len        = 0UL;
+  /* Initialize solcap writer */
+  self->capture = (fd_solcap_writer_t *)((uchar *)mem + sizeof(fd_capture_ctx_t) + fd_capctx_buf_footprint());
+  fd_solcap_writer_new( self->capture );
 
   FD_COMPILER_MFENCE();
   self->magic = FD_CAPTURE_CTX_MAGIC;
@@ -80,6 +78,11 @@ fd_capture_ctx_delete( void * mem ) {
   if( FD_UNLIKELY( hdr->magic!=FD_CAPTURE_CTX_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
+  }
+
+  /* Clean up capctx_buf */
+  if( FD_LIKELY( hdr->capctx_buf ) ) {
+    fd_capctx_buf_leave( hdr->capctx_buf );
   }
 
   if( FD_UNLIKELY( fd_solcap_writer_delete( hdr->capture ) == NULL ) ) {
