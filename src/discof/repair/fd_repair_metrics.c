@@ -79,7 +79,7 @@ print_catchup_stats( fd_repair_metrics_t * repair_metrics ) {
     /* incremental slot completion time */
     if( cur_slot <= repair_metrics->turbine_slot0 && slot_cmpl_ts - prev_slot_cmpl_ts > 0 ) {
       /* drop any samples above 100ms */
-      FD_LOG_NOTICE(( "incremental slot completion time: %.2fms", (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)(slot_cmpl_ts - prev_slot_cmpl_ts)) / 1e6 ));
+      //FD_LOG_NOTICE(( "incremental slot completion time: %.2fms", (double)fd_metrics_convert_ticks_to_nanoseconds((ulong)(slot_cmpl_ts - prev_slot_cmpl_ts)) / 1e6 ));
       incr_slot_cmpl_total += (slot_cmpl_ts - prev_slot_cmpl_ts);
     }
     prev_slot_cmpl_ts = slot_cmpl_ts;
@@ -88,7 +88,7 @@ print_catchup_stats( fd_repair_metrics_t * repair_metrics ) {
 
   if( FD_LIKELY( turbine_ts > 0 ) ) { /* still have turbine slot0 in the catchup metrics */
     double pipelined_time = (double)(turbine_ts - min_ts);
-    FD_LOG_NOTICE(( "took %.3fs to reach first turbine.", pipelined_time / 1e9 ));
+    FD_LOG_NOTICE(( "took %.3fs to reach first turbine.", fd_metrics_convert_ticks_to_seconds((ulong)pipelined_time) ));
 
     /* Compute pipeline factor */
     double non_pipelined_time = (double)slot_cmpl_time_total;
