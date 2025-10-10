@@ -214,7 +214,7 @@ echo "
     max_live_slots = 32
     max_fork_width = 4
 [log]
-    level_stderr = \"INFO\"
+    level_stderr = \"NOTICE\"
     path = \"$LOG\"
 [paths]
     snapshots = \"$DUMP/$LEDGER\"

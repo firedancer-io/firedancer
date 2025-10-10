@@ -57,13 +57,6 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
                           fd_stake_history_t const *     history,
                           ulong *                        new_rate_activation_epoch );
 
-void
-fd_accumulate_stake_infos( ulong                          epoch,
-                           fd_stake_delegations_t const * stake_delegations,
-                           fd_stake_history_t const *     history,
-                           ulong *                        new_rate_activation_epoch,
-                           fd_stake_history_entry_t *     accumulator );
-
 /* fd_store_stake_delegation is used to update fd_stake_delegations_t
    based on a specific transaction account. If the account is empty or
    uninitialized, it is removed from the stake delegation map. */

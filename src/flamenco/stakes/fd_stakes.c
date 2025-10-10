@@ -25,11 +25,21 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
   return weights_cnt;
 }
 
-static void
-compute_stake_delegations( fd_bank_t *                    bank,
-                           fd_stake_delegations_t const * stake_delegations,
-                           fd_stake_history_t const *     history,
-                           ulong *                        new_rate_activation_epoch ) {
+/* Refresh vote accounts.
+
+   This updates the epoch bank stakes vote_accounts cache - that is, the
+   total amount of delegated stake each vote account has, using the
+   current delegation values from inside each stake account.  Contrary
+   to the Agave equivalent, it also merges the stakes cache vote
+   accounts with the new vote account keys from this epoch.
+
+   https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
+void
+fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_stake_delegations_t const * stake_delegations,
+                          fd_stake_history_t const *     history,
+                          ulong *                        new_rate_activation_epoch ) {
+
   ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
@@ -77,37 +87,47 @@ compute_stake_delegations( fd_bank_t *                    bank,
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
-/* Refresh vote accounts.
+/* Accumulate stake information for this epoch into a stake history
+   entry which gets inserted into the stake history sysvar.  Unlike in
+   the Agave client, the total amount of stake on each vote account is
+   not updated as stake accounts are updated/inserted/removed and is
+   instead done at the end of an epoch. */
 
-   This updates the epoch bank stakes vote_accounts cache - that is, the total amount
-   of delegated stake each vote account has, using the current delegation values from inside each
-   stake account. Contrary to the Agave equivalent, it also merges the stakes cache vote accounts with the
-   new vote account keys from this epoch.
-
-   https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
+/* https://github.com/anza-xyz/agave/blob/v3.0.0/runtime/src/stakes.rs#L280 */
 void
-fd_refresh_vote_accounts( fd_bank_t *                    bank,
+fd_stakes_activate_epoch( fd_bank_t *                    bank,
+                          fd_funk_t *                    funk,
+                          fd_funk_txn_xid_t const *      xid,
+                          fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
-                          fd_stake_history_t const *     history,
-                          ulong *                        new_rate_activation_epoch ) {
+                          ulong *                        new_rate_activation_epoch,
+                          fd_spad_t *                    runtime_spad ) {
 
-  compute_stake_delegations(
-      bank,
-      stake_delegations,
-      history,
-      new_rate_activation_epoch );
-}
+  /* This function is responsible for updating the stake history sysvar
+     with the stake information for the current epoch and computing
+     stake values for the next epoch. */
 
-static void
-accumulate_stake_cache_delegations( fd_stake_delegations_t const * stake_delegations,
-                                    fd_stake_history_t const *     history,
-                                    ulong *                        new_rate_activation_epoch,
-                                    fd_stake_history_entry_t *     accumulator,
-                                    ulong                          epoch ) {
+  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+  if( FD_UNLIKELY( !history ) ) {
+    FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
+  }
 
-  ulong effective    = 0UL;
-  ulong activating   = 0UL;
-  ulong deactivating = 0UL;
+  fd_stake_history_entry_t accumulator = {
+    .effective    = 0UL,
+    .activating   = 0UL,
+    .deactivating = 0UL
+  };
+
+  /* This represents the total amount of activated stake for the epoch
+     after the epoch boundary. */
+  ulong total_stake = 0UL;
+
+  ulong epoch = fd_bank_epoch_get( bank );
+
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+  if( FD_UNLIKELY( !vote_states ) ) {
+    FD_LOG_CRIT(( "vote_states is NULL" ));
+  }
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -128,72 +148,31 @@ accumulate_stake_cache_delegations( fd_stake_delegations_t const * stake_delegat
         epoch,
         history,
         new_rate_activation_epoch );
-    effective    += new_entry.effective;
-    activating   += new_entry.activating;
-    deactivating += new_entry.deactivating;
+
+    fd_stake_history_entry_t next_epoch_entry = fd_stake_activating_and_deactivating(
+        &delegation,
+        epoch+1UL,
+        history,
+        new_rate_activation_epoch );
+
+    fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
+    if( FD_LIKELY( vote_state ) ) {
+      total_stake       += next_epoch_entry.effective;
+      vote_state->stake += next_epoch_entry.effective;
+    }
+
+    accumulator.effective    += new_entry.effective;
+    accumulator.activating   += new_entry.activating;
+    accumulator.deactivating += new_entry.deactivating;
   }
 
-  accumulator->effective    += effective;
-  accumulator->activating   += activating;
-  accumulator->deactivating += deactivating;
+  /* Store the total amount of activated stake for the new epoch.*/
+  fd_bank_total_epoch_stake_set( bank, total_stake );
+  fd_bank_vote_states_end_locking_modify( bank );
 
-}
-
-/* Accumulates information about epoch stakes into `temp_info`, which is a temporary cache
-   used to save intermediate state about stake and vote accounts to avoid them from having to
-   be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
-void
-fd_accumulate_stake_infos( ulong                          epoch,
-                           fd_stake_delegations_t const * stake_delegations,
-                           fd_stake_history_t const *     history,
-                           ulong *                        new_rate_activation_epoch,
-                           fd_stake_history_entry_t *     accumulator ) {
-
-  accumulate_stake_cache_delegations(
-      stake_delegations,
-      history,
-      new_rate_activation_epoch,
-      accumulator,
-      epoch );
-
-}
-
-/* https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L169 */
-void
-fd_stakes_activate_epoch( fd_bank_t *                    bank,
-                          fd_funk_t *                    funk,
-                          fd_funk_txn_xid_t const *      xid,
-                          fd_capture_ctx_t *             capture_ctx,
-                          fd_stake_delegations_t const * stake_delegations,
-                          ulong *                        new_rate_activation_epoch,
-                          fd_spad_t *                    runtime_spad ) {
-
-  /* Current stake delegations: list of all current delegations in stake_delegations
-     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L180 */
-  /* Add a new entry to the Stake History sysvar for the previous epoch
-     https://github.com/solana-labs/solana/blob/88aeaa82a856fc807234e7da0b31b89f2dc0e091/runtime/src/stakes.rs#L181-L192 */
-
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
-  if( FD_UNLIKELY( !history ) ) FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
-
-  fd_stake_history_entry_t accumulator = {
-    .effective    = 0UL,
-    .activating   = 0UL,
-    .deactivating = 0UL
-  };
-
-  /* Accumulate stats for stake accounts */
-  fd_accumulate_stake_infos(
-      fd_bank_epoch_get( bank ),
-      stake_delegations,
-      history,
-      new_rate_activation_epoch,
-      &accumulator );
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L359 */
   fd_epoch_stake_history_entry_pair_t new_elem = {
-    .epoch        = fd_bank_epoch_get( bank ),
-    .entry        = {
+    .epoch = fd_bank_epoch_get( bank ),
+    .entry = {
       .effective    = accumulator.effective,
       .activating   = accumulator.activating,
       .deactivating = accumulator.deactivating
