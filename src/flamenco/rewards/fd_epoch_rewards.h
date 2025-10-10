@@ -116,6 +116,9 @@ struct fd_epoch_rewards {
      partition */
   uint128 total_points;
 
+  ulong total_stake_rewards;
+  ulong stake_rewards_cnt;
+
   /* Internal pointers for pool, dlist, and map. */
   ulong pool_offset;
   ulong map_offset;

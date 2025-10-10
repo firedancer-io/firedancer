@@ -207,6 +207,9 @@ fd_epoch_rewards_insert( fd_epoch_rewards_t * epoch_rewards,
 
   fd_epoch_stake_reward_map_ele_insert( stake_reward_map, stake_reward, stake_reward_pool );
 
+  epoch_rewards->total_stake_rewards += lamports;
+  epoch_rewards->stake_rewards_cnt++;
+
 }
 
 void
