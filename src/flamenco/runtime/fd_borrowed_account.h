@@ -175,12 +175,19 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
 /* fd_borrowed_account_set_data_length mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::set_data_length.
 
+   If zero_out is 1, the new bytes will be zeroed out. Most callers
+   should use this.
+   If zero_out is 0, the new bytes will not be zeroed out. This is used
+   for direct mapping, where we resize the account to a buffer that is
+   already populated.
+
    Acquires a writable handle. Returns 0 on success.
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L882 */
 
 int
 fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
-                                     ulong                   new_len );
+                                     ulong                   new_len,
+                                     uint                    zero_out );
 
 /* fd_borrowed_account_set_executable mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::set_executable.

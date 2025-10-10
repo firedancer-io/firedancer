@@ -202,7 +202,7 @@ void
 fd_txn_account_clear_owner( fd_txn_account_t * acct );
 
 void
-fd_txn_account_resize( fd_txn_account_t * acct, ulong dlen );
+fd_txn_account_resize( fd_txn_account_t * acct, ulong dlen, uint zero_out );
 
 ushort
 fd_txn_account_is_borrowed( fd_txn_account_t const * acct );

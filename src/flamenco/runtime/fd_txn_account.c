@@ -434,20 +434,25 @@ fd_txn_account_clear_owner( fd_txn_account_t * acct ) {
 
 void
 fd_txn_account_resize( fd_txn_account_t * acct,
-                       ulong              dlen ) {
+                       ulong              dlen,
+                       uint               zero_out ) {
   if( FD_UNLIKELY( !acct->is_mutable ) ) {
     FD_LOG_CRIT(( "account is not mutable" ));
   }
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  /* Because the memory for an account is preallocated for the transaction
+  /* In some cases, for example direct mapping, we do not
+     want to zero out the new bytes. */
+  if( zero_out ) {
+    /* Because the memory for an account is preallocated for the transaction
      up to the max account size, we only need to zero out bytes (for the case
      where the account grew) and update the account dlen. */
-  ulong old_sz    = acct->meta->dlen;
-  ulong new_sz    = dlen;
-  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
-  fd_memset( acct->data+old_sz, 0, memset_sz );
+    ulong old_sz    = acct->meta->dlen;
+    ulong new_sz    = dlen;
+    ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+    fd_memset( acct->data+old_sz, 0, memset_sz );
+  }
 
   acct->meta->dlen = (uint)dlen;
 }

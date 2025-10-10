@@ -394,13 +394,13 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L259-L272 */
   if( new_size==0UL ) {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L260 */
-    err = fd_borrowed_account_set_data_length( &program, 0UL );
+    err = fd_borrowed_account_set_data_length( &program, 0UL, 1 );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L262-L264 */
-    err = fd_borrowed_account_set_data_length( &program, new_program_dlen );
+    err = fd_borrowed_account_set_data_length( &program, new_program_dlen, 1 );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }

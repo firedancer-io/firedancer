@@ -15,6 +15,7 @@ fd_bpf_loader_input_serialize_parameters( fd_exec_instr_ctx_t *     instr_ctx,
                                           fd_vm_input_region_t *    input_mem_regions,
                                           uint *                    input_mem_regions_cnt,
                                           fd_vm_acc_region_meta_t * acc_region_metas,
+                                          int                       stricter_abi_and_runtime_constraints,
                                           int                       direct_mapping,
                                           uchar                     is_deprecated,
                                           uchar **                  out /* output */ );
@@ -24,6 +25,7 @@ fd_bpf_loader_input_deserialize_parameters( fd_exec_instr_ctx_t * ctx,
                                             ulong const *         pre_lens,
                                             uchar *               input,
                                             ulong                 input_sz,
+                                            int                   stricter_abi_and_runtime_constraints,
                                             int                   direct_mapping,
                                             uchar                 is_deprecated );
 

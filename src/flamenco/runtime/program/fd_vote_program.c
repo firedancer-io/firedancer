@@ -810,7 +810,7 @@ set_vote_account_state( fd_borrowed_account_t *     vote_account,
   if( resize_needed && resize_rent_exempt ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L179
     resize_failed =
-      fd_borrowed_account_set_data_length( vote_account, vsz ) != FD_EXECUTOR_INSTR_SUCCESS;
+      fd_borrowed_account_set_data_length( vote_account, vsz, 1 ) != FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   if( FD_UNLIKELY( resize_needed && ( !resize_rent_exempt || resize_failed ) ) ) {

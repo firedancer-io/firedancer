@@ -82,7 +82,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
-  err = fd_borrowed_account_set_data_length( &proof_acc, 0UL );
+  err = fd_borrowed_account_set_data_length( &proof_acc, 0UL, 1 );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

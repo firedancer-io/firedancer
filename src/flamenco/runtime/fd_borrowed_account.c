@@ -134,7 +134,8 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
 
 int
 fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
-                                     ulong                   new_len ) {
+                                     ulong                   new_len,
+                                     uint                    zero_out ) {
   fd_txn_account_t * acct = borrowed_acct->acct;
   int                err  = FD_EXECUTOR_INSTR_SUCCESS;
 
@@ -165,7 +166,7 @@ fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
 
   /* Resize the account
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L891 */
-  fd_txn_account_resize( acct, new_len );
+  fd_txn_account_resize( acct, new_len, zero_out );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
