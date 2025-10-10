@@ -5,6 +5,7 @@ dump
 unit-test
 tmp
 frontend
+fuzz-build
 
 genhtml/
 target/
