@@ -71,6 +71,7 @@ struct fd_epoch_stake_reward {
   ulong       next;
   ulong       parent;
   ulong       next_;
+  ulong       nexta;
 };
 typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
@@ -80,6 +81,7 @@ typedef struct fd_epoch_stake_reward fd_epoch_stake_reward_t;
 
 #define DLIST_NAME  fd_epoch_stake_reward_dlist
 #define DLIST_ELE_T fd_epoch_stake_reward_t
+#define DLIST_NEXT nexta
 #include "../../util/tmpl/fd_dlist.c"
 
 #define MAP_NAME               fd_epoch_stake_reward_map
@@ -190,6 +192,17 @@ fd_epoch_rewards_hash_and_insert( fd_epoch_rewards_t * epoch_rewards,
                                   fd_pubkey_t const *  pubkey,
                                   ulong                credits,
                                   ulong                lamports );
+
+void
+fd_epoch_rewards_insert( fd_epoch_rewards_t * epoch_rewards,
+                         fd_pubkey_t const *  pubkey,
+                         ulong                credits,
+                         ulong                lamports );
+
+void
+fd_epoch_rewards_hash_all( fd_epoch_rewards_t * epoch_rewards,
+                           fd_hash_t const *    parent_blockhash,
+                           ulong                num_partitions );
 
 /* fd_epoch_rewards_get_distribution_partition_index determines the
    hash partition that the current block belongs in. */
