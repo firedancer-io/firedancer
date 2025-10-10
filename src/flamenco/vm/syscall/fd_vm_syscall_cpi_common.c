@@ -171,7 +171,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
       }
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.1/syscalls/src/cpi.rs#L1106 */
-      err = fd_borrowed_account_set_data_length( &callee_acc, post_len );
+      err = fd_borrowed_account_set_data_length( &callee_acc, post_len, 1 );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return -1;

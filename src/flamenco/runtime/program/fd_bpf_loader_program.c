@@ -863,7 +863,7 @@ common_extend_program( fd_exec_instr_ctx_t * instr_ctx,
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, PROGRAM_DATA_ACCOUNT_INDEX, &programdata_account );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1508 */
-  err = fd_borrowed_account_set_data_length( &programdata_account, new_len );
+  err = fd_borrowed_account_set_data_length( &programdata_account, new_len, 1 );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -1358,7 +1358,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_memcpy( dst_slice, src_slice, dst_slice_len );
         /* Update buffer data length.
           BUFFER_METADATA_SIZE == UpgradeableLoaderState::size_of_buffer(0) */
-        err = fd_borrowed_account_set_data_length( &buffer, BUFFER_METADATA_SIZE );
+        err = fd_borrowed_account_set_data_length( &buffer, BUFFER_METADATA_SIZE, 1 );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
@@ -1657,7 +1657,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       /* Buffer account set_data_length */
-      err = fd_borrowed_account_set_data_length( &buffer, BUFFER_METADATA_SIZE );
+      err = fd_borrowed_account_set_data_length( &buffer, BUFFER_METADATA_SIZE, 1 );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1903,7 +1903,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return err;
       }
       /* Close account set data length */
-      err = fd_borrowed_account_set_data_length( &close_account, SIZE_OF_UNINITIALIZED );
+      err = fd_borrowed_account_set_data_length( &close_account, SIZE_OF_UNINITIALIZED, 1 );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }

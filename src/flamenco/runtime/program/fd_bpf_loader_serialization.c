@@ -452,7 +452,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
         }
       } else if( fd_borrowed_account_get_data_len( &view_acc ) != post_len ) {
         /* https://github.com/anza-xyz/agave/blob/v3.0.1/program-runtime/src/serialization.rs#L633-L635 */
-        int err = fd_borrowed_account_set_data_length( &view_acc, post_len );
+        int err = fd_borrowed_account_set_data_length( &view_acc, post_len, 0 );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }
@@ -692,7 +692,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
         }
       } else if( fd_borrowed_account_get_data_len( &view_acc ) != pre_len ) {
         /* https://github.com/anza-xyz/agave/blob/v3.0.1/program-runtime/src/serialization.rs#L452-L454 */
-        int err = fd_borrowed_account_set_data_length( &view_acc, pre_len );
+        int err = fd_borrowed_account_set_data_length( &view_acc, pre_len, 1 );
         if( FD_UNLIKELY( err ) ) {
           return err;
         }

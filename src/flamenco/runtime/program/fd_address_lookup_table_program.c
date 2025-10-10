@@ -691,7 +691,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
-  fd_txn_account_resize( lut_acct.acct, new_table_data_sz );
+  fd_txn_account_resize( lut_acct.acct, new_table_data_sz, 1 );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L307-L310 */
   err = fd_addrlut_serialize_meta( &lut->state, lut_data_mut, lut_data_mut_len );
@@ -704,7 +704,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     uchar * new_keys = lut_data_mut + FD_ADDRLUT_META_SZ + old_addr_cnt * sizeof(fd_pubkey_t);
     fd_memcpy( new_keys, extend->new_addrs, extend->new_addrs_len * sizeof(fd_pubkey_t) );
   } while(0);
-  fd_borrowed_account_set_data_length( &lut_acct, new_table_data_sz );
+  fd_borrowed_account_set_data_length( &lut_acct, new_table_data_sz, 1 );
   lut->addr            = (fd_pubkey_t *)(lut_data_mut + FD_ADDRLUT_META_SZ);
   lut->addr_cnt        = new_addr_cnt;
 
@@ -1042,7 +1042,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L463-L464 */
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_LUT, &lut_acct );
 
-  err = fd_borrowed_account_set_data_length( &lut_acct, 0UL );
+  err = fd_borrowed_account_set_data_length( &lut_acct, 0UL, 1 );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
