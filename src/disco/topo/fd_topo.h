@@ -353,6 +353,7 @@ struct fd_topo_tile {
       int   tx_metadata_storage;
       ulong funk_obj_id;
       ulong txncache_obj_id;
+      ulong capctx_obj_id;
 
       char  shred_cap[ PATH_MAX ];
       char  cluster_version[ 32 ];
@@ -381,6 +382,7 @@ struct fd_topo_tile {
     struct {
       ulong funk_obj_id;
       ulong txncache_obj_id;
+      ulong capctx_obj_id;
 
       ulong max_live_slots;
 
@@ -560,6 +562,11 @@ struct fd_topo_tile {
 
       char genesis_path[ PATH_MAX ];
     } genesi;
+
+    struct {
+      ulong capture_ctx_obj_id;
+      char solcap_capture[ PATH_MAX ];
+    } capctx;
   };
 };
 

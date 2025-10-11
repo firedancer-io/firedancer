@@ -88,6 +88,12 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile( topo, "exec", "exec", "metric_in", cpu_idx++, 0, 0 );
 
   /**********************************************************************/
+  /* Add the capture tile to topo                                       */
+  /**********************************************************************/
+  fd_topob_wksp( topo, "capctx" );
+  fd_topob_tile( topo, "capctx", "capctx", "metric_in", cpu_idx++, 0, 0 );
+
+  /**********************************************************************/
   /* Add the snapshot tiles to topo                                       */
   /**********************************************************************/
   fd_topo_tile_t * snapin_tile = NULL;
@@ -240,6 +246,14 @@ backtest_topo( config_t * config ) {
   /* Setup the shared objs used by replay and exec tiles                */
   /**********************************************************************/
 
+  // Create capctx buffer shared object
+  fd_topo_obj_t * capctx_buf_obj = setup_topo_capctx_buf( topo, "capctx", config->firedancer.capctx.path );
+  fd_topob_tile_uses( topo, replay_tile, capctx_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0 ) ], capctx_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "capctx", 0 ) ], capctx_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], capctx_buf_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, capctx_buf_obj->id, "capctx_buf" ) );
+  
   fd_topob_wksp( topo, "store" );
   fd_topo_obj_t * store_obj = setup_topo_store( topo, "store", config->firedancer.store.max_completed_shred_sets, 1 );
   fd_topob_tile_uses( topo, backt_tile, store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
