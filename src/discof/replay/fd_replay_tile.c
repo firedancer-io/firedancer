@@ -357,6 +357,7 @@ struct fd_replay_tile {
   fd_replay_out_link_t replay_out[1];
 
   fd_replay_out_link_t stake_out[1];
+  fd_replay_out_link_t replay_votes[1];
 
   struct {
     fd_histf_t store_read_wait[ 1 ];
@@ -592,6 +593,46 @@ buffer_vote_towers( fd_replay_tile_t *        ctx,
   fd_bank_vote_states_prev_end_locking_query( bank );
 }
 
+/* This function creates and publishes a snapshot of all the vote
+   account states at the end of this slot, which can be consumed for
+   monitoring purposes.
+
+   This function should be called at the end of a slot, before any epoch
+   boundary processing. */
+static void
+publish_vote_states( fd_replay_tile_t *  ctx,
+                     fd_stem_context_t * stem,
+                     fd_bank_t *         bank ) {
+  fd_replay_vote_t * votes = fd_chunk_to_laddr( ctx->replay_votes->mem, ctx->replay_votes->chunk );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
+  fd_vote_states_iter_t iter_[1];
+  ulong count = 0UL;
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    if( FD_UNLIKELY( count==FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ) {
+      FD_LOG_WARNING(("on-chain vote accounts surpassed FD_RUNTIME_MAX_VOTE_ACCOUNTS"));
+      break;
+    }
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+
+    votes[ count ].vote_account        = vote_state->vote_account;
+    votes[ count ].node_account        = vote_state->node_account;
+    votes[ count ].stake               = vote_state->stake;
+    votes[ count ].last_vote_slot      = vote_state->last_vote_slot;
+    votes[ count ].last_vote_timestamp = vote_state->last_vote_timestamp;
+    votes[ count ].commission          = vote_state->commission;
+    votes[ count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
+    votes[ count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
+
+    count++;
+  }
+  fd_bank_vote_states_end_locking_query( bank );
+
+  fd_stem_publish( stem, ctx->replay_votes->idx, count, ctx->replay_votes->chunk, count*sizeof(fd_replay_vote_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->replay_votes->chunk = fd_dcache_compact_next( ctx->replay_votes->chunk, count*sizeof(fd_replay_vote_t), ctx->replay_votes->chunk0, ctx->replay_votes->wmark );
+}
+
 /* This function publishes the next vote tower in the
    ctx->vote_tower_out buffer to the tower tile.
 
@@ -740,6 +781,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   ctx->metrics.slots_total++;
   ctx->metrics.transactions_total = fd_bank_txn_count_get( bank );
 
+  fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
+
   fd_replay_slot_completed_t * slot_info = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   slot_info->slot                  = slot;
   slot_info->root_slot             = ctx->consensus_root_slot;
@@ -751,11 +794,10 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-
-  slot_info->transaction_count     = fd_bank_txn_count_get( bank );
-  slot_info->nonvote_txn_count     = fd_bank_nonvote_txn_count_get( bank );
-  slot_info->failed_txn_count      = fd_bank_failed_txn_count_get( bank );
-  slot_info->nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_get( bank );
+  slot_info->transaction_count     = fd_bank_txn_count_get( bank ) - ( !!parent_bank ? fd_bank_txn_count_get( parent_bank ) : 0UL );
+  slot_info->nonvote_txn_count     = fd_bank_nonvote_txn_count_get( bank ) - ( !!parent_bank ? fd_bank_nonvote_txn_count_get( parent_bank ) : 0UL );
+  slot_info->failed_txn_count      = fd_bank_failed_txn_count_get( bank ) - ( !!parent_bank ? fd_bank_failed_txn_count_get( parent_bank ) : 0UL );
+  slot_info->nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_get( bank )  - ( !!parent_bank ? fd_bank_nonvote_failed_txn_count_get( parent_bank ) : 0UL );
   slot_info->total_compute_units_used = fd_bank_total_compute_units_used_get( bank );
   slot_info->execution_fees        = fd_bank_execution_fees_get( bank );
   slot_info->priority_fees         = fd_bank_priority_fees_get( bank );
@@ -806,6 +848,11 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Copy the vote tower of all the vote accounts into the buffer,
      which will be published in after_credit. */
   buffer_vote_towers( ctx, &xid, bank );
+
+  /* Take a snapshot of vote states and publish them to consumers */
+  if( FD_LIKELY( ctx->replay_votes->idx!=ULONG_MAX ) ) {
+    publish_vote_states( ctx, stem, bank );
+  }
 
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
@@ -1171,7 +1218,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "too many skipped ticks %lu for slot %lu, chain must halt", msg->ticks_per_slot+msg->total_skipped_ticks, ctx->next_leader_slot ));
   }
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->next_leader_slot = ULONG_MAX;
@@ -2273,6 +2320,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   *ctx->stake_out  = out1( topo, tile, "replay_stake" ); FD_TEST( ctx->stake_out->idx!=ULONG_MAX );
   *ctx->replay_out = out1( topo, tile, "replay_out" ); FD_TEST( ctx->replay_out->idx!=ULONG_MAX );
+  *ctx->replay_votes = out1( topo, tile, "replay_votes" );
 
   ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", 0UL );
   FD_TEST( idx!=ULONG_MAX );
