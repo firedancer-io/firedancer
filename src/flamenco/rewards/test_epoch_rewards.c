@@ -59,14 +59,13 @@ int main( int argc, char * * argv ) {
   epoch_rewards = fd_epoch_rewards_join( epoch_rewards_mem );
   FD_TEST( epoch_rewards );
 
-  FD_TEST( fd_epoch_rewards_get_num_partitions( epoch_rewards ) == 0UL );
-  FD_TEST( fd_epoch_rewards_is_active( epoch_rewards ) == 0 );
-  FD_TEST( fd_epoch_rewards_get_starting_block_height( epoch_rewards ) == 0UL );
-  FD_TEST( fd_epoch_rewards_get_exclusive_ending_block_height( epoch_rewards ) == 0UL );
-  FD_TEST( fd_epoch_rewards_get_distributed_rewards( epoch_rewards ) == 0UL );
-  FD_TEST( fd_epoch_rewards_get_total_points( epoch_rewards ) == 0 );
-  FD_TEST( fd_epoch_rewards_get_total_rewards( epoch_rewards ) == 0UL );
-  FD_TEST( epoch_rewards->stake_account_max_ == STAKE_ACC_MAX );
+  FD_TEST( epoch_rewards->num_partitions == 0UL );
+  FD_TEST( epoch_rewards->is_active == 0 );
+  FD_TEST( epoch_rewards->starting_block_height == 0UL );
+  FD_TEST( epoch_rewards->distributed_rewards == 0UL );
+  FD_TEST( epoch_rewards->total_points == 0 );
+  FD_TEST( epoch_rewards->total_rewards == 0UL );
+  FD_TEST( epoch_rewards->stake_account_max == STAKE_ACC_MAX );
 
   /* Try to get partition index before setting any. */
 
@@ -74,11 +73,7 @@ int main( int argc, char * * argv ) {
 
   /* Set num partitions. */
 
-  fd_epoch_rewards_set_num_partitions( epoch_rewards, FD_REWARDS_MAX_PARTITIONS * 2 );
-  FD_TEST( fd_epoch_rewards_get_num_partitions( epoch_rewards ) == 0UL );
-
-  fd_epoch_rewards_set_num_partitions( epoch_rewards, 100UL );
-  FD_TEST( fd_epoch_rewards_get_num_partitions( epoch_rewards ) == 100UL );
+  epoch_rewards->num_partitions = 100UL;
 
   /* Try to get partition index after setting num partitions. */
 
@@ -94,10 +89,6 @@ int main( int argc, char * * argv ) {
 
   fd_epoch_stake_reward_t * stake_reward_pool = fd_epoch_rewards_get_stake_reward_pool( epoch_rewards );
   FD_TEST( stake_reward_pool );
-
-  /* Try to get stake reward pool before setting any. */
-
-  FD_TEST( !fd_epoch_rewards_get_stake_reward_pool( NULL ) );
 
   /* Hash some accounts */
 
@@ -125,7 +116,7 @@ int main( int argc, char * * argv ) {
   ulong pubkey_b_count = 0UL;
   ulong pubkey_c_count = 0UL;
 
-  for( ulong i=0UL; i<fd_epoch_rewards_get_num_partitions( epoch_rewards ); i++ ) {
+  for( ulong i=0UL; i<epoch_rewards->num_partitions; i++ ) {
     fd_epoch_stake_reward_dlist_t * partition = fd_epoch_rewards_get_partition_index( epoch_rewards, i );
     FD_TEST( partition );
     for( fd_epoch_stake_reward_dlist_iter_t iter = fd_epoch_stake_reward_dlist_iter_fwd_init( partition, stake_reward_pool );
@@ -152,29 +143,6 @@ int main( int argc, char * * argv ) {
   FD_TEST( pubkey_a_count == 1UL );
   FD_TEST( pubkey_b_count == 1UL );
   FD_TEST( pubkey_c_count == 1UL );
-
-  /* Simple checks on accessors and mutators. */
-
-  FD_TEST( fd_epoch_rewards_is_active( epoch_rewards ) == 0 );
-  fd_epoch_rewards_set_active( epoch_rewards, 1 );
-  FD_TEST( fd_epoch_rewards_is_active( epoch_rewards ) == 1 );
-
-  FD_TEST( fd_epoch_rewards_get_starting_block_height( epoch_rewards ) == 0UL );
-  fd_epoch_rewards_set_starting_block_height( epoch_rewards, 100UL );
-  FD_TEST( fd_epoch_rewards_get_starting_block_height( epoch_rewards ) == 100UL );
-  FD_TEST( fd_epoch_rewards_get_exclusive_ending_block_height( epoch_rewards ) == 200UL );
-
-  FD_TEST( fd_epoch_rewards_get_distributed_rewards( epoch_rewards ) == 0UL );
-  fd_epoch_rewards_set_distributed_rewards( epoch_rewards, 1000UL );
-  FD_TEST( fd_epoch_rewards_get_distributed_rewards( epoch_rewards ) == 1000UL );
-
-  FD_TEST( fd_epoch_rewards_get_total_points( epoch_rewards ) == 0 );
-  fd_epoch_rewards_set_total_points( epoch_rewards, 1000UL );
-  FD_TEST( fd_epoch_rewards_get_total_points( epoch_rewards ) == 1000UL );
-
-  FD_TEST( fd_epoch_rewards_get_total_rewards( epoch_rewards ) == 0UL );
-  fd_epoch_rewards_set_total_rewards( epoch_rewards, 1000UL );
-  FD_TEST( fd_epoch_rewards_get_total_rewards( epoch_rewards ) == 1000UL );
 
   /* Check that we can leave and join again. */
 

@@ -59,6 +59,7 @@ struct fd_vote_state_ele {
   ulong       last_vote_slot;
   long        last_vote_timestamp;
   uchar       commission;
+  ulong       rewards;
 
   ulong       credits_cnt;
   ushort      epoch       [ EPOCH_CREDITS_MAX ];

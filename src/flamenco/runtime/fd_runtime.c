@@ -1567,8 +1567,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   fd_runtime_update_leaders( bank, runtime_spad );
 
-  FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
-
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
 

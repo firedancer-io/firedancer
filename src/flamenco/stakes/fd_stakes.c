@@ -25,11 +25,21 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
   return weights_cnt;
 }
 
-static void
-compute_stake_delegations( fd_bank_t *                    bank,
-                           fd_stake_delegations_t const * stake_delegations,
-                           fd_stake_history_t const *     history,
-                           ulong *                        new_rate_activation_epoch ) {
+/* Refresh vote accounts.
+
+   This updates the epoch bank stakes vote_accounts cache - that is, the total amount
+   of delegated stake each vote account has, using the current delegation values from inside each
+   stake account. Contrary to the Agave equivalent, it also merges the stakes cache vote accounts with the
+   new vote account keys from this epoch.
+
+   https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
+
+void
+fd_refresh_vote_accounts( fd_bank_t *                    bank,
+                          fd_stake_delegations_t const * stake_delegations,
+                          fd_stake_history_t const *     history,
+                          ulong *                        new_rate_activation_epoch ) {
+
   ulong epoch = fd_bank_epoch_get( bank );
 
   ulong total_stake = 0UL;
@@ -67,35 +77,14 @@ compute_stake_delegations( fd_bank_t *                    bank,
 
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &stake_delegation->vote_account );
     if( FD_LIKELY( vote_state ) ) {
-      total_stake       += new_entry.effective;
-      vote_state->stake += new_entry.effective;
+      total_stake        += new_entry.effective;
+      vote_state->stake  += new_entry.effective;
     }
   }
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
   fd_bank_vote_states_end_locking_modify( bank );
-}
-
-/* Refresh vote accounts.
-
-   This updates the epoch bank stakes vote_accounts cache - that is, the total amount
-   of delegated stake each vote account has, using the current delegation values from inside each
-   stake account. Contrary to the Agave equivalent, it also merges the stakes cache vote accounts with the
-   new vote account keys from this epoch.
-
-   https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L562 */
-void
-fd_refresh_vote_accounts( fd_bank_t *                    bank,
-                          fd_stake_delegations_t const * stake_delegations,
-                          fd_stake_history_t const *     history,
-                          ulong *                        new_rate_activation_epoch ) {
-
-  compute_stake_delegations(
-      bank,
-      stake_delegations,
-      history,
-      new_rate_activation_epoch );
 }
 
 static void
