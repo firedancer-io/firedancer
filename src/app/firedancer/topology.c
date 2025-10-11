@@ -18,6 +18,7 @@
 #include "../../disco/topo/fd_cpu_topo.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../util/tile/fd_tile_private.h"
+#include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -299,15 +300,19 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "sign_send"    );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
-    fd_topob_wksp( topo, "snapdc"      );
     fd_topob_wksp( topo, "snaprd"      );
+    fd_topob_wksp( topo, "snapld"      );
+    fd_topob_wksp( topo, "snapdc"      );
     fd_topob_wksp( topo, "snapin"      );
 
-    fd_topob_wksp( topo, "snapdc_rd"   );
+    fd_topob_wksp( topo, "snaprd_ld"   );
+    fd_topob_wksp( topo, "snapld_dc"   );
+    fd_topob_wksp( topo, "snapdc_in"   );
     fd_topob_wksp( topo, "snapin_rd"   );
-    fd_topob_wksp( topo, "snap_stream" ); /* TODO: Rename ... */
-    fd_topob_wksp( topo, "snap_zstd"   ); /* TODO: Rename ... */
-    fd_topob_wksp( topo, "snap_out"    ); /* TODO: Rename ... */
+
+    //TODO-AM: Misc, rename, etc.
+    fd_topob_wksp( topo, "snaprd_gui"  );
+    fd_topob_wksp( topo, "snap_out"    );
     fd_topob_wksp( topo, "snaprd_rp" );
   }
 
@@ -323,15 +328,17 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "send_net",     "net_send",     config->net.ingress_buffer_size,          FD_NET_MTU,                    2UL ); /* TODO: 2 is probably not correct, should be 1 */
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->net.ingress_buffer_size,          FD_NET_MTU,                    1UL );
 
+  //TODO-AM: Revist all this
   if( FD_LIKELY( snapshots_enabled ) ) {
-  /**/                 fd_topob_link( topo, "snap_zstd",    "snap_zstd",    8192UL,                                   16384UL,                       1UL ); /* TODO: Rename */
-  /**/                 fd_topob_link( topo, "snap_stream",  "snap_stream",  2048UL,                                   USHORT_MAX,                    1UL ); /* TODO: Rename */
+  /**/                 fd_topob_link( topo, "snaprd_ld",    "snaprd_ld",    128UL,                                    sizeof(fd_ssctrl_init_t),      1UL );
+  /**/                 fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL,                                  USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL,                                  USHORT_MAX,                    1UL );
+  /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
+
   /**/                 fd_topob_link( topo, "snap_out",     "snap_out",     2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL ); /* TODO: Rename */
   /**/                 fd_topob_link( topo, "snaprd_rp",    "snaprd_rp",    128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
-  /**/                 fd_topob_link( topo, "snapdc_rd",    "snapdc_rd",    128UL,                                    0UL,                           1UL );
-  /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
-  if( FD_LIKELY( config->tiles.gui.enabled ) ) /* the gui, which is optional, is the only consumer of snaprd_out */
-                       fd_topob_link( topo, "snaprd_out",   "snaprd",       128UL,                                    sizeof(fd_snaprd_update_t),    1UL );
+    if( FD_LIKELY( config->tiles.gui.enabled ) )
+                       fd_topob_link( topo, "snaprd_gui",   "snaprd_gui",   128UL,                                    sizeof(fd_snaprd_update_t),    1UL );
   }
 
   /**/                 fd_topob_link( topo, "genesi_out",   "genesi_out",   2UL,                                      10UL*1024UL*1024UL+32UL+sizeof(fd_lthash_value_t), 1UL );
@@ -411,6 +418,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( snapshots_enabled ) ) {
                        fd_topob_tile( topo, "snaprd", "snaprd", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
+                       fd_topob_tile( topo, "snapld", "snapld", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
                        fd_topob_tile( topo, "snapdc", "snapdc", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
                        fd_topob_tile( topo, "snapin", "snapin", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
   }
@@ -473,20 +481,24 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossv", 0UL                                                );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
-                      fd_topob_tile_in(     topo, "snaprd",  0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snap_zstd",    0UL                                                );
-                      fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "snapdc_rd",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                       fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "snapin_rd",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_in (    topo, "snaprd",  0UL,          "metric_in", "snapld_dc",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snaprd_ld",    0UL                                                );
                       fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snaprd_rp",    0UL                                                );
-                      fd_topob_tile_in (    topo, "snapdc",  0UL,          "metric_in", "snap_zstd",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_out(    topo, "snapdc",  0UL,                       "snap_stream",  0UL                                                );
-                      fd_topob_tile_out(    topo, "snapdc",  0UL,          "snapdc_rd",                 0UL                                                );
-                      fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snap_stream",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    if( FD_LIKELY( config->tiles.gui.enabled ) ) {
+                      fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snaprd_gui",   0UL                                                );
+    }
+
+                      fd_topob_tile_in (    topo, "snapld",  0UL,          "metric_in", "snaprd_ld",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_out(    topo, "snapld",  0UL,                       "snapld_dc",    0UL                                                );
+
+                      fd_topob_tile_in (    topo, "snapdc",  0UL,          "metric_in", "snapld_dc",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_out(    topo, "snapdc",  0UL,                       "snapdc_in",    0UL                                                );
+
+                      fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snapdc_in",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                      fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_rd",    0UL                                                );
                       fd_topob_tile_out(    topo, "snapin",  0UL,                       "snap_out",     0UL                                                );
-                      fd_topob_tile_out(    topo, "snapin",  0UL,          "snapin_rd",                 0UL                                                );
-                      fd_topob_tile_in (    topo, "replay",  0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    if( FD_LIKELY( config->tiles.gui.enabled ) ) /* the gui, which is optional, is the only consumer of snaprd_out */
-                      fd_topob_tile_out(    topo, "snaprd",  0UL,                       "snaprd_out",   0UL                                                );
   }
 
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -507,6 +519,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "send_txns",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(resolv_tile_cnt) fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "resolv_repla", i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  if( FD_LIKELY( snapshots_enabled ) ) {
+                       fd_topob_tile_in (   topo, "replay",  0UL,          "metric_in", "snap_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  }
 
   /**/                 fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -656,7 +671,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     if( FD_LIKELY( snapshots_enabled ) ) {
-                         fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snaprd_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+                         fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snaprd_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
   }
 
@@ -867,6 +882,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->snaprd.http.peers_cnt = resolved_peers_cnt;
     /* TODO: set up known validators and known validators cnt */
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) ) ) {
+
+    fd_memcpy( tile->snapld.snapshots_path, config->paths.snapshots, PATH_MAX );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapdc" ) ) ) {
 

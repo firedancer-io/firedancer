@@ -578,6 +578,7 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
   stats->bank_txn_exec_cnt = waterfall->out.block_fail + waterfall->out.block_success;
 }
 
+//TODO-AM
 static void
 fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * snaprd = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snaprd", 0UL ) ];
@@ -2041,6 +2042,7 @@ fd_gui_handle_block_engine_update( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+//TODO-AM
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
                                fd_snaprd_update_t const * msg ) {
