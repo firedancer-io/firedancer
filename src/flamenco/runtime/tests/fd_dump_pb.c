@@ -696,6 +696,11 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
 
   /* BlockContext -> acct_states
      Iterate over the set and dump all the account keys in one pass. */
+  block_context->acct_states_count = 0U;
+  block_context->acct_states       = fd_spad_alloc(
+      spad,
+      alignof(fd_exec_test_acct_state_t),
+      fd_dump_account_key_map_size( dumped_accounts_pool, dumped_accounts_root )*sizeof(fd_exec_test_acct_state_t) );
   for( fd_dump_account_key_node_t * node = fd_dump_account_key_map_minimum( dumped_accounts_pool, dumped_accounts_root );
                                     node;
                                     node = fd_dump_account_key_map_successor( dumped_accounts_pool, node ) ) {
@@ -1081,7 +1086,7 @@ FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
   create_block_context_protobuf_from_block( dump_ctx, banks, bank, funk );
 
   /* Output to file */
-  ulong        out_buf_size = 5UL<<30UL; /* 5 GB */
+  ulong        out_buf_size = 3UL<<30UL; /* 3 GB */
   uint8_t *    out          = fd_spad_alloc( dump_ctx->spad, alignof(uint8_t), out_buf_size );
   pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
   if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &dump_ctx->block_context ) ) {
