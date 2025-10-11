@@ -11,6 +11,7 @@
    threads. */
 
 #include "fd_funk_base.h"
+#include "../flamenco/fd_rwlock.h"
 
 /* FD_FUNK_TXN_{ALIGN,FOOTPRINT} describe the alignment and footprint of
    a fd_funk_txn_t.  ALIGN will be a power of 2, footprint will be a
@@ -55,6 +56,8 @@ struct __attribute__((aligned(FD_FUNK_TXN_ALIGN))) fd_funk_txn_private {
   uint  rec_tail_idx;       /* "                       last          " */
 
   uint  state;              /* one of FD_FUNK_TXN_STATE_* */
+
+  fd_rwlock_t lock[1];
 };
 
 typedef struct fd_funk_txn_private fd_funk_txn_t;
