@@ -490,12 +490,13 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
   fd_vote_state_t * synthetic_vote_state = &vsv.inner.current;
 
   /* Create synthetic landed votes */
-  synthetic_vote_state->votes = deq_fd_landed_vote_t_join_new(
-      fd_spad_alloc(
-          spad,
-          deq_fd_landed_vote_t_align(),
-          deq_fd_landed_vote_t_footprint( 32UL ) ),
-      32UL );
+  synthetic_vote_state->votes = deq_fd_landed_vote_t_join(
+      deq_fd_landed_vote_t_new(
+          fd_spad_alloc(
+              spad,
+              deq_fd_landed_vote_t_align(),
+              deq_fd_landed_vote_t_footprint( 32UL ) ),
+          32UL ) );
   for( ulong i=0UL; i<32UL; i++ ) {
     fd_landed_vote_t elem = {0};
     deq_fd_landed_vote_t_push_tail( synthetic_vote_state->votes, elem );
@@ -510,16 +511,17 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
       spad,
       fd_vote_authorized_voters_treap_align(),
       fd_vote_authorized_voters_treap_footprint( 5UL ) );
-  synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join_new( authorized_voters_pool_mem, 5UL );
-  synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join_new( authorized_voters_treap_mem, 5UL );
+  synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( authorized_voters_pool_mem, 5UL ) );
+  synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( authorized_voters_treap_mem, 5UL ) );
 
   /* Populate epoch credits */
-  synthetic_vote_state->epoch_credits = deq_fd_vote_epoch_credits_t_join_new(
-    fd_spad_alloc(
-      spad,
-      deq_fd_vote_epoch_credits_t_align(),
-      deq_fd_vote_epoch_credits_t_footprint( EPOCH_CREDITS_MAX ) ),
-      EPOCH_CREDITS_MAX );
+  synthetic_vote_state->epoch_credits = deq_fd_vote_epoch_credits_t_join(
+      deq_fd_vote_epoch_credits_t_new(
+          fd_spad_alloc(
+              spad,
+              deq_fd_vote_epoch_credits_t_align(),
+              deq_fd_vote_epoch_credits_t_footprint( EPOCH_CREDITS_MAX ) ),
+          EPOCH_CREDITS_MAX ) );
   for( ulong i=0UL; i<vote_state->credits_cnt; i++ ) {
     fd_vote_epoch_credits_t elem = {
       .credits      = vote_state->credits[i],
@@ -1064,6 +1066,7 @@ fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
                            fd_bank_t *               bank,
                            fd_funk_t *               funk,
                            fd_capture_ctx_t const *  capture_ctx ) {
+FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
   if( FD_UNLIKELY( capture_ctx==NULL ) ) {
     FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
     return;
@@ -1090,6 +1093,7 @@ fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
       fclose( file );
     }
   }
+} FD_SPAD_FRAME_END;
 }
 
 void

@@ -99,9 +99,11 @@ fd_block_dump_context_footprint( void ) {
 static inline void *
 fd_block_dump_context_new( void * mem ) {
   FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_block_dump_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_dump_ctx_t), sizeof(fd_block_dump_ctx_t) );
-  ctx->spad                 = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),              fd_spad_footprint( FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX ) );
-  ctx->txns_to_dump_cnt     = 0UL;
+  fd_block_dump_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_dump_ctx_t), sizeof(fd_block_dump_ctx_t) );
+  fd_spad_t *           spad = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),              fd_spad_footprint( FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX ) );
+
+  ctx->spad             = fd_spad_new( spad, FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX );
+  ctx->txns_to_dump_cnt = 0UL;
   return ctx;
 }
 
