@@ -110,7 +110,7 @@ backtest_topo( config_t * config ) {
   /* Setup backtest->replay link (shred_out) in topo                 */
   /**********************************************************************/
 
-  /* The repair tile is replaced by the backtest tile for the repair to
+  /* The shred tile is replaced by the backtest tile for the shred to
      replay link.  The frag interface is a "slice", ie. entry batch,
      which is provided by the backtest tile, which reads in the entry
      batches from the CLI-specified source (eg. RocksDB). */
