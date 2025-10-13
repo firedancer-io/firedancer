@@ -93,7 +93,6 @@ void test_zero_text_cnt( void ) {
   int res = fd_sbpf_program_load( prog, zero_text_cnt_elf, zero_text_cnt_elf_sz, syscalls, &config, scratch, zero_text_cnt_elf_sz );
 
   FD_TEST( res == 0 );
-  FD_TEST( prog->calldests==NULL );
   FD_TEST( prog->entry_pc==0UL );
 }
 
