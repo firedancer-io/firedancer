@@ -120,8 +120,6 @@ agave/target/$(RUST_PROFILE)/agave-ledger-tool: cargo-ledger-tool
 $(OBJDIR)/lib/libagave_validator.a: agave/target/$(RUST_PROFILE)/libagave_validator.a
 	$(MKDIR) $(dir $@) && cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@
 
-fdctl: $(OBJDIR)/bin/fdctl
-
 $(OBJDIR)/bin/solana: agave/target/$(RUST_PROFILE)/solana
 	$(MKDIR) -p $(dir $@) && cp agave/target/$(RUST_PROFILE)/solana $@
 

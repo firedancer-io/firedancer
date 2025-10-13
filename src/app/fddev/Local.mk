@@ -24,8 +24,6 @@ endif
 run: $(OBJDIR)/bin/fddev
 	$(OBJDIR)/bin/fddev $(RUN_ARGS)
 
-fddev: $(OBJDIR)/bin/fddev
-
 ifeq (monitor,$(firstword $(MAKECMDGOALS)))
   MONITOR_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
   ifeq ($(MONITOR_ARGS),)
