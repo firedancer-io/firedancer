@@ -58,7 +58,7 @@ monitor by sending Ctrl+C or `SIGINT`.
 
 ## `configure`
 Configures the operating system so that it can run Firedancer. See
-[the guide](/guide/initializing) for more information. There are the
+[the guide](../guide/initializing.md) for more information. There are the
 following stages to each configure command:
 
  - `hugetlbfs` Reserves huge and gigantic pages for use by Firedancer
