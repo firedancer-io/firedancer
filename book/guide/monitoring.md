@@ -16,7 +16,7 @@ Similar to `fdctl`, the compiled binary will be placed in
 ::: tip NOTE
 
 Many commands require RPC to be enabled on the validator, see the
-[configuring](./configuring) guide for more information.
+[configuring](./configuring.md) guide for more information.
 
 :::
 
