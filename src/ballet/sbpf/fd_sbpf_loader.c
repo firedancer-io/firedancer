@@ -1492,15 +1492,22 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
   return fd_sbpf_elf_peek_lenient( info, bin, bin_sz, config );
 }
 
-/* Parses and concatenates the readonly data sections. This function
+/* Parses and concatenates the readonly data sections.  This function
    also computes and sets the rodata_sz field inside the SBPF program
-   struct.
+   struct.  scratch is a pointer to a scratch area with size scratch_sz,
+   used to allocate a temporary buffer for the parsed rodata sections
+   before copying it back into the rodata (recommended size is bin_sz).
+   Returns 0 on success and an ElfError error code on failure.  On
+   success, the rodata and rodata_sz fields in the sbpf program struct
+   are updated.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L812-L987 */
 static int
 fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
                            void const *                    bin,
                            ulong                           bin_sz,
-                           fd_sbpf_loader_config_t const * config ) {
+                           fd_sbpf_loader_config_t const * config,
+                           void *                          scratch,
+                           ulong                           scratch_sz ) {
 
   fd_sbpf_elf_t const * elf                = (fd_sbpf_elf_t const *)bin;
   fd_elf64_shdr const * shdrs              = (fd_elf64_shdr const *)( elf->bin + elf->ehdr.e_shoff );
@@ -1608,7 +1615,12 @@ fd_sbpf_parse_ro_sections( fd_sbpf_program_t *             prog,
     }
 
     /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L971-L976 */
-    uchar ro_section[ buf_len ]; fd_memset( ro_section, 0, buf_len );
+    if( FD_UNLIKELY( buf_len>scratch_sz ) ) {
+      FD_LOG_CRIT(( "scratch_sz is too small: %lu, required: %lu", scratch_sz, buf_len ));
+    }
+    uchar * ro_section = scratch;
+    fd_memset( ro_section, 0, buf_len );
+
     for( ulong i=0UL; i<ro_slices_cnt; i++ ) {
       ulong sh_idx                       = ro_slices_shidxs[ i ];
       fd_elf64_shdr const * shdr         = &shdrs[ sh_idx ];
@@ -1766,7 +1778,9 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
                               void const *                    bin,
                               ulong                           bin_sz,
                               fd_sbpf_loader_t *              loader,
-                              fd_sbpf_loader_config_t const * config ) {
+                              fd_sbpf_loader_config_t const * config,
+                              void *                          scratch,
+                              ulong                           scratch_sz ) {
 
   /* Load (vs peek) starts here
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L641 */
@@ -1815,7 +1829,7 @@ fd_sbpf_program_load_lenient( fd_sbpf_program_t *             prog,
 
   /* Parse the ro sections.
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L669-L676 */
-  err = fd_sbpf_parse_ro_sections( prog, bin, bin_sz, config );
+  err = fd_sbpf_parse_ro_sections( prog, bin, bin_sz, config, scratch, scratch_sz );
   if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
     return err;
   }
@@ -1828,7 +1842,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
-                      fd_sbpf_loader_config_t const * config ) {
+                      fd_sbpf_loader_config_t const * config,
+                      void *                          scratch,
+                      ulong                           scratch_sz ) {
   fd_sbpf_loader_t loader = {
     .calldests = prog->calldests,
     .syscalls  = syscalls,
@@ -1848,7 +1864,7 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
     prog->entry_pc         = ( ehdr.e_entry-phdr_0.p_vaddr )/8UL;
     return FD_SBPF_ELF_SUCCESS;
   }
-  int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config );
+  int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
   if( FD_UNLIKELY( res!=FD_SBPF_ELF_SUCCESS ) ) {
     return res;
   }

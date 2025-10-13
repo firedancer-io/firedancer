@@ -192,7 +192,8 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Load program */
-  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config );
+  void * scratch = fd_spad_alloc( spad, 1UL, programdata_size );
+  int err = fd_sbpf_program_load( prog, programdata, programdata_size, syscalls, &config, scratch, programdata_size );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }

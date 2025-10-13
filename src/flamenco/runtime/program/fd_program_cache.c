@@ -283,7 +283,8 @@ fd_program_cache_validate_sbpf_program( fd_bank_t *                bank,
   /* Load program. */
 
   fd_sbpf_loader_config_t config = { 0 };
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config ) ) ) {
+  void * scratch = fd_spad_alloc( runtime_spad, 1UL, program_data_len );
+  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, &config, scratch, program_data_len ) ) ) {
     FD_LOG_DEBUG(( "fd_sbpf_program_load() failed" ));
     cache_entry->failed_verification = 1;
     fd_sbpf_syscalls_leave( syscalls );
