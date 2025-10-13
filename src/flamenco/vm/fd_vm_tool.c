@@ -74,8 +74,12 @@ fd_vm_tool_prog_create( fd_vm_tool_prog_t * tool_prog,
   fd_vm_syscall_register_all( syscalls, 0 );
 
   /* Load program */
-  if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config ) ) )
+  void * scratch  = malloc( bin_sz );
+  int    load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config, scratch, bin_sz );
+  free( scratch );
+  if( FD_UNLIKELY( 0!=load_err ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_load() failed" ));
+  }
 
   tool_prog->bin_buf  = bin_buf;
   tool_prog->prog     = prog;

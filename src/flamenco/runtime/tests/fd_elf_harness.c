@@ -79,7 +79,8 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
         &feature_set,
         !!config.elf_deploy_checks );
 
-    err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config );
+    void * scratch = fd_spad_alloc( spad, 1UL, elf_sz );
+    err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, scratch, elf_sz );
     if( FD_UNLIKELY( err ) ) {
       break;
     }
