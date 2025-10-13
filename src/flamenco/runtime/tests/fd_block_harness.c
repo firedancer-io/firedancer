@@ -14,6 +14,26 @@
 #include "../../types/fd_types.h"
 #include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
+#include "../../runtime/context/fd_capture_ctx.h"
+
+/* Processes solcap buffer messages created during transaction or block execution */
+void
+fd_solfuzz_solcap_process( fd_capture_ctx_t * capture_ctx, fd_solfuzz_runner_t * runner ) {
+  while( runner->solcap ) {
+      ulong buf_idx = fd_capctx_buf_reader_aquire_lock( capture_ctx->capctx_buf );
+      if ( buf_idx == ULONG_MAX ) {
+        FD_LOG_NOTICE(("read and write indices: %lu %lu", capture_ctx->capctx_buf->reader_idx + 1, FD_VOLATILE( capture_ctx->capctx_buf->writer_idx ) ));
+        FD_LOG_WARNING(("fd_capctx_buf_reader_aquire_lock failed, moving to next txn"));
+        break;
+      }
+      FD_LOG_WARNING(("processing msg"));
+      fd_solcap_buf_msg_t * msg = (fd_solcap_buf_msg_t *)&capture_ctx->capctx_buf->buffer[buf_idx * FD_CAPCTX_BUF_MTU];
+      char * actual_data = (char *)msg + sizeof(ushort);  /* Skip past sig to get to actual data */
+
+      fd_capctx_buf_process_msg( capture_ctx, msg->sig, actual_data );
+      fd_capctx_buf_reader_release_lock( capture_ctx->capctx_buf, buf_idx );
+    }
+}
 
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
@@ -407,10 +427,15 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     fd_capture_ctx_t * capture_ctx = NULL;
+    fd_capctx_buf_t * capctx_buf = NULL;
     if( runner->solcap ) {
+      FD_LOG_NOTICE(( "FD_SOLCAP=%s", (char *)runner->solcap_file ));
       void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
       capture_ctx            = fd_capture_ctx_new( capture_ctx_mem );
-      if( FD_UNLIKELY( capture_ctx==NULL ) ) {
+      void * capctx_buf_mem = fd_spad_alloc( runner->spad, fd_capctx_buf_align(), fd_capctx_buf_footprint() );
+      capctx_buf = fd_capctx_buf_new( capctx_buf_mem );
+      capture_ctx->capctx_buf = capctx_buf;
+      if( FD_UNLIKELY( capture_ctx==NULL || capctx_buf==NULL ) ) {
         FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
       }
       capture_ctx->capture           = runner->solcap;
@@ -460,10 +485,14 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
       }
 
       res = FD_RUNTIME_EXECUTE_SUCCESS;
+      fd_solfuzz_solcap_process( capture_ctx, runner );
+
     }
 
     /* Finalize the block */
     fd_runtime_block_execute_finalize( runner->bank, runner->funk, xid, capture_ctx, 1 );
+
+    fd_solfuzz_solcap_process( capture_ctx, runner );
   } FD_SPAD_FRAME_END;
 
   return res;
