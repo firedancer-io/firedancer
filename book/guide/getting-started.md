@@ -201,7 +201,7 @@ also be the public key of an existing vote account.
 
 This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
 To customize this path, refer to the [configuration
-guide](/guide/configuring.md#ledger).
+guide](./configuring.md#ledger).
 
 ::: tip LEDGER
 
