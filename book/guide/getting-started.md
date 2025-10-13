@@ -155,7 +155,7 @@ make -j fdctl solana
 ### Configuration
 
 Firedancer has many configuration options which are [discussed
-later](/guide/configuring.md). For now, we override only the essential
+later](./configuring.md). For now, we override only the essential
 options needed to start the validator on Testnet.
 
 ::: code-group
