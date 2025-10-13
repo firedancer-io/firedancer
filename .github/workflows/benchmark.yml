@@ -166,7 +166,7 @@ jobs:
 
     - name: Post PR Comment with baseline vs new (Markdown table)
       if: github.event_name == 'pull_request' || github.event_name == 'issue_comment'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v8
       with:
         github-token: ${{ inputs.github-token || github.token }}
         script: |
