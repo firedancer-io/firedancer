@@ -722,11 +722,12 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
 
   /* Try to dispatch a sigverify task, but leave one exec tile idle for
      critical path execution, unless there's not going to be any more
-     real transactions for the critical path. */
+     real transactions for the critical path.  In the degenerate case of
+     only one exec tile, keep it busy. */
   ulong exec_fully_ready_bitset = exec_ready_bitset0;
   ulong sigverify_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & exec_fully_ready_bitset;
   ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
-  if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
+  if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
     /* Dispatch transactions for sigverify in parse order. */
     int exec_tile_idx_sigverify = fd_ulong_find_lsb( sigverify_ready_bitset );
     out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
