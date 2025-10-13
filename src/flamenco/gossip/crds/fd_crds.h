@@ -16,6 +16,32 @@ typedef struct fd_crds_private fd_crds_t;
 struct fd_crds_mask_iter_private;
 typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 
+/* fd_crds_ci_change_fn provides a callback that tracks events
+   related to the contact info table, which is a separate sidetable
+   maintained by fd_crds.
+
+   A crds_pool_idx value is guaranteed to be tagged to a specific
+   contact info entry from the moment the contact info is inserted into
+   the table (denoted by a TYPE_NEW event) to when it is
+   dropped (TYPE_REMOVED event).
+
+   The contact info can be retrieved with
+   fd_crds_contact_info_idx_lookup( crds, crds_pool_idx ) within this
+   lifetime. In a TYPE_REMOVED event, crds_pool_idx is valid for lookup
+   within the scope of the callback for user-side cleanup, but is
+   invalid after the callback is completed. */
+
+#define FD_CRDS_CONTACT_INFO_CHANGE_TYPE_NEW            (0)
+#define FD_CRDS_CONTACT_INFO_CHANGE_TYPE_REMOVED        (1)
+#define FD_CRDS_CONTACT_INFO_CHANGE_TYPE_STAKE_CHANGED  (2)
+
+typedef void (*fd_crds_ci_change_fn)( void *               ctx,
+                                      ulong                crds_pool_idx,
+                                      ulong                stake,
+                                      int                  change_type,
+                                       fd_stem_context_t * stem,
+                                      long                 now );
+
 #define FD_CRDS_ALIGN 128UL
 
 #define FD_CRDS_MAGIC (0xf17eda2c37c7d50UL) /* firedancer crds version 0*/
@@ -56,7 +82,9 @@ fd_crds_new( void *                shmem,
              fd_rng_t *            rng,
              ulong                 ele_max,
              ulong                 purged_max,
-             fd_gossip_out_ctx_t * gossip_update_out  );
+             fd_gossip_out_ctx_t * gossip_update_out,
+             fd_crds_ci_change_fn  change_fn,
+             void *                change_fn_ctx );
 
 fd_crds_t *
 fd_crds_join( void * shcrds );
@@ -229,6 +257,16 @@ fd_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
                              uchar const *     pubkey );
 
+/* fd_crds_contact_info_idx_lookup returns a pointer to the contact
+   info structure corresponding to the contact info pool index. Assumes
+   idx points to a valid contact info pool entry.
+
+   Valid idx (including lifetimes) are described in the
+   fd_crds_ci_change_fn callback documentation. */
+fd_contact_info_t const *
+fd_crds_contact_info_idx_lookup( fd_crds_t const * crds,
+                                 ulong             idx );
+
 /* fd_crds_peer_count returns the number of Contact Info entries
    present in the sidetable. The lifetime of a Contact Info entry
    tracks the lifetime of the corresponding CRDS entry. */
@@ -243,39 +281,16 @@ fd_crds_peer_count( fd_crds_t const * crds );
    A peer's active state is typicallly determined by its ping/pong status. */
 void
 fd_crds_peer_active( fd_crds_t *   crds,
-                     uchar const * peer_pubkey,
-                     long          now );
+                     uchar const * peer_pubkey );
 
 void
 fd_crds_peer_inactive( fd_crds_t *   crds,
-                       uchar const * peer_pubkey,
-                       long          now );
-
-/* The CRDS Table also maintains a set of peer samplers for use in various
-   Gossip tx cases. Namely
-   - Rotating the active push set (bucket_samplers)
-   - Selecting a pull request target (pr_sampler) */
-
-
-/* fd_crds_bucket_* sample APIs are meant to be used by fd_active_set.
-   Each bucket has a unique sampler. */
-fd_contact_info_t const *
-fd_crds_bucket_sample_and_remove( fd_crds_t * crds,
-                                  fd_rng_t *  rng,
-                                  ulong       bucket );
-
-/* fd_crds_bucket adds back in a peer that was previously
-   sampled with fd_crds_bucket_sample_and_remove.  */
-void
-fd_crds_bucket_add( fd_crds_t *   crds,
-                    ulong         bucket,
-                    uchar const * pubkey );
-
+                       uchar const * peer_pubkey );
 
 /* fd_crds_sample_peer randomly selects a peer node from the CRDS based
    weighted by stake.  Peers with a ContactInfo that hasn't been
    refreshed in more than 60 seconds are considered offline, and are
-   downweighted in the selection by a factor of 100.  They are still
+   downweighted in the selection by a factor of 128.  They are still
    included to mitigate eclipse attacks.  Peers with no ContactInfo in
    the CRDS are not included in the selection.  The current node is
    also excluded from the selection.  Low stake peers which are not

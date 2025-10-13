@@ -16,7 +16,7 @@ test_gossip_vote_enc( void ) {
   gen_pubkey( rng, pubkey );
 
   fd_gossip_txbuild_t txbuild[1];
-  fd_gossip_txbuild_init( txbuild, pubkey, FD_GOSSIP_MESSAGE_PUSH );
+  fd_gossip_txbuild_init( txbuild, FD_GOSSIP_MESSAGE_PUSH );
 
   uchar crds_val[ FD_GOSSIP_CRDS_MAX_SZ ];
   fd_gossip_view_crds_value_t ser_view[1];

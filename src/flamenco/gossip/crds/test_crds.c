@@ -3,6 +3,16 @@
 
 #include <stdlib.h>
 
+void
+stub_ci_change( void *              ctx,
+                ulong               crds_pool_idx,
+                ulong               stake,
+                int                 change_type,
+                fd_stem_context_t * ctx_unused,
+                long                now ) {
+  (void)ctx; (void)crds_pool_idx; (void)stake; (void)change_type; (void)ctx_unused; (void)now;
+}
+
 static void
 test_crds_new_basic( void ) {
   ulong ele_max    = 1024UL;
@@ -17,7 +27,7 @@ test_crds_new_basic( void ) {
 
   static fd_gossip_out_ctx_t gossip_out = {0};
 
-  void * shcrds = fd_crds_new( mem, rng, ele_max, purged_max, &gossip_out );
+  void * shcrds = fd_crds_new( mem, rng, ele_max, purged_max, &gossip_out, stub_ci_change, NULL );
   FD_TEST( shcrds );
 
   fd_crds_t * crds = fd_crds_join( shcrds );

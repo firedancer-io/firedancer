@@ -5,6 +5,16 @@
 /* Mock gossip out context for testing */
 static fd_gossip_out_ctx_t test_gossip_out_ctx = {0};
 
+void
+stub_ci_change( void *              ctx,
+                ulong               crds_pool_idx,
+                ulong               stake,
+                int                 change_type,
+                fd_stem_context_t * ctx_unused,
+                long                now ) {
+  (void)ctx; (void)crds_pool_idx; (void)stake; (void)change_type; (void)ctx_unused; (void)now;
+}
+
 fd_crds_t *
 create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
   ulong ele_max = 1024UL;
@@ -13,7 +23,7 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
   void * crds_mem = aligned_alloc( fd_crds_align(), fd_crds_footprint( ele_max, purged_max ) );
   FD_TEST( crds_mem );
 
-  fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, rng, ele_max, purged_max, &test_gossip_out_ctx ) );
+  fd_crds_t * crds = fd_crds_join( fd_crds_new( crds_mem, rng, ele_max, purged_max, &test_gossip_out_ctx, stub_ci_change, NULL ) );
   FD_TEST( crds );
 
   /* Insert test contact info entries */
@@ -43,7 +53,7 @@ create_test_crds_with_ci( fd_rng_t * rng, ulong num_peers ) {
 
     /* Insert into CRDS, mark entries as active */
     fd_crds_insert( crds, &view, payload, stake, 0, view.wallclock_nanos, NULL );
-    fd_crds_peer_active( crds, payload,  view.wallclock_nanos );
+    fd_crds_peer_active( crds, payload );
   }
 
   return crds;

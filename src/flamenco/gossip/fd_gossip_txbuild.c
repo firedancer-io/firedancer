@@ -20,7 +20,6 @@ typedef struct crds_msg crds_msg_t;
 
 void
 fd_gossip_txbuild_init( fd_gossip_txbuild_t * txbuild,
-                        uchar const *         identity_pubkey,
                         uchar                 msg_type ) {
   txbuild->tag = msg_type;
   txbuild->bytes_len = 44UL; /* offsetof( crds_msg_t, crds ) */
@@ -28,8 +27,14 @@ fd_gossip_txbuild_init( fd_gossip_txbuild_t * txbuild,
 
   crds_msg_t * msg = (crds_msg_t *)txbuild->bytes;
   msg->msg_type = msg_type;
-  fd_memcpy( msg->identity_pubkey, identity_pubkey, 32UL );
   msg->crds_len = 0UL;
+}
+
+void
+fd_gossip_txbuild_stamp_pubkey( fd_gossip_txbuild_t * txbuild,
+                                uchar const *         pubkey ) {
+  crds_msg_t * msg = (crds_msg_t *)txbuild->bytes;
+  fd_memcpy( msg->identity_pubkey, pubkey, 32UL );
 }
 
 int
