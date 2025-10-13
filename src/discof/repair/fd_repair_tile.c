@@ -310,7 +310,6 @@ struct ctx {
 
   /* Slot-level metrics */
   fd_repair_metrics_t * slot_metrics;
-
   ulong turbine_slot0;  // catchup considered complete after this slot
 };
 typedef struct ctx ctx_t;
@@ -620,8 +619,8 @@ after_sign( ctx_t             * ctx,
   }
 
   int is_regular_request = pending->msg.kind != FD_REPAIR_KIND_PONG && pending->msg.shred.nonce > 0;
-  if( FD_LIKELY( is_regular_request ) ) {
-    fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to );
+  if( FD_LIKELY( is_regular_request && pending->msg.kind == FD_REPAIR_KIND_SHRED ) ) {
+    fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
   }
   send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
@@ -650,12 +649,6 @@ after_shred( ctx_t      * ctx,
     int ref_tick      = shred->data.flags & FD_SHRED_DATA_REF_TICK_MASK;
     fd_forest_blk_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off );
     fd_forest_data_shred_insert( ctx->forest, shred->slot, shred->slot - shred->data.parent_off, shred->idx, shred->fec_set_idx, slot_complete, ref_tick, src );
-
-    /* Check if there are FECs to force complete. Algorithm: window
-       through the idxs in interval [i, j). If j = next fec_set_idx
-       then we know we can force complete the FEC set interval [i, j)
-       (assuming it wasn't already completed based on `cmpl`). */
-
   } else {
     fd_forest_code_shred_insert( ctx->forest, shred->slot, shred->idx );
   }
@@ -751,7 +744,6 @@ after_frag( ctx_t * ctx,
   uint in_kind = ctx->in_kind[ in_idx ];
   if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
     fd_forest_init( ctx->forest, 0 );
-    fd_policy_reset( ctx->policy, ctx->forest );
     return;
   }
 
@@ -767,10 +759,7 @@ after_frag( ctx_t * ctx,
 
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
     fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
-    if( FD_LIKELY( msg->new_root ) ) {
-      fd_forest_publish( ctx->forest, msg->root_slot );
-      fd_policy_reset  ( ctx->policy, ctx->forest );
-    }
+    if( FD_LIKELY( msg->new_root ) ) fd_forest_publish( ctx->forest, msg->root_slot );
     return;
   }
 
@@ -860,19 +849,7 @@ after_frag( ctx_t * ctx,
         }
       }
     }
-
-    ulong max_repaired_slot = 0;
-    fd_forest_conslist_t const * conslist = fd_forest_conslist_const( ctx->forest );
-    fd_forest_cns_t const *      conspool = fd_forest_conspool_const( ctx->forest );
-    fd_forest_blk_t const *      pool     = fd_forest_pool_const( ctx->forest );
-    for( fd_forest_conslist_iter_t iter = fd_forest_conslist_iter_fwd_init( conslist, conspool );
-         !fd_forest_conslist_iter_done( iter, conslist, conspool );
-         iter = fd_forest_conslist_iter_fwd_next( iter, conslist, conspool ) ) {
-      fd_forest_cns_t const * ele = fd_forest_conslist_iter_ele_const( iter, conslist, conspool );
-      fd_forest_blk_t const * ele_ = fd_forest_pool_ele_const( pool, ele->forest_pool_idx );
-      if( ele_->slot > max_repaired_slot ) max_repaired_slot = ele_->slot;
-    }
-    ctx->metrics->repaired_slots = max_repaired_slot;
+    /* update metrics */
     return;
   }
 
@@ -898,7 +875,6 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
-
   *charge_busy = 1;
 
   /* Verify that there is at least one sign tile with available credits.
@@ -912,6 +888,20 @@ after_credit( ctx_t *             ctx,
     sign_pending_t signable = fd_signs_queue_pop( ctx->sign_queue );
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
     return;
+  }
+
+  /* TODO make sure not to re-request inflights for stale slots */
+
+  if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflight, now ) ) ) {
+    ulong nonce; ulong slot; ulong shred_idx;
+    fd_inflights_request_pop( ctx->inflight, &nonce, &slot, &shred_idx );
+    fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
+    if( FD_UNLIKELY( !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
+      fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      fd_repair_msg_t   * msg  = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), (uint)nonce, slot, shred_idx );
+      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+      return;
+    }
   }
 
   fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot );
@@ -1125,6 +1115,8 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
+  ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
+
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_peer_pool_used( ctx->policy->peers.pool ) );

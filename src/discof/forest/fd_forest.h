@@ -30,16 +30,6 @@
 
 #define FD_FOREST_MAGIC (0xf17eda2ce7b1c0UL) /* firedancer forest version 0 */
 
-/* The below is a non-restrictive estimate on the number of forks at
-   once. In particular this controls the number of chains/buckets in the
-   consumed map and subtrees map, although both maps element count are
-   still bounded by the forest_pool.  This is mainly a performance
-   optimization; repair does a lot of repeated iterator_init and
-   iterator_next calls on the consumed map, and almost always the
-   consumed map is very sparse, which makes the iterator very slow. Thus
-   we can afford to drastically decrease the number of chains in return
-   for a slightly higher chance of collisions. */
-
 #define SET_NAME fd_forest_blk_idxs
 #define SET_MAX  FD_SHRED_BLK_MAX
 #include "../../util/tmpl/fd_set.c"
@@ -60,7 +50,7 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   ulong child;       /* pool idx of the left-child */
   ulong sibling;     /* pool idx of the right-sibling */
 
-  uint consumed_idx; /* highest contiguous consumed shred idx */
+  uint consumed_idx; /* highest contiguous fec-completed shred idx */
   uint buffered_idx; /* highest contiguous buffered shred idx */
   uint complete_idx; /* shred_idx with SLOT_COMPLETE_FLAG ie. last shred idx in the slot */
 
@@ -78,8 +68,8 @@ struct __attribute__((aligned(128UL))) fd_forest_blk {
   /* Metrics */
 
   fd_forest_blk_idxs_t code[fd_forest_blk_idxs_word_cnt]; /* code shred idxs */
-  long first_shred_ts; /* timestamp of first shred rcved in slot != complete_idx */
-  long first_req_ts;   /* tick of first request received in slot != complete_idx */
+  long first_shred_ts; /* tick of first shred rcved in slot != complete_idx */
+  long first_req_ts;   /* tick of first request sent in slot != complete_idx */
   uint turbine_cnt;    /* number of shreds received from turbine */
   uint repair_cnt;     /* number of data shreds received from repair */
   uint recovered_cnt;  /* number of shreds recovered from reedsol recovery */
@@ -110,30 +100,48 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
-struct fd_forest_cns {
-  ulong slot;
-  ulong forest_pool_idx;
-  ulong hash;            /* reserved by pool and map_chain */
+/* A reference to a forest element */
+struct fd_forest_ref {
+  ulong idx;             /* forest pool idx of the ele this req refers to */
   ulong next;            /* reserved by dlist */
   ulong prev;            /* reserved by dlist */
+  ulong hash;            /* reserved by pool and map_chain */
 };
-typedef struct fd_forest_cns fd_forest_cns_t;
+typedef struct fd_forest_ref fd_forest_ref_t;
 
+#define MAP_NAME     fd_forest_requests  /* TODO this map could be redundant (i.e. we only need the deque).  Also this is awkwardly coupled between forest and policy */
+#define MAP_ELE_T    fd_forest_ref_t
+#define MAP_KEY      idx
+#define MAP_NEXT     hash
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME   fd_forest_reqslist
+#define DLIST_ELE_T  fd_forest_ref_t
+#define DLIST_NEXT   next
+#define DLIST_PREV   prev
+#include "../../util/tmpl/fd_dlist.c"
+
+#define POOL_NAME    fd_forest_reqspool
+#define POOL_T       fd_forest_ref_t
+#define POOL_NEXT    hash
+#include "../../util/tmpl/fd_pool.c"
+
+/* Below for fast tracking of contiguous completes slots */
 #define MAP_NAME     fd_forest_consumed
-#define MAP_ELE_T    fd_forest_cns_t
-#define MAP_KEY      slot
+#define MAP_ELE_T    fd_forest_ref_t
+#define MAP_KEY      idx
 #define MAP_NEXT     hash
 #include "../../util/tmpl/fd_map_chain.c"
 
 #define DLIST_NAME   fd_forest_conslist
-#define DLIST_ELE_T  fd_forest_cns_t
-#define DLIST_PREV   prev
+#define DLIST_ELE_T  fd_forest_ref_t
 #define DLIST_NEXT   next
+#define DLIST_PREV   prev
 #include "../../util/tmpl/fd_dlist.c"
 
-#define POOL_NAME     fd_forest_conspool
-#define POOL_T        fd_forest_cns_t
-#define POOL_NEXT     hash
+#define POOL_NAME    fd_forest_conspool
+#define POOL_T       fd_forest_ref_t
+#define POOL_NEXT    hash
 #include "../../util/tmpl/fd_pool.c"
 
 /* Internal use only for BFSing */
@@ -161,6 +169,18 @@ typedef struct fd_forest_cns fd_forest_cns_t;
    | subtrees          |
    |-------------------|
    | orphaned          |
+   |-------------------|
+   | requests          |
+   |-------------------|
+   | reqdeque          |
+   |-------------------|
+   | reqspool          |
+   |-------------------|
+   | consumed          |
+   |-------------------|
+   | conspool          |
+   |-------------------|
+   | deque             |
    ---------------------
 
 
@@ -168,9 +188,13 @@ typedef struct fd_forest_cns fd_forest_cns_t;
    `fd_forest_init` the forest will always have a root ele unless
    modified improperly out of forest's API.*/
 
+struct fd_forest_iter {
+  ulong ele_idx;
+  uint  shred_idx;
+};
+typedef struct fd_forest_iter fd_forest_iter_t;
 struct __attribute__((aligned(128UL))) fd_forest {
   ulong root;           /* pool idx of the root */
-  ulong iter;           /* pool idx of the iterator */
   ulong wksp_gaddr;     /* wksp gaddr of fd_forest in the backing wksp, non-zero gaddr */
   ulong ver_gaddr;      /* wksp gaddr of version fseq, incremented on write ops */
   ulong pool_gaddr;     /* wksp gaddr of fd_pool */
@@ -179,13 +203,20 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong subtrees_gaddr; /* head of orphaned trees */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
 
-  ulong consumed_gaddr; /* map of slot to pool idx of the completed repair frontier */
+  ulong requests_gaddr; /* map of slot to pool idx of the completed repair frontier */
+  ulong reqslist_gaddr; /* wksp gaddr of fd_forest_reqslist */
+  ulong reqspool_gaddr; /* wksp gaddr of fd_forest_reqspool */
+
+  ulong consumed_gaddr; /* wksp gaddr of fd_forest_consumed */
   ulong conslist_gaddr; /* wksp gaddr of fd_forest_conslist */
   ulong conspool_gaddr; /* wksp gaddr of fd_forest_conspool */
+
+  fd_forest_iter_t iter; /* requests iterator corresponding to head of requests deque */
+
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
 
-  ulong subtree_cnt;    /* number of subtrees in the forest - particularly useful for iterating */
+  ulong subtree_cnt;    /* number of subtrees in the forest - useful for iterating over orphaned subtrees */
 };
 typedef struct fd_forest fd_forest_t;
 
@@ -216,6 +247,9 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_forest_t),         sizeof(fd_forest_t)                     ),
       fd_fseq_align(),              fd_fseq_footprint()                     ),
@@ -224,6 +258,9 @@ fd_forest_footprint( ulong ele_max ) {
       fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
       fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( ele_max ) ),
       fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
+      fd_forest_requests_align(),   fd_forest_requests_footprint( ele_max ) ),
+      fd_forest_reqslist_align(),   fd_forest_reqslist_footprint(         ) ),
+      fd_forest_reqspool_align(),   fd_forest_reqspool_footprint( ele_max ) ),
       fd_forest_consumed_align(),   fd_forest_consumed_footprint( ele_max ) ),
       fd_forest_conslist_align(),   fd_forest_conslist_footprint(         ) ),
       fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max ) ),
@@ -390,7 +427,7 @@ fd_forest_consumed_const( fd_forest_t const * forest ) {
 }
 
 /* fd_forest_{conslist, conslist_const} returns a pointer in the caller's
-   address space to forest's conslist. */
+   address space to forest's consumed list. */
 
 FD_FN_PURE static inline fd_forest_conslist_t *
 fd_forest_conslist( fd_forest_t * forest ) {
@@ -403,16 +440,55 @@ fd_forest_conslist_const( fd_forest_t const * forest ) {
 }
 
 /* fd_forest_{conspool, conspool_const} returns a pointer in the caller's
-   address space to forest's conspool pool. */
+   address space to forest's consumed pool. */
 
-FD_FN_PURE static inline fd_forest_cns_t *
+FD_FN_PURE static inline fd_forest_ref_t *
 fd_forest_conspool( fd_forest_t * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->conspool_gaddr );
 }
 
-FD_FN_PURE static inline fd_forest_cns_t const *
+FD_FN_PURE static inline fd_forest_ref_t const *
 fd_forest_conspool_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->conspool_gaddr );
+}
+
+/* fd_forest_{requests, requests_const} returns a pointer in the caller's
+   address space to forest's requests map. */
+
+FD_FN_PURE static inline fd_forest_requests_t *
+fd_forest_requests( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->requests_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_requests_t const *
+fd_forest_requests_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->requests_gaddr );
+}
+
+/* fd_forest_{reqslist, reqslist_const} returns a pointer in the caller's
+   address space to forest's reqslist. */
+
+FD_FN_PURE static inline fd_forest_reqslist_t *
+fd_forest_reqslist( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->reqslist_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_reqslist_t const *
+fd_forest_reqslist_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->reqslist_gaddr );
+}
+
+/* fd_forest_{reqspool, reqspool_const} returns a pointer in the caller's
+   address space to forest's reqspool pool. */
+
+FD_FN_PURE static inline fd_forest_ref_t *
+fd_forest_reqspool( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->reqspool_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_ref_t const *
+fd_forest_reqspool_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->reqspool_gaddr );
 }
 
 /* fd_forest_root_slot returns forest's root slot.  Assumes
@@ -463,43 +539,10 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
 
 /* fd_forest_fec_clear clears the FEC set at the given slot and
    fec_set_idx.
-   Can fec_clear break consumed frontier invariants? No. Why?
+   Can fec_clear break requests frontier invariants? No. Why?
 
-     1. consumed frontier moves past slot n iff
-        child &&                                                                                        (we have received evidence of a child of slot n)
-        head->complete_idx != UINT_MAX && head->complete_idx == head->buffered_idx &&                   (all shreds of a slot have been received)
-        0==memcmp( head->cmpl, head->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) (our fec completion record matches the observed FECs)
+   TODO: Update this comment with new requests map changes
 
-        If we have received all the shreds of `n`, we must have all FEC
-        sets idxs of `n` recorded in the fecs bitset.  The cmpl bitset
-        is updated only on fd_forest_fec_insert, which is only called on
-        fec_completes message from shed tile.
-
-        Which means we must have received fec completion for all the FEC
-        sets of `n` from shred tile in order for the cmpl bitset to
-        match the fecs bitset, for the consumed to move past `n`.
-
-        Since we only call fd_forest_fec_insert on the fec_completes
-        message from shred tile, this means fec_resolver must have
-        COMPLETED each FEC set of slot n at least once. After the first
-        fec_completes for each FEC set in `n`, the fec_resolver will
-        have the FEC sets of `n` in the done_map of the fec_resolver.
-        This prevents any more duplicate fec_completes for `n`
-        happening for usually a buffer of 65k fec sets, until they get
-        evicted from the done_map.
-
-        Now consider that we have moved the consumed frontier past slot
-        n.
-
-        It is technically possible for us to receive again a FEC set of
-        slot n many many slots later, after the done_map has erased all
-        records of the FEC sets of slot n.  This is not a problem.
-        1) If slot n is not in scope of the forest root, then
-           fec_resolver will build a ctx for that FEC set, but repair
-           will ignore any messages related to that FEC set, as the slot
-           <= forest_root. Eventually the fec_resolver will either
-           complete or evict the ctx, in which either the fec_completes
-           or fec_clear msg will be ignored by repair.
         2) If slot n is in scope of the forest root, then the shred
            delivered to repair will trigger a data_shred_insert call
            that does nothing, as repair already has record of that
@@ -507,7 +550,7 @@ fd_forest_fec_insert( fd_forest_t * forest, ulong slot, ulong parent_slot, uint 
            delivered to repair. fec_insert will do nothing. fec_clear
            will remove the idxs for the shreds from the bitset, and
            update the buffered_idx. This doesn't matter though! because
-           we already have moved past slot n on the consumed frontier.
+           we already have moved past slot n on the requests frontier.
            No need to request those shreds again.
 
       Except 2) breaks a bit with in specific leader slot cases. See
@@ -524,25 +567,25 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
 fd_forest_blk_t const *
 fd_forest_publish( fd_forest_t * forest, ulong slot );
 
-struct fd_forest_iter {
-  ulong ele_idx;
-  uint  shred_idx;
-  ulong                     frontier_ver; /* the frontier version number of forest at time of initialization */
-  fd_forest_conslist_iter_t head; /* the frontier node "root" of our current iteration, provided NO insertions or deletions in the frontier. */
-};
-typedef struct fd_forest_iter fd_forest_iter_t;
+/* fd_forest_highest_repaired_slot returns the highest child of a fully,
+   contiguously repaired slot. */
+ulong
+fd_forest_highest_repaired_slot( fd_forest_t const * forest );
 
-/* fd_forest_iter_* supports iteration over a frontier node of the
-   forest and its children. iter_init selects the frontier_iter_init
-   node from the frontier. iter_next advances the iterator to the next
-   shred currently not yet existing in the forest, and will always
-   choose the left most child to iterate down. This iterator is safe
-   with concurrent query/insert/remove. If the forest has not been
-   modified, the iterator will continue down all frontier nodes. If not,
-   the iterator will return done.
+/* fd_forest_iter_* returns the next shred to request.  The iterator
+   will be in an iter_done state if there are no current shreds to
+   request.
 
-   An iterator is done when the ele_idx is null, i.e. the leaf of the
-   original selected frontier node has been reached.
+   The forest iterator will visit each shred at most once over the
+   lifetime of the forest, without revisiting past shreds, so it is up
+   to the caller to track which shreds will need re-requesting.  The
+   exception to the rule is slots where the slot_complete shred is still
+   not known - the highest window idx will be requested for that slot,
+   and the slot will be added to the tail of the requests deque so that
+   later we may revisit it.  As a result, the children of that slot may
+   also be revisited multiple times.
+
+   Note this case is pretty rare.
 
    An iterator signifies to the repair tile to request the
    highest_window_index when the ele_idx is not null and shred_idx is
@@ -551,20 +594,23 @@ typedef struct fd_forest_iter fd_forest_iter_t;
    Otherwise, the iterator signifies to the repair tile to request a
    regular shred window_idx.
 
-   Caller should generally have a timeout that resets the iterator. In
-   addition, since the iterator always chooses the leftmost child,
-   reaching new forks under one frontier node relies on repair reponses
-   -> shreds being inserted. Thus the frontier nodes can advance to the
-   slot where the fork branched. */
+   Invariants for requests map and requests deque:
 
-fd_forest_iter_t
-fd_forest_iter_init( fd_forest_t * forest );
+   There can only be one occurence of the slot in the requests deque at
+   any time. Any slot in the requests deque must exist in the requests
+   map, and vice versa. Any slot in the requests map must also exist in
+   the forest.  During publish the requests map must also be pruned.
 
-fd_forest_iter_t
-fd_forest_iter_next( fd_forest_iter_t iter, fd_forest_t const * forest );
+   If we are mid-request of a slot that gets pruned, forest will take
+   responsibility to update the iterator to a valid slot.
+
+   TODO: should this really be an iterator?? or just a _next function? */
+
+fd_forest_iter_t *
+fd_forest_iter_next( fd_forest_t * forest );
 
 int
-fd_forest_iter_done( fd_forest_iter_t iter, fd_forest_t const * forest );
+fd_forest_iter_done( fd_forest_t const * forest );
 
 /* Misc */
 
@@ -573,9 +619,6 @@ fd_forest_iter_done( fd_forest_iter_t iter, fd_forest_t const * forest );
 
 int
 fd_forest_verify( fd_forest_t const * forest );
-
-void
-fd_forest_frontier_print( fd_forest_t const * forest );
 
 /* fd_forest_print pretty-prints a formatted forest tree.  Printing begins
    from `ele` (it will appear as the root in the print output).
