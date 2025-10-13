@@ -94,4 +94,4 @@ snapshot for 2024-06-25 17:32:25.795577630 GMT+00
 ```
 
 You can also view the Firedancer GUI in a browser. Refer to the
-[configuration section](/guide/configuring.md#gui) to enable it.
+[configuration section](../guide/configuring.md#gui) to enable it.
