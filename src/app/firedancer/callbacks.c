@@ -5,6 +5,7 @@
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_txncache_shmem.h"
+#include "../../flamenco/capture/fd_capture_tile.h"
 
 #define VAL(name) (__extension__({                                                             \
   ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
@@ -199,6 +200,32 @@ fd_topo_obj_callbacks_t fd_obj_cb_exec_spad = {
   .footprint = exec_spad_footprint,
   .align     = exec_spad_align,
   .new       = exec_spad_new,
+};
+
+static ulong
+capctx_buf_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
+                      fd_topo_obj_t const * obj FD_FN_UNUSED ) {
+  ulong footprint = fd_capctx_buf_footprint();
+  return footprint;
+}
+
+static ulong
+capctx_buf_align( fd_topo_t const *     topo FD_FN_UNUSED,
+                  fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
+  return fd_capctx_buf_align();
+}
+
+static void
+capctx_buf_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_capctx_buf_new( fd_topo_obj_laddr( topo, obj->id ) ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_capctx_buf = {
+  .name      = "capctx_buf",
+  .footprint = capctx_buf_footprint,
+  .align     = capctx_buf_align,
+  .new       = capctx_buf_new,
 };
 
 #undef VAL

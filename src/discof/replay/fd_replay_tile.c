@@ -19,6 +19,7 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/capture/fd_capture_tile.h"
 
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/fd_flamenco_base.h"
@@ -136,6 +137,7 @@ struct fd_replay_tile {
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;
+  fd_capctx_buf_t * capctx_buf;
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -672,8 +674,10 @@ replay_block_start( fd_replay_tile_t *  ctx,
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
 
+  /* Currently does not work with forking, will work with solcap completed v2*/
+
   if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
+    fd_capctx_buf_translate_set_slot( ctx->capctx_buf, slot );
   }
 
   fd_bank_shred_cnt_set( bank, 0UL );
@@ -785,10 +789,9 @@ static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
-
   bank->last_transaction_finished_nanos = fd_log_wallclock();
 
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_capctx_buf_translate_flush( ctx->capture_ctx->capctx_buf );
 
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
@@ -1088,7 +1091,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
   fd_bank_vote_states_end_locking_query( bank );
 
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
+  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_capctx_buf_translate_flush( ctx->capctx_buf );
 }
 
 static inline int
@@ -1806,12 +1809,11 @@ process_solcap_account_update( fd_replay_tile_t *                          ctx,
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", msg->bank_idx ));
   }
-
   if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ) ) return;
   if( FD_UNLIKELY( fd_bank_slot_get( bank )<ctx->capture_ctx->solcap_start_slot ) ) return;
 
   uchar const * account_data = (uchar const *)fd_type_pun_const( msg )+sizeof(fd_capture_ctx_account_update_msg_t);
-  fd_solcap_write_account( ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
+  fd_capctx_buf_translate_account_update( ctx->capctx_buf, &msg->pubkey, &msg->info, account_data, msg->data_sz );
 }
 
 static void
@@ -2136,6 +2138,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
 
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) )) {
+    ulong capctx_buf_obj_id = fd_pod_query_ulong( topo->props, "capctx_buf", ULONG_MAX );
+    FD_TEST( capctx_buf_obj_id!=ULONG_MAX );
+    ctx->capctx_buf = fd_capctx_buf_join( fd_topo_obj_laddr( topo, capctx_buf_obj_id ) );
+    FD_TEST( ctx->capctx_buf );
+  }
+
   ctx->vote_tower_out_idx = 0UL;
   ctx->vote_tower_out_len = 0UL;
 
@@ -2186,16 +2195,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
   }
 
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-    ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
-    if( FD_UNLIKELY( !ctx->capture_file ) ) FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, fd_io_strerror( errno ) ));
-
-    ctx->capture_ctx->capture_txns = 0;
-    ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-    fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
-  }
-
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
     ctx->capture_ctx->dump_proto_output_dir = tile->replay.dump_proto_dir;
     if( FD_LIKELY( tile->replay.dump_block_to_pb ) ) ctx->capture_ctx->dump_block_to_pb = tile->replay.dump_block_to_pb;
@@ -2206,6 +2205,8 @@ unprivileged_init( fd_topo_t *      topo,
   } else {
     ctx->block_dump_ctx = NULL;
   }
+
+  if( FD_UNLIKELY( ctx->capture_ctx ) ) ctx->capture_ctx->capctx_buf = ctx->capctx_buf;
 
   ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
 

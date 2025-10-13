@@ -83,14 +83,11 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
       fd_bank_slot_get( bank )>=capture_ctx->solcap_start_slot &&
       memcmp( prev_account_hash->bytes, new_hash->bytes, sizeof(fd_lthash_value_t))!=0 ) {
     fd_solana_account_meta_t meta = fd_txn_account_get_solana_meta( account );
-    int err = fd_solcap_write_account(
-      capture_ctx->capture,
+    fd_capctx_buf_translate_account_update(
+      capture_ctx->capctx_buf,
       account->pubkey,
       &meta,
       fd_txn_account_get_data( account ),
       fd_txn_account_get_data_len( account ) );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to write account to capture file" ));
-    }
   }
 }

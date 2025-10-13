@@ -777,8 +777,8 @@ fd_runtime_update_bank_hash( fd_bank_t *        bank,
     uchar lthash_hash[FD_HASH_FOOTPRINT];
     fd_blake3_hash(lthash->bytes, FD_LTHASH_LEN_BYTES, lthash_hash );
 
-    fd_solcap_write_bank_preimage(
-          capture_ctx->capture,
+    fd_capctx_buf_translate_bank_preimage(
+          capture_ctx->capctx_buf,
           new_bank_hash->hash,
           fd_bank_prev_bank_hash_query( bank ),
           NULL,
@@ -968,47 +968,34 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 /* fd_runtime_buffer_solcap_account_update buffers an account
    update event message in the capture context, which will be
    sent to the replay tile via the exec_replay link.
-   This buffering is done to avoid passing stem down into the runtime.
+   This buffering is done to avoid passing stem down into the runtime. */
 
-   TODO: remove this when solcap v2 is here. */
 static void
-fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
-                                         fd_bank_t *               bank,
-                                         fd_capture_ctx_t *        capture_ctx ) {
+fd_runtime_buffer_solcap_account_update( fd_txn_account_t * account,
+                                         fd_bank_t *        bank,
+                                         fd_capture_ctx_t * capture_ctx ) {
+  /* Don't publish if capture_ctx is not set or if the bank is before the start slot. */
+  if( FD_UNLIKELY( !capture_ctx ) ) return;
+  if( FD_UNLIKELY( fd_bank_slot_get( bank ) < capture_ctx->solcap_start_slot ) ) return;
 
-  /* Check if we should publish the update */
-  if( FD_UNLIKELY( !capture_ctx || fd_bank_slot_get( bank )<capture_ctx->solcap_start_slot ) ) {
-    return;
-  }
+  /* Get relevant account metadata and data pointer. */
+  const fd_account_meta_t * meta = fd_txn_account_get_meta( account );
+  const void * data = fd_txn_account_get_data( account );
 
-  /* Get account data */
-  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  void const * data              = fd_txn_account_get_data( account );
-
-  /* Calculate account hash using lthash */
-  fd_lthash_value_t lthash[1];
-  fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
-
-  /* Calculate message size */
-  if( FD_UNLIKELY( capture_ctx->account_updates_len > FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
-    FD_LOG_CRIT(( "cannot buffer solcap account update. this should never happen" ));
-    return;
-  }
-
-  /* Write the message to the buffer */
-  fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
-  account_update_msg->pubkey               = *account->pubkey;
-  account_update_msg->info                 = fd_txn_account_get_solana_meta( account );
-  account_update_msg->data_sz              = meta->dlen;
-  account_update_msg->bank_idx             = bank->idx;
-  memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
-  capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
-
-  /* Write the account data to the buffer */
-  memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );
-  capture_ctx->account_updates_buffer_ptr += meta->dlen;
-
-  capture_ctx->account_updates_len++;
+  /* Produce the message struct for the update. */
+  fd_capture_ctx_account_update_msg_t msg = {
+    .pubkey   = *account->pubkey,
+    .info     = fd_txn_account_get_solana_meta( account ),
+    .data_sz  = meta->dlen,
+    .bank_idx = bank->idx,
+  };
+  /* Populate the actual account update buffer in the capctx */
+  fd_capctx_buf_translate_account_update(
+      capture_ctx->capctx_buf,
+      account->pubkey,
+      &msg.info,
+      data,
+      meta->dlen );
 }
 
 /* fd_runtime_save_account is a convenience wrapper that looks

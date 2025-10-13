@@ -47,6 +47,9 @@ setup_topo_txncache( fd_topo_t *  topo,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot );
 
+fd_topo_obj_t *
+setup_topo_capctx_buf( fd_topo_t * topo, char const * wksp_name, char const * path );
+
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,
                         fd_config_t *    config );

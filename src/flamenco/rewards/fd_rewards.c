@@ -465,7 +465,7 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
     }
 
     if( capture_ctx ) {
-      fd_solcap_write_stake_reward_event( capture_ctx->capture,
+      fd_capctx_buf_translate_stake_reward_event( capture_ctx->capctx_buf,
           &stake_delegation->stake_account,
           voter_acc,
           vote_state_ele->commission,
@@ -679,7 +679,7 @@ calculate_validator_rewards( fd_bank_t *                               bank,
 
   if( capture_ctx ) {
     ulong const epoch = fd_bank_epoch_get( bank );
-    fd_solcap_writer_stake_rewards_begin( capture_ctx->capture,
+    fd_capctx_buf_translate_stake_rewards_begin( capture_ctx->capctx_buf,
         epoch,
         epoch-1, /* FIXME this is not strictly correct */
         result->point_value.rewards,
@@ -888,7 +888,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, vote_reward_node->elem.vote_rewards );
 
     if( capture_ctx ) {
-      fd_solcap_write_vote_account_payout( capture_ctx->capture,
+      fd_capctx_buf_translate_vote_account_payout( capture_ctx->capctx_buf,
           vote_pubkey,
           fd_bank_slot_get( bank ),
           fd_txn_account_get_lamports( vote_rec ),
@@ -979,7 +979,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
 
   if( capture_ctx ) {
-    fd_solcap_write_stake_account_payout( capture_ctx->capture,
+    fd_capctx_buf_translate_stake_account_payout( capture_ctx->capctx_buf,
         stake_pubkey,
         fd_bank_slot_get( bank ),
         fd_txn_account_get_lamports( stake_acc_rec ),
