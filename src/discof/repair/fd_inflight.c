@@ -51,7 +51,7 @@ fd_inflights_join( void * shmem ) {
 }
 
 void
-fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey ) {
+fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey, ulong slot, ulong shred_idx ) {
   if( FD_UNLIKELY( !fd_inflight_pool_free( table->pool ) ) ) {
     fd_inflight_t * evict = fd_inflight_dlist_ele_pop_head( table->dlist, table->pool );
     fd_inflight_map_ele_remove( table->map, &evict->nonce, NULL, table->pool );
@@ -62,8 +62,10 @@ fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t co
   inflight_req->nonce        = nonce;
   inflight_req->timestamp_ns = fd_log_wallclock();
   inflight_req->pubkey       = *pubkey;
+  inflight_req->slot         = slot;
+  inflight_req->shred_idx    = shred_idx;
 
-  fd_inflight_map_ele_insert( table->map, inflight_req, table->pool );
+  fd_inflight_map_ele_insert     ( table->map,   inflight_req, table->pool );
   fd_inflight_dlist_ele_push_tail( table->dlist, inflight_req, table->pool );
 }
 
@@ -82,6 +84,16 @@ fd_inflights_request_remove( fd_inflights_t * table, ulong nonce, fd_pubkey_t * 
     return rtt;
   }
   return 0;
+}
+
+void
+fd_inflights_request_pop( fd_inflights_t * table, ulong * nonce_out, ulong * slot_out, ulong * shred_idx_out ) {
+  fd_inflight_t * inflight_req = fd_inflight_dlist_ele_pop_head( table->dlist, table->pool );
+  fd_inflight_map_ele_remove( table->map, &inflight_req->nonce, NULL, table->pool );
+  *nonce_out     = inflight_req->nonce;
+  *slot_out      = inflight_req->slot;
+  *shred_idx_out = inflight_req->shred_idx;
+  fd_inflight_pool_ele_release( table->pool, inflight_req );
 }
 
 fd_inflight_t *
