@@ -734,7 +734,7 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
   fd_elf64_ehdr ehdr = FD_LOAD( fd_elf64_ehdr, bin );
 
   /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L430-L453 */
-  ulong program_header_table_end = sizeof(fd_elf64_ehdr) + ehdr.e_phnum*sizeof(fd_elf64_phdr);
+  ulong program_header_table_end = fd_ulong_sat_add( sizeof(fd_elf64_ehdr), fd_ulong_sat_mul( ehdr.e_phnum, sizeof(fd_elf64_phdr) ) );
 
   int parse_ehdr_err =
       ( fd_uint_load_4( ehdr.e_ident )    != FD_ELF_MAG_LE         )
@@ -761,6 +761,18 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
   if( FD_UNLIKELY( parse_ehdr_err ) ) {
     return FD_SBPF_ELF_PARSER_ERR_INVALID_FILE_HEADER;
   }
+
+  /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L462 */
+  if( FD_UNLIKELY( (program_header_table_end-sizeof(fd_elf64_ehdr))%sizeof(fd_elf64_phdr) ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
+  }
+  if( FD_UNLIKELY( program_header_table_end>bin_sz ) ) {
+    return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+  }
+  /* This is always true ... */
+  // if( FD_UNLIKELY( !fd_ulong_is_aligned( sizeof(fd_elf64_ehdr), 8UL ) ) ) {
+  //   return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
+  // }
 
   /* Parse program headers (expecting 4 segments) */
 
@@ -941,9 +953,18 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
       return FD_SBPF_ELF_PARSER_ERR_OVERLAP;
     }
 
+    /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L321 */
+    if( FD_UNLIKELY( (shdr_end-ehdr.e_shoff)%sizeof(fd_elf64_shdr) ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
+    }
+
     /* Ensure section header table range lies within the file, like slice_from_bytes */
     if( FD_UNLIKELY( shdr_end > bin_sz ) ) {
       return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+    }
+
+    if( FD_UNLIKELY( !fd_ulong_is_aligned( ehdr.e_shoff, 8UL ) ) ) {
+      return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
     }
   }
 
@@ -1265,7 +1286,7 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
 /* Performs validation checks on the ELF. Returns an ElfError on failure
    and 0 on success.
    https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf.rs#L719-L809 */
-int
+static int
 fd_sbpf_lenient_elf_validate( fd_sbpf_elf_info_t * info,
                               void const *         bin,
                               ulong                bin_sz,
