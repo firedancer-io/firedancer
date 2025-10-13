@@ -74,7 +74,7 @@ tile_pid{kind="quic",kind_id="0"} 1108975
 tile_pid{kind="verify",kind_id="0"} 1108978
 ```
 
-See the [metrics API documentation](/api/metrics.html) for more
+See the [metrics API documentation](../api/metrics.md) for more
 information on the available data.
 
 ## Live monitoring
