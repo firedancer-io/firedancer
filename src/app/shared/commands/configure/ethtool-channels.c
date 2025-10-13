@@ -321,7 +321,7 @@ check( fd_config_t const * config ) {
 }
 
 static int
-fini_device( char const * device ) {
+fini_device( char const * device, uint num_channels ) {
   int error = 0;
 
   fd_ethtool_ioctl_t ioc;
@@ -347,7 +347,7 @@ fini_device( char const * device ) {
   /* This should happen first, otherwise changing the number of channels may fail */
   error |= (0!=fd_ethtool_ioctl_rxfh_set_default( &ioc ));
 
-  error |= (0!=fd_ethtool_ioctl_channels_set_num( &ioc, 0 /* max */ ));
+  error |= (0!=fd_ethtool_ioctl_channels_set_num( &ioc, num_channels ));
 
   /* Some drivers (i40e) do not always evenly redistribute the RXFH table
      when increasing the channel count, so we run this again just in case. */
@@ -382,15 +382,18 @@ static int
 fini( fd_config_t const * config,
       int                 pre_init FD_PARAM_UNUSED ) {
   int done = 0;
+  int dedicated_mode = (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
+  uint const num_channels = !dedicated_mode ? config->layout.net_tile_count : 0;
+
   if( FD_UNLIKELY( device_is_bonded( config->net.interface ) ) ) {
     char line[ 4096 ];
     char const * bond_devices[ 16 ];
     device_read_slaves( config->net.interface, line, bond_devices );
     for( ulong i=0UL; bond_devices[ i ]!=NULL; i++ ) {
-      done |= fini_device( bond_devices[ i ] );
+      done |= fini_device( bond_devices[ i ], num_channels );
     }
   } else {
-    done = fini_device( config->net.interface );
+    done = fini_device( config->net.interface, num_channels );
   }
   return done;
 }
