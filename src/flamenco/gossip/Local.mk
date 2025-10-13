@@ -3,7 +3,7 @@ $(call add-objs,fd_gossip fd_gossip_msg_parse fd_gossip_msg_ser fd_gossip_out fd
 
 $(call add-hdrs,fd_bloom.h)
 $(call add-hdrs,fd_gossip_types.h)
-$(call add-objs,fd_bloom fd_active_set fd_ping_tracker,fd_flamenco)
+$(call add-objs,fd_bloom fd_active_set fd_ping_tracker fd_gossip_wpeer_sampler,fd_flamenco)
 
 $(call make-unit-test,test_bloom,test_bloom,fd_flamenco fd_util)
 $(call run-unit-test,test_bloom)
