@@ -1572,12 +1572,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* TODO: This function needs to be split out of fd_execute_txn and be placed
       into the replay tile once it is implemented. */
-  int err = fd_executor_txn_check( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
-    return err;
-  }
-  return 0;
+  return fd_executor_txn_check( txn_ctx );
 }
 
 int

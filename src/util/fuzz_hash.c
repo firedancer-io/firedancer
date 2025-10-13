@@ -17,20 +17,17 @@ int
 LLVMFuzzerTestOneInput( uchar const *data,
                         ulong        size ) {
   ulong metadata_size = sizeof(ulong);
-  if ( size < metadata_size ) {
-    return 0;
-  }
+  if( size < metadata_size ) return 0;
 
   ulong seed = FD_LOAD( ulong, data );
   size -= metadata_size;
-  uchar *content = (uchar*)data + metadata_size;
-  uchar *dst = malloc( size );
-  if ( dst == NULL ) {
-    return 0;
-  }
+  uchar * content = (uchar *)data + metadata_size;
+  uchar * dst = malloc( size );
+  if( !dst )  return 0;
 
-  fd_hash_memcpy( seed, dst, content, size );
-  fd_hash( seed, content, size );
+  ulong hash0 = fd_hash_memcpy( seed, dst, content, size );
+  ulong hash1 = fd_hash( seed, content, size );
+  if( FD_UNLIKELY( hash0!=hash1 ) ) FD_LOG_CRIT(( "hash mismatch" ));
   free( dst );
 
   return 0;
