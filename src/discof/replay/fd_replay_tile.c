@@ -709,11 +709,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
-  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    FD_LOG_CRIT(( "block prep execute failed" ));
-  }
-
+  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
   return bank;
 }
 
@@ -770,9 +766,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->tips                  = 0UL; /* todo ... tip accounts balance delta */
   slot_info->shred_count           = fd_bank_shred_cnt_get( bank );
 
-  fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
-  slot_info->max_compute_units     = !!cost_tracker ? cost_tracker->block_cost_limit : ULONG_MAX;
-  fd_bank_cost_tracker_end_locking_query( bank );
+  slot_info->max_compute_units     = fd_cost_tracker_block_cost_limit( bank );
 
   slot_info->first_fec_set_received_nanos      = bank->first_fec_set_received_nanos;
   slot_info->preparation_begin_nanos           = bank->preparation_begin_nanos;
@@ -940,10 +934,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  int res = fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
-  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    FD_LOG_CRIT(( "block prep execute failed" ));
-  }
+  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -1109,7 +1100,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) == 0 );
+    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
     fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
@@ -1298,9 +1289,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_genesis_solana_global_t const * genesis = fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_hash_t)+sizeof(fd_lthash_value_t) );
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
-  }
+  FD_TEST( bank );
   fd_funk_txn_xid_t xid = { .ul = { 0UL, 0UL } };
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
@@ -1366,7 +1355,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
   publish_slot_completed( ctx, stem, bank, 1 );
   publish_root_advanced( ctx, stem );
   publish_reset( ctx, stem, bank );
-
 }
 
 static void

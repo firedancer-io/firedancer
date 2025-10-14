@@ -4,6 +4,7 @@
 #include "../fd_pubkey_utils.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar.h"
+#include "../fd_system_ids.h"
 
 #include <limits.h>
 #include <math.h>

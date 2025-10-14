@@ -1,8 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_txncache_h
 #define HEADER_fd_src_flamenco_runtime_txncache_h
 
-#include "fd_txncache_shmem.h"
-
 /* A txn cache is a concurrent set storing the message hashes of
    transactions which have already executed.  Note the structure is
    keyed by message hash, not signature, otherwiwe a double spend might
@@ -109,7 +107,7 @@
    up to the snapshot loading code to filter out all blockhashes which
    are nonce blockhashes (not in the recent blockhashes sysvar). */
 
-#include "../../util/fd_util_base.h"
+#include "fd_txncache_shmem.h"
 
 #define FD_TXNCACHE_ALIGN (128UL)
 

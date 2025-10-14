@@ -2,6 +2,7 @@
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_builtin_programs.h"
 #include "fd_pubkey_utils.h"
+#include "fd_system_ids.h"
 
 /* Mimics bank.new_target_program_account(). Assumes out_rec is a
    modifiable record.

@@ -10,6 +10,7 @@
 #include "fd_builtin_programs.h"
 #include "fd_native_cpi.h"
 #include "../fd_borrowed_account.h"
+#include "../fd_system_ids.h"
 
 /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L290-L335 */
 static inline int

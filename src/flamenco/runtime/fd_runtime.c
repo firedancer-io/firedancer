@@ -694,23 +694,14 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
                                   fd_capture_ctx_t *        capture_ctx,
                                   fd_spad_t *               runtime_spad ) {
   fd_bank_execution_fees_set( bank, 0UL );
-
   fd_bank_priority_fees_set( bank, 0UL );
-
   fd_bank_signature_count_set( bank, 0UL );
-
   fd_bank_total_compute_units_used_set( bank, 0UL );
 
-  /* Setup cost tracker */
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_cost_tracker_new(
-        fd_bank_cost_tracker_locking_modify( bank ),
-        fd_bank_features_query( bank ),
-        fd_bank_slot_get( bank ),
-        999UL /* TODO: Needs real seed */ ) );
-    if( FD_UNLIKELY( !cost_tracker ) ) {
-      FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
-    }
+  if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+    FD_TEST( cost_tracker );
+    fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
     fd_bank_cost_tracker_end_locking_modify( bank );
   }
 
@@ -1185,7 +1176,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
 
   /* Update the cost tracker */
-  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_bank_cost_tracker_locking_modify( bank ) );
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     txn_ctx->flags = 0U;
