@@ -76,7 +76,7 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
 
 fd_recent_block_hashes_t *
 fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_xid_t const * xid, fd_spad_t * spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return NULL;

@@ -73,7 +73,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
 
     fd_funk_rec_prepare_t prepare;
 
-    FD_TXN_ACCOUNT_DECL( rec );
+    fd_txn_account_t rec[1];
     int err = fd_txn_account_init_from_funk_mutable( rec,
                                                      &account->key,
                                                      ctx->funk,

@@ -81,7 +81,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    FD_TXN_ACCOUNT_DECL( acc );
+    fd_txn_account_t acc[1];
     fd_runtime_fuzz_load_account( acc, funk, &xid, &test_ctx->account_shared_data[i], 1 );
   }
 

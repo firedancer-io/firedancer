@@ -29,7 +29,7 @@ fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_funk_t *               funk,
                               fd_funk_txn_xid_t const * xid,
                               fd_spad_t *               spad ) {
-  FD_TXN_ACCOUNT_DECL( stake_rec );
+  fd_txn_account_t stake_rec[1];
   int err = fd_txn_account_init_from_funk_readonly( stake_rec, &fd_sysvar_stake_history_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;

@@ -76,7 +76,7 @@ fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_funk_t *               funk,
                       fd_funk_txn_xid_t const * xid,
                       fd_sol_sysvar_clock_t *   clock ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, xid );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;

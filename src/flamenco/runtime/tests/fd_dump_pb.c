@@ -152,7 +152,7 @@ dump_account_if_not_already_dumped( fd_funk_t const *           funk,
                                     fd_exec_test_acct_state_t * out_acct_states,
                                     pb_size_t *                 out_acct_states_cnt,
                                     fd_txn_account_t *          opt_out_borrowed_account ) {
-  FD_TXN_ACCOUNT_DECL( account );
+  fd_txn_account_t account[1];
   if( fd_txn_account_init_from_funk_readonly( account, account_key, funk, xid ) ) {
     return 1;
   }
@@ -282,7 +282,7 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
       memcpy( message->address_table_lookups[i].account_key, alut_key, sizeof(fd_pubkey_t) );
 
       // Access ALUT account data to access its keys
-      FD_TXN_ACCOUNT_DECL(addr_lut_rec);
+      fd_txn_account_t addr_lut_rec[1];
       int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec, alut_key, funk, xid );
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "addr lut not found" ));
@@ -388,7 +388,7 @@ add_account_and_programdata_to_dumped_accounts( fd_funk_t *                   fu
 
   /* Read the account from Funk to see if its a program account and if
      it needs to be dumped. */
-  FD_TXN_ACCOUNT_DECL( program_account );
+  fd_txn_account_t program_account[1];
   int err = fd_txn_account_init_from_funk_readonly( program_account, pubkey, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
@@ -430,7 +430,7 @@ add_lut_accounts_to_dumped_accounts( fd_funk_t *                   funk,
   add_account_to_dumped_accounts( pool, root, pubkey );
 
   /* Read the account and dump all pubkeys within the lookup table. */
-  FD_TXN_ACCOUNT_DECL( lut_account );
+  fd_txn_account_t lut_account[1];
   int err = fd_txn_account_init_from_funk_readonly( lut_account, pubkey, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
@@ -704,7 +704,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   for( fd_dump_account_key_node_t * node = fd_dump_account_key_map_minimum( dumped_accounts_pool, dumped_accounts_root );
                                     node;
                                     node = fd_dump_account_key_map_successor( dumped_accounts_pool, node ) ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, &node->key, funk, &parent_xid );
     if( FD_UNLIKELY( ret ) ) {
       continue;
@@ -787,7 +787,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->account_keys[i], txn_ctx->funk, txn_ctx->xid );
     if( FD_UNLIKELY( ret ) ) {
       continue;
@@ -802,7 +802,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   // Dump LUT accounts
   fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
   for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     fd_txn_acct_addr_lut_t const * addr_lut  = &address_lookup_tables[i];
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut[i].addr_off);
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, txn_ctx->xid );
@@ -822,7 +822,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       fd_pubkey_t const * referenced_addr = fd_type_pun( &lookup_addrs[writable_lut_idxs[j]] );
       if( is_builtin_account( referenced_addr ) ) continue;
 
-      FD_TXN_ACCOUNT_DECL( referenced_account );
+      fd_txn_account_t referenced_account[1];
       ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, txn_ctx->xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
@@ -836,7 +836,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       fd_pubkey_t const * referenced_addr = fd_type_pun( &lookup_addrs[readonly_lut_idxs[j]] );
       if( is_builtin_account( referenced_addr ) ) continue;
 
-      FD_TXN_ACCOUNT_DECL( referenced_account );
+      fd_txn_account_t referenced_account[1];
       ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, txn_ctx->xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
@@ -852,7 +852,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Dump sysvars */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
@@ -918,7 +918,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
@@ -941,7 +941,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->executable_cnt; i++ ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->executable_accounts[i].pubkey, txn_ctx->funk, txn_ctx->xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;

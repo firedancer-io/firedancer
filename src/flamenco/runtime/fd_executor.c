@@ -584,7 +584,7 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
        total size of accounts and their owners are accumulated: duplicate owners
        should be avoided.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
-    FD_TXN_ACCOUNT_DECL( owner_account );
+    fd_txn_account_t owner_account[1];
     err = fd_txn_account_init_from_funk_readonly( owner_account,
                                                   fd_txn_account_get_owner( program_account ),
                                                   txn_ctx->funk,
@@ -693,7 +693,7 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
   }
 
   /* Load the programdata account from Funk to read the programdata length */
-  FD_TXN_ACCOUNT_DECL( programdata_account );
+  fd_txn_account_t programdata_account[1];
   err = fd_txn_account_init_from_funk_readonly( programdata_account,
                                                 &loader_state->inner.program.programdata_address,
                                                 txn_ctx->funk,

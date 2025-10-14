@@ -186,7 +186,7 @@ static int
 fd_builtin_is_bpf( fd_funk_t *               funk,
                    fd_funk_txn_xid_t const * xid,
                    fd_pubkey_t const  *      pubkey ) {
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, funk, xid );
   if( !!err ) {
     return 0;
@@ -213,7 +213,7 @@ fd_write_builtin_account( fd_bank_t  *              bank,
                           char const *              data,
                           ulong                     sz ) {
 
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
 
   int err = fd_txn_account_init_from_funk_mutable( rec, &pubkey, funk, xid, 1, sz, &prepare );
@@ -253,7 +253,7 @@ write_inline_spl_native_mint_program_account( fd_funk_t *               funk,
   }
 
   fd_pubkey_t const * key  = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
   static uchar const data[] = {

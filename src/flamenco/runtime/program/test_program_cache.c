@@ -63,7 +63,7 @@ create_test_account( fd_pubkey_t const * pubkey,
                      uchar const *       data,
                      ulong               data_len,
                      uchar               executable ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   fd_funk_rec_prepare_t prepare = {0};
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
@@ -91,7 +91,7 @@ static void
 update_account_data( fd_pubkey_t const * pubkey,
                      uchar const *       data,
                      ulong               data_len ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   fd_funk_rec_prepare_t prepare = {0};
   int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ pubkey,
@@ -291,7 +291,7 @@ test_program_in_cache_queued_for_reverification( void ) {
   FD_TEST( future_slot>original_slot );
 
   /* Get the program account to pass to the queue function */
-  FD_TXN_ACCOUNT_DECL( program_acc );
+  fd_txn_account_t program_acc[1];
   err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, &test_xid );
   FD_TEST( !err );
 
@@ -345,7 +345,7 @@ test_program_queued_for_reverification_account_does_not_exist( void ) {
   FD_TEST( future_slot>original_slot );
 
   /* Get the program account to pass to the queue function */
-  FD_TXN_ACCOUNT_DECL( program_acc );
+  fd_txn_account_t program_acc[1];
   int err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, &test_xid );
   FD_TEST( !err );
 
@@ -395,7 +395,7 @@ test_program_in_cache_queued_for_reverification_and_processed( void ) {
   FD_TEST( future_slot>original_slot );
 
   /* Get the program account to pass to the queue function */
-  FD_TXN_ACCOUNT_DECL( program_acc );
+  fd_txn_account_t program_acc[1];
   err = fd_txn_account_init_from_funk_readonly( program_acc, &test_program_pubkey, test_funk, &test_xid );
   FD_TEST( !err );
 

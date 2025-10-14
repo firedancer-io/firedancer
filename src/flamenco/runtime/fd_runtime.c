@@ -220,7 +220,7 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
                             fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
                             fd_capture_ctx_t *        capture_ctx ) {
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
 
   int err = fd_txn_account_init_from_funk_mutable(
@@ -269,7 +269,7 @@ fd_runtime_freeze( fd_bank_t *               bank,
 
   if( FD_LIKELY( fees ) ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
-    FD_TXN_ACCOUNT_DECL( rec );
+    fd_txn_account_t rec[1];
 
     do {
       /* do_create=1 because we might wanna pay fees to a leader
@@ -479,7 +479,7 @@ fd_runtime_load_txn_address_lookup_tables(
     fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(payload + addr_lut->addr_off);
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-    FD_TXN_ACCOUNT_DECL( addr_lut_rec );
+    fd_txn_account_t addr_lut_rec[1];
     int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec,
                                                       addr_lut_acc,
                                                       funk,
@@ -1050,7 +1050,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   }
 
   /* Look up the previous version of the account from Funk */
-  FD_TXN_ACCOUNT_DECL( previous_account_version );
+  fd_txn_account_t previous_account_version[1];
   int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
     FD_LOG_CRIT(( "Failed to read old account version from Funk" ));
@@ -1389,7 +1389,7 @@ fd_feature_activate( fd_bank_t *               bank,
 
   if( id->reverted==1 ) return;
 
-  FD_TXN_ACCOUNT_DECL( acct_rec );
+  fd_txn_account_t acct_rec[1];
   int err = fd_txn_account_init_from_funk_readonly( acct_rec, addr, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return;
@@ -1413,7 +1413,7 @@ fd_feature_activate( fd_bank_t *               bank,
   } else {
     FD_LOG_DEBUG(( "Feature %s not activated at %lu, activating", addr_b58, feature->activated_at ));
 
-    FD_TXN_ACCOUNT_DECL( modify_acct_rec );
+    fd_txn_account_t modify_acct_rec[1];
     fd_funk_rec_prepare_t modify_acct_prepare = {0};
     err = fd_txn_account_init_from_funk_mutable( modify_acct_rec, addr, funk, xid, 0, 0UL, &modify_acct_prepare );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
