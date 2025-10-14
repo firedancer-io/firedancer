@@ -133,9 +133,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   /* Derive leader schedule */
 
-  FD_LOG_INFO(( "stake_weight_cnt=%lu slot_cnt=%lu", stake_weight_cnt, slot_cnt ));
   ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
-  FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
   if( FD_LIKELY( epoch_leaders_footprint ) ) {
     if( FD_UNLIKELY( stake_weight_cnt>MAX_PUB_CNT ) ) {
       FD_LOG_ERR(( "Stake weight count exceeded max" ));
