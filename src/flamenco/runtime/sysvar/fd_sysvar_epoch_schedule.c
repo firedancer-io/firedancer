@@ -58,7 +58,7 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
                                fd_funk_txn_xid_t const * xid,
                                fd_epoch_schedule_t *     out ) {
 
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_schedule_id, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;

@@ -51,8 +51,6 @@ typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_ALIGN     (8UL)
 #define FD_TXN_ACCOUNT_MAGIC     (0xF15EDF1C51F51AA1UL)
 
-#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1];
-
 FD_PROTOTYPES_BEGIN
 
 /* fd_txn_account_new lays out the memory required for a

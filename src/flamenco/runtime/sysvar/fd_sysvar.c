@@ -16,7 +16,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   fd_rent_t const * rent    = fd_bank_rent_query( bank );
   ulong     const   min_bal = fd_rent_exempt_minimum_balance( rent, sz );
 
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
   fd_txn_account_init_from_funk_mutable( rec, address, funk, xid, 1, sz, &prepare );
   fd_lthash_value_t prev_hash[1];

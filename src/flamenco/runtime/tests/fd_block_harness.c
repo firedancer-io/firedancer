@@ -49,7 +49,7 @@ fd_runtime_fuzz_block_register_vote_account( fd_funk_t  *              funk,
                                              fd_vote_states_t *        vote_states,
                                              fd_pubkey_t *             pubkey,
                                              fd_spad_t *               spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
   }
@@ -90,7 +90,7 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_funk_t *               funk,
                                                  fd_funk_txn_xid_t const * xid,
                                                  fd_stake_delegations_t *  stake_delegations,
                                                  fd_pubkey_t *             pubkey ) {
- FD_TXN_ACCOUNT_DECL( acc );
+ fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
   }
@@ -264,7 +264,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-    FD_TXN_ACCOUNT_DECL(acc);
+    fd_txn_account_t acc[1];
     fd_runtime_fuzz_load_account( acc, funk, xid, &test_ctx->acct_states[i], 1 );
 
     /* Update vote accounts cache for epoch T */

@@ -359,7 +359,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       continue;
     }
 
-    FD_TXN_ACCOUNT_DECL( acct_rec );
+    fd_txn_account_t acct_rec[1];
     int err = fd_txn_account_init_from_funk_readonly(
         acct_rec,
         &stake_delegation->stake_account,

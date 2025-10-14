@@ -936,7 +936,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
-  FD_TXN_ACCOUNT_DECL( durable_nonce_rec );
+  fd_txn_account_t durable_nonce_rec[1];
   int err = fd_txn_account_init_from_funk_readonly( durable_nonce_rec,
                                                     &txn_ctx->account_keys[ nonce_idx ],
                                                     txn_ctx->funk,

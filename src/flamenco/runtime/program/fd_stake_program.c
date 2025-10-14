@@ -3243,7 +3243,7 @@ write_stake_config( fd_funk_t *               funk,
   ulong                   data_sz  = fd_stake_config_size( stake_config );
   fd_pubkey_t const *     acc_key  = &fd_solana_stake_program_config_id;
 
-  FD_TXN_ACCOUNT_DECL(rec);
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
   int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, funk, xid, 1, data_sz, &prepare );
   FD_TEST( !err );

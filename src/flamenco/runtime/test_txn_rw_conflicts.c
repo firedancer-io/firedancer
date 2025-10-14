@@ -114,7 +114,7 @@ add_address_lookup_table( fd_funk_t *               funk,
                           ulong *                   out_txn_sz,
                           ulong *                   out_pay_sz ) {
 
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
   const ulong rec_sz = FD_LOOKUP_TABLE_META_SIZE+alt_acct_data_sz;
   int result = fd_txn_account_init_from_funk_mutable( rec, alt_acct_addr, funk, xid, /* do_create */ 1, rec_sz, &prepare );

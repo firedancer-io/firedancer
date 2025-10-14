@@ -171,7 +171,7 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
   }
 
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
-  FD_TXN_ACCOUNT_DECL( programdata_acc );
+  fd_txn_account_t programdata_acc[1];
   if( fd_txn_account_init_from_funk_readonly( programdata_acc, programdata_address, funk, xid )!=FD_ACC_MGR_SUCCESS ) {
     return NULL;
   }
@@ -498,7 +498,7 @@ fd_program_cache_update_program( fd_bank_t *               bank,
                                  fd_pubkey_t const *       program_key,
                                  fd_spad_t *               runtime_spad ) {
 FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-  FD_TXN_ACCOUNT_DECL( exec_rec );
+  fd_txn_account_t exec_rec[1];
   fd_funk_rec_key_t id = fd_program_cache_key( program_key );
 
   /* No need to touch the cache if the account no longer exists. */
