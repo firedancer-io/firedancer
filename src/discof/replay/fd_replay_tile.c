@@ -1161,6 +1161,8 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     }
   }
 
+  long now_nanos = fd_log_wallclock();
+
   ctx->is_leader     = 1;
   ctx->recv_poh      = 0;
   ctx->recv_block_id = 0;
@@ -1171,12 +1173,12 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   FD_LOG_INFO(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
   /* Acquires bank, sets up initial state, and refcnts it. */
-  fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now, &ctx->reset_block_id, stem );
+  fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id, stem );
 
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot = ctx->next_leader_slot;
-  msg->slot_start_ns = now;
-  msg->slot_end_ns   = now+(long)ctx->slot_duration_nanos;
+  msg->slot_start_ns = now_nanos;
+  msg->slot_end_ns   = now_nanos+(long)ctx->slot_duration_nanos;
   msg->bank = NULL;
   msg->bank_idx = bank->idx;
   msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
