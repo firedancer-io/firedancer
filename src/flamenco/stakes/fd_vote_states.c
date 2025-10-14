@@ -402,7 +402,8 @@ fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
       FD_LOG_CRIT(( "unable to retrieve vote state" ));
     }
 
-    vote_state->stake = 0UL;
+    vote_state->stake   = 0UL;
+    vote_state->rewards = 0UL;
   }
 }
 

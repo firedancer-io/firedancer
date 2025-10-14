@@ -1115,8 +1115,6 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
     }
   } else {
 
-    int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
-
     for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -1129,12 +1127,12 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
         FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
       }
 
-      if( dirty_vote_acc && 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_vote_store_account( acc_rec, bank );
+      if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+        fd_stakes_update_vote_state( acc_rec, bank );
       }
 
       if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-        fd_update_stake_delegation( acc_rec, bank );
+        fd_stakes_update_stake_delegation( acc_rec, bank );
       }
 
       /* Reclaim any accounts that have 0-lamports, now that any related
@@ -1484,11 +1482,13 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   /* Activate new features
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6587-L6598 */
+
   fd_features_activate( bank, funk, xid, capture_ctx );
   fd_features_restore( bank, funk, xid );
 
   /* Apply builtin program feature transitions
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6621-L6624 */
+
   fd_apply_builtin_program_feature_transitions( bank, funk, xid, capture_ctx, runtime_spad );
 
   /* Get the new rate activation epoch */
@@ -1505,44 +1505,31 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
     new_rate_activation_epoch = NULL;
   }
 
-  /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( bank, funk, xid, capture_ctx, stake_delegations, new_rate_activation_epoch, runtime_spad );
+  /* Updates stake history sysvar accumulated values and recomputes
+     stake delegations for vote accounts. */
 
-  /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
-    https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
-  if( FD_UNLIKELY( !history ) ) {
-    FD_LOG_ERR(( "StakeHistory sysvar could not be read and decoded" ));
-  }
+  fd_stakes_activate_epoch( bank, funk, xid, capture_ctx, stake_delegations, new_rate_activation_epoch );
 
-  /* Now increment the epoch */
+  /* Distribute rewards.  This involves calculating the rewards for
+     every vote and stake account. */
 
-  fd_bank_epoch_set( bank, fd_bank_epoch_get( bank ) + 1UL );
-
-  fd_refresh_vote_accounts( bank,
-                            stake_delegations,
-                            history,
-                            new_rate_activation_epoch );
-
-  /* Distribute rewards */
-
-  fd_hash_t parent_blockhash = {0};
-  {
-    fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
-    fd_hash_t const * bhq_last = fd_blockhashes_peek_last( bhq );
-    FD_TEST( bhq_last );
-    parent_blockhash = *bhq_last;
-  }
-
+  fd_hash_t const * parent_blockhash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
   fd_begin_partitioned_rewards( bank,
                                 funk,
                                 xid,
                                 capture_ctx,
                                 stake_delegations,
-                                &parent_blockhash,
-                                parent_epoch,
-                                runtime_spad );
+                                parent_blockhash,
+                                parent_epoch );
 
+  /* The Agave client handles updating their stakes cache with a call to
+     update_epoch_stakes() which keys stakes by the leader schedule
+     epochs and retains up to 6 epochs of stakes.  However, to correctly
+     calculate the leader schedule, we just need to maintain the vote
+     states for the current epoch, the previous epoch, and the one
+     before that.
+     https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
+  */
 
   /* Update vote_states_prev_prev with vote_states_prev */
 
@@ -1552,11 +1539,11 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   fd_update_vote_states_prev( bank );
 
-  /* Update current leaders using epoch_stakes (new T-2 stakes) */
+  /* Now that our stakes caches have been updated, we can calculate the
+     leader schedule for the upcoming epoch epoch using our new
+     vote_states_prev_prev (stakes for T-2). */
 
   fd_runtime_update_leaders( bank, runtime_spad );
-
-  FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
@@ -1741,7 +1728,10 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
      the amount of stake that is delegated to each vote account. */
 
   ulong new_rate_activation_epoch = 0UL;
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, xid, runtime_spad );
+
+  fd_stake_history_t stake_history[1];
+  fd_sysvar_stake_history_read( funk, xid, stake_history );
+
   fd_refresh_vote_accounts(
       bank,
       stake_delegations,

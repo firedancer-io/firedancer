@@ -968,212 +968,19 @@ struct fd_stake_reward {
 typedef struct fd_stake_reward fd_stake_reward_t;
 #define FD_STAKE_REWARD_ALIGN alignof(fd_stake_reward_t)
 
-/* Encoded Size: Fixed (42 bytes) */
-struct fd_vote_reward {
-  fd_pubkey_t pubkey;
-  ulong vote_rewards;
-  uchar commission;
-  uchar needs_store;
-};
-typedef struct fd_vote_reward fd_vote_reward_t;
-#define FD_VOTE_REWARD_ALIGN alignof(fd_vote_reward_t)
-
-/* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L21 */
-/* Encoded Size: Fixed (24 bytes) */
-struct fd_point_value {
-  ulong rewards;
-  uint128 points;
-};
-typedef struct fd_point_value fd_point_value_t;
-#define FD_POINT_VALUE_ALIGN alignof(fd_point_value_t)
-
-#define POOL_NAME fd_partitioned_stake_rewards_pool
-#define POOL_T fd_stake_reward_t
-#define POOL_NEXT parent
-#include "../../util/tmpl/fd_pool.c"
-static inline fd_stake_reward_t *
-fd_partitioned_stake_rewards_pool_join_new( void * * alloc_mem, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_partitioned_stake_rewards_pool_align() );
-  void * pool_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_partitioned_stake_rewards_pool_footprint( num );
-  return fd_partitioned_stake_rewards_pool_join( fd_partitioned_stake_rewards_pool_new( pool_mem, num ) );
-}
-#define DLIST_NAME fd_partitioned_stake_rewards_dlist
-#define DLIST_ELE_T fd_stake_reward_t
-#include "../../util/tmpl/fd_dlist.c"
-static inline fd_partitioned_stake_rewards_dlist_t *
-fd_partitioned_stake_rewards_dlist_join_new( void * * alloc_mem, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_partitioned_stake_rewards_dlist_align() );
-  void * dlist_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_partitioned_stake_rewards_dlist_footprint();
-  return fd_partitioned_stake_rewards_dlist_join( fd_partitioned_stake_rewards_dlist_new( dlist_mem ) );
-}
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56 */
-/* Encoded Size: Dynamic */
-struct fd_partitioned_stake_rewards {
-  ulong partitions_len;
-  ulong partitions_lengths[4096];
-  fd_partitioned_stake_rewards_dlist_t * partitions;
-  fd_stake_reward_t * pool;
-};
-typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
-#define FD_PARTITIONED_STAKE_REWARDS_ALIGN alignof(fd_partitioned_stake_rewards_t)
-
-struct fd_partitioned_stake_rewards_global {
-  ulong partitions_len;
-  ulong partitions_lengths[4096];
-  ulong partitions_offset;
-  ulong pool_offset;
-};
-typedef struct fd_partitioned_stake_rewards_global fd_partitioned_stake_rewards_global_t;
-#define FD_PARTITIONED_STAKE_REWARDS_GLOBAL_ALIGN alignof(fd_partitioned_stake_rewards_global_t)
-
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L131 */
-/* Encoded Size: Dynamic */
-struct fd_stake_reward_calculation_partitioned {
-  fd_partitioned_stake_rewards_t partitioned_stake_rewards;
-  ulong total_stake_rewards_lamports;
-};
-typedef struct fd_stake_reward_calculation_partitioned fd_stake_reward_calculation_partitioned_t;
-#define FD_STAKE_REWARD_CALCULATION_PARTITIONED_ALIGN alignof(fd_stake_reward_calculation_partitioned_t)
-
-#define POOL_NAME fd_stake_reward_calculation_pool
-#define POOL_T fd_stake_reward_t
-#define POOL_NEXT parent
-#include "../../util/tmpl/fd_pool.c"
-static inline fd_stake_reward_t *
-fd_stake_reward_calculation_pool_join_new( void * * alloc_mem, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_reward_calculation_pool_align() );
-  void * pool_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_stake_reward_calculation_pool_footprint( num );
-  return fd_stake_reward_calculation_pool_join( fd_stake_reward_calculation_pool_new( pool_mem, num ) );
-}
-#define DLIST_NAME fd_stake_reward_calculation_dlist
-#define DLIST_ELE_T fd_stake_reward_t
-#include "../../util/tmpl/fd_dlist.c"
-static inline fd_stake_reward_calculation_dlist_t *
-fd_stake_reward_calculation_dlist_join_new( void * * alloc_mem, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_reward_calculation_dlist_align() );
-  void * dlist_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_stake_reward_calculation_dlist_footprint();
-  return fd_stake_reward_calculation_dlist_join( fd_stake_reward_calculation_dlist_new( dlist_mem ) );
-}
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94 */
-/* Encoded Size: Dynamic */
-struct fd_stake_reward_calculation {
-  ulong stake_rewards_len;
-  fd_stake_reward_calculation_dlist_t * stake_rewards;
-  fd_stake_reward_t * pool;
-  ulong total_stake_rewards_lamports;
-};
-typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
-#define FD_STAKE_REWARD_CALCULATION_ALIGN alignof(fd_stake_reward_calculation_t)
-
-typedef struct fd_vote_reward_t_mapnode fd_vote_reward_t_mapnode_t;
-#define REDBLK_T fd_vote_reward_t_mapnode_t
-#define REDBLK_NAME fd_vote_reward_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_vote_reward_t_mapnode {
-    fd_vote_reward_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_vote_reward_t_mapnode_t *
-fd_vote_reward_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_reward_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_vote_reward_t_map_footprint( len );
-  return fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct fd_calculate_stake_vote_rewards_result {
-  fd_stake_reward_calculation_t stake_reward_calculation;
-  fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
-  fd_vote_reward_t_mapnode_t * vote_reward_map_root;
-};
-typedef struct fd_calculate_stake_vote_rewards_result fd_calculate_stake_vote_rewards_result_t;
-#define FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN alignof(fd_calculate_stake_vote_rewards_result_t)
-
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L102 */
-/* Encoded Size: Dynamic */
-struct fd_calculate_validator_rewards_result {
-  fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result;
-  fd_point_value_t point_value;
-};
-typedef struct fd_calculate_validator_rewards_result fd_calculate_validator_rewards_result_t;
-#define FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN alignof(fd_calculate_validator_rewards_result_t)
-
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L118 */
-/* Encoded Size: Dynamic */
+/* Encoded Size: Fixed (64 bytes) */
 struct fd_partitioned_rewards_calculation {
-  fd_vote_reward_t_mapnode_t * vote_reward_map_pool;
-  fd_vote_reward_t_mapnode_t * vote_reward_map_root;
-  fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition;
+  uint128 validator_points;
   ulong old_vote_balance_and_staked;
   ulong validator_rewards;
   double validator_rate;
   double foundation_rate;
   double prev_epoch_duration_in_years;
   ulong capitalization;
-  fd_point_value_t point_value;
 };
 typedef struct fd_partitioned_rewards_calculation fd_partitioned_rewards_calculation_t;
 #define FD_PARTITIONED_REWARDS_CALCULATION_ALIGN alignof(fd_partitioned_rewards_calculation_t)
-
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L60 */
-/* Encoded Size: Dynamic */
-struct fd_start_block_height_and_rewards {
-  ulong distribution_starting_block_height;
-  fd_partitioned_stake_rewards_t partitioned_stake_rewards;
-};
-typedef struct fd_start_block_height_and_rewards fd_start_block_height_and_rewards_t;
-#define FD_START_BLOCK_HEIGHT_AND_REWARDS_ALIGN alignof(fd_start_block_height_and_rewards_t)
-
-struct fd_start_block_height_and_rewards_global {
-  ulong distribution_starting_block_height;
-  fd_partitioned_stake_rewards_global_t partitioned_stake_rewards;
-};
-typedef struct fd_start_block_height_and_rewards_global fd_start_block_height_and_rewards_global_t;
-#define FD_START_BLOCK_HEIGHT_AND_REWARDS_GLOBAL_ALIGN alignof(fd_start_block_height_and_rewards_global_t)
-
-/* Encoded Size: Dynamic */
-struct fd_fd_epoch_reward_status_inner {
-  fd_start_block_height_and_rewards_t Active;
-};
-typedef struct fd_fd_epoch_reward_status_inner fd_fd_epoch_reward_status_inner_t;
-#define FD_FD_EPOCH_REWARD_STATUS_INNER_ALIGN alignof(fd_fd_epoch_reward_status_inner_t)
-
-union fd_epoch_reward_status_inner {
-  fd_start_block_height_and_rewards_t Active;
-};
-typedef union fd_epoch_reward_status_inner fd_epoch_reward_status_inner_t;
-
-union fd_epoch_reward_status_inner_global {
-  fd_start_block_height_and_rewards_global_t Active;
-};
-typedef union fd_epoch_reward_status_inner_global fd_epoch_reward_status_inner_global_t;
-
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L70 */
-struct fd_epoch_reward_status {
-  uint discriminant;
-  fd_epoch_reward_status_inner_t inner;
-};
-typedef struct fd_epoch_reward_status fd_epoch_reward_status_t;
-#define FD_EPOCH_REWARD_STATUS_ALIGN alignof(fd_epoch_reward_status_t)
-struct fd_epoch_reward_status_global {
-  uint discriminant;
-  fd_epoch_reward_status_inner_global_t inner;
-};
-typedef struct fd_epoch_reward_status_global fd_epoch_reward_status_global_t;
-#define FD_EPOCH_REWARD_STATUS_GLOBAL_ALIGN alignof(fd_epoch_reward_status_global_t)
 
 /* Encoded Size: Fixed (32 bytes) */
 struct fd_prev_epoch_inflation_rewards {
@@ -2006,15 +1813,6 @@ struct fd_txn_result {
 typedef struct fd_txn_result fd_txn_result_t;
 #define FD_TXN_RESULT_ALIGN alignof(fd_txn_result_t)
 
-/* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L85 */
-/* Encoded Size: Fixed (60 bytes) */
-struct fd_pubkey_rewardinfo_pair {
-  fd_pubkey_t pubkey;
-  fd_reward_info_t reward_info;
-};
-typedef struct fd_pubkey_rewardinfo_pair fd_pubkey_rewardinfo_pair_t;
-#define FD_PUBKEY_REWARDINFO_PAIR_ALIGN alignof(fd_pubkey_rewardinfo_pair_t)
-
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/programs/stake/src/points.rs#L27 */
 /* Encoded Size: Fixed (25 bytes) */
 struct fd_calculated_stake_points {
@@ -2801,118 +2599,18 @@ static inline int fd_stake_reward_decode_footprint( fd_bincode_decode_ctx_t * ct
 }
 void * fd_stake_reward_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-static inline void fd_vote_reward_new( fd_vote_reward_t * self ) { fd_memset( self, 0, sizeof(fd_vote_reward_t) ); }
-int fd_vote_reward_encode( fd_vote_reward_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_vote_reward_walk( void * w, fd_vote_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_vote_reward_size( fd_vote_reward_t const * self ) { (void)self; return 42UL; }
-static inline ulong fd_vote_reward_align( void ) { return FD_VOTE_REWARD_ALIGN; }
-static inline int fd_vote_reward_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_vote_reward_t);
-  if( (ulong)ctx->data + 42UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_vote_reward_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-static inline void fd_point_value_new( fd_point_value_t * self ) { fd_memset( self, 0, sizeof(fd_point_value_t) ); }
-int fd_point_value_encode( fd_point_value_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_point_value_walk( void * w, fd_point_value_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_point_value_size( fd_point_value_t const * self ) { (void)self; return 24UL; }
-static inline ulong fd_point_value_align( void ) { return FD_POINT_VALUE_ALIGN; }
-static inline int fd_point_value_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_point_value_t);
-  if( (ulong)ctx->data + 24UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_point_value_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_partitioned_stake_rewards_new( fd_partitioned_stake_rewards_t * self );
-int fd_partitioned_stake_rewards_encode( fd_partitioned_stake_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_partitioned_stake_rewards_walk( void * w, fd_partitioned_stake_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_partitioned_stake_rewards_size( fd_partitioned_stake_rewards_t const * self );
-static inline ulong fd_partitioned_stake_rewards_align( void ) { return FD_PARTITIONED_STAKE_REWARDS_ALIGN; }
-int fd_partitioned_stake_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_partitioned_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_partitioned_stake_rewards_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_partitioned_stake_rewards_encode_global( fd_partitioned_stake_rewards_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_partitioned_stake_rewards_size_global( fd_partitioned_stake_rewards_global_t const * self );
-
-void fd_stake_reward_calculation_partitioned_new( fd_stake_reward_calculation_partitioned_t * self );
-int fd_stake_reward_calculation_partitioned_encode( fd_stake_reward_calculation_partitioned_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stake_reward_calculation_partitioned_walk( void * w, fd_stake_reward_calculation_partitioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_stake_reward_calculation_partitioned_size( fd_stake_reward_calculation_partitioned_t const * self );
-static inline ulong fd_stake_reward_calculation_partitioned_align( void ) { return FD_STAKE_REWARD_CALCULATION_PARTITIONED_ALIGN; }
-int fd_stake_reward_calculation_partitioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_reward_calculation_partitioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_stake_reward_calculation_new( fd_stake_reward_calculation_t * self );
-int fd_stake_reward_calculation_encode( fd_stake_reward_calculation_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stake_reward_calculation_walk( void * w, fd_stake_reward_calculation_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_stake_reward_calculation_size( fd_stake_reward_calculation_t const * self );
-static inline ulong fd_stake_reward_calculation_align( void ) { return FD_STAKE_REWARD_CALCULATION_ALIGN; }
-int fd_stake_reward_calculation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_stake_reward_calculation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_calculate_stake_vote_rewards_result_new( fd_calculate_stake_vote_rewards_result_t * self );
-int fd_calculate_stake_vote_rewards_result_encode( fd_calculate_stake_vote_rewards_result_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_calculate_stake_vote_rewards_result_walk( void * w, fd_calculate_stake_vote_rewards_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_calculate_stake_vote_rewards_result_size( fd_calculate_stake_vote_rewards_result_t const * self );
-static inline ulong fd_calculate_stake_vote_rewards_result_align( void ) { return FD_CALCULATE_STAKE_VOTE_REWARDS_RESULT_ALIGN; }
-int fd_calculate_stake_vote_rewards_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_calculate_stake_vote_rewards_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_calculate_validator_rewards_result_new( fd_calculate_validator_rewards_result_t * self );
-int fd_calculate_validator_rewards_result_encode( fd_calculate_validator_rewards_result_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_calculate_validator_rewards_result_walk( void * w, fd_calculate_validator_rewards_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_calculate_validator_rewards_result_size( fd_calculate_validator_rewards_result_t const * self );
-static inline ulong fd_calculate_validator_rewards_result_align( void ) { return FD_CALCULATE_VALIDATOR_REWARDS_RESULT_ALIGN; }
-int fd_calculate_validator_rewards_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_calculate_validator_rewards_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_partitioned_rewards_calculation_new( fd_partitioned_rewards_calculation_t * self );
+static inline void fd_partitioned_rewards_calculation_new( fd_partitioned_rewards_calculation_t * self ) { fd_memset( self, 0, sizeof(fd_partitioned_rewards_calculation_t) ); }
 int fd_partitioned_rewards_calculation_encode( fd_partitioned_rewards_calculation_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_partitioned_rewards_calculation_walk( void * w, fd_partitioned_rewards_calculation_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_partitioned_rewards_calculation_size( fd_partitioned_rewards_calculation_t const * self );
+static inline ulong fd_partitioned_rewards_calculation_size( fd_partitioned_rewards_calculation_t const * self ) { (void)self; return 64UL; }
 static inline ulong fd_partitioned_rewards_calculation_align( void ) { return FD_PARTITIONED_REWARDS_CALCULATION_ALIGN; }
-int fd_partitioned_rewards_calculation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+static inline int fd_partitioned_rewards_calculation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_partitioned_rewards_calculation_t);
+  if( (ulong)ctx->data + 64UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  return 0;
+}
 void * fd_partitioned_rewards_calculation_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 
-void fd_start_block_height_and_rewards_new( fd_start_block_height_and_rewards_t * self );
-int fd_start_block_height_and_rewards_encode( fd_start_block_height_and_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_start_block_height_and_rewards_walk( void * w, fd_start_block_height_and_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_start_block_height_and_rewards_size( fd_start_block_height_and_rewards_t const * self );
-static inline ulong fd_start_block_height_and_rewards_align( void ) { return FD_START_BLOCK_HEIGHT_AND_REWARDS_ALIGN; }
-int fd_start_block_height_and_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_start_block_height_and_rewards_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_start_block_height_and_rewards_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_start_block_height_and_rewards_encode_global( fd_start_block_height_and_rewards_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_start_block_height_and_rewards_size_global( fd_start_block_height_and_rewards_global_t const * self );
-
-void fd_fd_epoch_reward_status_inner_new( fd_fd_epoch_reward_status_inner_t * self );
-int fd_fd_epoch_reward_status_inner_encode( fd_fd_epoch_reward_status_inner_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_fd_epoch_reward_status_inner_walk( void * w, fd_fd_epoch_reward_status_inner_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_fd_epoch_reward_status_inner_size( fd_fd_epoch_reward_status_inner_t const * self );
-static inline ulong fd_fd_epoch_reward_status_inner_align( void ) { return FD_FD_EPOCH_REWARD_STATUS_INNER_ALIGN; }
-int fd_fd_epoch_reward_status_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_fd_epoch_reward_status_inner_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
-void fd_epoch_reward_status_new_disc( fd_epoch_reward_status_t * self, uint discriminant );
-void fd_epoch_reward_status_new( fd_epoch_reward_status_t * self );
-int fd_epoch_reward_status_encode( fd_epoch_reward_status_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_epoch_reward_status_walk( void * w, fd_epoch_reward_status_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-ulong fd_epoch_reward_status_size( fd_epoch_reward_status_t const * self );
-static inline ulong fd_epoch_reward_status_align( void ) { return FD_EPOCH_REWARD_STATUS_ALIGN; }
-int fd_epoch_reward_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_epoch_reward_status_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_epoch_reward_status_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_reward_status_encode_global( fd_epoch_reward_status_global_t const * self, fd_bincode_encode_ctx_t * ctx );
-ulong fd_epoch_reward_status_size_global( fd_epoch_reward_status_global_t const * self );
-
-FD_FN_PURE uchar fd_epoch_reward_status_is_Active( fd_epoch_reward_status_t const * self );
-FD_FN_PURE uchar fd_epoch_reward_status_is_Inactive( fd_epoch_reward_status_t const * self );
-enum {
-fd_epoch_reward_status_enum_Active = 0,
-fd_epoch_reward_status_enum_Inactive = 1,
-};
 static inline void fd_prev_epoch_inflation_rewards_new( fd_prev_epoch_inflation_rewards_t * self ) { fd_memset( self, 0, sizeof(fd_prev_epoch_inflation_rewards_t) ); }
 int fd_prev_epoch_inflation_rewards_encode( fd_prev_epoch_inflation_rewards_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_prev_epoch_inflation_rewards_walk( void * w, fd_prev_epoch_inflation_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
@@ -4103,14 +3801,6 @@ enum {
 fd_txn_result_enum_ok = 0,
 fd_txn_result_enum_error = 1,
 };
-void fd_pubkey_rewardinfo_pair_new( fd_pubkey_rewardinfo_pair_t * self );
-int fd_pubkey_rewardinfo_pair_encode( fd_pubkey_rewardinfo_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_pubkey_rewardinfo_pair_walk( void * w, fd_pubkey_rewardinfo_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_pubkey_rewardinfo_pair_size( fd_pubkey_rewardinfo_pair_t const * self ) { (void)self; return 60UL; }
-static inline ulong fd_pubkey_rewardinfo_pair_align( void ) { return FD_PUBKEY_REWARDINFO_PAIR_ALIGN; }
-int fd_pubkey_rewardinfo_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_pubkey_rewardinfo_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_calculated_stake_points_new( fd_calculated_stake_points_t * self ) { fd_memset( self, 0, sizeof(fd_calculated_stake_points_t) ); }
 int fd_calculated_stake_points_encode( fd_calculated_stake_points_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_calculated_stake_points_walk( void * w, fd_calculated_stake_points_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );

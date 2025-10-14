@@ -34,8 +34,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
-                              ulong                          parent_epoch,
-                              fd_spad_t *                    runtime_spad );
+                              ulong                          parent_epoch );
 
 /* fd_rewards_recalculate_partitioned_rewards restores epoch bank stake
    and account reward calculations.  Does not update accounts.  Called
@@ -53,8 +52,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_bank_t *               bank,
                                             fd_funk_t *               funk,
                                             fd_funk_txn_xid_t const * xid,
-                                            fd_capture_ctx_t *        capture_ctx,
-                                            fd_spad_t *               runtime_spad );
+                                            fd_capture_ctx_t *        capture_ctx );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake
    accounts.  Called at the beginning of a few slots per epoch.

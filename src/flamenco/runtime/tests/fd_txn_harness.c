@@ -117,7 +117,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
   FD_TEST( slot_hashes );
 
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, runner->spad );
+  fd_stake_history_t stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, stake_history_ );
   FD_TEST( stake_history );
 
   fd_sol_sysvar_clock_t clock_[1];
