@@ -22,7 +22,17 @@ run_ioctl( fd_ethtool_ioctl_t * ioc,
            int                  log,
            int                  log_notsupp ) {
   ioc->ifr.ifr_data = data;
-  if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) ) {
+  int ret = ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr );
+  if( FD_UNLIKELY( ret > 0 ) ) {
+    // Positive values that may be returned are ETHTOOL_F_UNSUPPORTED and ETHTOOL_F_WISH.
+    // Treat them as errors.
+    // errno is not set in this case, so we return -1
+    if( log )
+      FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,%s) failed (feature is not supported or cannot be changed, %i)",
+                       ioc->ifr.ifr_name, cmd, ret ));
+    return -1;
+  }
+  if( FD_UNLIKELY( ret < 0 ) ) {
     if( (!!log) & ((errno!=EOPNOTSUPP) | (!!log_notsupp)) )
       FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,%s) failed (%i-%s)",
                        ioc->ifr.ifr_name, cmd, errno, fd_io_strerror( errno ) ));

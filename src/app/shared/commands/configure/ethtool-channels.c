@@ -117,9 +117,17 @@ init_device( char const *        device,
       else         return 1;
     }
 
-    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 ) ) ) {
-      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to enable ntuple feature. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
+    int is_set;
+    if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_feature_test( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, &is_set ) ) ) {
+      if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to read ntuple feature. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
       else         return 1;
+    }
+
+    if ( !is_set ) {
+      if( FD_UNLIKELY( 0!=fd_ethtool_ioctl_feature_set( &ioc, FD_ETHTOOL_FEATURE_NTUPLE, 1 ) ) ) {
+        if( strict ) FD_LOG_ERR(( "error configuring network device (%s), failed to enable ntuple feature. Try `net.xdp.rss_queue_mode=\"simple\"`", device ));
+        else         return 1;
+      }
     }
 
     /* FIXME Centrally define listen port list to avoid this configure
