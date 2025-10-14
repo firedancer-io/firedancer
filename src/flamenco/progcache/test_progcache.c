@@ -3,7 +3,9 @@
 
 #include "fd_progcache_admin.h"
 #include "fd_progcache_user.h"
-#include "../runtime/fd_bank.h"
+#include "../runtime/fd_system_ids.h"
+#include "../runtime/fd_txn_account.h"
+#include "../features/fd_features.h"
 
 /* Load in programdata for tests */
 FD_IMPORT_BINARY( valid_program_data,        "src/ballet/sbpf/fixtures/hello_solana_program.so" );

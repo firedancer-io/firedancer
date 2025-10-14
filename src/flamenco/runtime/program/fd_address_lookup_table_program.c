@@ -6,6 +6,7 @@
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "fd_native_cpi.h"
 #include "../fd_runtime_err.h"
+#include "../fd_system_ids.h"
 
 #include <string.h>
 

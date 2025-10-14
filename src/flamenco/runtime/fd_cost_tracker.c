@@ -1,28 +1,149 @@
 #include "fd_cost_tracker.h"
+#include "fd_system_ids.h"
 #include "fd_bank.h"
+#include "../features/fd_features.h"
 
-#define POOL_NAME fd_account_cost_pool
-#define POOL_T    fd_account_cost_t
-#define POOL_NEXT next_
-#include "../../util/tmpl/fd_pool.c"
+struct account_cost {
+  fd_pubkey_t account;
+  ulong       cost;
 
-#define MAP_NAME               fd_account_cost_map
+  struct {
+    ulong next;
+  } map;
+};
+
+typedef struct account_cost account_cost_t;
+
+#define MAP_NAME               account_cost_map
 #define MAP_KEY_T              fd_pubkey_t
-#define MAP_ELE_T              fd_account_cost_t
+#define MAP_ELE_T              account_cost_t
 #define MAP_KEY                account
 #define MAP_KEY_EQ(k0,k1)      (fd_pubkey_eq( k0, k1 ))
 #define MAP_KEY_HASH(key,seed) (fd_hash( seed, key, sizeof(fd_pubkey_t) ))
-#define MAP_NEXT               next_
+#define MAP_NEXT               map.next
 #include "../../util/tmpl/fd_map_chain.c"
 
-static inline fd_account_cost_t *
-fd_cost_tracker_account_cost_pool_get( fd_cost_tracker_t const * cost_tracker ) {
-  return fd_account_cost_pool_join( (uchar *)cost_tracker + cost_tracker->pool_offset_ );
+struct cost_tracker_outer {
+  fd_cost_tracker_t cost_tracker[1];
+  ulong             pool_offset;
+  ulong             accounts_used;
+  ulong             magic;
+};
+
+typedef struct cost_tracker_outer cost_tracker_outer_t;
+
+FD_FN_CONST ulong
+fd_cost_tracker_align( void ) {
+  return FD_COST_TRACKER_ALIGN;
 }
 
-static inline fd_account_cost_map_t *
-fd_cost_tracker_account_cost_map_get( fd_cost_tracker_t const * cost_tracker ) {
-  return fd_account_cost_map_join( (uchar *)cost_tracker + cost_tracker->map_offset_ );
+FD_FN_CONST ulong
+fd_cost_tracker_footprint( void ) {
+  ulong map_chain_cnt = account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
+
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l,  fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
+  l = FD_LAYOUT_APPEND( l,  account_cost_map_align(), account_cost_map_footprint( map_chain_cnt ) );
+  l = FD_LAYOUT_APPEND( l,  alignof(account_cost_t),  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*sizeof(account_cost_t) );
+  return FD_LAYOUT_FINI( l, fd_cost_tracker_align() );
+}
+
+void *
+fd_cost_tracker_new( void * shmem,
+                     ulong  seed ) {
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_cost_tracker_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
+    return NULL;
+  }
+
+  ulong map_chain_cnt = account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
+
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  cost_tracker_outer_t * cost_tracker = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),  sizeof(cost_tracker_outer_t) );
+  void * _map                         = FD_SCRATCH_ALLOC_APPEND( l, account_cost_map_align(), account_cost_map_footprint( map_chain_cnt ) );
+  void * _accounts                    = FD_SCRATCH_ALLOC_APPEND( l, alignof(account_cost_t),  FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT*sizeof(account_cost_t) );
+
+  account_cost_map_t * map = account_cost_map_join( account_cost_map_new( _map, map_chain_cnt, seed ) );
+  FD_TEST( map );
+
+  cost_tracker->pool_offset = (ulong)_accounts-(ulong)cost_tracker;
+
+  (void)_accounts;
+
+  FD_COMPILER_MFENCE();
+  FD_VOLATILE( cost_tracker->magic ) = FD_COST_TRACKER_MAGIC;
+  FD_COMPILER_MFENCE();
+
+  return shmem;
+}
+
+fd_cost_tracker_t *
+fd_cost_tracker_join( void * shct ) {
+  if( FD_UNLIKELY( !shct ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shct, fd_cost_tracker_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned mem" ));
+    return NULL;
+  }
+
+  cost_tracker_outer_t * cost_tracker = (cost_tracker_outer_t *)shct;
+
+  if( FD_UNLIKELY( cost_tracker->magic!=FD_COST_TRACKER_MAGIC ) ) {
+    FD_LOG_WARNING(( "Invalid cost tracker magic" ));
+    return NULL;
+  }
+
+  return cost_tracker->cost_tracker;
+}
+
+ulong
+fd_cost_tracker_block_cost_limit( fd_bank_t const * bank ) {
+  fd_features_t const * features = fd_bank_features_query( bank );
+  ulong slot = fd_bank_slot_get( bank );
+
+  if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) return FD_MAX_BLOCK_UNITS_SIMD_0286;
+  else if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_60m ) ) return FD_MAX_BLOCK_UNITS_SIMD_0256;
+  else return FD_MAX_BLOCK_UNITS_SIMD_0207;
+}
+
+void
+fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
+                      fd_features_t const * features,
+                      ulong                 slot ) {
+  if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) {
+    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0286;
+    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
+    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
+  } else if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_60m ) ) {
+    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0256;
+    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
+    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
+  } else {
+    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0207;
+    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
+    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v3.0.1/runtime/src/bank.rs#L4059-L4066 */
+  if( FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit ) ) {
+    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL;
+  }
+
+  cost_tracker->block_cost                   = 0UL;
+  cost_tracker->vote_cost                    = 0UL;
+  cost_tracker->allocated_accounts_data_size = 0UL;
+
+  cost_tracker_outer_t * outer = fd_type_pun( cost_tracker );
+  outer->accounts_used = 0UL;
+  account_cost_map_reset( fd_type_pun( outer+1UL ) );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L313-L321 */
@@ -264,27 +385,18 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L308-L319 */
-  fd_account_cost_map_t * map = fd_cost_tracker_account_cost_map_get( cost_tracker );
-  if( FD_UNLIKELY( !map ) ) {
-    FD_LOG_CRIT(( "failed to get account cost map" ));
-  }
 
-  fd_account_cost_t * pool = fd_cost_tracker_account_cost_pool_get( cost_tracker );
-  if( FD_UNLIKELY( !pool ) ) {
-    FD_LOG_CRIT(( "failed to get account cost pool" ));
-  }
-
+  account_cost_map_t const * map = fd_type_pun_const(((cost_tracker_outer_t const *)cost_tracker)+1UL);
+  account_cost_t const * pool = fd_type_pun_const( (void*)((ulong)cost_tracker + ((cost_tracker_outer_t const *)cost_tracker)->pool_offset) );
 
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
 
     fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
 
-    fd_account_cost_t const * chained_cost = fd_account_cost_map_ele_query_const( map, writable_acc, NULL, pool );
-    if( chained_cost ) {
-      if( FD_UNLIKELY( fd_ulong_sat_add( chained_cost->cost, cost )>cost_tracker->account_cost_limit ) ) {
-        return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT;
-      }
+    account_cost_t const * chained_cost = account_cost_map_ele_query_const( map, writable_acc, NULL, pool );
+    if( FD_UNLIKELY( chained_cost && fd_ulong_sat_add( chained_cost->cost, cost )>cost_tracker->account_cost_limit ) ) {
+      return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT;
     }
   }
 
@@ -293,49 +405,38 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L352-L372 */
 static inline void
-add_transaction_execution_cost( fd_cost_tracker_t *           cost_tracker,
+add_transaction_execution_cost( fd_cost_tracker_t *           _cost_tracker,
                                 fd_exec_txn_ctx_t const *     txn_ctx,
                                 fd_transaction_cost_t const * tx_cost,
                                 ulong                         adjustment ) {
-
-  fd_account_cost_map_t * map = fd_cost_tracker_account_cost_map_get( cost_tracker );
-  if( FD_UNLIKELY( !map ) ) {
-    FD_LOG_CRIT(( "failed to get account cost map" ));
-  }
-
-  fd_account_cost_t * pool = fd_cost_tracker_account_cost_pool_get( cost_tracker );
-  if( FD_UNLIKELY( !pool ) ) {
-    FD_LOG_CRIT(( "failed to get account cost pool" ));
-  }
+  cost_tracker_outer_t * cost_tracker = fd_type_pun( _cost_tracker );
+  account_cost_map_t * map = fd_type_pun( cost_tracker+1UL );
+  account_cost_t * pool = fd_type_pun( (void*)((ulong)cost_tracker+cost_tracker->pool_offset) );
 
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
-    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
+    if( FD_LIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) ) continue;
 
     fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
 
-    fd_account_cost_t * account_cost = fd_account_cost_map_ele_query( map, writable_acc, NULL, pool );
-    if( account_cost==NULL ) {
+    account_cost_t * account_cost = account_cost_map_ele_query( map, writable_acc, NULL, pool );
+    if( FD_UNLIKELY( !account_cost ) ) {
+      FD_TEST( cost_tracker->accounts_used<FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
 
-      if( FD_UNLIKELY( !fd_account_cost_pool_free( pool ) ) ) {
-        FD_LOG_CRIT(( "There are no free accounts in account costs pool" ));
-      }
+      account_cost = pool+cost_tracker->accounts_used;
+      cost_tracker->accounts_used++;
 
-      account_cost = fd_account_cost_pool_ele_acquire( pool );
-      if( FD_UNLIKELY( !account_cost ) ) {
-        FD_LOG_CRIT(( "Failed to acquire account cost" ));
-      }
       account_cost->account = *writable_acc;
       account_cost->cost    = adjustment;
 
-      fd_account_cost_map_ele_insert( map, account_cost, pool );
+      account_cost_map_ele_insert( map, account_cost, pool );
     } else {
       account_cost->cost = fd_ulong_sat_add( account_cost->cost, adjustment );
     }
   }
 
-  cost_tracker->block_cost = fd_ulong_sat_add( cost_tracker->block_cost, adjustment );
-  if( fd_transaction_cost_is_simple_vote( tx_cost ) ) {
-    cost_tracker->vote_cost = fd_ulong_sat_add( cost_tracker->vote_cost, adjustment );
+  cost_tracker->cost_tracker->block_cost = fd_ulong_sat_add( cost_tracker->cost_tracker->block_cost, adjustment );
+  if( FD_UNLIKELY( fd_transaction_cost_is_simple_vote( tx_cost ) ) ) {
+    cost_tracker->cost_tracker->vote_cost = fd_ulong_sat_add( cost_tracker->cost_tracker->vote_cost, adjustment );
   }
 }
 
@@ -347,143 +448,6 @@ add_transaction_cost( fd_cost_tracker_t *           cost_tracker,
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   cost_tracker->allocated_accounts_data_size += get_allocated_accounts_data_size( tx_cost );
   add_transaction_execution_cost( cost_tracker, txn_ctx, tx_cost, transaction_cost_sum( tx_cost ) );
-}
-
-ulong
-fd_cost_tracker_footprint( void ) {
-  ulong map_chain_cnt = fd_account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
-
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l,  fd_cost_tracker_align(),      sizeof(fd_cost_tracker_t) );
-  l = FD_LAYOUT_APPEND( l,  fd_account_cost_pool_align(), fd_account_cost_pool_footprint( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ) );
-  l = FD_LAYOUT_APPEND( l,  fd_account_cost_map_align(),  fd_account_cost_map_footprint( map_chain_cnt ) );
-  return FD_LAYOUT_FINI( l, fd_cost_tracker_align() );
-}
-
-ulong
-fd_cost_tracker_align( void ) {
-  /* The align of the struct should be the max of the underlying data
-     structures in the cost tracker. In this case, this is the map
-     and the pool. */
-  return fd_ulong_max( fd_ulong_max( fd_account_cost_map_align(), fd_account_cost_pool_align() ), alignof(fd_cost_tracker_t) );
-}
-
-void *
-fd_cost_tracker_new( void *                mem,
-                     fd_features_t const * features,
-                     ulong                 slot,
-                     ulong                 seed ) {
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_cost_tracker_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !features ) ) {
-    FD_LOG_WARNING(( "NULL features" ));
-    return NULL;
-  }
-
-  ulong map_chain_cnt = fd_account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
-
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  fd_cost_tracker_t * cost_tracker = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(),      sizeof(fd_cost_tracker_t) );
-  void *              pool_mem     = FD_SCRATCH_ALLOC_APPEND( l, fd_account_cost_pool_align(), fd_account_cost_pool_footprint( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ) );
-  void *              map_mem      = FD_SCRATCH_ALLOC_APPEND( l, fd_account_cost_map_align(),  fd_account_cost_map_footprint( map_chain_cnt ) );
-
-  if( FD_UNLIKELY( FD_SCRATCH_ALLOC_FINI( l, fd_cost_tracker_align() )!=(ulong)mem+fd_cost_tracker_footprint() ) ) {
-    FD_LOG_WARNING(( "fd_cost_tracker_new: bad layout" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_account_cost_pool_join( fd_account_cost_pool_new( pool_mem, FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ) ) ) ) {
-    FD_LOG_WARNING(( "failed to allocate memory for cost tracker accounts pool" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_account_cost_map_join( fd_account_cost_map_new( map_mem, map_chain_cnt, seed ) ) ) ) {
-    FD_LOG_WARNING(( "failed to allocate memory for cost tracker accounts map" ));
-    return NULL;
-  }
-
-  cost_tracker->pool_offset_ = (ulong)pool_mem - (ulong)mem;
-  cost_tracker->map_offset_  = (ulong)map_mem - (ulong)mem;
-
-  /* Initialize the limits depending on the active feature set */
-
-  if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_100m ) ) {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0286;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  } else if( FD_FEATURE_ACTIVE( slot, features, raise_block_limits_to_60m ) ) {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0256;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  } else {
-    cost_tracker->block_cost_limit   = FD_MAX_BLOCK_UNITS_SIMD_0207;
-    cost_tracker->vote_cost_limit    = FD_MAX_VOTE_UNITS;
-    cost_tracker->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
-  }
-
-  /* https://github.com/anza-xyz/agave/blob/v3.0.1/runtime/src/bank.rs#L4059-L4066 */
-  if( FD_FEATURE_ACTIVE( slot, features, raise_account_cu_limit ) ) {
-    cost_tracker->account_cost_limit = fd_ulong_sat_mul( cost_tracker->block_cost_limit, 40UL ) / 100UL;
-  }
-
-  /* Initialize the current accumulated values */
-
-  cost_tracker->block_cost                            = 0UL;
-  cost_tracker->vote_cost                             = 0UL;
-  cost_tracker->allocated_accounts_data_size          = 0UL;
-
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( cost_tracker->magic ) = FD_COST_TRACKER_MAGIC;
-  FD_COMPILER_MFENCE();
-
-  return mem;
-}
-
-fd_cost_tracker_t *
-fd_cost_tracker_join( void * mem ) {
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_cost_tracker_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  fd_cost_tracker_t * cost_tracker = (fd_cost_tracker_t *)mem;
-
-  if( FD_UNLIKELY( cost_tracker->magic!=FD_COST_TRACKER_MAGIC ) ) {
-    FD_LOG_WARNING(( "Invalid cost tracker magic" ));
-    return NULL;
-  }
-
-  ulong map_chain_cnt = fd_account_cost_map_chain_cnt_est( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT );
-  FD_SCRATCH_ALLOC_INIT( l, cost_tracker );
-  cost_tracker    = FD_SCRATCH_ALLOC_APPEND( l, fd_cost_tracker_align(), sizeof(fd_cost_tracker_t) );
-  void * pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_account_cost_pool_align(), fd_account_cost_pool_footprint( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT ) );
-  void * map_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_account_cost_map_align(),  fd_account_cost_map_footprint( map_chain_cnt ) );
-
-  if( FD_UNLIKELY( !fd_account_cost_pool_join( pool_mem ) ) ) {
-    FD_LOG_WARNING(( "failed to join cost tracker accounts pool" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !fd_account_cost_map_join( map_mem ) ) ) {
-    FD_LOG_WARNING(( "failed to join cost tracker accounts map" ));
-    return NULL;
-  }
-
-  return cost_tracker;
 }
 
 int

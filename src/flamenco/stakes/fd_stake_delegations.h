@@ -3,6 +3,8 @@
 
 #include "../rewards/fd_rewards_base.h"
 #include "../runtime/fd_cost_tracker.h"
+#include "../../disco/pack/fd_pack.h" /* TODO: Layering violation */
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../util/tmpl/fd_map.h"
 
 #define FD_STAKE_DELEGATIONS_MAGIC (0xF17EDA2CE757A3E0) /* FIREDANCER STAKE V0 */
