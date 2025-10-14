@@ -1886,7 +1886,7 @@ fd_quic_handle_v1_handshake(
   /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
      > A server stops sending and processing Initial packets when it
      > receives its first Handshake packet. */
-  fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
+  if( FD_LIKELY( quic->config.role==FD_QUIC_ROLE_SERVER ) ) fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
   conn->peer_enc_level = (uchar)fd_uchar_max( conn->peer_enc_level, fd_quic_enc_level_handshake_id );
 
   /* handle frames */
@@ -3562,12 +3562,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
    * This ensures that ack-only packets only occur when nothing else needs
    * to be sent */
   uint enc_level = fd_quic_tx_enc_level( conn, 1 /* acks */ );
-  /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
-     > A client stops both sending and processing Initial packets when
-     > it sends its first Handshake packet. */
-  if( quic->config.role==FD_QUIC_ROLE_CLIENT && enc_level==fd_quic_enc_level_handshake_id ) {
-    fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
-  }
 
   /* nothing to send / bad state? */
   if( enc_level == ~0u ) return;
@@ -3588,6 +3582,13 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   //}
 
   while( enc_level != ~0u ) {
+    /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
+       > A client stops both sending and processing Initial packets when
+       > it sends its first Handshake packet. */
+    if( FD_UNLIKELY( (quic->config.role==FD_QUIC_ROLE_CLIENT) & (enc_level==fd_quic_enc_level_handshake_id) ) ) {
+      fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
+    }
+
     uint initial_pkt = 0;    /* is this the first initial packet? */
 
 
