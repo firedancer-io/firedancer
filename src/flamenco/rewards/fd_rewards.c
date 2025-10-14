@@ -501,10 +501,10 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
       / written to once among all threads. */
 
 
-    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele_acquire( result->stake_reward_calculation.pool );
-    if( FD_UNLIKELY( !stake_reward ) ) {
+    if( FD_UNLIKELY( !fd_stake_reward_calculation_pool_free( result->stake_reward_calculation.pool ) ) ) {
       FD_LOG_CRIT(( "insufficient space allocated for stake reward calculation pool" ));
     }
+    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele_acquire( result->stake_reward_calculation.pool );
 
     fd_memcpy( stake_reward->stake_pubkey.uc, &stake_delegation->stake_account, sizeof(fd_pubkey_t) );
     stake_reward->lamports         = calculated_stake_rewards->staker_rewards;
