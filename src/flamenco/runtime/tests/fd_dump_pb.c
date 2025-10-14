@@ -573,12 +573,13 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
      order to capture the block context from before the current block
      was executed, since dumping is happening in the block finalize
      step. */
-     fd_bank_t *                    parent_bank    = fd_banks_get_parent( banks, bank );
-     ulong                          current_slot   = fd_bank_slot_get( bank );
-  fd_funk_txn_xid_t                 parent_xid     = { .ul = { current_slot, current_slot } };
-  fd_exec_test_block_context_t *    block_context  = &dump_ctx->block_context;
-  ulong                             dump_txn_count = dump_ctx->txns_to_dump_cnt;
-  fd_spad_t *                       spad           = dump_ctx->spad;
+  fd_bank_t *                    parent_bank    = fd_banks_get_parent( banks, bank );
+  ulong                          current_slot   = fd_bank_slot_get( bank );
+  ulong                          parent_slot    = fd_bank_slot_get( parent_bank );
+  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_slot } };
+  fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
+  ulong                          dump_txn_count = dump_ctx->txns_to_dump_cnt;
+  fd_spad_t *                    spad           = dump_ctx->spad;
 
   /* Get vote and stake delegation infos */
   fd_vote_states_t const * vote_states        = fd_bank_vote_states_locking_query( parent_bank );
@@ -731,6 +732,11 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   // recalculate it in the harnesses.
   fd_memcpy( block_context->slot_ctx.poh, fd_bank_poh_query( bank ), sizeof(fd_pubkey_t) );
   fd_memcpy( block_context->slot_ctx.parent_bank_hash, fd_bank_bank_hash_query( parent_bank ), sizeof(fd_pubkey_t) );
+
+  fd_lthash_value_t const * parent_lthash = fd_bank_lthash_locking_query( parent_bank );
+  fd_memcpy( block_context->slot_ctx.parent_lthash, parent_lthash, sizeof(fd_lthash_value_t) );
+  fd_bank_lthash_end_locking_query( parent_bank );
+
   block_context->slot_ctx.prev_lps                  = fd_bank_prev_lamports_per_signature_get( parent_bank );
   block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( parent_bank );
 
