@@ -201,7 +201,6 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              ulong                    deactivation_epoch,
                              ulong                    credits_observed,
                              double                   warmup_cooldown_rate ) {
-
   fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_pool ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));

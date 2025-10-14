@@ -2123,7 +2123,7 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
 
 /// returns commission split as (voter_portion, staker_portion, was_split) tuple
 ///
-///  if commission calculation is 100% one way or other, indicate with false for was_split
+/// if commission calculation is 100% one way or other, indicate with false for was_split
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L543
 void
@@ -2131,15 +2131,15 @@ fd_vote_commission_split( uchar                   commission,
                           ulong                   on,
                           fd_commission_split_t * result ) {
   uint commission_split = fd_uint_min( (uint)commission, 100 );
-  result->is_split      = ( commission_split != 0 && commission_split != 100 );
+  result->is_split      = (commission_split != 0 && commission_split != 100);
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L545
-  if( commission_split == 0 ) {
+  if( commission_split==0U ) {
     result->voter_portion  = 0;
     result->staker_portion = on;
     return;
   }
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L546
-  if( commission_split == 100 ) {
+  if( commission_split==100U ) {
     result->voter_portion  = on;
     result->staker_portion = 0;
     return;
@@ -2158,9 +2158,9 @@ fd_vote_commission_split( uchar                   commission,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L548
   result->voter_portion =
-      (ulong)( (uint128)on * (uint128)commission_split / (uint128)100 );
+      (ulong)((uint128)on * (uint128)commission_split / (uint128)100);
   result->staker_portion =
-      (ulong)( (uint128)on * (uint128)( 100 - commission_split ) / (uint128)100 );
+      (ulong)((uint128)on * (uint128)( 100 - commission_split ) / (uint128)100);
 }
 
 /**********************************************************************/
@@ -2262,10 +2262,6 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L66
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
-
-  /* Replicate vote account changes to bank caches after processing the
-     transaction's instructions. */
-  ctx->txn_ctx->dirty_vote_acc = 1;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L69
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { 0 };
@@ -2817,39 +2813,27 @@ fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
   convert_to_current( self, spad );
 }
 
-static void
-remove_vote_account( fd_txn_account_t * vote_account,
-                     fd_bank_t *        bank ) {
-
-  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-  fd_vote_states_remove( vote_states, vote_account->pubkey );
-  fd_bank_vote_states_end_locking_modify( bank );
-}
-
-static void
-upsert_vote_account( fd_txn_account_t * vote_account,
-                     fd_bank_t *        bank ) {
-
-  if( fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
-    fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
-    fd_vote_states_update_from_account(
-        vote_states,
-        vote_account->pubkey,
-        fd_txn_account_get_data( vote_account ),
-        fd_txn_account_get_data_len( vote_account ) );
-    fd_bank_vote_states_end_locking_modify( bank );
-  } else {
-    remove_vote_account( vote_account, bank );
-  }
-}
-
 void
 fd_vote_store_account( fd_txn_account_t * vote_account,
                        fd_bank_t *        bank ) {
 
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+
   if( fd_txn_account_get_lamports( vote_account )==0UL ) {
-    remove_vote_account( vote_account, bank );
-  } else {
-    upsert_vote_account( vote_account, bank );
+    fd_vote_states_remove( vote_states, vote_account->pubkey );
+    fd_bank_vote_states_end_locking_modify( bank );
+    return;
   }
+
+  if( !fd_vote_state_versions_is_correct_and_initialized( vote_account ) ) {
+    fd_vote_states_remove( vote_states, vote_account->pubkey );
+    fd_bank_vote_states_end_locking_modify( bank );
+    return;
+  }
+
+  fd_vote_states_update_from_account( vote_states,
+                                      vote_account->pubkey,
+                                      fd_txn_account_get_data( vote_account ),
+                                      fd_txn_account_get_data_len( vote_account ) );
+  fd_bank_vote_states_end_locking_modify( bank );
 }

@@ -41,8 +41,7 @@
 FD_PROTOTYPES_BEGIN
 
 /* fd_vote_program_execute is the instruction processing entrypoint
-   for the vote program.  On return, ctx.txn_ctx->dirty_vote_acc==1 if a
-   vote account may have been modified. */
+   for the vote program. */
 
 int
 fd_vote_program_execute( fd_exec_instr_ctx_t * ctx );

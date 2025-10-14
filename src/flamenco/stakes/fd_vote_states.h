@@ -59,6 +59,7 @@ struct fd_vote_state_ele {
   ulong       last_vote_slot;
   long        last_vote_timestamp;
   uchar       commission;
+  ulong       rewards;
 
   ulong       credits_cnt;
   ushort      epoch       [ EPOCH_CREDITS_MAX ];
@@ -221,15 +222,15 @@ fd_vote_states_max( fd_vote_states_t const * vote_states );
 ulong
 fd_vote_states_cnt( fd_vote_states_t const * vote_states );
 
-/* Iterator API for vote states. The iterator is initialized with a
-   call to fd_vote_states_iter_init. The caller is responsible for
-   managing the memory for the iterator. It is safe to call
+/* Iterator API for vote states.  The iterator is initialized with a
+   call to fd_vote_states_iter_init.  The caller is responsible for
+   managing the memory for the iterator.  It is safe to call
    fd_vote_states_iter_next if the result of
-   fd_vote_states_iter_done() ==0. It is safe to call
+   fd_vote_states_iter_done() ==0.  It is safe to call
    fd_vote_states_iter_ele() to get the current vote state. As a note,
    it is safe to modify the vote state acquired from
    fd_vote_states_iter_ele() as long as the next_ field is not modified
-   (which the caller should never do). It is unsafe to insert or remove
+   (which the caller should never do).  It is unsafe to insert or remove
    fd_vote_state_ele_t from the vote states struct while iterating.
 
    Under the hood, the iterator is just a wrapper over the iterator in

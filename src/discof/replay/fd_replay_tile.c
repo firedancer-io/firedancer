@@ -1084,7 +1084,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->capture_ctx );
 
   ulong snapshot_slot = fd_bank_slot_get( bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
