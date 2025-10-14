@@ -1338,7 +1338,7 @@ fd_gui_clear_slot( fd_gui_t *      gui,
     lslot->slot                        = _slot;
     lslot->leader_start_time           = LONG_MAX;
     lslot->leader_end_time             = LONG_MAX;
-    lslot->tile_timers_sample_cnt      = ULONG_MAX;
+    lslot->tile_timers_sample_cnt      = 0UL;
     lslot->txs.microblocks_upper_bound = USHORT_MAX;
     lslot->txs.begin_microblocks       = 0U;
     lslot->txs.end_microblocks         = 0U;
