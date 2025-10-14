@@ -9,6 +9,9 @@
 #include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../features/fd_features.h"
 #include "fd_vm_base.h"
+#if FD_HAS_AVX512
+#include <x86gprintrin.h>
+#endif
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
    Alignments are derived with std::mem::align_of::<T>() and are enforced
@@ -183,8 +186,13 @@ fd_vm_instr( ulong opcode, /* Assumed valid */
    instructions. */
 
 FD_FN_CONST static inline ulong fd_vm_instr_opcode( ulong instr ) { return   instr      & 255UL;       } /* In [0,256) */
+#if 1
+FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return _bextr_u64( instr,  8U, 4U ); } /* In [0,16)  */
+FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return _bextr_u64( instr, 12U, 4U ); } /* In [0,16)  */
+#else
 FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return ((instr>> 8) &  15UL);      } /* In [0,16)  */
 FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return ((instr>>12) &  15UL);      } /* In [0,16)  */
+#endif
 FD_FN_CONST static inline ulong fd_vm_instr_offset( ulong instr ) { return (ulong)(long)(short)(ushort)(instr>>16); }
 FD_FN_CONST static inline uint  fd_vm_instr_imm   ( ulong instr ) { return (uint)(instr>>32);          }
 
@@ -358,6 +366,10 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   return adjusted_haddr;
 }
 
+#define OP 0
+/* bit 0 -> use pext
+ * bit 1 -> move input up
+ * bit 2 -> subtract with overflow */
 
 static inline ulong
 fd_vm_mem_haddr( fd_vm_t const *    vm,
@@ -370,6 +382,12 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  uchar *            is_multi_region ) {
   ulong region = FD_VADDR_TO_REGION( vaddr );
   ulong offset = vaddr & FD_VM_OFFSET_MASK;
+
+#if (OP & 0x2)
+  if( region==FD_VM_INPUT_REGION ) {
+    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
+  }
+#endif
 
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame, which only exist if...
      - direct mapping is enabled (config.enable_stack_frame_gaps == !direct_mapping)
@@ -389,16 +407,33 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
        gap frames underneath it.
 
        https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
+#if FD_HAS_AVX512 && (OP&1)
+    /* Technically, pext requires BMI2.  That's supported on >= Haswell and >=
+       Excavator, but is very slow on Zen <= 2.  By guarding this with AVX512,
+       we make sure we only get >= Skylake and Zen >= 4.  Which is a bit more
+       restrictive than necessary, but should be fine. */
+    /* This pext basically deletes the 0x1000 bit, shifting the higher bits
+       over, which is the operation we want. */
+    offset = _pext_u64( offset, ~0x1000UL );
+#else
     ulong gap_mask = 0xFFFFFFFFFFFFF000;
     offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask );
+#endif
   }
 
   ulong region_sz = (ulong)vm_region_sz[ region ];
+#if OP & 0x4
+  ulong sz_max;
+  if( FD_UNLIKELY( __builtin_sub_overflow( region_sz, offset, &sz_max ) ) ) return sentinel;
+#else
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
+#endif
 
+#if !(OP & 0x2)
   if( region==FD_VM_INPUT_REGION ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
   }
+#endif
 
 # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
   if ( FD_LIKELY( sz<=sz_max ) ) {

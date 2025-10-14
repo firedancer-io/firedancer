@@ -25,10 +25,6 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
   uint  const * FD_RESTRICT region_ld_sz = vm->region_ld_sz;
   uint  const * FD_RESTRICT region_st_sz = vm->region_st_sz;
 
-  ulong * FD_RESTRICT reg = vm->reg;
-
-  fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
-
   int err = FD_VM_SUCCESS;
 
   /* Run the VM */
@@ -56,10 +52,6 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
   ulong const * FD_RESTRICT region_haddr = vm->region_haddr;
   uint  const * FD_RESTRICT region_ld_sz = vm->region_ld_sz;
   uint  const * FD_RESTRICT region_st_sz = vm->region_st_sz;
-
-  ulong * FD_RESTRICT reg = vm->reg;
-
-  fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
   int err = FD_VM_SUCCESS;
 

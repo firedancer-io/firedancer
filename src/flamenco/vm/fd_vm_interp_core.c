@@ -19,40 +19,6 @@
 # pragma clang diagnostic ignored "-Wgnu-label-as-value"
 # endif
 
-  /* Include the jump table */
-
-# include "fd_vm_interp_jump_table.c"
-
-  /* Update the jump table based on SBPF version */
-
-  ulong sbpf_version = vm->sbpf_version;
-
-  /* Unpack the VM state */
-
-  ulong pc        = vm->pc;
-  ulong ic        = vm->ic;
-  ulong cu        = vm->cu;
-  ulong frame_cnt = vm->frame_cnt;
-
-  void const * const * const version_interp_jump_table = interp_jump_table[ sbpf_version ];
-
-  /* FD_VM_INTERP_INSTR_EXEC loads the first word of the instruction at
-     pc, parses it, fetches the associated register values and then
-     jumps to the code that executes the instruction.  On normal
-     instruction execution, the pc will be updated and
-     FD_VM_INTERP_INSTR_EXEC will be invoked again to do the next
-     instruction.  After a normal halt, this will branch to interp_halt.
-     Otherwise, it will branch to the appropriate normal termination. */
-
-  ulong instr;
-  ulong opcode;
-  ulong dst;
-  ulong src;
-  ulong offset; /* offset is 16-bit but always sign extended, so we handle cast once */
-  uint  imm;
-  ulong reg_dst;
-  ulong reg_src;
-
 /* These mimic the exact Rust semantics for wrapping_shl and wrapping_shr. */
 
 /* u64::wrapping_shl: a.unchecked_shl(b & (64 - 1))
@@ -79,18 +45,75 @@
  */
 #define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
 
+  /* Include the jump table */
 
-# define FD_VM_INTERP_INSTR_EXEC                                                                 \
-  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
-  instr   = text[ pc ];                  /* Guaranteed in-bounds */                              \
-  opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                      \
-  dst     = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                      \
-  src     = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                      \
-  offset  = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                 \
-  imm     = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
-  reg_dst = reg[ dst ];                  /* Guaranteed in-bounds */                              \
-  reg_src = reg[ src ];                  /* Guaranteed in-bounds */                              \
-  goto *version_interp_jump_table[ opcode ]      /* Guaranteed in-bounds */
+# include "fd_vm_interp_jump_table.c"
+
+  /* Update the jump table based on SBPF version */
+
+  ulong const sbpf_version = vm->sbpf_version;
+
+  /* Unpack the VM state */
+
+  ulong pc        = vm->pc;
+  ulong ic        = vm->ic;
+  ulong cu        = vm->cu;
+  ulong frame_cnt = vm->frame_cnt;
+
+  void const * const * const jump_table = interp_jump_table[ vm->sbpf_version ];
+
+  /* We effectively want to define our own custom ABI for the
+
+     interpreter, and it's this:
+     At the start and end of every eBPF execution snippet,
+        pc           is in rbx
+        jump_table   is in r12
+        vm           is in r13
+        text         is in r14
+        text_cnt     is in r15
+     Additionally, at the start of every eBPF execution snippet, the
+     first word of the instruction is in rax.  Returning from a snippet
+     is done by jumping to interp_exec. */
+
+  /* FD_VM_INTERP_INSTR_EXEC loads the first word of the instruction at
+     pc, parses it, fetches the associated register values and then
+     jumps to the code that executes the instruction.  On normal
+     instruction execution, the pc will be updated and
+     FD_VM_INTERP_INSTR_EXEC will be invoked again to do the next
+     instruction.  After a normal halt, this will branch to interp_halt.
+     Otherwise, it will branch to the appropriate normal termination. */
+
+
+
+# if FD_HAS_X86
+#   define FD_VM_INTERP_INSTR_EXEC                                                               \
+      __asm__ goto volatile( "inc  %%rbx;\n" /* pc++ */                                          \
+                             "cmpq %%r15, %%rbx\n" /* if pc>=text_cnt ... */                     \
+                             "jnb   %l[sigtext]\n"/*  .. goto sigtext */                         \
+                             "movq  0(%%r14,%%rbx,8), %%rax\n" /* rax = text[ pc ] */            \
+                             "movzbl %%al, %%edx\n" /* edx = instr & 0xFF */                     \
+                             "jmp *(%%r12,%%rdx,8)\n" /* goto *jump_table[ opcode ] */           \
+                             : "=r"(_instr), "+r"(_pc)                                           \
+                             : "r"(_jump_table), "r"(_vm), "r"(_text), "r"(_text_cnt)            \
+                             : "cc"                                                              \
+                             : sigtext, interp_0x05, interp_0x35, interp_0x95, interp_0x27, interp_0x4e, interp_0x8d, interp_0x9d, interp_0xc6, interp_0xd4 ); \
+  __asm__ goto( "" :::: interp_0x04, interp_0x04depr, interp_0x05, interp_0x07, interp_0x0c, interp_0x0cdepr, interp_0x0f, interp_0x14, interp_0x14depr, interp_0x15, interp_0x17, interp_0x17depr, interp_0x18, interp_0x1c, interp_0x1cdepr, interp_0x1d, interp_0x1f, interp_0x24, interp_0x25, interp_0x27);\
+  __asm__ goto( "" :::: interp_0x27depr, interp_0x2c, interp_0x2cdepr, interp_0x2d, interp_0x2f, interp_0x2fdepr, interp_0x34, interp_0x35, interp_0x36, interp_0x37, interp_0x37depr, interp_0x3c, interp_0x3cdepr, interp_0x3d, interp_0x3e, interp_0x3f, interp_0x3fdepr, interp_0x44, interp_0x45, interp_0x46, interp_0x47, interp_0x4c, interp_0x4d, interp_0x4e, interp_0x4f, interp_0x54, interp_0x55, interp_0x56, interp_0x57, interp_0x5c); \
+  __asm__ goto( "" :::: interp_0x5d, interp_0x5e, interp_0x5f, interp_0x64, interp_0x65, interp_0x66, interp_0x67, interp_0x6c, interp_0x6d, interp_0x6e, interp_0x6f, interp_0x74, interp_0x75, interp_0x76, interp_0x77, interp_0x7c, interp_0x7d, interp_0x7e, interp_0x7f, interp_0x84, interp_0x85, interp_0x85depr, interp_0x86, interp_0x87, interp_0x87depr, interp_0x8c, interp_0x8d, interp_0x8ddepr, interp_0x8e, interp_0x8f); \
+  __asm__ goto( "" :::: interp_0x94, interp_0x95, interp_0x96, interp_0x97, interp_0x97depr, interp_0x9c, interp_0x9cdepr, interp_0x9d, interp_0x9e, interp_0x9f, interp_0x9fdepr, interp_0xa4, interp_0xa5, interp_0xa7, interp_0xac, interp_0xad, interp_0xaf, interp_0xb4, interp_0xb5, interp_0xb6, interp_0xb7, interp_0xbc, interp_0xbcdepr, interp_0xbd, interp_0xbe, interp_0xbf, interp_0xc4, interp_0xc5, interp_0xc6, interp_0xc7); \
+  __asm__ goto( "" :::: interp_0xcc, interp_0xcd, interp_0xce, interp_0xcf, interp_0xd4, interp_0xd5, interp_0xd6, interp_0xdc, interp_0xdd, interp_0xde, interp_0xe6, interp_0xee, interp_0xf6, interp_0xf7, interp_0xfe); \
+__builtin_unreachable()
+
+# else
+#   define FD_VM_INTERP_INSTR_EXEC                                                                 \
+    pc++;                                                                                          \
+    if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
+    instr   = text[ pc ];                  /* Guaranteed in-bounds */                              \
+    do { \
+      ulong opcode  = fd_vm_instr_opcode( instr ); /* in [0,256) even if malformed */                      \
+      goto *jump_table[ opcode ];   /* Guaranteed in-bounds */ \
+    } while( 0 )
+# endif
 
 /* FD_VM_INTERP_SYSCALL_EXEC
    (macro to handle the logic of 0x85 pre- and post- SIMD-0178: static syscalls)
@@ -172,13 +195,52 @@
      instruction word has been unpacked into dst / src / offset / imm
      and reg[dst] / reg[src] has been prefetched into reg_dst / reg_src. */
 
-# define FD_VM_INTERP_INSTR_BEGIN(opcode) interp_##opcode:
+# define FD_VM_INTERP_INSTR_BEGIN(opcode)                   \
+do {                                                           \
+  interp_##opcode:                                          \
+    ulong         FD_PARAM_UNUSED instr;                     \
+    ulong         FD_PARAM_UNUSED pc;                     \
+    void const *  FD_PARAM_UNUSED jump_table;                     \
+    fd_vm_t *     FD_PARAM_UNUSED vm;                     \
+    ulong const * FD_PARAM_UNUSED text;                     \
+    ulong         FD_PARAM_UNUSED text_cnt;                     \
+    {                     \
+      register ulong         _instr      __asm__("rax");                     \
+      register ulong         _pc         __asm__("rbx");                     \
+      register void const *  _jump_table __asm__("r12");                     \
+      register fd_vm_t *     _vm         __asm__("r13");                     \
+      register ulong const * _text       __asm__("r14");                     \
+      register ulong         _text_cnt   __asm__("r15");                     \
+      __asm__( " # INTERP" #opcode : "=r"(_instr), "=r"(_pc), \
+          "=r"(_jump_table), "=r"(_vm), "=r"(_text), "=r"(_text_cnt) :: "rcx", "rdx", "rdi", "rsi", "r8", "r9", "r10", "r11" );                     \
+      instr      = _instr;                     \
+      pc         = _pc;                     \
+      jump_table = _jump_table;                     \
+      vm         = _vm;                     \
+      text       = _text;                     \
+      text_cnt   = _text_cnt;                     \
+    }                     \
+  ulong dst     FD_PARAM_UNUSED = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                      \
+  ulong src     FD_PARAM_UNUSED = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                      \
+  ulong offset  FD_PARAM_UNUSED = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                 \
+  uint  imm     FD_PARAM_UNUSED = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
+  ulong * FD_RESTRICT reg   FD_PARAM_UNUSED = vm->reg;                                                                             \
+  ulong reg_dst FD_PARAM_UNUSED = reg[ dst ];                  /* Guaranteed in-bounds */                              \
+  ulong reg_src FD_PARAM_UNUSED = reg[ src ];                  /* Guaranteed in-bounds */                              \
+  fd_vm_shadow_t * FD_RESTRICT FD_PARAM_UNUSED shadow = vm->shadow;
 
-# ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~0.3% faster in some benchmarks, slower in others but more code footprint */
-# define FD_VM_INTERP_INSTR_END pc++; FD_VM_INTERP_INSTR_EXEC
-# else /* Use this version when tracing or optimizing code footprint */
-# define FD_VM_INTERP_INSTR_END pc++; goto interp_exec
-# endif
+# define FD_VM_INTERP_INSTR_END \
+    {                     \
+    register ulong         _pc         __asm__("rbx") = pc;                      \
+    register void const *  _jump_table __asm__("r12") = jump_table;                      \
+    register fd_vm_t *     _vm         __asm__("r13") = vm;                      \
+    register ulong const * _text       __asm__("r14") = text;                      \
+    register ulong const   _text_cnt   __asm__("r15") = text_cnt;                      \
+    __asm__ goto ( " jmp %l[interp_exec]" :: "r"(_pc), \
+          "r"(_jump_table), "r"(_vm), "r"(_text), "r"(_text_cnt) :: interp_exec );                     \
+    }                     \
+    __builtin_unreachable(); \
+  } while( 0 )
 
   /* Instead of doing a lot of compute budget calcs and tests every
      instruction, we note that the program counter increases
@@ -215,7 +277,38 @@
   ulong ic_correction = 0UL;
 
 # define FD_VM_INTERP_BRANCH_BEGIN(opcode)                                                              \
-  interp_##opcode:                                                                                      \
+do {                                                           \
+  interp_##opcode:                                          \
+    ulong         FD_PARAM_UNUSED instr;                     \
+    ulong         FD_PARAM_UNUSED pc;                     \
+    void const *  FD_PARAM_UNUSED jump_table;                     \
+    fd_vm_t *     FD_PARAM_UNUSED vm;                     \
+    ulong const * FD_PARAM_UNUSED text;                     \
+    ulong         FD_PARAM_UNUSED text_cnt;                     \
+    {                     \
+      register ulong         _instr      __asm__("rax");                     \
+      register ulong         _pc         __asm__("rbx");                     \
+      register void const *  _jump_table __asm__("r12");                     \
+      register fd_vm_t *     _vm         __asm__("r13");                     \
+      register ulong const * _text       __asm__("r14");                     \
+      register ulong         _text_cnt   __asm__("r15");                     \
+      __asm__( " # INTERP" #opcode : "=r"(_instr), "=r"(_pc), \
+          "=r"(_jump_table), "=r"(_vm), "=r"(_text), "=r"(_text_cnt) :: "rcx", "rdx", "rdi", "rsi", "r8", "r9", "r10", "r11" );                     \
+      instr      = _instr;                     \
+      pc         = _pc;                     \
+      jump_table = _jump_table;                     \
+      vm         = _vm;                     \
+      text       = _text;                     \
+      text_cnt   = _text_cnt;                     \
+    }                     \
+  ulong dst     FD_PARAM_UNUSED = fd_vm_instr_dst   ( instr ); /* in [0, 16) even if malformed */                      \
+  ulong src     FD_PARAM_UNUSED = fd_vm_instr_src   ( instr ); /* in [0, 16) even if malformed */                      \
+  ulong offset  FD_PARAM_UNUSED = fd_vm_instr_offset( instr ); /* in [-2^15,2^15) even if malformed */                 \
+  uint  imm     FD_PARAM_UNUSED = fd_vm_instr_imm   ( instr ); /* in [0,2^32) even if malformed */                     \
+  ulong * FD_RESTRICT reg   FD_PARAM_UNUSED = vm->reg;                                                                             \
+  ulong reg_dst FD_PARAM_UNUSED = reg[ dst ];                  /* Guaranteed in-bounds */                              \
+  ulong reg_src FD_PARAM_UNUSED = reg[ src ];                  /* Guaranteed in-bounds */                              \
+  fd_vm_shadow_t * FD_RESTRICT FD_PARAM_UNUSED shadow = vm->shadow;                                                    \
     /* Bill linear text segment and this branch instruction as per the above */                         \
     ic_correction = pc - pc0 + 1UL - ic_correction;                                                     \
     ic += ic_correction;                                                                                \
@@ -227,18 +320,19 @@
   /* FIXME: debatable if it is better to do pc++ here or have the
      instruction implementations do it in their code path. */
 
-# ifndef FD_VM_INTERP_EXE_TRACING_ENABLED /* Non-tracing path only, ~4% faster in some benchmarks, slower in others but more code footprint */
 # define FD_VM_INTERP_BRANCH_END               \
-    pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
-    FD_VM_INTERP_INSTR_EXEC
-# else /* Use this version when tracing or optimizing code footprint */
-# define FD_VM_INTERP_BRANCH_END               \
-    pc++;                                      \
-    pc0 = pc; /* Start a new linear segment */ \
-    /* FIXME: TEST sigsplit HERE */            \
-    goto interp_exec
-# endif
+    pc0 = pc+1UL; /* Start a new linear segment */ \
+    {                     \
+    register ulong         _pc         __asm__("rbx") = pc;                      \
+    register void const *  _jump_table __asm__("r12") = jump_table;                      \
+    register fd_vm_t *     _vm         __asm__("r13") = vm;                      \
+    register ulong const * _text       __asm__("r14") = text;                      \
+    register ulong const   _text_cnt   __asm__("r15") = text_cnt;                      \
+    __asm__ goto ( " jmp %l[interp_exec]" :: "r"(_pc), \
+          "r"(_jump_table), "r"(_vm), "r"(_text), "r"(_text_cnt) :: interp_exec );                     \
+    }                     \
+    __builtin_unreachable(); \
+  } while( 0 )
 
   /* FD_VM_INTERP_STACK_PUSH pushes reg[6:9] onto the shadow stack and
      advances reg[10] to a new user stack frame.  If there are no more
@@ -276,18 +370,29 @@
 
   /* We subtract the heap cost in the BPF loader */
 
-  goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
-interp_exec:
+  pc--;
 
+
+  do {
+    register ulong         _instr      __asm__("rax");
+    register ulong         _pc         __asm__("rbx") = pc;
+    register void const *  _jump_table __asm__("r12") = jump_table;
+    register fd_vm_t *     _vm         __asm__("r13") = vm;
+    register ulong const * _text       __asm__("r14") = text;
+    register ulong const   _text_cnt   __asm__("r15") = text_cnt;
+    goto interp_exec; /* Silly but to avoid unused label warning in some configurations */
+interp_exec:
 # ifdef FD_VM_INTERP_EXE_TRACING_ENABLED
   /* Note: when tracing or optimizing for code footprint, all
      instruction execution starts here such that this is only point
      where exe tracing diagnostics are needed. */
-  if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext;
-  fd_vm_trace_event_exe( vm->trace, pc, ic + ( pc - pc0 - ic_correction ), cu, reg, vm->text + pc, vm->text_cnt - pc, ic_correction, frame_cnt );
+  if( FD_UNLIKELY( _pc+1UL>=text_cnt ) ) goto sigtext;
+  fd_vm_trace_event_exe( _vm->trace, _pc+1UL, ic + ( _pc+1UL - pc0 - ic_correction ), cu, _vm->reg, _text + _pc+1UL, _text_cnt - _pc+1UL, ic_correction, frame_cnt );
 # endif
+  // FD_LOG_NOTICE(( "%lu", _pc ));
 
-  FD_VM_INTERP_INSTR_EXEC;
+    FD_VM_INTERP_INSTR_EXEC;
+  } while( 0 );
 
   /* 0x00 - 0x0f ******************************************************/
 
