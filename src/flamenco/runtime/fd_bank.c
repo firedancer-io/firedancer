@@ -461,12 +461,12 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   fd_rwlock_write( &banks->rwlock );
 
-  fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
-  if( FD_UNLIKELY( bank==NULL ) ) {
+  if( FD_UNLIKELY( !fd_banks_pool_free( bank_pool ) ) ) {
     FD_LOG_WARNING(( "Failed to acquire bank" ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
+  fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
 
   #define HAS_COW_1(type, name, footprint) \
     bank->name##_dirty    = 0;             \
