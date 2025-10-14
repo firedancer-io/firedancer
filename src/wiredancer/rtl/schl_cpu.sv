@@ -93,7 +93,7 @@ package schl_pkg;
     ST_IDLE  = 4'd1, // Wait for new hash
     ST_FETCH = 4'd2, // Read data from memory
     ST_EXEC0 = 4'd3, // Start send data to primitive
-    ST_EXEC1 = 4'd4, // Propegate send data to primitive
+    ST_EXEC1 = 4'd4, // Propagate send data to primitive
     ST_BLOCK = 4'd5, // Wait for result from primitive
     ST_JMP   = 4'd6  // Jump to another instr (unused for now)
   } ssm_state_t; 
@@ -639,7 +639,7 @@ module shcl_cpu
           mem_t_wr_en   <= '0;
         end
       end
-      // Prioritize writes from ALU over input as we don't want to backpress the pipline...
+      // Prioritize writes from ALU over input as we don't want to backpress the pipeline...
       else if (mem_man_valid) begin 
         mem_d_wr_data <= mem_man_data;
         mem_d_wr_addr <= mem_man_addr;
@@ -990,7 +990,7 @@ module schl #
   input var logic              i_valid,
   output    logic              i_ready,
 
-  // Result Ouput 
+  // Result Output 
   output logic [W_HASH-1:0] o_hash,
   output logic              o_valid,
   output logic              o_correct 
