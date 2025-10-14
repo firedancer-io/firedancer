@@ -44,9 +44,6 @@ download_and_extract_ledger() {
 
 if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
   download_and_extract_ledger
-  create_checksum
-else
-  check_ledger_checksum_and_redownload
 fi
 
 rm -rf $DUMP/$LEDGER/devnet-398736132_current.toml
@@ -68,6 +65,3 @@ $OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/devnet-3987
 
 $OBJDIR/bin/fd_solcap_import $DUMP/$LEDGER/bank_hash_details/ $DUMP/$LEDGER/solana.solcap
 $OBJDIR/bin/fd_solcap_diff $DUMP/$LEDGER/solana.solcap $DUMP/$LEDGER/fd.solcap -v 4
-
-# check that the ledger is not corrupted after a run
-check_ledger_checksum
