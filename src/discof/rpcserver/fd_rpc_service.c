@@ -92,7 +92,7 @@ struct fd_rpc_global_ctx {
   fd_rpc_history_t * history;
   fd_pubkey_t const * identity_key; /* nullable */
   ulong replay_towers_cnt;
-  fd_replay_tower_t replay_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
+  fd_replay_vote_state_t replay_towers[FD_REPLAY_TOWER_VOTE_ACC_MAX];
   int replay_towers_eom;
   ulong confirmed_slot;
   ulong root_slot;
@@ -1580,15 +1580,15 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
     int needcomma = 0;
     for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
-      fd_replay_tower_t const * w = &glob->replay_towers[i];
+      fd_replay_vote_state_t const * w = &glob->replay_towers[i];
       if( filter_arg != NULL ) {
-        if( !fd_hash_eq( &w->key, &filter_key ) ) continue;
+        if( !fd_hash_eq( &w->pubkey, &filter_key ) ) continue;
       }
       if( needcomma ) fd_web_reply_sprintf(ws, ",");
 
       fd_bincode_decode_ctx_t ctx = {
-        .data    = w->acc,
-        .dataend = w->acc + w->acc_sz,
+        .data    = w->vote_state,
+        .dataend = w->vote_state + w->vote_state_sz,
       };
       ulong total_sz = 0UL;
       int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
@@ -1668,7 +1668,7 @@ method_getVoteAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
 
       char vote_account_s[50];
-      fd_base58_encode_32(w->key.uc, 0, vote_account_s);
+      fd_base58_encode_32(w->pubkey.uc, 0, vote_account_s);
       char node_account_s[50];
       fd_base58_encode_32(node_account.uc, 0, node_account_s);
       fd_web_reply_sprintf(ws, "{\"activatedStake\":%lu,\"commission\":%u,\"epochVoteAccount\":true,\"epochCredits\":[",
@@ -2496,11 +2496,11 @@ fd_rpc_recompute_confirmed( fd_rpc_global_ctx_t * glob ) {
     weight_by_slot_init( &wbs_root );
 
     for( ulong i=0UL; i<glob->replay_towers_cnt; i++ ) {
-      fd_replay_tower_t const * w = &glob->replay_towers[i];
+      fd_replay_vote_state_t const * w = &glob->replay_towers[i];
 
       fd_bincode_decode_ctx_t ctx = {
-        .data    = w->acc,
-        .dataend = w->acc + w->acc_sz,
+        .data    = w->vote_state,
+        .dataend = w->vote_state + w->vote_state_sz,
       };
       ulong total_sz = 0UL;
       int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
@@ -2588,8 +2588,8 @@ fd_rpc_replay_during_frag( fd_rpc_ctx_t * ctx, void const * msg, ulong sig, ulon
     glob->replay_towers_eom = 0;
   }
   if( FD_UNLIKELY( glob->replay_towers_cnt >= FD_REPLAY_TOWER_VOTE_ACC_MAX ) ) FD_LOG_ERR(( "tower received more vote states than expected" ));
-  FD_TEST( sz == (int)sizeof(fd_replay_tower_t) );
-  memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_tower_t) );
+  FD_TEST( sz == (int)sizeof(fd_replay_vote_state_t) );
+  memcpy( &glob->replay_towers[glob->replay_towers_cnt++], msg, sizeof(fd_replay_vote_state_t) );
   glob->replay_towers_eom = fd_frag_meta_ctl_eom( ctl );
   if( glob->replay_towers_eom ) {
     fd_rpc_recompute_confirmed( glob );

@@ -8,11 +8,11 @@
 #define INSERT( c, p )                                                                             \
   fd_ghost_insert( ghost, &hash_##p, c, &hash_##c, 20 );
 
-fd_ghost_ele_t *
+fd_ghost_fork_t *
 query_mut( fd_ghost_t * ghost, ulong slot ) {
   fd_wksp_t *          wksp = fd_wksp_containing( ghost );
   fd_ghost_slot_map_t * map = fd_wksp_laddr_fast( wksp, ghost->slot_map_gaddr );
-  fd_ghost_ele_t *     pool = fd_wksp_laddr_fast( wksp, ghost->pool_gaddr );
+  fd_ghost_fork_t *     pool = fd_wksp_laddr_fast( wksp, ghost->pool_gaddr );
   return fd_ghost_slot_map_ele_query( map, &slot, NULL, pool );
 }
 
@@ -84,11 +84,11 @@ test_ghost_simple( fd_wksp_t * wksp ) {
 # if PRINT
   fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
 # endif
-  fd_ghost_replay_vote( ghost, voter, &hash_2 );
+  count_vote( ghost, voter, &hash_2 );
 # if PRINT
   fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
 # endif
-  fd_ghost_replay_vote( ghost, voter, &hash_3 );
+  count_vote( ghost, voter, &hash_3 );
 # if PRINT
   fd_ghost_print( ghost, 10, fd_ghost_root( ghost ) );
 # endif
@@ -125,7 +125,7 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
                                     1UL );
   FD_TEST( mem );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, 0UL ) );
-  fd_ghost_ele_t * pool = fd_wksp_laddr_fast( wksp, ghost->pool_gaddr );
+  fd_ghost_fork_t * pool = fd_wksp_laddr_fast( wksp, ghost->pool_gaddr );
 
 
   // define hash_0, hash_1, hash_2, hash_3, hash_4, hash_5, hash_6
@@ -150,14 +150,14 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
   fd_epoch_t * epoch = mock_epoch( wksp, 2, 1, pk1, 1 );
   fd_voter_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_2 );
+  count_vote( ghost, v1, &hash_2 );
 # if PRINT
   fd_ghost_print( ghost, 2, fd_ghost_root( ghost ) );
 # endif
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_3 );
-  fd_ghost_ele_t const * node2 = fd_ghost_query( ghost, &hash_2 );
+  count_vote( ghost, v1, &hash_3 );
+  fd_ghost_fork_t const * node2 = fd_ghost_query( ghost, &hash_2 );
   FD_TEST( node2 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
@@ -165,7 +165,7 @@ test_ghost_publish_left( fd_wksp_t * wksp ) {
   fd_ghost_print( ghost, 2, fd_ghost_root( ghost ) );
 # endif
   fd_ghost_publish( ghost, &hash_2 );
-  fd_ghost_ele_t const * root = fd_ghost_root( ghost );
+  fd_ghost_fork_t const * root = fd_ghost_root( ghost );
   FD_TEST( root->slot == 2 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
@@ -208,7 +208,7 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
                                     1UL );
   FD_TEST( mem );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, 0UL ) );
-  fd_ghost_ele_t * pool = fd_wksp_laddr_fast( wksp, ghost->pool_gaddr );
+  fd_ghost_fork_t * pool = fd_wksp_laddr_fast( wksp, ghost->pool_gaddr );
 
   fd_hash_t hash_0 = { .ul = { ULONG_MAX } };
   fd_hash_t hash_1 = { .key = { 1 } };
@@ -232,12 +232,12 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   fd_epoch_t * epoch = mock_epoch( wksp, total, 1, pk1, 1 );
   fd_voter_t * v1    = fd_epoch_voters_query( fd_epoch_voters( epoch ), pk1, NULL );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_2 );
+  count_vote( ghost, v1, &hash_2 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_3 );
+  count_vote( ghost, v1, &hash_3 );
   FD_TEST( !fd_ghost_verify( ghost ) );
-  fd_ghost_ele_t const * node3 = fd_ghost_query( ghost, &hash_3 );
+  fd_ghost_fork_t const * node3 = fd_ghost_query( ghost, &hash_3 );
   FD_TEST( node3 );
 
 # if PRINT
@@ -246,7 +246,7 @@ test_ghost_publish_right( fd_wksp_t * wksp ) {
   fd_ghost_publish( ghost, &hash_3 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_ele_t * root = fd_ghost_pool_ele( pool, ghost->root );
+  fd_ghost_fork_t * root = fd_ghost_pool_ele( pool, ghost->root );
   FD_TEST( root->slot == 3 );
   FD_TEST( fd_ghost_pool_ele( pool, root->child )->slot == 5 );
   FD_TEST( fd_ghost_child( ghost, fd_ghost_child( ghost, root ) )->slot == 6 );
@@ -411,19 +411,19 @@ test_ghost_head( fd_wksp_t * wksp ){
   INSERT( 12, 10 );
   INSERT( 13, 11 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_11 );
+  count_vote( ghost, v1, &hash_11 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v2, &hash_12 );
+  count_vote( ghost, v2, &hash_12 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_ele_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_fork_t const * head = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head->slot == 12 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_13 );
+  count_vote( ghost, v1, &hash_13 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_ele_t const * head2 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_fork_t const * head2 = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head2->slot == 12 );
 
 # if PRINT
@@ -459,7 +459,7 @@ test_ghost_vote_leaves( fd_wksp_t * wksp ) {
   /* make a full binary tree */
   for( ulong i = 1; i < node_max - 1; i++){
     FD_LOG_NOTICE(("inserting %lu with parent %lu", i, (i-1)/2));
-    fd_ghost_insert( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
+    fd_ghost_update( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
     FD_TEST( !fd_ghost_verify( ghost ) );
   }
   FD_TEST( !fd_ghost_verify( ghost ) );
@@ -471,7 +471,7 @@ test_ghost_vote_leaves( fd_wksp_t * wksp ) {
   ulong first_leaf = fd_ulong_pow2(d-1) - 1;
   fd_voter_t v = { .key = { { 0 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
   for( ulong i = first_leaf; i < node_max - 1; i++){
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    count_vote( ghost, &v, &hash_arr[i] );
   }
   FD_TEST( !fd_ghost_verify( ghost ) );
 
@@ -492,34 +492,34 @@ test_ghost_vote_leaves( fd_wksp_t * wksp ) {
   /* check weights and stakes */
   int j = 0;
   for( ulong i = 0; i < node_max - 1; i++){
-    fd_ghost_ele_t const * node = fd_ghost_query( ghost, &hash_arr[i] );
+    fd_ghost_fork_t const * node = fd_ghost_query( ghost, &hash_arr[i] );
     if ( i == node_max - 2) FD_TEST( node->replay_stake == 10 );
     else  FD_TEST( node->replay_stake == 0 );
 
     if( i == path[j] ) { /* if on fork */
-      FD_TEST( node->weight == 10 );
+      FD_TEST( node->stake == 10 );
       j++;
     } else {
-      FD_TEST( node->weight == 0 );
+      FD_TEST( node->stake == 0 );
     }
   }
 
   /* have other validators vote for rest of leaves */
   for ( ulong i = first_leaf; i < node_max - 2; i++){
     fd_voter_t v = { .key = { .key = { (uchar)i }  }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    count_vote( ghost, &v, &hash_arr[i] );
     FD_TEST( !fd_ghost_verify( ghost ) );
   }
 
   /* check weights and stakes */
   for( ulong i = 0; i < node_max - 1; i++){
-    fd_ghost_ele_t const * node = fd_ghost_query( ghost, &hash_arr[i] );
+    fd_ghost_fork_t const * node = fd_ghost_query( ghost, &hash_arr[i] );
     if ( i >= first_leaf){
       FD_TEST( node->replay_stake == 10 );
-      FD_TEST( node->weight == 10 );
+      FD_TEST( node->stake == 10 );
     } else {
       FD_TEST( node->replay_stake == 0 );
-      FD_TEST( node->weight > 10);
+      FD_TEST( node->stake > 10);
     }
   }
 
@@ -548,9 +548,9 @@ test_ghost_old_vote_pruned( fd_wksp_t * wksp ){
 
   fd_ghost_init( ghost, 0, &hash_arr[0] );
   for ( ulong i = 1; i < node_max - 1; i++ ) {
-    fd_ghost_insert( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
+    fd_ghost_update( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
     fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    count_vote( ghost, &v, &hash_arr[i] );
   }
 
   fd_ghost_publish( ghost, &hash_arr[1]);
@@ -561,30 +561,30 @@ test_ghost_old_vote_pruned( fd_wksp_t * wksp ){
 # endif
 
   fd_voter_t switch_voter = { .key = { { 5 } }, .stake = 5, .replay_vote = { .slot = 5 } };
-  fd_ghost_replay_vote( ghost, &switch_voter, &hash_arr[9] );
+  count_vote( ghost, &switch_voter, &hash_arr[9] );
   /* switching to vote 9, from voting 5, that is > than the root */
 # if PRINT
   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
 # endif
 
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[9] )->weight == 14 );
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[3] )->weight == 18 );
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[4] )->weight == 28 );
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[1] )->weight == 47 ); /* full tree */
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[9] )->stake == 14 );
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[3] )->stake == 18 );
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[4] )->stake == 28 );
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[1] )->stake == 47 ); /* full tree */
 
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   fd_ghost_publish( ghost, &hash_arr[3] ); /* cut down to nodes 3,7,8 */
   /* now previously voted 2 ( < the root ) votes for 7 */
   fd_voter_t switch_voter2 = { .key = { { 2 } }, .stake = 2, .replay_vote = { .slot = 2 } };
-  fd_ghost_replay_vote( ghost, &switch_voter2, &hash_arr[7] );
+  count_vote( ghost, &switch_voter2, &hash_arr[7] );
 
 # if PRINT
   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
 # endif
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[7] )->weight == 9 );
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[8] )->weight == 8 );
-  FD_TEST( fd_ghost_query( ghost, &hash_arr[3] )->weight == 20 );
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[7] )->stake == 9 );
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[8] )->stake == 8 );
+  FD_TEST( fd_ghost_query( ghost, &hash_arr[3] )->stake == 20 );
 
   FD_TEST( !fd_ghost_verify( ghost ) );
 }
@@ -609,13 +609,13 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
   fd_ghost_init( ghost, 0, &hash_arr[0] );
 
   for ( ulong i = 1; i < node_max - 1; i++ ) {
-    fd_ghost_insert( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
+    fd_ghost_update( ghost, &hash_arr[(i-1)/2], i, &hash_arr[i], total_stake );
     fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = { .slot = FD_SLOT_NULL } };
-    fd_ghost_replay_vote( ghost, &v, &hash_arr[i] );
+    count_vote( ghost, &v, &hash_arr[i] );
   }
 
   for ( ulong i = 0; i < node_max - 1; i++ ) {
-    fd_ghost_ele_t const * node = fd_ghost_query( ghost, &hash_arr[i] );
+    fd_ghost_fork_t const * node = fd_ghost_query( ghost, &hash_arr[i] );
     FD_TEST( node->replay_stake == i );
   }
 
@@ -624,7 +624,7 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
 # if PRINT
   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
 # endif
-  fd_ghost_ele_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_fork_t const * head = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
 
   /* head will always be rightmost node in this complete binary tree */
 
@@ -632,12 +632,12 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
 
   /* add one more node */
 
-  fd_ghost_insert( ghost, &hash_arr[(node_max-2)/2], node_max - 1, &hash_arr[node_max - 1], total_stake );
+  fd_ghost_update( ghost, &hash_arr[(node_max-2)/2], node_max - 1, &hash_arr[node_max - 1], total_stake );
   fd_voter_t v = { .key = { { (uchar)( node_max - 1 ) } }, .stake = node_max - 1, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v, &hash_arr[node_max - 1]);
+  count_vote( ghost, &v, &hash_arr[node_max - 1]);
 
   FD_TEST( !fd_ghost_verify( ghost ) );
-  head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  head = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head->slot == 14 );
 
   /* adding one more node would fail. */
@@ -665,14 +665,14 @@ test_rooted_vote( fd_wksp_t * wksp ){
 
   fd_ghost_init( ghost, 0, &hash_0 );
 
-  fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
-  fd_ghost_replay_vote( ghost, v1, &hash_1 );
+  fd_ghost_update( ghost, &hash_0, 1, &hash_1, total_stake );
+  count_vote( ghost, v1, &hash_1 );
 
   fd_ghost_rooted_vote( ghost, v2, 1 );
 
-  fd_ghost_ele_t const * node = fd_ghost_query( ghost, &hash_1 );
+  fd_ghost_fork_t const * node = fd_ghost_query( ghost, &hash_1 );
   FD_TEST( node->replay_stake == 20 );
-  FD_TEST( node->weight == 20 );
+  FD_TEST( node->stake == 20 );
   FD_TEST( node->rooted_stake == 10 );
 
   FD_TEST( !fd_ghost_verify( ghost ) );
@@ -710,16 +710,16 @@ test_ghost_head_valid( fd_wksp_t * wksp ) {
   INSERT( 12, 10 );
   INSERT( 13, 11 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_11 );
+  count_vote( ghost, v1, &hash_11 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
-  fd_ghost_replay_vote( ghost, v2, &hash_12 );
+  count_vote( ghost, v2, &hash_12 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   // fd_ghost_node_t const * head = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   // FD_TEST( head->slot == 12 );
 
-  fd_ghost_replay_vote( ghost, v1, &hash_13 );
+  count_vote( ghost, v1, &hash_13 );
   FD_TEST( !fd_ghost_verify( ghost ) );
 
   // fd_ghost_node_t const * head2 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
@@ -729,13 +729,13 @@ test_ghost_head_valid( fd_wksp_t * wksp ) {
   // fd_ghost_node_t const * head3 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   // FD_TEST( head3->slot == 13 );
 
-  fd_ghost_replay_vote( ghost, v2, &hash_13 );
+  count_vote( ghost, v2, &hash_13 );
   query_mut( ghost, 11 )->valid = 0; // mark 11 as invalid
   // fd_ghost_node_t const * head4 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
   // FD_TEST( head4->slot == 10 );
 
   query_mut( ghost, 12 )->valid = 1; // mark 12 as valid
-  fd_ghost_ele_t const * head5 = fd_ghost_head( ghost, fd_ghost_root( ghost ) );
+  fd_ghost_fork_t const * head5 = fd_ghost_best( ghost, fd_ghost_root( ghost ) );
   FD_TEST( head5->slot == 12 );
 
 # if PRINT
@@ -764,7 +764,7 @@ test_duplicate_simple( fd_wksp_t * wksp ){
    3   4 */
 
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, 0UL ) );
-  fd_ghost_ele_t * pool = fd_ghost_pool( ghost );
+  fd_ghost_fork_t * pool = fd_ghost_pool( ghost );
 
   fd_hash_t hash_1 = { .key = { 1 } };
   fd_hash_t hash_2 = { .key = { 2 } };
@@ -775,12 +775,12 @@ test_duplicate_simple( fd_wksp_t * wksp ){
   fd_ghost_init( ghost, 1, &hash_1 );
 
   /* We see 2 and 3 first, so we replay down the left branch first */
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2, total_stake );
-  fd_ghost_insert( ghost, &hash_2, 3, &hash_3, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2, total_stake );
+  fd_ghost_update( ghost, &hash_2, 3, &hash_3, total_stake );
 
   /* We see evidence of 2' and 4. Add them to the tree */
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2_prime, total_stake );
-  fd_ghost_insert( ghost, &hash_2_prime, 4, &hash_4, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2_prime, total_stake );
+  fd_ghost_update( ghost, &hash_2_prime, 4, &hash_4, total_stake );
 
   /* Only 1 - 2 - 3 should be visible in the slot map */
   FD_TEST( memcmp( fd_ghost_hash( ghost, 1 ), &hash_1, sizeof(fd_hash_t) ) == 0 );
@@ -788,8 +788,8 @@ test_duplicate_simple( fd_wksp_t * wksp ){
   FD_TEST( memcmp( fd_ghost_hash( ghost, 3 ), &hash_3, sizeof(fd_hash_t) ) == 0 );
   FD_TEST( memcmp( fd_ghost_hash( ghost, 4 ), &hash_4, sizeof(fd_hash_t) ) == 0 );
 
-  fd_ghost_ele_t const * dup_child = fd_ghost_query( ghost, &hash_4 );
-  fd_ghost_ele_t const * dup_parent = fd_ghost_pool_ele( pool, dup_child->parent );
+  fd_ghost_fork_t const * dup_child = fd_ghost_query( ghost, &hash_4 );
+  fd_ghost_fork_t const * dup_parent = fd_ghost_pool_ele( pool, dup_child->parent );
   FD_TEST( dup_parent->slot == 2 );
   FD_TEST( memcmp( &dup_parent->key, &hash_2_prime, sizeof(fd_hash_t) ) == 0 );
 
@@ -810,7 +810,7 @@ test_many_duplicates( fd_wksp_t * wksp ){
 
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, node_max, 0UL ) );
   fd_ghost_slot_map_t * map_slot = fd_ghost_slot_map( ghost );
-  fd_ghost_ele_t * pool = fd_ghost_pool( ghost );
+  fd_ghost_fork_t * pool = fd_ghost_pool( ghost );
 
   fd_hash_t hash_1 = { .key = { 1 } };
   fd_hash_t hash_2 = { .key = { 2 } };
@@ -833,16 +833,16 @@ test_many_duplicates( fd_wksp_t * wksp ){
 
   /* Slots I see initially*/
 
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2, total_stake );
-  fd_ghost_insert( ghost, &hash_2, 3, &hash_3, total_stake );
-  fd_ghost_insert( ghost, &hash_3, 4, &hash_4, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2, total_stake );
+  fd_ghost_update( ghost, &hash_2, 3, &hash_3, total_stake );
+  fd_ghost_update( ghost, &hash_3, 4, &hash_4, total_stake );
 
   /* Evidence of duplicates */
 
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2_prime, total_stake );
-  fd_ghost_insert( ghost, &hash_2_prime, 3, &hash_3_prime, total_stake );
-  fd_ghost_insert( ghost, &hash_3_prime, 4, &hash_4_prime_prime, total_stake );
-  fd_ghost_insert( ghost, &hash_3, 4, &hash_4_prime, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2_prime, total_stake );
+  fd_ghost_update( ghost, &hash_2_prime, 3, &hash_3_prime, total_stake );
+  fd_ghost_update( ghost, &hash_3_prime, 4, &hash_4_prime_prime, total_stake );
+  fd_ghost_update( ghost, &hash_3, 4, &hash_4_prime, total_stake );
 
   ulong visible_slots[4] = { 3, 1, 2, 4 };
   fd_hash_t visible_hashes[4] = { hash_3, hash_1, hash_2, hash_4 };
@@ -850,7 +850,7 @@ test_many_duplicates( fd_wksp_t * wksp ){
   for( fd_ghost_slot_map_iter_t iter = fd_ghost_slot_map_iter_init( map_slot, pool );
        !fd_ghost_slot_map_iter_done( iter, map_slot, pool );
        iter = fd_ghost_slot_map_iter_next( iter, map_slot, pool ) ) {
-    fd_ghost_ele_t const * ele = fd_ghost_slot_map_iter_ele( iter, map_slot, pool );
+    fd_ghost_fork_t const * ele = fd_ghost_slot_map_iter_ele( iter, map_slot, pool );
     FD_LOG_NOTICE(( "ele->slot: %lu, visible_slots[cnt]: %lu", ele->slot, visible_slots[cnt] ));
     FD_TEST( ele->slot == visible_slots[cnt] );
     FD_TEST( memcmp( &ele->key, &visible_hashes[cnt], sizeof(fd_hash_t) ) == 0 );
@@ -862,7 +862,7 @@ test_many_duplicates( fd_wksp_t * wksp ){
 
   /* Vote down the left branch */
   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v1, &hash_4 );
+  count_vote( ghost, &v1, &hash_4 );
 }
 
 /* Key differences between Agave and Firedancer:  Agave inserts to their
@@ -890,19 +890,19 @@ run_test_state_duplicate_then_bank_frozen( fd_wksp_t * wksp ) {
   fd_hash_t hash_2 = { .key = { 2 } };
 
   fd_ghost_init( ghost, 0, &hash_0 );
-  fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
+  fd_ghost_update( ghost, &hash_0, 1, &hash_1, total_stake );
 
   /* Get a duplicate message shred/gossip/repair. Nothing happens because
      the slot 2 has not yet been replayed  */
   process_duplicate( ghost, 2, total_stake );
   FD_TEST( fd_ghost_hash( ghost, 2 ) == NULL );
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 1 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 1 );
 
   /* Finish replaying slot 2, hash 2 */
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2, total_stake );
   FD_TEST( !fd_ghost_query( ghost, &hash_2 )->valid );
   /* Parent of 2 is 1, so head should be 1 */
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 1 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 1 );
 }
 
 void
@@ -925,19 +925,19 @@ test_state_ancestor_confirmed_descendant_duplicate( fd_wksp_t * wksp ){
   fd_hash_t hash_3 = { .key = { 3 } };
 
   fd_ghost_init( ghost, 0, &hash_0 );
-  fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2, total_stake );
-  fd_ghost_insert( ghost, &hash_2, 3, &hash_3, total_stake );
+  fd_ghost_update( ghost, &hash_0, 1, &hash_1, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2, total_stake );
+  fd_ghost_update( ghost, &hash_2, 3, &hash_3, total_stake );
 
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
   process_duplicate_confirmed( ghost, &hash_2, 2 );
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
 
   /* mark 3 as duplicate */
   process_duplicate( ghost, 3, total_stake );
   FD_TEST( fd_dup_seen_map_query( dup_map, 3, NULL ) );
 
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 2 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 2 );
 }
 
 void
@@ -959,18 +959,18 @@ test_state_ancestor_duplicate_descendant_confirmed( fd_wksp_t * wksp ){
   fd_hash_t hash_3 = { .key = { 3 } };
 
   fd_ghost_init( ghost, 0, &hash_0 );
-  fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2, total_stake );
-  fd_ghost_insert( ghost, &hash_2, 3, &hash_3, total_stake );
+  fd_ghost_update( ghost, &hash_0, 1, &hash_1, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2, total_stake );
+  fd_ghost_update( ghost, &hash_2, 3, &hash_3, total_stake );
 
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
 
   process_duplicate( ghost, 2, total_stake );
   FD_TEST( fd_dup_seen_map_query( dup_map, 2, NULL ) );
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 1 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 1 );
 
   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v1, &hash_3 );
+  count_vote( ghost, &v1, &hash_3 );
 
   FD_TEST( is_duplicate_confirmed( ghost, &hash_3, total_stake ) );
 
@@ -979,7 +979,7 @@ test_state_ancestor_duplicate_descendant_confirmed( fd_wksp_t * wksp ){
     process_duplicate_confirmed( ghost, &hash_3, 3 );
   }
   FD_TEST( fd_ghost_query( ghost, &hash_3 )->valid );
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
 }
 
 void
@@ -1002,13 +1002,13 @@ test_state_descendant_confirmed_ancestor_duplicate( fd_wksp_t * wksp ){
   fd_hash_t hash_3 = { .key = { 3 } };
 
   fd_ghost_init( ghost, 0, &hash_0 );
-  fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
-  fd_ghost_insert( ghost, &hash_1, 2, &hash_2, total_stake );
-  fd_ghost_insert( ghost, &hash_2, 3, &hash_3, total_stake );
+  fd_ghost_update( ghost, &hash_0, 1, &hash_1, total_stake );
+  fd_ghost_update( ghost, &hash_1, 2, &hash_2, total_stake );
+  fd_ghost_update( ghost, &hash_2, 3, &hash_3, total_stake );
 
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
   fd_voter_t v1 = { .key = { { 1 } }, .stake = 10, .replay_vote = { .slot = FD_SLOT_NULL } };
-  fd_ghost_replay_vote( ghost, &v1, &hash_3 );
+  count_vote( ghost, &v1, &hash_3 );
 
   FD_TEST( is_duplicate_confirmed( ghost, &hash_3, total_stake ) );
 
@@ -1018,7 +1018,7 @@ test_state_descendant_confirmed_ancestor_duplicate( fd_wksp_t * wksp ){
   }
   fd_ghost_print( ghost, total_stake, fd_ghost_root( ghost ) );
   for( ulong slot = 0; slot < 4; slot++ ) {
-    fd_ghost_ele_t const * ele = fd_ghost_query( ghost, fd_ghost_hash( ghost, slot ) );
+    fd_ghost_fork_t const * ele = fd_ghost_query( ghost, fd_ghost_hash( ghost, slot ) );
     FD_TEST( ele->valid );
     FD_LOG_NOTICE(("slot %lu, ele->key: %s", slot, FD_BASE58_ENC_32_ALLOCA(&ele->key) ));
     FD_TEST( is_duplicate_confirmed( ghost, &ele->key, total_stake ) );
@@ -1026,7 +1026,7 @@ test_state_descendant_confirmed_ancestor_duplicate( fd_wksp_t * wksp ){
 
   process_duplicate( ghost, 1, total_stake );
   FD_TEST( fd_dup_seen_map_query( dup_map, 1, NULL ) );
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 3 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 3 );
 
 }
 
@@ -1046,10 +1046,10 @@ test_duplicate_after_frozen( fd_wksp_t * wksp ){
   fd_hash_t hash_0 = { .ul = { ULONG_MAX } };
   fd_hash_t hash_1 = { .key = { 1 } };
   fd_ghost_init( ghost, 0, &hash_0 );
-  fd_ghost_insert( ghost, &hash_0, 1, &hash_1, total_stake );
+  fd_ghost_update( ghost, &hash_0, 1, &hash_1, total_stake );
   process_duplicate( ghost, 1, total_stake );
 
-  FD_TEST( fd_ghost_head( ghost, fd_ghost_root( ghost ) )->slot == 0 );
+  FD_TEST( fd_ghost_best( ghost, fd_ghost_root( ghost ) )->slot == 0 );
 }
 
 void
@@ -1073,7 +1073,7 @@ test_duplicate_node_inserted( fd_wksp_t * wksp ) {
   FD_TEST( fd_ghost_hash( ghost, duplicate_slot ) == NULL );
 
   // Simulate finish replaying a bank by inserting the slot - equivalent to:
-  fd_ghost_insert( ghost, &hash0, 1, &hash1, total_stake );
+  fd_ghost_update( ghost, &hash0, 1, &hash1, total_stake );
 
   // Test equivalent to: assert_eq!(blockstore.get_bank_hash(duplicate_slot).unwrap(), duplicate_slot_hash);
   fd_hash_t const * stored_hash = fd_ghost_hash( ghost, duplicate_slot );
@@ -1084,7 +1084,7 @@ test_duplicate_node_inserted( fd_wksp_t * wksp ) {
   fd_hash_t new_bank_hash = { .key = { 2 } };
 
   // In Ghost, inserting the same slot with a different hash creates a duplicate
-  fd_ghost_insert( ghost, &hash0, duplicate_slot, &new_bank_hash, total_stake );
+  fd_ghost_update( ghost, &hash0, duplicate_slot, &new_bank_hash, total_stake );
 
   // The slot map should still point to the original version (the "happy tree")
   // but the new hash should be tracked in the hash map
@@ -1093,7 +1093,7 @@ test_duplicate_node_inserted( fd_wksp_t * wksp ) {
   FD_TEST( memcmp( slot_map_hash, &hash1, sizeof(fd_hash_t) ) == 0 ); // Still original hash
 
   // The new hash should be queryable directly
-  fd_ghost_ele_t const * new_hash_ele = fd_ghost_query( ghost, &new_bank_hash );
+  fd_ghost_fork_t const * new_hash_ele = fd_ghost_query( ghost, &new_bank_hash );
   FD_TEST( new_hash_ele != NULL );
   FD_TEST( new_hash_ele->slot == duplicate_slot );
 

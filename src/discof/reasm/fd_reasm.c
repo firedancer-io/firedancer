@@ -141,6 +141,24 @@ fd_reasm_delete( void * shreasm ) {
   return reasm;
 }
 
+fd_reasm_fec_t *
+fd_reasm_parent( fd_reasm_t *     reasm,
+                 fd_reasm_fec_t * fec ) {
+  return pool_ele( reasm->pool, fec->parent );
+}
+
+fd_reasm_fec_t *
+fd_reasm_child( fd_reasm_t *     reasm,
+                fd_reasm_fec_t * fec ) {
+  return pool_ele( reasm->pool, fec->parent );
+}
+
+fd_reasm_fec_t *
+fd_reasm_sibling( fd_reasm_t *     reasm,
+                  fd_reasm_fec_t * fec ) {
+  return pool_ele( reasm->pool, fec->parent );
+}
+
 fd_reasm_fec_t       * fd_reasm_root         ( fd_reasm_t       * reasm                                 ) { return pool_ele      ( reasm->pool, reasm->root      ); }
 fd_reasm_fec_t const * fd_reasm_root_const   ( fd_reasm_t const * reasm                                 ) { return pool_ele_const( reasm->pool, reasm->root      ); }
 fd_reasm_fec_t       * fd_reasm_parent       ( fd_reasm_t       * reasm, fd_reasm_fec_t       * child   ) { return pool_ele      ( reasm->pool, child->parent    ); }
@@ -202,7 +220,9 @@ link( fd_reasm_t     * reasm,
     fd_reasm_fec_t * curr = pool_ele( reasm->pool, parent->child );
     while( curr->sibling != pool_idx_null( reasm->pool ) ) curr = pool_ele( reasm->pool, curr->sibling );
     curr->sibling = pool_idx( reasm->pool, child ); /* set as right-sibling. */
-    if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* set to equivocating */
+    if( FD_UNLIKELY( !parent->slot_complete ) ) child->eqvoc = 1; /* only the last FEC set in a slot
+                                                                     can have multiple children and
+                                                                     be non-equivocating */
   }
 }
 
@@ -296,10 +316,11 @@ fd_reasm_insert( fd_reasm_t *      reasm,
      so we need to check that. */
 
   fd_reasm_fec_t * parent = NULL;
-  if(        FD_LIKELY( parent = ancestry_ele_query ( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
-    frontier_ele_insert( frontier, fec, pool );
-    out_push_tail( out, pool_idx( pool, fec ) );
-  } else if( FD_LIKELY( parent = frontier_ele_remove( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf    */
+  ulong            idx    = pool_idx( pool, fec );
+  if(        FD_LIKELY ( parent = ancestry_ele_query ( ancestry, &fec->cmr, NULL, pool ) ) ) { /* parent is connected non-leaf */
+    frontier_ele_insert( frontier, fec,    pool );
+    out_push_tail      ( out,      idx          );
+  } else if( FD_LIKELY ( parent = frontier_ele_remove( frontier, &fec->cmr, NULL, pool ) ) ) { /* parent is connected leaf     */
     ancestry_ele_insert( ancestry, parent, pool );
     frontier_ele_insert( frontier, fec,    pool );
     out_push_tail( out, pool_idx( pool, fec ) );
@@ -327,9 +348,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                        iter = subtreel_iter_fwd_next( iter, subtreel, pool ) ) {
     bfs_push_tail( bfs, subtreel_iter_idx( iter, subtreel, pool ) );
   }
-
-  /* connects subtrees to the new FEC */
-  while( FD_LIKELY( !bfs_empty( bfs ) ) ) {
+  while( FD_LIKELY( !bfs_empty( bfs ) ) ) { /* link orphan subtrees to the new FEC */
     fd_reasm_fec_t * orphan_root = pool_ele( reasm->pool, bfs_pop_head( bfs ) );
     overwrite_invalid_cmr( reasm, orphan_root ); /* handle receiving child before parent */
     if( FD_LIKELY( orphan_root && 0==memcmp( orphan_root->cmr.uc, fec->key.uc, sizeof(fd_hash_t) ) ) ) { /* this orphan_root is a direct child of fec */
@@ -342,16 +361,16 @@ fd_reasm_insert( fd_reasm_t *      reasm,
 
   /* At this point we are in a state where:
 
-       ele     < in frontier/subtrees/orphaned >
+       ele     ...in frontier/subtrees/orphaned
         |
-     children  < all in orphaned >
+     children  ...in orphaned
 
-     if ele is in orphaned/subtrees, we are done and this state is
-     correct.
-     if ele is an frontier, then we need to extend the
-     frontier from this ele. (make ele and all its children the ancestry,
-     except the leaf, which needs to be added to the frontier).
-     it's not possible for ele to be in ancestry at this point! */
+     If ele is in orphaned/subtrees, we are done.
+
+     If ele is in frontier, then we need to extend the frontier from
+     this ele.  Move ele and all its children to ancestry, except the
+     leaves, which need to be added to the frontier).  It's not possible
+     for ele to be in ancestry at this point. */
 
   /* Third, we advance the frontier beginning from this FEC, if it was
      connected.  By definition if this FEC was connected then its parent
