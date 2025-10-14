@@ -92,6 +92,41 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
   #undef KIBIBYTE_MUL_PAGES_SUB_1
 }
 
+static ulong
+fnv1a_hash( uchar * data, uint size ) {
+  #define FNV_OFFSET_BASIS  0xcbf29ce484222325UL
+  #define FNV_PRIME         0x100000001b3UL
+
+  ulong hash = FNV_OFFSET_BASIS;
+
+  for( uint i=0; i<size; i++ ) {
+    hash ^= data[i];
+    hash *= FNV_PRIME;
+  }
+
+  return hash;
+
+  #undef FNV_OFFSET_BASIS
+  #undef FNV_PRIME
+}
+
+static ulong
+hash_vm_memory( fd_vm_t * vm ) {
+  ulong hash = 0;
+
+  for( uint region_idx=FD_VM_PROG_REGION; region_idx<=FD_VM_INPUT_REGION; region_idx++ ) {
+    uint region_sz = vm->region_ld_sz[region_idx];
+    if( region_sz==0 ) {
+      continue;
+    }
+
+    ulong region_addr = vm->region_haddr[region_idx];
+    hash ^= fnv1a_hash( (uchar *)region_addr, region_sz );
+  }
+
+  return hash;
+}
+
 void
 fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
                           uint *                sbpf_max_version,
@@ -498,6 +533,10 @@ fd_bpf_execute( fd_exec_instr_ctx_t *            instr_ctx,
 
   int exec_err = fd_vm_exec( vm );
   instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
+
+  ulong mem_hash = hash_vm_memory( vm );
+  instr_ctx->txn_ctx->instr_vm_hashes[instr_ctx->txn_ctx->instr_vm_hashes_cnt] = mem_hash;
+  instr_ctx->txn_ctx->instr_vm_hashes_cnt++;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     err = fd_vm_trace_printf( vm->trace, vm->syscalls );

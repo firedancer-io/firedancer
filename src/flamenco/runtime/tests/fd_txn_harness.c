@@ -452,6 +452,10 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
     txn_result->executed_units                 = txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter;
 
+    txn_result->instr_vm_hashes_count          = (uint32_t) txn_ctx->instr_vm_hashes_cnt;
+    fd_memcpy( txn_result->instr_vm_hashes,
+               txn_ctx->instr_vm_hashes,
+               txn_ctx->instr_vm_hashes_cnt * sizeof( txn_ctx->instr_vm_hashes[0] ) );
 
     /* Rent is only collected on successfully loaded transactions */
     txn_result->rent                           = txn_ctx->collected_rent;
