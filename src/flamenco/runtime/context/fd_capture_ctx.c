@@ -14,19 +14,21 @@ fd_capture_ctx_new( void * mem ) {
     return NULL;
   }
 
-  fd_memset( mem, 0, fd_capture_ctx_footprint() );
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_capture_ctx_t *   capture_ctx = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),   sizeof(fd_capture_ctx_t) );
+  fd_solcap_writer_t * capture     = FD_SCRATCH_ALLOC_APPEND( l, fd_solcap_writer_align(), fd_solcap_writer_footprint() );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_capture_ctx_align() ) == (ulong)mem + fd_capture_ctx_footprint() );
 
-  /* TODO: use layout macros */
-  fd_capture_ctx_t * self = (fd_capture_ctx_t *) mem;
-  self->capture = (fd_solcap_writer_t *)((uchar *)mem + sizeof(fd_capture_ctx_t));
-  fd_solcap_writer_new( self->capture );
+  fd_memset( capture_ctx, 0, sizeof(fd_capture_ctx_t) );
 
-  self->account_updates_buffer     = (uchar *)mem + sizeof(fd_capture_ctx_t) + fd_solcap_writer_footprint();
-  self->account_updates_buffer_ptr = self->account_updates_buffer;
-  self->account_updates_len        = 0UL;
+  capture_ctx->capture = fd_solcap_writer_new( capture );
+  if( FD_UNLIKELY( !capture_ctx->capture ) ) {
+    FD_LOG_WARNING(( "failed to create solcap writer" ));
+    return NULL;
+  }
 
   FD_COMPILER_MFENCE();
-  self->magic = FD_CAPTURE_CTX_MAGIC;
+  FD_VOLATILE( capture_ctx->magic ) = FD_CAPTURE_CTX_MAGIC;
   FD_COMPILER_MFENCE();
 
   return mem;
@@ -80,6 +82,11 @@ fd_capture_ctx_delete( void * mem ) {
   if( FD_UNLIKELY( hdr->magic!=FD_CAPTURE_CTX_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
+  }
+
+  /* Clean up capctx_buf */
+  if( FD_LIKELY( hdr->capctx_buf ) ) {
+    fd_capctx_buf_leave( hdr->capctx_buf );
   }
 
   if( FD_UNLIKELY( fd_solcap_writer_delete( hdr->capture ) == NULL ) ) {

@@ -52,8 +52,7 @@ typedef struct fd_exec_tile_ctx {
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
-  uchar *               solcap_publish_buffer_ptr;
-  ulong                 account_updates_flushed;
+  fd_capctx_buf_t *     capctx_buf;
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
@@ -269,12 +268,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->spad_wksp     = ctx->exec_spad_wksp;
 
   /********************************************************************/
+  /* Capctx buffer                                                    */
+  /********************************************************************/
+  if (strlen(tile->exec.solcap_capture)) {
+    ulong capctx_buf_obj_id = fd_pod_query_ulong( topo->props, "capctx_buf", ULONG_MAX );
+    FD_TEST( capctx_buf_obj_id!=ULONG_MAX );
+    ctx->capctx_buf = fd_capctx_buf_join( fd_topo_obj_laddr( topo, capctx_buf_obj_id ) );
+    FD_TEST( ctx->capctx_buf );
+  }
+
+  /********************************************************************/
   /* Capture context                                                 */
   /********************************************************************/
 
   ctx->capture_ctx               = NULL;
-  ctx->solcap_publish_buffer_ptr = NULL;
-  ctx->account_updates_flushed   = 0UL;
   if( FD_UNLIKELY( strlen( tile->exec.solcap_capture ) || strlen( tile->exec.dump_proto_dir ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
 
@@ -287,60 +294,12 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->capture_ctx->dump_elf_to_pb        = tile->exec.dump_elf_to_pb;
     }
 
-    if( strlen( tile->exec.solcap_capture ) ) {
-      ctx->capture_ctx->capture_txns      = 0;
-      ctx->capture_ctx->solcap_start_slot = tile->exec.capture_start_slot;
-      ctx->account_updates_flushed        = 0;
-      ctx->solcap_publish_buffer_ptr      = ctx->capture_ctx->account_updates_buffer;
-    }
+    ctx->capture_ctx->capctx_buf = ctx->capctx_buf;
+
   }
 
   ctx->pending_txn_finalized_msg = 0;
-}
 
-/* Publish the next account update event buffered in the capture tile to the replay tile
-
-   TODO: remove this when solcap v2 is here. */
-static void
-publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
-                                         fd_stem_context_t *  stem ) {
-  if( FD_UNLIKELY( !ctx->capture_ctx ) ) {
-    return;
-  }
-
-  /* Copy the account update event to the buffer */
-  ulong chunk     = ctx->exec_replay_out->chunk;
-  uchar * out_ptr = fd_chunk_to_laddr( ctx->exec_replay_out->mem, chunk );
-  fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
-  memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
-  ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
-  out_ptr                        += sizeof(fd_capture_ctx_account_update_msg_t);
-
-  /* Copy the data to the buffer */
-  ulong data_sz = msg->data_sz;
-  memcpy( out_ptr, ctx->solcap_publish_buffer_ptr, data_sz );
-  ctx->solcap_publish_buffer_ptr += data_sz;
-  out_ptr                        += data_sz;
-
-  /* Stem publish the account update event */
-  ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
-  fd_stem_publish( stem, ctx->exec_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
-  ctx->exec_replay_out->chunk = fd_dcache_compact_next(
-    chunk,
-    msg_sz,
-    ctx->exec_replay_out->chunk0,
-    ctx->exec_replay_out->wmark );
-
-  /* Advance the number of account updates flushed */
-  ctx->account_updates_flushed++;
-
-  /* If we have published all the account updates, reset the buffer pointer and length */
-  if( ctx->account_updates_flushed == ctx->capture_ctx->account_updates_len ) {
-    ctx->capture_ctx->account_updates_buffer_ptr = ctx->capture_ctx->account_updates_buffer;
-    ctx->solcap_publish_buffer_ptr               = ctx->capture_ctx->account_updates_buffer;
-    ctx->capture_ctx->account_updates_len        = 0UL;
-    ctx->account_updates_flushed                 = 0UL;
-  }
 }
 
 /* Publish the txn finalized message to the replay tile */
@@ -369,10 +328,7 @@ after_credit( fd_exec_tile_ctx_t * ctx,
      any more fragments from the exec tiles before publishing our messages,
      so that solcap updates are not interleaved between slots.
    */
-  if( FD_UNLIKELY( ctx->capture_ctx && ctx->account_updates_flushed < ctx->capture_ctx->account_updates_len ) ) {
-    publish_next_capture_ctx_account_update( ctx, stem );
-    *opt_poll_in = 0;
-  } else if( ctx->pending_txn_finalized_msg ) {
+  if( ctx->pending_txn_finalized_msg ) {
     publish_txn_finalized_msg( ctx, stem );
     *opt_poll_in = 0;
   }

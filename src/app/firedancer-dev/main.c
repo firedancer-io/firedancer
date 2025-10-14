@@ -25,6 +25,7 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_exec_spad;
 extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
+extern fd_topo_obj_callbacks_t fd_obj_cb_capctx_buf;
 
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
@@ -44,6 +45,7 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
   &fd_obj_cb_bank_hash_cmp,
+  &fd_obj_cb_capctx_buf,
   NULL,
 };
 
@@ -101,6 +103,7 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
+extern fd_topo_run_tile_t fd_tile_captur;
 
 extern fd_topo_run_tile_t fd_tile_snaprd;
 extern fd_topo_run_tile_t fd_tile_snapdc;
@@ -152,6 +155,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapin,
   &fd_tile_genesi,
   &fd_tile_ipecho,
+  &fd_tile_captur,
   NULL,
 };
 

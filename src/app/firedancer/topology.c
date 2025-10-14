@@ -123,6 +123,13 @@ setup_topo_txncache( fd_topo_t *  topo,
   return obj;
 }
 
+fd_topo_obj_t *
+setup_topo_capctx_buf( fd_topo_t * topo, char const * wksp_name, char const * path ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "capctx_buf", wksp_name );
+  FD_TEST( fd_pod_insertf_cstr( topo->props, path, "obj.%lu.path", obj->id ) );
+  return obj;
+}
+
 static int
 resolve_address( char const * address,
                  uint       * ip_addr ) {
@@ -903,6 +910,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
     tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+    tile->replay.capctx_obj_id = fd_pod_query_ulong( config->topo.props, "capctx", ULONG_MAX );
 
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
 
@@ -927,6 +935,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->exec.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
     tile->exec.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+    tile->exec.capctx_obj_id = fd_pod_query_ulong( config->topo.props, "capctx", ULONG_MAX );
 
     tile->exec.max_live_slots = config->firedancer.runtime.max_live_slots;
 
@@ -1118,6 +1127,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
     tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
     strncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "captur" ) ) ) {
+
+    strncpy( tile->capctx.solcap_capture, config->capture.solcap_capture, sizeof(tile->capctx.solcap_capture) );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));
