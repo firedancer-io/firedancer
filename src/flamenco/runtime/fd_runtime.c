@@ -40,7 +40,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <errno.h>
 #include <fcntl.h>
 
 /******************************************************************************/
@@ -445,7 +444,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
-  fd_sysvar_clock_update( bank, funk, xid, capture_ctx, runtime_spad, &parent_epoch );
+  fd_sysvar_clock_update( bank, funk, xid, capture_ctx, &parent_epoch );
 
   // It has to go into the current txn previous info but is not in slot 0
   if( fd_bank_slot_get( bank ) != 0 ) {

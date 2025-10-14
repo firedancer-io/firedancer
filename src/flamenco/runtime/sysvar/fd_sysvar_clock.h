@@ -3,7 +3,7 @@
 
 /* The clock sysvar provides an approximate measure of network time. */
 
-#include "fd_sysvar_base.h"
+#include "../../../funk/fd_funk.h"
 #include "../../types/fd_types.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
@@ -39,7 +39,6 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
                         fd_funk_t *               funk,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
-                        fd_spad_t *               spad,
                         ulong const *             parent_epoch );
 
 /* Writes the current value of the clock sysvar to funk. */
