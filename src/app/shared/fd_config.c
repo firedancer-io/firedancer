@@ -389,6 +389,7 @@ fd_config_fill( fd_config_t * config,
 
   if(      FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "stable" ) ) ) config->development.gui.frontend_release_channel_enum = 0;
   else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "alpha"  ) ) ) config->development.gui.frontend_release_channel_enum = 1;
+  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "dev"    ) ) ) config->development.gui.frontend_release_channel_enum = 2;
   else FD_LOG_ERR(( "[development.gui.release_channel] %s not recognized", config->development.gui.frontend_release_channel ));
 
   if( FD_LIKELY( config->is_live_cluster) ) {
@@ -596,7 +597,7 @@ fd_config_load( int           is_firedancer,
   config->boot_timestamp_nanos = fd_log_wallclock();
 
   if( FD_UNLIKELY( is_firedancer ) ) {
-    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "alpha" );
+    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "dev" );
   } else {
     fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "stable" );
   }
