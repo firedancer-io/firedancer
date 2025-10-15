@@ -130,7 +130,7 @@ test_record_log( uchar const * record,
   case FD_TLS_MSG_ENCRYPTED_EXT:      type = "EncryptedExtensions"; break;
   case FD_TLS_MSG_CERT:               type = "Certificate";         break;
   case FD_TLS_MSG_CERT_VERIFY:        type = "CertificateVerify";   break;
-  case FD_TLS_MSG_CERT_REQ:           type = "CertificateRequest";  break;
+  case FD_TLS_MSG_CERT_REQUEST:       type = "CertificateRequest";  break;
   case FD_TLS_MSG_FINISHED:           type = "Finished";            break;
   case FD_TLS_MSG_NEW_SESSION_TICKET: type = "NewSessionTicket";    break;
   default:

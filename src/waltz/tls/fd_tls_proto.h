@@ -188,6 +188,17 @@ struct fd_tls_cert_verify {
 
 typedef struct fd_tls_cert_verify fd_tls_cert_verify_t;
 
+/* fd_tls_cert_req_t describes a CertificateRequest (RFC 8446, Section
+   4.3.2). The only extension this implementation currently supports is
+   signature_algorithms. */
+
+struct fd_tls_cert_request {
+  fd_tls_ext_opaque_t certificate_request_context;
+  fd_tls_ext_signature_algorithms_t signature_algorithms;
+};
+
+typedef struct fd_tls_cert_request fd_tls_cert_request_t;
+
 /* fd_tls_finished_t matches the wire representation of Finished (RFC
    8446, Section 4.4.4).  Only supports TLS cipher suites with 32 byte
    hash output size. */
@@ -279,7 +290,7 @@ typedef struct fd_tls_finished fd_tls_finished_t;
 #define FD_TLS_MSG_NEW_SESSION_TICKET ((uchar)  4)
 #define FD_TLS_MSG_ENCRYPTED_EXT      ((uchar)  8)
 #define FD_TLS_MSG_CERT               ((uchar) 11)
-#define FD_TLS_MSG_CERT_REQ           ((uchar) 13)
+#define FD_TLS_MSG_CERT_REQUEST       ((uchar) 13)
 #define FD_TLS_MSG_CERT_VERIFY        ((uchar) 15)
 #define FD_TLS_MSG_FINISHED           ((uchar) 20)
 
@@ -460,6 +471,11 @@ fd_tls_encode_cert_verify( fd_tls_cert_verify_t const * in,
                            uchar *                      wire,
                            ulong                        wire_sz );
 
+long
+fd_tls_encode_cert_request( fd_tls_cert_request_t const *   in,
+                            uchar *                     wire,
+                            ulong                       wire_sz );
+
 static inline void
 fd_tls_cert_verify_bswap( fd_tls_cert_verify_t * x ) {
   x->sig_alg = fd_ushort_bswap( x->sig_alg );
@@ -484,6 +500,11 @@ long
 fd_tls_decode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t * out,
                                         uchar const *                       wire,
                                         ulong                               wire_sz );
+
+long
+fd_tls_encode_ext_signature_algorithms( fd_tls_ext_signature_algorithms_t const * in,
+                                        uchar *                                   wire,
+                                        ulong                                     wire_sz );
 
 long
 fd_tls_decode_key_share( fd_tls_key_share_t * out,
@@ -523,6 +544,11 @@ fd_tls_encode_ext_cert_type( fd_tls_ext_cert_type_t in,
 long
 fd_tls_decode_ext_opaque( fd_tls_ext_opaque_t * const out,
                           uchar const *         const wire,
+                          ulong                       wire_sz );
+
+long
+fd_tls_encode_ext_opaque( fd_tls_ext_opaque_t const * in,
+                          uchar *                     wire,
                           ulong                       wire_sz );
 
 static inline long
