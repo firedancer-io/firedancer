@@ -136,12 +136,12 @@ typedef struct ts_est_ele ts_est_ele_t;
   https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
 long
 get_timestamp_estimate( fd_bank_t *             bank,
-                        fd_sol_sysvar_clock_t * clock  ) {
+                        fd_sol_sysvar_clock_t * clock ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       slot_duration  = (ulong)fd_bank_ns_per_slot_get( bank );
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
-  static ts_est_ele_t ts_eles[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  static FD_TL ts_est_ele_t ts_eles[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   ulong ts_ele_cnt = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
