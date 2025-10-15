@@ -607,7 +607,7 @@ LIVE_TABLE_(leave)( LIVE_TABLE_(t) * join ) {
 
   LIVE_TABLE_(private_dlist_delete)( LIVE_TABLE_(private_dlist_leave)( join->dlist ) );
   for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( join->treaps_is_active[ i ] ) ) continue;
+    if( FD_LIKELY( !join->treaps_is_active[ i ] ) ) continue;
     LIVE_TABLE_(private_active_sort_key_idx) = i;
     FD_TEST( LIVE_TABLE_(private_treap_delete)( LIVE_TABLE_(private_treap_leave)( join->treaps[ i ] ) ) );
   }

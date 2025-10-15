@@ -156,6 +156,8 @@ main( int argc, char ** argv ) {
   FD_TEST( 1==test_live_table_lt( &(test_live_table_sort_key_t){ .col = { 0, 1, 2 }, .dir =  {  0, 1, 0 } }, &(test_live_table_row_t){ .key = { .uc = { 1UL } }, .ipv4 = 0, .counter = 1 }, &(test_live_table_row_t){ .key = { .uc = { 0UL } }, .ipv4 = 1, .counter = 0 } ) );
   FD_TEST( 0==test_live_table_lt( &(test_live_table_sort_key_t){ .col = { 0, 1, 2 }, .dir =  {  0, 1, 0 } }, &(test_live_table_row_t){ .key = { .uc = { 0UL } }, .ipv4 = 1, .counter = 0 }, &(test_live_table_row_t){ .key = { .uc = { 1UL } }, .ipv4 = 0, .counter = 1 } ) );
 
+  FD_TEST( test_live_table_delete( test_live_table_leave( table ) ) );
+
   FD_LOG_INFO(( "PASSED" ));
   return 0;
 }
