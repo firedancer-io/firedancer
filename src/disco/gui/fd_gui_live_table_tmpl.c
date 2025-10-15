@@ -272,7 +272,7 @@ static ulong LIVE_TABLE_(private_active_sort_key_idx) = ULONG_MAX;
 
 static int
 LIVE_TABLE_(private_row_lt)(LIVE_TABLE_ROW_T const * a, LIVE_TABLE_ROW_T const * b) {
-  FD_TEST( LIVE_TABLE_(private_active_sort_key_idx) < LIVE_TABLE_MAX_SORT_KEY_CNT+1UL );
+  FD_TEST( LIVE_TABLE_(private_active_sort_key_idx) < LIVE_TABLE_MAX_SORT_KEY_CNT );
 
   LIVE_TABLE_(sort_key_t) const * active_sort_key = &((LIVE_TABLE_(sort_key_t) *)(a->LIVE_TABLE_SORT_KEYS))[ LIVE_TABLE_(private_active_sort_key_idx) ];
 
