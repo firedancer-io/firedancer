@@ -108,11 +108,11 @@ Typical usage:
      ulong mytable_ele_max( mytable_t const * table );
      ulong mytable_ele_cnt( mytable_t const * table );
 
-     mytable_t * mytable_idx_insert( mytable_t * table, ulong     n, myrow_t * pool );
-     mytable_t * mytable_idx_remove( mytable_t * table, ulong     d, myrow_t * pool );
+     myrow_t * mytable_idx_insert( mytable_t * table, ulong n, myrow_t * pool );
+     void      mytable_idx_remove( mytable_t * table, ulong d, myrow_t * pool );
 
-     mytable_t * mytable_ele_insert( mytable_t * table, myrow_t * n, myrow_t * pool );
-     mytable_t * mytable_ele_remove( mytable_t * table, myrow_t * d, myrow_t * pool );
+     myrow_t *  mytable_ele_insert( mytable_t * table, myrow_t * n, myrow_t * pool );
+     void       mytable_ele_remove( mytable_t * table, myrow_t * d, myrow_t * pool );
 
      void mytable_seed( myrow_t * pool, ulong ele_max, ulong seed );
 
@@ -180,12 +180,12 @@ Typical usage:
      // pool is a pointer in the caller's address space to the ele_max
      // linearly addressable storage region backing the table.
 
-     int                 mytable_fwd_iter_done     ( mytable_fwd_iter_t iter                                                        );
-     ulong               mytable_fwd_iter_idx      ( mytable_fwd_iter_t iter                                                        );
-     mytable_fwd_iter_t  mytable_fwd_iter_init     ( mytable_t * join, mytable_sort_key_t const * sort_key                          );
-     mytable_fwd_iter_t  mytable_fwd_iter_next     ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter );
-     myrow_t *           mytable_fwd_iter_ele      ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter );
-     myrow_t const *     mytable_fwd_iter_ele_const( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter );
+     int                 mytable_fwd_iter_done     ( mytable_fwd_iter_t iter                                                                        );
+     ulong               mytable_fwd_iter_idx      ( mytable_fwd_iter_t iter                                                                        );
+     mytable_fwd_iter_t  mytable_fwd_iter_init     ( mytable_t * join, mytable_sort_key_t const * sort_key,                          myrow_t * pool );
+     mytable_fwd_iter_t  mytable_fwd_iter_next     ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter, myrow_t * pool );
+     myrow_t *           mytable_fwd_iter_ele      ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter, myrow_t * pool );
+     myrow_t const *     mytable_fwd_iter_ele_const( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter, myrow_t * pool );
 */
 
 #ifndef LIVE_TABLE_NAME
@@ -345,7 +345,7 @@ LIVE_TABLE_STATIC LIVE_TABLE_ROW_T * LIVE_TABLE_(idx_insert)( LIVE_TABLE_(t) * j
 LIVE_TABLE_STATIC void               LIVE_TABLE_(idx_remove)( LIVE_TABLE_(t) * join, ulong pool_idx, LIVE_TABLE_ROW_T * pool );
 
 LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t) LIVE_TABLE_(fwd_iter_next)( LIVE_TABLE_(fwd_iter_t) iter, LIVE_TABLE_ROW_T const * pool );
-LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t) LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool );
+LIVE_TABLE_STATIC            LIVE_TABLE_(fwd_iter_t) LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool );
 
 LIVE_TABLE_STATIC int LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * table, LIVE_TABLE_ROW_T const * pool );
 
@@ -673,7 +673,7 @@ LIVE_TABLE_(sort_key_remove)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) con
   join->treaps[ sort_key_idx ] = NULL;
 }
 
-LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t)
+LIVE_TABLE_STATIC LIVE_TABLE_(fwd_iter_t)
 LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool ) {
   ulong sort_key_idx = LIVE_TABLE_(private_query_sort_key)( join, sort_key );
   if( FD_UNLIKELY( sort_key_idx==ULONG_MAX ) ) {
