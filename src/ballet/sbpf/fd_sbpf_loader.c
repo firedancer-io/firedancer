@@ -1146,10 +1146,10 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
     if( dynamic_table_start==ULONG_MAX && info->shndx_dyn >= 0 ) {
       fd_elf64_shdr dyn_sh = FD_LOAD( fd_elf64_shdr, bin + shdr_start + (ulong)info->shndx_dyn*sizeof(fd_elf64_shdr) );
       dynamic_table_start = dyn_sh.sh_offset;
-      dynamic_table_end = dyn_sh.sh_offset + dyn_sh.sh_size;
-      if( FD_UNLIKELY( ( dynamic_table_end < dynamic_table_start )
-                    |  ( dynamic_table_end > bin_sz )
-                    |  ( dyn_sh.sh_size % sizeof(fd_elf64_dyn) != 0UL ) ) ) {
+      if( FD_UNLIKELY( ( __builtin_uaddl_overflow( dyn_sh.sh_offset, dyn_sh.sh_size, &dynamic_table_end ) ) || /* checked_add */
+                       ( dyn_sh.sh_size % sizeof(fd_elf64_dyn) != 0UL ) || /* slice_from_bytes InvalidSize */
+                       ( dynamic_table_end > bin_sz )                   || /* slice_from_bytes OutOfBounds */
+                       !fd_ulong_is_aligned( dynamic_table_start, 8UL )    /* slice_from_bytes InvalidAlignment */ ) ) {
         /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L382-L385 */
         return FD_SBPF_ELF_PARSER_ERR_INVALID_DYNAMIC_SECTION_TABLE;
       }
@@ -1270,11 +1270,23 @@ fd_sbpf_lenient_elf_parse( fd_sbpf_elf_info_t * info,
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SECTION_HEADER;
         }
         ulong shdr_sym_start = shdr_sym.sh_offset;
-        ulong shdr_sym_end = shdr_sym.sh_offset + shdr_sym.sh_size;
-        if( FD_UNLIKELY( ( shdr_sym_end < shdr_sym_start )
-                      |  ( shdr_sym_end > bin_sz )
-                      |  ( shdr_sym.sh_size % sizeof(fd_elf64_sym) != 0UL ) ) ) {
+        ulong shdr_sym_end;
+        /* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L574
+           https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/elf_parser/mod.rs#L671 */
+        if( FD_UNLIKELY( __builtin_uaddl_overflow( shdr_sym.sh_offset, shdr_sym.sh_size, &shdr_sym_end ) ) ) {
+          return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+        }
+        /* slice_from_bytes InvalidSize */
+        if( FD_UNLIKELY( shdr_sym.sh_size%sizeof(fd_elf64_sym) ) ) {
           return FD_SBPF_ELF_PARSER_ERR_INVALID_SIZE;
+        }
+        /* slice_from_bytes OutOfBounds */
+        if( FD_UNLIKELY( shdr_sym_end>bin_sz ) ) {
+          return FD_SBPF_ELF_PARSER_ERR_OUT_OF_BOUNDS;
+        }
+        /* slice_from_bytes InvalidAlignment */
+        if( FD_UNLIKELY( !fd_ulong_is_aligned( shdr_sym_start, 8UL ) ) ) {
+          return FD_SBPF_ELF_PARSER_ERR_INVALID_ALIGNMENT;
         }
       }
     } while( 0 ); /* so we can break out */
