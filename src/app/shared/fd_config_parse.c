@@ -313,7 +313,9 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
 
-  CFG_POP      ( bool,   development.gui.websocket_compression            );
+  if( FD_UNLIKELY( !config->is_firedancer ) ) {
+    CFG_POP    ( bool,   development.gui.websocket_compression            );
+  }
   CFG_POP      ( cstr,   development.gui.frontend_release_channel         );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
