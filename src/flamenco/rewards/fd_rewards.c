@@ -501,10 +501,10 @@ calculate_stake_vote_rewards_account( fd_bank_t *                               
       / written to once among all threads. */
 
 
-    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele_acquire( result->stake_reward_calculation.pool );
-    if( FD_UNLIKELY( !stake_reward ) ) {
+    if( FD_UNLIKELY( !fd_stake_reward_calculation_pool_free( result->stake_reward_calculation.pool ) ) ) {
       FD_LOG_CRIT(( "insufficient space allocated for stake reward calculation pool" ));
     }
+    fd_stake_reward_t * stake_reward = fd_stake_reward_calculation_pool_ele_acquire( result->stake_reward_calculation.pool );
 
     fd_memcpy( stake_reward->stake_pubkey.uc, &stake_delegation->stake_account, sizeof(fd_pubkey_t) );
     stake_reward->lamports         = calculated_stake_rewards->staker_rewards;
@@ -856,7 +856,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     }
 
     fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
-    FD_TXN_ACCOUNT_DECL( vote_rec );
+    fd_txn_account_t vote_rec[1];
     fd_funk_rec_prepare_t prepare = {0};
 
     if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( vote_rec,
@@ -922,7 +922,7 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
                                       fd_pubkey_t *             stake_pubkey,
                                       ulong                     reward_lamports,
                                       ulong                     new_credits_observed ) {
-  FD_TXN_ACCOUNT_DECL( stake_acc_rec );
+  fd_txn_account_t stake_acc_rec[1];
   fd_funk_rec_prepare_t prepare = {0};
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( stake_acc_rec,
                                                           stake_pubkey,

@@ -28,6 +28,7 @@
 #include "../../../ballet/lthash/fd_lthash.h"
 #include "../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../disco/pack/fd_pack_cost.h"
+#include "../../../flamenco/progcache/fd_progcache_admin.h"
 
 #include "../main.h"
 
@@ -77,8 +78,15 @@ backtest_topo( config_t * config ) {
       config->firedancer.funk.max_database_transactions,
       config->firedancer.funk.heap_size_gib,
       config->firedancer.funk.lock_pages );
-
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  fd_topob_wksp( topo, "progcache" );
+  fd_topo_obj_t * progcache_obj = setup_topo_progcache( topo, "progcache",
+      fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
+                                config->firedancer.runtime.program_cache.mean_cache_entry_size ),
+      config->firedancer.funk.max_database_transactions,
+      config->firedancer.runtime.program_cache.heap_size_mib<<20 );
+  fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */

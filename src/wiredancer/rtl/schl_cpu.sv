@@ -639,7 +639,7 @@ module shcl_cpu
           mem_t_wr_en   <= '0;
         end
       end
-      // Prioritize writes from ALU over input as we don't want to backpress the pipline...
+      // Prioritize writes from ALU over input as we don't want to backpress the pipeline...
       else if (mem_man_valid) begin 
         mem_d_wr_data <= mem_man_data;
         mem_d_wr_addr <= mem_man_addr;

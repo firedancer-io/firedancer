@@ -34,6 +34,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_funk_txn_prepare( funk, &parent_xid, xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, xid );
 
   /* Allocate contexts */
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
@@ -70,17 +71,22 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memset( fd_blockhash_deq_push_tail_nocopy( blockhashes->d.deque ), 0, sizeof(fd_hash_t) );
 
   /* Set up mock txn descriptor */
-  fd_txn_p_t * txn                    = fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
+  fd_txn_p_t * txn                    = fd_spad_alloc_check( runner->spad, fd_txn_align(), fd_txn_footprint( 1UL, 0UL ) );
   fd_txn_t *   txn_descriptor         = TXN( txn );
   txn_descriptor->transaction_version = FD_TXN_V0;
   txn_descriptor->acct_addr_cnt       = (ushort)test_ctx->accounts_count;
 
+  uchar * progcache_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+
   fd_exec_txn_ctx_setup( runner->bank,
-                         runner->funk,
+                         runner->funk->shmem,
+                         runner->progcache->funk->shmem,
                          xid,
                          NULL,
                          txn_ctx,
-                         NULL );
+                         NULL,
+                         progcache_scratch,
+                         FD_PROGCACHE_SCRATCH_FOOTPRINT );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   txn_ctx->txn                                       = *txn;
@@ -249,9 +255,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     }
   }
 
-  /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, funk, xid, test_ctx->accounts, test_ctx->accounts_count, runner->spad );
-
   /* Load instruction accounts */
 
   if( FD_UNLIKELY( test_ctx->instr_accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
@@ -308,11 +311,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Refresh the setup from the updated slot and epoch ctx. */
   fd_exec_txn_ctx_setup( runner->bank,
-                         runner->funk,
+                         runner->funk->shmem,
+                         runner->progcache->funk->shmem,
                          xid,
                          NULL,
                          txn_ctx,
-                         NULL );
+                         NULL,
+                         progcache_scratch,
+                         FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( txn_ctx->account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
@@ -320,15 +326,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   return 1;
 }
 
-
-
 void
 fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_funk_txn_cancel_all( runner->funk );
+  fd_progcache_clear( runner->progcache_admin );
 }
-
 
 ulong
 fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,

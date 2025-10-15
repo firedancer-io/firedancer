@@ -4,7 +4,6 @@
 #include "../fd_runtime.h"
 #include "../fd_system_ids.h"
 #include "../fd_txn_account.h"
-#include "../info/fd_runtime_block_info.h"
 #include "../program/fd_stake_program.h"
 #include "../program/fd_vote_program.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
@@ -50,7 +49,7 @@ fd_runtime_fuzz_block_register_vote_account( fd_funk_t  *              funk,
                                              fd_vote_states_t *        vote_states,
                                              fd_pubkey_t *             pubkey,
                                              fd_spad_t *               spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
   }
@@ -91,7 +90,7 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_funk_t *               funk,
                                                  fd_funk_txn_xid_t const * xid,
                                                  fd_stake_delegations_t *  stake_delegations,
                                                  fd_pubkey_t *             pubkey ) {
- FD_TXN_ACCOUNT_DECL( acc );
+ fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
   }
@@ -162,13 +161,15 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_funk_txn_cancel_all( runner->funk );
+  fd_progcache_clear( runner->progcache_admin );
 }
 
 /* Sets up block execution context from an input test case to execute against the runtime.
    Returns block_info on success and NULL on failure. */
-static fd_runtime_block_info_t *
+static fd_txn_p_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
-                                  fd_exec_test_block_context_t const * test_ctx ) {
+                                  fd_exec_test_block_context_t const * test_ctx,
+                                  ulong *                              out_txn_cnt ) {
   fd_funk_t *  funk  = runner->funk;
   fd_bank_t *  bank  = runner->bank;
   fd_banks_t * banks = runner->banks;
@@ -182,6 +183,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_funk_txn_prepare( funk, &parent_xid, xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, xid );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -191,7 +193,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_features_set( bank, features );
 
   /* Set up slot context */
-  ulong slot = test_ctx->slot_ctx.slot;
+  ulong slot        = test_ctx->slot_ctx.slot;
+  ulong parent_slot = test_ctx->slot_ctx.prev_slot;
 
   fd_hash_t * bank_hash = fd_bank_bank_hash_modify( bank );
   fd_memcpy( bank_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof(fd_hash_t) );
@@ -200,7 +203,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_slot_set( bank, slot );
 
-  fd_bank_parent_slot_set( bank, test_ctx->slot_ctx.prev_slot );
+  fd_bank_parent_slot_set( bank, parent_slot );
 
   fd_bank_block_height_set( bank, test_ctx->slot_ctx.block_height );
 
@@ -263,7 +266,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Load in all accounts with > 0 lamports provided in the context. The input expects unique account pubkeys. */
   vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-    FD_TXN_ACCOUNT_DECL(acc);
+    fd_txn_account_t acc[1];
     fd_runtime_fuzz_load_account( acc, funk, xid, &test_ctx->acct_states[i], 1 );
 
     /* Update vote accounts cache for epoch T */
@@ -297,11 +300,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( rent );
   fd_bank_rent_set( bank, *rent );
 
-  fd_bank_epoch_set( bank, fd_slot_to_epoch( epoch_schedule, slot, NULL ) );
-
-
-  /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( bank, funk, xid, test_ctx->acct_states, test_ctx->acct_states_count, runner->spad );
+  /* Current epoch gets updated in process_new_epoch, so use the epoch
+     from the parent slot */
+  fd_bank_epoch_set( bank, fd_slot_to_epoch( epoch_schedule, parent_slot, NULL ) );
 
   /* Update vote cache for epoch T-1 */
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
@@ -348,6 +349,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
   fd_funk_txn_prepare( funk, xid, &fork_xid );
+  fd_progcache_txn_prepare( runner->progcache_admin, xid, &fork_xid );
   xid[0] = fork_xid;
 
   /* Reset the lthash to zero, because we are in a new Funk transaction now */
@@ -370,32 +372,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_sysvar_cache_restore_fuzz( bank, funk, xid );
 
   /* Prepare raw transaction pointers and block / microblock infos */
-  ulong txn_cnt = test_ctx->txns_count;
-
-  // For fuzzing, we're using a single microblock batch that contains a single microblock containing all transactions
-  fd_runtime_block_info_t *    block_info       = fd_spad_alloc( runner->spad, alignof(fd_runtime_block_info_t), sizeof(fd_runtime_block_info_t) );
-  fd_microblock_batch_info_t * batch_info       = fd_spad_alloc( runner->spad, alignof(fd_microblock_batch_info_t), sizeof(fd_microblock_batch_info_t) );
-  fd_microblock_info_t *       microblock_info  = fd_spad_alloc( runner->spad, alignof(fd_microblock_info_t), sizeof(fd_microblock_info_t) );
-  fd_memset( block_info, 0, sizeof(fd_runtime_block_info_t) );
-  fd_memset( batch_info, 0, sizeof(fd_microblock_batch_info_t) );
-  fd_memset( microblock_info, 0, sizeof(fd_microblock_info_t) );
-
-  block_info->microblock_batch_cnt   = 1UL;
-  block_info->microblock_cnt         = 1UL;
-  block_info->microblock_batch_infos = batch_info;
-
-  batch_info->microblock_cnt         = 1UL;
-  batch_info->microblock_infos       = microblock_info;
-
-  ulong batch_signature_cnt          = 0UL;
-  ulong batch_txn_cnt                = 0UL;
-  ulong batch_account_cnt            = 0UL;
-  ulong signature_cnt                = 0UL;
-  ulong account_cnt                  = 0UL;
-
-  fd_microblock_hdr_t * microblock_hdr = fd_spad_alloc( runner->spad, alignof(fd_microblock_hdr_t), sizeof(fd_microblock_hdr_t) );
-  fd_memset( microblock_hdr, 0, sizeof(fd_microblock_hdr_t) );
-
+  ulong        txn_cnt  = test_ctx->txns_count;
   fd_txn_p_t * txn_ptrs = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn    = &txn_ptrs[i];
@@ -411,35 +388,20 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
     if( FD_UNLIKELY( !fd_txn_parse( txn->payload, msg_sz, TXN( txn ), NULL ) ) ) {
       return NULL;
     }
-
-    signature_cnt += TXN( txn )->signature_cnt;
-    account_cnt   += fd_txn_account_cnt( TXN( txn ), FD_TXN_ACCT_CAT_ALL );
   }
 
-  microblock_hdr->txn_cnt         = txn_cnt;
-  microblock_info->microblock.raw = (uchar *)microblock_hdr;
-
-  microblock_info->signature_cnt  = signature_cnt;
-  microblock_info->account_cnt    = account_cnt;
-  microblock_info->txns           = txn_ptrs;
-
-  batch_signature_cnt            += signature_cnt;
-  batch_txn_cnt                  += txn_cnt;
-  batch_account_cnt              += account_cnt;
-
-  block_info->signature_cnt = batch_info->signature_cnt = batch_signature_cnt;
-  block_info->txn_cnt       = batch_info->txn_cnt       = batch_txn_cnt;
-  block_info->account_cnt   = batch_info->account_cnt   = batch_account_cnt;
-
-  return block_info;
+  *out_txn_cnt = txn_cnt;
+  return txn_ptrs;
 }
 
-/* Takes in a block_info created from `fd_runtime_fuzz_block_ctx_create()`
-   and executes it against the runtime. Returns the execution result. */
+/* Takes in a list of txn_p_t created from
+   fd_runtime_fuzz_block_ctx_create and executes it against the runtime.
+   Returns the execution result. */
 static int
-fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
-                                fd_funk_txn_xid_t const *  xid,
-                                fd_runtime_block_info_t *  block_info ) {
+fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
+                                fd_funk_txn_xid_t const * xid,
+                                fd_txn_p_t *              txn_ptrs,
+                                ulong                     txn_cnt ) {
   int res = 0;
 
   // Prepare. Execute. Finalize.
@@ -468,15 +430,9 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       return res;
     }
 
-    fd_txn_p_t * txn_ptrs = block_info->microblock_batch_infos[0].microblock_infos[0].txns;
-    ulong        txn_cnt  = block_info->microblock_batch_infos[0].txn_cnt;
-
     /* Sequential transaction execution */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = &txn_ptrs[i];
-
-      /* Update the program cache */
-      fd_runtime_update_program_cache( runner->bank, runner->funk, xid, txn, runner->spad );
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
@@ -490,6 +446,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *      runner,
       /* Finalize the transaction */
       fd_runtime_finalize_txn(
           runner->funk,
+          runner->progcache,
           NULL,
           xid,
           txn_ctx,
@@ -521,8 +478,9 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Set up the block execution context */
-    fd_runtime_block_info_t * block_info = fd_runtime_fuzz_block_ctx_create( runner, input );
-    if( block_info==NULL ) {
+    ulong txn_cnt;
+    fd_txn_p_t * txn_ptrs = fd_runtime_fuzz_block_ctx_create( runner, input, &txn_cnt );
+    if( txn_ptrs==NULL ) {
       fd_runtime_fuzz_block_ctx_destroy( runner );
       return 0;
     }
@@ -530,7 +488,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), fd_bank_slot_get( runner->bank ) } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, block_info );
+    int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

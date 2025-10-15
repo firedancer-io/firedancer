@@ -129,7 +129,6 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
         .hash = fd_bank_bank_hash_get( bank ), // parent hash?
         .slot = fd_bank_parent_slot_get( bank ),   // parent_slot
       };
-      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
 
       if( deq_fd_slot_hash_t_full( hashes ) )
         memset( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), 0, sizeof(fd_slot_hash_t) );
@@ -146,7 +145,7 @@ fd_slot_hashes_global_t *
 fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
                             fd_spad_t *               spad ) {
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   int err = fd_txn_account_init_from_funk_readonly( rec, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;

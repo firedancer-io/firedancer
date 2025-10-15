@@ -21,7 +21,7 @@
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
-#include "../../funk/fd_funk.h" /* funk_footprint() */
+#include "../../flamenco/progcache/fd_progcache_admin.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -95,6 +95,35 @@ setup_topo_funk( fd_topo_t *  topo,
   if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", funk_footprint ));
   wksp->part_max += part_max;
   wksp->is_locked = lock_pages;
+
+  return obj;
+}
+
+fd_topo_obj_t *
+setup_topo_progcache( fd_topo_t *  topo,
+                      char const * wksp_name,
+                      ulong        max_cache_entries,
+                      ulong        max_database_transactions,
+                      ulong        heap_size ) {
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "funk", wksp_name );
+  FD_TEST( fd_pod_insert_ulong(  topo->props, "progcache", obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_cache_entries,         "obj.%lu.rec_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, max_database_transactions, "obj.%lu.txn_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, heap_size,                 "obj.%lu.heap_max", obj->id ) );
+  ulong funk_footprint = fd_funk_footprint( max_database_transactions, max_cache_entries );
+  if( FD_UNLIKELY( !funk_footprint ) ) FD_LOG_ERR(( "Invalid [runtime.program_cache] parameters" ));
+  if( FD_UNLIKELY( heap_size<(2*funk_footprint) ) ) {
+    FD_LOG_ERR(( "Invalid [runtime.program_cache] parameters: heap_size_mib should be at least %lu",
+                 ( 4*funk_footprint )>>20 ));
+  }
+
+  /* Increase workspace partition count */
+  ulong wksp_idx = fd_topo_find_wksp( topo, wksp_name );
+  FD_TEST( wksp_idx!=ULONG_MAX );
+  fd_topo_wksp_t * wksp = &topo->workspaces[ wksp_idx ];
+  ulong part_max = fd_wksp_part_max_est( heap_size, 1U<<14U );
+  if( FD_UNLIKELY( !part_max ) ) FD_LOG_ERR(( "fd_wksp_part_max_est(%lu,16KiB) failed", funk_footprint ));
+  wksp->part_max += part_max;
 
   return obj;
 }
@@ -276,8 +305,8 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "poh_shred"    );
   fd_topob_wksp( topo, "poh_replay"   );
 
-  /* TODO: WTF are these for? */
   fd_topob_wksp( topo, "funk"         );
+  fd_topob_wksp( topo, "progcache"    );
   fd_topob_wksp( topo, "bh_cmp"       );
   fd_topob_wksp( topo, "fec_sets"     );
   fd_topob_wksp( topo, "txncache"     );
@@ -708,6 +737,15 @@ fd_topo_initialize( config_t * config ) {
   FOR(resolv_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "resolv", i   ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
   FD_TEST( fd_pod_insertf_ulong( topo->props, banks_obj->id, "banks" ) );
 
+  fd_topo_obj_t * progcache_obj = setup_topo_progcache( topo, "progcache",
+      fd_progcache_est_rec_max( config->firedancer.runtime.program_cache.heap_size_mib<<20,
+                                config->firedancer.runtime.program_cache.mean_cache_entry_size ),
+      config->firedancer.funk.max_database_transactions,
+      config->firedancer.runtime.program_cache.heap_size_mib<<20 );
+  /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+
   /* TODO: This should not exist in production */
   fd_topo_obj_t * bank_hash_cmp_obj = setup_topo_bank_hash_cmp( topo, "bh_cmp" );
   /**/               fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -901,8 +939,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
 
-    tile->replay.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
-    tile->replay.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+    tile->replay.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
+    tile->replay.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->replay.funk_obj_id     !=ULONG_MAX );
+    tile->replay.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->replay.progcache_obj_id!=ULONG_MAX );
 
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
 
@@ -925,8 +964,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {
 
-    tile->exec.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    tile->exec.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+    tile->exec.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->exec.funk_obj_id     !=ULONG_MAX );
+    tile->exec.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->exec.txncache_obj_id !=ULONG_MAX );
+    tile->exec.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->exec.progcache_obj_id!=ULONG_MAX );
 
     tile->exec.max_live_slots = config->firedancer.runtime.max_live_slots;
 
@@ -999,8 +1039,9 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
-    tile->bank.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
-    tile->bank.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+    tile->bank.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX );
+    tile->bank.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX );
+    tile->bank.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX );
 
     tile->bank.max_live_slots = config->firedancer.runtime.max_live_slots;
 

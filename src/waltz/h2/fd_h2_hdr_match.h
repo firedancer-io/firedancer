@@ -72,7 +72,7 @@ extern FD_TL ulong fd_h2_hdr_match_seed;
 #include "../../util/tmpl/fd_map.c"
 
 /* A h2_hdr_matcher is used to build a hash table for common header
-   names.  It is primarly designed for compile-time static lists of
+   names.  It is primarily designed for compile-time static lists of
    headers that a user might be interested in.  The user should not
    insert arbitrary entries into the map. */
 

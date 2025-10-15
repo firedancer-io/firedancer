@@ -146,7 +146,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxh, r5, r2, 0                          );  // r5 = gre_hdr->flags/version
   *(code++) = FD_EBPF( jne_imm, r5, 0x0000, LBL_PASS            );  // if gre_hdr->flags/version != 0, goto LBL_PASS
   *(code++) = FD_EBPF( ldxh, r5, r2, 2                          );  // r5 = gre_hdr->protocol
-  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if gre_hdr->protocl != IP, goto LBL_PASS
+  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if gre_hdr->protocol != IP, goto LBL_PASS
 
 
   /* Advance r2 to start of inner ip4_hdr */

@@ -30,7 +30,7 @@ module cl_dram_dma #(parameter NUM_DDR=4)
 // TIE OFF ALL UNUSED INTERFACES
 // Including all the unused interface to tie off
 // This list is put in the top of the fie to remind
-// developers to remve the specific interfaces
+// developers to remove the specific interfaces
 // that the CL will use
 
 `include "unused_flr_template.inc"

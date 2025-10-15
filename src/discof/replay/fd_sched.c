@@ -136,9 +136,12 @@ struct fd_sched {
   fd_sched_metrics_t  metrics[ 1 ];
   ulong               canary; /* == FD_SCHED_MAGIC */
   ulong               block_cnt_max; /* Immutable. */
+  ulong               exec_cnt;      /* Immutable. */
   long                txn_in_flight_last_tick;
   ulong               root_idx;
   fd_rdisp_t *        rdisp;
+  ulong               txn_exec_ready_bitset[ 1 ];
+  ulong               sigverify_ready_bitset[ 1 ];
   ulong               active_bank_idx; /* Index of the actively replayed block, or ULONG_MAX if no block is
                                           actively replayed; has to have a transaction to dispatch; staged
                                           blocks that have no transactions to dispatch are not eligible for
@@ -292,8 +295,8 @@ print_metrics( fd_sched_t * sched ) {
 
 FD_FN_UNUSED static void
 print_sched( fd_sched_t * sched ) {
-  FD_LOG_NOTICE(( "sched canary 0x%lx, block_cnt_max %lu, root_idx %lu, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, txn_pool_free_cnt %lu",
-                  sched->canary, sched->block_cnt_max, sched->root_idx, sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->txn_pool_free_cnt ));
+  FD_LOG_NOTICE(( "sched canary 0x%lx, block_cnt_max %lu, exec_cnt %lu, root_idx %lu, txn_exec_ready_bitset[ 0 ] 0x%lx, sigverify_ready_bitset[ 0 ] 0x%lx, active_idx %lu, staged_bitset %lu, staged_head_idx[0] %lu, staged_head_idx[1] %lu, staged_head_idx[2] %lu, staged_head_idx[3] %lu, txn_pool_free_cnt %lu",
+                  sched->canary, sched->block_cnt_max, sched->exec_cnt, sched->root_idx, sched->txn_exec_ready_bitset[ 0 ], sched->sigverify_ready_bitset[ 0 ], sched->active_bank_idx, sched->staged_bitset, sched->staged_head_bank_idx[ 0 ], sched->staged_head_bank_idx[ 1 ], sched->staged_head_bank_idx[ 2 ], sched->staged_head_bank_idx[ 3 ], sched->txn_pool_free_cnt ));
 }
 
 FD_FN_UNUSED static void
@@ -322,7 +325,9 @@ fd_sched_footprint( ulong block_cnt_max ) {
 }
 
 void *
-fd_sched_new( void * mem, ulong block_cnt_max ) {
+fd_sched_new( void * mem, ulong block_cnt_max, ulong exec_cnt ) {
+  FD_TEST( exec_cnt && exec_cnt<=64UL );
+
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_sched_t * sched = FD_SCRATCH_ALLOC_APPEND( l, fd_sched_align(),          sizeof(fd_sched_t)                                      );
   void * _rdisp      = FD_SCRATCH_ALLOC_APPEND( l, fd_rdisp_align(),          fd_rdisp_footprint( FD_SCHED_MAX_DEPTH, block_cnt_max ) );
@@ -342,9 +347,13 @@ fd_sched_new( void * mem, ulong block_cnt_max ) {
 
   sched->canary           = FD_SCHED_MAGIC;
   sched->block_cnt_max    = block_cnt_max;
+  sched->exec_cnt         = exec_cnt;
   sched->root_idx         = ULONG_MAX;
   sched->active_bank_idx  = ULONG_MAX;
   sched->staged_bitset    = 0UL;
+
+  sched->txn_exec_ready_bitset[ 0 ]  = fd_ulong_mask_lsb( (int)exec_cnt );
+  sched->sigverify_ready_bitset[ 0 ] = fd_ulong_mask_lsb( (int)exec_cnt );
 
   sched->txn_pool_free_cnt = FD_SCHED_MAX_DEPTH-1UL; /* -1 because index 0 is unusable as a sentinel reserved by the dispatcher */
 
@@ -607,7 +616,7 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 }
 
 ulong
-fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_tile_cnt ) {
+fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
   if( FD_UNLIKELY( sched->active_bank_idx==ULONG_MAX ) ) {
@@ -639,8 +648,21 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_
     return 1UL;
   }
 
+  ulong exec_ready_bitset0 = sched->txn_exec_ready_bitset[ 0 ];
+  ulong exec_tile_idx0 = fd_ulong_if( !!exec_ready_bitset0, (ulong)fd_ulong_find_lsb( exec_ready_bitset0 ), ULONG_MAX );
   ulong exec_queued_cnt = block->txn_parsed_cnt-block->txn_exec_in_flight_cnt-block->txn_exec_done_cnt;
-  if( FD_LIKELY( exec_queued_cnt>0UL ) ) { /* Optimize for no fork switching. */
+  if( FD_LIKELY( exec_queued_cnt>0UL && fd_ulong_popcnt( exec_ready_bitset0 ) ) ) { /* Optimize for no fork switching. */
+    /* Transaction execution has the highest priority.  Current mainnet
+       block times are very much dominated by critical path transaction
+       execution.  To achieve the fastest block replay speed, we can't
+       afford to make any mistake in critical path dispatching.  Any
+       deviation from perfect critical path dispatching is basically
+       irrecoverable.  As such, we try to keep all the exec tiles busy
+       with transaction execution, but we allow at most one transaction
+       to be in-flight per exec tile.  This is to ensure that whenever a
+       critical path transaction completes, we have at least one exec
+       tile, e.g. the one that just completed said transaction, readily
+       available to continue executing down the critical path. */
     out->txn_exec->txn_idx = fd_rdisp_get_next_ready( sched->rdisp, bank_idx );
     if( FD_UNLIKELY( out->txn_exec->txn_idx==0UL ) ) {
       /* There are transactions queued but none ready for execution.
@@ -653,12 +675,22 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_
         print_all( sched, block );
         FD_LOG_CRIT(( "invariant violation: no ready transaction found but block->txn_exec_in_flight_cnt==0" ));
       }
+
+      /* Dispatch more sigverify tasks only if at least one exec tile is
+         executing transactions or completely idle.  Allow at most one
+         sigverify task in-flight per tile, and only dispatch to
+         completely idle tiles. */
+      ulong exec_fully_ready_bitset = exec_ready_bitset0;
+      ulong sigverify_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & exec_fully_ready_bitset;
       ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
-      if( FD_LIKELY( sigverify_queued_cnt>0UL && exec_tile_cnt>1UL ) ) { /* Leave one exec tile idle for critical path execution. */
+      if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->txn_exec_in_flight_cnt>0U, 0, 1 ) ) ) {
         /* Dispatch transactions for sigverify in parse order. */
+        int exec_tile_idx_sigverify = fd_ulong_find_lsb( sigverify_ready_bitset );
         out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
         out->txn_sigverify->bank_idx = bank_idx;
         out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
+        out->txn_sigverify->exec_idx = (ulong)exec_tile_idx_sigverify;
+        sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx_sigverify );
         block->txn_sigverify_in_flight_cnt++;
         return 1UL;
       }
@@ -667,16 +699,22 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_
     out->task_type = FD_SCHED_TT_TXN_EXEC;
     out->txn_exec->bank_idx = bank_idx;
     out->txn_exec->slot     = block->slot;
+    out->txn_exec->exec_idx = exec_tile_idx0;
+    FD_TEST( out->txn_exec->exec_idx!=ULONG_MAX );
 
     long now = fd_tickcount();
     ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
-    sched->metrics->txn_none_in_flight_tickcount     += fd_ulong_if( block->txn_exec_in_flight_cnt==0U && sched->txn_in_flight_last_tick!=LONG_MAX, delta, 0UL );
-    sched->metrics->txn_weighted_in_flight_tickcount += fd_ulong_if( block->txn_exec_in_flight_cnt!=0U, delta, 0UL );
-    sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_exec_in_flight_cnt;
+    ulong txn_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( exec_ready_bitset0 );
+    sched->metrics->txn_none_in_flight_tickcount     += fd_ulong_if( txn_exec_busy_cnt==0UL && sched->txn_in_flight_last_tick!=LONG_MAX, delta, 0UL );
+    sched->metrics->txn_weighted_in_flight_tickcount += fd_ulong_if( txn_exec_busy_cnt!=0UL, delta, 0UL );
+    sched->metrics->txn_weighted_in_flight_cnt       += delta*txn_exec_busy_cnt;
     sched->txn_in_flight_last_tick = now;
+
+    sched->txn_exec_ready_bitset[ 0 ] = fd_ulong_clear_bit( exec_ready_bitset0, (int)exec_tile_idx0);
 
     block->txn_exec_in_flight_cnt++;
     sched->metrics->txn_max_in_flight_cnt = fd_uint_max( sched->metrics->txn_max_in_flight_cnt, block->txn_exec_in_flight_cnt );
+    FD_TEST( block->txn_exec_in_flight_cnt==(uint)(((int)sched->exec_cnt)-fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ] )) );
     return 1UL;
   }
 
@@ -684,13 +722,19 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_
 
   /* Try to dispatch a sigverify task, but leave one exec tile idle for
      critical path execution, unless there's not going to be any more
-     real transactions for the critical path. */
+     real transactions for the critical path.  In the degenerate case of
+     only one exec tile, keep it busy. */
+  ulong exec_fully_ready_bitset = exec_ready_bitset0;
+  ulong sigverify_ready_bitset = sched->sigverify_ready_bitset[ 0 ] & exec_fully_ready_bitset;
   ulong sigverify_queued_cnt = block->txn_parsed_cnt-block->txn_sigverify_in_flight_cnt-block->txn_sigverify_done_cnt;
-  if( FD_LIKELY( sigverify_queued_cnt>0UL && exec_tile_cnt>fd_ulong_if( block->fec_eos, 0UL, 1UL ) ) ) {
+  if( FD_LIKELY( sigverify_queued_cnt>0UL && fd_ulong_popcnt( sigverify_ready_bitset )>fd_int_if( block->fec_eos||block->txn_exec_in_flight_cnt>0U||sched->exec_cnt==1UL, 0, 1 ) ) ) {
     /* Dispatch transactions for sigverify in parse order. */
+    int exec_tile_idx_sigverify = fd_ulong_find_lsb( sigverify_ready_bitset );
     out->task_type = FD_SCHED_TT_TXN_SIGVERIFY;
     out->txn_sigverify->txn_idx  = block->txn_idx[ block->txn_sigverify_done_cnt+block->txn_sigverify_in_flight_cnt ];
     out->txn_sigverify->bank_idx = bank_idx;
+    out->txn_sigverify->exec_idx = (ulong)exec_tile_idx_sigverify;
+    sched->sigverify_ready_bitset[ 0 ] = fd_ulong_clear_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx_sigverify );
     block->txn_sigverify_in_flight_cnt++;
     return 1UL;
   }
@@ -722,7 +766,7 @@ fd_sched_task_next_ready( fd_sched_t * sched, fd_sched_task_t * out, ulong exec_
 }
 
 void
-fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx ) {
+fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong exec_idx ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
 
   ulong bank_idx = ULONG_MAX;
@@ -754,6 +798,8 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx ) {
                   block->slot, block->parent_slot ));
   }
 
+  int exec_tile_idx = (int)exec_idx;
+
   switch( task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
       FD_TEST( !block->block_start_done );
@@ -771,8 +817,9 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx ) {
     case FD_SCHED_TT_TXN_EXEC: {
       long now = fd_tickcount();
       ulong delta = (ulong)(now-sched->txn_in_flight_last_tick);
+      ulong txn_exec_busy_cnt = sched->exec_cnt-(ulong)fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ] );
       sched->metrics->txn_weighted_in_flight_tickcount += delta;
-      sched->metrics->txn_weighted_in_flight_cnt       += delta*block->txn_exec_in_flight_cnt;
+      sched->metrics->txn_weighted_in_flight_cnt       += delta*txn_exec_busy_cnt;
       sched->txn_in_flight_last_tick = now;
 
       block->txn_exec_done_cnt++;
@@ -790,6 +837,10 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx ) {
       } else {
         fd_rdisp_complete_txn( sched->rdisp, txn_idx, 0 );
       }
+
+      FD_TEST( !fd_ulong_extract_bit( sched->txn_exec_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->txn_exec_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->txn_exec_ready_bitset[ 0 ], exec_tile_idx );
+      FD_TEST( block->txn_exec_in_flight_cnt==(uint)(((int)sched->exec_cnt)-fd_ulong_popcnt( sched->txn_exec_ready_bitset[ 0 ] )) );
       break;
     }
     case FD_SCHED_TT_TXN_SIGVERIFY: {
@@ -806,6 +857,9 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx ) {
         block->txn_done_cnt++;
         sched->metrics->txn_done_cnt++;
       }
+
+      FD_TEST( !fd_ulong_extract_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx ) );
+      sched->sigverify_ready_bitset[ 0 ] = fd_ulong_set_bit( sched->sigverify_ready_bitset[ 0 ], exec_tile_idx );
       break;
     }
   }

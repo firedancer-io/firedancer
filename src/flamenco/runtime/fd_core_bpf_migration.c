@@ -2,6 +2,7 @@
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_builtin_programs.h"
 #include "fd_pubkey_utils.h"
+#include "fd_system_ids.h"
 
 /* Mimics bank.new_target_program_account(). Assumes out_rec is a
    modifiable record.
@@ -257,7 +258,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
   /* These checks will fail if the core program has already been migrated to BPF, since the account will exist + the program owner
      will no longer be the native loader.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L23-L50 */
-  FD_TXN_ACCOUNT_DECL( target_program_account );
+  fd_txn_account_t target_program_account[1];
   uchar program_exists = ( fd_txn_account_init_from_funk_readonly( target_program_account, builtin_program_id, funk, xid )==FD_ACC_MGR_SUCCESS );
   if( !stateless ) {
     /* The program account should exist.
@@ -296,7 +297,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
     FD_LOG_ERR(( "Unable to find a viable program address bump seed" )); // Solana panics, error code is undefined
     return;
   }
-  FD_TXN_ACCOUNT_DECL( program_data_account );
+  fd_txn_account_t program_data_account[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( program_data_account, target_program_data_address, funk, xid )==FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "Program data account %s already exists, skipping migration...", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     return;
@@ -308,7 +309,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
       - source.buffer_address: source_buffer_address
       - source.buffer_account: the existing buffer account
      Depending on if the verified build hash is provided,  */
-  FD_TXN_ACCOUNT_DECL( source_buffer_account );
+  fd_txn_account_t source_buffer_account[1];
   fd_funk_rec_prepare_t source_buffer_prepare = {0};
   if( verified_build_hash!=NULL ) {
     if( FD_UNLIKELY( fd_source_buffer_account_new_with_hash( funk, xid, source_buffer_account, source_buffer_address, verified_build_hash, &source_buffer_prepare ) ) ) {
@@ -342,7 +343,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
      stateless, we want to create the account. Otherwise, we want a
      writable handle to modify the existing account.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L246-L249 */
-  FD_TXN_ACCOUNT_DECL( new_target_program_account );
+  fd_txn_account_t new_target_program_account[1];
   fd_funk_rec_prepare_t new_target_program_prepare = {0};
   err = fd_txn_account_init_from_funk_mutable(
       new_target_program_account,
@@ -381,7 +382,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
 
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + fd_txn_account_get_data_len( source_buffer_account );
-  FD_TXN_ACCOUNT_DECL( new_target_program_data_account );
+  fd_txn_account_t new_target_program_data_account[1];
   fd_funk_rec_prepare_t new_target_program_data_prepare = {0};
   err = fd_txn_account_init_from_funk_mutable(
       new_target_program_data_account,
@@ -424,7 +425,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
   err = fd_directly_invoke_loader_v3_deploy( bank,
-                                             funk,
+                                             funk->shmem,
                                              &migration_xid,
                                              builtin_program_id,
                                              fd_txn_account_get_data( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE,

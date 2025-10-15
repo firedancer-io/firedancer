@@ -1208,12 +1208,14 @@ fd_gui_printf_slot_rankings_request( fd_gui_t * gui,
       OUTPUT_RANKING_ARRAY( largest_tips );
       OUTPUT_RANKING_ARRAY( largest_fees );
       OUTPUT_RANKING_ARRAY( largest_rewards );
+      OUTPUT_RANKING_ARRAY( largest_rewards_per_cu );
       OUTPUT_RANKING_ARRAY( largest_duration );
       OUTPUT_RANKING_ARRAY( largest_compute_units );
       OUTPUT_RANKING_ARRAY( largest_skipped );
       OUTPUT_RANKING_ARRAY( smallest_tips );
       OUTPUT_RANKING_ARRAY( smallest_fees );
       OUTPUT_RANKING_ARRAY( smallest_rewards );
+      OUTPUT_RANKING_ARRAY( smallest_rewards_per_cu );
       OUTPUT_RANKING_ARRAY( smallest_duration );
       OUTPUT_RANKING_ARRAY( smallest_compute_units );
       OUTPUT_RANKING_ARRAY( smallest_skipped );
@@ -1353,8 +1355,10 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
       jsonp_close_object( gui->http );
 
       fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
-      int overwritten               = (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
+      int overwritten               = lslot && (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
       int processed_all_microblocks = lslot &&
+                                      lslot->txs.start_offset!=ULONG_MAX &&
+                                      lslot->txs.end_offset!=ULONG_MAX &&
                                       lslot->txs.microblocks_upper_bound!=USHORT_MAX &&
                                       lslot->txs.begin_microblocks==lslot->txs.end_microblocks &&
                                       lslot->txs.begin_microblocks==lslot->txs.microblocks_upper_bound;

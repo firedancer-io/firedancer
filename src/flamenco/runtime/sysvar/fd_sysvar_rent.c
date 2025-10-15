@@ -40,7 +40,7 @@ fd_rent_t const *
 fd_sysvar_rent_read( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * xid,
                      fd_spad_t *               spad ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_rent_id, funk, xid );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
     return NULL;

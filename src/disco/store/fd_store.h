@@ -340,10 +340,10 @@ FD_FN_PURE static inline fd_store_fec_t const * fd_store_sibling_const( fd_store
    FD_STORE_SHARED_LOCK and FD_STORE_EXCLUSIVE_LOCK macros to acquire
    and release the lock instead of calling these functions directly. */
 
-FD_FN_PURE static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
-FD_FN_PURE static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
-FD_FN_PURE static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
-FD_FN_PURE static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
+static inline void fd_store_shacq( fd_store_t * store ) { fd_rwlock_read   ( &store->lock ); }
+static inline void fd_store_shrel( fd_store_t * store ) { fd_rwlock_unread ( &store->lock ); }
+static inline void fd_store_exacq( fd_store_t * store ) { fd_rwlock_write  ( &store->lock ); }
+static inline void fd_store_exrel( fd_store_t * store ) { fd_rwlock_unwrite( &store->lock ); }
 
 struct fd_store_lock_ctx {
   fd_store_t * store_;

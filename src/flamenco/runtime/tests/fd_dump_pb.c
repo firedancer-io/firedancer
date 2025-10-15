@@ -7,7 +7,7 @@
 #include "../fd_bank.h"
 #include "../program/fd_address_lookup_table_program.h"
 #include "../../../ballet/nanopb/pb_encode.h"
-#include "../program/fd_program_cache.h"
+#include "../../progcache/fd_prog_load.h"
 
 
 #include <stdio.h> /* fopen */
@@ -19,16 +19,61 @@
 #define SORT_BEFORE(a,b) (a)<(b)
 #include "../../../util/tmpl/fd_sort.c"
 
+struct fd_dump_account_key_node {
+  fd_pubkey_t key;
+  ulong       redblack_parent;
+  ulong       redblack_left;
+  ulong       redblack_right;
+  int         redblack_color;
+};
+typedef struct fd_dump_account_key_node fd_dump_account_key_node_t;
+#define REDBLK_T fd_dump_account_key_node_t
+#define REDBLK_NAME fd_dump_account_key_map
+long fd_dump_account_key_map_compare( fd_dump_account_key_node_t * left, fd_dump_account_key_node_t * right ) {
+  return memcmp( left->key.uc, right->key.uc, sizeof(fd_pubkey_t) );
+}
+#include "../../../util/tmpl/fd_redblack.c"
+
+/***** CONSTANTS *****/
+static fd_pubkey_t const * fd_dump_sysvar_ids[] = {
+  &fd_sysvar_recent_block_hashes_id,
+  &fd_sysvar_clock_id,
+  &fd_sysvar_slot_history_id,
+  &fd_sysvar_slot_hashes_id,
+  &fd_sysvar_epoch_schedule_id,
+  &fd_sysvar_epoch_rewards_id,
+  &fd_sysvar_fees_id,
+  &fd_sysvar_rent_id,
+  &fd_sysvar_stake_history_id,
+  &fd_sysvar_last_restart_slot_id,
+  &fd_sysvar_instructions_id,
+};
+static ulong const num_sysvar_entries = (sizeof(fd_dump_sysvar_ids) / sizeof(fd_pubkey_t *));
+
+static fd_pubkey_t const * fd_dump_builtin_ids[] = {
+  &fd_solana_system_program_id,
+  &fd_solana_vote_program_id,
+  &fd_solana_stake_program_id,
+  &fd_solana_bpf_loader_v4_program_id,
+  &fd_solana_bpf_loader_deprecated_program_id,
+  &fd_solana_bpf_loader_program_id,
+  &fd_solana_bpf_loader_upgradeable_program_id,
+  &fd_solana_compute_budget_program_id,
+  &fd_solana_keccak_secp_256k_program_id,
+  &fd_solana_secp256r1_program_id,
+  &fd_solana_zk_elgamal_proof_program_id,
+  &fd_solana_ed25519_sig_verify_program_id,
+};
+static ulong const num_loaded_builtins = (sizeof(fd_dump_builtin_ids) / sizeof(fd_pubkey_t *));
+
 /***** UTILITY FUNCTIONS *****/
 
 /** GENERAL UTILITY FUNCTIONS AND MACROS **/
 
-static int
-is_builtin_account( fd_pubkey_t const * loaded_builtins,
-                    ulong               num_loaded_builtins,
-                    fd_pubkey_t const * account_key ) {
-  for( ulong j = 0; j < num_loaded_builtins; ++j ) {
-    if( !memcmp( account_key, &loaded_builtins[j], sizeof(fd_pubkey_t) ) ) {
+static inline int
+is_builtin_account( fd_pubkey_t const * account_key ) {
+  for( ulong j=0UL; j<num_loaded_builtins; j++ ) {
+    if( !memcmp( account_key, fd_dump_builtin_ids[j], sizeof(fd_pubkey_t) ) ) {
       return 1;
     }
   }
@@ -37,9 +82,9 @@ is_builtin_account( fd_pubkey_t const * loaded_builtins,
 
 /** FEATURE DUMPING **/
 static void
-dump_sorted_features( fd_features_t const * features,
+dump_sorted_features( fd_features_t const *        features,
                       fd_exec_test_feature_set_t * output_feature_set,
-                      fd_spad_t * spad ) {
+                      fd_spad_t *                  spad ) {
   /* NOTE: Caller must have a spad frame prepared */
   uint64_t * unsorted_features = fd_spad_alloc( spad, alignof(uint64_t), FD_FEATURE_ID_CNT * sizeof(uint64_t) );
   ulong num_features = 0;
@@ -95,8 +140,10 @@ account_already_dumped( fd_exec_test_acct_state_t const * dumped_accounts,
   return 0;
 }
 
-/* Dumps a borrowed account if it exists and has not been dumped yet. Sets up the output borrowed
-   account if it exists. Returns 0 if the account exists, 1 otherwise. */
+/* Dumps a borrowed account if it exists and has not been dumped yet.
+   Sets up the output borrowed account if it exists. Returns 0 if the
+   account exists, 1 otherwise.
+   TODO: This can be optimized by using a set. */
 static uchar
 dump_account_if_not_already_dumped( fd_funk_t const *           funk,
                                     fd_funk_txn_xid_t const *   xid,
@@ -105,7 +152,7 @@ dump_account_if_not_already_dumped( fd_funk_t const *           funk,
                                     fd_exec_test_acct_state_t * out_acct_states,
                                     pb_size_t *                 out_acct_states_cnt,
                                     fd_txn_account_t *          opt_out_borrowed_account ) {
-  FD_TXN_ACCOUNT_DECL( account );
+  fd_txn_account_t account[1];
   if( fd_txn_account_init_from_funk_readonly( account, account_key, funk, xid ) ) {
     return 1;
   }
@@ -119,35 +166,6 @@ dump_account_if_not_already_dumped( fd_funk_t const *           funk,
     *opt_out_borrowed_account = *account;
   }
   return 0;
-}
-
-/* TODO: This can be made slightly more efficient by dumping only the referenced ALUT accounts instead of all accounts */
-static void
-dump_lut_account_and_contained_accounts( fd_funk_t const *              funk,
-                                         fd_funk_txn_xid_t const *      xid,
-                                         uchar const *                  txn_payload,
-                                         fd_txn_acct_addr_lut_t const * lookup_table,
-                                         fd_spad_t *                    spad,
-                                         fd_exec_test_acct_state_t *    out_account_states,
-                                         pb_size_t *                    out_account_states_count ) {
-  FD_TXN_ACCOUNT_DECL( alut_account );
-  fd_pubkey_t const * alut_pubkey = (fd_pubkey_t const *)((uchar *)txn_payload + lookup_table->addr_off);
-  uchar account_exists = dump_account_if_not_already_dumped( funk, xid, alut_pubkey, spad, out_account_states, out_account_states_count, alut_account );
-  if( !account_exists || fd_txn_account_get_data_len( alut_account )<FD_LOOKUP_TABLE_META_SIZE ) {
-    return;
-  }
-
-  /* Decode the ALUT account and find its referenced writable and readonly indices */
-  if( fd_txn_account_get_data_len( alut_account ) & 0x1fUL ) {
-    return;
-  }
-
-  fd_pubkey_t * lookup_addrs = (fd_pubkey_t *)&fd_txn_account_get_data( alut_account )[FD_LOOKUP_TABLE_META_SIZE];
-  ulong lookup_addrs_cnt     = ( fd_txn_account_get_data_len( alut_account ) - FD_LOOKUP_TABLE_META_SIZE ) >> 5UL; // = (dlen - 56) / 32
-  for( ulong i=0UL; i<lookup_addrs_cnt; i++ ) {
-    fd_pubkey_t const * referenced_pubkey = &lookup_addrs[i];
-    dump_account_if_not_already_dumped( funk, xid, referenced_pubkey, spad, out_account_states, out_account_states_count, NULL );
-  }
 }
 
 static void
@@ -176,21 +194,6 @@ dump_executable_account_if_exists( fd_funk_t const *                 funk,
 
   fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
   dump_account_if_not_already_dumped( funk, xid, programdata_acc, spad, out_account_states, out_account_states_count, NULL );
-}
-
-static void
-dump_vote_accounts( fd_funk_t *                 funk,
-                    fd_funk_txn_xid_t const *   xid,
-                    fd_vote_states_t const *    vote_states,
-                    fd_spad_t *                 spad,
-                    fd_exec_test_acct_state_t * out_acct_states,
-                    pb_size_t *                 out_acct_states_cnt ) {
-
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    dump_account_if_not_already_dumped( funk, xid, &vote_state->vote_account, spad, out_acct_states, out_acct_states_cnt, NULL );
-  }
 }
 
 static void
@@ -279,7 +282,7 @@ dump_sanitized_transaction( fd_funk_t *                            funk,
       memcpy( message->address_table_lookups[i].account_key, alut_key, sizeof(fd_pubkey_t) );
 
       // Access ALUT account data to access its keys
-      FD_TXN_ACCOUNT_DECL(addr_lut_rec);
+      fd_txn_account_t addr_lut_rec[1];
       int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec, alut_key, funk, xid );
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "addr lut not found" ));
@@ -325,18 +328,18 @@ dump_blockhash_queue( fd_blockhashes_t const * queue,
                       fd_spad_t *              spad,
                       pb_bytes_array_t **      output_blockhash_queue,
                       pb_size_t *              output_blockhash_queue_count ) {
-  pb_size_t cnt = 0;
+  ulong bhq_size = fd_ulong_min( FD_BLOCKHASHES_MAX, fd_blockhash_deq_cnt( queue->d.deque ) );
 
   // Iterate over all block hashes in the queue and save them in the output
+  pb_size_t cnt = 0U;
   for( fd_blockhash_deq_iter_t iter=fd_blockhash_deq_iter_init_rev( queue->d.deque );
-       !fd_blockhash_deq_iter_done_rev( queue->d.deque, iter );
-       iter=fd_blockhash_deq_iter_prev( queue->d.deque, iter ) ) {
-    fd_blockhash_info_t const * ele = fd_blockhash_deq_iter_ele_const( queue->d.deque, iter );
-    pb_bytes_array_t * output_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
+       !fd_blockhash_deq_iter_done_rev( queue->d.deque, iter ) && cnt<FD_BLOCKHASHES_MAX;
+       iter=fd_blockhash_deq_iter_prev( queue->d.deque, iter ), cnt++ ) {
+    fd_blockhash_info_t const * ele              = fd_blockhash_deq_iter_ele_const( queue->d.deque, iter );
+    pb_bytes_array_t *          output_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
     output_blockhash->size = sizeof(fd_hash_t);
     fd_memcpy( output_blockhash->bytes, &ele->hash, sizeof(fd_hash_t) );
-    output_blockhash_queue[ cnt ] = output_blockhash;
-    cnt++;
+    output_blockhash_queue[ bhq_size-cnt-1UL ] = output_blockhash;
   }
 
   *output_blockhash_queue_count = cnt;
@@ -344,237 +347,422 @@ dump_blockhash_queue( fd_blockhashes_t const * queue,
 
 /** SECONDARY FUNCTIONS **/
 
+/* add_account_to_dumped_accounts adds an account to the dumped accounts
+   set if it does not exist already. Returns 0 if the account already
+   exists, and 1 if the account was added successfully.
+
+   TODO: Txn dumping should be optimized to use these functions. */
+static uchar
+add_account_to_dumped_accounts( fd_dump_account_key_node_t *  pool,
+                                fd_dump_account_key_node_t ** root,
+                                fd_pubkey_t const *           pubkey ) {
+  /* If the key already exists, return early. */
+  fd_dump_account_key_node_t node = {
+    .key = *pubkey,
+  };
+  if( fd_dump_account_key_map_find( pool, *root, &node ) ) {
+    return 0;
+  }
+
+  fd_dump_account_key_node_t * new_node = fd_dump_account_key_map_acquire( pool );
+  new_node->key = *pubkey;
+  fd_dump_account_key_map_insert( pool, root, new_node );
+  return 1;
+}
+
+/* add_account_and_programdata_to_dumped_accounts adds an account and
+   its programdata account (if the account is a v3 program) to the
+   dumped accounts set if they do not exist already. */
 static void
-create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_context,
-                                          fd_banks_t *                   banks,
-                                          fd_bank_t *                    bank,
-                                          fd_funk_t *                    funk,
-                                          fd_funk_txn_xid_t const *      xid,
-                                          fd_spad_t *                    spad ) {
+add_account_and_programdata_to_dumped_accounts( fd_funk_t *                   funk,
+                                                fd_funk_txn_xid_t const *     xid,
+                                                fd_dump_account_key_node_t *  pool,
+                                                fd_dump_account_key_node_t ** root,
+                                                fd_pubkey_t const *           pubkey ) {
+  /* Add the current account to the dumped accounts set. We can save
+     some time by enforcing an invariant that "if current account was
+     dumped, then programdata account was also dumped," so we save
+     ourselves a call to Funk. */
+  uchar ret = add_account_to_dumped_accounts( pool, root, pubkey );
+  if( ret==0 ) return;
 
-  /* BlockContext -> acct_states */
-  // Dump sysvars + builtins
-  fd_pubkey_t const fd_relevant_sysvar_ids[] = {
-    fd_sysvar_recent_block_hashes_id,
-    fd_sysvar_clock_id,
-    fd_sysvar_slot_history_id,
-    fd_sysvar_slot_hashes_id,
-    fd_sysvar_epoch_schedule_id,
-    fd_sysvar_epoch_rewards_id,
-    fd_sysvar_fees_id,
-    fd_sysvar_rent_id,
-    fd_sysvar_stake_history_id,
-    fd_sysvar_last_restart_slot_id,
+  /* Read the account from Funk to see if its a program account and if
+     it needs to be dumped. */
+  fd_txn_account_t program_account[1];
+  int err = fd_txn_account_init_from_funk_readonly( program_account, pubkey, funk, xid );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    return;
+  }
+
+  /* Return if its not owned by the v3 loader */
+  if( FD_LIKELY( memcmp( fd_txn_account_get_owner( program_account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return;
+  }
+
+  /* Get the program account state */
+  fd_bpf_upgradeable_loader_state_t program_account_state[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      bpf_upgradeable_loader_state,
+      program_account_state,
+      fd_txn_account_get_data( program_account ),
+      fd_txn_account_get_data_len( program_account ),
+      NULL ) ) ) {
+    return;
+  }
+  if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
+    return;
+  }
+
+  /* Dump the programdata address */
+  add_account_to_dumped_accounts( pool, root, &program_account_state->inner.program.programdata_address );
+}
+
+/* add_lut_account_to_dumped_accounts adds an address lookup table
+   account AND all pubkeys in the lookup table to the dumped accounts
+   set if they do not exist already. */
+static void
+add_lut_accounts_to_dumped_accounts( fd_funk_t *                   funk,
+                                     fd_funk_txn_xid_t const *     xid,
+                                     fd_dump_account_key_node_t *  pool,
+                                     fd_dump_account_key_node_t ** root,
+                                     fd_pubkey_t const *           pubkey ) {
+  /* Add the current account to the dumped accounts set. */
+  add_account_to_dumped_accounts( pool, root, pubkey );
+
+  /* Read the account and dump all pubkeys within the lookup table. */
+  fd_txn_account_t lut_account[1];
+  int err = fd_txn_account_init_from_funk_readonly( lut_account, pubkey, funk, xid );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    return;
+  }
+
+  uchar const  * data     = fd_txn_account_get_data( lut_account );
+  ulong          data_len = fd_txn_account_get_data_len( lut_account );
+
+  /* Decode the ALUT account and dump all pubkeys within the lookup
+     table. */
+  if( data_len<FD_LOOKUP_TABLE_META_SIZE || (data_len&0x1fUL) ) {
+    return;
+  }
+  fd_pubkey_t const * lookup_addrs     = fd_type_pun_const( data+FD_LOOKUP_TABLE_META_SIZE );
+  ulong               lookup_addrs_cnt = ( data_len-FD_LOOKUP_TABLE_META_SIZE)>>5UL; // = (dlen - 56) / 32
+  for( ulong i=0UL; i<lookup_addrs_cnt; i++ ) {
+    fd_pubkey_t const * referenced_pubkey = &lookup_addrs[i];
+    add_account_and_programdata_to_dumped_accounts( funk, xid, pool, root, referenced_pubkey );
+  }
+}
+
+/* create_synthetic_vote_account_from_vote_state creates a synthetic
+   vote account from a vote state cache element. It fills in default
+   values for unspecified fields and encodes the vote state into
+   out_vote_account's data field. */
+static void
+create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vote_state,
+                                               fd_spad_t *                   spad,
+                                               fd_exec_test_vote_account_t * out_vote_account ) {
+  out_vote_account->has_vote_account = true;
+  fd_memcpy( out_vote_account->vote_account.address, &vote_state->vote_account, sizeof(fd_pubkey_t) );
+  out_vote_account->vote_account.executable = false;
+  out_vote_account->vote_account.lamports = 100000UL;
+  fd_memcpy( out_vote_account->vote_account.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
+  out_vote_account->vote_account.has_seed_addr = false;
+  out_vote_account->stake = vote_state->stake;
+
+  /* Construct the vote account data. Fill in missing fields with
+     arbitrary defaults (since they're not used anyways) */
+  fd_vote_state_versioned_t vsv = {
+    .discriminant = fd_vote_state_versioned_enum_current,
+    .inner = {
+      .current = {
+        .node_pubkey           = vote_state->node_account,
+        .authorized_withdrawer = vote_state->node_account,
+        .commission            = vote_state->commission,
+        .root_slot             = 0UL,
+        .has_root_slot         = 0,
+        .last_timestamp        = {
+          .timestamp           = vote_state->last_vote_timestamp,
+          .slot                = vote_state->last_vote_slot,
+        },
+      }
+    }
   };
+  fd_vote_state_t * synthetic_vote_state = &vsv.inner.current;
 
-  fd_pubkey_t const loaded_builtins[] = {
-    fd_solana_system_program_id,
-    fd_solana_vote_program_id,
-    fd_solana_stake_program_id,
-    fd_solana_config_program_id,
-    fd_solana_zk_token_proof_program_id,
-    fd_solana_bpf_loader_v4_program_id,
-    fd_solana_address_lookup_table_program_id,
-    fd_solana_bpf_loader_deprecated_program_id,
-    fd_solana_bpf_loader_program_id,
-    fd_solana_bpf_loader_upgradeable_program_id,
-    fd_solana_compute_budget_program_id,
-    fd_solana_keccak_secp_256k_program_id,
-    fd_solana_secp256r1_program_id,
-    fd_solana_zk_elgamal_proof_program_id,
-    fd_solana_ed25519_sig_verify_program_id,
+  /* Create synthetic landed votes */
+  synthetic_vote_state->votes = deq_fd_landed_vote_t_join(
+      deq_fd_landed_vote_t_new(
+          fd_spad_alloc(
+              spad,
+              deq_fd_landed_vote_t_align(),
+              deq_fd_landed_vote_t_footprint( 32UL ) ),
+          32UL ) );
+  for( ulong i=0UL; i<32UL; i++ ) {
+    fd_landed_vote_t elem = {0};
+    deq_fd_landed_vote_t_push_tail( synthetic_vote_state->votes, elem );
+  }
+
+  /* Populate authoritzed voters */
+  void * authorized_voters_pool_mem  = fd_spad_alloc(
+      spad,
+      fd_vote_authorized_voters_pool_align(),
+      fd_vote_authorized_voters_pool_footprint( 5UL ) );
+  void * authorized_voters_treap_mem = fd_spad_alloc(
+      spad,
+      fd_vote_authorized_voters_treap_align(),
+      fd_vote_authorized_voters_treap_footprint( 5UL ) );
+  synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( authorized_voters_pool_mem, 5UL ) );
+  synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( authorized_voters_treap_mem, 5UL ) );
+
+  /* Populate epoch credits */
+  synthetic_vote_state->epoch_credits = deq_fd_vote_epoch_credits_t_join(
+      deq_fd_vote_epoch_credits_t_new(
+          fd_spad_alloc(
+              spad,
+              deq_fd_vote_epoch_credits_t_align(),
+              deq_fd_vote_epoch_credits_t_footprint( EPOCH_CREDITS_MAX ) ),
+          EPOCH_CREDITS_MAX ) );
+  for( ulong i=0UL; i<vote_state->credits_cnt; i++ ) {
+    fd_vote_epoch_credits_t elem = {
+      .credits      = vote_state->credits[i],
+      .prev_credits = vote_state->prev_credits[i],
+      .epoch        = vote_state->epoch[i],
+    };
+    deq_fd_vote_epoch_credits_t_push_tail( synthetic_vote_state->epoch_credits, elem );
+  }
+
+  /* Encode the synthetic vote state */
+  ulong encoded_sz                          = fd_vote_state_versioned_size( &vsv );
+  out_vote_account->vote_account.data       = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( encoded_sz ) );
+  out_vote_account->vote_account.data->size = (pb_size_t)encoded_sz;
+
+  fd_bincode_encode_ctx_t encode_ctx = {
+    .data    = out_vote_account->vote_account.data->bytes,
+    .dataend = out_vote_account->vote_account.data->bytes+encoded_sz,
   };
-  ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
-  ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
+  fd_vote_state_versioned_encode( &vsv, &encode_ctx );
+}
 
-  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, bank );
-  ulong stake_account_cnt     = fd_stake_delegations_cnt( stake_delegations );
+static void
+dump_prior_vote_accounts( fd_vote_states_t const *      vote_states,
+                          fd_dump_account_key_node_t *  dumped_accounts_pool,
+                          fd_dump_account_key_node_t ** dumped_accounts_root,
+                          fd_exec_test_vote_account_t * out_vote_accounts,
+                          pb_size_t *                   out_vote_accounts_count,
+                          fd_spad_t *                   spad ) {
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-  ulong vote_account_t_cnt    = fd_vote_states_cnt( vote_states );
-  fd_bank_vote_states_end_locking_query( bank );
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+                                     !fd_vote_states_iter_done( iter );
+                                      fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+    add_account_to_dumped_accounts( dumped_accounts_pool, dumped_accounts_root, &vote_state->vote_account );
 
-  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
-  ulong vote_account_t_1_cnt  = fd_vote_states_cnt( vote_states_prev );
-  fd_bank_vote_states_prev_end_locking_query( bank );
+    create_synthetic_vote_account_from_vote_state(
+        vote_state,
+        spad,
+        &out_vote_accounts[(*out_vote_accounts_count)++] );
+  }
+}
 
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  ulong vote_account_t_2_cnt = fd_vote_states_cnt( vote_states_prev_prev );
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
+static void
+create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
+                                          fd_banks_t *          banks,
+                                          fd_bank_t *           bank,
+                                          fd_funk_t *           funk ) {
+  /* We should use the bank fields and funk txn from the parent slot in
+     order to capture the block context from before the current block
+     was executed, since dumping is happening in the block finalize
+     step. */
+     fd_bank_t *                    parent_bank    = fd_banks_get_parent( banks, bank );
+     ulong                          current_slot   = fd_bank_slot_get( bank );
+  fd_funk_txn_xid_t                 parent_xid     = { .ul = { current_slot, current_slot } };
+  fd_exec_test_block_context_t *    block_context  = &dump_ctx->block_context;
+  ulong                             dump_txn_count = dump_ctx->txns_to_dump_cnt;
+  fd_spad_t *                       spad           = dump_ctx->spad;
 
-  ulong total_num_accounts    = num_sysvar_entries +
-                                num_loaded_builtins +
-                                stake_account_cnt +
-                                vote_account_t_cnt +
-                                vote_account_t_1_cnt +
-                                vote_account_t_2_cnt;
+  /* Get vote and stake delegation infos */
+  fd_vote_states_t const * vote_states        = fd_bank_vote_states_locking_query( parent_bank );
+  ulong                    vote_account_t_cnt = fd_vote_states_cnt( vote_states );
+  fd_bank_vote_states_end_locking_query( parent_bank );
 
-  block_context->acct_states_count = 0;
-  block_context->acct_states       = fd_spad_alloc( spad,
-                                                    alignof(fd_exec_test_acct_state_t),
-                                                    total_num_accounts * sizeof(fd_exec_test_acct_state_t) );
+  fd_stake_delegations_t const * stake_delegations = fd_bank_stake_delegations_frontier_query( banks, parent_bank );
+  ulong                          stake_account_cnt = fd_stake_delegations_cnt( stake_delegations );
 
+  /* Collect account states in a temporary set before iterating over
+     them and dumping them out. */
+  ulong                        total_num_accounts   = num_sysvar_entries +  /* Sysvars */
+                                                      num_loaded_builtins + /* Builtins */
+                                                      stake_account_cnt +   /* Stake accounts */
+                                                      vote_account_t_cnt +  /* Current vote accounts */
+                                                      dump_txn_count*128UL; /* Txn accounts upper bound */
+  void *                       dumped_accounts_mem  = fd_spad_alloc( spad, fd_dump_account_key_map_align(), fd_dump_account_key_map_footprint( total_num_accounts ) );
+  fd_dump_account_key_node_t * dumped_accounts_pool = fd_dump_account_key_map_join( fd_dump_account_key_map_new( dumped_accounts_mem, total_num_accounts ) );
+  fd_dump_account_key_node_t * dumped_accounts_root = NULL;
 
+  /* BlockContext -> txns */
+  block_context->txns_count = (pb_size_t)dump_txn_count;
+  block_context->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), dump_ctx->txns_to_dump_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
+  fd_memset( block_context->txns, 0, dump_ctx->txns_to_dump_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
+
+  /* Dump sanitized transactions from the transaction descriptors */
+  for( ulong i=0UL; i<dump_ctx->txns_to_dump_cnt; i++ ) {
+    fd_txn_p_t const * txn_ptr        = &dump_ctx->txns_to_dump[i];
+    fd_txn_t const *   txn_descriptor = TXN( txn_ptr );
+    dump_sanitized_transaction( funk, &parent_xid, txn_descriptor, txn_ptr->payload, spad, &block_context->txns[i] );
+
+    /* Dump account + alut + programdata accounts (if applicable).
+       1. Dump the raw txn account keys
+       2. Dump the ALUT accounts
+       3. Dump all referenced accounts in the ALUTs
+       4. Dump any executable accounts */
+
+    // 1 + 4. Dump any account keys that are referenced by transactions
+    // + any programdata accounts (if applicable).
+    fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_ptr->payload );
+    for( ushort l=0; l<txn_descriptor->acct_addr_cnt; l++ ) {
+      fd_pubkey_t const * account_key = fd_type_pun_const( &account_keys[l] );
+      add_account_and_programdata_to_dumped_accounts( funk, &parent_xid, dumped_accounts_pool, &dumped_accounts_root, account_key );
+    }
+
+    // 2 + 3 + 4. Dump any ALUT accounts + any accounts referenced in
+    // the ALUTs + any programdata accounts (if applicable).
+    fd_txn_acct_addr_lut_t const * txn_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
+    for( ushort l=0; l<txn_descriptor->addr_table_lookup_cnt; l++ ) {
+      fd_txn_acct_addr_lut_t const * lookup_table = &txn_lookup_tables[l];
+      fd_pubkey_t const *            lut_key      = fd_type_pun_const( txn_ptr->payload+lookup_table->addr_off );
+      add_lut_accounts_to_dumped_accounts( funk, &parent_xid, dumped_accounts_pool, &dumped_accounts_root, lut_key );
+    }
+  }
+
+  /* Dump sysvars */
   for( ulong i=0UL; i<num_sysvar_entries; i++ ) {
-    dump_account_if_not_already_dumped( funk, xid, &fd_relevant_sysvar_ids[i], spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, fd_dump_sysvar_ids[i] );
   }
 
+  /* Dump builtins */
   for( ulong i=0UL; i<num_loaded_builtins; i++ ) {
-    dump_account_if_not_already_dumped( funk, xid, &loaded_builtins[i], spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, fd_dump_builtin_ids[i] );
   }
 
-  /* BlockContext -> blockhash_queue */
-  pb_bytes_array_t ** output_blockhash_queue = fd_spad_alloc( spad,
-                                                              alignof(pb_bytes_array_t *),
-                                                              PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
-  block_context->blockhash_queue = output_blockhash_queue;
-
-  fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
-  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
-
-  /* BlockContext -> SlotContext */
-  block_context->has_slot_ctx                       = true;
-  block_context->slot_ctx.slot                      = fd_bank_slot_get( bank );
-  // HACK FOR NOW: block height gets incremented in process_new_epoch, so we should dump block height + 1
-  block_context->slot_ctx.block_height              = fd_bank_block_height_get( bank ) + 1UL;
-  // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
-  fd_memcpy( block_context->slot_ctx.parent_bank_hash, fd_bank_bank_hash_query( bank ), sizeof(fd_pubkey_t) );
-  block_context->slot_ctx.prev_slot                 = fd_bank_parent_slot_get( bank );
-  block_context->slot_ctx.prev_lps                  = fd_bank_prev_lamports_per_signature_get( bank );
-  block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( bank );
-
-  /* BlockContext -> EpochContext */
-  block_context->has_epoch_ctx                        = true;
-  block_context->epoch_ctx.has_features               = true;
-  dump_sorted_features( fd_bank_features_query( bank ), &block_context->epoch_ctx.features, spad );
-  block_context->epoch_ctx.hashes_per_tick            = fd_bank_hashes_per_tick_get( bank );
-  block_context->epoch_ctx.ticks_per_slot             = fd_bank_ticks_per_slot_get( bank );
-  block_context->epoch_ctx.slots_per_year             = fd_bank_slots_per_year_get( bank );
-  block_context->epoch_ctx.has_inflation              = true;
-
-  fd_inflation_t const * inflation = fd_bank_inflation_query( bank );
-  block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
-    .initial         = inflation->initial,
-    .terminal        = inflation->terminal,
-    .taper           = inflation->taper,
-    .foundation      = inflation->foundation,
-    .foundation_term = inflation->foundation_term,
-  };
-  block_context->epoch_ctx.genesis_creation_time      = fd_bank_genesis_creation_time_get( bank );
-
-  /* Dumping stake accounts for this epoch */
-
+  /* Dump stake accounts for this epoch */
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
        fd_stake_delegations_iter_next( iter ) ) {
     fd_stake_delegation_t * stake_delegation = fd_stake_delegations_iter_ele( iter );
-    dump_account_if_not_already_dumped( funk, xid, &stake_delegation->stake_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &stake_delegation->stake_account );
   }
 
-  /* Dumping vote accounts for this epoch */
-
-  vote_states = fd_bank_vote_states_locking_query( bank );
+  /* Dump vote accounts for this epoch */
+  vote_states = fd_bank_vote_states_locking_query( parent_bank );
   fd_vote_states_iter_t vote_iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vote_iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    dump_account_if_not_already_dumped( funk, xid, &vote_state->vote_account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+    add_account_to_dumped_accounts( dumped_accounts_pool, &dumped_accounts_root, &vote_state->vote_account );
   }
-
-  fd_bank_vote_states_end_locking_query( bank );
+  fd_bank_vote_states_end_locking_query( parent_bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
-  dump_vote_accounts( funk,
-                      xid,
-                      vote_states_prev,
-                      spad,
-                      block_context->acct_states,
-                      &block_context->acct_states_count );
-  fd_bank_vote_states_prev_end_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev        = fd_bank_vote_states_prev_locking_query( parent_bank );
+  block_context->epoch_ctx.vote_accounts_t_1       = fd_spad_alloc(
+      spad,
+      alignof(fd_exec_test_vote_account_t),
+      sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev ) );
+  block_context->epoch_ctx.vote_accounts_t_1_count = 0U;
+  dump_prior_vote_accounts(
+      vote_states_prev,
+      dumped_accounts_pool,
+      &dumped_accounts_root,
+      block_context->epoch_ctx.vote_accounts_t_1,
+      &block_context->epoch_ctx.vote_accounts_t_1_count,
+      spad );
+  fd_bank_vote_states_prev_end_locking_query( parent_bank );
 
   // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  dump_vote_accounts( funk,
-                      xid,
-                      vote_states,
-                      spad,
-                      block_context->acct_states,
-                      &block_context->acct_states_count );
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
-}
-
-static void
-create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t *  block_context,
-                                                  fd_runtime_block_info_t const * block_info,
-                                                  fd_bank_t *                     bank,
-                                                  fd_funk_t *                     funk,
-                                                  fd_funk_txn_xid_t const *       xid,
-                                                  fd_spad_t *                     spad ) {
-  /* BlockContext -> txns */
-  block_context->txns_count = 0U;
-  block_context->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), block_info->txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
-  fd_memset( block_context->txns, 0, block_info->txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
+  fd_vote_states_t const * vote_states_prev_prev   = fd_bank_vote_states_prev_prev_locking_query( parent_bank );
+  block_context->epoch_ctx.vote_accounts_t_2       = fd_spad_alloc(
+      spad,
+      alignof(fd_exec_test_vote_account_t),
+      sizeof(fd_exec_test_vote_account_t)*fd_vote_states_cnt( vote_states_prev_prev ) );
+  block_context->epoch_ctx.vote_accounts_t_2_count = 0U;
+  dump_prior_vote_accounts(
+      vote_states_prev_prev,
+      dumped_accounts_pool,
+      &dumped_accounts_root,
+      block_context->epoch_ctx.vote_accounts_t_2,
+      &block_context->epoch_ctx.vote_accounts_t_2_count,
+      spad );
+  fd_bank_vote_states_prev_prev_end_locking_query( parent_bank );
 
   /* BlockContext -> acct_states
-     Allocate additional space for the remaining accounts */
-  fd_exec_test_acct_state_t * current_accounts = block_context->acct_states;
-  block_context->acct_states                   = fd_spad_alloc( spad,
-                                                                alignof(fd_exec_test_acct_state_t),
-                                                                ( ( block_info->txn_cnt * 128UL ) + (ulong)block_context->acct_states_count ) *
-                                                                sizeof(fd_exec_test_acct_state_t) );
-  fd_memcpy( block_context->acct_states, current_accounts, block_context->acct_states_count * sizeof(fd_exec_test_acct_state_t) );
-
-  /* BlockContext -> slot_ctx -> poh
-     This currently needs to be done because POH verification is done after epoch boundary processing. That should probably be changed */
-  fd_memcpy( block_context->slot_ctx.poh, fd_bank_poh_query( bank )->hash, sizeof(fd_pubkey_t) );
-
-  /* When iterating over microblocks batches and microblocks, we flatten the batches for the output block context (essentially just one big batch with several microblocks) */
-  for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
-    fd_microblock_batch_info_t const * microblock_batch = &block_info->microblock_batch_infos[i];
-
-    for( ulong j=0UL; j<microblock_batch->microblock_cnt; j++ ) {
-      fd_microblock_info_t const * microblock_info = &microblock_batch->microblock_infos[j];
-      ulong                        txn_cnt         = microblock_info->microblock.hdr->txn_cnt;
-      if (txn_cnt==0UL) continue;
-
-      /* BlockContext -> txns */
-      for( ulong k=0UL; k<txn_cnt; k++ ) {
-        fd_txn_p_t const * txn_ptr      = &microblock_info->txns[k];
-        fd_txn_t const * txn_descriptor = TXN( txn_ptr );
-        dump_sanitized_transaction( funk, xid, txn_descriptor, txn_ptr->payload, spad, &block_context->txns[block_context->txns_count++] );
-
-        /* BlockContext -> acct_states */
-        /* Dump account + alut + programdata accounts (if applicable). There's a lot more brute force work since none of the borrowed accounts are set up yet. We have to:
-           1. Dump the raw txn account keys
-           2. Dump the ALUT accounts
-           3. Dump all referenced accounts in the ALUTs
-           4. Dump any executable accounts
-           5. Dump any sysvars + builtin accounts (occurs outside of this loop) */
-
-        // 1. Dump any account keys that are referenced by transactions
-        fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_ptr->payload );
-        for( ushort l=0; l<txn_descriptor->acct_addr_cnt; l++ ) {
-          fd_pubkey_t const * account_key = fd_type_pun_const( &account_keys[l] );
-          dump_account_if_not_already_dumped( funk, xid, account_key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-        }
-
-        // 2 + 3. Dump any ALUT accounts + any accounts referenced in the ALUTs
-        fd_txn_acct_addr_lut_t const * txn_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
-        for( ushort l=0; l<txn_descriptor->addr_table_lookup_cnt; l++ ) {
-          fd_txn_acct_addr_lut_t const * lookup_table = &txn_lookup_tables[l];
-          dump_lut_account_and_contained_accounts( funk, xid, txn_ptr->payload, lookup_table, spad, block_context->acct_states, &block_context->acct_states_count );
-        }
-
-        // 4. Go through all dumped accounts and dump any executable accounts
-        ulong dumped_accounts = block_context->acct_states_count;
-        for( ulong l=0; l<dumped_accounts; l++ ) {
-          fd_exec_test_acct_state_t const * maybe_program_account = &block_context->acct_states[l];
-          dump_executable_account_if_exists( funk, xid, maybe_program_account, spad, block_context->acct_states, &block_context->acct_states_count );
-        }
-      }
+     Iterate over the set and dump all the account keys in one pass. */
+  block_context->acct_states_count = 0U;
+  block_context->acct_states       = fd_spad_alloc(
+      spad,
+      alignof(fd_exec_test_acct_state_t),
+      fd_dump_account_key_map_size( dumped_accounts_pool, dumped_accounts_root )*sizeof(fd_exec_test_acct_state_t) );
+  for( fd_dump_account_key_node_t * node = fd_dump_account_key_map_minimum( dumped_accounts_pool, dumped_accounts_root );
+                                    node;
+                                    node = fd_dump_account_key_map_successor( dumped_accounts_pool, node ) ) {
+    fd_txn_account_t txn_account[1];
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &node->key, funk, &parent_xid );
+    if( FD_UNLIKELY( ret ) ) {
+      continue;
     }
+    dump_account_state( txn_account, &block_context->acct_states[block_context->acct_states_count++], spad );
   }
+
+  /* BlockContext -> blockhash_queue */
+  fd_blockhashes_t const * bhq   = fd_bank_block_hash_queue_query( parent_bank );
+  block_context->blockhash_queue = fd_spad_alloc(
+      spad,
+      alignof(pb_bytes_array_t *),
+      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASHES_MAX) * sizeof(pb_bytes_array_t *)) );
+  block_context->blockhash_queue_count = 0U;
+  dump_blockhash_queue( bhq, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
+
+  /* BlockContext -> SlotContext */
+  block_context->has_slot_ctx                       = true;
+  block_context->slot_ctx.slot                      = current_slot;
+  block_context->slot_ctx.block_height              = fd_bank_block_height_get( bank );
+  block_context->slot_ctx.prev_slot                 = fd_bank_parent_slot_get( bank );
+
+  // We need to store the POH hash for the current block since we don't
+  // recalculate it in the harnesses.
+  fd_memcpy( block_context->slot_ctx.poh, fd_bank_poh_query( bank ), sizeof(fd_pubkey_t) );
+  fd_memcpy( block_context->slot_ctx.parent_bank_hash, fd_bank_bank_hash_query( parent_bank ), sizeof(fd_pubkey_t) );
+  block_context->slot_ctx.prev_lps                  = fd_bank_prev_lamports_per_signature_get( parent_bank );
+  block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( parent_bank );
+
+  /* BlockContext -> SlotContext -> fee_rate_governor */
+  fd_fee_rate_governor_t const * fee_rate_governor = fd_bank_fee_rate_governor_query( parent_bank );
+  block_context->slot_ctx.has_fee_rate_governor     = true;
+  block_context->slot_ctx.fee_rate_governor         = (fd_exec_test_fee_rate_governor_t){
+      .target_lamports_per_signature = fee_rate_governor->target_lamports_per_signature,
+      .target_signatures_per_slot    = fee_rate_governor->target_signatures_per_slot,
+      .min_lamports_per_signature    = fee_rate_governor->min_lamports_per_signature,
+      .max_lamports_per_signature    = fee_rate_governor->max_lamports_per_signature,
+      .burn_percent                  = fee_rate_governor->burn_percent,
+  };
+
+  /* BlockContext -> EpochContext */
+  block_context->has_epoch_ctx                        = true;
+  block_context->epoch_ctx.has_features               = true;
+  dump_sorted_features( fd_bank_features_query( parent_bank ), &block_context->epoch_ctx.features, spad );
+  block_context->epoch_ctx.hashes_per_tick            = fd_bank_hashes_per_tick_get( parent_bank );
+  block_context->epoch_ctx.ticks_per_slot             = fd_bank_ticks_per_slot_get( parent_bank );
+  block_context->epoch_ctx.slots_per_year             = fd_bank_slots_per_year_get( parent_bank );
+  block_context->epoch_ctx.has_inflation              = true;
+
+  fd_inflation_t const * inflation = fd_bank_inflation_query( parent_bank );
+  block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
+      .initial         = inflation->initial,
+      .terminal        = inflation->terminal,
+      .taper           = inflation->taper,
+      .foundation      = inflation->foundation,
+      .foundation_term = inflation->foundation_term,
+  };
+  block_context->epoch_ctx.genesis_creation_time      = fd_bank_genesis_creation_time_get( parent_bank );
 }
 
 static void
@@ -584,71 +772,37 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   fd_txn_t const * txn_descriptor = TXN( &txn_ctx->txn );
   uchar const *    txn_payload    = (uchar const *) txn_ctx->txn.payload;
 
-  /* We don't want to store builtins in account shared data */
-  fd_pubkey_t const loaded_builtins[] = {
-    fd_solana_system_program_id,
-    fd_solana_vote_program_id,
-    fd_solana_stake_program_id,
-    // fd_solana_config_program_id, // migrated to BPF, so we should dump it
-    // fd_solana_zk_token_proof_program_id,
-    fd_solana_bpf_loader_v4_program_id,
-    // fd_solana_address_lookup_table_program_id, // migrated to BPF, so we should dump it
-    fd_solana_bpf_loader_deprecated_program_id,
-    fd_solana_bpf_loader_program_id,
-    fd_solana_bpf_loader_upgradeable_program_id,
-    fd_solana_compute_budget_program_id,
-    fd_solana_keccak_secp_256k_program_id,
-    fd_solana_secp256r1_program_id,
-    fd_solana_zk_elgamal_proof_program_id,
-    fd_solana_ed25519_sig_verify_program_id,
-  };
-  const ulong num_loaded_builtins = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
-
-  /* Prepare sysvar cache accounts */
-  fd_pubkey_t const fd_relevant_sysvar_ids[] = {
-    fd_sysvar_recent_block_hashes_id,
-    fd_sysvar_clock_id,
-    fd_sysvar_slot_history_id,
-    fd_sysvar_slot_hashes_id,
-    fd_sysvar_epoch_schedule_id,
-    fd_sysvar_epoch_rewards_id,
-    fd_sysvar_fees_id,
-    fd_sysvar_rent_id,
-    fd_sysvar_stake_history_id,
-    fd_sysvar_last_restart_slot_id,
-  };
-  const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
-
   /* Transaction Context -> account_shared_data
      Contains:
       - Account data for regular accounts
       - Account data for LUT accounts
       - Account data for executable accounts
       - Account data for (almost) all sysvars
-  */
+
+    We also don't want to store builtins in account shared data due to
+    how Agave's bank handles them in the init phase. */
   // Dump regular accounts first
   txn_context_msg->account_shared_data_count = 0;
   txn_context_msg->account_shared_data = fd_spad_alloc( spad,
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (256UL*2UL + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, &txn_ctx->account_keys[i], txn_ctx->funk, txn_ctx->xid );
     if( FD_UNLIKELY( ret ) ) {
       continue;
     }
 
-    // Make sure account is not a builtin
-    if( !is_builtin_account( loaded_builtins, num_loaded_builtins, &txn_ctx->account_keys[i] ) ) {
+    // Make sure account is not a non-migrating builtin
+    if( !is_builtin_account( &txn_ctx->account_keys[i] ) ) {
       dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
-
     }
   }
 
   // Dump LUT accounts
   fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
   for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     fd_txn_acct_addr_lut_t const * addr_lut  = &address_lookup_tables[i];
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut[i].addr_off);
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, txn_ctx->xid );
@@ -666,9 +820,9 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
         continue;
       }
       fd_pubkey_t const * referenced_addr = fd_type_pun( &lookup_addrs[writable_lut_idxs[j]] );
-      if( is_builtin_account( loaded_builtins, num_loaded_builtins, referenced_addr ) ) continue;
+      if( is_builtin_account( referenced_addr ) ) continue;
 
-      FD_TXN_ACCOUNT_DECL( referenced_account );
+      fd_txn_account_t referenced_account[1];
       ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, txn_ctx->xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
@@ -680,9 +834,9 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
         continue;
       }
       fd_pubkey_t const * referenced_addr = fd_type_pun( &lookup_addrs[readonly_lut_idxs[j]] );
-      if( is_builtin_account( loaded_builtins, num_loaded_builtins, referenced_addr ) ) continue;
+      if( is_builtin_account( referenced_addr ) ) continue;
 
-      FD_TXN_ACCOUNT_DECL( referenced_account );
+      fd_txn_account_t referenced_account[1];
       ret = fd_txn_account_init_from_funk_readonly( referenced_account, referenced_addr, txn_ctx->funk, txn_ctx->xid );
       if( FD_UNLIKELY( ret ) ) continue;
       dump_account_state( referenced_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
@@ -698,8 +852,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Dump sysvars */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &fd_relevant_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
+    fd_txn_account_t txn_account[1];
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -707,7 +861,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
     for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_ctx->account_keys[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+      if ( 0 == memcmp( txn_ctx->account_keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
@@ -749,22 +903,6 @@ static void
 create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
                                                  fd_exec_txn_ctx_t const *      txn_ctx,
                                                  fd_instr_info_t const *        instr ) {
-  /* Prepare sysvar cache accounts */
-  fd_pubkey_t const fd_relevant_sysvar_ids[] = {
-    fd_sysvar_recent_block_hashes_id,
-    fd_sysvar_clock_id,
-    fd_sysvar_slot_history_id,
-    fd_sysvar_slot_hashes_id,
-    fd_sysvar_epoch_schedule_id,
-    fd_sysvar_epoch_rewards_id,
-    fd_sysvar_fees_id,
-    fd_sysvar_rent_id,
-    fd_sysvar_stake_history_id,
-    fd_sysvar_last_restart_slot_id,
-    fd_sysvar_instructions_id,
-  };
-  const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
-
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_ctx->account_keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
@@ -780,15 +918,15 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_txn_account_init_from_funk_readonly( txn_account, &fd_relevant_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
+    fd_txn_account_t txn_account[1];
+    int ret = fd_txn_account_init_from_funk_readonly( txn_account, fd_dump_sysvar_ids[i], txn_ctx->funk, txn_ctx->xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
     for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_ctx->account_keys[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+      if ( 0 == memcmp( txn_ctx->account_keys[j].key, fd_dump_sysvar_ids[i], sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
@@ -803,7 +941,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->executable_cnt; i++ ) {
-    FD_TXN_ACCOUNT_DECL( txn_account );
+    fd_txn_account_t txn_account[1];
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, txn_ctx->executable_accounts[i].pubkey, txn_ctx->funk, txn_ctx->xid );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
@@ -878,20 +1016,12 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
     create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr );
 
     /* Output to file */
-    ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_spad_alloc( txn_ctx->spad, alignof(uchar) , out_buf_size );
-    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
+    ulong        out_buf_size = 100 * 1024 * 1024;
+    uint8_t *    out          = fd_spad_alloc( txn_ctx->spad, alignof(uchar) , out_buf_size );
+    pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
-      char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
-      char * position = fd_cstr_init(output_filepath);
-      position = fd_cstr_append_cstr(position, txn_ctx->capture_ctx->dump_proto_output_dir);
-      position = fd_cstr_append_cstr(position, "/instr-");
-      position = fd_cstr_append_cstr(position, encoded_signature);
-      position = fd_cstr_append_cstr(position, "-");
-      position = fd_cstr_append_ushort_as_text(position, '0', 0, instruction_idx, 3); // Assume max 3 digits
-      position = fd_cstr_append_cstr(position, ".instrctx");
-      fd_cstr_fini(position);
-
+      char output_filepath[ PATH_MAX ];
+      snprintf( output_filepath, PATH_MAX, "%s/instr-%s-%hu.instrctx", txn_ctx->capture_ctx->dump_proto_output_dir, encoded_signature, instruction_idx );
       FILE * file = fopen(output_filepath, "wb");
       if( file ) {
         fwrite( out, 1, stream.bytes_written, file );
@@ -922,18 +1052,12 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
     create_txn_context_protobuf_from_txn( &txn_context_msg, txn_ctx, spad );
 
     /* Output to file */
-    ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
-    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
+    ulong        out_buf_size = 100UL<<20UL; // 100 MB
+    uint8_t *    out          = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
+    pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
     if( pb_encode( &stream, FD_EXEC_TEST_TXN_CONTEXT_FIELDS, &txn_context_msg ) ) {
-      char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
-      char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_cstr( position, txn_ctx->capture_ctx->dump_proto_output_dir );
-      position = fd_cstr_append_cstr( position, "/txn-" );
-      position = fd_cstr_append_cstr( position, encoded_signature );
-      position = fd_cstr_append_cstr(position, ".txnctx");
-      fd_cstr_fini(position);
-
+      char output_filepath[ PATH_MAX ];
+      snprintf( output_filepath, PATH_MAX, "%s/txn-%s.txnctx", txn_ctx->capture_ctx->dump_proto_output_dir, encoded_signature );
       FILE * file = fopen(output_filepath, "wb");
       if( file ) {
         fwrite( out, 1, stream.bytes_written, file );
@@ -944,59 +1068,49 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
 }
 
 void
-fd_dump_block_to_protobuf( fd_banks_t *                   banks,
-                           fd_bank_t *                    bank,
-                           fd_funk_t *                    funk,
-                           fd_funk_txn_xid_t const *      xid,
-                           fd_capture_ctx_t const *       capture_ctx,
-                           fd_spad_t *                    spad,
-                           fd_exec_test_block_context_t * block_context_msg /* output */ ) {
-  /* No spad frame because these allocations must persist beyond the lifetime of this function call */
+fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_ctx,
+                                      fd_txn_p_t const *    txn ) {
+  if( FD_UNLIKELY( dump_ctx->txns_to_dump_cnt>=FD_BLOCK_DUMP_CTX_MAX_TXN_CNT ) ) {
+    FD_LOG_ERR(( "Please increase FD_BLOCK_DUMP_CTX_MAX_TXN_CNT to dump more than %lu transactions.", FD_BLOCK_DUMP_CTX_MAX_TXN_CNT ));
+    return;
+  }
+  fd_memcpy( &dump_ctx->txns_to_dump[dump_ctx->txns_to_dump_cnt++], txn, sizeof(fd_txn_p_t) );
+}
+
+void
+fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
+                           fd_banks_t *              banks,
+                           fd_bank_t *               bank,
+                           fd_funk_t *               funk,
+                           fd_capture_ctx_t const *  capture_ctx ) {
+FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
   if( FD_UNLIKELY( capture_ctx==NULL ) ) {
     FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
     return;
   }
-  create_block_context_protobuf_from_block( block_context_msg, banks, bank, funk, xid, spad );
-}
 
-void
-fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
-                                   fd_bank_t *                     bank,
-                                   fd_funk_t *                     funk,
-                                   fd_funk_txn_xid_t const *       xid,
-                                   fd_capture_ctx_t const *        capture_ctx,
-                                   fd_spad_t *                     spad,
-                                   fd_exec_test_block_context_t *  block_context_msg ) {
-  FD_SPAD_FRAME_BEGIN( spad ) {
-    if( FD_UNLIKELY( capture_ctx==NULL ) ) {
-      FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
-      return;
+  if( FD_UNLIKELY( dump_ctx==NULL ) ) {
+    FD_LOG_WARNING(( "Block dumping context may not be NULL when dumping blocks." ));
+    return;
+  }
+
+  /* Dump the block context */
+  create_block_context_protobuf_from_block( dump_ctx, banks, bank, funk );
+
+  /* Output to file */
+  ulong        out_buf_size = 3UL<<30UL; /* 3 GB */
+  uint8_t *    out          = fd_spad_alloc( dump_ctx->spad, alignof(uint8_t), out_buf_size );
+  pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
+  if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &dump_ctx->block_context ) ) {
+    char output_filepath[ PATH_MAX ];
+    snprintf( output_filepath, PATH_MAX, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, fd_bank_slot_get( bank ) );
+    FILE * file = fopen(output_filepath, "wb");
+    if( file ) {
+      fwrite( out, 1, stream.bytes_written, file );
+      fclose( file );
     }
-
-    if( FD_UNLIKELY( block_info==NULL ) ) {
-      FD_LOG_WARNING(( "Block info may not be NULL when dumping blocks." ));
-      return;
-    }
-
-    create_block_context_protobuf_from_block_tx_only( block_context_msg, block_info, bank, funk, xid, spad );
-
-    /* Output to file */
-    ulong out_buf_size = 5UL<<30UL; /* 5 GB */
-    uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
-    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
-    if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
-      char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
-      char * position = fd_cstr_init( output_filepath );
-      position = fd_cstr_append_printf( position, "%s/block-%lu.blockctx", capture_ctx->dump_proto_output_dir, fd_bank_slot_get( bank ) );
-      fd_cstr_fini( position );
-
-      FILE * file = fopen(output_filepath, "wb");
-      if( file ) {
-        fwrite( out, 1, stream.bytes_written, file );
-        fclose( file );
-      }
-    }
-  } FD_SPAD_FRAME_END;
+  }
+} FD_SPAD_FRAME_END;
 }
 
 void
@@ -1009,8 +1123,9 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 
-  char filename[256];
-  sprintf( filename,
+  char filename[ PATH_MAX ];
+  snprintf( filename,
+          PATH_MAX,
           "%s/syscall-%s-%s-%d-%hhu-%lu.sysctx",
           vm->instr_ctx->txn_ctx->capture_ctx->dump_proto_output_dir,
           fn_name,
@@ -1123,10 +1238,8 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
-  uchar const * program_data     = fd_program_cache_get_account_programdata( txn_ctx->funk,
-                                                                             txn_ctx->xid,
-                                                                             program_acc,
-                                                                             &program_data_len );
+  uchar const * program_data     =
+      fd_prog_load_elf( txn_ctx->funk, txn_ctx->xid, program_acc, &program_data_len, NULL );
   if( program_data==NULL ) {
     return;
   }
@@ -1137,8 +1250,9 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
   char encoded_signature[FD_BASE58_ENCODED_64_SZ];
   fd_base58_encode_64( signature, NULL, encoded_signature );
 
-  char filename[256];
-  sprintf( filename,
+  char filename[ PATH_MAX ];
+  snprintf( filename,
+          PATH_MAX,
           "%s/elf-%s-%s-%lu.elfctx",
           txn_ctx->capture_ctx->dump_proto_output_dir,
           encoded_signature,

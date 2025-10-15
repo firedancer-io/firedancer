@@ -35,6 +35,7 @@ class Tile(Enum):
     BANKF = 29
     RESOLF = 30
     BACKT = 31
+    EXEC = 32
 
 class MetricType(Enum):
     COUNTER = 0

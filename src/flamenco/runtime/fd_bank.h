@@ -594,13 +594,9 @@ FD_BANKS_ITER(X)
 static inline fd_cost_tracker_t *
 fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
-  if( FD_UNLIKELY( bank->cost_tracker_pool_idx==fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
-    return NULL;
-  }
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  if( FD_UNLIKELY( !cost_tracker_mem ) ) {
-    FD_LOG_CRIT(( "invariant violation: cost tracker memory is null" ));
-  }
+  FD_TEST( cost_tracker_mem );
   fd_rwlock_write( &bank->cost_tracker_lock );
   return fd_type_pun( cost_tracker_mem );
 }
@@ -613,13 +609,9 @@ fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
 static inline fd_cost_tracker_t const *
 fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
-  if( FD_UNLIKELY( bank->cost_tracker_pool_idx==fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) ) ) {
-    return NULL;
-  }
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
   uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
-  if( FD_UNLIKELY( !cost_tracker_mem ) ) {
-    FD_LOG_CRIT(( "invariant violation: cost tracker memory is null" ));
-  }
+  FD_TEST( cost_tracker_mem );
   fd_rwlock_read( &bank->cost_tracker_lock );
   return fd_type_pun_const( cost_tracker_mem );
 }

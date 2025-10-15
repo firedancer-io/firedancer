@@ -61,7 +61,7 @@ fd_sysvar_last_restart_slot_read(
     fd_sol_sysvar_last_restart_slot_t * out
 ) {
 
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 

@@ -26,8 +26,8 @@ watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 
-ulong lines_printed = 5UL;
-int ended_on_newline = 1;
+static ulong lines_printed;
+static int ended_on_newline = 1;
 
 static int
 drain( int fd ) {
@@ -108,6 +108,7 @@ fmt_countf( char * buf,
   if( FD_LIKELY( count<1000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f", count ) );
   else if( FD_LIKELY( count<1000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f K", (double)count/1000.0 ) );
   else if( FD_LIKELY( count<1000000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f M", (double)count/1000000.0 ) );
+  else memcpy( tmp, "-", 2UL );
 
   FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
   return buf;
@@ -291,51 +292,66 @@ write_snapshots( config_t const * config,
     100.0-snapin_idle_pct-snapin_backp_pct );
 }
 
-static void
+static uint
 write_gossip( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
-  char * contact_info = COUNT( cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] );
+  ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
+  if( gossip_tile_idx==ULONG_MAX ) return 0U;
+  char * contact_info = COUNT( cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] );
   PRINT( "💬 \033[1m\033[34mGOSSIP......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mCRDS\033[22m %s \033[1mPEERS\033[22m %s\033[K\n",
     DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
     contact_info );
+  return 1U;
 }
 
-static void
+static uint
 write_repair( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
-  ulong repair_slot = cur_tile[ fd_topo_find_tile( &config->topo, "repair", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
-  ulong turbine_slot = cur_tile[ fd_topo_find_tile( &config->topo, "repair", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  if( repair_tile_idx==ULONG_MAX ) return 0U;
+  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
+  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
   PRINT( "🧱 \033[1m\033[31mREPAIR......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mREPAIR SLOT\033[22m %lu (%ld) \033[1mTURBINE SLOT\033[22m %lu\033[K\n",
     DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     repair_slot,
     (long)repair_slot-(long)turbine_slot,
     turbine_slot );
+  return 1U;
 }
 
-static void
+static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
-  ulong turbine_slot = cur_tile[ fd_topo_find_tile( &config->topo, "repair", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  if( replay_tile_idx==ULONG_MAX ) return 0U;
 
-  ulong reset_slot = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT ) ];
-  ulong next_leader_slot = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, NEXT_LEADER_SLOT ) ];
-  ulong leader_slot = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LEADER_SLOT ) ];
+  ulong reset_slot       = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT       ) ];
+  ulong next_leader_slot = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, NEXT_LEADER_SLOT ) ];
+  ulong leader_slot      = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LEADER_SLOT      ) ];
   char * next_leader_slot_str = fd_alloca_check( 1UL, 64UL );
+
+  ulong turbine_slot;
+  if( repair_tile_idx!=ULONG_MAX ) {
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  } else {
+    turbine_slot = reset_slot;
+  }
 
   ulong slot_in_seconds = (ulong)((double)(next_leader_slot-reset_slot)*0.4);
   if( FD_UNLIKELY( leader_slot ) ) FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "now" ) );
   else if( FD_LIKELY( next_leader_slot>0UL ) ) FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "%lum %lus", slot_in_seconds/60UL, slot_in_seconds%60UL ) );
   else FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "never" ) );
 
-  ulong root_distance = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_DISTANCE ) ];
-  ulong live_banks = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LIVE_BANKS ) ];
+  ulong root_distance = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_DISTANCE ) ];
+  ulong live_banks    = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LIVE_BANKS    ) ];
 
   ulong sps_sum = 0UL;
   ulong num_sps_samples = fd_ulong_min( sps_samples_idx, sizeof(sps_samples)/sizeof(sps_samples[0]));
@@ -355,6 +371,7 @@ write_replay( config_t const * config,
     next_leader_slot_str,
     root_distance,
     live_banks );
+  return 1U;
 }
 
 static void
@@ -379,7 +396,7 @@ write_summary( config_t const * config,
   if( FD_UNLIKELY( !snap_shutdown_time && shutdown  ) ) snap_shutdown_time = 2L; /* Was shutdown on boot */
   if( FD_UNLIKELY( snap_shutdown_time==1L && shutdown  ) ) snap_shutdown_time = fd_log_wallclock();
 
-  lines_printed = 4UL;
+  lines_printed = 1UL;
 
   ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
   if( FD_UNLIKELY( backt_idx!=ULONG_MAX ) ) {
@@ -393,9 +410,9 @@ write_summary( config_t const * config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
-  write_gossip( config, cur_tile, cur_link, prev_link );
-  write_repair( config, cur_tile, cur_link, prev_link );
-  write_replay( config, cur_tile );
+  lines_printed += write_gossip( config, cur_tile, cur_link, prev_link );
+  lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
+  lines_printed += write_replay( config, cur_tile );
 }
 
 static void

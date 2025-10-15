@@ -1062,4 +1062,14 @@ metric introduced.
     <gauge name="StartSlot" summary="The slot at which the backtest started" />
 </tile>
 
+<tile name="exec">
+    <counter name="ProgcacheMisses" summary="Number of program cache misses" />
+    <counter name="ProgcacheHits" summary="Number of program cache hits" />
+    <counter name="ProgcacheFills" summary="Number of program cache insertions" />
+    <counter name="ProgcacheFillTotSz" summary="Total number of bytes inserted into program cache" />
+    <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
+    <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
+    <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
+</tile>
+
 </metrics>

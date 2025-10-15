@@ -20,7 +20,6 @@
 #include "program/fd_vote_program.h"
 #include "program/fd_zk_elgamal_proof_program.h"
 #include "sysvar/fd_sysvar_cache.h"
-#include "program/fd_program_cache.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "sysvar/fd_sysvar_instructions.h"
 #include "sysvar/fd_sysvar_rent.h"
@@ -29,8 +28,6 @@
 #include "tests/fd_dump_pb.h"
 
 #include "../../ballet/base58/fd_base58.h"
-#include "../../disco/pack/fd_pack.h"
-#include "../../disco/pack/fd_pack_cost.h"
 
 #include "../../util/bits/fd_uwide.h"
 
@@ -584,7 +581,7 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
        total size of accounts and their owners are accumulated: duplicate owners
        should be avoided.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
-    FD_TXN_ACCOUNT_DECL( owner_account );
+    fd_txn_account_t owner_account[1];
     err = fd_txn_account_init_from_funk_readonly( owner_account,
                                                   fd_txn_account_get_owner( program_account ),
                                                   txn_ctx->funk,
@@ -693,7 +690,7 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
   }
 
   /* Load the programdata account from Funk to read the programdata length */
-  FD_TXN_ACCOUNT_DECL( programdata_account );
+  fd_txn_account_t programdata_account[1];
   err = fd_txn_account_init_from_funk_readonly( programdata_account,
                                                 &loader_state->inner.program.programdata_address,
                                                 txn_ctx->funk,
@@ -1369,12 +1366,24 @@ fd_executor_reclaim_account( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_exec_txn_ctx_setup( fd_bank_t *               bank,
-                       fd_funk_t *               funk,
+                       void *                    accdb_shfunk,
+                       void *                    progcache_shfunk,
                        fd_funk_txn_xid_t const * xid,
                        fd_txncache_t *           status_cache,
                        fd_exec_txn_ctx_t *       ctx,
-                       fd_bank_hash_cmp_t *      bank_hash_cmp ) {
-  ctx->funk[0] = *funk;
+                       fd_bank_hash_cmp_t *      bank_hash_cmp,
+                       void *                    progcache_scratch,
+                       ulong                     progcache_scratch_sz ) {
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, accdb_shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
+
+  if( progcache_shfunk ) {
+    ctx->progcache = fd_progcache_join( ctx->_progcache, progcache_shfunk, progcache_scratch, progcache_scratch_sz );
+    if( FD_UNLIKELY( !ctx->progcache ) ) {
+      FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+    }
+  }
 
   ctx->xid[0] = *xid;
 
@@ -1572,12 +1581,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* TODO: This function needs to be split out of fd_execute_txn and be placed
       into the replay tile once it is implemented. */
-  int err = fd_executor_txn_check( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
-    FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
-    return err;
-  }
-  return 0;
+  return fd_executor_txn_check( txn_ctx );
 }
 
 int

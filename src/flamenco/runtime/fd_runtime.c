@@ -15,13 +15,13 @@
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
+#include "../progcache/fd_progcache_user.h"
 
 #include "context/fd_exec_txn_ctx.h"
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
 #include "program/fd_vote_program.h"
-#include "program/fd_program_cache.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_address_lookup_table_program.h"
 
@@ -40,7 +40,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <errno.h>
 #include <fcntl.h>
 
 /******************************************************************************/
@@ -133,9 +132,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
 
   /* Derive leader schedule */
 
-  FD_LOG_INFO(( "stake_weight_cnt=%lu slot_cnt=%lu", stake_weight_cnt, slot_cnt ));
   ulong epoch_leaders_footprint = fd_epoch_leaders_footprint( stake_weight_cnt, slot_cnt );
-  FD_LOG_INFO(( "epoch_leaders_footprint=%lu", epoch_leaders_footprint ));
   if( FD_LIKELY( epoch_leaders_footprint ) ) {
     if( FD_UNLIKELY( stake_weight_cnt>MAX_PUB_CNT ) ) {
       FD_LOG_ERR(( "Stake weight count exceeded max" ));
@@ -222,7 +219,7 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
                             fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
                             fd_capture_ctx_t *        capture_ctx ) {
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
 
   int err = fd_txn_account_init_from_funk_mutable(
@@ -271,7 +268,7 @@ fd_runtime_freeze( fd_bank_t *               bank,
 
   if( FD_LIKELY( fees ) ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
-    FD_TXN_ACCOUNT_DECL( rec );
+    fd_txn_account_t rec[1];
 
     do {
       /* do_create=1 because we might wanna pay fees to a leader
@@ -447,7 +444,7 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       parent_epoch   = fd_slot_to_epoch( epoch_schedule, fd_bank_parent_slot_get( bank ), NULL );
-  fd_sysvar_clock_update( bank, funk, xid, capture_ctx, runtime_spad, &parent_epoch );
+  fd_sysvar_clock_update( bank, funk, xid, capture_ctx, &parent_epoch );
 
   // It has to go into the current txn previous info but is not in slot 0
   if( fd_bank_slot_get( bank ) != 0 ) {
@@ -481,7 +478,7 @@ fd_runtime_load_txn_address_lookup_tables(
     fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(payload + addr_lut->addr_off);
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-    FD_TXN_ACCOUNT_DECL( addr_lut_rec );
+    fd_txn_account_t addr_lut_rec[1];
     int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec,
                                                       addr_lut_acc,
                                                       funk,
@@ -696,23 +693,14 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
                                   fd_capture_ctx_t *        capture_ctx,
                                   fd_spad_t *               runtime_spad ) {
   fd_bank_execution_fees_set( bank, 0UL );
-
   fd_bank_priority_fees_set( bank, 0UL );
-
   fd_bank_signature_count_set( bank, 0UL );
-
   fd_bank_total_compute_units_used_set( bank, 0UL );
 
-  /* Setup cost tracker */
-  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
-    fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_cost_tracker_new(
-        fd_bank_cost_tracker_locking_modify( bank ),
-        fd_bank_features_query( bank ),
-        fd_bank_slot_get( bank ),
-        999UL /* TODO: Needs real seed */ ) );
-    if( FD_UNLIKELY( !cost_tracker ) ) {
-      FD_LOG_CRIT(("Unable to allocate memory for cost tracker" ));
-    }
+  if( FD_LIKELY( fd_bank_slot_get( bank ) ) ) {
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+    FD_TEST( cost_tracker );
+    fd_cost_tracker_init( cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ) );
     fd_bank_cost_tracker_end_locking_modify( bank );
   }
 
@@ -1052,7 +1040,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   }
 
   /* Look up the previous version of the account from Funk */
-  FD_TXN_ACCOUNT_DECL( previous_account_version );
+  fd_txn_account_t previous_account_version[1];
   int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, xid );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
     FD_LOG_CRIT(( "Failed to read old account version from Funk" ));
@@ -1088,6 +1076,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_progcache_t *          progcache,
                          fd_txncache_t *           txncache,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
@@ -1162,7 +1151,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       ulong current_slot = fd_bank_slot_get( bank );
       for( uchar i=0; i<txn_ctx->programs_to_reverify_cnt; i++ ) {
         fd_pubkey_t const * program_key = &txn_ctx->programs_to_reverify[i];
-        fd_program_cache_queue_program_for_reverification( funk, xid, program_key, current_slot );
+        fd_progcache_invalidate( progcache, xid, program_key, current_slot );
       }
   }
 
@@ -1186,7 +1175,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
 
   /* Update the cost tracker */
-  fd_cost_tracker_t * cost_tracker = fd_cost_tracker_join( fd_bank_cost_tracker_locking_modify( bank ) );
+  fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
     txn_ctx->flags = 0U;
@@ -1391,7 +1380,7 @@ fd_feature_activate( fd_bank_t *               bank,
 
   if( id->reverted==1 ) return;
 
-  FD_TXN_ACCOUNT_DECL( acct_rec );
+  fd_txn_account_t acct_rec[1];
   int err = fd_txn_account_init_from_funk_readonly( acct_rec, addr, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return;
@@ -1415,7 +1404,7 @@ fd_feature_activate( fd_bank_t *               bank,
   } else {
     FD_LOG_DEBUG(( "Feature %s not activated at %lu, activating", addr_b58, feature->activated_at ));
 
-    FD_TXN_ACCOUNT_DECL( modify_acct_rec );
+    fd_txn_account_t modify_acct_rec[1];
     fd_funk_rec_prepare_t modify_acct_prepare = {0};
     err = fd_txn_account_init_from_funk_mutable( modify_acct_rec, addr, funk, xid, 0, 0UL, &modify_acct_prepare );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
@@ -1571,71 +1560,6 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
-
-  } FD_SPAD_FRAME_END;
-}
-
-/******************************************************************************/
-/* Block Parsing                                                              */
-/******************************************************************************/
-
-/* Block iteration and parsing */
-
-/* As a note, all of the logic in this section is used by the full firedancer
-   client. The store tile uses these APIs to help parse raw (micro)blocks
-   received from the network. */
-
-/* Helpers */
-
-void
-fd_runtime_update_program_cache( fd_bank_t *               bank,
-                                 fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * xid,
-                                 fd_txn_p_t const *        txn_p,
-                                 fd_spad_t *               runtime_spad ) {
-  fd_txn_t const * txn_descriptor = TXN( txn_p );
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  /* Iterate over account keys referenced directly in the transaction first */
-  fd_acct_addr_t const * acc_addrs = fd_txn_get_acct_addrs( txn_descriptor, txn_p );
-  for( ushort acc_idx=0; acc_idx<txn_descriptor->acct_addr_cnt; acc_idx++ ) {
-    fd_pubkey_t const * account = fd_type_pun_const( &acc_addrs[acc_idx] );
-    fd_program_cache_update_program( bank, funk, xid, account, runtime_spad );
-  }
-
-  if( txn_descriptor->transaction_version==FD_TXN_V0 ) {
-
-    /* Iterate over account keys referenced in ALUTs */
-    fd_acct_addr_t alut_accounts[256];
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, runtime_spad );
-    if( FD_UNLIKELY( !slot_hashes_global ) ) {
-      return;
-    }
-
-    fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
-
-    /* TODO: This is done twice, once in the replay tile and once in the
-       exec tile. We should consolidate the account resolution into a
-       single place, but also keep in mind from a conformance
-       perspective that these ALUT resolution checks happen after some
-       things like compute budget instruction parsing */
-    if( FD_UNLIKELY( fd_runtime_load_txn_address_lookup_tables(
-          txn_descriptor,
-          txn_p->payload,
-          funk,
-          xid,
-          fd_bank_slot_get( bank ),
-          slot_hash,
-          alut_accounts ) ) ) {
-      return;
-    }
-
-    for( ushort alut_idx=0; alut_idx<txn_descriptor->addr_table_adtl_cnt; alut_idx++ ) {
-      fd_pubkey_t const * account = fd_type_pun_const( &alut_accounts[alut_idx] );
-      fd_program_cache_update_program( bank, funk, xid, account, runtime_spad );
-    }
-  }
 
   } FD_SPAD_FRAME_END;
 }

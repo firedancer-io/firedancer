@@ -185,8 +185,10 @@ fd_http_resolver_join( void * shresolver ) {
 void
 fd_http_resolver_add( fd_http_resolver_t * resolver,
                       fd_ip4_port_t        addr ) {
+  if( !peer_pool_free( resolver->pool ) ) {
+    FD_LOG_ERR(( "peer pool exhausted" ));
+  }
   fd_ssresolve_peer_t * peer = peer_pool_ele_acquire( resolver->pool );
-  FD_TEST( peer );
   peer->state                        = PEER_STATE_UNRESOLVED;
   peer->addr                         = addr;
   peer->fd.idx                       = ULONG_MAX;

@@ -242,11 +242,13 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
      the offset in the banks. */
 
   fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_cost_tracker_pool_join( fd_bank_cost_tracker_pool_new( cost_tracker_pool_mem, max_fork_width ) );
-  if( FD_UNLIKELY( !cost_tracker_pool ) ) {
-    FD_LOG_WARNING(( "Failed to new or join cost tracker pool" ));
-    return NULL;
-  }
+  FD_TEST( cost_tracker_pool );
   fd_banks_set_cost_tracker_pool( banks, cost_tracker_pool );
+
+  for( ulong i=0UL; i<max_fork_width; i++ ) {
+    fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
+    fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, 88888UL /* TODO: REAL SEED */ ) );
+  }
 
   /* Now, call _new() and _join() for all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name)                                                     \
@@ -461,12 +463,12 @@ fd_banks_init_bank( fd_banks_t * banks ) {
 
   fd_rwlock_write( &banks->rwlock );
 
-  fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
-  if( FD_UNLIKELY( bank==NULL ) ) {
+  if( FD_UNLIKELY( !fd_banks_pool_free( bank_pool ) ) ) {
     FD_LOG_WARNING(( "Failed to acquire bank" ));
     fd_rwlock_unwrite( &banks->rwlock );
     return NULL;
   }
+  fd_bank_t * bank = fd_banks_pool_ele_acquire( bank_pool );
 
   #define HAS_COW_1(type, name, footprint) \
     bank->name##_dirty    = 0;             \

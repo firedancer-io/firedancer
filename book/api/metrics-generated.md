@@ -1057,3 +1057,19 @@
 | <span class="metrics-name">backt_&#8203;start_&#8203;slot</span> | gauge | The slot at which the backtest started |
 
 </div>
+
+## Exec Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;misses</span> | counter | Number of program cache misses |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;hits</span> | counter | Number of program cache hits |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;tot_&#8203;sz</span> | counter | Total number of bytes inserted into program cache |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
+
+</div>

@@ -139,7 +139,6 @@ fetch () {
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.6.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.7.0"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.5.1"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
   fi
@@ -403,22 +402,6 @@ install_s2n () {
   echo "[+] Successfully installed s2n-bignum"
 }
 
-install_blst () {
-  cd "$PREFIX/git/blst"
-
-  echo "[+] Installing blst to $PREFIX"
-
-  # this is copied from ./build.sh:27
-  CFLAGS=${CFLAGS:--O2 -fno-builtin -fPIC -Wall -Wextra -Werror}
-  # this adds our flags, e.g. for MSAN
-  CFLAGS+=" $EXTRA_CFLAGS"
-
-  CFLAGS=$CFLAGS ./build.sh
-  cp libblst.a "$PREFIX/lib"
-  cp bindings/*.h "$PREFIX/include"
-  echo "[+] Successfully installed blst"
-}
-
 install_secp256k1 () {
   cd "$PREFIX/git/secp256k1"
 
@@ -606,7 +589,6 @@ install () {
   ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_blst      )
     ( install_snappy    )
     ( install_rocksdb   )
   fi
