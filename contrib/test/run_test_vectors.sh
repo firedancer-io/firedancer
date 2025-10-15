@@ -35,10 +35,8 @@ else
   cd dump/test-vectors
 fi
 
-if ! git checkout -q $GIT_REF; then
-  git remote update
-  git checkout -q $GIT_REF
-fi
+git fetch origin $GIT_REF
+git checkout -q $GIT_REF
 cd ../..
 
 WKSP=run-test-vectors
