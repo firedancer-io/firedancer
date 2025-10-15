@@ -677,7 +677,7 @@ LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t)
 LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool ) {
   ulong sort_key_idx = LIVE_TABLE_(private_query_sort_key)( join, sort_key );
   if( FD_UNLIKELY( sort_key_idx==ULONG_MAX ) ) {
-    for( ulong i=0UL; i<LIVE_TABLE_COLUMN_CNT; i++ ) {
+    for( ulong i=0UL; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
       if( FD_UNLIKELY( join->treaps_is_active[ i ] ) ) continue;
       sort_key_idx = i;
       LIVE_TABLE_(private_sort_key_create)( join, i, sort_key, pool );
