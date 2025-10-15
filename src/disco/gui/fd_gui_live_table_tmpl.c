@@ -502,12 +502,20 @@ LIVE_TABLE_(private_query_sort_key)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key
 }
 
 static inline int LIVE_TABLE_(lt) ( LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T const * e0, LIVE_TABLE_ROW_T const * e1 ) {
-  ulong old_val = e0->LIVE_TABLE_SORT_KEYS;
-  ((LIVE_TABLE_ROW_T *)e0)->LIVE_TABLE_SORT_KEYS = (ulong)sort_key;
-  LIVE_TABLE_(private_active_sort_key_idx) = 0;
-  int lt = LIVE_TABLE_(private_row_lt)(e0, e1);
-  ((LIVE_TABLE_ROW_T *)e0)->LIVE_TABLE_SORT_KEYS = old_val;
-  return lt;
+  LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
+  for( ulong i=0UL; i<LIVE_TABLE_COLUMN_CNT; i++ ) {
+    if( FD_LIKELY( sort_key->dir[ i ]==0 ) ) continue;
+
+    void * col_a = ((uchar *)e0) + cols[ sort_key->col[ i ] ].off;
+    void * col_b = ((uchar *)e1) + cols[ sort_key->col[ i ] ].off;
+    int a_lt_b = cols[ sort_key->col[ i ] ].lt( col_a, col_b );
+    int b_lt_a = cols[ sort_key->col[ i ] ].lt( col_b, col_a );
+
+    if( FD_UNLIKELY( !(a_lt_b || b_lt_a) ) ) continue;
+    return fd_int_if( sort_key->dir[ i ]==1, a_lt_b, !a_lt_b );
+  }
+
+  return 0;
 }
 
 #endif /* LIVE_TABLE_IMPL_STYLE!=2 */
