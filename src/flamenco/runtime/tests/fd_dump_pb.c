@@ -576,7 +576,7 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_bank_t *                    parent_bank    = fd_banks_get_parent( banks, bank );
   ulong                          current_slot   = fd_bank_slot_get( bank );
   ulong                          parent_slot    = fd_bank_slot_get( parent_bank );
-  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_slot } };
+  fd_funk_txn_xid_t              parent_xid     = { .ul = { parent_slot, parent_bank->idx } };
   fd_exec_test_block_context_t * block_context  = &dump_ctx->block_context;
   ulong                          dump_txn_count = dump_ctx->txns_to_dump_cnt;
   fd_spad_t *                    spad           = dump_ctx->spad;
