@@ -186,6 +186,7 @@ fd_store_link( fd_store_t * store, fd_hash_t * merkle_root, fd_hash_t * chained_
   fd_store_fec_t  * parent = fd_store_query( store, chained_merkle_root );
   fd_store_fec_t  * child  = fd_store_query( store, merkle_root );
 
+  if( FD_UNLIKELY( child->parent != null ) ) return child; /* already linked */
   child->parent = fd_store_pool_idx( &pool, parent );
   if( FD_LIKELY( parent->child == null ) ) {
     parent->child = fd_store_pool_idx( &pool, child ); /* set as left-child. */

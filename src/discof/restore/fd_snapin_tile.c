@@ -655,7 +655,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
-      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, ctx->bank_slot } };
+      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
       fd_funk_txn_prepare( ctx->funk, ctx->xid, &target_xid );
       fd_funk_txn_publish_into_parent( ctx->funk, &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );

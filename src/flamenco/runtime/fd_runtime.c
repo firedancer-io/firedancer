@@ -1217,7 +1217,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->bank_idx              = bank_idx;
   txn_ctx->features              = fd_bank_features_get( bank );
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
-  txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, slot } };
+  txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, bank_idx } };
   txn_ctx->capture_ctx           = capture_ctx;
   txn_ctx->txn                   = *txn;
 

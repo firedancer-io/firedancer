@@ -413,13 +413,14 @@ fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
 }
 
 int
-fd_sched_can_ingest( fd_sched_t * sched ) {
+fd_sched_can_ingest( fd_sched_t * sched,
+                     ulong        fec_cnt ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   /* Worst case, we need one byte from the incoming data to extract a
      transaction out of the residual data, and the rest of the incoming
      data contributes toward min sized transactions. */
   ulong txn_cnt = (FD_SCHED_MAX_PAYLOAD_PER_FEC-1UL)/FD_TXN_MIN_SERIALIZED_SZ+1UL; /* 478 */
-  return sched->txn_pool_free_cnt>=txn_cnt;
+  return sched->txn_pool_free_cnt>=(txn_cnt*fec_cnt);
 }
 
 FD_WARN_UNUSED int

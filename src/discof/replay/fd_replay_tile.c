@@ -667,8 +667,8 @@ replay_block_start( fd_replay_tile_t *  ctx,
 
   /* Create a new funk txn for the block. */
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
+  fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
+  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
   fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
 
@@ -790,7 +790,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
   ulong             slot = fd_bank_slot_get( bank );
-  fd_funk_txn_xid_t xid  = { .ul = { slot, slot } };
+  fd_funk_txn_xid_t xid  = { .ul = { slot, bank->idx } };
 
   /* Set poh hash in bank. */
   fd_hash_t * poh = fd_sched_get_poh( ctx->sched, bank->idx );
@@ -900,8 +900,8 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_bank_parent_slot_set( ctx->leader_bank, parent_slot );
   ctx->leader_bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, parent_bank->txncache_fork_id );
   /* prepare the funk transaction for the leader bank */
-  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
-  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_slot } };
+  fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->idx } };
+  fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
   fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
 
@@ -965,7 +965,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( !txn_map->map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
-  fd_funk_txn_xid_t xid = { .ul = { curr_slot, curr_slot } };
+  fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
 
   fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, 0 );
 
@@ -1074,7 +1074,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     FD_LOG_CRIT(( "invariant violation: replay bank is NULL at bank index %lu", FD_REPLAY_BOOT_BANK_IDX ));
   }
 
-  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), fd_bank_slot_get( bank ) } };
+  fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( bank ), bank->idx } };
   init_funk( ctx, fd_bank_slot_get( bank ) );
 
   fd_stake_delegations_t * root_delegations = fd_banks_stake_delegations_root_query( ctx->banks );
@@ -1292,7 +1292,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   fd_bank_t * bank = fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX );
   FD_TEST( bank );
-  fd_funk_txn_xid_t xid = { .ul = { 0UL, 0UL } };
+  fd_funk_txn_xid_t xid = { .ul = { 0UL, FD_REPLAY_BOOT_BANK_IDX } };
 
   fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
 
@@ -1418,7 +1418,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     FD_TEST( bank->idx==0UL );
 
 
-    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, snapshot_slot } };
+    fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
 
     fd_features_restore( bank, ctx->funk, &xid );
 
@@ -1566,10 +1566,6 @@ process_fec_set( fd_replay_tile_t * ctx,
                  fd_reasm_fec_t *   reasm_fec ) {
   long now = fd_log_wallclock();
 
-  if( FD_UNLIKELY( reasm_fec->eqvoc ) ) {
-    FD_LOG_ERR(( "Firedancer currently does not support mid-block equivocation and this was detected on slot %lu.", reasm_fec->slot ));
-  }
-
   /* Linking only requires a shared lock because the fields that are
      modified are only read on publish which uses exclusive lock. */
 
@@ -1685,8 +1681,9 @@ process_fec_set( fd_replay_tile_t * ctx,
 
 static void
 funk_publish( fd_replay_tile_t * ctx,
-              ulong              slot ) {
-  fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = slot };
+              ulong              slot,
+              ulong              bank_idx ) {
+  fd_funk_txn_xid_t xid = { .ul[0] = slot, .ul[1] = bank_idx };
   FD_LOG_DEBUG(( "publishing slot=%lu", slot ));
 
   /* This is the standard case.  Publish all transactions up to and
@@ -1735,7 +1732,7 @@ advance_published_root( fd_replay_tile_t * ctx ) {
   fd_histf_sample( ctx->metrics.store_publish_work, (ulong)fd_long_max( exrel_end-exacq_end,   0UL ) );
 
   ulong advanceable_root_slot = fd_bank_slot_get( bank );
-  funk_publish( ctx, advanceable_root_slot );
+  funk_publish( ctx, advanceable_root_slot, bank->idx );
 
   fd_txncache_advance_root( ctx->txncache, bank->txncache_fork_id );
   fd_sched_advance_root( ctx->sched, advanceable_root_idx );
@@ -1780,10 +1777,49 @@ after_credit( fd_replay_tile_t *  ctx,
      and pass it to the scheduler. */
 
   fd_reasm_fec_t * fec;
-  if( FD_LIKELY( fd_sched_can_ingest( ctx->sched ) && !fd_banks_is_full( ctx->banks ) && (fec = fd_reasm_out( ctx->reasm )) ) ) {
-    /* If sched is full or there are no free banks, we cannot ingest any
-       more FEC sets into the scheduler. */
-    process_fec_set( ctx, fec );
+  /* FIXME: The reasm logic needs to get reworked to support
+     equivocation more robustly. */
+  if( FD_LIKELY( fd_sched_can_ingest( ctx->sched, 1UL ) && !fd_banks_is_full( ctx->banks ) && (fec = fd_reasm_peek( ctx->reasm )) ) ) {
+
+    /* If fec->eqvoc is set that means that equivocation mid-block was
+       detected in fd_reasm_t.  We need to replay up to and including
+       the equivocating FEC on a new bank. */
+
+    if( FD_UNLIKELY( fec->eqvoc ) ) {
+      FD_LOG_WARNING(( "Block equivocation detected at slot %lu", fec->slot ));
+
+      /* We need to figure out which and how many FECs we need to
+         (re)insert into the scheduler.  We work backwards from the
+         equivocating FEC, querying for chained merkle roots until we
+         reach the first FEC in the slot.
+         TODO: replace the magic number with a constant for the max
+               number of fecs possible in a slot with fix-32. */
+      fd_reasm_fec_t * fecs[ 1024 ] = { [0] = fec };
+      ulong            fec_cnt      = 1UL;
+      while( fecs[ fec_cnt-1UL ]->fec_set_idx!=0UL ) {
+        fec = fd_reasm_query( ctx->reasm, &fecs[ fec_cnt-1UL ]->cmr );
+        fecs[ fec_cnt++ ] = fec;
+      }
+
+      /* If we don't have enough space in the scheduler to ingest all of
+         FECs, we can't proceed yet. */
+      if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, fec_cnt ) ) ) return;
+
+      /* Now that we have validated that sched can ingest all of the
+         required FECs, it is finally safe to remove the equivocating
+         fec from the reasm deque. */
+      fd_reasm_out( ctx->reasm );
+
+      /* Now we can process all of the FECs. */
+      for( ulong i=fec_cnt; i>0UL; i-- ) {
+        process_fec_set( ctx, fecs[i-1UL] );
+      }
+    } else {
+      /* Standard case. */
+      fec = fd_reasm_out( ctx->reasm );
+      process_fec_set( ctx, fec );
+    }
+
     *charge_busy = 1;
     *opt_poll_in = 0;
     return;
