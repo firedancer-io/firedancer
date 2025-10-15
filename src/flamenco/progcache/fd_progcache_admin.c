@@ -63,7 +63,7 @@ fd_progcache_txn_prepare( fd_progcache_admin_t *    cache,
 static void
 fd_progcache_txn_cancel_one( fd_progcache_admin_t * cache,
                              fd_funk_txn_t *        txn ) {
-  FD_LOG_DEBUG(( "progcache txn laddr=%p xid %lu:%lu: cancel", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
+  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: cancel", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
 
   fd_funk_t * funk = cache->funk;
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( txn->child_head_cidx ) ||
@@ -227,7 +227,7 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
   if( FD_UNLIKELY( !txn ) ) {
     FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
   }
-  FD_LOG_DEBUG(( "progcache txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
+  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid->ul[0], xid->ul[1] ));
   }
