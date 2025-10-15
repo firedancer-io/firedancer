@@ -46,7 +46,15 @@ union fdctl_args {
   } dev;
 
   struct {
-    int no_watch;
+    int  no_watch;
+    int  ci_mode;
+    char ledger_name[ 64 ];
+    char cluster_version[ 16 ];
+    ulong funk_pages;
+    ulong index_max;
+    ulong end_slot;
+    int genesis;
+    int has_incremental;
   } backtest;
 
   struct {
