@@ -115,6 +115,11 @@ while [[ $# -gt 0 ]]; do
         shift
         shift
         ;;
+    --wrapper)
+        DEBUG=( $2 )
+        shift
+        shift
+        ;;
     -*|--*)
        echo "unknown option $1"
        exit 1
