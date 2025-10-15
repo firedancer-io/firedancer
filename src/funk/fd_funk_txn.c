@@ -23,11 +23,11 @@
 #include "../util/tmpl/fd_map_chain_para.c"
 
 #define fd_funk_txn_state_transition(txn, before, after) do {             \
-  FD_LOG_DEBUG(( "funk_txn laddr=%p xid=%lu:%lu state change (%u-%s) -> (%u-%s)", \
-                 (void *)(txn),                                           \
-                 (txn)->xid.ul[0], (txn)->xid.ul[1],                      \
-                 (before), fd_funk_txn_state_str( (before) ),             \
-                 (after),  fd_funk_txn_state_str( (after)  ) ));          \
+  FD_LOG_INFO(( "funk_txn laddr=%p xid=%lu:%lu state change (%u-%s) -> (%u-%s)", \
+                (void *)(txn),                                            \
+                (txn)->xid.ul[0], (txn)->xid.ul[1],                       \
+                (before), fd_funk_txn_state_str( (before) ),              \
+                (after),  fd_funk_txn_state_str( (after)  ) ));           \
   if( FD_HAS_ATOMIC ) {                                                   \
     if( FD_LIKELY( __sync_bool_compare_and_swap( &(txn)->state, before, after ) ) ) break; \
   } else {                                                                \
@@ -49,9 +49,9 @@
     fd_funk_txn_xid_t * _last_pub = _shmem->last_publish;                 \
     fd_funk_txn_xid_t   _prev_pub[1]; fd_funk_txn_xid_copy( _prev_pub, _last_pub ); \
     fd_funk_txn_xid_copy( _last_pub, (after) );                           \
-    FD_LOG_DEBUG(( "funk last_publish (%lu:%lu) -> (%lu:%lu)",            \
-                   _prev_pub->ul[0], _prev_pub->ul[1],                    \
-                   _last_pub->ul[0], _last_pub->ul[1] ));                 \
+    FD_LOG_INFO(( "funk last_publish (%lu:%lu) -> (%lu:%lu)",             \
+                  _prev_pub->ul[0], _prev_pub->ul[1],                     \
+                  _last_pub->ul[0], _last_pub->ul[1] ));                  \
   } while(0)
 
 void
