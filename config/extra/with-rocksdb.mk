@@ -3,7 +3,7 @@ ifneq (,$(wildcard $(OPT)/lib/libsnappy.a))
 ifneq (,$(wildcard $(OPT)/lib/libzstd.a))
 FD_HAS_ROCKSDB:=1
 CFLAGS+=-DFD_HAS_ROCKSDB=1 -DROCKSDB_LITE=1
-ROCKSDB_LIBS:=$(OPT)/lib/librocksdb.a $(OPT)/lib/libsnappy.a
+ROCKSDB_LIBS:=$(OPT)/lib/librocksdb.a $(OPT)/lib/libsnappy.a -luring
 else
 $(warning "zstd not installed, skipping rocksdb")
 endif
