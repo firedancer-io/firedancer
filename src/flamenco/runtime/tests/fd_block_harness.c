@@ -15,6 +15,20 @@
 #include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
 
+/* Templatized leader schedule sort helper functions */
+typedef struct {
+  fd_pubkey_t pk;
+  ulong       sched_pos; /* track original position in sched[] */
+} pk_with_pos_t;
+
+#define SORT_NAME        sort_pkpos
+#define SORT_KEY_T       pk_with_pos_t
+#define SORT_BEFORE(a,b) (memcmp(&(a).pk, &(b).pk, sizeof(fd_pubkey_t))<0)
+#include "../../../util/tmpl/fd_sort.c"  /* generates templatized sort_pkpos_*() APIs */
+
+/* Fixed leader schedule hash seed (consistent with solfuzz-agave) */
+#define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
+
 /* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
    for each of the vote accounts using the stake delegations cache. */
 static void
@@ -304,6 +318,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                                      &pubkey );
   }
 
+  /* Zero out vote stakes to avoid leakage across tests */
+  fd_vote_states_reset_stakes( vote_states );
+
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, xid, epoch_schedule_ );
@@ -489,6 +506,180 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
   return res;
 }
 
+/* Canonical (Agave-aligned) schedule hash
+   Unique pubkeys referenced by sched, sorted deterministically
+   Per-rotation indices mapped into sorted-uniq array */
+ulong
+fd_hash_epoch_leaders( fd_solfuzz_runner_t *      runner,
+                       fd_epoch_leaders_t const * leaders,
+                       ulong                      seed,
+                       uchar                      out[16] ) {
+  /* Single contiguous spad allocation for uniq[] and sched_mapped[] */
+  void *buf = fd_spad_alloc(
+    runner->spad,
+    alignof(pk_with_pos_t),
+    leaders->sched_cnt*sizeof(pk_with_pos_t) +
+    leaders->sched_cnt*sizeof(uint) );
+
+  pk_with_pos_t * tmp          = (pk_with_pos_t *)buf;
+  uint          * sched_mapped = (uint *)( tmp + leaders->sched_cnt );
+
+  /* Gather all pubkeys and original positions from sched[] (skip invalid) */
+  ulong gather_cnt = 0UL;
+  for( ulong i=0UL; i<leaders->sched_cnt; i++ ) {
+    uint idx = leaders->sched[i];
+    if( idx>=leaders->pub_cnt ) { /* invalid slot leader */
+      sched_mapped[i] = 0U;       /* prefill invalid mapping */
+      continue;
+    }
+    fd_memcpy( &tmp[gather_cnt].pk, &leaders->pub[idx], sizeof(fd_pubkey_t) );
+    tmp[gather_cnt].sched_pos = i;
+    gather_cnt++;
+  }
+
+  if( gather_cnt==0UL ) {
+    /* No leaders => hash:=0, count:=0 */
+    fd_memset( out, 0, sizeof(ulong)*2 );
+    return 0UL;
+  }
+
+  /* Sort tmp[] by pubkey, note: comparator relies on first struct member */
+  sort_pkpos_inplace( tmp, (ulong)gather_cnt );
+
+  /* Dedupe and assign indices into sched_mapped[] during single pass */
+  ulong uniq_cnt = 0UL;
+  for( ulong i=0UL; i<gather_cnt; i++ ) {
+    if( i==0UL || memcmp( &tmp[i].pk, &tmp[i-1].pk, sizeof(fd_pubkey_t) )!=0 )
+      uniq_cnt++;
+    /* uniq_cnt-1 is index in uniq set */
+    sched_mapped[tmp[i].sched_pos] = (uint)(uniq_cnt-1UL);
+  }
+
+  /* Reconstruct contiguous uniq[] for hashing */
+  fd_pubkey_t *uniq = fd_spad_alloc( runner->spad,
+                                     alignof(fd_pubkey_t),
+                                     uniq_cnt*sizeof(fd_pubkey_t) );
+  {
+    ulong write_pos = 0UL;
+    for( ulong i=0UL; i<gather_cnt; i++ ) {
+      if( i==0UL || memcmp( &tmp[i].pk, &tmp[i-1].pk, sizeof(fd_pubkey_t) )!=0 )
+      fd_memcpy( &uniq[write_pos++], &tmp[i].pk, sizeof(fd_pubkey_t) );
+    }
+  }
+
+  /* Hash sorted unique pubkeys */
+  ulong h1 = fd_hash( seed, uniq, uniq_cnt * sizeof(fd_pubkey_t) );
+  fd_memcpy( out, &h1, sizeof(ulong) );
+
+  /* Hash mapped indices */
+  ulong h2 = fd_hash( seed, sched_mapped, leaders->sched_cnt * sizeof(uint) );
+  fd_memcpy( out + sizeof(ulong), &h2, sizeof(ulong) );
+
+  return uniq_cnt;
+}
+
+static void
+fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *                runner,
+                                               fd_funk_txn_xid_t const *            xid,
+                                               fd_exec_test_block_effects_t *       effects,
+                                               fd_exec_test_block_context_t const * test_ctx ) {
+  /* Read epoch schedule sysvar */
+  fd_epoch_schedule_t es_;
+  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( runner->funk, xid, &es_ );
+  FD_TEST( sched!=NULL );
+
+  ulong parent_slot = fd_bank_parent_slot_get( runner->bank );
+
+  /* Epoch we will use for effects (Agave: parent slot's leader schedule epoch) */
+  ulong agave_epoch    = fd_slot_to_leader_schedule_epoch( sched, parent_slot );
+  ulong agave_slot0    = fd_epoch_slot0( sched, agave_epoch );
+  ulong slots_in_epoch = fd_epoch_slot_cnt( sched, agave_epoch );
+
+  /* Temporary vote_states for building stake weights */
+  fd_vote_states_t *tmp_vs = fd_vote_states_join(
+      fd_vote_states_new(
+          fd_spad_alloc( runner->spad,
+                         fd_vote_states_align(),
+                         fd_vote_states_footprint( FD_RUNTIME_MAX_VOTE_ACCOUNTS ) ),
+          FD_RUNTIME_MAX_VOTE_ACCOUNTS,
+          999UL /* stake_delegations_max */ ) );
+
+  /* Select stake source based on the Agave-consistent epoch */
+  /* Agave code pointers: see stake source selection in execute_block() at
+     solfuzz-agave/src/block.rs (build_*_stake_delegations and epoch_stakes inserts) */
+  if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot ) ) {
+    /* Same as parent epoch, so use vote_accounts_t_1 */
+    fd_runtime_fuzz_block_update_prev_epoch_votes_cache(
+        tmp_vs,
+        test_ctx->epoch_ctx.vote_accounts_t_1,
+        test_ctx->epoch_ctx.vote_accounts_t_1_count,
+        runner->spad );
+  } else if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot )-1UL ) {
+    /* One before parent epoch, so use vote_accounts_t_2 */
+    fd_runtime_fuzz_block_update_prev_epoch_votes_cache(
+        tmp_vs,
+        test_ctx->epoch_ctx.vote_accounts_t_2,
+        test_ctx->epoch_ctx.vote_accounts_t_2_count,
+        runner->spad );
+  } else if (agave_epoch==fd_slot_to_leader_schedule_epoch(sched, parent_slot)+1UL) {
+    /* One ahead of parent epoch, so use current acct_states */
+    for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
+      fd_txn_account_t acc[1];
+      fd_runtime_fuzz_load_account( acc, runner->funk, xid, &test_ctx->acct_states[i], 1 );
+      fd_pubkey_t pubkey;
+      memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
+      fd_runtime_fuzz_block_register_vote_account( runner->funk, xid, tmp_vs, &pubkey, runner->spad );
+    }
+    fd_stake_delegations_t * stake_delegations =
+        fd_stake_delegations_join(
+            fd_stake_delegations_new(
+                fd_spad_alloc( runner->spad,
+                               fd_stake_delegations_align(),
+                               fd_stake_delegations_footprint( FD_RUNTIME_MAX_STAKE_ACCOUNTS ) ),
+                FD_RUNTIME_MAX_STAKE_ACCOUNTS, 0 ) );
+    for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
+      fd_pubkey_t pubkey;
+      memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
+      fd_runtime_fuzz_block_register_stake_delegation( runner->funk, xid, stake_delegations, &pubkey );
+    }
+    fd_runtime_fuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
+  }
+
+  /* Build weights from the selected stake source */
+  ulong vote_acc_cnt = fd_vote_states_cnt( tmp_vs );
+  fd_vote_stake_weight_t *weights =
+      fd_spad_alloc( runner->spad, alignof(fd_vote_stake_weight_t),
+                     vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
+  ulong weight_cnt = fd_stake_weights_by_node( tmp_vs, weights );
+
+  /* Build ephemeral leader schedule for the Agave epoch */
+  ulong fp = fd_epoch_leaders_footprint( weight_cnt, slots_in_epoch );
+  FD_TEST( fp!=0UL );
+  void *mem = fd_spad_alloc( runner->spad, fd_epoch_leaders_align(), fp );
+  ulong vote_keyed = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( runner->bank );
+  fd_epoch_leaders_t *effects_leaders = fd_epoch_leaders_join(
+      fd_epoch_leaders_new( mem,
+                            agave_epoch,
+                            agave_slot0,
+                            slots_in_epoch,
+                            weight_cnt,
+                            weights,
+                            0UL,
+                            vote_keyed ) );
+  FD_TEST( effects_leaders!=NULL );
+
+  /* Fill out effects struct from the Agave epoch info */
+  effects->has_leader_schedule               = 1;
+  effects->leader_schedule.leaders_epoch     = agave_epoch;
+  effects->leader_schedule.leaders_slot0     = agave_slot0;
+  effects->leader_schedule.leaders_slot_cnt  = slots_in_epoch;
+  effects->leader_schedule.leaders_sched_cnt = slots_in_epoch;
+  effects->leader_schedule.leader_pub_cnt    =
+      fd_hash_epoch_leaders( runner, effects_leaders,
+                             LEADER_SCHEDULE_HASH_SEED,
+                             effects->leader_schedule.leader_schedule_hash );
+}
+
 ulong
 fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
                       void const *          input_,
@@ -518,7 +709,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
 
     fd_exec_test_block_effects_t * effects =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_block_effects_t),
-                                  sizeof (fd_exec_test_block_effects_t) );
+                                sizeof(fd_exec_test_block_effects_t) );
     if( FD_UNLIKELY( _l > output_end ) ) {
       abort();
     }
@@ -539,9 +730,12 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     effects->has_cost_tracker = 1;
     effects->cost_tracker = (fd_exec_test_cost_tracker_t) {
       .block_cost = cost_tracker ? cost_tracker->block_cost : 0UL,
-      .vote_cost  = cost_tracker ? cost_tracker->vote_cost : 0UL,
+      .vote_cost  = cost_tracker ? cost_tracker->vote_cost  : 0UL,
     };
     fd_bank_cost_tracker_end_locking_query( runner->bank );
+
+    /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
+    fd_runtime_fuzz_build_leader_schedule_effects( runner, &xid, effects, input );
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
     fd_runtime_fuzz_block_ctx_destroy( runner );
