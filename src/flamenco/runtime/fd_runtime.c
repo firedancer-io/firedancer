@@ -957,10 +957,9 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 
 /* fd_runtime_buffer_solcap_account_update buffers an account
    update event message in the capture context, which will be
-   sent to the replay tile via the exec_replay link.
-   This buffering is done to avoid passing stem down into the runtime.
+   sent to the replay tile via the exec_replay link. This buffering is
+   done to avoid passing stem down into the runtime. */
 
-   TODO: remove this when solcap v2 is here. */
 static void
 fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
                                          fd_bank_t *               bank,
