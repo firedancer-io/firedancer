@@ -30,12 +30,12 @@ typedef struct fd_exec_tile_ctx {
 
   ulong                 tile_idx;
 
-  fd_sha512_t   sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
-  fd_sha512_t * sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
-
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+
+  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
 
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
@@ -44,7 +44,7 @@ typedef struct fd_exec_tile_ctx {
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
-     from the dispatch/replay tile. The fd_exec_txn_ctx_t * is a valid
+     from the dispatch/replay tile.  The fd_exec_txn_ctx_t * is a valid
      local join that lives in the top-most frame of the spad that is
      setup when the exec tile is booted; its members are refreshed on
      the slot/epoch boundary. */
@@ -57,8 +57,7 @@ typedef struct fd_exec_tile_ctx {
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
-     fd_funk_t.
-     TODO: These should probably be made read-only handles. */
+     fd_funk_t. */
   fd_banks_t *          banks;
   void *                shfunk;
   void *                shprogcache;
@@ -102,19 +101,14 @@ metrics_write( fd_exec_tile_ctx_t * ctx ) {
 static inline int
 returnable_frag( fd_exec_tile_ctx_t * ctx,
                  ulong                in_idx,
-                 ulong                seq,
+                 ulong                seq FD_PARAM_UNUSED,
                  ulong                sig,
                  ulong                chunk,
                  ulong                sz,
-                 ulong                ctl,
-                 ulong                tsorig,
-                 ulong                tspub,
+                 ulong                ctl FD_PARAM_UNUSED,
+                 ulong                tsorig FD_PARAM_UNUSED,
+                 ulong                tspub FD_PARAM_UNUSED,
                  fd_stem_context_t *  stem ) {
-
-  (void)seq;
-  (void)ctl;
-  (void)tsorig;
-  (void)tspub;
 
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
 
@@ -131,7 +125,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         /* Commit. */
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-          fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), fd_bank_slot_get( bank ) } };
+          fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
           fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
         }
 
@@ -386,11 +380,11 @@ after_credit( fd_exec_tile_ctx_t * ctx,
               fd_stem_context_t *  stem,
               int *                opt_poll_in,
               int *                charge_busy FD_PARAM_UNUSED ) {
-  /* If we have outstanding account updates to send to solcap, send them.
-     Note that we set opt_poll_in to 0 here because we must not consume
-     any more fragments from the exec tiles before publishing our messages,
-     so that solcap updates are not interleaved between slots.
-   */
+  /* If we have outstanding account updates to send to solcap, send
+     them.  Note that we set opt_poll_in to 0 here because we must not
+     consume any more fragments from the exec tiles before publishing
+     our messages, so that solcap updates are not interleaved between
+     slots. */
   if( FD_UNLIKELY( ctx->capture_ctx && ctx->account_updates_flushed < ctx->capture_ctx->account_updates_len ) ) {
     publish_next_capture_ctx_account_update( ctx, stem );
     *opt_poll_in = 0;

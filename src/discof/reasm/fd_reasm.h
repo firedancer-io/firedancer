@@ -241,6 +241,17 @@ fd_reasm_slot0( fd_reasm_t * reasm );
 ulong
 fd_reasm_free( fd_reasm_t * reasm );
 
+/* fd_reasm_peek returns the next successfully reassembled FEC set, NULL
+   if there is no FEC set to return.  This peeks at the head of the
+   reasm out queue.  Any FEC sets in the out queue are part of a
+   connected ancestry chain to the root therefore a parent is always
+   guaranteed to be returned by consume before its child (see top-level
+   documentation for details).  In order to actually consume and make
+   progress on consuming FEC sets, use fd_reasm_out(). */
+
+fd_reasm_fec_t *
+fd_reasm_peek( fd_reasm_t * reasm );
+
 /* fd_reasm_out returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
    the reasm out queue.  Any FEC sets in the out queue are part of a

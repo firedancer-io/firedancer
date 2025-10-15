@@ -54,7 +54,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set up the funk transaction */
-  fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
+  fd_funk_txn_xid_t xid = { .ul = { slot, 0UL } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_funk_txn_prepare     ( funk,                    &parent_xid, &xid );
   fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, &xid );
@@ -379,7 +379,7 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     /* Setup the transaction context */
     fd_txn_p_t * txn = fd_runtime_fuzz_txn_ctx_create( runner, input );
 
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), fd_bank_slot_get( runner->bank ) } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
     if( FD_UNLIKELY( txn==NULL ) ) {
       fd_runtime_fuzz_xid_cancel( runner, &xid );
       return 0;

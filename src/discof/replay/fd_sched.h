@@ -171,12 +171,12 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 int
 fd_sched_fec_can_ingest( fd_sched_t * sched, fd_sched_fec_t * fec );
 
-/* Check if there is enough space in the scheduler to ingest a worst
-   case FEC set.  Returns 1 if there is, 0 otherwise.  This is a cheap
-   and conservative check, and has less precision than
+/* Check if there is enough space in the scheduler to ingest fec_cnt
+   worst-case FEC sets.  Returns 1 if there is, 0 otherwise.  This is a
+   cheap and conservative check, and has less precision than
    fd_sched_fec_can_ingest(). */
 int
-fd_sched_can_ingest( fd_sched_t * sched );
+fd_sched_can_ingest( fd_sched_t * sched, ulong fec_cnt );
 
 /* Obtain a transaction eligible for execution.  This implies that all
    prior transactions with w-r or w-w conflicts have completed.

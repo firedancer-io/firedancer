@@ -16,7 +16,7 @@
 // DDR address space
 // The addressing uses ROW/COLUMN/BANK mapping of AXI address to DRAM Row/Col/BankGroup
 
-module cl_dram_dma #(parameter NUM_DDR=4) 
+module cl_dram_dma #(parameter NUM_DDR=4)
 
 (
    `include "cl_ports.vh"
@@ -46,7 +46,7 @@ module cl_dram_dma #(parameter NUM_DDR=4)
 // needed to close timing for the various
 // place where ATG (Automatic Test Generator)
 // is defined
-   
+
    localparam NUM_CFG_STGS_CL_DDR_ATG = 8;
    localparam NUM_CFG_STGS_SH_DDR_ATG = 4;
    localparam NUM_CFG_STGS_PCIE_ATG = 4;
@@ -56,8 +56,8 @@ module cl_dram_dma #(parameter NUM_DDR=4)
 
 `ifdef SIM
    localparam DDR_SCRB_MAX_ADDR = 64'h1FFF;
-`else   
-   localparam DDR_SCRB_MAX_ADDR = 64'h3FFFFFFFF; //16GB 
+`else
+   localparam DDR_SCRB_MAX_ADDR = 64'h3FFFFFFFF; //16GB
 `endif
    localparam DDR_SCRB_BURST_LEN_MINUS1 = 15;
 
@@ -65,7 +65,7 @@ module cl_dram_dma #(parameter NUM_DDR=4)
    localparam NO_SCRB_INST = 1;
 `else
    localparam NO_SCRB_INST = 0;
-`endif   
+`endif
 
 logic clk;
 (* dont_touch = "true" *) logic pipe_rst_n;
@@ -80,7 +80,7 @@ logic [2:0] lcl_sh_cl_ddr_is_ready;
 logic dbg_scrb_en;
 logic [2:0] dbg_scrb_mem_sel;
 
-//---------------------------- 
+//----------------------------
 // End Internal signals
 //----------------------------
 
@@ -98,7 +98,7 @@ assign clk = clk_main_a0;
 
 //reset synchronizer
 lib_pipe #(.WIDTH(1), .STAGES(4)) PIPE_RST_N (.clk(clk), .rst_n(1'b1), .in_bus(rst_main_n), .out_bus(pipe_rst_n));
-   
+
 always_ff @(negedge pipe_rst_n or posedge clk)
    if (!pipe_rst_n)
    begin
@@ -279,15 +279,15 @@ always_ff@(posedge clk_main_a0) begin
 end
 
 
-// DDDDDDDDDDDDD        DDDDDDDDDDDDD        RRRRRRRRRRRRRRRRR   
-// D::::::::::::DDD     D::::::::::::DDD     R::::::::::::::::R  
-// D:::::::::::::::DD   D:::::::::::::::DD   R::::::RRRRRR:::::R 
+// DDDDDDDDDDDDD        DDDDDDDDDDDDD        RRRRRRRRRRRRRRRRR
+// D::::::::::::DDD     D::::::::::::DDD     R::::::::::::::::R
+// D:::::::::::::::DD   D:::::::::::::::DD   R::::::RRRRRR:::::R
 // DDD:::::DDDDD:::::D  DDD:::::DDDDD:::::D  RR:::::R     R:::::R
 //   D:::::D    D:::::D   D:::::D    D:::::D   R::::R     R:::::R
 //   D:::::D     D:::::D  D:::::D     D:::::D  R::::R     R:::::R
-//   D:::::D     D:::::D  D:::::D     D:::::D  R::::RRRRRR:::::R 
-//   D:::::D     D:::::D  D:::::D     D:::::D  R:::::::::::::RR  
-//   D:::::D     D:::::D  D:::::D     D:::::D  R::::RRRRRR:::::R 
+//   D:::::D     D:::::D  D:::::D     D:::::D  R::::RRRRRR:::::R
+//   D:::::D     D:::::D  D:::::D     D:::::D  R:::::::::::::RR
+//   D:::::D     D:::::D  D:::::D     D:::::D  R::::RRRRRR:::::R
 //   D:::::D     D:::::D  D:::::D     D:::::D  R::::R     R:::::R
 //   D:::::D     D:::::D  D:::::D     D:::::D  R::::R     R:::::R
 //   D:::::D    D:::::D   D:::::D    D:::::D   R::::R     R:::::R
@@ -309,12 +309,12 @@ end
 // P::::::PPPPPP:::::P    CC:::::::::::::::CI::::::::IE::::::::::::::::::::E
 // PP:::::P     P:::::P  C:::::CCCCCCCC::::CII::::::IIEE::::::EEEEEEEEE::::E
 //   P::::P     P:::::P C:::::C       CCCCCC  I::::I    E:::::E       EEEEEE
-//   P::::P     P:::::PC:::::C                I::::I    E:::::E             
-//   P::::PPPPPP:::::P C:::::C                I::::I    E::::::EEEEEEEEEE   
-//   P:::::::::::::PP  C:::::C                I::::I    E:::::::::::::::E   
-//   P::::PPPPPPPPP    C:::::C                I::::I    E:::::::::::::::E   
-//   P::::P            C:::::C                I::::I    E::::::EEEEEEEEEE   
-//   P::::P            C:::::C                I::::I    E:::::E             
+//   P::::P     P:::::PC:::::C                I::::I    E:::::E
+//   P::::PPPPPP:::::P C:::::C                I::::I    E::::::EEEEEEEEEE
+//   P:::::::::::::PP  C:::::C                I::::I    E:::::::::::::::E
+//   P::::PPPPPPPPP    C:::::C                I::::I    E:::::::::::::::E
+//   P::::P            C:::::C                I::::I    E::::::EEEEEEEEEE
+//   P::::P            C:::::C                I::::I    E:::::E
 //   P::::P             C:::::C       CCCCCC  I::::I    E:::::E       EEEEEE
 // PP::::::PP            C:::::CCCCCCCC::::CII::::::IIEE::::::EEEEEEEE:::::E
 // P::::::::P             CC:::::::::::::::CI::::::::IE::::::::::::::::::::E
@@ -382,21 +382,21 @@ assign st_v[1]                          = st_addr_v & st_data_v[2] & st_data_v[1
 
 
 
-// DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMM               AAA               
-// D::::::::::::DDD     M:::::::M             M:::::::M              A:::A              
-// D:::::::::::::::DD   M::::::::M           M::::::::M             A:::::A             
-// DDD:::::DDDDD:::::D  M:::::::::M         M:::::::::M            A:::::::A            
-//   D:::::D    D:::::D M::::::::::M       M::::::::::M           A:::::::::A           
-//   D:::::D     D:::::DM:::::::::::M     M:::::::::::M          A:::::A:::::A          
-//   D:::::D     D:::::DM:::::::M::::M   M::::M:::::::M         A:::::A A:::::A         
-//   D:::::D     D:::::DM::::::M M::::M M::::M M::::::M        A:::::A   A:::::A        
-//   D:::::D     D:::::DM::::::M  M::::M::::M  M::::::M       A:::::A     A:::::A       
-//   D:::::D     D:::::DM::::::M   M:::::::M   M::::::M      A:::::AAAAAAAAA:::::A      
-//   D:::::D     D:::::DM::::::M    M:::::M    M::::::M     A:::::::::::::::::::::A     
-//   D:::::D    D:::::D M::::::M     MMMMM     M::::::M    A:::::AAAAAAAAAAAAA:::::A    
-// DDD:::::DDDDD:::::D  M::::::M               M::::::M   A:::::A             A:::::A   
-// D:::::::::::::::DD   M::::::M               M::::::M  A:::::A               A:::::A  
-// D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A 
+// DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMM               AAA
+// D::::::::::::DDD     M:::::::M             M:::::::M              A:::A
+// D:::::::::::::::DD   M::::::::M           M::::::::M             A:::::A
+// DDD:::::DDDDD:::::D  M:::::::::M         M:::::::::M            A:::::::A
+//   D:::::D    D:::::D M::::::::::M       M::::::::::M           A:::::::::A
+//   D:::::D     D:::::DM:::::::::::M     M:::::::::::M          A:::::A:::::A
+//   D:::::D     D:::::DM:::::::M::::M   M::::M:::::::M         A:::::A A:::::A
+//   D:::::D     D:::::DM::::::M M::::M M::::M M::::::M        A:::::A   A:::::A
+//   D:::::D     D:::::DM::::::M  M::::M::::M  M::::::M       A:::::A     A:::::A
+//   D:::::D     D:::::DM::::::M   M:::::::M   M::::::M      A:::::AAAAAAAAA:::::A
+//   D:::::D     D:::::DM::::::M    M:::::M    M::::::M     A:::::::::::::::::::::A
+//   D:::::D    D:::::D M::::::M     MMMMM     M::::::M    A:::::AAAAAAAAAAAAA:::::A
+// DDD:::::DDDDD:::::D  M::::::M               M::::::M   A:::::A             A:::::A
+// D:::::::::::::::DD   M::::::M               M::::::M  A:::::A               A:::::A
+// D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAA
 
 logic [1-1:0]                           dma_r;
@@ -473,22 +473,22 @@ showahead_fifo #(
 
 
 
-//                AAA               PPPPPPPPPPPPPPPPP   PPPPPPPPPPPPPPPPP   
-//               A:::A              P::::::::::::::::P  P::::::::::::::::P  
-//              A:::::A             P::::::PPPPPP:::::P P::::::PPPPPP:::::P 
+//                AAA               PPPPPPPPPPPPPPPPP   PPPPPPPPPPPPPPPPP
+//               A:::A              P::::::::::::::::P  P::::::::::::::::P
+//              A:::::A             P::::::PPPPPP:::::P P::::::PPPPPP:::::P
 //             A:::::::A            PP:::::P     P:::::PPP:::::P     P:::::P
 //            A:::::::::A             P::::P     P:::::P  P::::P     P:::::P
 //           A:::::A:::::A            P::::P     P:::::P  P::::P     P:::::P
-//          A:::::A A:::::A           P::::PPPPPP:::::P   P::::PPPPPP:::::P 
-//         A:::::A   A:::::A          P:::::::::::::PP    P:::::::::::::PP  
-//        A:::::A     A:::::A         P::::PPPPPPPPP      P::::PPPPPPPPP    
-//       A:::::AAAAAAAAA:::::A        P::::P              P::::P            
-//      A:::::::::::::::::::::A       P::::P              P::::P            
-//     A:::::AAAAAAAAAAAAA:::::A      P::::P              P::::P            
-//    A:::::A             A:::::A   PP::::::PP          PP::::::PP          
-//   A:::::A               A:::::A  P::::::::P          P::::::::P          
-//  A:::::A                 A:::::A P::::::::P          P::::::::P          
-// AAAAAAA                   AAAAAAAPPPPPPPPPP          PPPPPPPPPP          
+//          A:::::A A:::::A           P::::PPPPPP:::::P   P::::PPPPPP:::::P
+//         A:::::A   A:::::A          P:::::::::::::PP    P:::::::::::::PP
+//        A:::::A     A:::::A         P::::PPPPPPPPP      P::::PPPPPPPPP
+//       A:::::AAAAAAAAA:::::A        P::::P              P::::P
+//      A:::::::::::::::::::::A       P::::P              P::::P
+//     A:::::AAAAAAAAAAAAA:::::A      P::::P              P::::P
+//    A:::::A             A:::::A   PP::::::PP          PP::::::PP
+//   A:::::A               A:::::A  P::::::::P          P::::::::P
+//  A:::::A                 A:::::A P::::::::P          P::::::::P
+// AAAAAAA                   AAAAAAAPPPPPPPPPP          PPPPPPPPPP
 
 `ifndef TOP_NAME
 `define TOP_NAME top_f1
@@ -542,4 +542,4 @@ showahead_fifo #(
     .rst(rst)
 );
 
-endmodule   
+endmodule

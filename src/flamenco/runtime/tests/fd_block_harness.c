@@ -347,7 +347,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Make a new funk transaction since we're done loading in accounts for context */
-  fd_funk_txn_xid_t fork_xid = { .ul = { slot, slot } };
+  fd_funk_txn_xid_t fork_xid = { .ul = { slot, 0UL } };
   fd_funk_txn_prepare( funk, xid, &fork_xid );
   fd_progcache_txn_prepare( runner->progcache_admin, xid, &fork_xid );
   xid[0] = fork_xid;
@@ -485,7 +485,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
       return 0;
     }
 
-    fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), fd_bank_slot_get( runner->bank ) } };
+    fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
 
     /* Execute the constructed block against the runtime. */
     int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );

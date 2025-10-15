@@ -161,6 +161,12 @@ fd_reasm_free( fd_reasm_t * reasm ) {
 }
 
 fd_reasm_fec_t *
+fd_reasm_peek( fd_reasm_t * reasm ) {
+  if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
+  return pool_ele( reasm->pool, *out_peek_head( reasm->out ) );
+}
+
+fd_reasm_fec_t *
 fd_reasm_out( fd_reasm_t * reasm ) {
   if( FD_UNLIKELY( out_empty( reasm->out ) ) ) return NULL;
   return pool_ele( reasm->pool, out_pop_head( reasm->out ) );

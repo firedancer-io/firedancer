@@ -11,8 +11,8 @@ built around a fixed 256-bit pipeline ALU that schedules the needed runtime
 math operations based on a generated fixed instruction stream. The implementation
 being generic allowed for a hardware-software codesign process where, combined
 with the Python reference implementation that you will find in sw/py/*, gave us
-the opportunity to optimize the architecture to balance the hardware footprint, 
-mathematical complexity and runtime latency/throughput over the course of our 
+the opportunity to optimize the architecture to balance the hardware footprint,
+mathematical complexity and runtime latency/throughput over the course of our
 development (ending up with a very simple and efficient end result design)
 
 There are a few assumptions that this processor makes (after several iterations of
@@ -47,7 +47,7 @@ The following is the instruction and virtual address translation scheme:
     0x020-0x03F | in1 Input Data | 0x01      | read/write | initial input from bus
     0x040-0x05F | in2 Input Data | 0x02      | read/write | initial input from bus
     0x060-0x07F | in3 Input Data | 0x03      | read/write | initial input from bus (unused)
-    0x080-0x09F | Constant Data  | 0x04-0x23 | read-only  | set at synthesis      
+    0x080-0x09F | Constant Data  | 0x04-0x23 | read-only  | set at synthesis
     0x0A0-0x3A0 | Scratch Memory | 0x24-0x3B | read/write | working memory for tag
 
 As this is a traditional (if highly simplified) RISC CPU pipeline, there is a fetch
@@ -96,8 +96,8 @@ package schl_pkg;
     ST_EXEC1 = 4'd4, // Propagate send data to primitive
     ST_BLOCK = 4'd5, // Wait for result from primitive
     ST_JMP   = 4'd6  // Jump to another instr (unused for now)
-  } ssm_state_t; 
-endpackage  
+  } ssm_state_t;
+endpackage
 
 module shcl_cpu
 #(
@@ -115,7 +115,7 @@ module shcl_cpu
   input var logic [W_HASH-1:0] in_hash_data,
   input var logic              in_hash_valid,
   input var logic [W_T-1:0]    in_hash_ref,
-  output    logic              in_hash_ready, 
+  output    logic              in_hash_ready,
 
   output    logic [W_HASH-1:0]   out_hash_data,
   output    logic [W_T-1:0]      out_ref,
@@ -185,7 +185,7 @@ module shcl_cpu
   logic [ROM_WIDTH-1:0] next_instr [NUM_TAGS]; // The next instruction to run
   logic [NUM_TAGS-1:0]  next_instr_ready;      // Active high when instruction set
   logic [NUM_TAGS-1:0]  next_instr_req;        // Request next instruction
-  logic [NUM_TAGS-1:0]  next_instrA_check;    
+  logic [NUM_TAGS-1:0]  next_instrA_check;
   logic [NUM_TAGS-1:0]  next_instrB_check;
   logic [NUM_TAGS-1:0]  next_instrA_tmp;
   logic [NUM_TAGS-1:0]  next_instrB_tmp;
@@ -205,10 +205,10 @@ module shcl_cpu
 
   logic [W_ROM_DEPTH-1:0] last_instr;           // Numerically last instruction to run in the ROM
   logic [W_ROM_DEPTH-1:0] instr_addr[NUM_TAGS]; // Current running instruction address in rom (Instruction Pointer)
-  assign last_instr = 1153; 
+  assign last_instr = 1153;
 
   logic [W_MEM-1:0] init_addr;   // Initialization address to set up constants
-  logic [1:0]       in_hash_cnt; // Sequencer for input setting 
+  logic [1:0]       in_hash_cnt; // Sequencer for input setting
 
   // Instruction helpers
   logic [W_OPS-1:0]    in_tern           [NUM_TAGS]; // Ternary selector (TODO: this isn't really necessary)
@@ -224,7 +224,7 @@ module shcl_cpu
   logic [W_IN_MEM-1:0] in_tern_addr_tmp  [NUM_TAGS]; // Virtual T memory addr read from Instruction (helper)
   logic [W_IN_MEM-1:0] in_done_addr_tmp  [NUM_TAGS]; // Virtual Done memory addr read from Instruction (helper)
   logic [W_IN_MEM-1:0] pr_done_addr      [NUM_TAGS]; // Previous done address
-  logic                pr_done_set       [NUM_TAGS]; 
+  logic                pr_done_set       [NUM_TAGS];
   logic                jmp_instr         [NUM_TAGS]; // INFO: this isn't used for now
   localparam OP_JMP = 4'hF;
 
@@ -277,11 +277,11 @@ module shcl_cpu
   logic [NUM_TAGS-1:0] rd_data_check;
   logic [NUM_TAGS-1:0] rd_data_tmp;
   logic [W_TAGS-1:0]   rd_data_addr;
-  logic                rd_data_addr_en; 
+  logic                rd_data_addr_en;
   logic [NUM_TAGS-1:0] rd_data_ready;
   logic [NUM_TAGS-1:0] rd_data_request;
 
-  // State Management (one per tag/calc) 
+  // State Management (one per tag/calc)
   import schl_pkg::*;
   ssm_state_t          curr_state  [NUM_TAGS];
   logic                calc_start  [NUM_TAGS];
@@ -293,8 +293,8 @@ module shcl_cpu
   logic [W_TAGS-1:0]   calc_next;
   logic                calc_next_ready;
 
-  logic [W_HASH-1:0] mem_man_data; 
-  logic [W_MEM-1:0]  mem_man_addr; 
+  logic [W_HASH-1:0] mem_man_data;
+  logic [W_MEM-1:0]  mem_man_addr;
   logic [W_TAGS-1:0] mem_man_tag;
   logic              mem_man_valid;
   logic              mem_man_ready;
@@ -307,13 +307,13 @@ module shcl_cpu
          we are effectively throughput-bound by the primitive pipeline depth
          (which is 21 cycles).  Don't let hashes "hang" by queuing more than
          this by limiting running tags to MAX_INFLIGHT. */
-      calc_ready[i] = curr_state[i] == ST_IDLE && i[W_TAGS-1:0] < MAX_INFLIGHT;  
+      calc_ready[i] = curr_state[i] == ST_IDLE && i[W_TAGS-1:0] < MAX_INFLIGHT;
       calc_start[i] = (i == calc_next) && in_hash_valid && in_hash_ready && in_hash_cnt == 2'h2;      // We've gotten 3 input values, start calc
       calc_done [i] = block_valid[i] && (last_instr+1 == instr_addr[i]) && curr_state[i] == ST_BLOCK; // Calculation is done
     end
   end
 
-  // Save input reference value to output at the end 
+  // Save input reference value to output at the end
   always_ff @ (posedge clk) begin
     if(rst) begin
       for( int i=0; i<NUM_TAGS; i++ ) begin
@@ -323,7 +323,7 @@ module shcl_cpu
     else begin
       for( int i=0; i<NUM_TAGS; i++ ) begin
         if (calc_start[i]) begin
-          in_ref[i] <= in_hash_ref; 
+          in_ref[i] <= in_hash_ref;
         end
       end
     end
@@ -342,7 +342,7 @@ module shcl_cpu
       // Figure out the next tag to start
       if ( !calc_next_ready || (in_hash_valid && in_hash_ready && in_hash_cnt == 2'h2) ) begin // Cycle until we find an idle tag (should generally be linear)
         if ( calc_next == NUM_TAGS || calc_next == MAX_INFLIGHT-1 || (init_done && curr_state[0] == ST_INIT)) begin // ... also limit to MAX_INFLIGHT here
-          calc_next <= 0; 
+          calc_next <= 0;
         end
         else begin
           calc_next <= calc_next + 1;
@@ -357,13 +357,13 @@ module shcl_cpu
           ST_FETCH: if (rd_data_ready[i]) curr_state[i] <= ST_EXEC0; // fetch next instruction (can prefetch in block)
           ST_EXEC0:                       curr_state[i] <= ST_EXEC1; // read mem to send to block
           ST_EXEC1: begin // wait until memory written into ALU
-            if (wrote_in[i]) begin 
+            if (wrote_in[i]) begin
               curr_state[i] <= ST_BLOCK;
             end
           end
-          ST_BLOCK: begin             // wait until result comes out of ALU and is written back 
+          ST_BLOCK: begin             // wait until result comes out of ALU and is written back
             if (block_valid[i]) begin // ... block_valid is complicated (see below)
-              if (calc_done[i]) curr_state [i] <= ST_IDLE; 
+              if (calc_done[i]) curr_state [i] <= ST_IDLE;
               else if (next_instr_ready[i] ) begin // Don't advance unless instr ready!
                 curr_state[i] <= ST_FETCH;
                 //else stay in BLOCK
@@ -374,14 +374,14 @@ module shcl_cpu
           default: curr_state[i] <= ST_IDLE; // TODO: fatal
         endcase
       end
-    end 
+    end
   end
 
   // Physical offset addresses for each tag's scratch memory
-  parameter [W_MEM-1:0] SCRATCH_TAG_OFFSET [32] = {10'h000, 10'h018, 10'h030, 10'h048, 10'h060, 10'h078, 10'h090, 10'h0A8, 
+  parameter [W_MEM-1:0] SCRATCH_TAG_OFFSET [32] = {10'h000, 10'h018, 10'h030, 10'h048, 10'h060, 10'h078, 10'h090, 10'h0A8,
                                                    10'h0C0, 10'h0D8, 10'h0F0, 10'h108, 10'h120, 10'h138, 10'h150, 10'h168,
-                                                   10'h180, 10'h198, 10'h1B0, 10'h1C8, 10'h1E0, 10'h1F8, 10'h210, 10'h228, 
-                                                   10'h240, 10'h258, 10'h270, 10'h288, 10'h2A0, 10'h2B8, 10'h2D0, 10'h2E8}; 
+                                                   10'h180, 10'h198, 10'h1B0, 10'h1C8, 10'h1E0, 10'h1F8, 10'h210, 10'h228,
+                                                   10'h240, 10'h258, 10'h270, 10'h288, 10'h2A0, 10'h2B8, 10'h2D0, 10'h2E8};
   logic [W_MEM-1:0] s_memA_offset;
   logic [W_MEM-1:0] s_memB_offset;
   logic [W_MEM-1:0] s_tern_offset;
@@ -392,7 +392,7 @@ module shcl_cpu
   logic             fault_done_mem [NUM_TAGS];
 
   always_comb begin
-    for (int i=0; i<NUM_TAGS; i++) begin 
+    for (int i=0; i<NUM_TAGS; i++) begin
     // Combinatorially break-out parts of instruction into helpers
     //(ternary sel) (opcode)    (virtual addrA)     (virtual addrB)       (virtual addrT)     (virtual addrD)
       {in_tern[i],  in_op[i], in_memA_addr_tmp[i], in_memB_addr_tmp[i], in_tern_addr_tmp[i], in_done_addr_tmp[i] } = next_instr[i];
@@ -440,12 +440,12 @@ module shcl_cpu
 
       /* VIRTUAL ADDRESS FOR OUTPUT MEMORY */
       // note: we can overwrite input memory locations if we want...
-      if      ( in_done_addr_tmp[i] == 6'h00) in_done_addr[i] = 10'h000 + i[W_IN_MEM-1:0]; 
-      else if ( in_done_addr_tmp[i] == 6'h01) in_done_addr[i] = 10'h020 + i[W_IN_MEM-1:0]; 
-      else if ( in_done_addr_tmp[i] == 6'h02) in_done_addr[i] = 10'h040 + i[W_IN_MEM-1:0]; 
-      else if ( in_done_addr_tmp[i] == 6'h03) in_done_addr[i] = 10'h060 + i[W_IN_MEM-1:0]; 
+      if      ( in_done_addr_tmp[i] == 6'h00) in_done_addr[i] = 10'h000 + i[W_IN_MEM-1:0];
+      else if ( in_done_addr_tmp[i] == 6'h01) in_done_addr[i] = 10'h020 + i[W_IN_MEM-1:0];
+      else if ( in_done_addr_tmp[i] == 6'h02) in_done_addr[i] = 10'h040 + i[W_IN_MEM-1:0];
+      else if ( in_done_addr_tmp[i] == 6'h03) in_done_addr[i] = 10'h060 + i[W_IN_MEM-1:0];
       //... otherwise write to scratch memory
-      else                                    in_done_addr[i] = 10'h0A0 + SCRATCH_TAG_OFFSET[i] + s_done_offset; 
+      else                                    in_done_addr[i] = 10'h0A0 + SCRATCH_TAG_OFFSET[i] + s_done_offset;
 
       // TODO: plumb faults to some failure state, but these are mainly for sim testing
       fault_inA_mem  [i] = in_memA_addr_tmp[i] > 6'h3B;
@@ -473,30 +473,30 @@ module shcl_cpu
     end
   end
 
-  /* One of the trickier implementation details with this processor was balancing requests 
-     while using all tag slots in order to have access 'fairness' between the them 
+  /* One of the trickier implementation details with this processor was balancing requests
+     while using all tag slots in order to have access 'fairness' between the them
      (i.e. to prevent single tags from blocking for microseconds). Barring random access
-     there will be an implicit priority across the tags that will lead lowest-priority 
+     there will be an implicit priority across the tags that will lead lowest-priority
      tags to block due to lack of pipeline gaps available if:
-     
-     [MAX_INFLIGHT] > [explicit fixed cycle latency of the ALU] 
-     
+
+     [MAX_INFLIGHT] > [explicit fixed cycle latency of the ALU]
+
      In this logic tags are prioritized by lsb by selecting the lowest active bit of our
-     one-hot request register (see $next_instrA_tmp below). This effect is compounded when 
-     the ALU is not a fixed duration between instructions which was the case with our design 
+     one-hot request register (see $next_instrA_tmp below). This effect is compounded when
+     the ALU is not a fixed duration between instructions which was the case with our design
      initially but was changed to improve timing in other areas of the design
-    
-     In the "next instruction" logic here we create fairness across tags by having 
+
+     In the "next instruction" logic here we create fairness across tags by having
      the two read ports in the instruction ROM split between from upper/lower
      tags and allowing for "lower" reads to select "upper" values to read if they are
-     idle (and vice-versa). While still having implicit priority to the lsb tags 
+     idle (and vice-versa). While still having implicit priority to the lsb tags
      within $next_instr_req, this logic provides sufficient access bandwidth to not
      lead to any blocking with our final configuration
 
-     If increasing MAX_INFLIGHT beyond the limits explained before, it is advised to 
-     use a psuedo-random Galios LFSR in addition to this logic to "deselect" 
-     {upper|lower}_instr_req. Adding randomness in this manner was thoroughly 
-     tested in a previous implementation and did well to provide further fairness beyond 
+     If increasing MAX_INFLIGHT beyond the limits explained before, it is advised to
+     use a psuedo-random Galios LFSR in addition to this logic to "deselect"
+     {upper|lower}_instr_req. Adding randomness in this manner was thoroughly
+     tested in a previous implementation and did well to provide further fairness beyond
      what was necessary for our end result implementation */
 
   assign lower_instr_req      = next_instr_req & 32'h0000FFFF & ~prev_instrB_req & ~prev_instrB_req_d;
@@ -504,10 +504,10 @@ module shcl_cpu
   assign lower_instr_req_next = lower_instr_req & ~next_instrA_tmp; // "second lowest"
   assign upper_instr_req_next = upper_instr_req & ~next_instrB_tmp; // "second lowest"
 
-  assign next_instrA_tmp       = lower_instr_req & ~(lower_instr_req - 1); // only Lowest req bit 
-  assign next_instrB_tmp       = upper_instr_req & ~(upper_instr_req - 1); 
-  assign next_instrA_tmp_next  = lower_instr_req_next & ~(lower_instr_req_next - 1); // only "second lowest" req bit 
-  assign next_instrB_tmp_next  = upper_instr_req_next & ~(upper_instr_req_next - 1); 
+  assign next_instrA_tmp       = lower_instr_req & ~(lower_instr_req - 1); // only Lowest req bit
+  assign next_instrB_tmp       = upper_instr_req & ~(upper_instr_req - 1);
+  assign next_instrA_tmp_next  = lower_instr_req_next & ~(lower_instr_req_next - 1); // only "second lowest" req bit
+  assign next_instrB_tmp_next  = upper_instr_req_next & ~(upper_instr_req_next - 1);
   assign next_instrA_check     = (next_instrA_tmp) ? next_instrA_tmp : next_instrB_tmp_next; // either read lowest req from A or second lowest req from B
   assign next_instrB_check     = (next_instrB_tmp) ? next_instrB_tmp : next_instrA_tmp_next; // either read lowest req from B or second lowest req from A
 
@@ -524,10 +524,10 @@ module shcl_cpu
     end
   end
 
-  // Next Instruction (pre-)fetch logic 
+  // Next Instruction (pre-)fetch logic
   always_ff @(posedge clk) begin
     if (rst) begin
-      for (int i=0; i<NUM_TAGS; i++) begin 
+      for (int i=0; i<NUM_TAGS; i++) begin
         next_instr       [i] <= '0;
         instr_addr       [i] <= '0;
         next_instr_req   [i] <= '0;
@@ -578,7 +578,7 @@ module shcl_cpu
 
       // request the next instruction for [i]. can be a prefetch'd in ST_BLOCK
       for (int i=0; i<NUM_TAGS; i++) begin
-        if ( ( (curr_state[i] == ST_INIT) || (curr_state[i] == ST_IDLE && calc_start[i])) && !next_instr_ready[i] ) begin 
+        if ( ( (curr_state[i] == ST_INIT) || (curr_state[i] == ST_IDLE && calc_start[i])) && !next_instr_ready[i] ) begin
           next_instr_req[i] <= 1'd1;
         end
         else if ( curr_state[i] == ST_EXEC0 ) begin
@@ -612,13 +612,13 @@ module shcl_cpu
 
       in_hash_cnt    <= '0;
       mem_d_wr_data  <= '0;
-      mem_d_wr_addr  <= '0; 
-      mem_d_wr_en    <= '0; 
+      mem_d_wr_addr  <= '0;
+      mem_d_wr_en    <= '0;
     end
     else begin
       if (curr_state[0] == ST_INIT) begin // Write in constants (initialization only happens at startup)
         init_done <= (init_addr == NUM_CONSTS && next_instr_ready == '1); // Consts written into memory and initial instr read for all tags
-      
+
         if( init_addr < NUM_CONSTS) begin
           init_addr     <= init_addr + 1;
           mem_d_wr_data <= CONST_MEM[init_addr];
@@ -640,7 +640,7 @@ module shcl_cpu
         end
       end
       // Prioritize writes from ALU over input as we don't want to backpress the pipeline...
-      else if (mem_man_valid) begin 
+      else if (mem_man_valid) begin
         mem_d_wr_data <= mem_man_data;
         mem_d_wr_addr <= mem_man_addr;
         mem_d_wr_en   <= 1'd1;
@@ -690,7 +690,7 @@ module shcl_cpu
   always_comb begin
     for ( int i=0; i<NUM_TAGS; i++ ) begin
       //                    (if we just got our result from ALU)            || (we wrote to out) || (we did either of those already)
-      block_valid[i] = (mem_man_valid && mem_man_tag == i && mem_man_ready) ||    out_done[i]    ||       block_valid_d[i]; 
+      block_valid[i] = (mem_man_valid && mem_man_tag == i && mem_man_ready) ||    out_done[i]    ||       block_valid_d[i];
     end
   end
 
@@ -705,8 +705,8 @@ module shcl_cpu
         if (curr_state[i] == ST_FETCH || curr_state[i] == ST_EXEC0 || curr_state[i] == ST_IDLE) begin
           block_valid_d[i] <= '0;
         end
-        //.. or we just had block_valid[i] 
-        else if (!block_valid_d[i] && block_valid[i]) begin 
+        //.. or we just had block_valid[i]
+        else if (!block_valid_d[i] && block_valid[i]) begin
           block_valid_d[i] <= 1'd1;
         end
       end
@@ -726,7 +726,7 @@ module shcl_cpu
         end
         else begin
           rd_data_addr    = '0;
-          rd_data_addr_en = '0;          
+          rd_data_addr_en = '0;
         end
       end
       else begin
@@ -765,9 +765,9 @@ module shcl_cpu
     else begin
 
       for (int i=0; i<NUM_TAGS; i++ ) begin
-        //                           (at the start)     (in the fetch state and haven't gotten it yet) 
+        //                           (at the start)     (in the fetch state and haven't gotten it yet)
         if ( !rd_data_request[i] && (calc_start[i] || (curr_state[i] == ST_FETCH && !rd_data_ready[i]))) begin
-          rd_data_request[i] <= 1'd1; 
+          rd_data_request[i] <= 1'd1;
         end
         else if (rd_data_check[i]) begin // if we get it, set to 0
           rd_data_request[i] <= '0;
@@ -796,7 +796,7 @@ module shcl_cpu
         end
       end
 
-      // Read values from memories to write into ALU 
+      // Read values from memories to write into ALU
       if ( rd_data_addr_en ) begin
         mem_d_rd_addr[0]        <= in_memA_addr[rd_data_addr];
         mem_d_rd_addr[1]        <= in_memB_addr[rd_data_addr];
@@ -822,7 +822,7 @@ module shcl_cpu
         write_in_addr_d <= '0;
         write_in_done_d <= '0;
         write_in_op_d   <= '0;
-      end 
+      end
 
       // Memory reads take a cycle
       write_in          <= write_in_d;
@@ -845,7 +845,7 @@ module shcl_cpu
       prim_valid     <= '0;
     end
     else begin
-      // If we're not writing out to out_hash*, write into ALU 
+      // If we're not writing out to out_hash*, write into ALU
       if ( write_in && write_in_op != 6'hC ) begin
         prim_inA_data  <= mem_d_rd_data[0];
         prim_inB_data  <= mem_d_rd_data[1];
@@ -887,7 +887,7 @@ module shcl_cpu
       out_d_addr     <= '0;
       out_hash_valid <= '0;
     end
-  end 
+  end
 
   // ALU instantiation, see ed25519_sigverify_ecc.sv for more details
   ed25519_sigverify_ecc #(
@@ -908,7 +908,7 @@ module shcl_cpu
     .o_d(prim_out_data),
     .o_m({prim_out_valid, prim_out_tag, prim_out_addr}) );
 
-  // Output staging, seem mem_man* above for write-back logic 
+  // Output staging, seem mem_man* above for write-back logic
   always_ff @(posedge clk) begin
     if (rst) begin
       mem_man_addr  <= '0;
@@ -985,15 +985,15 @@ module schl #
   input var logic clk,
   input var logic rst,
 
-  // Input from 
+  // Input from
   input var logic [W_HASH-1:0] i_hash,
   input var logic              i_valid,
   output    logic              i_ready,
 
-  // Result Output 
+  // Result Output
   output logic [W_HASH-1:0] o_hash,
   output logic              o_valid,
-  output logic              o_correct 
+  output logic              o_correct
 );
 
     logic [W_HASH-1:0] fifo_data_out;
@@ -1008,7 +1008,7 @@ module schl #
     // dump a big dumb fifo in the front of the cpu input
     showahead_fifo #(
         .WIDTH              ( W_HASH ),
-        .DEPTH              ( 2048 ) 
+        .DEPTH              ( 2048 )
     ) fake_input_fifo (
         .aclr               ( rst ),
 
@@ -1021,8 +1021,8 @@ module schl #
         .rd_clk             ( clk ),
         .rd_req             ( in_hash_ready && input_valid ),
         .rd_empty           ( ),
-        .rd_not_empty       ( input_valid ), 
-        .rd_count           ( ), 
+        .rd_not_empty       ( input_valid ),
+        .rd_count           ( ),
         .rd_data            ( fifo_data_out )
     );
 
@@ -1053,6 +1053,6 @@ module schl #
                   .out_d_addr     (),
                   .out_hash_valid (o_valid));
 
-  assign o_correct = '0; 
+  assign o_correct = '0;
 
-endmodule 
+endmodule
