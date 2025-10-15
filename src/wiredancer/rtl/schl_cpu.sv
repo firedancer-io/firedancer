@@ -24,7 +24,7 @@ of parallel state machines rather than being fixed set of stages (our "logical t
 is effectively a simple state machine managing transitions around input and output
 from the ALU containing the math primitives)
 
-Instructions generated from our scipts use a virtual address scheme to specify
+Instructions generated from our scripts use a virtual address scheme to specify
 operating runtime and have independent physical scratchpad memory space within the
 main memories for storing temporary values as needed by the algorithm. This allows
 our reference/instruction generation scripts to logically treat the hardware as a
@@ -93,7 +93,7 @@ package schl_pkg;
     ST_IDLE  = 4'd1, // Wait for new hash
     ST_FETCH = 4'd2, // Read data from memory
     ST_EXEC0 = 4'd3, // Start send data to primitive
-    ST_EXEC1 = 4'd4, // Propegate send data to primitive
+    ST_EXEC1 = 4'd4, // Propagate send data to primitive
     ST_BLOCK = 4'd5, // Wait for result from primitive
     ST_JMP   = 4'd6  // Jump to another instr (unused for now)
   } ssm_state_t; 
@@ -990,7 +990,7 @@ module schl #
   input var logic              i_valid,
   output    logic              i_ready,
 
-  // Result Ouput 
+  // Result Output 
   output logic [W_HASH-1:0] o_hash,
   output logic              o_valid,
   output logic              o_correct 
