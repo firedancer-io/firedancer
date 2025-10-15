@@ -163,6 +163,7 @@ struct fd_gossvf_tile_ctx {
   ulong round_robin_idx;
   ulong round_robin_cnt;
 
+  fd_sha256_t sha256[1];
   fd_sha512_t sha[ 1 ];
 
   struct {
@@ -440,10 +441,25 @@ is_entrypoint( fd_gossvf_tile_ctx_t * ctx,
 }
 
 static void
+publish_no_origin_reject( fd_gossvf_tile_ctx_t *              ctx,
+                          fd_gossip_view_crds_value_t const * value,
+                          uchar const *                       payload,
+                          fd_stem_context_t *                 stem ) {
+  uchar * _dst = fd_chunk_to_laddr( ctx->out->mem, ctx->out->chunk );
+  fd_gossip_no_origin_reject_t * reject = (fd_gossip_no_origin_reject_t *)_dst;
+  fd_memcpy( reject->pubkey.uc, payload+value->pubkey_off, 32UL );
+  fd_gossip_generate_crds_value_hash( ctx->sha256, payload+value->value_off, value->length, reject->sha256_hash );
+
+  fd_stem_publish( stem, 0UL, fd_gossvf_sig( 0U, 0U, 2U ), ctx->out->chunk, sizeof(fd_gossip_no_origin_reject_t), 0UL, 0UL, 0UL );
+  ctx->out->chunk = fd_dcache_compact_next( ctx->out->chunk, sizeof(fd_gossip_no_origin_reject_t), ctx->out->chunk0, ctx->out->wmark );
+}
+
+static void
 filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
                            int                               tag,
                            fd_gossip_view_crds_container_t * container,
-                           uchar const *                     payload ) {
+                           uchar const *                     payload,
+                           fd_stem_context_t *               stem ) {
   peer_t const * relayer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->from_off), NULL, ctx->peers );
   int keep_non_ci = (relayer && relayer->shred_version==ctx->shred_version) || (!relayer && is_entrypoint( ctx, ctx->peer ) );
 
@@ -463,6 +479,7 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
           if( FD_LIKELY( no_origin ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ]++;
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+            publish_no_origin_reject( ctx, &container->crds_values[ i ], payload, stem );
           } else {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ]++;
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
@@ -481,6 +498,8 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
           if( FD_LIKELY( no_origin ) ) {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ]++;
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+            /* Should we ignore for push messages? */
+            publish_no_origin_reject( ctx, &container->crds_values[ i ], payload, stem );
           } else {
             ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ]++;
             ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
@@ -507,14 +526,15 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
 static int
 filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
                       fd_gossip_view_t *     view,
-                      uchar const *          payload ) {
+                      uchar const *          payload,
+                      fd_stem_context_t *    stem ) {
   switch( view->tag ) {
     case FD_GOSSIP_MESSAGE_PING:
     case FD_GOSSIP_MESSAGE_PONG:
     case FD_GOSSIP_MESSAGE_PRUNE:
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH: {
-      filter_shred_version_crds( ctx, view->tag, view->push, payload );
+      filter_shred_version_crds( ctx, view->tag, view->push, payload, stem );
       if( FD_UNLIKELY( !view->push->crds_values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
       } else {
@@ -522,7 +542,7 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      filter_shred_version_crds( ctx, view->tag, view->pull_response, payload );
+      filter_shred_version_crds( ctx, view->tag, view->pull_response, payload, stem );
       if( FD_UNLIKELY( !view->pull_response->crds_values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
       } else {
@@ -814,7 +834,7 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !view->push->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
   }
 
-  int result = filter_shred_version( ctx, view, payload );
+  int result = filter_shred_version( ctx, view, payload, stem );
   if( FD_UNLIKELY( result ) ) return result;
 
   result = verify_addresses( ctx, view, stem );
@@ -976,6 +996,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->last_wallclock = fd_log_wallclock();
   ctx->last_tickcount = fd_tickcount();
 
+  FD_TEST( fd_sha256_join( fd_sha256_new( ctx->sha ) ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha ) ) );
 
   fd_tcache_t * tcache = fd_tcache_join( fd_tcache_new( _tcache, tile->gossvf.tcache_depth, 0UL ) );

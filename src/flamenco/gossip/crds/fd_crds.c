@@ -291,14 +291,25 @@ struct fd_crds_purged {
   /* Similar to fd_crds_entry, we keep a linked list of purged values sorted
      by insertion time. The time used here is our node's wallclock.
 
-     There are actually two (mutually exclusive) lists that reuse the same
-     pointers here: one for "purged" entries that expire in 60s and one for
-     "failed_inserts" that expire after 20s. */
+     There are actually three (mutually exclusive) lists that reuse the
+     same pointers here.
+     - "purged" entries that expire in 60s
+     - "failed_inserts" that expire after 20s.
+     - "origin_rejects" that do not expire but are removed once the
+       missing origin's contact info is inserted into the CRDS table. */
   struct {
     long  wallclock_nanos;
     ulong next;
     ulong prev;
   } expire;
+
+  /* For values rejected due to missing origin contact info, a separate
+     list is maintained by fd_crds_origin_reject_tracker for each
+     missing origin. */
+  struct {
+    ulong next;
+    ulong prev;
+  } origin_reject_entries;
 };
 typedef struct fd_crds_purged fd_crds_purged_t;
 
@@ -338,6 +349,57 @@ typedef struct fd_crds_purged fd_crds_purged_t;
 
 #include "../../../util/tmpl/fd_dlist.c"
 
+#define DLIST_NAME  origin_reject_entries
+#define DLIST_ELE_T fd_crds_purged_t
+#define DLIST_PREV  origin_reject_entries.prev
+#define DLIST_NEXT  origin_reject_entries.next
+
+#include "../../../util/tmpl/fd_dlist.c"
+
+struct fd_crds_origin_reject_tracker {
+  origin_reject_entries_t * entries;
+  fd_pubkey_t               pubkey;
+
+  union {
+    struct {
+      ulong next;
+    } pool;
+
+    struct {
+      ulong next;
+    } map;
+  };
+
+  struct {
+    ulong next;
+    ulong prev;
+  } evict_dlist;
+};
+
+typedef struct fd_crds_origin_reject_tracker fd_crds_origin_reject_tracker_t;
+
+#define POOL_NAME origin_reject_tracker_pool
+#define POOL_T    fd_crds_origin_reject_tracker_t
+#define POOL_NEXT pool.next
+
+#include "../../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME               origin_reject_tracker_map
+#define MAP_ELE_T              fd_crds_origin_reject_tracker_t
+#define MAP_KEY_T              fd_pubkey_t
+#define MAP_KEY                pubkey
+#define MAP_NEXT               map.next
+#define MAP_KEY_EQ(k0,k1)      fd_pubkey_eq( k0, k1 )
+#define MAP_KEY_HASH(key,seed) (seed^fd_ulong_load_8( (key)->uc ))
+#include "../../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME  reject_tracker_evict_dlist
+#define DLIST_ELE_T fd_crds_origin_reject_tracker_t
+#define DLIST_PREV  evict_dlist.prev
+#define DLIST_NEXT  evict_dlist.next
+
+#include "../../../util/tmpl/fd_dlist.c"
+
 struct fd_crds_private {
   fd_gossip_out_ctx_t * gossip_update;
 
@@ -358,6 +420,7 @@ struct fd_crds_private {
     purged_treap_t *         treap;
     purged_dlist_t *         purged_dlist;
     failed_inserts_dlist_t * failed_inserts_dlist;
+    purged_dlist_t *         origin_reject_dlist;
   } purged;
 
   struct {
@@ -365,6 +428,12 @@ struct fd_crds_private {
     crds_contact_info_fresh_list_t *  fresh_dlist;
     crds_contact_info_evict_dlist_t * evict_dlist;
   } contact_info;
+
+  struct {
+    fd_crds_origin_reject_tracker_t * pool;
+    origin_reject_tracker_map_t *     map;
+    reject_tracker_evict_dlist_t *    evict_dlist;
+  } origin_reject_tracking;
 
   crds_samplers_t samplers[1];
 
@@ -394,9 +463,16 @@ fd_crds_footprint( ulong ele_max,
   l = FD_LAYOUT_APPEND( l, purged_treap_align(),                  purged_treap_footprint( purged_max ) );
   l = FD_LAYOUT_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   l = FD_LAYOUT_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
+  l = FD_LAYOUT_APPEND( l, origin_reject_tracker_pool_align(),    origin_reject_tracker_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
+  l = FD_LAYOUT_APPEND( l, origin_reject_tracker_map_align(),                     origin_reject_tracker_map_footprint( origin_reject_tracker_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ) ) );
+  l = FD_LAYOUT_APPEND( l, reject_tracker_evict_dlist_align(),    reject_tracker_evict_dlist_footprint() );
+  for ( ulong i=0; i<CRDS_MAX_CONTACT_INFO; i++ )
+    l = FD_LAYOUT_APPEND( l, origin_reject_entries_align(), origin_reject_entries_footprint() );
+
   return FD_LAYOUT_FINI( l, FD_CRDS_ALIGN );
 }
 
@@ -448,10 +524,14 @@ fd_crds_new( void *                    shmem,
   void * _purged_treap          = FD_SCRATCH_ALLOC_APPEND( l, purged_treap_align(),                  purged_treap_footprint( purged_max ) );
   void * _purged_dlist          = FD_SCRATCH_ALLOC_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
   void * _failed_inserts_dlist  = FD_SCRATCH_ALLOC_APPEND( l, failed_inserts_dlist_align(),          failed_inserts_dlist_footprint() );
+  void * _origin_reject_dlist   = FD_SCRATCH_ALLOC_APPEND( l, purged_dlist_align(),                  purged_dlist_footprint() );
   void * _ci_pool               = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_pool_align(),        crds_contact_info_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
   void * _ci_dlist              = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_fresh_list_align(),  crds_contact_info_fresh_list_footprint() );
   void * _ci_evict_dlist        = FD_SCRATCH_ALLOC_APPEND( l, crds_contact_info_evict_dlist_align(), crds_contact_info_evict_dlist_footprint() );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
+  void * _origin_reject_pool    = FD_SCRATCH_ALLOC_APPEND( l, origin_reject_tracker_pool_align(),    origin_reject_tracker_pool_footprint( CRDS_MAX_CONTACT_INFO ) );
+  void * _origin_reject_map     = FD_SCRATCH_ALLOC_APPEND( l, origin_reject_tracker_map_align(),     origin_reject_tracker_map_footprint( origin_reject_tracker_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ) ) );
+  void * _origin_reject_evict   = FD_SCRATCH_ALLOC_APPEND( l, reject_tracker_evict_dlist_align(),    reject_tracker_evict_dlist_footprint() );
+
 
   crds->pool = crds_pool_join( crds_pool_new( _pool, ele_max ) );
   FD_TEST( crds->pool );
@@ -486,6 +566,9 @@ fd_crds_new( void *                    shmem,
   crds->purged.failed_inserts_dlist = failed_inserts_dlist_join( failed_inserts_dlist_new( _failed_inserts_dlist ) );
   FD_TEST( crds->purged.failed_inserts_dlist );
 
+  crds->purged.origin_reject_dlist = purged_dlist_join( purged_dlist_new( _origin_reject_dlist ) );
+  FD_TEST( crds->purged.origin_reject_dlist );
+
   crds->contact_info.pool = crds_contact_info_pool_join( crds_contact_info_pool_new( _ci_pool, CRDS_MAX_CONTACT_INFO ) );
   FD_TEST( crds->contact_info.pool );
 
@@ -494,6 +577,22 @@ fd_crds_new( void *                    shmem,
 
   crds->contact_info.evict_dlist = crds_contact_info_evict_dlist_join( crds_contact_info_evict_dlist_new( _ci_evict_dlist ) );
   FD_TEST( crds->contact_info.evict_dlist );
+
+  crds->origin_reject_tracking.pool = origin_reject_tracker_pool_join( origin_reject_tracker_pool_new( _origin_reject_pool, CRDS_MAX_CONTACT_INFO ) );
+  FD_TEST( crds->origin_reject_tracking.pool );
+
+  crds->origin_reject_tracking.map = origin_reject_tracker_map_join( origin_reject_tracker_map_new( _origin_reject_map, origin_reject_tracker_map_chain_cnt_est( CRDS_MAX_CONTACT_INFO ), fd_rng_ulong( rng ) ) );
+  FD_TEST( crds->origin_reject_tracking.map );
+
+  crds->origin_reject_tracking.evict_dlist = reject_tracker_evict_dlist_join( reject_tracker_evict_dlist_new( _origin_reject_evict ) );
+  FD_TEST( crds->origin_reject_tracking.evict_dlist );
+
+  for( ulong i=0; i<CRDS_MAX_CONTACT_INFO; i++ ) {
+    void * entries_mem = FD_SCRATCH_ALLOC_APPEND( l, origin_reject_entries_align(), origin_reject_entries_footprint() );
+    fd_crds_origin_reject_tracker_t * o = origin_reject_tracker_pool_ele( crds->origin_reject_tracking.pool, i );
+    o->entries = origin_reject_entries_join( origin_reject_entries_new( entries_mem ) );
+    FD_TEST( o->entries );
+  }
 
   FD_TEST( fd_sha256_join( fd_sha256_new( crds->sha256 ) ) );
 
@@ -507,6 +606,8 @@ fd_crds_new( void *                    shmem,
   FD_COMPILER_MFENCE();
   FD_VOLATILE( crds->magic ) = FD_CRDS_MAGIC;
   FD_COMPILER_MFENCE();
+
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, FD_CRDS_ALIGN ) == (ulong)shmem + fd_crds_footprint( ele_max, purged_max ) );
 
   return (void *)crds;
 }
@@ -732,14 +833,11 @@ generate_key( fd_gossip_view_crds_value_t const * view,
   }
 }
 
-void
-fd_crds_generate_hash( fd_sha256_t * sha,
-                       uchar const * crds_value,
-                       ulong         crds_value_sz,
-                       uchar         out_hash[ static 32UL ] ){
-  fd_sha256_init( sha );
-  fd_sha256_append( sha, crds_value, crds_value_sz );
-  fd_sha256_fini( sha, out_hash );
+inline static void
+make_contact_info_key( uchar const *   pubkey,
+                       fd_crds_key_t * key_out ) {
+  key_out->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+  fd_memcpy( key_out->pubkey, pubkey, 32UL );
 }
 
 static inline void
@@ -755,7 +853,7 @@ crds_entry_init( fd_gossip_view_crds_value_t const * view,
   out_value->wallclock_nanos = view->wallclock_nanos;
   out_value->stake           = stake;
 
-  fd_crds_generate_hash( sha, payload+view->value_off, view->length, out_value->value_hash );
+  fd_gossip_generate_crds_value_hash( sha, payload+view->value_off, view->length, out_value->value_hash );
   out_value->hash.hash = fd_ulong_load_8( out_value->value_hash );
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_VALUE_NODE_INSTANCE ) ) {
@@ -775,6 +873,36 @@ purged_init( fd_crds_purged_t * purged,
   purged->expire.wallclock_nanos = now;
 }
 
+
+fd_crds_purged_t *
+lru_evict_purged_entry( fd_crds_t * crds ) {
+  fd_crds_purged_t * lru = NULL;
+  if( !purged_dlist_is_empty( crds->purged.purged_dlist, crds->purged.pool ) ) {
+    lru = purged_dlist_ele_pop_head( crds->purged.purged_dlist, crds->purged.pool );
+  } else if( !failed_inserts_dlist_is_empty( crds->purged.failed_inserts_dlist, crds->purged.pool ) ) {
+    lru = failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
+  } else if( !purged_dlist_is_empty( crds->purged.origin_reject_dlist, crds->purged.pool ) ) {
+    lru = purged_dlist_ele_pop_head( crds->purged.origin_reject_dlist, crds->purged.pool );
+
+    fd_crds_origin_reject_tracker_t * o   = origin_reject_tracker_map_ele_query( crds->origin_reject_tracking.map, (fd_pubkey_t const *)lru->hash, NULL, crds->origin_reject_tracking.pool );
+    if( FD_UNLIKELY( o ) ) {
+      origin_reject_entries_ele_remove( o->entries, lru, crds->purged.pool );
+    } else {
+      FD_LOG_WARNING(( "Dangling origin reject entry found" ));
+    }
+  } else {
+    FD_LOG_WARNING(( "No purged entries to evict" ));
+    return NULL;
+  }
+
+  purged_treap_ele_remove( crds->purged.treap, lru, crds->purged.pool );
+  if( FD_LIKELY( crds->metrics ) ) {
+    crds->metrics->purged_evicted_cnt++;
+  }
+
+  return lru;
+}
+
 void
 insert_purged( fd_crds_t *   crds,
                uchar const * hash,
@@ -784,11 +912,8 @@ insert_purged( fd_crds_t *   crds,
   }
   fd_crds_purged_t * purged;
   if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
-    purged = purged_dlist_ele_pop_head( crds->purged.purged_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, purged, crds->purged.pool );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_evicted_cnt++;
-    }
+    purged = lru_evict_purged_entry( crds );
+    FD_TEST( purged );
   } else {
     purged = purged_pool_ele_acquire( crds->purged.pool );
     if( FD_LIKELY( crds->metrics ) ) {
@@ -846,11 +971,8 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
   }
   fd_crds_purged_t * failed;
   if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
-    failed = failed_inserts_dlist_ele_pop_head( crds->purged.failed_inserts_dlist, crds->purged.pool );
-    purged_treap_ele_remove( crds->purged.treap, failed, crds->purged.pool );
-    if( FD_LIKELY( crds->metrics ) ) {
-      crds->metrics->purged_evicted_cnt++;
-    }
+    failed = lru_evict_purged_entry( crds );
+    FD_TEST( failed );
   } else {
     failed = purged_pool_ele_acquire( crds->purged.pool );
     if( FD_LIKELY( crds->metrics ) ) {
@@ -860,6 +982,87 @@ fd_crds_insert_failed_insert( fd_crds_t *   crds,
   purged_init( failed, hash, now );
   purged_treap_ele_insert( crds->purged.treap, failed, crds->purged.pool );
   failed_inserts_dlist_ele_push_tail( crds->purged.failed_inserts_dlist, failed, crds->purged.pool );
+}
+
+void
+depurge_origin_rejected_entries( fd_crds_t *                       crds,
+                                 fd_crds_origin_reject_tracker_t * o ) {
+  while( !origin_reject_entries_is_empty( o->entries, crds->purged.pool ) ) {
+    fd_crds_purged_t * head = origin_reject_entries_ele_pop_head( o->entries, crds->purged.pool );
+    purged_treap_ele_remove( crds->purged.treap, head, crds->purged.pool );
+    purged_dlist_ele_remove( crds->purged.origin_reject_dlist, head, crds->purged.pool );
+    purged_pool_ele_release( crds->purged.pool, head );
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->purged_cnt--;
+    }
+  }
+  origin_reject_tracker_map_ele_remove( crds->origin_reject_tracking.map, &o->pubkey, NULL, crds->origin_reject_tracking.pool );
+  origin_reject_tracker_pool_ele_release( crds->origin_reject_tracking.pool, o );
+}
+
+void
+fd_crds_insert_no_origin_reject( fd_crds_t *         crds,
+                                 fd_pubkey_t const * pubkey,
+                                 uchar const *       hash,
+                                 long                now ) {
+  fd_crds_key_t key[1];
+  make_contact_info_key( pubkey->uc, key );
+
+  if( FD_UNLIKELY( !!lookup_map_ele_query( crds->lookup_map, key, NULL, crds->pool ) ) ) {
+    /* There is a window between the time the gossip tile marks an
+       origin as found and gossvf receives the update where CRDS values
+       may be rejected for missing origin. This is a benign race
+       condition and we can safely no-op here. */
+    return;
+  }
+
+  fd_crds_purged_t * rejected = purged_treap_ele_query( crds->purged.treap, *(ulong *)hash, crds->purged.pool );
+  if( FD_UNLIKELY( rejected ) ) {
+    rejected->expire.wallclock_nanos = now;
+    purged_dlist_ele_remove   ( crds->purged.origin_reject_dlist, rejected, crds->purged.pool );
+    purged_dlist_ele_push_tail( crds->purged.origin_reject_dlist, rejected, crds->purged.pool );
+
+    fd_crds_origin_reject_tracker_t * o = origin_reject_tracker_map_ele_query( crds->origin_reject_tracking.map, pubkey, NULL, crds->origin_reject_tracking.pool );
+
+    if( FD_UNLIKELY( !o ) ) {
+      FD_LOG_WARNING(( "Dangling origin reject entry found" ));
+      return;
+    }
+    origin_reject_entries_ele_remove   ( o->entries, rejected, crds->purged.pool );
+    origin_reject_entries_ele_push_tail( o->entries, rejected, crds->purged.pool );
+    return;
+  }
+
+  fd_crds_origin_reject_tracker_t * o = origin_reject_tracker_map_ele_query( crds->origin_reject_tracking.map, pubkey, NULL, crds->origin_reject_tracking.pool );
+  if( FD_UNLIKELY( !o ) ) {
+    if( !origin_reject_tracker_pool_free( crds->origin_reject_tracking.pool ) ) {
+      fd_crds_origin_reject_tracker_t * evict = reject_tracker_evict_dlist_ele_pop_head( crds->origin_reject_tracking.evict_dlist, crds->origin_reject_tracking.pool );
+      depurge_origin_rejected_entries( crds, evict );
+    }
+    o = origin_reject_tracker_pool_ele_acquire( crds->origin_reject_tracking.pool );
+    fd_memcpy( o->pubkey.uc, pubkey->uc, sizeof(fd_pubkey_t) );
+    origin_reject_tracker_map_ele_insert( crds->origin_reject_tracking.map, o, crds->origin_reject_tracking.pool );
+  } else {
+    reject_tracker_evict_dlist_ele_remove( crds->origin_reject_tracking.evict_dlist, o, crds->origin_reject_tracking.pool );
+  }
+  reject_tracker_evict_dlist_ele_push_tail( crds->origin_reject_tracking.evict_dlist, o, crds->origin_reject_tracking.pool );
+
+
+  if( FD_UNLIKELY( !purged_pool_free( crds->purged.pool ) ) ) {
+    rejected = lru_evict_purged_entry( crds );
+    FD_TEST( rejected );
+  } else {
+    rejected = purged_pool_ele_acquire( crds->purged.pool );
+    if( FD_LIKELY( crds->metrics ) ) {
+      crds->metrics->purged_cnt++;
+    }
+  }
+
+  origin_reject_entries_ele_push_tail( o->entries, rejected, crds->purged.pool );
+
+  purged_init( rejected, hash, now );
+  purged_treap_ele_insert( crds->purged.treap, rejected, crds->purged.pool );
+  purged_dlist_ele_push_tail( crds->purged.origin_reject_dlist, rejected, crds->purged.pool );
 }
 
 int
@@ -881,7 +1084,7 @@ fd_crds_checks_fast( fd_crds_t *                         crds,
   if( FD_LIKELY( overrides==1 ) ) return FD_CRDS_UPSERT_CHECK_UPSERTS;
 
   uchar cand_hash[ 32UL ];
-  fd_crds_generate_hash( crds->sha256, payload+candidate->value_off, candidate->length, cand_hash );
+  fd_gossip_generate_crds_value_hash( crds->sha256, payload+candidate->value_off, candidate->length, cand_hash );
 
   if( FD_UNLIKELY( overrides==-1 ) ) {
     /* Tiebreaker case, we compare hash values */
@@ -1091,6 +1294,13 @@ fd_crds_insert( fd_crds_t *                         crds,
     if( FD_LIKELY( candidate->stake ) ) crds->metrics->peer_staked_cnt++;
     else                                crds->metrics->peer_unstaked_cnt++;
     crds->metrics->peer_visible_stake += candidate->stake;
+
+    /* NOTE: might be able to scope this to new entries
+       (i.e., !is_replace) only. */
+    fd_crds_origin_reject_tracker_t * o = origin_reject_tracker_map_ele_query( crds->origin_reject_tracking.map, (fd_pubkey_t *)candidate->key.pubkey, NULL, crds->origin_reject_tracking.pool );
+    if( FD_LIKELY( !!o ) ) {
+      depurge_origin_rejected_entries( crds, o );
+    }
   }
 
   publish_update_msg( crds, candidate, candidate_view, payload, now, stem );
@@ -1108,13 +1318,6 @@ fd_crds_entry_value( fd_crds_entry_t const *  entry,
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
-}
-
-inline static void
-make_contact_info_key( uchar const * pubkey,
-                       fd_crds_key_t * key_out ) {
-  key_out->tag = FD_GOSSIP_VALUE_CONTACT_INFO;
-  fd_memcpy( key_out->pubkey, pubkey, 32UL );
 }
 
 int

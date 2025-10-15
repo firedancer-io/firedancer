@@ -1,5 +1,5 @@
 $(call add-hdrs,fd_gossip.h fd_gossip_out.h fd_gossip_txbuild.h)
-$(call add-objs,fd_gossip fd_gossip_msg_parse fd_gossip_msg_ser fd_gossip_out fd_gossip_txbuild,fd_flamenco)
+$(call add-objs,fd_gossip fd_gossip_msg_parse fd_gossip_msg_ser fd_gossip_out fd_gossip_txbuild fd_gossip_private,fd_flamenco)
 
 $(call add-hdrs,fd_bloom.h)
 $(call add-hdrs,fd_gossip_types.h)

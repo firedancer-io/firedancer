@@ -223,6 +223,12 @@ handle_packet( fd_gossip_tile_ctx_t * ctx,
     case 1: {
       fd_gossip_pingreq_t * pingreq = (fd_gossip_pingreq_t *)payload;
       fd_gossip_ping_tracker_track( ctx->gossip, pingreq->pubkey.uc, peer, now );
+      break;
+    }
+    case 2: {
+      fd_gossip_no_origin_reject_t * reject = (fd_gossip_no_origin_reject_t *)payload;
+      fd_gossip_insert_no_origin_reject( ctx->gossip, &reject->pubkey, reject->sha256_hash, now );
+      break;
     }
   }
 }

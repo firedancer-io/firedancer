@@ -83,6 +83,13 @@ struct fd_gossip_ping_update {
 
 typedef struct fd_gossip_ping_update fd_gossip_ping_update_t;
 
+struct fd_gossip_no_origin_reject {
+  fd_pubkey_t pubkey;
+  uchar       sha256_hash[ 32UL ];
+};
+
+typedef struct fd_gossip_no_origin_reject fd_gossip_no_origin_reject_t;
+
 extern fd_topo_run_tile_t fd_tile_gossip;
 
 #endif /* HEADER_fd_src_discof_gossip_fd_gossip_tile_h */

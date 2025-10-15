@@ -518,7 +518,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                      !fd_crds_contact_info_lookup( gossip->crds, origin_pubkey ) ) ) {
       gossip->metrics->crds_rx_count[ FD_METRICS_ENUM_GOSSIP_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_WALLCLOCK_IDX ]++;
       uchar candidate_hash[ 32UL ];
-      fd_crds_generate_hash( gossip->sha256, payload+value->value_off, value->length, candidate_hash );
+      fd_gossip_generate_crds_value_hash( gossip->sha256, payload+value->value_off, value->length, candidate_hash );
       fd_crds_insert_failed_insert( gossip->crds, candidate_hash, now );
       continue;
     }
@@ -944,4 +944,12 @@ fd_gossip_ping_tracker_track( fd_gossip_t * gossip,
                               long          now ) {
   ulong origin_stake = get_stake( gossip, peer_pubkey );
   fd_ping_tracker_track( gossip->ping_tracker, peer_pubkey, origin_stake, peer_address, now );
+}
+
+void
+fd_gossip_insert_no_origin_reject( fd_gossip_t *       gossip,
+                                   fd_pubkey_t const * pubkey,
+                                   uchar const *       hash,
+                                   long                now ) {
+  fd_crds_insert_no_origin_reject( gossip->crds, pubkey, hash, now );
 }

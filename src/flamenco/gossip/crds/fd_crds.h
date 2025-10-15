@@ -5,7 +5,7 @@
 #include "../fd_gossip_out.h"
 
 #include "../../../disco/metrics/generated/fd_metrics_gossip.h"
-#include "../../../ballet/sha256/fd_sha256.h"
+
 
 struct fd_crds_entry_private;
 typedef struct fd_crds_entry_private fd_crds_entry_t;
@@ -118,15 +118,15 @@ ulong
 fd_crds_purged_len( fd_crds_t const * crds );
 
 void
-fd_crds_generate_hash( fd_sha256_t * sha,
-                       uchar const * crds_value,
-                       ulong         crds_value_sz,
-                       uchar         out_hash[ static 32UL ] );
-
-void
 fd_crds_insert_failed_insert( fd_crds_t *   crds,
                               uchar const * hash,
                               long          now );
+
+void
+fd_crds_insert_no_origin_reject( fd_crds_t *         crds,
+                                 fd_pubkey_t const * pubkey,
+                                 uchar const *       hash,
+                                 long                now );
 
 /* fd_crds_checks_fast checks if inserting a CRDS value would fail on
    specific conditions. Updates the CRDS purged table depending on the checks

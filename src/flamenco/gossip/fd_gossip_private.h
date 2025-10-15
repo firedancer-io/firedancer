@@ -5,6 +5,7 @@
 #include "fd_gossip_types.h"
 #include "../../util/fd_util.h"
 #include "../../disco/fd_disco_base.h"
+#include "../../ballet/sha256/fd_sha256.h"
 
 #include <stddef.h> // offsetof
 
@@ -231,7 +232,7 @@ struct fd_gossip_view_crds_value {
   ushort length; /* Length of the value in bytes (incl. signature) */
 
   uchar tag;
-  union{
+  union {
     fd_gossip_view_contact_info_t    ci_view[ 1 ];
     fd_gossip_view_node_instance_t   node_instance[ 1 ];
     fd_gossip_view_vote_t            vote[ 1 ];
@@ -333,6 +334,12 @@ ulong
 fd_gossip_msg_parse( fd_gossip_view_t * view,
                      uchar const *      payload,
                      ulong              payload_sz );
+
+void
+fd_gossip_generate_crds_value_hash( fd_sha256_t * sha,
+                                    uchar const * crds_value,
+                                    ulong         crds_value_sz,
+                                    uchar         out_hash[ static 32UL ] );
 
 FD_FN_CONST static inline ulong
 fd_gossip_pull_request_max_filter_bits( ulong num_keys,
