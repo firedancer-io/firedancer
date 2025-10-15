@@ -586,7 +586,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
-  STATIC_FILES = fd_ptr_if( gui_tile->gui.frontend_release_channel==0UL, (fd_http_static_file_t *)STATIC_FILES_STABLE, (fd_http_static_file_t *)STATIC_FILES_ALPHA );
+  switch( gui_tile->gui.frontend_release_channel ) {
+    case 0: STATIC_FILES = STATIC_FILES_STABLE; break;
+    case 1: STATIC_FILES = STATIC_FILES_ALPHA;  break;
+    case 2: STATIC_FILES = STATIC_FILES_DEV;    break;
+    default: __builtin_unreachable();
+  }
 
   fd_http_server_params_t http_param = derive_http_params( tile );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
