@@ -25,6 +25,7 @@ jobs:
         if: always()
         run: |
           sudo killall firedancer-dev || true
+          find ../dump -type d -name rocksdb -exec rm {} + || true
 
       - uses: actions/checkout@v5
         with:
@@ -58,4 +59,5 @@ jobs:
         if: always()
         run: |
           sudo killall firedancer-dev || true
+          find ../dump -type d -name rocksdb -exec rm {} + || true
           sudo $OBJDIR/bin/firedancer-dev configure fini all --config ../dump/mainnet-308392063-v2.3.0_backtest.toml || true
