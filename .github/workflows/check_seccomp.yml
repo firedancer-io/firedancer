@@ -1,0 +1,33 @@
+name: Check Generated Seccomp Files
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  check-seccomp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Checkout current commit
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python environment
+        run: |
+          python -m venv venv && venv/bin/pip install edn_format
+
+      - name: Check generated seccomp files
+        run: |
+          set -e
+          source venv/bin/activate
+          make seccomp-policies
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Generated seccomp files are out of date. Please run 'make seccomp-policies' and commit the changes."
+            git --no-pager diff
+            exit 1
+          else
+            echo "All generated seccomp files are up to date."
+          fi
