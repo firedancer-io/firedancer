@@ -1,0 +1,21 @@
+<traces>
+
+<category name="replay">
+
+    <event name="replay_block_start" type="DURATION">
+        <arg type="U64" name="slot" />
+    </event>
+
+    <event name="replay_block_end" type="DURATION" />
+
+</category>
+
+<category name="exec">
+
+    <event name="exec_sigverify" type="DURATION" />
+
+    <event name="exec_txn" type="DURATION" />
+
+</category>
+
+</traces>
