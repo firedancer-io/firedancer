@@ -1122,7 +1122,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
     tile->gui.send_buffer_size_mb       = config->tiles.gui.send_buffer_size_mb;
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
-    tile->gui.websocket_compression     = config->development.gui.websocket_compression;
+    tile->gui.websocket_compression     = 1;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
