@@ -3,6 +3,7 @@
 
 #include "../fd_quic_enum.h"
 #include "../../../ballet/aes/fd_aes_gcm.h"
+#include "../../../disco/metrics/generated/fd_metrics_quic.h"
 
 /* Defines the crypto suites used by QUIC v1.
 
@@ -48,6 +49,8 @@ struct fd_quic_crypto_keys {
 #define fd_quic_enc_level_handshake_id  2
 #define fd_quic_enc_level_appdata_id    3
 #define FD_QUIC_NUM_ENC_LEVELS          4
+
+FD_STATIC_ASSERT( FD_METRICS_ENUM_QUIC_ENC_LEVEL_CNT==FD_QUIC_NUM_ENC_LEVELS, "quic_num_enc_level_cnt_mismatch" );
 
 /* labels defined in rfc9001 */
 #define FD_QUIC_CRYPTO_LABEL_CLIENT_IN "client in"
