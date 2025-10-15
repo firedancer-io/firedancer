@@ -766,7 +766,7 @@ main( int     argc,
         after_frag_expected_sz = sizeof(tx_pkt_after_frag);
         break;
       }
-      default: __builtin_unreachable();
+      default: FD_UNREACHABLE();
     }
 
     /* before credit -  test rx path ***********************************

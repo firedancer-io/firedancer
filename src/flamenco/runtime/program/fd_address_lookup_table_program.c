@@ -1017,7 +1017,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     case FD_ADDRLUT_STATUS_DEACTIVATED:
       break;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/address-lookup-table/src/processor.rs#L456 */
@@ -1124,7 +1124,7 @@ is_active( fd_address_lookup_table_t const * self,
     case FD_ADDRLUT_STATUS_DEACTIVATED:
       return 0;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
   }
 }
 

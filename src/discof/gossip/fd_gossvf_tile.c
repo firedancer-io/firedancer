@@ -426,7 +426,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         return 0;
       }
     }
-    default: __builtin_unreachable();
+    default: FD_UNREACHABLE();
   };
 }
 
@@ -537,7 +537,7 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
         return 0;
       }
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
   }
 }
 
@@ -559,7 +559,7 @@ check_duplicate_instance( fd_gossvf_tile_ctx_t *   ctx,
       container = view->pull_response;
       break;
     default:
-      __builtin_unreachable();
+      FD_UNREACHABLE();
   }
 
   for( ulong i=0UL; i<container->crds_values_len; i++ ) {
@@ -670,7 +670,7 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
     } else if( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) {
       return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
     } else {
-      __builtin_unreachable();
+      FD_UNREACHABLE();
     }
   } else {
     return 0;

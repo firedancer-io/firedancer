@@ -472,7 +472,7 @@ fd_ping_tracker_pop_request( fd_ping_tracker_t *    ping_tracker,
 
     if( FD_LIKELY( next==peer_refreshing ) )   refreshing_list_ele_pop_head( ping_tracker->refreshing, ping_tracker->pool );
     else if( FD_LIKELY( next==peer_waiting ) ) waiting_list_ele_pop_head( ping_tracker->waiting, ping_tracker->pool );
-    else                                       __builtin_unreachable();
+    else                                       FD_UNREACHABLE();
 
     /* Push the element to the back of the refreshing list now, so it
        starts getting pinged every second. */
