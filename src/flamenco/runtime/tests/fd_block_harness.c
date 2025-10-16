@@ -321,7 +321,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( bank, runner->spad );
+  fd_runtime_update_leaders( bank );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );

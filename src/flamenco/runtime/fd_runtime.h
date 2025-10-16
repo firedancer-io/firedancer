@@ -257,8 +257,7 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           fd_spad_t * runtime_spad );
+fd_runtime_update_leaders( fd_bank_t * bank );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -500,8 +499,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_capture_ctx_t *                 capture_ctx,
                          fd_hash_t const *                  genesis_hash,
                          fd_lthash_value_t const *          genesis_lthash,
-                         fd_genesis_solana_global_t const * genesis_block,
-                         fd_spad_t *                        runtime_spad );
+                         fd_genesis_solana_global_t const * genesis_block );
 
 
 /* Returns whether the specified epoch should use the new vote account

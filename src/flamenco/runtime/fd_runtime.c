@@ -3,6 +3,7 @@
 #include "fd_acc_mgr.h"
 #include "fd_bank.h"
 #include "fd_hashes.h"
+#include "fd_runtime_const.h"
 #include "fd_runtime_err.h"
 #include "fd_runtime_init.h"
 
@@ -113,10 +114,9 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 }
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           fd_spad_t * runtime_spad ) {
+fd_runtime_update_leaders( fd_bank_t * bank ) {
 
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+  static uchar __attribute__((aligned(alignof(fd_vote_stake_weight_t)))) epoch_weights_mem[ FD_RUNTIME_MAX_VOTE_ACCOUNTS * sizeof(fd_vote_stake_weight_t) ];
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
 
@@ -125,8 +125,7 @@ fd_runtime_update_leaders( fd_bank_t * bank,
   ulong slot_cnt = fd_epoch_slot_cnt( epoch_schedule, epoch );
 
   fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
-  ulong                    vote_acc_cnt          = fd_vote_states_cnt( vote_states_prev_prev ) ;
-  fd_vote_stake_weight_t * epoch_weights         = fd_spad_alloc_check( runtime_spad, alignof(fd_vote_stake_weight_t), vote_acc_cnt * sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t * epoch_weights         = fd_type_pun( epoch_weights_mem );
   ulong                    stake_weight_cnt      = fd_stake_weights_by_node( vote_states_prev_prev, epoch_weights );
   fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
@@ -157,7 +156,6 @@ fd_runtime_update_leaders( fd_bank_t * bank,
     }
     fd_bank_epoch_leaders_end_locking_modify( bank );
   }
-  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
@@ -1537,7 +1535,7 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      leader schedule for the upcoming epoch epoch using our new
      vote_states_prev_prev (stakes for T-2). */
 
-  fd_runtime_update_leaders( bank, runtime_spad );
+  fd_runtime_update_leaders( bank );
 
   long end = fd_log_wallclock();
   FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
@@ -1553,13 +1551,12 @@ static void
 fd_runtime_genesis_init_program( fd_bank_t *               bank,
                                  fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid,
-                                 fd_capture_ctx_t *        capture_ctx,
-                                 fd_spad_t *               runtime_spad ) {
+                                 fd_capture_ctx_t *        capture_ctx ) {
 
   fd_sysvar_clock_init( bank, funk, xid, capture_ctx );
   fd_sysvar_rent_init( bank, funk, xid, capture_ctx );
 
-  fd_sysvar_slot_history_init( bank, funk, xid, capture_ctx, runtime_spad );
+  fd_sysvar_slot_history_init( bank, funk, xid, capture_ctx );
   fd_sysvar_epoch_schedule_init( bank, funk, xid, capture_ctx );
   fd_sysvar_recent_hashes_init( bank, funk, xid, capture_ctx );
   fd_sysvar_stake_history_init( bank, funk, xid, capture_ctx );
@@ -1575,8 +1572,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
                                    fd_funk_t *                        funk,
                                    fd_funk_txn_xid_t const *          xid,
                                    fd_genesis_solana_global_t const * genesis_block,
-                                   fd_hash_t const *                  genesis_hash,
-                                   fd_spad_t *                        runtime_spad ) {
+                                   fd_hash_t const *                  genesis_hash ) {
 
   fd_bank_poh_set( bank, *genesis_hash );
 
@@ -1693,24 +1689,23 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
       if( found ) {
         /* Load feature activation */
-        FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-          int err;
-          fd_feature_t * feature = fd_bincode_decode_spad(
-              feature, runtime_spad,
-              acc_data,
-              acc->account.data_len,
-              &err );
-          FD_TEST( err==FD_BINCODE_SUCCESS );
+        fd_feature_t feature;
+        if( FD_UNLIKELY( !fd_bincode_decode_static( feature,
+                                                    &feature,
+                                                    acc_data,
+                                                    acc->account.data_len,
+                                                    NULL ) ) ) {
+          FD_LOG_CRIT(( "failed to deserialize feature account %s", FD_BASE58_ENC_32_ALLOCA( acc->key.key ) ));
+        }
 
-          fd_features_t * features = fd_bank_features_modify( bank );
-          if( feature->has_activated_at ) {
-            FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature->activated_at ));
-            fd_features_set( features, found, feature->activated_at );
-          } else {
-            FD_LOG_DEBUG(( "Feature %s not activated (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ) ));
-            fd_features_set( features, found, ULONG_MAX );
-          }
-        } FD_SPAD_FRAME_END;
+        fd_features_t * features = fd_bank_features_modify( bank );
+        if( feature.has_activated_at ) {
+          FD_LOG_DEBUG(( "Feature %s activated at %lu (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ), feature.activated_at ));
+          fd_features_set( features, found, feature.activated_at );
+        } else {
+          FD_LOG_DEBUG(( "Feature %s not activated (genesis)", FD_BASE58_ENC_32_ALLOCA( acc->key.key ) ));
+          fd_features_set( features, found, ULONG_MAX );
+        }
       }
     }
   }
@@ -1776,8 +1771,7 @@ static int
 fd_runtime_process_genesis_block( fd_bank_t *               bank,
                                   fd_funk_t *               funk,
                                   fd_funk_txn_xid_t const * xid,
-                                  fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad ) {
+                                  fd_capture_ctx_t *        capture_ctx ) {
 
   fd_hash_t * poh = fd_bank_poh_modify( bank );
   ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
@@ -1799,11 +1793,11 @@ fd_runtime_process_genesis_block( fd_bank_t *               bank,
 
   fd_bank_total_compute_units_used_set( bank, 0UL );
 
-  fd_runtime_genesis_init_program( bank, funk, xid, capture_ctx, runtime_spad );
+  fd_runtime_genesis_init_program( bank, funk, xid, capture_ctx );
 
   fd_sysvar_slot_history_update( bank, funk, xid, capture_ctx );
 
-  fd_runtime_update_leaders( bank, runtime_spad );
+  fd_runtime_update_leaders( bank );
 
   fd_runtime_freeze( bank, funk, xid, capture_ctx );
 
@@ -1832,10 +1826,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_capture_ctx_t *                 capture_ctx,
                          fd_hash_t const *                  genesis_hash,
                          fd_lthash_value_t const *          genesis_lthash,
-                         fd_genesis_solana_global_t const * genesis_block,
-                         fd_spad_t *                        runtime_spad ) {
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
+                         fd_genesis_solana_global_t const * genesis_block ) {
   fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   *lthash = *genesis_lthash;
   fd_bank_lthash_end_locking_modify( bank );
@@ -1845,7 +1836,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
      setting some fields, and notably setting up the vote and stake
      caches which are used for leader scheduling/rewards. */
 
-  fd_runtime_init_bank_from_genesis( banks, bank, funk, xid, genesis_block, genesis_hash, runtime_spad );
+  fd_runtime_init_bank_from_genesis( banks, bank, funk, xid, genesis_block, genesis_hash );
 
   /* Write the native programs to the accounts db. */
 
@@ -1865,10 +1856,8 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
      block. In practice, this updates some bank fields (notably the
      poh and bank hash). */
 
-  int err = fd_runtime_process_genesis_block( bank, funk, xid, capture_ctx, runtime_spad );
+  int err = fd_runtime_process_genesis_block( bank, funk, xid, capture_ctx );
   if( FD_UNLIKELY( err ) ) FD_LOG_CRIT(( "genesis slot 0 execute failed with error %d", err ));
-
-  } FD_SPAD_FRAME_END;
 }
 
 /******************************************************************************/
