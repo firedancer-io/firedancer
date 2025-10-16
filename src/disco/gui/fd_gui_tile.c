@@ -383,7 +383,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_SHRED_OUT: {
       FD_TEST( ctx->is_full_client );
-      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) {
+      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int) ) ) {
         ulong slot = fd_disco_shred_out_shred_sig_slot( sig );
         int is_turbine = fd_disco_shred_out_shred_sig_is_turbine( sig );
         ulong shred_idx  = fd_disco_shred_out_shred_sig_shred_idx( sig );
