@@ -100,9 +100,37 @@ typedef struct fd_forest_blk fd_forest_blk_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
-/* A reference to a forest element */
+/* A reference to a forest element
+
+   The following maps/pools are used to track future requests.
+
+   Requests:
+    - slots that branch from the main tree (ancestry) that are being repaired /
+      have yet to be repaired.  Maintained in a dlist, where the head
+      is the current slot being repaired.
+
+   Orphreqs (orphaned requests):
+    - slots that branch from the unconnected trees (subtrees/orphans) that are being repaired /
+      have yet to be repaired.  Maintained in a dlist, where the head
+      is the current orphan request being repaired.
+
+      Note that orphan requests are specifically an optimization from when
+      we are catching up from very far behind.  In the usual case when we
+      boot and we are catching up from close behind, need orphans is
+      very fast and has a non-negligible cost on total repair time.  But
+      during special cases where we are catching up from very far behind,
+      need orphans can take a significant time because orphan requests
+      cannot be pipelined.  In this case, we can use time waiting for
+      orphan requests to respond to also repair the full slots of these
+      orphan trees.
+
+    Consumed:
+    - slots where the entire ancestry up to the root has been completed.
+      This is what we are repairing next.  There should be <= num forks
+      elements in the consumed map.
+*/
 struct fd_forest_ref {
-  ulong idx;             /* forest pool idx of the ele this req refers to */
+  ulong idx;             /* forest pool idx of the ele this ref refers to */
   ulong next;            /* reserved by dlist */
   ulong prev;            /* reserved by dlist */
   ulong hash;            /* reserved by pool and map_chain */
@@ -144,6 +172,8 @@ typedef struct fd_forest_ref fd_forest_ref_t;
 #define POOL_NEXT    hash
 #include "../../util/tmpl/fd_pool.c"
 
+/* Reuse reqslist for orphan requests list, and share pool */
+
 /* Internal use only for BFSing */
 #define DEQUE_NAME fd_forest_deque
 #define DEQUE_T    ulong
@@ -172,9 +202,13 @@ typedef struct fd_forest_ref fd_forest_ref_t;
    |-------------------|
    | requests          |
    |-------------------|
-   | reqdeque          |
+   | reqslist          |
    |-------------------|
    | reqspool          |
+   |-------------------|
+   | orphreqs          |
+   |-------------------|
+   | orphlist (reqlist)|
    |-------------------|
    | consumed          |
    |-------------------|
@@ -183,7 +217,6 @@ typedef struct fd_forest_ref fd_forest_ref_t;
    | deque             |
    ---------------------
 
-
    A valid, initialized forest is always non-empty.  After
    `fd_forest_init` the forest will always have a root ele unless
    modified improperly out of forest's API.*/
@@ -191,6 +224,7 @@ typedef struct fd_forest_ref fd_forest_ref_t;
 struct fd_forest_iter {
   ulong ele_idx;
   uint  shred_idx;
+  ulong list_gaddr; /* wksp gaddr of the list this iterator corresponds to */
 };
 typedef struct fd_forest_iter fd_forest_iter_t;
 struct __attribute__((aligned(128UL))) fd_forest {
@@ -203,6 +237,8 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong subtrees_gaddr; /* head of orphaned trees */
   ulong orphaned_gaddr; /* map of parent_slot to singly-linked list of ele orphaned by that parent slot */
 
+  /* Request trackers */
+
   ulong requests_gaddr; /* map of slot to pool idx of the completed repair frontier */
   ulong reqslist_gaddr; /* wksp gaddr of fd_forest_reqslist */
   ulong reqspool_gaddr; /* wksp gaddr of fd_forest_reqspool */
@@ -211,7 +247,11 @@ struct __attribute__((aligned(128UL))) fd_forest {
   ulong conslist_gaddr; /* wksp gaddr of fd_forest_conslist */
   ulong conspool_gaddr; /* wksp gaddr of fd_forest_conspool */
 
+  ulong orphreqs_gaddr; /* wksp gaddr of fd_forest_orphreqs */
+  ulong orphlist_gaddr; /* wksp gaddr of fd_forest_orphlist */
+
   fd_forest_iter_t iter; /* requests iterator corresponding to head of requests deque */
+  fd_forest_iter_t orphiter; /* orphan requests iterator corresponding to head of orphan requests list */
 
   ulong deque_gaddr;    /* wksp gaddr of fd_forest_deque. internal use only for BFSing */
   ulong magic;          /* ==FD_FOREST_MAGIC */
@@ -250,21 +290,25 @@ fd_forest_footprint( ulong ele_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
-      alignof(fd_forest_t),         sizeof(fd_forest_t)                     ),
-      fd_fseq_align(),              fd_fseq_footprint()                     ),
-      fd_forest_pool_align(),       fd_forest_pool_footprint    ( ele_max ) ),
-      fd_forest_ancestry_align(),   fd_forest_ancestry_footprint( ele_max ) ),
-      fd_forest_frontier_align(),   fd_forest_frontier_footprint( ele_max ) ),
-      fd_forest_subtrees_align(),   fd_forest_subtrees_footprint( ele_max ) ),
-      fd_forest_orphaned_align(),   fd_forest_orphaned_footprint( ele_max ) ),
-      fd_forest_requests_align(),   fd_forest_requests_footprint( ele_max ) ),
-      fd_forest_reqslist_align(),   fd_forest_reqslist_footprint(         ) ),
-      fd_forest_reqspool_align(),   fd_forest_reqspool_footprint( ele_max ) ),
-      fd_forest_consumed_align(),   fd_forest_consumed_footprint( ele_max ) ),
-      fd_forest_conslist_align(),   fd_forest_conslist_footprint(         ) ),
-      fd_forest_conspool_align(),   fd_forest_conspool_footprint( ele_max ) ),
-      fd_forest_deque_align(),      fd_forest_deque_footprint   ( ele_max ) ),
+      alignof(fd_forest_t),       sizeof(fd_forest_t)                     ),
+      fd_fseq_align(),            fd_fseq_footprint()                     ),
+      fd_forest_pool_align(),     fd_forest_pool_footprint    ( ele_max ) ),
+      fd_forest_ancestry_align(), fd_forest_ancestry_footprint( ele_max ) ),
+      fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) ),
+      fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) ),
+      fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) ),
+      fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) ),
+      fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) ),
+      fd_forest_reqspool_align(), fd_forest_reqspool_footprint( ele_max ) ),
+      fd_forest_consumed_align(), fd_forest_consumed_footprint( ele_max ) ),
+      fd_forest_conslist_align(), fd_forest_conslist_footprint(         ) ),
+      fd_forest_conspool_align(), fd_forest_conspool_footprint( ele_max ) ),
+      fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) ),
+      fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) ),
+      fd_forest_deque_align(),    fd_forest_deque_footprint   ( ele_max ) ),
     fd_forest_align() );
 }
 
@@ -478,6 +522,32 @@ fd_forest_reqslist_const( fd_forest_t const * forest ) {
   return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->reqslist_gaddr );
 }
 
+/* fd_forest_{orphreqs, orphanreqs_const} returns a pointer in the caller's
+   address space to forest's orphanreqs. */
+
+FD_FN_PURE static inline fd_forest_requests_t *
+fd_forest_orphreqs( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphreqs_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_requests_t const *
+fd_forest_orphreqs_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphreqs_gaddr );
+}
+
+/* fd_forest_{orphlist, orphanlist_const} returns a pointer in the caller's
+   address space to forest's orphanlist. */
+
+FD_FN_PURE static inline fd_forest_reqslist_t *
+fd_forest_orphlist( fd_forest_t * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphlist_gaddr );
+}
+
+FD_FN_PURE static inline fd_forest_reqslist_t const *
+fd_forest_orphlist_const( fd_forest_t const * forest ) {
+  return fd_wksp_laddr_fast( fd_forest_wksp( forest ), forest->orphlist_gaddr );
+}
+
 /* fd_forest_{reqspool, reqspool_const} returns a pointer in the caller's
    address space to forest's reqspool pool. */
 
@@ -572,13 +642,16 @@ fd_forest_publish( fd_forest_t * forest, ulong slot );
 ulong
 fd_forest_highest_repaired_slot( fd_forest_t const * forest );
 
-/* fd_forest_iter_* returns the next shred to request.  The iterator
-   will be in an iter_done state if there are no current shreds to
-   request.
+/* fd_forest_iter_* takes either the standard iterator or the orphan
+   iterator and returns the next shred to request.  The iterator must
+   one of the two iterators that is owned by the forest.
 
-   The forest iterator will visit each shred at most once over the
-   lifetime of the forest, without revisiting past shreds, so it is up
-   to the caller to track which shreds will need re-requesting.  The
+   The iterator will be in an iter_done state if there are no current
+   shreds to request.
+
+   The forward forest iterator will visit each shred at most once over
+   the lifetime of the forest, without revisiting past shreds, so it is
+   up to the caller to track which shreds will need re-requesting.  The
    exception to the rule is slots where the slot_complete shred is still
    not known - the highest window idx will be requested for that slot,
    and the slot will be added to the tail of the requests deque so that
@@ -607,10 +680,10 @@ fd_forest_highest_repaired_slot( fd_forest_t const * forest );
    TODO: should this really be an iterator?? or just a _next function? */
 
 fd_forest_iter_t *
-fd_forest_iter_next( fd_forest_t * forest );
+fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest );
 
 int
-fd_forest_iter_done( fd_forest_t const * forest );
+fd_forest_iter_done( fd_forest_iter_t * iter, fd_forest_t * forest );
 
 /* Misc */
 

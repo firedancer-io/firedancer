@@ -398,7 +398,7 @@ privileged_init( fd_topo_t *      topo,
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin.new", tile->tower.ledger_path, FD_BASE58_ENC_32_ALLOCA( ctx->identity_key->uc ) ) );
   ctx->checkpt_fd = open( path, O_WRONLY|O_CREAT|O_TRUNC, 0600 );
-  if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_ERR(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==ctx->checkpt_fd ) ) FD_LOG_WARNING(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
 
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.ledger_path, FD_BASE58_ENC_32_ALLOCA( ctx->identity_key->uc ) ) );
   ctx->restore_fd = open( path, O_RDONLY );
