@@ -174,6 +174,9 @@ FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { retu
 
    For the second message type (FEC):
 
+   Currently, the size of the FEC message is
+   FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int).
+
    Only the slot and fec_set_idx bits are populated. The data in the
    frag is the full shred header of the last data shred in the FEC set,
    the merkle root of the FEC set, and the chained merkle root of the
