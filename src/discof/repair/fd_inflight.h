@@ -2,6 +2,7 @@
 #define HEADER_fd_src_discof_repair_fd_inflight_h
 
 #include "../../flamenco/types/fd_types.h"
+#include "fd_policy.h"
 
 /* fd_inflights tracks repair requests that are inflight to other
    validators.  This module is useful for metrics and reporting.
@@ -101,7 +102,7 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
   if( FD_UNLIKELY( fd_inflight_dlist_is_empty( table->dlist, table->pool ) ) ) return 0;
 
   fd_inflight_t * inflight_req = fd_inflight_dlist_ele_peek_head( table->dlist, table->pool );
-  if( FD_UNLIKELY( inflight_req->timestamp_ns + 90e6L < now ) ) return 1;
+  if( FD_UNLIKELY( inflight_req->timestamp_ns + FD_POLICY_DEDUP_TIMEOUT < now ) ) return 1;
   return 0;
 }
 
