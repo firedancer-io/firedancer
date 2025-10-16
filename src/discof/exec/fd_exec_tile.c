@@ -118,9 +118,10 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
     }
     switch( sig>>32 ) {
       case FD_EXEC_TT_TXN_EXEC: {
+        FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, msg->bank_idx, ctx->txn_ctx, &msg->txn, ctx->exec_spad, ctx->capture_ctx );
+        ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, msg->bank_idx, ctx->txn_ctx, &msg->txn, ctx->capture_ctx );
 
         /* Commit. */
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
@@ -132,6 +133,8 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
         ctx->pending_txn_finalized_msg = 1;
+
+        } FD_SPAD_FRAME_END;
         break;
       }
       case FD_EXEC_TT_TXN_SIGVERIFY: {
