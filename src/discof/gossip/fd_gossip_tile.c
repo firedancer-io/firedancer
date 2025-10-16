@@ -496,7 +496,7 @@ FD_STATIC_ASSERT( CRDS_MAX_CONTACT_INFO+FD_GOSSIP_MSG_MAX_CRDS*2UL<=FD_PING_TRAC
                   "Gossip stem burst needs recalculating" );
 #define STEM_BURST ( FD_PING_TRACKER_MAX+1UL )
 
-#define STEM_LAZY  (128L*3000L)
+#define STEM_LAZY  (1000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossip_tile_ctx_t)

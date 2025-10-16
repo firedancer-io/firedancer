@@ -1070,7 +1070,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_BURST (FD_GOSSIP_MSG_MAX_CRDS+1UL)
 
-#define STEM_LAZY  (128L*3000L)
+#define STEM_LAZY  (1000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossvf_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gossvf_tile_ctx_t)
