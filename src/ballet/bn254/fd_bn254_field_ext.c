@@ -92,7 +92,7 @@ fd_bn254_fp2_tobytes_be_nm( uchar                  buf[64],
   return buf;
 }
 
-/* fd_bn254_fp2_is_neg_nm checks wheather x < 0 in Fp2.
+/* fd_bn254_fp2_is_neg_nm checks whether x < 0 in Fp2.
    Note: x is NON Montgomery.
    Returns 1 if x < 0, 0 otherwise. */
 static inline int
@@ -103,7 +103,7 @@ fd_bn254_fp2_is_neg_nm( fd_bn254_fp2_t * x ) {
   return fd_bn254_fp_is_neg_nm( &x->el[1] );
 }
 
-/* fd_bn254_fp2_is_minus_one checks wheather a == -1 in Fp2.
+/* fd_bn254_fp2_is_minus_one checks whether a == -1 in Fp2.
    Returns 1 if a==-1, 0 otherwise. */
 static inline int
 fd_bn254_fp2_is_minus_one( fd_bn254_fp2_t const * a ) {
@@ -111,7 +111,7 @@ fd_bn254_fp2_is_minus_one( fd_bn254_fp2_t const * a ) {
       && fd_uint256_eq( &a->el[1], fd_bn254_const_zero );
 }
 
-/* fd_bn254_fp2_eq checks wheather a == b in Fp2.
+/* fd_bn254_fp2_eq checks whether a == b in Fp2.
    Returns 1 if a == b, 0 otherwise. */
 static inline int
 fd_bn254_fp2_eq( fd_bn254_fp2_t const * a,
