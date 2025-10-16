@@ -147,19 +147,18 @@ fd_quic_svc_timers_schedule( fd_quic_svc_timers_t * timers,
   uint              new_svc_type = fd_uint_if( expiry == now, FD_QUIC_SVC_INSTANT, FD_QUIC_SVC_DYNAMIC );
   int               in_sched     = !(old_svc_type==FD_QUIC_SVC_CNT);
 
-  /* no-op if already instant. Or if trying to reduce dynamic timer */
+  /* No-op if already INSTANT, or if trying to increase/preserve DYNAMIC expiry */
   int noop = !!(old_svc_type==FD_QUIC_SVC_INSTANT);
-  if( in_sched && new_svc_type==FD_QUIC_SVC_DYNAMIC ) {
-    /* in sched --> old_svc_type==FD_QUIC_SVC_DYNAMIC
-       So just compare existing timer with current timer */
-    ulong old_idx    = conn->svc_meta.private.prq_idx;
-    long  old_expiry = timers->prq[old_idx].timeout;
-    noop |= (old_expiry <= expiry);
+  if( old_svc_type == FD_QUIC_SVC_DYNAMIC && new_svc_type == FD_QUIC_SVC_DYNAMIC ) {
+    long  old_expiry  = timers->prq[conn->svc_meta.private.prq_idx].timeout;
+    int   is_increase = (old_expiry <= expiry);
+ 
+    noop |= is_increase;
   }
   if( noop ) return;
 
-  /* cancel existing, must be dynamic */
-  if( in_sched ) {
+  /* Cancel existing DYNAMIC timer if it exists */
+  if( old_svc_type == FD_QUIC_SVC_DYNAMIC ) {
     fd_quic_svc_queue_prq_remove( timers->prq, conn->svc_meta.private.prq_idx );
   }
 
