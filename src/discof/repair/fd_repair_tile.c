@@ -591,40 +591,71 @@ after_sign( ctx_t             * ctx,
     }
   }
 
-  sign_req_t * pending = fd_signs_map_query( ctx->signs_map, pending_key, NULL );
-  if( FD_UNLIKELY( !pending ) ) FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
+  sign_req_t * pending_ = fd_signs_map_query( ctx->signs_map, pending_key, NULL );
+  sign_req_t   pending[1] = { *pending_ }; /* Make a copy of the pending request so we can sign_map_remove immediately. */
+  sign_map_remove( ctx, pending_key );
 
+  if( FD_UNLIKELY( !pending_ ) ) FD_LOG_CRIT(( "No pending request found for key %lu", pending_key ));
+
+  /* Thhis is a pong message */
   if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_PONG ) ) {
     fd_memcpy( pending->msg.pong.sig, ctx->buffer, 64UL );
     send_packet( ctx, stem, 1, pending->pong_data.peer_addr.addr, pending->pong_data.peer_addr.port, pending->pong_data.daddr, pending->buf, fd_repair_sz( &pending->msg ), fd_frag_meta_ts_comp( fd_tickcount() ) );
-    sign_map_remove( ctx, pending_key );
     return;
   }
 
-  /* else: regular repair shred request format */
-
+  /* Inject the signature into the pending request */
   fd_memcpy( pending->buf + 4, ctx->buffer, 64UL );
   uint  src_ip4 = 0U;
-  fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
 
-  if( FD_UNLIKELY( !active ) ) {
-    FD_LOG_INFO(( "Signed a message for %s, but it is no longer in the active peer list", FD_BASE58_ENC_32_ALLOCA( &pending->msg.shred.to ) ));
-    /* Happens extremely rarely, so we can just pick a new peer and
-       try to resign here. */
-    fd_pubkey_t const * new_peer = fd_policy_peer_select( ctx->policy );
-    pending->msg.shred.to        = *new_peer;
-    sign_map_remove( ctx, pending_key );
-    fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = pending->msg } );
+  /* This is a warmup message */
+  if( FD_UNLIKELY( pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.slot == 0 ) ) {
+    fd_policy_peer_t * active = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+    if( FD_UNLIKELY( active ) ) send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    else { /* This is a warmup request for a peer that is no longer active.  There's no reason to pick another peer for a warmup rq, so just drop it. */ }
     return;
   }
 
-  int is_regular_request = pending->msg.kind != FD_REPAIR_KIND_PONG && pending->msg.shred.nonce > 0;
-  if( FD_LIKELY( is_regular_request && pending->msg.kind == FD_REPAIR_KIND_SHRED ) ) {
+  /* This is a regular repair shred request
+
+     TODO: anyways to make this less complicated? Essentially we need to
+     ensure we always send out any shred requests we have, because policy_next
+     has no way to revisit a shred.  But the fact that peers can drop out
+     of the active peer list makes this complicated.
+
+     1. If the peer is still there (common), it's fine.
+     2. If the peer is not there, we can select another peer and send the request.
+     3. If the peer is not there, and we have no other peers, we can add
+        this request to the inflights table, pretend we've sent it and
+        let the inflight timeout request it down the line.
+  */
+  fd_policy_peer_t * active         = fd_policy_peer_query( ctx->policy, &pending->msg.shred.to );
+  int                is_regular_req = pending->msg.kind == FD_REPAIR_KIND_SHRED && pending->msg.shred.nonce > 0; // not a highest/orphan request
+
+  if( FD_UNLIKELY( !active ) ) {
+    fd_pubkey_t const * new_peer = fd_policy_peer_select( ctx->policy );
+    if( FD_LIKELY( new_peer ) ) {
+      /* We have a new peer, so we can send the request */
+      pending->msg.shred.to = *new_peer;
+      fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = pending->msg } );
+    }
+
+    if( FD_UNLIKELY( !new_peer && is_regular_req ) ) {
+      /* This is real devastation - we clearly had a peer at the time of
+         making this request, but for some reason we now have ZERO
+         peers. The only thing we can do is to add this artificially to
+         the inflights table, pretend we've sent it and let the inflight
+         timeout request it down the line. */
+      fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
+    }
+    return;
+  }
+  /* Happy path - all is well, our peer didn't drop out from beneath us. */
+  if( FD_LIKELY( is_regular_req ) ) {
     fd_inflights_request_insert( ctx->inflight, pending->msg.shred.nonce, &pending->msg.shred.to, pending->msg.shred.slot, pending->msg.shred.shred_idx );
     fd_policy_peer_request_update( ctx->policy, &pending->msg.shred.to );
   }
   send_packet( ctx, stem, 1, active->ip4, active->port, src_ip4, pending->buf, pending->buflen, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  sign_map_remove( ctx, pending_key );
 }
 
 static inline void
@@ -850,6 +881,7 @@ after_frag( ctx_t * ctx,
       }
     }
     /* update metrics */
+    ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
     return;
   }
 
@@ -898,9 +930,16 @@ after_credit( ctx_t *             ctx,
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
     if( FD_UNLIKELY( !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
-      fd_repair_msg_t   * msg  = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), (uint)nonce, slot, shred_idx );
-      fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
-      return;
+      if( FD_UNLIKELY( !peer ) ) {
+        /* No peers. But we CANNOT lose this request. */
+        /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
+        fd_hash_t hash = { .ul[0] = 0 };
+        fd_inflights_request_insert( ctx->inflight, nonce, &hash, slot, shred_idx );
+      } else {
+        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), (uint)nonce, slot, shred_idx );
+        fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
+        return;
+      }
     }
   }
 
@@ -1115,8 +1154,6 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
-  ctx->metrics->repaired_slots = fd_forest_highest_repaired_slot( ctx->forest );
-
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_peer_pool_used( ctx->policy->peers.pool ) );
