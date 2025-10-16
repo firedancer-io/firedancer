@@ -22,11 +22,13 @@ HUGE_TLBFS_MOUNT_PATH=${HUGE_TLBFS_MOUNT_PATH:="/mnt/.fd"}
 HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=${HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE:="true"}
 HAS_INCREMENTAL="false"
 REDOWNLOAD=1
+SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
 
 if [[ -n "$CI" ]]; then
+  SKIP_CHECKSUM=0
   WATCH=( "--no-watch" )
   LOG_LEVEL_STDERR=INFO
 fi
@@ -112,6 +114,10 @@ while [[ $# -gt 0 ]]; do
         DEBUG=( gdb -q -x contrib/debug.gdb --args )
         shift
         ;;
+    --skip-checksum)
+        SKIP_CHECKSUM=1
+        shift
+        ;;
     --log)
         LOG="$2"
         shift
@@ -191,6 +197,13 @@ if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
     rm -rf $DUMP/$LEDGER.pending
   fi
   download_and_extract_ledger
+  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
+    create_checksum
+  fi
+else
+  if [[ $SKIP_CHECKSUM -eq 0 ]]; then
+    check_ledger_checksum_and_redownload
+  fi
 fi
 
 chmod -R 0700 $DUMP/$LEDGER
@@ -261,6 +274,11 @@ sudo "${DEBUG[@]}" $OBJDIR/bin/firedancer-dev backtest --config ${DUMP_DIR}/${LE
 sudo rm -rf $DUMP/$LEDGER/backtest.blockstore $DUMP/$LEDGER/backtest.funk &> /dev/null
 
 echo "Log for ledger $LEDGER at $LOG"
+
+# check that the ledger is not corrupted after a run
+if [[ $SKIP_CHECKSUM -eq 0 ]]; then
+  check_ledger_checksum
+fi
 
 if [ "$status" -eq 0 ]; then
   echo_notice "Finished on-demand ingest and replay\n"
