@@ -677,7 +677,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
-  fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -912,7 +912,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
-  fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
@@ -1067,8 +1067,8 @@ init_funk( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
   fd_progcache_clear( ctx->progcache_admin );
-  fd_progcache_txn_prepare( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->funk ) );
-  fd_progcache_txn_publish( ctx->progcache_admin, fd_funk_last_publish( ctx->funk ) );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->funk ) );
+  fd_progcache_txn_advance_root( ctx->progcache_admin, fd_funk_last_publish( ctx->funk ) );
 }
 
 static void
@@ -1699,7 +1699,7 @@ funk_publish( fd_replay_tile_t * ctx,
      including the watermark.  This will publish any in-prep ancestors
      of root_txn as well. */
   if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(accdb) failed",     slot ));
-  fd_progcache_txn_publish( ctx->progcache_admin, &xid );
+  fd_progcache_txn_advance_root( ctx->progcache_admin, &xid );
 }
 
 static int

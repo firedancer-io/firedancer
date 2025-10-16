@@ -183,7 +183,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_funk_txn_prepare( funk, &parent_xid, xid );
-  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, xid );
+  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
 
   /* Restore feature flags */
   fd_features_t features = {0};
@@ -349,7 +349,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, 0UL } };
   fd_funk_txn_prepare( funk, xid, &fork_xid );
-  fd_progcache_txn_prepare( runner->progcache_admin, xid, &fork_xid );
+  fd_progcache_txn_attach_child( runner->progcache_admin, xid, &fork_xid );
   xid[0] = fork_xid;
 
   /* Set the initial lthash from the input since we're in a new Funk txn */

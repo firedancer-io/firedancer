@@ -34,7 +34,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_funk_txn_prepare( funk, &parent_xid, xid );
-  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, xid );
+  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
 
   /* Allocate contexts */
   uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
