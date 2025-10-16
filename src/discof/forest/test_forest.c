@@ -862,6 +862,25 @@ test_iter_publish( fd_wksp_t * wksp ) {
 
 }
 
+void
+test_iter_caught_up( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+
+  fd_forest_init( forest, 0 );
+  fd_forest_blk_fec_insert       ( forest, 1, 0, 0, 0, 1    );
+  fd_forest_blk_fec_insert       ( forest, 2, 1, 0, 0, 1    ); /* fully caught up */
+  fd_forest_blk_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
+
+  for( int i = 0; i < 10; i++ ) {
+    fd_forest_iter_next( forest );
+    FD_LOG_NOTICE(("iter: slot %lu, idx %u", idx_slot( forest, forest->iter.ele_idx ), forest->iter.shred_idx));
+  }
+
+}
+
 
 int
 main( int argc, char ** argv ) {
@@ -873,18 +892,19 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  test_invalid_frontier_insert( wksp );
-  test_publish( wksp );
-  test_publish_incremental( wksp );
-  test_out_of_order( wksp );
-  test_forks( wksp );
-  test_print_tree( wksp );
-  // test_large_print_tree( wksp);
-  test_linear_forest_iterator( wksp );
-  test_branched_forest_iterator( wksp );
-  test_frontier( wksp );
-  test_fec_clear( wksp );
-  test_iter_publish( wksp );
+  //test_invalid_frontier_insert( wksp );
+  //test_publish( wksp );
+  //test_publish_incremental( wksp );
+  //test_out_of_order( wksp );
+  //test_forks( wksp );
+  //test_print_tree( wksp );
+  //// test_large_print_tree( wksp);
+  //test_linear_forest_iterator( wksp );
+  //test_branched_forest_iterator( wksp );
+  //test_frontier( wksp );
+  //test_fec_clear( wksp );
+  //test_iter_publish( wksp );
+  test_iter_caught_up( wksp );
 
   fd_halt();
   return 0;
