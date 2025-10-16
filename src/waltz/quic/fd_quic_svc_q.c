@@ -141,25 +141,24 @@ fd_quic_svc_timers_schedule( fd_quic_svc_timers_t * timers,
     return;
   }
 
-  fd_quic_state_t * state        = timers->state;
-  long              expiry       = conn->svc_meta.next_timeout;
-  uint              old_svc_type = conn->svc_meta.private.svc_type;
-  uint              new_svc_type = fd_uint_if( expiry == now, FD_QUIC_SVC_INSTANT, FD_QUIC_SVC_DYNAMIC );
-  int               in_sched     = !(old_svc_type==FD_QUIC_SVC_CNT);
+  fd_quic_state_t * state         = timers->state;
+  long     const    expiry        = conn->svc_meta.next_timeout;
+  uint     const    old_svc_type  = conn->svc_meta.private.svc_type;
 
-  /* no-op if already instant. Or if trying to reduce dynamic timer */
-  int noop = !!(old_svc_type==FD_QUIC_SVC_INSTANT);
-  if( in_sched && new_svc_type==FD_QUIC_SVC_DYNAMIC ) {
-    /* in sched --> old_svc_type==FD_QUIC_SVC_DYNAMIC
-       So just compare existing timer with current timer */
-    ulong old_idx    = conn->svc_meta.private.prq_idx;
-    long  old_expiry = timers->prq[old_idx].timeout;
-    noop |= (old_expiry <= expiry);
-  }
+  uint     const    new_svc_type  = expiry == now ? FD_QUIC_SVC_INSTANT : FD_QUIC_SVC_DYNAMIC;
+  int      const    old_dynamic   = old_svc_type==FD_QUIC_SVC_DYNAMIC;
+  int      const    both_dynamic  = old_dynamic & (new_svc_type==FD_QUIC_SVC_DYNAMIC);
+
+  /* Speculative is_increase is invalid when !both_dynamic, but safe bc prq_idx==0 */
+  ulong const prq_idx     = fd_ulong_if( both_dynamic, conn->svc_meta.private.prq_idx, 0 );
+  int   const is_increase = timers->prq[prq_idx].timeout <= expiry;
+
+  /* No-op if already INSTANT, or if trying to increase/preserve DYNAMIC expiry */
+  int noop = (old_svc_type==FD_QUIC_SVC_INSTANT) | (both_dynamic & is_increase);
   if( noop ) return;
 
-  /* cancel existing, must be dynamic */
-  if( in_sched ) {
+  /* Cancel existing DYNAMIC timer if it exists */
+  if( old_dynamic ) {
     fd_quic_svc_queue_prq_remove( timers->prq, conn->svc_meta.private.prq_idx );
   }
 
