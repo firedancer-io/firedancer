@@ -43,12 +43,15 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   void * frontier = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_frontier_align(), fd_forest_frontier_footprint( ele_max ) );
   void * subtrees = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_subtrees_align(), fd_forest_subtrees_footprint( ele_max ) );
   void * orphaned = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_orphaned_align(), fd_forest_orphaned_footprint( ele_max ) );
+
   void * requestd = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) );
   void * reqslist = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) );
   void * reqspool = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_reqspool_align(), fd_forest_reqspool_footprint( ele_max ) );
   void * consumed = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_consumed_align(), fd_forest_consumed_footprint( ele_max ) );
   void * conslist = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_conslist_align(), fd_forest_conslist_footprint(         ) );
   void * conspool = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_conspool_align(), fd_forest_conspool_footprint( ele_max ) );
+  void * orphreqs = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_requests_align(), fd_forest_requests_footprint( ele_max ) );
+  void * orphlist = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_reqslist_align(), fd_forest_reqslist_footprint(         ) );
   void * deque    = FD_SCRATCH_ALLOC_APPEND( l, fd_forest_deque_align(),    fd_forest_deque_footprint   ( ele_max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forest_align() ) == (ulong)shmem + footprint );
 
@@ -61,15 +64,18 @@ fd_forest_new( void * shmem, ulong ele_max, ulong seed ) {
   forest->frontier_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_frontier_join( fd_forest_frontier_new( frontier, ele_max, seed        ) ) );
   forest->subtrees_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_subtrees_join( fd_forest_subtrees_new( subtrees, ele_max, seed        ) ) );
   forest->orphaned_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_orphaned_join( fd_forest_orphaned_new( orphaned, ele_max, seed        ) ) );
+
   forest->requests_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_requests_join( fd_forest_requests_new( requestd, ele_max, seed        ) ) );
   forest->reqslist_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_reqslist_join( fd_forest_reqslist_new( reqslist                       ) ) );
   forest->reqspool_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_reqspool_join( fd_forest_reqspool_new( reqspool, ele_max              ) ) );
   forest->consumed_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_consumed_join( fd_forest_consumed_new( consumed, ele_max, seed        ) ) );
   forest->conslist_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_conslist_join( fd_forest_conslist_new( conslist                       ) ) );
   forest->conspool_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_conspool_join( fd_forest_conspool_new( conspool, ele_max              ) ) );
+  forest->orphreqs_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_requests_join( fd_forest_requests_new( orphreqs, ele_max, seed        ) ) );
+  forest->orphlist_gaddr = fd_wksp_gaddr_fast( wksp, fd_forest_reqslist_join( fd_forest_reqslist_new( orphlist                       ) ) );
   forest->deque_gaddr    = fd_wksp_gaddr_fast( wksp, fd_forest_deque_join   ( fd_forest_deque_new   ( deque,    ele_max              ) ) );
-
-  forest->iter.ele_idx = ULONG_MAX;
+  forest->iter     = (fd_forest_iter_t){ .ele_idx = ULONG_MAX, .list_gaddr = forest->reqslist_gaddr };
+  forest->orphiter = (fd_forest_iter_t){ .ele_idx = ULONG_MAX, .list_gaddr = forest->orphlist_gaddr };
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( forest->magic ) = FD_FOREST_MAGIC;
@@ -131,29 +137,32 @@ fd_forest_delete( void * forest ) {
 }
 
 static void
-requests_insert( fd_forest_t * forest, ulong pool_idx ) {
-  fd_forest_requests_t * requests = fd_forest_requests( forest );
-  fd_forest_ref_t      * pool     = fd_forest_reqspool( forest );
-
-  if( fd_forest_requests_ele_query( requests, &pool_idx, NULL, pool ) ) return;
-
+requests_insert( fd_forest_t * forest,
+                 fd_forest_requests_t * reqsmap,
+                 fd_forest_reqslist_t * reqslist,
+                 ulong pool_idx ) {
+  fd_forest_ref_t * pool = fd_forest_reqspool( forest );
+  if( fd_forest_requests_ele_query( reqsmap, &pool_idx, NULL, pool ) ) return;
   fd_forest_ref_t * ele = fd_forest_reqspool_ele_acquire( pool );
   ele->idx = pool_idx;
-  fd_forest_requests_ele_insert( requests, ele, pool );
-  fd_forest_reqslist_ele_push_tail( fd_forest_reqslist( forest ), ele, pool );
+  fd_forest_requests_ele_insert( reqsmap, ele, pool );
+  fd_forest_reqslist_ele_push_tail( reqslist, ele, pool );
 }
 
 static void
-requests_remove( fd_forest_t * forest, ulong pool_idx ) {
-  fd_forest_requests_t * requests = fd_forest_requests( forest );
+requests_remove( fd_forest_t * forest,
+                 fd_forest_requests_t * reqsmap,
+                 fd_forest_reqslist_t * reqslist,
+                 fd_forest_iter_t * reqiter,
+                 ulong pool_idx ) {
   fd_forest_ref_t      * pool     = fd_forest_reqspool( forest );
   fd_forest_ref_t      * ele;
-  if( FD_LIKELY( ele = fd_forest_requests_ele_remove( requests, &pool_idx, NULL, pool ) ) ) {
+  if( FD_LIKELY( ele = fd_forest_requests_ele_remove( reqsmap, &pool_idx, NULL, pool ) ) ) {
     /* invalidate the iterator if it is on the removed slot. */
-    if( FD_UNLIKELY( forest->iter.ele_idx == pool_idx ) ) {
-      forest->iter.ele_idx = ULONG_MAX;
+    if( FD_UNLIKELY( reqiter->ele_idx == pool_idx ) ) {
+      reqiter->ele_idx = ULONG_MAX;
     }
-    fd_forest_reqslist_ele_remove( fd_forest_reqslist( forest ), ele, pool );
+    fd_forest_reqslist_ele_remove( reqslist, ele, pool );
     fd_forest_reqspool_ele_release( pool, ele );
   }
 }
@@ -583,6 +592,8 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
     fd_forest_orphaned_ele_insert( orphaned, ele, pool );
   } else {                                                                                                   /* parent is not in any map, ele makes new subtree */
     fd_forest_subtrees_ele_insert( subtrees, ele, pool );
+
+    requests_insert( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), fd_forest_pool_idx( pool, ele ) );
     forest->subtree_cnt++;
   }
 
@@ -602,6 +613,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
     if( FD_UNLIKELY( orphan->parent_slot == ele->slot ) ) {
       link( forest, ele, orphan );
       fd_forest_subtrees_ele_remove( subtrees, &orphan->slot, NULL, pool );
+      requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, orphan ) );
       fd_forest_orphaned_ele_insert( orphaned, orphan,              pool );
       forest->subtree_cnt--;
     }
@@ -645,7 +657,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
       if( fd_forest_requests_ele_query( requests, &ancestor, NULL, reqspool ) ) has_requests_anc = 1;
       ancestor = fd_forest_pool_ele( pool, ancestor )->parent;
     }
-    if( FD_UNLIKELY( !has_requests_anc ) ) requests_insert( forest, fd_forest_pool_idx( pool, ele ) );
+    if( FD_UNLIKELY( !has_requests_anc ) ) requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
     if( FD_UNLIKELY( !has_consumed_anc ) ) consumed_insert( forest, fd_forest_pool_idx( pool, ele ) );
   }
   return ele;
@@ -750,7 +762,7 @@ fd_forest_fec_clear( fd_forest_t * forest, ulong slot, uint fec_set_idx, uint ma
 
   /* Add this slot back to requests map */
   fd_forest_blk_t * pool = fd_forest_pool( forest );
-  requests_insert( forest, fd_forest_pool_idx( pool, ele ) );
+  requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, ele ) );
 }
 
 fd_forest_blk_t const *
@@ -791,7 +803,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     new_root_ele->buffered_idx = 0;
     fd_forest_blk_idxs_full( new_root_ele->cmpl );
     fd_forest_blk_idxs_full( new_root_ele->fecs );
-    requests_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
+    requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
     advance_consumed_frontier( forest, new_root_slot, 0 ); /* advances consumed frontier if possible */
   }
 
@@ -819,7 +831,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
     }
 
     consumed_remove( forest, fd_forest_pool_idx( pool, head ) );
-    requests_remove( forest, fd_forest_pool_idx( pool, head ) );
+    requests_remove( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), &forest->iter, fd_forest_pool_idx( pool, head ) );
     fd_forest_pool_ele_release( pool, head );
   }
 
@@ -855,7 +867,10 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
 
   if( FD_UNLIKELY( fd_forest_conslist_is_empty( fd_forest_conslist( forest ), conspool ) ) ) {
     consumed_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
-    requests_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
+    requests_insert( forest, fd_forest_requests( forest ), fd_forest_reqslist( forest ), fd_forest_pool_idx( pool, new_root_ele ) );
+    /* TODO: is there a chance when we actually need to repair the root
+       after snapshot expected slot goes in? in this case this is
+       invalid */
     new_root_ele->complete_idx = 0;
     new_root_ele->buffered_idx = 0;
     fd_forest_blk_idxs_full( new_root_ele->cmpl );
@@ -920,11 +935,11 @@ fd_forest_clear( fd_forest_t * forest ) {
 }
 
 fd_forest_iter_t *
-fd_forest_iter_next( fd_forest_t * forest ) {
-  fd_forest_iter_t      * iter     = &forest->iter;
+fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
   fd_forest_blk_t const * pool     = fd_forest_pool_const( forest );
   fd_forest_blk_t const * ele      = fd_forest_pool_ele_const( pool, iter->ele_idx );
-  fd_forest_reqslist_t  * reqslist = fd_forest_reqslist( forest );
+  fd_forest_reqslist_t  * reqslist = iter->list_gaddr == forest->reqslist_gaddr ? fd_forest_reqslist( forest ) : fd_forest_orphlist( forest );
+  fd_forest_requests_t  * reqsmap  = iter->list_gaddr == forest->reqslist_gaddr ? fd_forest_requests( forest ) : fd_forest_orphreqs( forest );
   fd_forest_ref_t       * reqspool = fd_forest_reqspool( forest );
 
   /* forest->iter.ele_idx should always refer to the head of the
@@ -932,7 +947,13 @@ fd_forest_iter_next( fd_forest_t * forest ) {
 # if FD_FOREST_USE_HANDHOLDING
   if( FD_UNLIKELY( iter->ele_idx != fd_forest_pool_idx_null( pool ) &&
                    iter->ele_idx != fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx ) ) {
-    FD_LOG_ERR(("invariant violation: forest iterator ele_idx %lu != head of request list %lu", iter->ele_idx, fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx));
+    FD_LOG_WARNING(("invariant violation: forest iterator ele_idx %lu != head of request list %lu", iter->ele_idx, fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx));
+    /* check if the iterator ele_idx lives in the forest for debugging. */
+    fd_forest_blk_t const * ele_iter = fd_forest_pool_ele_const( pool, iter->ele_idx );
+    fd_forest_blk_t const * req_head = fd_forest_pool_ele_const( pool, fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx );
+    ulong slot_iter     = ele_iter ? ele_iter->slot : 0;
+    ulong slot_req_head = req_head ? req_head->slot : 0;
+    FD_LOG_CRIT(("Forest iterator slot %lu != head of request list slot %lu. Does forest have %lu? %p. Does forest have %lu? %p.", slot_iter, slot_req_head, ele_iter->slot, (void *)fd_forest_query( forest, ele_iter->slot ), req_head->slot, (void *)fd_forest_query( forest, req_head->slot )));
   }
 # endif
 
@@ -954,16 +975,17 @@ fd_forest_iter_next( fd_forest_t * forest ) {
          deque!  Debatable: should we add this slot's children to
          the requests deque until we have actually sent reqs for every
          shred of the slot? */
+
       if( FD_LIKELY( ele ) ) {
         fd_forest_blk_t const * child = fd_forest_pool_ele_const( pool, ele->child );
         while( FD_LIKELY( child ) ) {
-          requests_insert( forest, fd_forest_pool_idx( pool, child ) );
+          requests_insert( forest, reqsmap, reqslist, fd_forest_pool_idx( pool, child ) );
           child = fd_forest_pool_ele_const( pool, child->sibling );
         }
         /* so annoying. cant call requests_remove because itll invalidate the current iter->ele_idx,
            so we explicitly pop the head and free the ele here. */
-        fd_forest_ref_t * head = fd_forest_reqslist_ele_pop_head( fd_forest_reqslist( forest ), reqspool );
-        fd_forest_requests_ele_remove ( fd_forest_requests( forest ), &head->idx, NULL, reqspool );
+        fd_forest_ref_t * head = fd_forest_reqslist_ele_pop_head( reqslist, reqspool );
+        fd_forest_requests_ele_remove ( reqsmap, &head->idx, NULL, reqspool );
         fd_forest_reqspool_ele_release( reqspool, head );
 
         if( FD_UNLIKELY( iter->shred_idx == UINT_MAX && ( ele->buffered_idx == UINT_MAX || ele->buffered_idx < ele->complete_idx ) ) ) {
@@ -972,7 +994,7 @@ fd_forest_iter_next( fd_forest_t * forest ) {
              whether or not this slot is still incomplete.  If the slot
              is complete and we add it back to the loop, we will end up
              infinite looping. */
-          requests_insert( forest, iter->ele_idx );
+          requests_insert( forest, reqsmap, reqslist, iter->ele_idx );
         }
       }
 
@@ -1013,9 +1035,9 @@ fd_forest_iter_next( fd_forest_t * forest ) {
 }
 
 int
-fd_forest_iter_done( fd_forest_t const * forest ) {
+fd_forest_iter_done( fd_forest_iter_t * iter, fd_forest_t * forest ) {
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
-  return forest->iter.ele_idx == fd_forest_pool_idx_null( pool ); /* no more elements */
+  return iter->ele_idx == fd_forest_pool_idx_null( pool ); /* no more elements */
 }
 
 #include <stdio.h>
