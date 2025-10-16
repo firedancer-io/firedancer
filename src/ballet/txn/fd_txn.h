@@ -112,6 +112,10 @@
 #define FD_TXN_MAX_SZ                (860UL)
 
 
+/* FD_TXN_MTU_V0_LEGACY: The maximum size (in bytes, inclusive) of a
+   serialized v0 or legacy transaction. */
+#define FD_TXN_MTU_V0_LEGACY      (1232UL)
+
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
    transaction. This was increased to 4096 bytes in SIMD-0296. */
 #define FD_TXN_MTU                  (4096UL)

@@ -76,11 +76,7 @@ fd_txn_parse_core( uchar const             * payload,
   /* Minimal instr has 1B for program id, 1B for an acct_addr list
      containing no accounts, 1B for length-0 instruction data */
   #define MIN_INSTR_SZ (3UL)
-
-  /* We don't check payload_sz<=FD_TXN_MTU here because v1 transactions
-     can be up to FD_TXN_MTU_V1 bytes. The version-specific check happens after
-     we determine the transaction version. */
-  CHECK( payload_sz<=FD_TXN_MTU_V1 );
+  CHECK( payload_sz<=FD_TXN_MTU );
 
   /* The documentation sometimes calls signature_cnt a compact-u16 and
      sometimes a u8.  Because of transaction size limits, even allowing
@@ -109,7 +105,7 @@ fd_txn_parse_core( uchar const             * payload,
 
   /* Version-specific size check */
   ulong is_v1 = (ulong)(-(long)(transaction_version==FD_TXN_V1)); /* -1 if v1, 0 otherwise */
-  ulong max_sz = (FD_TXN_MTU_V1 & is_v1) | (FD_TXN_MTU & ~is_v1);
+  ulong max_sz = (FD_TXN_MTU & is_v1) | (FD_TXN_MTU_V0_LEGACY & ~is_v1);
   CHECK( payload_sz<=max_sz );
 
   /* V1 transactions have a completely different format */
