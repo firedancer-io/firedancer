@@ -201,13 +201,14 @@ check_device_is_modified( char const * device ) {
   FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
   if( channels.current!=channels.max ) return 1;
 
+  /* FIXME: Confusion between number of rings and number of channels
   uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
   uint rxfh_table_ele_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
   for( uint j=0U, q=0U; j<rxfh_table_ele_cnt; j++) {
     if( rxfh_table[ j ]!=q++ ) return 1;
     if( q>=channels.current ) q = 0;
-  }
+  } */
 
   int ntuple_rules_empty;
   FD_TEST( 0==fd_ethtool_ioctl_ntuple_validate_udp_dport( &ioc, NULL, 0, 0, &ntuple_rules_empty ) );
