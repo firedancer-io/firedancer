@@ -1199,9 +1199,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
-                                    fd_spad_t *         exec_spad,
                                     fd_capture_ctx_t *  capture_ctx ) {
-  FD_SPAD_FRAME_BEGIN( exec_spad ) {
   int exec_res = 0;
 
   fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
@@ -1244,8 +1242,6 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   }
 
   return exec_res;
-
-  } FD_SPAD_FRAME_END;
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
