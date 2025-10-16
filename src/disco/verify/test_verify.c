@@ -144,8 +144,8 @@ setup_verify_ctx( fd_verify_ctx_t * ctx, void ** mem ) {
   fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
 
   /* ctx->sha */
-  uchar * _sha = aligned_alloc( FD_SHA512_ALIGN, sizeof(fd_sha512_t)*FD_TXN_ACTUAL_SIG_MAX );
-  for ( ulong i=0; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+  uchar * _sha = aligned_alloc( FD_SHA512_ALIGN, sizeof(fd_sha512_t)*FD_TXN_SIG_MAX );
+  for ( ulong i=0; i<FD_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha + i*sizeof(fd_sha512_t) ) );
     if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "fd_sha512_join failed" ));
     ctx->sha[i] = sha;

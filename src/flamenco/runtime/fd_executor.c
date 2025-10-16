@@ -1539,7 +1539,7 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
 int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
-                        fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] ) {
+                        fd_sha512_t * shas[ FD_TXN_SIG_MAX ] ) {
   fd_txn_t * txn = TXN( txn_p );
 
   uchar * signatures = txn_p->payload + txn->signature_off;

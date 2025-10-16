@@ -34,8 +34,8 @@ typedef struct fd_exec_tile_ctx {
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
 
-  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
-  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t           sha_mem[ FD_TXN_SIG_MAX ];
+  fd_sha512_t *         sha_lj[ FD_TXN_SIG_MAX ];
 
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
@@ -176,7 +176,7 @@ unprivileged_init( fd_topo_t *      topo,
       (ulong)scratch + scratch_footprint( tile ) ) );
   }
 
-  for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+  for( ulong i=0UL; i<FD_TXN_SIG_MAX; i++ ) {
     fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
     FD_TEST( sha );
     ctx->sha_lj[i] = sha;

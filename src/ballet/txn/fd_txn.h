@@ -59,24 +59,21 @@
 /* FD_TXN_SIG_MAX: The (inclusive) maximum number of signatures a transaction
    can have.  Note: for the current MTU size of 1232 B, the maximum that a
    valid transaction can have is 12 signatures. The most I've seen in practice
-   is about 7.
-
-   FD_TXN_ACTUAL_SIG_MAX: used to allocate arrays of signatures, pubkeys, etc.
+   is about 7. V1 transactions are explicitly limited to 12 signatures.
 
    From the spec: "The Solana runtime verifies that the number of signatures
    [stored as a compact-u16] matches the number in the first 8 bits of the
    message header."
    Thus this value must live in the range where compact-u16 and uint8
-   representations are identical, hence a max of 127. */
-#define FD_TXN_SIG_MAX               (127UL)
-#define FD_TXN_ACTUAL_SIG_MAX        (12UL)
+   representations are identical. */
+#define FD_TXN_SIG_MAX               (12UL)
 
 /* FD_TXN_ACCT_ADDR_MAX: The (inclusive) maximum number of account addresses
    that a transaction can have.  The spec only guarantees <= 256, but the
-   current MTU of 1232 B restricts this to 35 account addresses.  An artificial
-   limit of 64 is currently in place, but this is being changed to 128 in the
-   near future (https://github.com/solana-labs/solana/issues/27241), so we'll
-   use 128. */
+   current MTU of 1232 B restricts this to 35 account addresses.
+
+   This is limited to 64 by the protocol, but may be increased to 128 in the
+   future (https://github.com/solana-labs/solana/issues/27241). */
 /* https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139 */
 #define FD_TXN_ACCT_ADDR_MAX         (128UL)
 
@@ -94,22 +91,30 @@
 #define FD_TXN_INSTR_MAX             (64UL)
 
 
-/* FD_TXN_MAX_SZ: The maximum amount of memory (in bytes) that a fd_txn can
-   take up, including the instruction array and any address tables.  The
-   worst-case transaction is a V0 transaction with only two account
-   addresses (a program and a fee payer), and tons of empty instructions (no
-   accounts, no data) and as many address table lookups loading a single
-   account as possible. */
-#define FD_TXN_MAX_SZ                (840UL)
+/* FD_TXN_MAX_SZ: The maximum amount of memory (in bytes) that a fd_txn_t can
+   take up, including the instruction array and any address tables.
+
+   Worse-case size for legacy/v0 transactions:
+     A transaction with only 2 account addresses (a program and a fee payer),
+     64 empty instructions (no accounts, no data) and 24 address
+     table lookups loading a single account
+     = sizeof(fd_txn_t) + 64*sizeof(fd_txn_instr_t) +
+       24*sizeof(fd_txn_acct_addr_lut_t)
+     = 28 + (64*10) + (24*8) = 860 bytes
+
+   Worse-case size for v1 transactions:
+     A transaction with only 2 account addresses (a program and a fee payer),
+     64 empty instructions (no accounts, no data)
+     = sizeof(fd_txn_t) + 64*sizeof(fd_txn_instr_t)
+     = 28 + (64*10) = 668 bytes
+
+   So the worst-case size is 860 bytes. */
+#define FD_TXN_MAX_SZ                (860UL)
 
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
-   legacy or v0 transaction. */
-#define FD_TXN_MTU                  (1232UL)
-
-/* FD_TXN_MTU_V1: The maximum size (in bytes, inclusive) of a serialized
-   v1 transaction (SIMD-0296). */
-#define FD_TXN_MTU_V1               (4096UL)
+   transaction. This was increased to 4096 bytes in SIMD-0296. */
+#define FD_TXN_MTU                  (4096UL)
 
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
    transaction, using fd_txn_parse() verification rules. */

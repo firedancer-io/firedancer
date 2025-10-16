@@ -24,7 +24,7 @@ typedef struct {
 
 typedef struct {
   /* TODO switch to fd_sha512_batch_t? */
-  fd_sha512_t * sha[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t * sha[ FD_TXN_SIG_MAX ];
 
   int   bundle_failed;
   ulong bundle_id;

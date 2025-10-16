@@ -60,7 +60,7 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
    acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
 int
 fd_executor_txn_verify( fd_txn_p_t *  txn_p,
-                        fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
+                        fd_sha512_t * shas[ FD_TXN_SIG_MAX ] );
 
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
