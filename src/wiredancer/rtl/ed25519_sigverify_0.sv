@@ -26,7 +26,7 @@
     is completely taken by a processor.
 
     Merge is a simple multiplexer with a round robin pocliy for 
-    selection.  As multipler processors can produce results at
+    selection.  As multiple  processors can produce results at
     the same time, each requires a separate fifo to accept
     backrepssure from the multiplexer.
 

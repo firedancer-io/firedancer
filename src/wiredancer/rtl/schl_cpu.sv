@@ -24,7 +24,7 @@ of parallel state machines rather than being fixed set of stages (our "logical t
 is effectively a simple state machine managing transitions around input and output
 from the ALU containing the math primitives)
 
-Instructions generated from our scipts use a virtual address scheme to specify
+Instructions generated from our scripts use a virtual address scheme to specify
 operating runtime and have independent physical scratchpad memory space within the
 main memories for storing temporary values as needed by the algorithm. This allows
 our reference/instruction generation scripts to logically treat the hardware as a
