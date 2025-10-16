@@ -57,7 +57,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_funk_txn_xid_t xid = { .ul = { slot, 0UL } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
   fd_funk_txn_prepare     ( funk,                    &parent_xid, &xid );
-  fd_progcache_txn_prepare( runner->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
 
   /* Set up slot context */
   fd_banks_clear_bank( runner->banks, runner->bank );
