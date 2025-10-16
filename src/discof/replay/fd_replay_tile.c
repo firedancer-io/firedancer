@@ -978,6 +978,38 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, 0 );
 
+  fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( ctx->leader_bank );
+  FD_TEST( bank_hash );
+
+  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
+  fd_bank_hash_cmp_lock( bank_hash_cmp );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, fd_bank_slot_get( ctx->leader_bank ), bank_hash, 1, 0 );
+
+  /* Try to move the bank hash comparison watermark forward */
+  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < fd_bank_slot_get( ctx->leader_bank ); cmp_slot++ ) {
+    if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
+      bank_hash_cmp->watermark = cmp_slot;
+      break;
+    }
+    int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+    switch ( rc ) {
+      case -1:
+        /* Mismatch */
+        FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+        break;
+      case 0:
+        /* Not ready */
+        break;
+      case 1:
+        /* Match*/
+        bank_hash_cmp->watermark = cmp_slot;
+        break;
+      default:;
+    }
+  }
+
+  fd_bank_hash_cmp_unlock( bank_hash_cmp );
+
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0 );
 
   /* Copy the vote tower of all the vote accounts into the buffer,
