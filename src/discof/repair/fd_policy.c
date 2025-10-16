@@ -42,7 +42,6 @@ fd_policy_new( void * shmem, ulong dedup_max, ulong peer_max, ulong seed ) {
   policy->peers.fast    = fd_peer_dlist_new       ( peers_fast                  );
   policy->peers.slow    = fd_peer_dlist_new       ( peers_slow                  );
   policy->turbine_slot0 = ULONG_MAX;
-  policy->tsreset       = 0;
   policy->nonce         = 1;
 
   return shmem;
@@ -203,61 +202,59 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
     }
   }
 
-  /**********************/
-  /* ADVANCE ITERATOR   */
-  /**********************/
+  /* Select a slot to operate on 🔪. Advance either the orphan iter or
+     regular iter. */
+  fd_forest_iter_t * iter = NULL;
+  if( FD_UNLIKELY( fd_forest_reqslist_is_empty( fd_forest_reqslist( forest ), fd_forest_reqspool( forest ) ) ) ) {
+    /* If the main tree has nothing to iterate at the moment, we can
+       request down the ORPHAN trees on slots we know about. */
+    iter = &forest->orphiter;
+  } else {
+    iter = &forest->iter;
+  }
 
-  fd_forest_iter_next( forest );
-  if( FD_UNLIKELY( fd_forest_iter_done( forest ) ) ) {
+  fd_forest_iter_next( iter, forest );
+  if( FD_UNLIKELY( fd_forest_iter_done( iter, forest ) ) ) {
     // This happens when we have already requested all the shreds we know about.
     return NULL;
   }
 
-  /* When we are at the head of the turbine, we should give turbine the
-     chance to complete the shreds.  Agave waits 200ms from the
-     estimated "correct time" of the highest shred received to repair.
-     i.e. if we've received the first 200 shreds, the 200th has a tick
-     of x. Translate that to millis, and we should wait to request shred
-     201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
-     receive except shred 100, and the 101th shred has a tick of y, we
-     should wait until y + 200ms to request shred 100.
-
-     At the start of the loop, the policy iterf is valid and requestable.
-     At the end of the loop, the policy iterf has been advanced to the
-     next valid requestable element. */
-
-  int req_made = 0;
-
-  fd_forest_blk_t * ele = fd_forest_pool_ele( pool, forest->iter.ele_idx );
+  fd_forest_blk_t * ele = fd_forest_pool_ele( pool, iter->ele_idx );
   if( FD_UNLIKELY( !passes_throttle_threshold( policy, ele ) ) ) {
-    /* We are not ready to repair this slot yet.  But it's possible we
-       have another fork that we need to repair... so we just
-       should skip to the next SLOT in the consumed iterator.  The
-       likelihood that this ele is the head of turbine is high, which
-       means that the shred_idx of the iterf is likely to be UINT_MAX,
-       which means calling fd_forest_iter_next will advance the iterf
-       to the next slot. */
-    forest->iter.shred_idx = UINT_MAX;
-    /* TODO: Heinous... I'm sorry. Easiest way to ensure this slot gets added back to the requests deque.
-       but maybe there should be an explicit API for it. */
+    /* When we are at the head of the turbine, we should give turbine the
+       chance to complete the shreds.  Agave waits 200ms from the
+       estimated "correct time" of the highest shred received to repair.
+       i.e. if we've received the first 200 shreds, the 200th has a tick
+       of x. Translate that to millis, and we should wait to request shred
+       201 until x + 200ms.  If we have a hole, i.e. first 200 shreds
+       receive except shred 100, and the 101th shred has a tick of y, we
+       should wait until y + 200ms to request shred 100.
+
+       Here we did not pass the timeout threshold, so we are not ready
+       to repair this slot yet.  But it's possible we have another fork
+       that we need to repair... so we just should skip to the next SLOT
+       in the main tree iterator.  The likelihood that this ele is the
+       head of turbine is high, which means that the shred_idx of the
+       iterf is likely to be UINT_MAX, which means calling
+       fd_forest_iter_next will advance the iterf to the next slot. */
+    iter->shred_idx = UINT_MAX;
+    /* TODO: Heinous... but the easiest way to ensure this slot gets
+       added back to the requests deque is if we set the shred_idx to
+       UINT_MAX, but maybe there should be an explicit API for it. */
     return NULL;
   }
 
-  if( FD_UNLIKELY( forest->iter.shred_idx == UINT_MAX ) ) {
+  if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
     if( FD_UNLIKELY( ele->slot < highest_known_slot ) ) {
       // We'll never know the the highest shred for the current turbine slot, so there's no point in requesting it.
       out = fd_repair_highest_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, 0 );
       policy->nonce++;
-      req_made = 1;
     }
   } else {
-    out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, forest->iter.shred_idx );
+    out = fd_repair_shred( repair, fd_policy_peer_select( policy ), now_ms, policy->nonce, ele->slot, iter->shred_idx );
     policy->nonce++;
     if( FD_UNLIKELY( ele->first_req_ts == 0 ) ) ele->first_req_ts = fd_tickcount();
-    req_made = 1;
   }
-
-  if( FD_UNLIKELY( !req_made ) ) return NULL;
   return out;
 }
 
