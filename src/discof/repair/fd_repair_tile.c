@@ -301,6 +301,7 @@ struct ctx {
   ulong manifest_slot;
   struct {
     ulong send_pkt_cnt;
+    ulong send_pkt_rate;
     ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
     ulong repaired_slots;
     ulong current_slot;
@@ -312,6 +313,9 @@ struct ctx {
   /* Slot-level metrics */
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
+
+  ulong send_pkt_cnt_ref;
+  long  send_pkt_ref_ts;
 };
 typedef struct ctx ctx_t;
 
@@ -899,7 +903,6 @@ after_frag( ctx_t * ctx,
     after_net( ctx, sz );
     return;
   }
-
 }
 
 static inline void
@@ -929,15 +932,15 @@ after_credit( ctx_t *             ctx,
     ulong nonce; ulong slot; ulong shred_idx;
     fd_inflights_request_pop( ctx->inflight, &nonce, &slot, &shred_idx );
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
-    if( FD_UNLIKELY( !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
+    if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
       if( FD_UNLIKELY( !peer ) ) {
         /* No peers. But we CANNOT lose this request. */
         /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
         fd_hash_t hash = { .ul[0] = 0 };
-        fd_inflights_request_insert( ctx->inflight, nonce, &hash, slot, shred_idx );
+        fd_inflights_request_insert( ctx->inflight, ctx->policy->nonce++, &hash, slot, shred_idx );
       } else {
-        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), (uint)nonce, slot, shred_idx );
+        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), ctx->policy->nonce++, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         return;
       }
@@ -1127,6 +1130,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
+  ctx->send_pkt_cnt_ref = 0;
+  ctx->send_pkt_ref_ts  = -1;
 }
 
 static ulong
@@ -1155,6 +1160,16 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( ctx->send_pkt_ref_ts == -1 ) ) {
+    ctx->send_pkt_cnt_ref = ctx->metrics->send_pkt_cnt;
+    ctx->send_pkt_ref_ts  = now;
+  } else if( FD_UNLIKELY( now - ctx->send_pkt_ref_ts > 1e6L ) ) {
+    ctx->metrics->send_pkt_rate = ((ctx->metrics->send_pkt_cnt - ctx->send_pkt_cnt_ref) * 1000000000UL) / (ulong)(now - ctx->send_pkt_ref_ts);
+    ctx->send_pkt_cnt_ref = ctx->metrics->send_pkt_cnt;
+    ctx->send_pkt_ref_ts  = now;
+  }
+  FD_MGAUGE_SET( REPAIR, SEND_PKT_RATE, ctx->metrics->send_pkt_rate );
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_peer_pool_used( ctx->policy->peers.pool ) );
