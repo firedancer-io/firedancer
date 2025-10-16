@@ -1111,7 +1111,7 @@ fd_crds_insert( fd_crds_t *                         crds,
 
     crds_contact_info_evict_dlist_ele_push_tail( crds->contact_info.evict_dlist, candidate, crds->pool );
 
-    if( FD_LIKELY( !is_from_me ) ){
+    if( FD_LIKELY( !is_from_me ) ) {
       crds_contact_info_fresh_list_ele_push_tail( crds->contact_info.fresh_dlist, candidate, crds->pool );
       candidate->contact_info.fresh_dlist.in_list = 1;
     } else {
@@ -1234,6 +1234,21 @@ fd_crds_peer_sample( fd_crds_t const * crds,
   ulong idx = wpeer_sampler_sample( crds->crds_sampler, rng );
   if( FD_UNLIKELY( idx==SAMPLE_IDX_SENTINEL ) ) return NULL;
   return crds_contact_info_pool_ele( crds->contact_info.pool, idx )->contact_info;
+}
+
+void
+fd_crds_handle_identity_change( fd_crds_t *   crds,
+                                uchar const * new_identity_pubkey ) {
+  fd_crds_key_t old_key[1];
+  make_contact_info_key( new_identity_pubkey, old_key );
+  fd_crds_entry_t * new_ci = lookup_map_ele_query( crds->lookup_map, old_key, NULL, crds->pool );
+  if( FD_UNLIKELY( !new_ci ) ) return;
+
+  ulong new_idx = crds_contact_info_pool_idx( crds->contact_info.pool, new_ci->contact_info.ci );
+
+  wpeer_sampler_upd( crds->crds_sampler, 0UL, new_idx );
+  crds->change_fn( crds->change_fn_ctx, new_idx, new_ci->stake, FD_CRDS_CONTACT_INFO_CHANGE_IDENTITY_CHANGED, NULL, 0L );
+
 }
 
 struct fd_crds_mask_iter_private {
