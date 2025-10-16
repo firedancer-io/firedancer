@@ -114,7 +114,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( rent );
   fd_bank_rent_set( runner->bank, *rent );
 
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
+  uchar __attribute__((aligned(alignof(fd_slot_hashes_global_t)))) slot_hashes_mem[fd_sysvar_slot_hashes_footprint(FD_SYSVAR_SLOT_HASHES_CAP)];
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, slot_hashes_mem );
   FD_TEST( slot_hashes );
 
   fd_stake_history_t stake_history_[1];

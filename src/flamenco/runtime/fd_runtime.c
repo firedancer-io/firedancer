@@ -431,14 +431,11 @@ static int
 fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
                                             fd_funk_t *               funk,
                                             fd_funk_txn_xid_t const * xid,
-                                            fd_capture_ctx_t *        capture_ctx,
-                                            fd_spad_t *               runtime_spad ) {
+                                            fd_capture_ctx_t *        capture_ctx ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
   //     FeeRateGovernor::new_derived(&parent.fee_rate_governor, parent.signature_count())
   // );
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L1312-L1314 */
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_runtime_new_fee_rate_governor_derived( bank, fd_bank_parent_signature_cnt_get( bank ) );
 
@@ -448,11 +445,9 @@ fd_runtime_block_sysvar_update_pre_execute( fd_bank_t *               bank,
 
   // It has to go into the current txn previous info but is not in slot 0
   if( fd_bank_slot_get( bank ) != 0 ) {
-    fd_sysvar_slot_hashes_update( bank, funk, xid, capture_ctx, runtime_spad );
+    fd_sysvar_slot_hashes_update( bank, funk, xid, capture_ctx );
   }
   fd_sysvar_last_restart_slot_update( bank, funk, xid, capture_ctx, fd_bank_last_restart_slot_get( bank ).slot );
-
-  } FD_SPAD_FRAME_END;
 
   return 0;
 }
@@ -690,8 +685,7 @@ int
 fd_runtime_block_execute_prepare( fd_bank_t *               bank,
                                   fd_funk_t *               funk,
                                   fd_funk_txn_xid_t const * xid,
-                                  fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad ) {
+                                  fd_capture_ctx_t *        capture_ctx ) {
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
   fd_bank_signature_count_set( bank, 0UL );
@@ -704,7 +698,7 @@ fd_runtime_block_execute_prepare( fd_bank_t *               bank,
     fd_bank_cost_tracker_end_locking_modify( bank );
   }
 
-  int result = fd_runtime_block_sysvar_update_pre_execute( bank, funk, xid, capture_ctx, runtime_spad );
+  int result = fd_runtime_block_sysvar_update_pre_execute( bank, funk, xid, capture_ctx );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;

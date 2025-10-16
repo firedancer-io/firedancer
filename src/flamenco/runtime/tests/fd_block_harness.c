@@ -426,7 +426,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     int is_epoch_boundary = 0;
     fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, capture_ctx, runner->spad );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, capture_ctx );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }

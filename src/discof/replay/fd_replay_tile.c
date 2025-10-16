@@ -709,7 +709,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx ) );
   return bank;
 }
 
@@ -934,7 +934,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx ) );
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -1100,7 +1100,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx ) );
     fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
@@ -1662,17 +1662,16 @@ process_fec_set( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
   fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
 
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->bank_idx               = reasm_fec->bank_idx;
-  sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
-  sched_fec->slot                   = reasm_fec->slot;
-  sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
-  sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
+  sched_fec->is_last_in_batch  = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block  = !!reasm_fec->slot_complete;
+  sched_fec->bank_idx          = reasm_fec->bank_idx;
+  sched_fec->parent_bank_idx   = reasm_fec->parent_bank_idx;
+  sched_fec->slot              = reasm_fec->slot;
+  sched_fec->parent_slot       = reasm_fec->slot - reasm_fec->parent_off;
+  sched_fec->is_first_in_block = reasm_fec->fec_set_idx==0U;
   fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->funk ) );
-  sched_fec->alut_ctx->funk         = ctx->funk;
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
-  sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
+  sched_fec->alut_ctx->funk    = ctx->funk;
+  sched_fec->alut_ctx->els     = ctx->published_root_slot;
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, fd_banks_bank_query( ctx->banks, sched_fec->bank_idx ) );
