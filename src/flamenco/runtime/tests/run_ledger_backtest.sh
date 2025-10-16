@@ -24,9 +24,11 @@ HAS_INCREMENTAL="false"
 REDOWNLOAD=1
 DEBUG=( )
 WATCH=( )
+LOG_LEVEL_STDERR=NOTICE
 
 if [[ -n "$CI" ]]; then
   WATCH=( "--no-watch" )
+  LOG_LEVEL_STDERR=INFO
 fi
 
 while [[ $# -gt 0 ]]; do
@@ -202,7 +204,7 @@ echo "
     max_live_slots = 32
     max_fork_width = 4
 [log]
-    level_stderr = \"INFO\"
+    level_stderr = \"$LOG_LEVEL_STDERR\"
     path = \"$LOG\"
 [paths]
     snapshots = \"$DUMP/$LEDGER\"
