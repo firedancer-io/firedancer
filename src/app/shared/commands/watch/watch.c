@@ -301,16 +301,26 @@ write_snapshots( config_t const * config,
 static uint
 write_gossip( config_t const * config,
               ulong const *    cur_tile,
+              ulong const *    prev_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
   ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
   if( gossip_tile_idx==ULONG_MAX ) return 0U;
   char * contact_info = COUNT( cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] );
-  PRINT( "💬 \033[1m\033[34mGOSSIP......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mCRDS\033[22m %s \033[1mPEERS\033[22m %s\033[K\n",
+
+  ulong gossip_total_ticks = total_regime( &cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] );
+  gossip_total_ticks = fd_ulong_max( gossip_total_ticks, 1UL );
+  double gossip_backp_pct = 100.0*(double)diff_tile( config, "gossip", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)gossip_total_ticks;
+  double gossip_idle_pct = 100.0*(double)diff_tile( config, "gossip", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gossip_total_ticks;
+  double gossip_busy_pct = 100.0 - gossip_backp_pct - gossip_idle_pct;
+
+  PRINT( "💬 \033[1m\033[34mGOSSIP......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mCRDS\033[22m %s \033[1mPEERS\033[22m %s \033[1mBUSY\033[22m %3.0f%% \033[1mBACKP\033[22m %3.0f%%\033[K\n",
     DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
-    contact_info );
+    contact_info,
+    gossip_busy_pct,
+    gossip_backp_pct );
   return 1U;
 }
 
@@ -416,7 +426,7 @@ write_summary( config_t const * config,
     write_snapshots( config, cur_tile, prev_tile );
   }
 
-  lines_printed += write_gossip( config, cur_tile, cur_link, prev_link );
+  lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
 }
