@@ -34,6 +34,7 @@ typedef struct fd_crds_mask_iter_private fd_crds_mask_iter_t;
 #define FD_CRDS_CONTACT_INFO_CHANGE_TYPE_NEW            (0)
 #define FD_CRDS_CONTACT_INFO_CHANGE_TYPE_REMOVED        (1)
 #define FD_CRDS_CONTACT_INFO_CHANGE_TYPE_STAKE_CHANGED  (2)
+#define FD_CRDS_CONTACT_INFO_CHANGE_IDENTITY_CHANGED    (3)
 
 typedef void (*fd_crds_ci_change_fn)( void *               ctx,
                                       ulong                crds_pool_idx,
@@ -307,6 +308,10 @@ fd_crds_peer_inactive( fd_crds_t *   crds,
 fd_contact_info_t const *
 fd_crds_peer_sample( fd_crds_t const * crds,
                      fd_rng_t *        rng );
+
+void
+fd_crds_handle_identity_change( fd_crds_t *   crds,
+                                uchar const * new_identity_pubkey );
 
 /* fd_crds_mask_iter_{init,next,done,entry} provide an API to
    iterate over the CRDS values in the table that whose hashes match

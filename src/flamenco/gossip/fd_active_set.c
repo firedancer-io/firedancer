@@ -285,7 +285,7 @@ fd_active_set_rotate( fd_active_set_t *            active_set,
     last_hit_idx_remove( active_set->last_hit, replace_idx, active_set->entry_pool );
 
     /* Replaced peer needs to be reinserted into bucket's sampler */
-    peer_meta_t *      e     = &active_set->peer_metas[ crds_idx ];
+    peer_meta_t *          e     = &active_set->peer_metas[ crds_idx ];
     ulong                  score = peer_bucket_score( e->stake, bucket_idx );
     e->bucket_idx[ bucket_idx ]  = BUCKET_ENTRY_IDX_SENTINEL;
     wpeer_sampler_upd( bucket->sampler, score, crds_idx );
@@ -308,7 +308,7 @@ fd_active_set_rotate( fd_active_set_t *            active_set,
   fd_bloom_initialize( replace->bloom,  num_bloom_filter_items );
   fd_bloom_insert    ( replace->bloom,  new_peer->pubkey.uc, 32UL );
   fd_memcpy          ( replace->pubkey, new_peer->pubkey.uc, 32UL );
-  
+
   bucket->cnt = fd_ulong_min( bucket->cnt+1UL, FD_ACTIVE_SET_PEERS_PER_BUCKET );
   bucket_insert_dlist_idx_push_tail( bucket->insert_dlist, replace_idx, active_set->entry_pool );
 

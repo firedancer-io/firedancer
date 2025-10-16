@@ -371,6 +371,16 @@ ci_change( void *              _ctx,
       }
       break;
     case FD_CRDS_CONTACT_INFO_CHANGE_TYPE_STAKE_CHANGED: fd_active_set_peer_update_stake( ctx->active_set, crds_pool_idx, stake ); break;
+    case FD_CRDS_CONTACT_INFO_CHANGE_IDENTITY_CHANGED:
+      {
+        FD_TEST( stem==NULL );
+        fd_active_set_push_state_t states_to_reset[ FD_ACTIVE_SET_STAKE_BUCKETS ];
+        ulong state_cnt = fd_active_set_peer_remove( ctx->active_set, crds_pool_idx, states_to_reset );
+        for( ulong i=0UL; i<state_cnt; i++ ) {
+          fd_gossip_txbuild_init( states_to_reset[i].txbuild, FD_GOSSIP_MESSAGE_PUSH );
+        }
+      }
+      break;
     default: FD_LOG_ERR(( "Unknown change type %d", change_type )); return;
   }
 }
@@ -412,6 +422,11 @@ void
 fd_gossip_set_my_contact_info( fd_gossip_t *             gossip,
                                fd_contact_info_t const * contact_info,
                                long                      now ) {
+  if( FD_UNLIKELY( memcmp( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL ) ) ){
+    FD_LOG_WARNING(( "Changing identity pubkey" ));
+    fd_crds_handle_identity_change( gossip->crds, contact_info->pubkey.uc );
+
+  }
   fd_memcpy( gossip->identity_pubkey, contact_info->pubkey.uc, 32UL );
 
   *gossip->my_contact_info.ci = *contact_info;
