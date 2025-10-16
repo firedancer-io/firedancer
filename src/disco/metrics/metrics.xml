@@ -282,6 +282,7 @@ metric introduced.
     <int value="2" name="NewConnection" label="Initiated connection" />
     <int value="3" name="ConnFailed" label="Connection failed" />
     <int value="4" name="Connected" label="Connection exists" />
+    <int value="5" name="Cooldown" label="Connection cooldown" />
 </enum>
 
 <tile name="send">

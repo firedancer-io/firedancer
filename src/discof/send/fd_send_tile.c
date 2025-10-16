@@ -88,7 +88,7 @@ quic_hs_complete( fd_quic_conn_t * conn,
   for( ulong i=0; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) { ctx->metrics.quic_hs_complete[i]++; break; }
   }
-  FD_LOG_DEBUG(("send_tile: QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
+  FD_LOG_DEBUG(("QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
 }
 
 inline static int
@@ -102,25 +102,24 @@ quic_conn_final( fd_quic_conn_t * conn,
                  void *           quic_ctx ) {
   fd_send_conn_entry_t * entry = fd_type_pun( fd_quic_conn_get_context( conn ) );
   if( FD_UNLIKELY( !entry ) ) {
-    FD_LOG_CRIT(( "send_tile: Conn map entry not found in conn_final" ));
+    FD_LOG_CRIT(( "Conn map entry not found in conn_final" ));
   }
 
   fd_send_tile_ctx_t * ctx = fd_type_pun( quic_ctx );
 
-  ulong clr_idx = ~0UL;
   for( ulong i=0UL; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) {
       entry->conn[i] = NULL;
-      clr_idx = i;
-      FD_LOG_DEBUG(("send_tile: Quic conn final: %p to peer " FD_IP4_ADDR_FMT ":%u", (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i]));
+      FD_LOG_DEBUG(("Quic final for conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                    (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], (void*)entry,
+                    FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key)));
       ctx->metrics.quic_conn_final[i]++;
-      break;
+      if( i==FD_SEND_PORT_QUIC_VOTE_IDX ) entry->last_quic_vote_close = ctx->now;
+      return;
     }
   }
 
-  if( FD_UNLIKELY( clr_idx == ~0UL ) ) {
-    FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
-  }
+  FD_LOG_CRIT(( "conn not found in entry for peer %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
 }
 
 /* send_to_net sends a packet to the net tile.
@@ -230,11 +229,13 @@ quic_connect( fd_send_tile_ctx_t   * ctx,
 
   fd_quic_conn_t * conn = fd_quic_connect( ctx->quic, dst_ip, dst_port, ctx->src_ip_addr, ctx->src_port, ctx->now );
   if( FD_UNLIKELY( !conn ) ) {
-    FD_LOG_WARNING(( "send_tile: Failed to create QUIC connection to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port ));
+    FD_LOG_WARNING(( "Failed to create QUIC connection to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port ));
     return NULL;
   }
 
-  FD_LOG_DEBUG(("send_tile: Quic conn created: %p to peer " FD_IP4_ADDR_FMT ":%u", (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port));
+  FD_LOG_DEBUG(("Quic created conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, (void*)entry,
+                FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key)));
 
   entry->conn[conn_idx] = conn;
   fd_quic_conn_set_context( conn, entry );
@@ -268,8 +269,16 @@ ensure_conn_for_slot( fd_send_tile_ctx_t * ctx,
 
     if( !entry->conn[i] ) {
       /* Attempting to create new connection */
-      fd_quic_conn_t * conn  = quic_connect( ctx, entry, i );
-      if( FD_UNLIKELY( !conn ) ) continue;
+      if( (i==FD_SEND_PORT_QUIC_VOTE_IDX) & (ctx->now<entry->last_quic_vote_close+1e9L*FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS) ) {
+        FD_LOG_DEBUG(("Skipping QUIC connection to " FD_IP4_ADDR_FMT ":%u bc of cooldown", FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i] ));
+        ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_COOLDOWN_IDX]++;
+        continue;
+      }
+      fd_quic_conn_t * conn = quic_connect( ctx, entry, i );
+      if( FD_UNLIKELY( !conn ) ) {
+        ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_CONN_FAILED_IDX]++;
+        continue;
+      }
       ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_NEW_CONNECTION_IDX]++;
       fd_quic_service( ctx->quic, ctx->now );
     } else {
@@ -355,7 +364,6 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
   fd_send_conn_entry_t * entry  = fd_send_conn_map_query( ctx->conn_map, *(fd_pubkey_t *)(msg->origin_pubkey), NULL );
   if( FD_UNLIKELY( !entry ) ) {
     /* Skip if UNSTAKED */
-    // FD_LOG_DEBUG(("send_tile: Skipping unstaked pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
     ctx->metrics.unstaked_ci_rcvd++;
     return;
   }
@@ -369,7 +377,7 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
     ushort                old_port = entry->ports[i];
 
     if( FD_UNLIKELY( !new_ip || !new_port ) ) {
-      FD_LOG_DEBUG(( "send_tile: Unroutable contact info for pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
+      FD_LOG_DEBUG(( "Unroutable contact info for pubkey %s", FD_BASE58_ENC_32_ALLOCA( msg->origin_pubkey )));
       ctx->metrics.new_contact_info[i][FD_METRICS_ENUM_NEW_CONTACT_OUTCOME_V_UNROUTABLE_IDX]++;
       continue;
     }
@@ -435,7 +443,6 @@ finalize_stake_msg( fd_send_tile_ctx_t * ctx ) {
     fd_send_conn_entry_t * entry = fd_send_conn_map_query( ctx->conn_map, pubkey, NULL );
     /* UNSTAKED -> NO_CONN: create new entry in NO_CONN state */
     if( FD_UNLIKELY( !entry ) ) {
-      // FD_LOG_DEBUG(("send_tile: creating new entry for pubkey %s", FD_BASE58_ENC_32_ALLOCA( pubkey.key )));
       /* insert and initialize entry */
       entry = fd_send_conn_map_insert( ctx->conn_map, pubkey );
       *entry = (fd_send_conn_entry_t){.pubkey = entry->pubkey, .hash = entry->hash };
@@ -469,8 +476,9 @@ handle_vote_msg( fd_send_tile_ctx_t * ctx,
     if( FD_LIKELY( leader ) ) {
       leader_send( ctx, leader, signed_vote_txn, vote_txn_sz );
     } else {
+      /* TODO: eventually make this CRIT, rm metrics */
       ctx->metrics.leader_not_found++;
-      FD_LOG_DEBUG(("send_tile: Failed to get leader contact for slot %lu", target_slot));
+      FD_LOG_DEBUG(("Failed to get leader contact for slot %lu", target_slot));
     }
   }
 
@@ -559,12 +567,16 @@ during_frag( fd_send_tile_ctx_t * ctx,
   if( FD_UNLIKELY( kind==IN_KIND_TOWER ) ) {
     FD_TEST( sz==sizeof(fd_tower_slot_done_t) );
 
-    fd_tower_slot_done_t const * slot_done = (fd_tower_slot_done_t const *)dcache_entry;
+    fd_tower_slot_done_t const * slot_done = fd_type_pun_const( dcache_entry );
 
-    uchar signed_vote_txn[ FD_TPU_MTU ];
-    fd_memcpy( signed_vote_txn, slot_done->vote_txn, slot_done->vote_txn_sz );
+    ulong const vote_slot   = slot_done->vote_slot;
+    ulong const vote_txn_sz = slot_done->vote_txn_sz;
+    if( FD_UNLIKELY( vote_slot==ULONG_MAX ) ) return; /* no new vote to send */
 
-    handle_vote_msg( ctx, slot_done->vote_slot, signed_vote_txn, slot_done->vote_txn_sz );
+    uchar vote_txn[ FD_TPU_MTU ];
+    fd_memcpy( vote_txn, slot_done->vote_txn, vote_txn_sz );
+
+    handle_vote_msg( ctx, vote_slot, vote_txn, vote_txn_sz );
   }
 }
 

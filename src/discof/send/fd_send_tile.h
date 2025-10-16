@@ -26,7 +26,7 @@
 #define FD_SEND_TARGET_LEADER_CNT (3UL)
 
 /* Connect FD_CONNECT_AHEAD_LEADER_CNT leaders ahead (slot x, x+4, x+8, ...) */
-#define FD_SEND_CONNECT_AHEAD_LEADER_CNT  (6UL)
+#define FD_SEND_CONNECT_AHEAD_LEADER_CNT  (7UL)
 
 /* Agave currently rate limits connections per minute per IP */
 #define FD_AGAVE_MAX_CONNS_PER_MINUTE (8UL)
@@ -34,10 +34,21 @@
    Let's conservatively go to 10 */
 #define FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS (10L)
 
+/* Wait FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS many seconds before
+   re-establishing a conn to a quic_vote port. Why?
+   After timing out, the agave server puts the conn in a draining state, during
+   which time it remains in their connection map. So our new attempt gets
+   rejected, as the quic_vote port limits to 1 conn per client. Without cooldown,
+   we keep trying rapidly, and can quickly hit their 8 conn/min limit.
+   That prevents us from connecting for far longer than just cooling down
+   (which should be free because we connect ahead). This number is based
+   on empirical observation, but has much room for improvement. */
+#define FD_SEND_QUIC_VOTE_MIN_CONN_COOLDOWN_SECONDS (2L)
+
 /* the 1M lets this be integer math */
 FD_STATIC_ASSERT((60*1000000)/FD_SEND_QUIC_MIN_CONN_LIFETIME_SECONDS <= 1000000*FD_AGAVE_MAX_CONNS_PER_MINUTE, "QUIC conn lifetime too low for rate limit");
 
-#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (2e9L)  /*  2 s  */
+#define FD_SEND_QUIC_IDLE_TIMEOUT_NS (30e9L) /* 30 s - minimize keep_alive work */
 #define FD_SEND_QUIC_ACK_DELAY_NS    (25e6L) /* 25 ms */
 
 /* quic ports first, so we can re-use idx to select conn ptr
@@ -75,7 +86,9 @@ struct fd_send_conn_entry {
   fd_pubkey_t      pubkey;
   uint             hash;
 
-  fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* first non-quic port */
+  fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* quic ports first in enum */
+  long             last_quic_vote_close;
+
   long             last_ci_ns;
   uint             ip4s [ FD_SEND_PORT_CNT ]; /* net order */
   ushort           ports[ FD_SEND_PORT_CNT ]; /* host order */
