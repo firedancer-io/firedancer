@@ -32,6 +32,7 @@
 [hugetlbfs]
     mount_path = "/data/firedancer/mnt"
 [snapshots]
+    download = false
     incremental_snapshots = false
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0
