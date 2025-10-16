@@ -373,7 +373,7 @@ blockhash_on_fork( fd_txncache_t *      tc,
                    blockcache_t const * fork,
                    uchar const *        blockhash ) {
   fd_txncache_blockcache_shmem_t const * candidate = blockhash_map_ele_query_const( tc->blockhash_map, fd_type_pun_const( blockhash ), NULL, tc->blockcache_shmem_pool );
-  if( FD_UNLIKELY( !candidate ) ) FD_LOG_CRIT(( "transaction refers to blockhash %s which does not exist", FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+  if( FD_UNLIKELY( !candidate ) ) return NULL;
 
   while( candidate ) {
     ulong candidate_idx = blockcache_pool_idx( tc->blockcache_shmem_pool, candidate );
@@ -393,7 +393,11 @@ fd_txncache_insert( fd_txncache_t *       tc,
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
   FD_TEST( fork->shmem->frozen<=1 );
   blockcache_t * blockcache = blockhash_on_fork( tc, fork, blockhash );
-  FD_TEST( blockcache );
+
+  /* TODO: We can't print the full txnhash here typically because we
+     might only be able to see 20 bytes, but we need to print it for
+     diagnostic purposes. Remove once bug is identified. */
+  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
 
   for(;;) {
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
@@ -417,7 +421,11 @@ fd_txncache_query( fd_txncache_t *       tc,
 
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
   blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
-  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction refers to blockhash %s which is not in ancestors", FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+
+  /* TODO: We can't print the full txnhash here typically because we
+     might only be able to see 20 bytes, but we need to print it for
+     diagnostic purposes. Remove once bug is identified. */
+  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
 
   int found = 0;
 
