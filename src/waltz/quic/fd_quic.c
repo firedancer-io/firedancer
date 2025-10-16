@@ -365,6 +365,8 @@ fd_quic_init( fd_quic_t * quic ) {
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
+    if( FD_UNLIKELY( config->keep_alive ) ) { FD_LOG_WARNING(( "server keep-alive not supported" )); return NULL; }
+    break;
   case FD_QUIC_ROLE_CLIENT:
     break;
   default:
@@ -2176,7 +2178,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 
   /* update last activity */
-  conn->last_activity = fd_quic_get_state( quic )->now;
+  conn->last_activity = state->now;
 
   /* update expected packet number */
   conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
@@ -2909,11 +2911,19 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
     fd_quic_conn_free( quic, conn );
     break;
-  default:
-    /* prep idle timeout or keep alive at idle timeout/2 */
-    fd_quic_svc_prep_schedule( conn, conn->last_activity + (conn->idle_timeout_ns>>(quic->config.keep_alive)) );
+  default: {
+    /* Should we schedule for keep-alive or timeout?
+      1. If keep_alive not configured, for timeout
+      2. Else, if we've crossed the halfway point, we must have just pinged,
+        and should therefore schedule timeout. Otherwise, we should schedule
+        for the keep-alive time. */
+    long const timeout_ns    = conn->idle_timeout_ns;
+    long const last_activity = conn->last_activity;
+    int const  keep_alive    = quic->config.keep_alive & (now < last_activity+timeout_ns/2L);
+    fd_quic_svc_prep_schedule( conn, last_activity + (timeout_ns>>keep_alive) );
     fd_quic_svc_timers_schedule( state->svc_timers, conn, state->now );
     break;
+  }
   }
 
   return 1;
@@ -5349,10 +5359,15 @@ fd_quic_handle_conn_close_0_frame(
     FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
         "frame_type: %lx  "
-        "reason: %s",
+        "reason: %s "
+        "peer " FD_IP4_ADDR_FMT ":%u "
+        "conn_id %lu",
         data->error_code,
         data->frame_type,
-        reason_buf ));
+        reason_buf,
+        FD_IP4_ADDR_FMT_ARGS(context->conn->peer->ip_addr),
+        context->conn->peer->udp_port,
+        context->conn->our_conn_id ));
   );
 
   fd_quic_handle_conn_close_frame( context->conn );
@@ -5382,9 +5397,14 @@ fd_quic_handle_conn_close_1_frame(
 
     FD_LOG_WARNING(( "fd_quic_handle_conn_close_frame - "
         "error_code: %lu  "
-        "reason: %s",
+        "reason: %s "
+        "peer " FD_IP4_ADDR_FMT ":%u "
+        "conn_id %lu",
         data->error_code,
-        reason_buf ));
+        reason_buf,
+        FD_IP4_ADDR_FMT_ARGS(context->conn->peer->ip_addr),
+        context->conn->peer->udp_port,
+        context->conn->our_conn_id ));
   );
 
   fd_quic_handle_conn_close_frame( context->conn );
@@ -5480,7 +5500,13 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 
 void
 fd_quic_conn_let_die( fd_quic_conn_t * conn,
-                      long             keep_alive_duration ) {
-  long const now = fd_quic_get_state( conn->quic )->now;
+                      long             keep_alive_duration,
+                      long             now ) {
+  fd_quic_get_state( conn->quic )->now = now;
   conn->let_die_time_ns = fd_long_sat_add( now, keep_alive_duration );
+  /* If we've missed the keep-alive time, schedule for immediate servicing */
+  if( FD_UNLIKELY( conn->last_activity+conn->idle_timeout_ns/2L < now ) ) {
+    fd_quic_svc_prep_schedule( conn, now );
+    fd_quic_svc_schedule1( conn );
+  }
 }
