@@ -273,7 +273,12 @@ fd_pack_compute_cost( fd_txn_t const * txn,
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
 
   fd_compute_budget_program_state_t cbp[1];
-  fd_compute_budget_program_init( cbp );
+  /* For v1 transactions, initialize from config mask instead of parsing instructions */
+  if( FD_UNLIKELY( txn->transaction_version==FD_TXN_V1 ) ) {
+    fd_compute_budget_program_init_from_v1_txn( cbp, txn, payload );
+  } else {
+    fd_compute_budget_program_init( cbp );
+  }
 
   for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
     instr_data_sz += txn->instr[i].data_sz;
@@ -288,8 +293,13 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     non_builtin_cnt += !in_tbl->cost_per_instr; /* The only one with no cost is the null one */
 
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
-      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
-        return 0UL;
+      /* For v1 transactions, ComputeBudgetProgram instructions are ignored (no-op).
+         For legacy/v0 transactions, parse them normally. */
+      if( FD_LIKELY( txn->transaction_version!=FD_TXN_V1 ) ) {
+        if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
+          return 0UL;
+      }
+      /* For v1, the instruction succeeds as a no-op and consumes CUs */
     } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) ) ) {
       /* First byte is # of signatures.  Branchless tail reading here is
          probably okay, but this seems safer. */

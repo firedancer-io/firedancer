@@ -74,8 +74,16 @@ struct fd_compute_budget_program_private_state {
   uint    heap_size;
   /* micro_lamports_per_cu: if SET_FEE is in flags, this stores the
      requested prioritization fee in micro-lamports per compute unit.
-     Otherwise, 0. */
+     Otherwise, 0. Only used for legacy/v0 transactions. */
   ulong   micro_lamports_per_cu;
+
+  /* v1_total_priority_fee_lamports: For v1 transactions, stores the
+     total priority fee in lamports (not per-CU). Only valid if
+     is_v1_txn is true. */
+  ulong   v1_total_priority_fee_lamports;
+
+  /* is_v1_txn: True if this state was initialized from a v1 transaction. */
+  uchar   is_v1_txn;
 };
 typedef struct fd_compute_budget_program_private_state fd_compute_budget_program_state_t;
 
@@ -85,6 +93,65 @@ typedef struct fd_compute_budget_program_private_state fd_compute_budget_program
 static inline void fd_compute_budget_program_init( fd_compute_budget_program_state_t * state ) {
   *state = (fd_compute_budget_program_state_t) {0};
 }
+
+/* fd_compute_budget_program_init_from_v1_txn: initializes an
+   fd_compute_budget_program_state_t from a v1 transaction's config mask.
+   For v1 transactions (SIMD-0296), compute budget parameters are specified
+   via TransactionConfigMask instead of ComputeBudgetProgram instructions.
+
+   txn must be a v1 transaction (txn->transaction_version == FD_TXN_V1).
+   payload must point to the transaction payload bytes. */
+static inline void
+fd_compute_budget_program_init_from_v1_txn( fd_compute_budget_program_state_t * state,
+                                            fd_txn_t const *                    txn,
+                                            uchar const *                       payload ) {
+  state->compute_budget_instr_cnt = 0; /* V1 doesn't use CBP instructions for config */
+  state->flags = 0;
+  state->is_v1_txn = 1;
+  state->micro_lamports_per_cu = 0UL; /* Not used for v1 */
+
+  uint config_mask = txn->v1_txn_config_mask;
+  ulong config_off = txn->v1_txn_config_values_off;
+
+  /* Priority fee: bits [0,1] in config mask - stored as TOTAL fee in lamports */
+  if( config_mask & 0x3 ) {
+    state->v1_total_priority_fee_lamports = FD_LOAD( ulong, payload+config_off );
+    config_off += 8UL;
+    state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_FEE;
+  } else {
+    state->v1_total_priority_fee_lamports = 0UL;
+  }
+
+  /* Compute unit limit: bit [2] in config mask */
+  if( config_mask & 0x4 ) {
+    uint cu_limit = FD_LOAD( uint, payload+config_off );
+    state->compute_units = fd_uint_min( cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
+    config_off += 4UL;
+    state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU;
+  } else {
+    state->compute_units = 0U;
+  }
+
+  /* Loaded accounts data size: bit [3] in config mask */
+  if( config_mask & 0x8 ) {
+    uint loaded_sz = FD_LOAD( uint, payload+config_off );
+    state->loaded_acct_data_sz = fd_uint_min( loaded_sz, FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ );
+    config_off += 4UL;
+    state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_LOADED_DATA_SZ;
+  } else {
+    state->loaded_acct_data_sz = 0U;
+  }
+
+  /* Heap size: bit [4] in config mask */
+  if( config_mask & 0x10 ) {
+    state->heap_size = FD_LOAD( uint, payload+config_off );
+    state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP;
+  } else {
+    state->heap_size = 32768U; /* MIN_HEAP_FRAME_BYTES */
+    state->flags |= FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_HEAP;
+  }
+}
+
 /* fd_compute_budget_program_parse: Parses a single ComputeBudgetProgram
    instruction.  Updates the state stored in state.  Returns 0 if the
    instruction was invalid, which means the transaction should fail.
@@ -193,60 +260,68 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
 
   ulong total_fee = 0UL;
 
-  /* We need to compute max(ceil((cu_limit * micro_lamports_per_cu)/10^6),
-     ULONG_MAX).  Unfortunately, the product can overflow.  Solana solves
-     this by doing the arithmetic with ultra-wide integers, but that puts a
-     128-bit division on the critical path.  Gross.  It's frustrating because
-     the overflow case likely results in a transaction that's so expensive
-     nobody can afford it anyways, but we should not break compatibility with
-     Solana over this.  Instead we'll do the arithmetic carefully:
-     Let cu_limit = c_h*10^6 + c_l, where 0 <= c_l < 10^6.
-     Similarly, let micro_lamports_per_cu = p_h*10^6 + p_l, where
-     0 <= p_l < 10^6.  Since cu_limit < 2^32, c_h < 2^13;
-     micro_lamports_per_cu < 2^64, so p_h<2^45.
+  /* V1 transactions store the total priority fee directly in lamports,
+     not as micro_lamports_per_cu. Check the flag and use appropriate field. */
+  if( FD_UNLIKELY( state->is_v1_txn ) ) {
+    /* For v1 transactions, use the total priority fee directly. */
+    total_fee = state->v1_total_priority_fee_lamports;
+  } else {
+    /* For legacy/v0 transactions, compute from micro_lamports_per_cu. */
+    /* We need to compute max(ceil((cu_limit * micro_lamports_per_cu)/10^6),
+      ULONG_MAX).  Unfortunately, the product can overflow.  Solana solves
+      this by doing the arithmetic with ultra-wide integers, but that puts a
+      128-bit division on the critical path.  Gross.  It's frustrating because
+      the overflow case likely results in a transaction that's so expensive
+      nobody can afford it anyways, but we should not break compatibility with
+      Solana over this.  Instead we'll do the arithmetic carefully:
+      Let cu_limit = c_h*10^6 + c_l, where 0 <= c_l < 10^6.
+      Similarly, let micro_lamports_per_cu = p_h*10^6 + p_l, where
+      0 <= p_l < 10^6.  Since cu_limit < 2^32, c_h < 2^13;
+      micro_lamports_per_cu < 2^64, so p_h<2^45.
 
-     ceil( (cu_limit * micro_lamports_per_cu)/10^6)
-     = ceil( ((c_h*10^6+c_l)*(p_h*10^6+p_l))/10^6 )
-     = c_h*p_h*10^6 + c_h*p_l + c_l*p_h + ceil( (c_l*p_l)/10^6 )
-     c_h*p_h < 2^58, so we can compute it with normal multiplication.
-     If c_h*p_h > floor(ULONG_MAX/10^6), then we know c_h*p_h*10^6 will hit
-     the saturation point.  The "cross" terms are less than 2^64 by
-     construction (since we divided by 10^6 and then multiply by something
-     strictly less than 10^6).  c_l*p_l < 10^12 < 2^40, so that's safe as
-     well.
-     In fact, the sum of the right three terms is no larger than:
-     floor((2^32-1)/10^6)*(10^6-1) + (10^6-1)*floor((2^64-1)/10^6) + 10^6-1
-     == 0xffffef3a08574e4c < 2^64, so we can do the additions without
-     worrying about overflow.
-     Of course, we still need to check the final addition of the first term
-     with the remaining terms.  As a bonus, all of the divisions can now be
-     done via "magic multiplication."
+      ceil( (cu_limit * micro_lamports_per_cu)/10^6)
+      = ceil( ((c_h*10^6+c_l)*(p_h*10^6+p_l))/10^6 )
+      = c_h*p_h*10^6 + c_h*p_l + c_l*p_h + ceil( (c_l*p_l)/10^6 )
+      c_h*p_h < 2^58, so we can compute it with normal multiplication.
+      If c_h*p_h > floor(ULONG_MAX/10^6), then we know c_h*p_h*10^6 will hit
+      the saturation point.  The "cross" terms are less than 2^64 by
+      construction (since we divided by 10^6 and then multiply by something
+      strictly less than 10^6).  c_l*p_l < 10^12 < 2^40, so that's safe as
+      well.
+      In fact, the sum of the right three terms is no larger than:
+      floor((2^32-1)/10^6)*(10^6-1) + (10^6-1)*floor((2^64-1)/10^6) + 10^6-1
+      == 0xffffef3a08574e4c < 2^64, so we can do the additions without
+      worrying about overflow.
+      Of course, we still need to check the final addition of the first term
+      with the remaining terms.  As a bonus, all of the divisions can now be
+      done via "magic multiplication."
 
-     Note that this computation was done before I was aware of the
-     1.4M CU limit.  Taking that limit into account could make the
-     code a little cleaner, but we'll just keep the version that
-     supports CU limits up to UINT_MAX, since I'm sure the limit will
-     go up someday. */
-  do {
-    ulong c_h  =                     cu_limit / FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
-    ulong c_l  =                     cu_limit % FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
-    ulong p_h  = state->micro_lamports_per_cu / FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
-    ulong p_l  = state->micro_lamports_per_cu % FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      Note that this computation was done before I was aware of the
+      1.4M CU limit.  Taking that limit into account could make the
+      code a little cleaner, but we'll just keep the version that
+      supports CU limits up to UINT_MAX, since I'm sure the limit will
+      go up someday. */
+    do {
+      ulong c_h  =                     cu_limit / FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      ulong c_l  =                     cu_limit % FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      ulong p_h  = state->micro_lamports_per_cu / FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      ulong p_l  = state->micro_lamports_per_cu % FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
 
-    ulong hh = c_h * p_h;
-    if( FD_UNLIKELY( hh>(ULONG_MAX/FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT) ) ) {
-      total_fee = ULONG_MAX;
-      break;
-    }
-    hh *= FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      ulong hh = c_h * p_h;
+      if( FD_UNLIKELY( hh>(ULONG_MAX/FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT) ) ) {
+        total_fee = ULONG_MAX;
+        break;
+      }
+      hh *= FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
 
-    ulong hl = c_h*p_l + c_l*p_h;
-    ulong ll = (c_l*p_l + FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT - 1UL)/FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
-    ulong right_three_terms = hl + ll;
+      ulong hl = c_h*p_l + c_l*p_h;
+      ulong ll = (c_l*p_l + FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT - 1UL)/FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT;
+      ulong right_three_terms = hl + ll;
 
-    total_fee = hh + right_three_terms;
-    if( FD_UNLIKELY( total_fee<hh ) ) total_fee = ULONG_MAX;
-  } while( 0 );
+      total_fee = hh + right_three_terms;
+      if( FD_UNLIKELY( total_fee<hh ) ) total_fee = ULONG_MAX;
+    } while( 0 );
+  }
   *out_rewards = total_fee;
 }
 

@@ -5,8 +5,11 @@
 
 /* FD_TPU_MTU: The maximum size of a Solana transaction in serialized
    wire-protocol form.  This does not count any network-level (e.g. UDP
-   or QUIC) headers. */
-#define FD_TPU_MTU (1232UL)
+   or QUIC) headers.
+
+   For legacy/v0 transactions: 1232 bytes (IPv6 MTU - headers)
+   For v1 transactions (SIMD-0296): 4096 bytes */
+#define FD_TPU_MTU (4096UL)
 
 /* FD_ALIGN: Default alignment according to platform:
     - avx512     => 64

@@ -1977,15 +1977,23 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       _mm512_stream_si512( (void*)(out->payload+1088UL), _mm512_load_epi64( cur->txn->payload+1088UL ) );
       _mm512_stream_si512( (void*)(out->payload+1152UL), _mm512_load_epi64( cur->txn->payload+1152UL ) );
       _mm512_stream_si512( (void*)(out->payload+1216UL), _mm512_load_epi64( cur->txn->payload+1216UL ) );
-      /* Copied out to 1280 bytes, which copies some other fields we needed to
-         copy anyway. */
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, blockhash_slot )+sizeof(((fd_txn_p_t*)NULL)->blockhash_slot)<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_tpu     )+sizeof(((fd_txn_p_t*)NULL)->source_tpu    )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_ipv4    )+sizeof(((fd_txn_p_t*)NULL)->source_ipv4   )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags          )+sizeof(((fd_txn_p_t*)NULL)->flags         )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _              )                                            <=1280UL, nt_memcpy );
+      /* Copied out to 1280 bytes for legacy/v0 transactions. For v1 transactions
+         (up to 4096 bytes), additional copying is done below. This copies some
+         other fields we needed to copy anyway. */
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=FD_TXN_MTU_V1, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, blockhash_slot )+sizeof(((fd_txn_p_t*)NULL)->blockhash_slot)<=FD_TXN_MTU_V1, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=FD_TXN_MTU_V1, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_tpu     )+sizeof(((fd_txn_p_t*)NULL)->source_tpu    )<=FD_TXN_MTU_V1, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_ipv4    )+sizeof(((fd_txn_p_t*)NULL)->source_ipv4   )<=FD_TXN_MTU_V1, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, flags          )+sizeof(((fd_txn_p_t*)NULL)->flags         )<=FD_TXN_MTU_V1, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, _              )                                            <=FD_TXN_MTU_V1, nt_memcpy );
+
+      /* Copy remaining bytes beyond 1280 for v1 transactions, up to FD_TXN_MTU_V1 */
+      if( FD_UNLIKELY( txn->payload_sz>1280UL ) ) {
+        fd_memcpy( out->payload+1280UL, cur->txn->payload+1280UL,
+          fd_ulong_min( txn->payload_sz, FD_TXN_MTU_V1 ) - 1280UL );
+      }
+
       const ulong offset_into_txn = 1280UL - offsetof(fd_txn_p_t, _ );
       fd_memcpy( offset_into_txn+(uchar *)TXN(out), offset_into_txn+(uchar const *)txn,
           fd_ulong_max( offset_into_txn, fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) )-offset_into_txn );

@@ -27,10 +27,13 @@
 
 /* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU.
 
-   This is minimum MTU of IPv6 packet - IPv6 header - UDP header
-                                 1280 -          40 -          8 */
+   For legacy/v0 transactions, this was limited to the minimum MTU of
+   IPv6 packet - IPv6 header - UDP header = 1280 - 40 - 8 = 1232 bytes.
 
-#define FD_TPU_MTU (1232UL)
+   For v1 transactions (SIMD-0296), this limit is increased to 4096 bytes,
+   which can be transmitted over QUIC with fragmentation/reassembly. */
+
+#define FD_TPU_MTU (4096UL)
 
 /* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
    above. */

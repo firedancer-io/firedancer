@@ -36,6 +36,10 @@
 /* FD_TXN_V0: The second transaction format.  Includes a version number and
    potentially some address lookup tables */
 #define FD_TXN_V0      ((uchar)0x00)
+/* FD_TXN_V1: The third transaction format (SIMD-0296). Supports larger
+   transactions (4096 bytes) and uses TransactionConfigMask instead of
+   ComputeBudgetProgram instructions. Does not support address lookup tables. */
+#define FD_TXN_V1      ((uchar)0x81)
 
 /* FD_TXN_SIGNATURE_SZ: The size (in bytes) of an Ed25519 signature. */
 #define FD_TXN_SIGNATURE_SZ (64UL)
@@ -96,12 +100,16 @@
    addresses (a program and a fee payer), and tons of empty instructions (no
    accounts, no data) and as many address table lookups loading a single
    account as possible. */
-#define FD_TXN_MAX_SZ                (852UL)
+#define FD_TXN_MAX_SZ                (840UL)
 
 
 /* FD_TXN_MTU: The maximum size (in bytes, inclusive) of a serialized
-   transaction. */
+   legacy or v0 transaction. */
 #define FD_TXN_MTU                  (1232UL)
+
+/* FD_TXN_MTU_V1: The maximum size (in bytes, inclusive) of a serialized
+   v1 transaction (SIMD-0296). */
+#define FD_TXN_MTU_V1               (4096UL)
 
 /* FD_TXN_MIN_SERIALIZED_SZ: The minimum size (in bytes) of a serialized
    transaction, using fd_txn_parse() verification rules. */
@@ -182,10 +190,11 @@ typedef struct fd_txn_instr fd_txn_instr_t;
    a list of instructions, but there are a few other major components:
    - a list of account addresses,
    - the hash of a recent block (used as a nonce and TTL), and
-   - potentially (if it's a V2 transaction) some address lookup tables. */
+   - potentially (if it's a V0 transaction) some address lookup tables.
+   - for V1 transactions, transaction config parameters via TransactionConfigMask. */
 struct fd_txn {
   /* transaction_version: The version number of this transaction. Currently
-     must be one of { FD_TXN_VLEGACY, FD_TXN_V0 }. */
+     must be one of { FD_TXN_VLEGACY, FD_TXN_V0, FD_TXN_V1 }. */
   uchar       transaction_version;
 
   /* signature_cnt: The number of signatures in this transaction. signature_cnt
@@ -259,7 +268,8 @@ struct fd_txn {
   ushort      recent_blockhash_off;
 
   /* addr_table_lookup_cnt: The number of address lookup tables this
-     transaction contains.  Must be 0 if transaction_version==FD_TXN_VLEGACY.
+     transaction contains.  Must be 0 if transaction_version==FD_TXN_VLEGACY
+     or transaction_version==FD_TXN_V1 (v1 does not support ALTs).
      addr_table_lookup_cnt in [0, FD_TXN_ADDR_TABLE_LOOKUP_MAX]. */
   uchar       addr_table_lookup_cnt;
 
@@ -275,6 +285,21 @@ struct fd_txn {
   uchar      addr_table_adtl_cnt;
   uchar      _padding_reserved_1; /* explicit padding the compiler would have
                                      inserted anyways */
+
+  /* V1 transaction-specific fields (SIMD-0296).
+     These fields are only valid when transaction_version==FD_TXN_V1.
+     For other versions, these are set to 0. */
+
+  /* v1_txn_config_mask: Bitmask indicating which config parameters are present.
+     Bits [0,1] = priority fee (8 bytes), bit [2] = compute unit limit (4 bytes),
+     bit [3] = loaded accounts data size limit (4 bytes),
+     bit [4] = heap size (4 bytes). */
+  uint       v1_txn_config_mask;
+
+  /* v1_txn_config_values_off: Offset (relative to the start of the transaction) in
+     bytes where the ConfigValues array starts. The compute budget program uses
+     this along with v1_txn_config_mask to extract the config values. */
+  ushort     v1_txn_config_values_off;
 
   /* From the address table lookups, we can add the following to the above table
                                                 Index Range                                         |   Signer?    |  Writeable?
@@ -725,6 +750,7 @@ fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_pa
 
 static inline int
 fd_txn_is_writable( fd_txn_t const * txn, ushort idx ) {
+  /* Only V0 transactions support address lookup tables */
   if (txn->transaction_version == FD_TXN_V0 && idx >= txn->acct_addr_cnt) {
     if (idx < (txn->acct_addr_cnt + txn->addr_table_adtl_writable_cnt)) {
       return 1;

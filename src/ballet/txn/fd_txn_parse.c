@@ -76,7 +76,11 @@ fd_txn_parse_core( uchar const             * payload,
   /* Minimal instr has 1B for program id, 1B for an acct_addr list
      containing no accounts, 1B for length-0 instruction data */
   #define MIN_INSTR_SZ (3UL)
-  CHECK( payload_sz<=FD_TXN_MTU );
+
+  /* We don't check payload_sz<=FD_TXN_MTU here because v1 transactions
+     can be up to FD_TXN_MTU_V1 bytes. The version-specific check happens after
+     we determine the transaction version. */
+  CHECK( payload_sz<=FD_TXN_MTU_V1 );
 
   /* The documentation sometimes calls signature_cnt a compact-u16 and
      sometimes a u8.  Because of transaction size limits, even allowing
@@ -95,13 +99,154 @@ fd_txn_parse_core( uchar const             * payload,
   if( FD_LIKELY( (ulong)header_b0 & 0x80UL ) ) {
     /* This is a versioned transaction */
     transaction_version = header_b0 & 0x7F;
-    CHECK( transaction_version==FD_TXN_V0 ); /* Only recognized one so far */
+    CHECK( (transaction_version==FD_TXN_V0) | (transaction_version==FD_TXN_V1) );
 
     CHECK_LEFT( 1UL                             );   CHECK(  signature_cnt==payload[ i ] );   i++;
   } else {
     transaction_version = FD_TXN_VLEGACY;
     CHECK( signature_cnt==header_b0 );
   }
+
+  /* Version-specific size check */
+  ulong is_v1 = (ulong)(-(long)(transaction_version==FD_TXN_V1)); /* -1 if v1, 0 otherwise */
+  ulong max_sz = (FD_TXN_MTU_V1 & is_v1) | (FD_TXN_MTU & ~is_v1);
+  CHECK( payload_sz<=max_sz );
+
+  /* V1 transactions have a completely different format */
+  if( FD_UNLIKELY( transaction_version==FD_TXN_V1 ) ) {
+    /* V1 Transaction Parsing Path (SIMD-0296)
+       Format: VersionByte | LegacyHeader (3 bytes) | NumInstructions |
+               TransactionConfigMask | LifetimeSpecifier | NumAddresses |
+               Addresses | ConfigValues | InstructionHeaders |
+               InstructionPayloads | Signatures */
+
+    /* Parse LegacyHeader (3 bytes) */
+    CHECK_LEFT( 1UL                             );   uchar ro_signed_cnt  = payload[ i ];     i++;
+    CHECK( ro_signed_cnt<signature_cnt );
+    CHECK_LEFT( 1UL                             );   uchar ro_unsigned_cnt= payload[ i ];     i++;
+
+    /* Parse NumInstructions */
+    CHECK_LEFT( 1UL                             );   uchar instr_cnt_v1   = payload[ i ];     i++;
+    CHECK( (ulong)instr_cnt_v1<=FD_TXN_INSTR_MAX );
+    ushort instr_cnt = (ushort)instr_cnt_v1;
+
+    /* Parse TransactionConfigMask (u32, little endian) */
+    CHECK_LEFT( 4UL                             );
+    uint config_mask = FD_LOAD( uint, payload+i );
+    i+=4UL;
+
+    /* Validate config mask: bits [0,1] must both be set or both clear */
+    CHECK( ((config_mask&0x1)!=0) == ((config_mask&0x2)!=0) );
+
+    /* Parse LifetimeSpecifier (blockhash) */
+    CHECK_LEFT( FD_TXN_BLOCKHASH_SZ             );   ulong recent_blockhash_off = i;          i+=FD_TXN_BLOCKHASH_SZ;
+
+    /* Parse NumAddresses */
+    CHECK_LEFT( 1UL                             );   uchar acct_addr_cnt_v1 = payload[ i ];   i++;
+    CHECK( (signature_cnt<=acct_addr_cnt_v1) & (acct_addr_cnt_v1<=FD_TXN_ACCT_ADDR_MAX) );
+    CHECK( (ulong)signature_cnt+(ulong)ro_unsigned_cnt<=(ulong)acct_addr_cnt_v1 );
+    ushort acct_addr_cnt = (ushort)acct_addr_cnt_v1;
+
+    /* Parse Addresses */
+    CHECK_LEFT( FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt ); ulong acct_addr_off  =          i;       i+=FD_TXN_ACCT_ADDR_SZ*acct_addr_cnt;
+
+    /* Parse ConfigValues size
+       Bits [0,1] = priority fee (8 bytes), must both be set or both clear
+       Bit [2] = compute unit limit (4 bytes)
+       Bit [3] = loaded accounts data size (4 bytes)
+       Bit [4] = heap size (4 bytes) */
+    ulong config_values_sz = (((ulong)((config_mask&0x3)!=0))<<3)   /* 8 if bits 0,1 set, else 0 */
+                           + (((ulong)((config_mask&0x4)!=0))<<2)   /* 4 if bit 2 set, else 0 */
+                           + (((ulong)((config_mask&0x8)!=0))<<2)   /* 4 if bit 3 set, else 0 */
+                           + (((ulong)((config_mask&0x10)!=0))<<2); /* 4 if bit 4 set, else 0 */
+
+    CHECK_LEFT( config_values_sz );
+    ulong config_values_off = i;
+    i += config_values_sz;
+
+    /* Parse InstructionHeaders (program_id:u8, num_accts:u8, data_sz:u16) */
+    CHECK_LEFT( 4UL * instr_cnt );
+    ulong instr_headers_off = i;
+    i += 4UL * instr_cnt;
+
+    /* Now parse instruction payloads and populate fd_txn_t structure */
+    fd_txn_t * parsed = (fd_txn_t *)out_buf;
+
+    if( parsed ) {
+      parsed->transaction_version           = transaction_version;
+      parsed->signature_cnt                 = signature_cnt;
+      parsed->message_off                   = (ushort)message_off;
+      parsed->readonly_signed_cnt           = ro_signed_cnt;
+      parsed->readonly_unsigned_cnt         = ro_unsigned_cnt;
+      parsed->acct_addr_cnt                 = acct_addr_cnt;
+      parsed->acct_addr_off                 = (ushort)acct_addr_off;
+      parsed->recent_blockhash_off          = (ushort)recent_blockhash_off;
+      parsed->instr_cnt                     = instr_cnt;
+      parsed->addr_table_lookup_cnt         = 0; /* V1 doesn't support ALTs */
+      parsed->addr_table_adtl_writable_cnt  = 0;
+      parsed->addr_table_adtl_cnt           = 0;
+      parsed->_padding_reserved_1           = 0;
+      /* Store config mask and offset for later parsing by compute budget program.
+         We don't parse the config values here - that's done by the compute budget
+         program. */
+      parsed->v1_txn_config_mask            = config_mask;
+      parsed->v1_txn_config_values_off      = (ushort)config_values_off;
+    }
+
+    /* Parse instruction payloads using the headers */
+    uchar max_acct = 0UL;
+    for( ulong j=0UL; j<instr_cnt; j++ ) {
+      ulong hdr_off = instr_headers_off + j*4UL;
+
+      uchar  program_id = payload[ hdr_off ];
+      uchar  acct_cnt   = payload[ hdr_off + 1 ];
+      ushort data_sz    = FD_LOAD( ushort, payload+hdr_off+2 );
+
+      CHECK( (0UL < (ulong)program_id) & ((ulong)program_id < (ulong)acct_addr_cnt) );
+
+      /* Parse instruction accounts */
+      CHECK_LEFT( acct_cnt );
+      ulong acct_off = i;
+      for( ulong k=0; k<acct_cnt; k++ ) {
+        max_acct = fd_uchar_max( max_acct, payload[i+k] );
+      }
+      i += acct_cnt;
+
+      /* Parse instruction data */
+      CHECK_LEFT( data_sz );
+      ulong data_off = i;
+      i += data_sz;
+
+      if( parsed ) {
+        parsed->instr[ j ].program_id          = program_id;
+        parsed->instr[ j ]._padding_reserved_1 = (uchar)0;
+        parsed->instr[ j ].acct_cnt            = acct_cnt;
+        parsed->instr[ j ].data_sz             = data_sz;
+        parsed->instr[ j ].acct_off            = (ushort)acct_off;
+        parsed->instr[ j ].data_off            = (ushort)data_off;
+      }
+    }
+
+    CHECK( max_acct < acct_addr_cnt );
+
+    /* Parse signatures at the end (v1 puts signatures last) */
+    CHECK_LEFT( FD_TXN_SIGNATURE_SZ*signature_cnt );
+    ulong signature_off = i;
+    i += FD_TXN_SIGNATURE_SZ*signature_cnt;
+
+    if( parsed ) {
+      parsed->signature_off = (ushort)signature_off;
+    }
+
+    /* Check for leftover bytes if out_sz_opt not specified */
+    CHECK( (payload_sz_opt!=NULL) | (i==payload_sz) );
+
+    if( FD_LIKELY( counters_opt   ) ) counters_opt->success_cnt++;
+    if( FD_LIKELY( payload_sz_opt ) ) *payload_sz_opt = i;
+    return fd_txn_footprint( instr_cnt, 0 /* no ALTs in v1 */ );
+  }
+
+  /* Legacy/V0 parsing path continues here */
   CHECK_LEFT( 1UL                               );   uchar ro_signed_cnt  = payload[ i ];     i++;
   /* Must have at least one writable signer for the fee payer */
   CHECK( ro_signed_cnt<signature_cnt );
@@ -152,6 +297,9 @@ fd_txn_parse_core( uchar const             * payload,
        addr_table_adtl_writable_cnt, addr_table_adtl_cnt,
        _padding_reserved_1 later */
     parsed->instr_cnt                     = instr_cnt;
+    /* Initialize v1-specific fields to 0 for legacy/v0 transactions */
+    parsed->v1_txn_config_mask            = 0U;
+    parsed->v1_txn_config_values_off      = 0;
   }
 
   uchar max_acct = 0UL;
