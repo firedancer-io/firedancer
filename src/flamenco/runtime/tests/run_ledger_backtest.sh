@@ -138,6 +138,11 @@ mkdir -p $DUMP
 
 download_and_extract_ledger() {
   if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+    if [[ -e $DUMP/$LEDGER.pending ]]; then
+      echo "Cleaning up previous interrupted download..."
+      rm -rf $DUMP/$LEDGER.pending
+    fi
+
     if [[ -n "$ZST" ]]; then
       echo "Downloading gs://firedancer-ci-resources/$LEDGER.tar.zst"
     else
@@ -153,15 +158,38 @@ download_and_extract_ledger() {
         fi
       fi
     fi
+
+    mkdir -p $DUMP/$LEDGER.pending
+
     if [[ -n "$ZST" ]]; then
-      gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP
+      if gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP/$LEDGER.pending --strip-components=1; then
+        rm -rf $DUMP/$LEDGER
+        mv $DUMP/$LEDGER.pending $DUMP/$LEDGER
+        echo "Download completed successfully"
+      else
+        echo "Download failed, cleaning up..."
+        rm -rf $DUMP/$LEDGER.pending
+        exit 1
+      fi
     else
-      gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
+      if gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP/$LEDGER.pending --strip-components=1; then
+        rm -rf $DUMP/$LEDGER
+        mv $DUMP/$LEDGER.pending $DUMP/$LEDGER
+        echo "Download completed successfully"
+      else
+        echo "Download failed, cleaning up..."
+        rm -rf $DUMP/$LEDGER.pending
+        exit 1
+      fi
     fi
   fi
 }
 
 if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
+  if [[ -e $DUMP/$LEDGER.pending ]]; then
+    echo "Found incomplete download, cleaning up and retrying..."
+    rm -rf $DUMP/$LEDGER.pending
+  fi
   download_and_extract_ledger
 fi
 
