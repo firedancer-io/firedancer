@@ -1,6 +1,9 @@
 name: "CodeQL Nightly Analysis"
 
 on:
+    push:
+        branches:
+            - two-heart/codeql-action-test
     workflow_call:
     workflow_dispatch:
 
@@ -29,6 +32,10 @@ jobs:
       CC: ${{ matrix.compiler }}
       CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
     steps:
+      - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 0
+          count_huge: 0
       - uses: actions/checkout@v5
         with:
           submodules: recursive
@@ -64,4 +71,4 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
-          upload: 'always'
+          upload: 'never'
