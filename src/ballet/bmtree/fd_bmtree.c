@@ -398,7 +398,7 @@ fd_bmtree_commitp_insert_with_proof( fd_bmtree_commit_t *     state,
      (1<<inclusion_proof_layer_cnt)-1.  This is a monotonic increasing
      function for inclusion_proof_layer_cnt in [0, 63], so we just apply
      it to both sides of the inequality. */
-  if( FD_UNLIKELY( (proof_depth>63UL) | (((1UL<<proof_depth)-1UL)>=inclusion_proof_sz) ) ) return 0;
+  if( FD_UNLIKELY( (proof_depth>63UL) || (((1UL<<proof_depth)-1UL)>=inclusion_proof_sz) ) ) return 0;
 
   state->node_buf[ 0 ] = *new_leaf;
 
