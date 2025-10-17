@@ -129,6 +129,7 @@ extern action_t fd_action_help;
 extern action_t fd_action_metrics;
 extern action_t fd_action_version;
 extern action_t fd_action_shred_version;
+extern action_t fd_action_watch;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -144,6 +145,7 @@ action_t * ACTIONS[] = {
   &fd_action_metrics,
   &fd_action_version,
   &fd_action_shred_version,
+  &fd_action_watch,
   NULL,
 };
 
