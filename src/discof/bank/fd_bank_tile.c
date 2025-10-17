@@ -46,6 +46,9 @@ typedef struct {
   fd_banks_t * banks;
   fd_spad_t *  exec_spad;
 
+  fd_funk_t      funk[1];
+  fd_progcache_t progcache[1];
+
   fd_exec_txn_ctx_t txn_ctx[1];
 
   struct {
@@ -62,11 +65,12 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,          FD_BLAKE3_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,   FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,            FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),      fd_txncache_footprint( tile->bank.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -498,11 +502,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
-  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0)      );
-  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),    fd_txncache_footprint( tile->bank.max_live_slots ) );
+  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
+  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
+  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
+  void * pc_scratch   = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -517,11 +522,23 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
+  void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
+  FD_TEST( shfunk );
+  fd_funk_t * funk = fd_funk_join( ctx->funk, shfunk );
+  FD_TEST( funk );
+
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
+  FD_TEST( shprogcache );
+  fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  FD_TEST( progcache );
+
   NONNULL( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ), ctx->exec_spad, fd_wksp_containing( exec_spad ) ) );
   ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
   ctx->txn_ctx->spad          = ctx->exec_spad;
   ctx->txn_ctx->spad_wksp     = fd_wksp_containing( exec_spad );
-  NONNULL( fd_funk_join( ctx->txn_ctx->funk, fd_topo_obj_laddr( topo, tile->bank.funk_obj_id ) ) );
+  *(ctx->txn_ctx->funk)       = *funk;
+  *(ctx->txn_ctx->_progcache) = *progcache;
+  ctx->txn_ctx->progcache     = ctx->txn_ctx->_progcache;
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
