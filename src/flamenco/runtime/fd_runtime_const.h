@@ -45,6 +45,11 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
+/* FD_RUNTIME_WRITABLE_ACCOUNTS_MAX is the protocol level hardcoded
+   limit of writable accounts per transaction. */
+
+#define FD_RUNTIME_WRITABLE_ACCOUNTS_MAX (64UL)
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_const_h */

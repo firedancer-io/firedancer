@@ -43,6 +43,13 @@ union fd_runtime_stack {
 };
 typedef union fd_runtime_stack fd_runtime_stack_t;
 
+union fd_exec_stack {
+  struct {
+    uchar mem[ FD_RUNTIME_WRITABLE_ACCOUNTS_MAX ][ FD_RUNTIME_ACC_SZ_MAX ]__attribute__((aligned(8UL)));
+  } accounts;
+};
+typedef union fd_exec_stack fd_exec_stack_t;
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_stack_h */

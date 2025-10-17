@@ -68,6 +68,8 @@ typedef struct fd_exec_tile_ctx {
      before this message. */
   int                   pending_txn_finalized_msg;
   ulong                 txn_idx;
+
+  fd_exec_stack_t       exec_stack;
 } fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
