@@ -53,7 +53,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_NET_GOSSVF   ( 6UL) /* firedancer only */
 #define IN_KIND_GOSSIP_NET   ( 7UL) /* firedancer only */
 #define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
-#define IN_KIND_SNAPRD       ( 9UL) /* firedancer only */
+#define IN_KIND_SNAPCT       ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
 #define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
 #define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
@@ -394,9 +394,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       }
       break;
     }
-    case IN_KIND_SNAPRD: {
+    case IN_KIND_SNAPCT: {
       FD_TEST( ctx->is_full_client );
-      fd_gui_handle_snapshot_update( ctx->gui, (fd_snaprd_update_t *)ctx->buf );
+      fd_gui_handle_snapshot_update( ctx->gui, (fd_snapct_update_t *)ctx->buf );
       break;
     }
     case IN_KIND_REPAIR_NET: {
@@ -706,7 +706,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
   ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL );
-  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snaprd", 0UL );
+  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
 
   fd_clock_default_init( ctx->clock, ctx->clock_mem );
   ctx->recal_next = fd_clock_recal_next( ctx->clock );
@@ -754,7 +754,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;   /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "snaprd_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;       /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;       /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;   /* full client only */

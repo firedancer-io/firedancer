@@ -27,7 +27,7 @@ class Tile(Enum):
     SOCK = 21
     REPAIR = 22
     SEND = 23
-    SNAPRD = 24
+    SNAPCT = 24
     SNAPLD = 25
     SNAPDC = 26
     SNAPIN = 27

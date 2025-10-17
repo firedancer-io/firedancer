@@ -28,7 +28,7 @@
    151 prior blockhashes that it's able to. */
 #define FD_SNAPIN_MAX_SLOT_DELTA_GROUPS (300UL*151UL)
 
-#define FD_SNAPIN_OUT_SNAPRD   0UL
+#define FD_SNAPIN_OUT_SNAPCT   0UL
 #define FD_SNAPIN_OUT_MANIFEST 1UL
 
 struct fd_blockhash_entry {
@@ -179,7 +179,7 @@ static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPRD, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPCT, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static int
@@ -681,7 +681,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPRD, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPCT, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int
@@ -789,8 +789,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2",  tile->out_cnt  ));
 
-  fd_topo_link_t * snaprd_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_SNAPRD ] ];
-  FD_TEST( 0==strcmp( snaprd_link->name, "snapin_rd" ) );
+  fd_topo_link_t * snapct_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_SNAPCT ] ];
+  FD_TEST( 0==strcmp( snapct_link->name, "snapin_rd" ) );
 
   fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_MANIFEST ] ];
   FD_TEST( 0==strcmp( writer_link->name, "snapin_manif" ) );

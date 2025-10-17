@@ -380,7 +380,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "tower",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
     "pktgen",
-    "snaprd", /* FIREDANCER only */
+    "snapct", /* FIREDANCER only */
     "snapld", /* FIREDANCER only */
     "snapdc", /* FIREDANCER only */
     "snapin", /* FIREDANCER only */
