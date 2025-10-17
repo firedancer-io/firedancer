@@ -69,19 +69,19 @@ static int
 fd_new_target_program_data_account( fd_bank_t *          bank,
                                     fd_pubkey_t *        config_upgrade_authority_address,
                                     fd_txn_account_t *   buffer_acc_rec,
-                                    fd_txn_account_t *   new_target_program_data_account,
-                                    fd_spad_t *          runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+                                    fd_txn_account_t *   new_target_program_data_account ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L113-L116 */
   int err;
-  fd_bpf_upgradeable_loader_state_t * state = fd_bincode_decode_spad(
-      bpf_upgradeable_loader_state, runtime_spad,
+  fd_bpf_upgradeable_loader_state_t state[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      bpf_upgradeable_loader_state,
+      state,
       fd_txn_account_get_data( buffer_acc_rec ),
       fd_txn_account_get_data_len( buffer_acc_rec ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return err;
+      NULL ) ) ) {
+    return -1;
+  }
 
   if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_buffer( state ) ) ) {
     return -1;
@@ -134,8 +134,6 @@ fd_new_target_program_data_account( fd_bank_t *          bank,
   fd_memcpy( fd_txn_account_get_data_mut( new_target_program_data_account ) + PROGRAMDATA_METADATA_SIZE, elf, fd_txn_account_get_data_len( buffer_acc_rec ) - BUFFER_METADATA_SIZE );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
-
-  } FD_SPAD_FRAME_END;
 }
 
 /* Initializes a source buffer account from funk. Returns 1 if the
@@ -408,8 +406,7 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
   err = fd_new_target_program_data_account( bank,
                                             upgrade_authority_address,
                                             source_buffer_account,
-                                            new_target_program_data_account,
-                                            runtime_spad );
+                                            new_target_program_data_account );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to write new program data state to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     goto fail;

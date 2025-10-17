@@ -716,7 +716,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx ) );
   return bank;
 }
 
@@ -943,7 +943,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->funk, &xid, ctx->capture_ctx ) );
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -1133,7 +1133,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
     /* FIXME: This branch does not set up a new block exec ctx
        properly. Needs to do whatever prepare_new_block_execution
        does, but just hacking that in breaks stuff. */
-    fd_runtime_update_leaders( bank, ctx->runtime_spad );
+    fd_runtime_update_leaders( bank );
 
     ulong hashcnt_per_slot = fd_bank_hashes_per_tick_get( bank ) * fd_bank_ticks_per_slot_get( bank );
     fd_hash_t * poh = fd_bank_poh_modify( bank );
@@ -1141,7 +1141,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->funk, &xid, ctx->capture_ctx ) );
     fd_runtime_block_execute_finalize( bank, ctx->funk, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
@@ -1335,7 +1335,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   FD_TEST( bank );
   fd_funk_txn_xid_t xid = { .ul = { 0UL, FD_REPLAY_BOOT_BANK_IDX } };
 
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );
@@ -1463,7 +1463,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
 
     fd_features_restore( bank, ctx->funk, &xid );
 
-    fd_runtime_update_leaders( bank, ctx->runtime_spad );
+    fd_runtime_update_leaders( bank );
 
     fd_block_id_ele_t * block_id_ele = &ctx->block_id_arr[ 0 ];
     FD_TEST( block_id_ele );
@@ -1703,17 +1703,16 @@ process_fec_set( fd_replay_tile_t * ctx,
   fd_histf_sample( ctx->metrics.store_read_wait, (ulong)fd_long_max( shacq_end - shacq_start, 0UL ) );
   fd_histf_sample( ctx->metrics.store_read_work, (ulong)fd_long_max( shrel_end - shacq_end,   0UL ) );
 
-  sched_fec->is_last_in_batch       = !!reasm_fec->data_complete;
-  sched_fec->is_last_in_block       = !!reasm_fec->slot_complete;
-  sched_fec->bank_idx               = reasm_fec->bank_idx;
-  sched_fec->parent_bank_idx        = reasm_fec->parent_bank_idx;
-  sched_fec->slot                   = reasm_fec->slot;
-  sched_fec->parent_slot            = reasm_fec->slot - reasm_fec->parent_off;
-  sched_fec->is_first_in_block      = reasm_fec->fec_set_idx==0U;
+  sched_fec->is_last_in_batch  = !!reasm_fec->data_complete;
+  sched_fec->is_last_in_block  = !!reasm_fec->slot_complete;
+  sched_fec->bank_idx          = reasm_fec->bank_idx;
+  sched_fec->parent_bank_idx   = reasm_fec->parent_bank_idx;
+  sched_fec->slot              = reasm_fec->slot;
+  sched_fec->parent_slot       = reasm_fec->slot - reasm_fec->parent_off;
+  sched_fec->is_first_in_block = reasm_fec->fec_set_idx==0U;
   fd_funk_txn_xid_copy( sched_fec->alut_ctx->xid, fd_funk_last_publish( ctx->funk ) );
-  sched_fec->alut_ctx->funk         = ctx->funk;
-  sched_fec->alut_ctx->els          = ctx->published_root_slot;
-  sched_fec->alut_ctx->runtime_spad = ctx->runtime_spad;
+  sched_fec->alut_ctx->funk    = ctx->funk;
+  sched_fec->alut_ctx->els     = ctx->published_root_slot;
 
   if( FD_UNLIKELY( !fd_sched_fec_ingest( ctx->sched, sched_fec ) ) ) {
     fd_banks_mark_bank_dead( ctx->banks, fd_banks_bank_query( ctx->banks, sched_fec->bank_idx ) );
