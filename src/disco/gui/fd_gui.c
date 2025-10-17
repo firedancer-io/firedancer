@@ -627,8 +627,8 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
 static void
 fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
-  fd_topo_tile_t const * snaprd = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snaprd", 0UL ) ];
-  volatile ulong * snaprd_metrics = fd_metrics_tile( snaprd->metrics );
+  fd_topo_tile_t const * snapct = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ];
+  volatile ulong * snapct_metrics = fd_metrics_tile( snapct->metrics );
 
   fd_topo_tile_t const * snapdc = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapdc", 0UL ) ];
   volatile ulong * snapdc_metrics = fd_metrics_tile( snapdc->metrics );
@@ -636,22 +636,22 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
 
-  ulong snapshot_phase = snaprd_metrics[ MIDX( GAUGE, SNAPRD, STATE ) ];
+  ulong snapshot_phase = snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ];
 
   /* state transitions */
   if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
-  } else if( FD_LIKELY( snapshot_phase == FD_SNAPRD_STATE_SHUTDOWN && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
+  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
-  } else if( FD_LIKELY( snapshot_phase==FD_SNAPRD_STATE_READING_FULL_FILE
-                     || snapshot_phase==FD_SNAPRD_STATE_FLUSHING_FULL_FILE
-                     || snapshot_phase==FD_SNAPRD_STATE_READING_FULL_HTTP
-                     || snapshot_phase==FD_SNAPRD_STATE_FLUSHING_FULL_HTTP ) ) {
+  } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_READING_FULL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_READING_FULL_HTTP
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
-  } else if( FD_LIKELY( snapshot_phase==FD_SNAPRD_STATE_READING_INCREMENTAL_FILE
-                     || snapshot_phase==FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_FILE
-                     || snapshot_phase==FD_SNAPRD_STATE_READING_INCREMENTAL_HTTP
-                     || snapshot_phase==FD_SNAPRD_STATE_FLUSHING_INCREMENTAL_HTTP ) ) {
+  } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP ) ) {
     gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
   }
 
@@ -671,7 +671,7 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: {
       ulong snapshot_idx = fd_ulong_if( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
-      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_DOWNLOAD_RETRIES ) ], snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
+      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_DOWNLOAD_RETRIES ) ], snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
 
       /* reset boot state if necessary */
       if( FD_UNLIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt!=_retry_cnt ) ) {
@@ -679,8 +679,8 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt = _retry_cnt;
       }
 
-      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ],             snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_TOTAL ) ]             );
-      ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ],              snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ]              );
+      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ],             snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_TOTAL ) ]             );
+      ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ],              snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ]              );
       ulong _decompress_decompressed_bytes = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_READ ) ], snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ ) ] );
       ulong _decompress_compressed_bytes   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ],   snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ]   );
       ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],              snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]              );
@@ -2116,21 +2116,21 @@ fd_gui_handle_block_engine_update( fd_gui_t *    gui,
 
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
-                               fd_snaprd_update_t const * msg ) {
+                               fd_snapct_update_t const * msg ) {
   FD_TEST( msg && fd_cstr_nlen( msg->read_path, 1 ) );
 
-  ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPRD_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
+  ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPCT_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
 
   char const * filename = strrchr(msg->read_path, '/');
 
   /* Skip the '/'  */
   if( FD_UNLIKELY( filename ) ) filename++;
 
-  if (msg->type == FD_SNAPRD_SNAPSHOT_TYPE_INCREMENTAL) {
+  if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_INCREMENTAL) {
       ulong slot1, slot2;
       if ( FD_LIKELY( sscanf( filename, "incremental-snapshot-%lu-%lu-", &slot1, &slot2 ) ) ) gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot2;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
-  } else if (msg->type == FD_SNAPRD_SNAPSHOT_TYPE_FULL) {
+  } else if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_FULL) {
       ulong slot1;
       if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot1 ) ) ) gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot1;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));

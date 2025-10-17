@@ -14,7 +14,7 @@
 
 /* The snapdc tile is a state machine that decompresses the full and
    optionally incremental snapshot byte stream that it receives from the
-   snaprd tile. */
+   snapld tile. */
 
 struct fd_snapdc_tile {
   int full;

@@ -77,7 +77,7 @@ fd_topo_run_tile_t dummy_tile_replay = { .name = "replay" };
 fd_topo_run_tile_t dummy_tile_exec   = { .name = "exec"   };
 fd_topo_run_tile_t dummy_tile_tower  = { .name = "tower"  };
 fd_topo_run_tile_t dummy_tile_rpcsrv = { .name = "rpcsrv" };
-fd_topo_run_tile_t dummy_tile_snaprd = { .name = "snaprd" };
+fd_topo_run_tile_t dummy_tile_snapct = { .name = "snapct" };
 fd_topo_run_tile_t dummy_tile_snapld = { .name = "snapld" };
 fd_topo_run_tile_t dummy_tile_snapdc = { .name = "snapdc" };
 fd_topo_run_tile_t dummy_tile_snapin = { .name = "snapin" };
@@ -119,7 +119,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_exec,
   &dummy_tile_tower,
   &dummy_tile_rpcsrv,
-  &dummy_tile_snaprd,
+  &dummy_tile_snapct,
   &dummy_tile_snapld,
   &dummy_tile_snapdc,
   &dummy_tile_snapin,

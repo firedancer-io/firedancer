@@ -7,7 +7,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../../disco/fd_txn_p.h"
-#include "../../discof/restore/fd_snaprd_tile.h"
+#include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../flamenco/leaders/fd_leaders.h"
 #include "../../flamenco/types/fd_types_custom.h"
@@ -843,7 +843,7 @@ fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );
 
 void
 fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
-                               fd_snaprd_update_t const * msg );
+                               fd_snapct_update_t const * msg );
 
 void
 fd_gui_handle_leader_schedule( fd_gui_t *                    gui,

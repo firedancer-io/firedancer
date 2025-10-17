@@ -1012,7 +1012,7 @@ metric introduced.
     <counter name="NeighProbeRateLimitGlobal" summary="Number of neighbor solicit that exceeded the global rate limit" />
 </tile>
 
-<tile name="snaprd">
+<tile name="snapct">
     <gauge name="State" summary="State of the tile" />
     <counter name="FullNumRetries" summary="Number of times we aborted and retried full snapshot download because the peer was too slow" />
     <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />

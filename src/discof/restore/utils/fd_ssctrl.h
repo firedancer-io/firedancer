@@ -4,15 +4,15 @@
 #include "../../../util/net/fd_net_headers.h"
 
 /* The snapshot tiles have a somewhat involved state machine, which is
-   controlled by snaprd.  Imagine first the following sequence:
+   controlled by snapct.  Imagine first the following sequence:
 
-    1. snaprd is reading a full snapshot from the network and sends some
+    1. snapct is reading a full snapshot from the network and sends some
        data to snapdc to be decompressed.
-    2. snaprd hits a network error, and resets the connection to a new
+    2. snapct hits a network error, and resets the connection to a new
        peer.
     3. The decompressor fails on data from the old peer, and sends a
-       malformed message to snaprd.
-    4. snaprd receives the malformed message, and abandons the new
+       malformed message to snapct.
+    4. snapct receives the malformed message, and abandons the new
        connection, even though it was not malformed.
 
    There are basically two ways to prevent this.  Option A is the tiles
@@ -23,29 +23,29 @@
    quite complicated.
 
    There's an easier way: the tiles just are fully synchronized with
-   snaprd.  Whatever "attempt" snaprd is on, we ensure all other tiles
+   snapct.  Whatever "attempt" snapct is on, we ensure all other tiles
    are on it too.  This means when any tile fails a snapshot, all tiles
-   must fail it and fully flush all frags in the pipeline before snaprd
+   must fail it and fully flush all frags in the pipeline before snapct
    can proceed with a new attempt.
 
    The control flow then is basically,
 
      1. All tiles start in the IDLE state.
-     2. snaprd initializes the pipeline by sending an INIT message.
+     2. snapct initializes the pipeline by sending an INIT message.
         Each tile enters the PROCESSING state and then forwards the INIT
-        message down the pipeline.  When snaprd receives this INIT
+        message down the pipeline.  When snapct receives this INIT
         message, the entire pipeline is in PROCESSING state.
      3. Tiles continue to process data / frags as applicable.  If an
         error occurs, the tile enters the ERROR state and also sends an
         ERROR message downstream.  All downstream tiles also enter the
         ERROR state and forward the message.  Note that upstream tiles
         will not be in an ERROR state and will continue producing frags.
-        When snaprd receives the ERROR message, it will send a FAIL
-        message.  Snaprd then waits for this FAIL message to be
+        When snapct receives the ERROR message, it will send a FAIL
+        message.  snapct then waits for this FAIL message to be
         progagated through the pipeline and received back.  It then
         knows that all tiles are synchonized back in an IDLE state and
         it can try again with a new INIT.
-     4. Once snaprd detects that the processing is finished, it sends
+     4. Once snapct detects that the processing is finished, it sends
         a DONE message through the pipeline and waits for it to be
         received back.  We then either move on to the incremental
         snapshot, or shut down the whole pipeline.
@@ -70,14 +70,14 @@
 #define FD_SNAPSHOT_MSG_CTRL_SHUTDOWN          (7UL) /* No work left to do, perform final cleanup and shut down */
 #define FD_SNAPSHOT_MSG_CTRL_ERROR             (8UL) /* Some tile encountered an error with the current stream */
 
-/* Sent by snaprd to tell snapld whether to load a local file or
+/* Sent by snapct to tell snapld whether to load a local file or
    download from a particular external peer. */
 typedef struct fd_ssctrl_init {
   int           file;
   fd_ip4_port_t addr;
 } fd_ssctrl_init_t;
 
-/* Sent by snapld to tell snaprd metadata about a downloaded snapshot. */
+/* Sent by snapld to tell snapct metadata about a downloaded snapshot. */
 typedef struct fd_ssctrl_meta {
   ulong total_sz;
   char  name[ PATH_MAX ];

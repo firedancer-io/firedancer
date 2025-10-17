@@ -142,7 +142,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
-  FD_TEST( 0==strcmp( in_link->name, "snaprd_ld" ) );
+  FD_TEST( 0==strcmp( in_link->name, "snapct_ld" ) );
   ctx->in_rd.base = fd_topo_obj_wksp_base( topo, in_link->dcache_obj_id );
 
   FD_TEST( tile->out_cnt==1UL );
