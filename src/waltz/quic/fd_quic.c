@@ -3585,7 +3585,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   long now = state->now;
 
   /* initialize expiry and tx_time */
-  long expiry = now + fd_quic_calc_expiry_duration( conn, 0 /* use PTO */ );
+  long expiry = now + fd_quic_calc_expiry_duration( conn, 0 /* use PTO */, conn->server );
   fd_quic_pkt_meta_t pkt_meta_tmpl[1] = {{.expiry = expiry, .tx_time = now}};
 
   while( enc_level != ~0u ) {
@@ -4376,8 +4376,8 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
   /* used for metric tracking */
   ulong prev_retx_pkt_num[FD_QUIC_NUM_ENC_LEVELS] = { ~0ul, ~0ul, ~0ul, ~0ul };
 
-  long const pto_duration  = fd_quic_calc_expiry_duration( conn, 0 );
-  long const loss_duration = fd_quic_calc_expiry_duration( conn, 1 );
+  long const pto_duration  = fd_quic_calc_expiry_duration( conn, 0, conn->server );
+  long const loss_duration = fd_quic_calc_expiry_duration( conn, 1, conn->server );
 
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
@@ -4945,7 +4945,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* Process packets declared lost for either:
   1. 'skipped': see skip_ceil computation above
-  2. 'expired': checked inside pkt_meta_retry */
+  2. 'expired': checked inside pkt_meta_retry  */
   fd_quic_pkt_meta_retry( conn->quic, conn, skip_ceil, enc_level );
 
   /* ECN counts

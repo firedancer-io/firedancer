@@ -421,9 +421,9 @@ fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ns, long ack_delay ) {
    Uses the loss detection timeout if 'ack_driven', otherwise uses the PTO. */
 
 static inline long
-fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven ) {
-  /* Instead of a full implementation of PTO, we're setting an expiry
-     time per sent QUIC packet
+fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven, int is_server ) {
+  /*  For server, we want to be conservative and minimize spam risk, so we stick
+      with the hardcoded 500ms expiry. The following only applies to client.
 
      If this calculation is ack-driven, use the time threshold:
      6.1.2 Time Threshold
@@ -439,6 +439,8 @@ fd_quic_calc_expiry_duration( fd_quic_conn_t * conn, int ack_driven ) {
      Our granularity is O(ns), while recommended is 1ms --> We don't
      have to worry about kGranularity.
 */
+
+  if( is_server ) return 500e6L;
 
   fd_rtt_estimate_t * rtt = conn->rtt;
 
