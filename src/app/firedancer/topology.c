@@ -747,7 +747,8 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile(     topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
 
     /* Read banks */
-    /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    /* TODO: SECURITY CRITICAL. GUI SHOULD NOT HAVE WRITE ACCESS TO BANKS, JUST HACKED IN FOR NOW SO RWLOCK WORKS */
+    /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ], banks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
     /* release ownership of banks */
     /**/                 fd_topob_link( topo, "gui_replay", "gui", 128, 0UL,2UL ); /* burst==2 since a bank and its parent may be sent in one burst */
