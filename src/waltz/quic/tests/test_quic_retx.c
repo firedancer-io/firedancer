@@ -168,7 +168,7 @@ test_retx_pto( fd_quic_conn_t * client_conn, fd_quic_t * server_quic FD_PARAM_UN
     FD_TEST( fd_quic_get_next_wakeup( client_quic ) == orig_expiry_A );
 
     /* ack the first one after loss duration, should not retx B */
-    long loss_duration = fd_quic_calc_expiry_duration( client_conn, 1 );
+    long loss_duration = fd_quic_calc_expiry_duration( client_conn, 1, 0 );
     now += fd_long_max( loss_duration, server_quic->config.ack_delay );
     fd_quic_service( server_quic, now );
     FD_TEST( client_quic->metrics.pkt_retransmissions_cnt[3] == orig_retx_cnt );
