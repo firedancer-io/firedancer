@@ -37,6 +37,10 @@ jobs:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
           extras: +dev
+      - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 0
+          count_huge: 0
       - uses: dtolnay/rust-toolchain@1.84.1
       - name: clean targets
         run: |
