@@ -532,7 +532,7 @@ test_linear_forest_iterator( fd_wksp_t * wksp ) {
 
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
   for( ulong i = 0; i < sizeof(expected) / sizeof(iter_order_t); i++ ) {
-    fd_forest_iter_t iter = *fd_forest_iter_next( forest );
+    fd_forest_iter_t iter = *fd_forest_iter_next( &forest->iter, forest );
     fd_forest_blk_t const * ele = fd_forest_pool_ele_const( pool, iter.ele_idx );
     FD_TEST( ele->slot      == expected[i].slot );
     FD_TEST( iter.shred_idx == expected[i].idx  );
@@ -579,7 +579,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
     { 5, 0 }, { 5, 1 }, { 5, 2 }, { 5, 3 }, { 5, 4 }, {3, UINT_MAX }
   };
   for( ulong i = 0; i < sizeof(inital_expected) / sizeof(iter_order_t); i++ ) {
-    fd_forest_iter_t iter = *fd_forest_iter_next( forest );
+    fd_forest_iter_t iter = *fd_forest_iter_next( &forest->iter, forest );
     fd_forest_blk_t const * ele = fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx );
     FD_LOG_DEBUG(( "iter: slot %lu, idx %u", ele->slot, iter.shred_idx ));
     FD_TEST( ele->slot == inital_expected[i].slot );
@@ -602,7 +602,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
   };
 
   for( ulong i = 0; i < sizeof(expected) / sizeof(iter_order_t); i++ ) {
-    fd_forest_iter_t iter = *fd_forest_iter_next( forest );
+    fd_forest_iter_t iter = *fd_forest_iter_next( &forest->iter, forest );
     fd_forest_blk_t const * ele = fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx );
     FD_TEST( ele->slot == expected[i].slot );
     FD_TEST( iter.shred_idx == expected[i].idx );
@@ -617,7 +617,7 @@ test_branched_forest_iterator( fd_wksp_t * wksp ) {
 
   /* Lets do a data shred insert in the middle that affects the frontier */
   for( ulong i = 0; i < sizeof(expected2) / sizeof(iter_order_t); i++ ) {
-    fd_forest_iter_t iter = *fd_forest_iter_next( forest );
+    fd_forest_iter_t iter = *fd_forest_iter_next( &forest->iter, forest );
     fd_forest_blk_t const * ele = fd_forest_pool_ele_const( fd_forest_pool_const( forest ), iter.ele_idx );
     FD_TEST( ele->slot == expected2[i].slot );
     FD_TEST( iter.shred_idx == expected2[i].idx );
@@ -782,14 +782,14 @@ test_iter_publish( fd_wksp_t * wksp ) {
 
   #define iter_cnt 13
   fd_forest_iter_t iter[iter_cnt] = {
-    { 1, 1 }, { 1, 2 }, { 1, 3 }, { 1, 4 }, { 1, 5 },
-    { 1, 6 }, { 1, 7 }, { 1, 8 }, { 1, 9 }, { 2, UINT_MAX },
-    { 3, UINT_MAX },    { 2, UINT_MAX },    { 3, UINT_MAX },
+    { 1, 1, 0 }, { 1, 2, 0 }, { 1, 3, 0 }, { 1, 4, 0 }, { 1, 5, 0 },
+    { 1, 6, 0 }, { 1, 7, 0 }, { 1, 8, 0 }, { 1, 9, 0 }, { 2, UINT_MAX, 0 },
+    { 3, UINT_MAX, 0 },    { 2, UINT_MAX, 0 },    { 3, UINT_MAX, 0 },
   };
 
   int i = 0;
   for(;;) {
-    fd_forest_iter_next( forest );
+    fd_forest_iter_next( &forest->iter, forest );
     FD_TEST( forest->iter.ele_idx == iter[i].ele_idx );
     FD_TEST( forest->iter.shred_idx == iter[i].shred_idx );
     i++;
@@ -846,8 +846,7 @@ test_iter_publish( fd_wksp_t * wksp ) {
   /* since the last request was for highest idx of 3, we expect to start
      requesting for 2 */
 
-  fd_forest_iter_next( forest );
-  FD_LOG_NOTICE(("iter: slot %lu, idx %u", idx_slot( forest, forest->iter.ele_idx ), forest->iter.shred_idx));
+  fd_forest_iter_next( &forest->iter, forest );
   FD_TEST( fd_forest_query( forest, idx_slot( forest, forest->iter.ele_idx ) ) );
 
   ulong expected_queue[3] = { 4, 5, 3 };
@@ -860,6 +859,16 @@ test_iter_publish( fd_wksp_t * wksp ) {
     i++;
   }
 
+  /* now branch 7 off of 4 */
+  fd_forest_blk_fec_insert( forest, 7, 4, 4, 0, 1 );
+  fd_forest_blk_data_shred_insert( forest, 8, 7, 4, 0, 1, 1 );
+
+  /* Since the iterator is on 4, try publishing to 7 (slaying 4), and see what happens to the iterator */
+
+  fd_forest_publish( forest, 7 );
+  FD_TEST( forest->iter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
+  fd_forest_iter_next( &forest->iter, forest );
+  FD_TEST( idx_slot( forest, forest->iter.ele_idx ) == 8 );
 }
 
 void
@@ -875,8 +884,8 @@ test_iter_caught_up( fd_wksp_t * wksp ) {
   fd_forest_blk_data_shred_insert( forest, 3, 2, 0, 0, 0, 0 );
 
   for( int i = 0; i < 10; i++ ) {
-    fd_forest_iter_next( forest );
-    FD_LOG_NOTICE(("iter: slot %lu, idx %u", idx_slot( forest, forest->iter.ele_idx ), forest->iter.shred_idx));
+    fd_forest_iter_next( &forest->iter, forest );
+    //FD_LOG_NOTICE(("iter: slot %lu, idx %u", idx_slot( forest, forest->iter.ele_idx ), forest->iter.shred_idx));
   }
 
 }
@@ -892,18 +901,18 @@ main( int argc, char ** argv ) {
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
   FD_TEST( wksp );
 
-  //test_invalid_frontier_insert( wksp );
-  //test_publish( wksp );
-  //test_publish_incremental( wksp );
-  //test_out_of_order( wksp );
-  //test_forks( wksp );
-  //test_print_tree( wksp );
-  //// test_large_print_tree( wksp);
-  //test_linear_forest_iterator( wksp );
-  //test_branched_forest_iterator( wksp );
-  //test_frontier( wksp );
-  //test_fec_clear( wksp );
-  //test_iter_publish( wksp );
+  test_invalid_frontier_insert( wksp );
+  test_publish( wksp );
+  test_publish_incremental( wksp );
+  test_out_of_order( wksp );
+  test_forks( wksp );
+  test_print_tree( wksp );
+  // test_large_print_tree( wksp);
+  test_linear_forest_iterator( wksp );
+  test_branched_forest_iterator( wksp );
+  test_frontier( wksp );
+  test_fec_clear( wksp );
+  test_iter_publish( wksp );
   test_iter_caught_up( wksp );
 
   fd_halt();

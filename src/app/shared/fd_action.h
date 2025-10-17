@@ -81,6 +81,7 @@ union fdctl_args {
     char iptable_path[ 256UL ];
     int  metrics_only;
     int  forest_only;
+    int  sorted;
   } repair;
 
   struct {
