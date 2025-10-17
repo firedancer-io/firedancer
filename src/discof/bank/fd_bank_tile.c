@@ -522,12 +522,12 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
-  void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
+  void * shfunk = fd_topo_obj_laddr( topo, tile->bank.funk_obj_id );
   FD_TEST( shfunk );
   fd_funk_t * funk = fd_funk_join( ctx->funk, shfunk );
   FD_TEST( funk );
 
-  void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->bank.progcache_obj_id );
   FD_TEST( shprogcache );
   fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   FD_TEST( progcache );
