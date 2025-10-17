@@ -65,6 +65,7 @@ extern fd_topo_run_tile_t fd_tile_dedup;
 extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
 extern fd_topo_run_tile_t fd_tile_bank;
+extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_shred;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
@@ -72,18 +73,22 @@ extern fd_topo_run_tile_t fd_tile_cswtch;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
 extern fd_topo_run_tile_t fd_tile_bundle;
+extern fd_topo_run_tile_t fd_tile_genesi;
+extern fd_topo_run_tile_t fd_tile_ipecho;
 
 extern fd_topo_run_tile_t fd_tile_gossvf;
 extern fd_topo_run_tile_t fd_tile_gossip;
 extern fd_topo_run_tile_t fd_tile_repair;
 extern fd_topo_run_tile_t fd_tile_replay;
 extern fd_topo_run_tile_t fd_tile_execor;
-extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_send;
 extern fd_topo_run_tile_t fd_tile_tower;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
-extern fd_topo_run_tile_t fd_tile_genesi;
-extern fd_topo_run_tile_t fd_tile_ipecho;
+
+extern fd_topo_run_tile_t fd_tile_snaprd;
+extern fd_topo_run_tile_t fd_tile_snapld;
+extern fd_topo_run_tile_t fd_tile_snapdc;
+extern fd_topo_run_tile_t fd_tile_snapin;
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
@@ -111,6 +116,10 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_send,
   &fd_tile_tower,
   &fd_tile_rpcserv,
+  &fd_tile_snaprd,
+  &fd_tile_snapld,
+  &fd_tile_snapdc,
+  &fd_tile_snapin,
   &fd_tile_genesi,
   &fd_tile_ipecho,
   NULL,
