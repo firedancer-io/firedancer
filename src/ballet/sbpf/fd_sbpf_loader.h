@@ -9,8 +9,7 @@
    program header table and instead load specific sections at predefined
    addresses.  However, it will perform dynamic relocation. */
 
-#include "../../util/fd_util_base.h"
-#include "../elf/fd_elf64.h"
+#include "fd_sbpf_calldests.h"
 
 /* Error types ********************************************************/
 
@@ -79,13 +78,6 @@
 #define E_FLAGS_SBPF_V2         (0x20U)
 
 /* Program struct *****************************************************/
-
-/* fd_sbpf_calldests is a bit vector of valid call destinations.
-   Should be configured to fit any possible program counter.  The max
-   program counter is <size of ELF binary> divided by 8. */
-
-#define SET_NAME fd_sbpf_calldests
-#include "../../util/tmpl/fd_set_dynamic.c"
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
    vm is a handle to the running VM.  Returns 0 on suceess or an integer

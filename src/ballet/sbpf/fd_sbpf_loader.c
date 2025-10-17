@@ -1,7 +1,7 @@
 #include "fd_sbpf_loader.h"
 #include "fd_sbpf_instr.h"
 #include "fd_sbpf_opcodes.h"
-#include "../../util/fd_util.h"
+#include "../elf/fd_elf64.h"
 #include "../../util/bits/fd_sat.h"
 #include "../murmur3/fd_murmur3.h"
 
@@ -127,18 +127,17 @@ fd_sbpf_program_align( void ) {
   return alignof( fd_sbpf_program_t );
 }
 
+static inline ulong
+fd_sbpf_program_calldests_max( fd_sbpf_elf_info_t const * info ) {
+  if( fd_sbpf_enable_stricter_elf_headers_enabled( info->sbpf_version ) ) return 0UL;
+  return info->text_cnt;
+}
+
 ulong
 fd_sbpf_program_footprint( fd_sbpf_elf_info_t const * info ) {
-  FD_COMPILER_UNPREDICTABLE( info ); /* Make this appear as FD_FN_PURE (e.g. footprint might depened on info contents in future) */
-  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( info->sbpf_version ) ) ) {
-    /* SBPF v3+ no longer neeeds calldests bitmap */
-    return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-      alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-      alignof(fd_sbpf_program_t) );
-  }
   return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
     alignof(fd_sbpf_program_t), sizeof(fd_sbpf_program_t) ),
-    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( info->text_cnt ) ),  /* calldests bitmap */
+    fd_sbpf_calldests_align(), fd_sbpf_calldests_footprint( fd_sbpf_program_calldests_max( info ) ) ),
     alignof(fd_sbpf_program_t) );
 }
 
@@ -183,19 +182,13 @@ fd_sbpf_program_new( void *                     prog_mem,
   };
 
   /* If the text section is empty, then we do not need a calldests map. */
-  ulong pc_max = elf_info->text_cnt;
-  if( FD_UNLIKELY( fd_sbpf_enable_stricter_elf_headers_enabled( elf_info->sbpf_version ) || pc_max==0UL ) ) {
-    /* No calldests map in SBPF v3+ or if text_cnt is 0. */
-    prog->calldests_shmem = NULL;
-    prog->calldests       = NULL;
-  } else {
-    /* Initialize calldests map. */
-    prog->calldests_shmem = fd_sbpf_calldests_new(
-          FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
-                                          fd_sbpf_calldests_footprint( pc_max ) ),
-          pc_max );
-    prog->calldests = fd_sbpf_calldests_join( prog->calldests_shmem );
-  }
+  ulong calldests_max = fd_sbpf_program_calldests_max( elf_info );
+  /* Initialize calldests map. */
+  prog->calldests_shmem = fd_sbpf_calldests_new(
+        FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
+                                        fd_sbpf_calldests_footprint( calldests_max ) ),
+        fd_sbpf_calldests_footprint( calldests_max ) );
+  prog->calldests = fd_sbpf_calldests_join( prog->calldests_shmem );
 
   return prog;
 }
@@ -215,7 +208,7 @@ fd_sbpf_program_delete( fd_sbpf_program_t * mem ) {
 
 struct fd_sbpf_loader {
   /* External objects */
-  ulong *              calldests; /* owned by program. NULL if text_cnt = 0 or SBPF v3+ */
+  ulong *              calldests; /* owned by program */
   fd_sbpf_syscalls_t * syscalls;  /* owned by caller */
 };
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
@@ -361,9 +354,7 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
      make sure that target_pc <= text_cnt, otherwise the insertion is
      UB. It's fine to skip inserting these entries because the calldests
      are write-only in the SBPF loader and only queried from the VM. */
-  if( FD_LIKELY( !is_entrypoint &&
-                  loader->calldests &&
-                  fd_sbpf_calldests_valid_idx( loader->calldests, target_pc ) ) ) {
+  if( FD_LIKELY( !is_entrypoint ) ) {
     fd_sbpf_calldests_insert( loader->calldests, target_pc );
   }
 

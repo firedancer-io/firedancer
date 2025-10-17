@@ -2,6 +2,7 @@
 #error "This target requires FD_HAS_HOSTED"
 #endif
 
+#include "../../util/fd_util.h"
 #include "../../util/sanitize/fd_fuzz.h"
 #include "fd_sbpf_loader.h"
 
