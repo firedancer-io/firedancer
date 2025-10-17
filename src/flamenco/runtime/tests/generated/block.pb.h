@@ -37,6 +37,21 @@ typedef struct fd_exec_test_block_context {
     fd_exec_test_epoch_context_t epoch_ctx;
 } fd_exec_test_block_context_t;
 
+typedef struct fd_exec_test_leader_schedule_effects {
+    /* Epoch number for which this leader schedule applies */
+    uint64_t leaders_epoch;
+    /* First slot number covered by this leader schedule */
+    uint64_t leaders_slot0;
+    /* Total number of slots covered by this leader schedule */
+    uint64_t leaders_slot_cnt;
+    /* Number of unique validator public keys in the leader schedule */
+    uint64_t leader_pub_cnt;
+    /* Number of entries in the leader schedule (slots with assigned leaders) */
+    uint64_t leaders_sched_cnt;
+    /* Hash of the leader schedule */
+    pb_byte_t leader_schedule_hash[16];
+} fd_exec_test_leader_schedule_effects_t;
+
 typedef struct fd_exec_test_block_effects {
     /* If block execution failed */
     bool has_error;
@@ -47,6 +62,9 @@ typedef struct fd_exec_test_block_effects {
     /* The cost tracker */
     bool has_cost_tracker;
     fd_exec_test_cost_tracker_t cost_tracker;
+    /* Leader schedule */
+    bool has_leader_schedule;
+    fd_exec_test_leader_schedule_effects_t leader_schedule;
 } fd_exec_test_block_effects_t;
 
 typedef struct fd_exec_test_block_fixture {
@@ -68,11 +86,13 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT   {0, 0}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT  {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT}
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT {0, 0, 0, 0, 0, {0}}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT  {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT  {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_COST_TRACKER_INIT_ZERO      {0, 0}
 #define FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO     {0, NULL, 0, NULL, 0, NULL, false, FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO}
-#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO}
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO {0, 0, 0, 0, 0, {0}}
+#define FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO     {0, 0, {0}, false, FD_EXEC_TEST_COST_TRACKER_INIT_ZERO, false, FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO     {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -83,10 +103,17 @@ extern "C" {
 #define FD_EXEC_TEST_BLOCK_CONTEXT_BLOCKHASH_QUEUE_TAG 3
 #define FD_EXEC_TEST_BLOCK_CONTEXT_SLOT_CTX_TAG  4
 #define FD_EXEC_TEST_BLOCK_CONTEXT_EPOCH_CTX_TAG 5
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADERS_EPOCH_TAG 1
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADERS_SLOT0_TAG 2
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADERS_SLOT_CNT_TAG 3
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADER_PUB_CNT_TAG 4
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADERS_SCHED_CNT_TAG 5
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_LEADER_SCHEDULE_HASH_TAG 6
 #define FD_EXEC_TEST_BLOCK_EFFECTS_HAS_ERROR_TAG 1
 #define FD_EXEC_TEST_BLOCK_EFFECTS_SLOT_CAPITALIZATION_TAG 2
 #define FD_EXEC_TEST_BLOCK_EFFECTS_BANK_HASH_TAG 3
 #define FD_EXEC_TEST_BLOCK_EFFECTS_COST_TRACKER_TAG 4
+#define FD_EXEC_TEST_BLOCK_EFFECTS_LEADER_SCHEDULE_TAG 5
 #define FD_EXEC_TEST_BLOCK_FIXTURE_METADATA_TAG  1
 #define FD_EXEC_TEST_BLOCK_FIXTURE_INPUT_TAG     2
 #define FD_EXEC_TEST_BLOCK_FIXTURE_OUTPUT_TAG    3
@@ -111,14 +138,26 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  epoch_ctx,         5)
 #define fd_exec_test_block_context_t_slot_ctx_MSGTYPE fd_exec_test_slot_context_t
 #define fd_exec_test_block_context_t_epoch_ctx_MSGTYPE fd_exec_test_epoch_context_t
 
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_epoch,     1) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_slot0,     2) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_slot_cnt,   3) \
+X(a, STATIC,   SINGULAR, UINT64,   leader_pub_cnt,    4) \
+X(a, STATIC,   SINGULAR, UINT64,   leaders_sched_cnt,   5) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, leader_schedule_hash,   6)
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_CALLBACK NULL
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_DEFAULT NULL
+
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     has_error,         1) \
 X(a, STATIC,   SINGULAR, UINT64,   slot_capitalization,   2) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, bank_hash,         3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  cost_tracker,      4)
+X(a, STATIC,   OPTIONAL, MESSAGE,  cost_tracker,      4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  leader_schedule,   5)
 #define FD_EXEC_TEST_BLOCK_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_BLOCK_EFFECTS_DEFAULT NULL
 #define fd_exec_test_block_effects_t_cost_tracker_MSGTYPE fd_exec_test_cost_tracker_t
+#define fd_exec_test_block_effects_t_leader_schedule_MSGTYPE fd_exec_test_leader_schedule_effects_t
 
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  metadata,          1) \
@@ -132,33 +171,39 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  output,            3)
 
 extern const pb_msgdesc_t fd_exec_test_cost_tracker_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_context_t_msg;
+extern const pb_msgdesc_t fd_exec_test_leader_schedule_effects_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_effects_t_msg;
 extern const pb_msgdesc_t fd_exec_test_block_fixture_t_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define FD_EXEC_TEST_COST_TRACKER_FIELDS &fd_exec_test_cost_tracker_t_msg
 #define FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS &fd_exec_test_block_context_t_msg
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_FIELDS &fd_exec_test_leader_schedule_effects_t_msg
 #define FD_EXEC_TEST_BLOCK_EFFECTS_FIELDS &fd_exec_test_block_effects_t_msg
 #define FD_EXEC_TEST_BLOCK_FIXTURE_FIELDS &fd_exec_test_block_fixture_t_msg
 
 /* Maximum encoded size of messages (where known) */
 /* fd_exec_test_BlockContext_size depends on runtime parameters */
 /* fd_exec_test_BlockFixture_size depends on runtime parameters */
-#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          71
+#define FD_EXEC_TEST_BLOCK_EFFECTS_SIZE          146
 #define FD_EXEC_TEST_COST_TRACKER_SIZE           22
+#define FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_SIZE 73
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_PB_H_MAX_SIZE FD_EXEC_TEST_BLOCK_EFFECTS_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
 #define org_solana_sealevel_v1_CostTracker fd_exec_test_CostTracker
 #define org_solana_sealevel_v1_BlockContext fd_exec_test_BlockContext
+#define org_solana_sealevel_v1_LeaderScheduleEffects fd_exec_test_LeaderScheduleEffects
 #define org_solana_sealevel_v1_BlockEffects fd_exec_test_BlockEffects
 #define org_solana_sealevel_v1_BlockFixture fd_exec_test_BlockFixture
 #define ORG_SOLANA_SEALEVEL_V1_COST_TRACKER_INIT_DEFAULT FD_EXEC_TEST_COST_TRACKER_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_DEFAULT FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT
+#define ORG_SOLANA_SEALEVEL_V1_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_EFFECTS_INIT_DEFAULT FD_EXEC_TEST_BLOCK_EFFECTS_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_FIXTURE_INIT_DEFAULT FD_EXEC_TEST_BLOCK_FIXTURE_INIT_DEFAULT
 #define ORG_SOLANA_SEALEVEL_V1_COST_TRACKER_INIT_ZERO FD_EXEC_TEST_COST_TRACKER_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_CONTEXT_INIT_ZERO FD_EXEC_TEST_BLOCK_CONTEXT_INIT_ZERO
+#define ORG_SOLANA_SEALEVEL_V1_LEADER_SCHEDULE_EFFECTS_INIT_ZERO FD_EXEC_TEST_LEADER_SCHEDULE_EFFECTS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_EFFECTS_INIT_ZERO FD_EXEC_TEST_BLOCK_EFFECTS_INIT_ZERO
 #define ORG_SOLANA_SEALEVEL_V1_BLOCK_FIXTURE_INIT_ZERO FD_EXEC_TEST_BLOCK_FIXTURE_INIT_ZERO
 
