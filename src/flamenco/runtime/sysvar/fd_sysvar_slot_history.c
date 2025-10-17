@@ -45,7 +45,7 @@ fd_sysvar_slot_history_write_history( fd_bank_t *                bank,
                                       fd_funk_txn_xid_t const *  xid,
                                       fd_capture_ctx_t *         capture_ctx,
                                       fd_slot_history_global_t * history ) {
-  static uchar FD_TL __attribute__((aligned(alignof(fd_slot_history_global_t)))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
+  static FD_TL uchar __attribute__((aligned(alignof(fd_slot_history_global_t)))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
   fd_bincode_encode_ctx_t ctx = {
     .data    = slot_history_mem,
     .dataend = slot_history_mem + FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE
@@ -62,7 +62,7 @@ fd_sysvar_slot_history_init( fd_bank_t *               bank,
                              fd_funk_t *               funk,
                              fd_funk_txn_xid_t const * xid,
                              fd_capture_ctx_t *        capture_ctx ) {
-  static uchar FD_TL __attribute__((aligned(alignof(fd_slot_history_global_t)))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
+  static FD_TL uchar __attribute__((aligned(alignof(fd_slot_history_global_t)))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
 
   /* Create a new slot history instance */
 
@@ -97,7 +97,7 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
     .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
-  static uchar FD_TL __attribute__((aligned(alignof(fd_slot_history_global_t)))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
+  static FD_TL uchar __attribute__((aligned(alignof(fd_slot_history_global_t)))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
   fd_slot_history_global_t * history = fd_slot_history_decode_global( slot_history_mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
