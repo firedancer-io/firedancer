@@ -15,6 +15,7 @@
 #include "../../disco/store/fd_store.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
+#include "../../disco/trace/generated/fd_trace_replay.h"
 #include "../../util/pod/fd_pod.h"
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
@@ -1545,14 +1546,18 @@ replay( fd_replay_tile_t *  ctx,
 
   switch( task->task_type ) {
     case FD_SCHED_TT_BLOCK_START: {
+      fd_trace_replay_block_start_enter( task->block_start->slot );
       replay_block_start( ctx, stem, task->block_start->bank_idx, task->block_start->parent_bank_idx, task->block_start->slot );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_START, ULONG_MAX, ULONG_MAX );
+      fd_trace_replay_block_start_exit();
       break;
     }
     case FD_SCHED_TT_BLOCK_END: {
+      fd_trace_replay_block_end_enter();
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, task->block_end->bank_idx );
       if( FD_LIKELY( !(bank->flags&FD_BANK_FLAGS_DEAD) ) ) replay_block_finalize( ctx, stem, bank );
       fd_sched_task_done( ctx->sched, FD_SCHED_TT_BLOCK_END, ULONG_MAX, ULONG_MAX );
+      fd_trace_replay_block_end_exit();
       break;
     }
     case FD_SCHED_TT_TXN_EXEC:
