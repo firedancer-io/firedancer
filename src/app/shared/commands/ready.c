@@ -19,6 +19,9 @@ ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
        anyway. */
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
+    /* Don't wait for tiles that are allowed to shutdown. */
+    if( FD_UNLIKELY( tile->allow_shutdown ) ) continue;
+
     long start = fd_log_wallclock();
     int printed = 0;
     do {
