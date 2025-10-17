@@ -59,8 +59,6 @@ typedef struct fd_exec_tile_ctx {
      a funk_txn and a bank. These are queried from fd_banks_t and
      fd_funk_t. */
   fd_banks_t *          banks;
-  void *                shfunk;
-  void *                shprogcache;
   fd_funk_t             funk[1];
   fd_progcache_t        progcache[1];
 
