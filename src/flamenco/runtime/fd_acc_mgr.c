@@ -31,6 +31,7 @@ fd_funk_get_acc_meta_readonly( fd_funk_t const *         funk,
 
     fd_account_meta_t const * metadata = fd_type_pun_const( raw );
     if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_SUCCESS );
       return metadata;
     }
 
@@ -107,6 +108,7 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *               funk,
     fd_account_meta_init( meta );
   }
 
+  fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_SUCCESS );
   return meta;
 }
 
