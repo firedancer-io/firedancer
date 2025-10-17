@@ -442,6 +442,15 @@ fd_solcap_diff_account( fd_solcap_differ_t *                  diff,
     int err = fd_solcap_find_account( stream, meta+i, &data_goff[i], entry[i], acc_tbl_goff[i] );
     FD_TEST( err==0 );
   }
+
+  if( 0!=memcmp( meta[0].owner, meta[1].owner, 32UL ) ||
+      meta[0].lamports!=meta[1].lamports ||
+      meta[0].data_sz!=meta[1].data_sz ||
+      meta[0].slot!=meta[1].slot ||
+      meta[0].executable!=meta[1].executable ) {
+    printf( "account: %s\n", FD_BASE58_ENC_32_ALLOCA( entry[0]->key ) );
+  }
+
   if( 0!=memcmp( meta[0].owner, meta[1].owner, 32UL ) )
     printf( "%s        owner:       %s\n"
             "%s        owner:       %s\n",
