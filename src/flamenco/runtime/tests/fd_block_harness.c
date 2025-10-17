@@ -19,7 +19,9 @@
    for each of the vote accounts using the stake delegations cache. */
 static void
 fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
-                                             fd_stake_delegations_t * stake_delegations ) {
+                                             fd_vote_states_t *       vote_states_prev_prev,
+                                             fd_stake_delegations_t * stake_delegations,
+                                             ulong                    epoch ) {
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -34,9 +36,23 @@ fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_state
     fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, voter_pubkey );
     if( !vote_state ) continue;
 
-    ulong vote_stake = vote_state->stake;
-    fd_vote_states_update_stake( vote_states, voter_pubkey, vote_stake + stake );
+    vote_state->stake     += stake;
+    vote_state->stake_t_2 += stake;
+  }
 
+  /* We need to set the stake_t_2 for the vote accounts in the vote
+     states cache.  An important edge case to handle is if the current
+     epoch is less than 2, that means we should use the current stakes
+     because the stake_t_2 field is not yet populated. */
+  fd_vote_states_iter_t vs_iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vs_iter_, vote_states_prev_prev );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_states_prev_prev, &vote_state->vote_account );
+    ulong t_2_stake = !!vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
+    vote_state->stake_t_2 = epoch>=2UL ? t_2_stake : vote_state->stake;
+    vote_state->stake_t_2 = vote_state->stake;
   }
 }
 
@@ -153,7 +169,9 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
       if( res==NULL ) continue;
 
       fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
-      fd_vote_states_update_stake( vote_states, &vote_address, stake );
+      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
+      vote_state->stake     += stake;
+      vote_state->stake_t_2 += stake;
     }
   } FD_SPAD_FRAME_END;
 }
@@ -286,10 +304,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                                      &pubkey );
   }
 
-  /* Refresh vote accounts to calculate stake delegations */
-  fd_runtime_fuzz_block_refresh_vote_accounts( vote_states, stake_delegations );
-  fd_bank_vote_states_end_locking_modify( bank );
-
   /* Finish init epoch bank sysvars */
   fd_epoch_schedule_t epoch_schedule_[1];
   fd_epoch_schedule_t * epoch_schedule = fd_sysvar_epoch_schedule_read( funk, xid, epoch_schedule_ );
@@ -318,6 +332,11 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                                        test_ctx->epoch_ctx.vote_accounts_t_2,
                                                        test_ctx->epoch_ctx.vote_accounts_t_2_count,
                                                        runner->spad );
+
+  /* Refresh vote accounts to calculate stake delegations */
+  fd_runtime_fuzz_block_refresh_vote_accounts( vote_states, vote_states_prev_prev, stake_delegations, fd_bank_epoch_get( bank ) );
+  fd_bank_vote_states_end_locking_modify( bank );
+
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   /* Update leader schedule */
@@ -419,7 +438,9 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, capture_ctx );
+    /* TODO:FIXME: */
+    fd_vote_state_credits_t vote_state_credits;
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, &vote_state_credits, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
