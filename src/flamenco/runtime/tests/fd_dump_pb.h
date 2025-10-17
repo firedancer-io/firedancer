@@ -59,7 +59,7 @@
 #include "../../../disco/fd_txn_p.h"
 
 /* The amount of memory allocated towards dumping blocks from ledgers */
-#define FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX (5UL<<30)
+#define FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX (2UL<<30)
 #define FD_BLOCK_DUMP_CTX_MAX_TXN_CNT  (10000UL)
 
 FD_PROTOTYPES_BEGIN
@@ -122,6 +122,24 @@ fd_block_dump_context_join( void * mem ) {
   fd_block_dump_ctx_t * ctx = (fd_block_dump_ctx_t *)mem;
   ctx->spad                 = fd_spad_join( ctx->spad );
   return ctx;
+}
+
+static inline void *
+fd_block_dump_context_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+  return mem;
+}
+
+static inline void *
+fd_block_dump_context_leave( fd_block_dump_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "NULL ctx" ));
+    return NULL;
+  }
+  return (void *)ctx;
 }
 
 /* Resets the block dump context to prepare for the next block. */

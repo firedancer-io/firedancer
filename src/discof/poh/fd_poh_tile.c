@@ -120,6 +120,18 @@ returnable_frag( fd_poh_tile_t *     ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY && fd_poh_have_leader_bank( ctx->poh ) ) ) return 1;
+  /* If prior leaders skipped, it might happen that replay tells us to
+     become leader, but poh is still hashing through the skipped slots
+     and could not yet mixin any microblocks.  In this case, we hold
+     the microblocks and do not mixin them yet until we have hashed
+     through to the actual leader slot.
+
+     It might actually be allowed by the protocol to mixin earlier, but
+     that really doesn't seem like a good idea.
+
+     It's fine to block pack/banks on hashing here, because they we are
+     going to have the wait for the full block to timeout once it starts */
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK && fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) return 1;
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK || ctx->in_kind[ in_idx ]==IN_KIND_PACK ) ) {
     uint pack_idx = (uint)fd_disco_bank_sig_pack_idx( sig );
     if( FD_UNLIKELY( ((int)(pack_idx-ctx->expect_pack_idx))<0L ) ) FD_LOG_ERR(( "received out of order pack_idx %u (expecting %u)", pack_idx, ctx->expect_pack_idx ));
@@ -145,13 +157,6 @@ returnable_frag( fd_poh_tile_t *     ctx,
     }
     case IN_KIND_BANK: {
       ulong target_slot = fd_disco_bank_sig_slot( sig );
-      if( FD_UNLIKELY( fd_poh_hashing_to_leader_slot( ctx->poh ) ) ) {
-        /* If we are skipping to a leader slot, we can't process bank
-           microblocks until we are actually ready to mix them in, which
-           is when we have hashed through the slots being skipped. */
-        return 1;
-      }
-
       ulong txn_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
       fd_txn_p_t const * txns = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       fd_microblock_trailer_t const * trailer = fd_type_pun_const( (uchar const*)txns+sz-sizeof(fd_microblock_trailer_t) );

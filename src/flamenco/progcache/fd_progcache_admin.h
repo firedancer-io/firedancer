@@ -35,18 +35,32 @@ fd_progcache_admin_leave( fd_progcache_admin_t * cache,
 
 /* Transaction-level operations ***************************************/
 
-void
-fd_progcache_txn_prepare( fd_progcache_admin_t *    cache,
-                          fd_funk_txn_xid_t const * xid_parent,
-                          fd_funk_txn_xid_t const * xid_new );
+/* fd_progcache_txn_attach_child creates a new program cache fork node
+   off some parent.
+
+   It is assumed that less than txn_max non-root transactions exist when
+   this is called. */
 
 void
-fd_progcache_txn_cancel( fd_progcache_admin_t * cache,
+fd_progcache_txn_attach_child( fd_progcache_admin_t *    cache,
+                               fd_funk_txn_xid_t const * xid_parent,
+                               fd_funk_txn_xid_t const * xid_new );
+
+/* fd_progcache_txn_advance_root advances the fork graph root to the
+   given xid.  (In funk terminology, this is the "last publish")
+
+   Assumes that the xid's parent is the fork graph root. */
+
+void
+fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
+                               fd_funk_txn_xid_t const * xid );
+
+/* fd_progcache_txn_cancel removes a fork graph node by XID and its
+   children (recursively). */
+
+void
+fd_progcache_txn_cancel( fd_progcache_admin_t *    cache,
                          fd_funk_txn_xid_t const * xid );
-
-void
-fd_progcache_txn_publish( fd_progcache_admin_t *    cache,
-                          fd_funk_txn_xid_t const * xid );
 
 /* Reset operations ***************************************************/
 

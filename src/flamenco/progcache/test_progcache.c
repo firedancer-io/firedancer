@@ -86,7 +86,7 @@ test_env_txn_prepare( test_env_t *              env,
     parent = root;
   }
   fd_funk_txn_prepare( env->accdb, parent, xid );
-  fd_progcache_txn_prepare( env->progcache_admin, parent, xid );
+  fd_progcache_txn_attach_child( env->progcache_admin, parent, xid );
 }
 
 /* test_env_txn_cancel destroys a subtree of in-prep funk transactions
@@ -106,7 +106,7 @@ static void
 test_env_txn_publish( test_env_t *              env,
                       fd_funk_txn_xid_t const * xid ) {
   fd_funk_txn_publish( env->accdb, xid );
-  fd_progcache_txn_publish( env->progcache_admin, xid );
+  fd_progcache_txn_advance_root( env->progcache_admin, xid );
 }
 
 static fd_funk_rec_key_t
@@ -653,8 +653,8 @@ test_publish_trivial( fd_wksp_t * wksp ) {
 
   fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
   fd_funk_txn_xid_t fork_368528500 = { .ul = { 368528500UL, 368528500UL } };
-  fd_progcache_txn_prepare( env->progcache_admin, &root, &fork_368528500 );
-  fd_progcache_txn_publish( env->progcache_admin,        &fork_368528500 );
+  fd_progcache_txn_attach_child( env->progcache_admin, &root, &fork_368528500 );
+  fd_progcache_txn_advance_root( env->progcache_admin,        &fork_368528500 );
 
   /* FIXME more operations here ... */
 }

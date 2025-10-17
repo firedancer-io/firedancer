@@ -17,6 +17,9 @@
 #include "../../util/net/fd_net_headers.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
+#include "../../discof/replay/fd_replay_tile.h"
+#include "../../flamenco/runtime/fd_runtime_const.h"
+
 #include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
 
@@ -47,6 +50,19 @@ struct fd_gui_peers_metric_rate {
 };
 typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
 
+struct fd_gui_peers_vote {
+  fd_pubkey_t node_account;
+  fd_pubkey_t vote_account;
+  ulong       stake;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+  uchar       commission;
+  ulong       epoch;
+  ulong       epoch_credits;
+};
+
+typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
+
 struct fd_gui_peers_node {
   int valid;
   long update_time_nanos;
@@ -57,11 +73,21 @@ struct fd_gui_peers_node {
   fd_gui_peers_metric_rate_t gossvf_rx_sum; /* sum of gossvf_rx */
   fd_gui_peers_metric_rate_t gossip_tx_sum; /* sum of gossip_tx */
 
-  int         has_node_info;
+  int  has_val_info;
   char name    [ FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ     ];
   char website [ FD_GUI_PEERS_VALIDATOR_INFO_WEBSITE_SZ  ];
   char details [ FD_GUI_PEERS_VALIDATOR_INFO_DETAILS_SZ  ];
   char icon_uri[ FD_GUI_PEERS_VALIDATOR_INFO_ICON_URI_SZ ];
+
+  int         has_vote_info;
+  fd_pubkey_t vote_account;
+  ulong       stake;
+  ulong       last_vote_slot;
+  long        last_vote_timestamp;
+  uchar       commission;
+  ulong       epoch;
+  ulong       epoch_credits;
+  int         delinquent;
 
   struct {
     ulong next;
@@ -220,7 +246,7 @@ struct fd_gui_peers_ws_conn {
   ulong start_row;
   ulong row_cnt;
   fd_gui_peers_node_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
-  fd_gui_peers_live_table_sort_key_t sort_key[ 1 ];
+  fd_gui_peers_live_table_sort_key_t sort_key;
 };
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
 struct fd_gui_peers_ctx {
@@ -243,6 +269,9 @@ struct fd_gui_peers_ctx {
 
   fd_gui_peers_gossip_stats_t gossip_stats  [ 1 ];
   fd_gui_peers_node_t contact_info_table[ FD_CONTACT_INFO_TABLE_SIZE ];
+
+  fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
 };
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
 
@@ -286,10 +315,16 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
 /* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_out
    link and uses the contact info update to build up the peer table.
    */
-int
+void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
                                    fd_gossip_update_message_t const * update,
                                    long                               now );
+
+void
+fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
+                                 fd_gui_peers_vote_t * votes,
+                                 ulong                 vote_cnt,
+                                 long                  now );
 
 /* fd_gui_peers_ws_message handles incoming websocket request payloads
    requesting peer-related responses.  ws_conn_id is the connection id

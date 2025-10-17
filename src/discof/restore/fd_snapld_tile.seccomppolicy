@@ -32,7 +32,7 @@ lseek: (and (or (eq (arg 0) in_full_fd)
 
 # snapshot: establish connections for snapshot download.
 socket: (and (eq (arg 0) "AF_INET")
-             (eq (arg 1) "SOCK_STREAM|SOCK_NONBLOCK")
+             (eq (arg 1) "SOCK_STREAM")
              (eq (arg 2) 0))
 
 # snapshot: need to be able to connect to a peer to download a snapshot
@@ -78,6 +78,20 @@ recvfrom: (not (or (eq (arg 0) 2)
                    (eq (arg 0) logfile_fd)
                    (eq (arg 0) in_full_fd)
                    (eq (arg 0) in_incr_fd)))
+
+# snapshot: we need to be able to configure out socket connection from
+# the peer that we download our snapshot from or resolve slot
+# information from.
+#
+# arg 0 is the file descriptor that corresponds to the socket that we
+# want to connect to.  We know that we don't want to connect to the
+# file descriptors used for logging, stderr, or any of the snapshot fds.
+setsockopt: (and (not (or (eq (arg 0) 2)
+                          (eq (arg 0) logfile_fd)
+                          (eq (arg 0) in_full_fd)
+                          (eq (arg 0) in_incr_fd)))
+                 (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_RCVTIMEO))
 
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)

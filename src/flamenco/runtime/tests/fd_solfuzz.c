@@ -77,8 +77,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
                        fd_solfuzz_runner_options_t const * options ) {
 
   /* Allocate objects */
-  ulong const txn_max  =  16UL;
-  ulong const rec_max  = 128UL;
+  ulong const txn_max  =   16UL;
+  ulong const rec_max  = 1024UL;
   ulong const spad_max = FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ;
   ulong const bank_max = 1UL;
   ulong const fork_max = 1UL;

@@ -539,9 +539,6 @@ struct fd_pack_private {
      transitions between them. */
   int   initializer_bundle_state;
 
-  /* pending_bundle_cnt: the number of bundles in pending_bundles. */
-  ulong pending_bundle_cnt;
-
   /* relative_bundle_idx: the number of bundles that have been inserted
      since the last time pending_bundles was empty.  See the long
      comment about encoding this index in the rewards field of each

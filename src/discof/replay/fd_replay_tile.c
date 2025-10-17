@@ -75,6 +75,7 @@
 #define IN_KIND_EXEC    (5)
 #define IN_KIND_SHRED   (6)
 #define IN_KIND_VTXN    (7)
+#define IN_KIND_GUI     (8)
 
 #define DEBUG_LOGGING 0
 
@@ -358,6 +359,12 @@ struct fd_replay_tile {
   fd_replay_out_link_t replay_out[1];
 
   fd_replay_out_link_t stake_out[1];
+
+  /* The gui tile needs to reliably own a reference to the most recent
+     completed active bank.  Replay needs to know if the gui as a
+     consumer is enabled so it can increment the bank's refcnt before
+     publishing the bank_idx to the gui. */
+  int gui_enabled;
 
   /* For dumping blocks to protobuf. For backtest only. */
   fd_block_dump_ctx_t * block_dump_ctx;
@@ -670,7 +677,7 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, bank_idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
-  fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
@@ -755,24 +762,26 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->parent_block_id       = parent_block_id;
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
-
   slot_info->transaction_count     = fd_bank_txn_count_get( bank );
-  slot_info->nonvote_txn_count     = fd_bank_nonvote_txn_count_get( bank );
-  slot_info->failed_txn_count      = fd_bank_failed_txn_count_get( bank );
-  slot_info->nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_get( bank );
-  slot_info->total_compute_units_used = fd_bank_total_compute_units_used_get( bank );
-  slot_info->execution_fees        = fd_bank_execution_fees_get( bank );
-  slot_info->priority_fees         = fd_bank_priority_fees_get( bank );
-  slot_info->tips                  = 0UL; /* todo ... tip accounts balance delta */
-  slot_info->shred_count           = fd_bank_shred_cnt_get( bank );
-
-  slot_info->max_compute_units     = fd_cost_tracker_block_cost_limit( bank );
 
   slot_info->first_fec_set_received_nanos      = bank->first_fec_set_received_nanos;
   slot_info->preparation_begin_nanos           = bank->preparation_begin_nanos;
   slot_info->first_transaction_scheduled_nanos = bank->first_transaction_scheduled_nanos;
   slot_info->last_transaction_finished_nanos   = bank->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_log_wallclock();
+
+  /* refcnt should be incremented by 1 for each consumer that uses
+     `bank_idx`.  Each consumer should decrement the bank's refcnt once
+     they are done usin the bank. */
+  if( FD_LIKELY( ctx->gui_enabled ) ) bank->refcnt++; /* gui tile */
+  slot_info->bank_idx = bank->idx;
+
+  slot_info->parent_bank_idx = ULONG_MAX;
+  fd_bank_t * parent_bank = fd_banks_get_parent( ctx->banks, bank );
+  if( FD_LIKELY( parent_bank && ctx->gui_enabled ) ) {
+    parent_bank->refcnt++;
+    slot_info->parent_bank_idx = parent_bank->idx;
+  }
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -903,7 +912,7 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_funk_txn_xid_t xid        = { .ul = { slot, ctx->leader_bank->idx } };
   fd_funk_txn_xid_t parent_xid = { .ul = { parent_slot, parent_bank_idx } };
   fd_funk_txn_prepare     ( ctx->funk,            &parent_xid, &xid );
-  fd_progcache_txn_prepare( ctx->progcache_admin, &parent_xid, &xid );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, &parent_xid, &xid );
 
   fd_bank_execution_fees_set( ctx->leader_bank, 0UL );
   fd_bank_priority_fees_set( ctx->leader_bank, 0UL );
@@ -1058,8 +1067,8 @@ init_funk( fd_replay_tile_t * ctx,
     FD_LOG_CRIT(( "failed to initialize account database: replay tile is not joined to program cache" ));
   }
   fd_progcache_clear( ctx->progcache_admin );
-  fd_progcache_txn_prepare( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->funk ) );
-  fd_progcache_txn_publish( ctx->progcache_admin, fd_funk_last_publish( ctx->funk ) );
+  fd_progcache_txn_attach_child( ctx->progcache_admin, fd_funk_root( ctx->progcache_admin->funk ), fd_funk_last_publish( ctx->funk ) );
+  fd_progcache_txn_advance_root( ctx->progcache_admin, fd_funk_last_publish( ctx->funk ) );
 }
 
 static void
@@ -1211,7 +1220,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "too many skipped ticks %lu for slot %lu, chain must halt", msg->ticks_per_slot+msg->total_skipped_ticks, ctx->next_leader_slot ));
   }
 
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_BECAME_LEADER, ctx->replay_out->chunk, sizeof(fd_became_leader_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_became_leader_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
 
   ctx->next_leader_slot = ULONG_MAX;
@@ -1690,7 +1699,7 @@ funk_publish( fd_replay_tile_t * ctx,
      including the watermark.  This will publish any in-prep ancestors
      of root_txn as well. */
   if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, &xid ) ) ) FD_LOG_CRIT(( "failed to root slot %lu: fd_funk_txn_publish(accdb) failed",     slot ));
-  fd_progcache_txn_publish( ctx->progcache_admin, &xid );
+  fd_progcache_txn_advance_root( ctx->progcache_admin, &xid );
 }
 
 static int
@@ -2133,6 +2142,12 @@ returnable_frag( fd_replay_tile_t *  ctx,
       process_vote_txn_sent( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
+    case IN_KIND_GUI: {
+      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sig );
+      FD_TEST( bank );
+      bank->refcnt--;
+      break;
+    }
     default:
       FD_LOG_ERR(( "unhandled kind %d", ctx->in_kind[ in_idx ] ));
   }
@@ -2351,6 +2366,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "resolv_repla" ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( !strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( !strcmp( link->name, "send_txns"    ) ) ctx->in_kind[ i ] = IN_KIND_VTXN;
+    else if( !strcmp( link->name, "gui_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -2367,6 +2383,8 @@ unprivileged_init( fd_topo_t *      topo,
   exec_out->chunk0 = fd_dcache_compact_chunk0( exec_out->mem, link->dcache );
   exec_out->wmark  = fd_dcache_compact_wmark( exec_out->mem, link->dcache, link->mtu );
   exec_out->chunk  = exec_out->chunk0;
+
+  ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

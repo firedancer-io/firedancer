@@ -1212,11 +1212,9 @@ fd_log_private_boot( int  *   pargc,
     fd_log_private_sig_trap( SIGFPE    );
     fd_log_private_sig_trap( SIGHUP    );
     fd_log_private_sig_trap( SIGILL    );
-    fd_log_private_sig_trap( SIGINT    );
     fd_log_private_sig_trap( SIGQUIT   );
     fd_log_private_sig_trap( SIGPIPE   );
     fd_log_private_sig_trap( SIGSEGV   );
-    fd_log_private_sig_trap( SIGTERM   );
     fd_log_private_sig_trap( SIGUSR1   );
     fd_log_private_sig_trap( SIGUSR2   );
     fd_log_private_sig_trap( SIGBUS    );
@@ -1326,18 +1324,16 @@ fd_log_private_boot_custom( int *        lock,
     (void)backtrace( btrace, 128 );
 
     /* This is all overridable POSIX sigs whose default behavior is to
-      abort the program.  It will backtrace and then fallback to the
-      default behavior. */
+       abort the program.  It will backtrace and then fallback to the
+       default behavior. */
     fd_log_private_sig_trap( SIGABRT   );
     fd_log_private_sig_trap( SIGALRM   );
     fd_log_private_sig_trap( SIGFPE    );
     fd_log_private_sig_trap( SIGHUP    );
     fd_log_private_sig_trap( SIGILL    );
-    fd_log_private_sig_trap( SIGINT    );
     fd_log_private_sig_trap( SIGQUIT   );
     fd_log_private_sig_trap( SIGPIPE   );
     fd_log_private_sig_trap( SIGSEGV   );
-    fd_log_private_sig_trap( SIGTERM   );
     fd_log_private_sig_trap( SIGUSR1   );
     fd_log_private_sig_trap( SIGUSR2   );
     fd_log_private_sig_trap( SIGBUS    );

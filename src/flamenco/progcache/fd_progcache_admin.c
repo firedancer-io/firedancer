@@ -54,9 +54,9 @@ fd_progcache_admin_leave( fd_progcache_admin_t * ljoin,
    txn_map. */
 
 void
-fd_progcache_txn_prepare( fd_progcache_admin_t *    cache,
-                          fd_funk_txn_xid_t const * xid_parent,
-                          fd_funk_txn_xid_t const * xid_new ) {
+fd_progcache_txn_attach_child( fd_progcache_admin_t *    cache,
+                               fd_funk_txn_xid_t const * xid_parent,
+                               fd_funk_txn_xid_t const * xid_new ) {
   fd_funk_txn_prepare( cache->funk, xid_parent, xid_new );
 }
 
@@ -271,41 +271,23 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
 
   fd_rwlock_unwrite( txn->lock );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
+  txn->child_head_cidx = UINT_MAX;
+  txn->child_tail_cidx = UINT_MAX;
   fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
 }
 
-static void
-fd_progcache_txn_publish_parents( fd_progcache_admin_t * cache,
-                                  fd_funk_txn_t *        txn ) {
-  /* Recurse until all of txn's parents are published */
-  fd_funk_t * funk = cache->funk;
-  if( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) {
-    ulong parent_idx = fd_funk_txn_idx( txn->parent_cidx );
-    fd_funk_txn_t * parent = &funk->txn_pool->ele[ parent_idx ];
-    if( FD_UNLIKELY( FD_VOLATILE_CONST( parent->state )!=FD_FUNK_TXN_STATE_PUBLISH ) ) {
-      fd_progcache_txn_publish_parents( cache, parent );
-    }
-  } else {
-    /* Root transaction */
-    ulong idx = (uint)( txn - funk->txn_pool->ele );
-    if( fd_funk_txn_idx( funk->shmem->child_head_cidx )==idx ) {
-      funk->shmem->child_head_cidx = txn->sibling_next_cidx;
-    }
-    if( fd_funk_txn_idx( funk->shmem->child_tail_cidx )==idx ) {
-      funk->shmem->child_tail_cidx = txn->sibling_prev_cidx;
-    }
-  }
-  fd_progcache_txn_publish_one( cache, fd_funk_txn_xid( txn ) );
-}
-
 void
-fd_progcache_txn_publish( fd_progcache_admin_t *    cache,
-                          fd_funk_txn_xid_t const * xid ) {
+fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
+                               fd_funk_txn_xid_t const * xid ) {
   fd_funk_t * funk = cache->funk;
 
   fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
   if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_progcache_txn_advance_root failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+  }
+
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
+    FD_LOG_CRIT(( "fd_progcache_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
   }
 
   fd_progcache_txn_cancel_prev_list( cache, txn );
@@ -324,13 +306,14 @@ fd_progcache_txn_publish( fd_progcache_admin_t *    cache,
       child_idx = fd_funk_txn_idx( funk->txn_pool->ele[ child_idx ].sibling_next_cidx );
     }
   }
-
-  fd_progcache_txn_publish_parents( cache, txn );
-  txn->child_head_cidx   = UINT_MAX;
-  txn->child_tail_cidx   = UINT_MAX;
-  txn->parent_cidx       = UINT_MAX;
   txn->sibling_prev_cidx = UINT_MAX;
   txn->sibling_next_cidx = UINT_MAX;
+
+  /* Children of transaction are now children of root */
+  funk->shmem->child_head_cidx = txn->child_head_cidx;
+  funk->shmem->child_tail_cidx = txn->child_tail_cidx;
+
+  fd_progcache_txn_publish_one( cache, fd_funk_txn_xid( txn ) );
 }
 
 /* reset_txn_list does a depth-first traversal of the txn tree.
