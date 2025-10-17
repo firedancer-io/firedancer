@@ -2887,7 +2887,8 @@ fd_quic_svc_poll( fd_quic_t *      quic,
       }
     } else if( quic->config.keep_alive & !!(conn->let_die_time_ns > now) ) {
       /* send PING */
-      if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
+      if( !( conn->flags & ( FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT ) )
+          && conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
         conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
         conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;     /* update to be sent in next packet */
       }
