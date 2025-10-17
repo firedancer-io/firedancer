@@ -50,6 +50,7 @@ jobs:
 
       - name: test replay ledgers
         run: |
+          sudo $OBJDIR/bin/firedancer-dev configure init keys
           sudo prlimit --pid=$$ --nofile=1048576
           sudo prlimit --pid=$$ --memlock=unlimited
           DUMP_DIR=../dump HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE=false make run-runtime-backtest
