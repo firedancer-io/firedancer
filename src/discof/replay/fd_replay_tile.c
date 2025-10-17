@@ -382,6 +382,11 @@ struct fd_replay_tile {
   } metrics;
 
   uchar __attribute__((aligned(FD_MULTI_EPOCH_LEADERS_ALIGN))) mleaders_mem[ FD_MULTI_EPOCH_LEADERS_FOOTPRINT ];
+
+  /* Vote state credits as of the end of the previous epoch.  This only
+     used at boot to recalculate partitioned epoch rewards if needed and
+     is not updated after. */
+  fd_vote_state_credits_t vote_state_credits[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
 };
 
 typedef struct fd_replay_tile fd_replay_tile_t;
@@ -1125,7 +1130,7 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->capture_ctx );
+  fd_rewards_recalculate_partitioned_rewards( ctx->banks, bank, ctx->funk, &xid, ctx->vote_state_credits, ctx->capture_ctx );
 
   ulong snapshot_slot = fd_bank_slot_get( bank );
   if( FD_UNLIKELY( !snapshot_slot ) ) {
@@ -1458,7 +1463,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
     FD_TEST( bank->idx==0UL );
 
-
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };
 
     fd_features_restore( bank, ctx->funk, &xid );
@@ -1493,7 +1497,10 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) )
         FD_LOG_ERR(( "chunk %lu from in %d corrupt, not in range [%lu,%lu]", chunk, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), ctx->banks, fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ) );
+      fd_ssload_recover( fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ),
+                         ctx->banks,
+                         fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
+                         ctx->vote_state_credits );
       break;
     }
     default: {

@@ -1641,7 +1641,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
 
     uchar const * acc_data = fd_solana_account_data_join( &acc->account );
 
-    if( !memcmp(acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t)) ) {
+    if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* This means that there is a vote account which should be
          inserted into the vote states. Even after the vote account is
          inserted, we still don't know the total amount of stake that is
@@ -1672,7 +1672,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
           stake_state.inner.stake.stake.credits_observed,
           stake_state.inner.stake.stake.delegation.warmup_cooldown_rate );
 
-    } else if( !memcmp(acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t)) ) {
+    } else if( !memcmp( acc->account.owner.key, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* Feature Account */
 
       /* Scan list of feature IDs to resolve address=>feature offset */
@@ -1739,28 +1739,26 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
      TODO: Each of the edge cases around this needs to be documented
      much better where each case is clearly enumerated and explained. */
 
-  fd_vote_states_t const * vote_states_curr = fd_bank_vote_states_locking_query( bank );
-
-  fd_vote_states_t * vote_states_prev_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_prev_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-  fd_vote_states_t * vote_states_prev = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_prev_locking_modify( bank ), FD_RUNTIME_MAX_VOTE_ACCOUNTS, 999UL ) );
-
+  vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ulong i=0UL; i<genesis_block->accounts_len; i++ ) {
     fd_pubkey_account_pair_global_t const * acc = &accounts[ i ];
 
-    uchar const * acc_data = fd_solana_account_data_join( &acc->account );
-
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
-      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states_curr, &acc->key );
-      fd_vote_states_update_from_account( vote_states_prev_prev, &acc->key, acc_data, acc->account.data_len );
-      fd_vote_states_update_from_account( vote_states_prev, &acc->key, acc_data, acc->account.data_len );
-      fd_vote_states_update_stake( vote_states_prev, &acc->key, vote_state->stake );
-      fd_vote_states_update_stake( vote_states_prev_prev, &acc->key, vote_state->stake );
+      fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &acc->key );
+
+      vote_state->stake_t_2 = vote_state->stake;
     }
   }
 
+  fd_vote_states_t * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
+  fd_memcpy( vote_states_prev_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
+
+  fd_vote_states_t * vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
+  fd_memcpy( vote_states_prev, vote_states, FD_VOTE_STATES_FOOTPRINT );
   fd_bank_vote_states_prev_end_locking_modify( bank );
-  fd_bank_vote_states_end_locking_query( bank );
+
+  fd_bank_vote_states_end_locking_modify( bank );
 
   fd_bank_epoch_set( bank, 0UL );
 

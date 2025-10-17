@@ -513,23 +513,6 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
   synthetic_vote_state->authorized_voters.pool  = fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new( authorized_voters_pool_mem, 5UL ) );
   synthetic_vote_state->authorized_voters.treap = fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new( authorized_voters_treap_mem, 5UL ) );
 
-  /* Populate epoch credits */
-  synthetic_vote_state->epoch_credits = deq_fd_vote_epoch_credits_t_join(
-      deq_fd_vote_epoch_credits_t_new(
-          fd_spad_alloc(
-              spad,
-              deq_fd_vote_epoch_credits_t_align(),
-              deq_fd_vote_epoch_credits_t_footprint( EPOCH_CREDITS_MAX ) ),
-          EPOCH_CREDITS_MAX ) );
-  for( ulong i=0UL; i<vote_state->credits_cnt; i++ ) {
-    fd_vote_epoch_credits_t elem = {
-      .credits      = vote_state->credits[i],
-      .prev_credits = vote_state->prev_credits[i],
-      .epoch        = vote_state->epoch[i],
-    };
-    deq_fd_vote_epoch_credits_t_push_tail( synthetic_vote_state->epoch_credits, elem );
-  }
-
   /* Encode the synthetic vote state */
   ulong encoded_sz                          = fd_vote_state_versioned_size( &vsv );
   out_vote_account->vote_account.data       = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( encoded_sz ) );
