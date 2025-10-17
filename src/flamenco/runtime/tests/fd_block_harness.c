@@ -353,9 +353,9 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   xid[0] = fork_xid;
 
   /* Set the initial lthash from the input since we're in a new Funk txn */
-  fd_lthash_value_t lthash;
-  fd_memcpy( &lthash, test_ctx->slot_ctx.parent_lthash, sizeof(fd_lthash_value_t) );
-  fd_bank_lthash_set( bank, lthash );
+  fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
+  fd_memcpy( lthash, test_ctx->slot_ctx.parent_lthash, sizeof(fd_lthash_value_t) );
+  fd_bank_lthash_end_locking_modify( bank );
 
   // Populate blockhash queue and recent blockhashes sysvar
   for( ushort i=0; i<test_ctx->blockhash_queue_count; ++i ) {

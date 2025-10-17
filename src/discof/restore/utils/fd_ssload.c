@@ -109,14 +109,13 @@ fd_ssload_recover( fd_snapshot_manifest_t * manifest,
   if( FD_LIKELY( manifest->has_hashes_per_tick ) ) fd_bank_hashes_per_tick_set( bank, manifest->hashes_per_tick );
   else                                             fd_bank_hashes_per_tick_set( bank, DEFAULT_HASHES_PER_TICK );
 
+  fd_lthash_value_t * lthash = fd_bank_lthash_locking_modify( bank );
   if( FD_LIKELY( manifest->has_accounts_lthash ) ) {
-    fd_lthash_value_t lthash;
-    fd_memcpy( lthash.bytes, manifest->accounts_lthash, 2048UL );
-    fd_bank_lthash_set( bank, lthash );
+    fd_memcpy( lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
   } else {
-    fd_lthash_value_t lthash = {0};
-    fd_bank_lthash_set( bank, lthash );
+    fd_memset( lthash, 0, sizeof(fd_lthash_value_t) );
   }
+  fd_bank_lthash_end_locking_modify( bank );
 
   fd_blockhashes_t * blockhashes = fd_bank_block_hash_queue_modify( bank );
   blockhashes_recover( blockhashes, manifest->blockhashes, manifest->blockhashes_len, 42UL /* TODO */ );
