@@ -102,12 +102,22 @@ fd_ethtool_ioctl_rxfh_set_default( fd_ethtool_ioctl_t * ioc );
    a prefix of queues.  The typical use case is to prevent general
    packets from landing on these queues so ntuple rules can steer
    special packets to them instead.  start_idx is inclusive, so the
-   table will be distributed across [start_idx, num_channels).
+   table will be distributed across [start_idx, queue_cnt).
    Returns nonzero on failure. */
 
 int
 fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
                                   uint                 start_idx );
+
+/* fd_ethtool_ioctl_rxfh_get_queue_cnt gets the maximum number of queues
+   that the RXFH table can indirect to.  Usually, this is equal to the
+   current number of active channels.  However, some devices have further
+   restrictions and not all queues can be used.  Returns nonzero on
+   failure. */
+
+int
+fd_ethtool_ioctl_rxfh_get_queue_cnt( fd_ethtool_ioctl_t * ioc,
+                                     uint *               queue_cnt );
 
 /* fd_ethtool_ioctl_rxfh_get_table writes the current state of the
    RXFH table into the user-supplied table array, which must have space
