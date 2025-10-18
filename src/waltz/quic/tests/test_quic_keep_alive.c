@@ -110,7 +110,7 @@ test_quic_let_die( fd_quic_t * client_quic, fd_quic_t * server_quic ) {
   fd_quic_conn_t * client_conn = test_init( client_quic, server_quic );
 
   long const timestep = client_conn->idle_timeout_ns>>3;
-  fd_quic_conn_let_die( client_conn, timestep );
+  fd_quic_conn_let_die( client_conn, timestep, now );
   walk_timeout_period( client_conn, server_quic, 8 );
   FD_TEST( server_conn->state == FD_QUIC_CONN_STATE_INVALID ||
            server_conn->state == FD_QUIC_CONN_STATE_DEAD );

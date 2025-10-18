@@ -542,7 +542,8 @@ fd_quic_conn_close( fd_quic_conn_t * conn,
 
 FD_QUIC_API void
 fd_quic_conn_let_die( fd_quic_conn_t * conn,
-                      long             keep_alive_duration_ns );
+                      long             keep_alive_duration_ns,
+                      long             now );
 
 /* Service API ********************************************************/
 
