@@ -124,6 +124,7 @@ fd_quic_pkt_meta_lt( const fd_quic_pkt_meta_t * e1,
 /* begin aliasing to abstract data structure */
 typedef fd_quic_pkt_meta_treap_t            fd_quic_pkt_meta_ds_t;
 typedef fd_quic_pkt_meta_treap_fwd_iter_t   fd_quic_pkt_meta_ds_fwd_iter_t;
+typedef fd_quic_pkt_meta_treap_rev_iter_t   fd_quic_pkt_meta_ds_rev_iter_t;
 
 /* fd_quic_pkt_meta_ds_fwd_iter_init is equivalent of ds.begin()
    @arguments:
@@ -171,6 +172,52 @@ fd_quic_pkt_meta_ds_fwd_iter_done( fd_quic_pkt_meta_ds_fwd_iter_t iter ) {
   return fd_quic_pkt_meta_treap_fwd_iter_done( iter );
 }
 
+/* fd_quic_pkt_meta_ds_rev_iter_init is equivalent of ds.end()
+   @arguments:
+   - ds: pointer to the ds
+   - pool: pointer to the backing pool
+   @returns:
+   - beginning iterator */
+static inline fd_quic_pkt_meta_ds_rev_iter_t
+fd_quic_pkt_meta_ds_rev_iter_init( fd_quic_pkt_meta_ds_t * ds,
+                                  fd_quic_pkt_meta_t    * pool ) {
+  return fd_quic_pkt_meta_treap_rev_iter_init( ds, pool );
+}
+
+/* fd_quic_pkt_meta_ds_rev_iter_ele returns pkt_meta* from iter
+   @arguments:
+   - iter: iterator
+   - pool: pointer to the backing pool
+   @returns:
+   - pointer to pkt_meta */
+static inline fd_quic_pkt_meta_t *
+fd_quic_pkt_meta_ds_rev_iter_ele( fd_quic_pkt_meta_ds_rev_iter_t   iter,
+                                  fd_quic_pkt_meta_t             * pool ) {
+  return fd_quic_pkt_meta_treap_rev_iter_ele( iter, pool );
+}
+
+/* fd_quic_pkt_meta_ds_rev_iter_next is equivalent of iter--
+  @arguments:
+  - iter: iterator
+  - pool: pointer to the backing pool
+  @returns:
+  - next iterator */
+static inline fd_quic_pkt_meta_ds_fwd_iter_t
+fd_quic_pkt_meta_ds_rev_iter_next( fd_quic_pkt_meta_ds_rev_iter_t   iter,
+                                  fd_quic_pkt_meta_t             * pool ) {
+  return fd_quic_pkt_meta_treap_rev_iter_next( iter, pool );
+}
+
+/* fd_quic_pkt_meta_ds_rev_iter_done returns boolean
+  @arguments
+  - iter: iterator
+  @returns
+  - non-zero if iterator marks end, 0 otherwise */
+static inline int
+fd_quic_pkt_meta_ds_rev_iter_done( fd_quic_pkt_meta_ds_rev_iter_t iter ) {
+  return fd_quic_pkt_meta_treap_rev_iter_done( iter );
+}
+
 /* fd_quic_pkt_meta_ds_idx_ge returns iterator pointing to first pkt_meta
   whose packet number is >= pkt_number
   @arguments
@@ -190,6 +237,19 @@ fd_quic_pkt_meta_ds_idx_ge( fd_quic_pkt_meta_ds_t * ds,
                                           .stream_id = 0},
                                         pool );
 }
+
+/* fd_quic_pkt_meta_ds_idx_le returns iterator pointing to first pkt_meta
+  whose packet number is <= pkt_number. NOT just simple alias of treap_idx_le
+  @arguments
+  - ds: pointer to the ds
+  - pkt_number: pkt_number to search for
+  - pool: pointer to the backing pool
+  @returns
+  - iterator to last pkt_meta with pkt number <= pkt_number */
+fd_quic_pkt_meta_ds_fwd_iter_t
+fd_quic_pkt_meta_ds_idx_le( fd_quic_pkt_meta_ds_t * ds,
+                            fd_quic_pkt_meta_t    * pool,
+                            ulong                   pkt_number );
 
 /* fd_quic_pkt_meta_ds_ele_cnt returns count of elements in ds */
 static inline ulong
@@ -259,14 +319,14 @@ fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
                                ulong                   pkt_number_hi );
 
 /* fd_quic_pkt_meta_remove removes a single pkt_meta from the ds and returns it to the pool.
-@arguments:
-- ds: pointer to the ds
-- pool: pointer to the backing pool
-- pkt_meta: pointer to the pkt_meta to remove. Assumed non-null */
+  @arguments:
+  - ds: pointer to the ds
+  - pool: pointer to the backing pool
+  - pkt_meta: pointer to the pkt_meta to remove. Assumed non-null */
 void
 fd_quic_pkt_meta_remove( fd_quic_pkt_meta_ds_t * ds,
-                       fd_quic_pkt_meta_t    * pool,
-                       fd_quic_pkt_meta_t    * pkt_meta );
+                         fd_quic_pkt_meta_t    * pool,
+                         fd_quic_pkt_meta_t    * pkt_meta );
 
 /* fd_quic_pkt_meta_min returns pointer to pkt_meta with smallest pkt_number in the ds
   @arguments:

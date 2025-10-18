@@ -120,7 +120,7 @@ main( int     argc,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 1,
     .stream_pool_cnt    = 1,
-    .inflight_frame_cnt   = 128,
+    .inflight_frame_cnt = 128,
   };
   FD_LOG_NOTICE(( "Creating server QUIC (%lu bytes)", fd_quic_footprint( &server_limits ) ));
   fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &server_limits, FD_QUIC_ROLE_SERVER, rng );
@@ -159,10 +159,10 @@ main( int     argc,
   fd_quic_virtual_pair_init( &vp, /*a*/ client_quic, /*b*/ server_quic );
 
   fd_quic_netem_t _netem[1];
+  long _null[1];
   if( loss>=FLT_EPSILON || reorder>=FLT_EPSILON ) {
     FD_LOG_NOTICE(( "Adding client network emulation (loss=%g reorder=%g)", (double)loss, (double)reorder ));
-    fd_quic_netem_t * netem = fd_quic_netem_init( _netem, loss, reorder );
-    /* Inject a netem instance along the path */
+    fd_quic_netem_t * netem = fd_quic_netem_init( _netem, loss, reorder, _null );
     fd_quic_set_aio_net_tx( client_quic, &netem->local );
     netem->dst = vp.aio_a2b;
   }
@@ -178,7 +178,7 @@ main( int     argc,
   FD_TEST( conn_final_cnt==0 );
 
   /* do general processing */
-  for( ulong j = 0; j < 20; j++ ) {
+  for( ulong j=0; j<20; j++ ) {
     FD_LOG_INFO(( "running services" ));
     service_client( client_quic );
     service_server( server_quic );
@@ -191,7 +191,7 @@ main( int     argc,
 
   FD_LOG_DEBUG(( "client_conn->state: %u", client_conn->state ));
 
-  for( ulong j = 0; j < 20; j++ ) {
+  for( ulong j=0; j<20; j++ ) {
     service_client( client_quic );
     service_server( server_quic );
   }
