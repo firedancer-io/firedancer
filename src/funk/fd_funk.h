@@ -126,22 +126,7 @@
    though it wouldn't be space efficient, the shared memory region is
    usable as is as an on-disk checkpoint file).  Or the workspace could
    be resized and what not to handle large needs than when the database
-   was initially created and it all "just works".
-
-   Limited concurrent (multithreaded) access is supported. As a
-   general rule, transaction level operations
-   (e.g. fd_funk_txn_cancel and fd_funk_txn_publish) have to be
-   single-threaded. In this case, no other access is allowed at the
-   same time. Purely record level operations are thread safe and can
-   be arbitrarily interleaved across multiple cpus. Specifically,
-   these are:
-     fd_funk_rec_query_try
-     fd_funk_rec_query_test
-     fd_funk_rec_query_try_global
-     fd_funk_rec_prepare
-     fd_funk_rec_publish
-     fd_funk_rec_cancel
-*/
+   was initially created and it all "just works". */
 
 //#include "fd_funk_base.h" /* Includes ../util/fd_util.h */
 //#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */

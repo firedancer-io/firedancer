@@ -3,6 +3,8 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../ballet/lthash/fd_lthash.h"
 #include "../../ballet/sha256/fd_sha256.h"
+#include "../../flamenco/accdb/fd_accdb_admin.h"
+#include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/fd_hashes.h"
 
@@ -12,10 +14,12 @@
 #include <unistd.h>
 
 #include "generated/fd_genesi_tile_seccomp.h"
+
 struct fd_genesi_tile {
   int fd;
 
-  fd_funk_t funk[1];
+  fd_accdb_admin_t accdb_admin[1];
+  fd_accdb_user_t  accdb[1];
 
   ushort shred_version;
   uchar  genesis_hash[ 32UL ];
@@ -61,8 +65,8 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
   /* Change 'last published' XID to 0 */
   fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
   fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
-  fd_funk_txn_prepare( ctx->funk, &root_xid, &target_xid );
-  fd_funk_txn_publish( ctx->funk, &target_xid );
+  fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
+  fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
 
   fd_genesis_solana_global_t * genesis = fd_type_pun( ctx->genesis );
 
@@ -76,7 +80,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     fd_txn_account_t rec[1];
     int err = fd_txn_account_init_from_funk_mutable( rec,
                                                      &account->key,
-                                                     ctx->funk,
+                                                     ctx->accdb->funk,
                                                      &target_xid,
                                                      1, /* do_create */
                                                      account->account.data_len,
@@ -87,7 +91,7 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     fd_txn_account_set_lamports( rec, account->account.lamports );
     fd_txn_account_set_executable( rec, account->account.executable );
     fd_txn_account_set_owner( rec, &account->account.owner );
-    fd_txn_account_mutable_fini( rec, ctx->funk, &prepare );
+    fd_txn_account_mutable_fini( rec, ctx->accdb->funk, &prepare );
 
     fd_lthash_value_t new_hash[1];
     fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), new_hash );
@@ -222,7 +226,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_genesi_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_genesi_tile_t ), sizeof( fd_genesi_tile_t ) );
 
-  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->genesi.funk_obj_id ) ) );
 
   fd_lthash_zero( ctx->lthash );
 

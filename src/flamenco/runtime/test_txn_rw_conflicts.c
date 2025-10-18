@@ -3,6 +3,7 @@
 #include "fd_runtime_err.h"
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
+#include "../accdb/fd_accdb_admin.h"
 
 fd_features_t features;
 
@@ -354,12 +355,12 @@ main( int     argc,
   fd_conflict_detect_ele_t * acct_map = fd_conflict_detect_map_join( fd_conflict_detect_map_new( acct_map_mem, lg_max_naccts ) );
   fd_acct_addr_t *  acct_arr = acct_arr_mem;
   FD_TEST( fd_funk_new( funk_mem, tag, seed, txn_max, rec_max ) );
-  fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, funk_mem ) );
+  fd_accdb_admin_t accdb_admin[1];
+  FD_TEST( fd_accdb_admin_join( accdb_admin, funk_mem ) );
 
   fd_funk_txn_xid_t xid = {.ul={ slot+1, slot+1 }};
-  fd_funk_txn_xid_t const * last_publish_xid = fd_funk_last_publish( funk );
-  fd_funk_txn_prepare( funk, last_publish_xid, &xid );
+  fd_funk_txn_xid_t const * last_publish_xid = fd_funk_last_publish( accdb_admin->funk );
+  fd_accdb_attach_child( accdb_admin, last_publish_xid, &xid );
 
   /**********************************************************************/
   /* Unit test without address lookup tables                            */
@@ -373,12 +374,13 @@ main( int     argc,
   /* Unit test with address lookup tables                               */
   /**********************************************************************/
 
+  fd_funk_t * funk = accdb_admin->funk;
   test_no_conflict_alt( funk, &xid, acct_map, acct_arr );
   test_read_write_conflict_alt( funk, &xid, acct_map, acct_arr );
   test_write_write_conflict_alt( funk, &xid, acct_map, acct_arr );
   test_read_write_conflict_alt_sentinel( funk, &xid, acct_map, acct_arr );
 
-  fd_funk_leave( funk, NULL );
+  fd_accdb_admin_leave( accdb_admin, NULL );
   fd_wksp_free_laddr( acct_arr_mem );
   fd_wksp_free_laddr( acct_map_mem );
   fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );

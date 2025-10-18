@@ -37,7 +37,8 @@ typedef struct test_ctx {
   fd_wksp_t * wksp;
 
   /* Funk (account database) */
-  fd_funk_t funk[1];
+  fd_accdb_admin_t accdb_admin[1];
+  fd_accdb_user_t  accdb[1];
 
   /* Funk transactions */
   fd_funk_txn_xid_t parent_xid;  /* Parent funk txn (slot 99, parent_bank->idx) */
@@ -84,7 +85,8 @@ test_ctx_setup( void ) {
   /* Initialize funk */
   void * shfunk = fd_funk_new( funk_mem, wksp_tag, 42UL, TEST_FUNK_TXN_MAX, TEST_FUNK_REC_MAX );
   FD_TEST( shfunk );
-  FD_TEST( fd_funk_join( test_ctx->funk, funk_mem ) );
+  FD_TEST( fd_accdb_admin_join( test_ctx->accdb_admin, funk_mem ) );
+  FD_TEST( fd_accdb_user_join ( test_ctx->accdb,       funk_mem ) );
 
   /* Allocate memory for banks */
   ulong  banks_footprint = fd_banks_footprint( TEST_BANK_MAX, TEST_FORK_MAX );
@@ -179,8 +181,9 @@ test_ctx_teardown( test_ctx_t * test_ctx ) {
   fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( test_ctx->banks ) ) );
 
   /* Clean up funk */
+  fd_accdb_user_leave( test_ctx->accdb, NULL );
   void * shfunk = NULL;
-  fd_funk_leave( test_ctx->funk, &shfunk );
+  fd_accdb_admin_leave( test_ctx->accdb_admin, &shfunk );
   if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
 
   /* Delete test context */
@@ -357,7 +360,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   ulong child_slot  = input_ctx.slot_ctx.slot;
 
   /* Cancel existing funk transactions from the previous test */
-  fd_funk_txn_cancel_all( test_ctx->funk );
+  fd_funk_txn_cancel_all( test_ctx->accdb_admin->funk );
 
   /* Reuse existing parent bank */
   FD_TEST( test_ctx->parent_bank != NULL );
@@ -476,10 +479,10 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   test_ctx->parent_xid.ul[1] = test_ctx->parent_bank->idx;
   fd_funk_txn_xid_t root_xid;
   fd_funk_txn_xid_set_root( &root_xid );
-  fd_funk_txn_prepare( test_ctx->funk, &root_xid, &test_ctx->parent_xid );
+  fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
 
   /* Load accounts into Funk */
-  load_accounts_from_proto( test_ctx->funk, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
+  load_accounts_from_proto( test_ctx->accdb->funk, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
 
   /* Initialize and populate stake delegations cache from accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );
@@ -493,10 +496,10 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
 
     /* Register vote account in current epoch */
-    register_vote_account_from_funk( test_ctx->funk, &test_ctx->parent_xid, vote_states_current, &pubkey, test_ctx->spad );
+    register_vote_account_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, vote_states_current, &pubkey, test_ctx->spad );
 
     /* Register stake delegation */
-    register_stake_delegation_from_funk( test_ctx->funk, &test_ctx->parent_xid, stake_delegations, &pubkey );
+    register_stake_delegation_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, stake_delegations, &pubkey );
   }
 
   fd_bank_vote_states_end_locking_modify( test_ctx->parent_bank );
@@ -516,7 +519,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   /* Create child funk transaction */
   test_ctx->child_xid.ul[0] = child_slot;
   test_ctx->child_xid.ul[1] = test_ctx->child_bank->idx;
-  fd_funk_txn_prepare( test_ctx->funk, &test_ctx->parent_xid, &test_ctx->child_xid );
+  fd_accdb_attach_child( test_ctx->accdb_admin, &test_ctx->parent_xid, &test_ctx->child_xid );
 
   /* Reset dump context and collect transactions */
   fd_block_dump_context_reset( test_ctx->dump_ctx );
@@ -548,7 +551,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
       test_ctx->dump_ctx,
       test_ctx->banks,
       test_ctx->child_bank,
-      test_ctx->funk,
+      test_ctx->accdb->funk,
       test_ctx->capture_ctx
   );
 

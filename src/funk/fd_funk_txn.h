@@ -341,60 +341,11 @@ fd_funk_txn_prepare( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * parent,
                      fd_funk_txn_xid_t const * xid );
 
-/* fd_funk_txn_cancel cancels in-preparation transaction txn and any of
-   its in-preparation descendants.  On success, returns the number of
-   transactions cancelled and 0 on failure.  The state of records in the
-   cancelled transactions will be lost and all resources used under the
-   hood are available for reuse.  If this makes the txn's parent
-   childless, this will unfreeze the parent.
-
-   fd_funk_txn_cancel_children cancels txn's children and their
-   descendants.  If txn is NULL, all children of funk will be cancelled
-   (such that the number of transactions in preparation afterward will
-   be zero).
-
-   Cancellations proceed from youngest to oldest in a tree depth first
-   sense.
-
-   These are a reasonably fast O(number of cancelled transactions) time
-   (the theoretical minimum), reasonably small O(1) space (the
-   theoretical minimum), does no allocation, does no system calls, and
-   produces no garbage to collect (at this layer at least).  That is, we
-   can scalably track forks until we run out of resources allocated to
-   the funk. */
-
-ulong
-fd_funk_txn_cancel( fd_funk_t *               funk,
-                    fd_funk_txn_xid_t const * xid );
-
 /* fd_funk_txn_cancel_all cancels all in-preparation
    transactions. Only the last published transaction remains. */
 
 ulong
 fd_funk_txn_cancel_all( fd_funk_t * funk );
-
-/* fd_funk_txn_publish publishes in-preparation transaction txn and any
-   of txn's in-preparation ancestors.  Returns the number of
-   transactions published.  Any competing histories to this chain will
-   be cancelled.
-
-   This is a reasonably fast O(number of published transactions) +
-   O(number of cancelled transactions) time (theoretical minimum),
-   reasonably small O(1) space (theoretical minimum), does no allocation
-   does no system calls, and produces no garbage to collect (at this
-   layer at least).  That is, we can scalably track forks until we run
-   out of resources allocated to the funk. */
-
-ulong
-fd_funk_txn_publish( fd_funk_t *               funk,
-                     fd_funk_txn_xid_t const * xid );
-
-/* This version of publish just combines the transaction with its
-   immediate parent. Ancestors will remain unpublished. Any competing
-   histories (siblings of the given transaction) are still cancelled. */
-void
-fd_funk_txn_publish_into_parent( fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * xid );
 
 /* fd_funk_txn_remove_published removes all published transactions.
    Funk instance must not have any funk transactions in preparation.
@@ -413,12 +364,6 @@ fd_funk_txn_remove_published( fd_funk_t * funk );
 
 int
 fd_funk_txn_verify( fd_funk_t * funk );
-
-/* fd_funk_txn_valid returns true if txn appears to be a pointer to
-   a valid in-prep transaction. */
-
-int
-fd_funk_txn_valid( fd_funk_t const * funk, fd_funk_txn_t const * txn );
 
 FD_FN_UNUSED static char const *
 fd_funk_txn_state_str( uint state ) {
