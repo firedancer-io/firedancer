@@ -62,8 +62,7 @@ test_env_create( fd_wksp_t * wksp ) {
 
 static void
 test_env_destroy( test_env_t * env ) {
-  fd_progcache_verify_stat_t stat[1];
-  fd_progcache_verify( env->progcache_admin, stat );
+  fd_progcache_verify( env->progcache_admin );
 
   void * accdb_mem = NULL;
   FD_TEST( fd_progcache_admin_leave( env->progcache_admin, &accdb_mem ) );

@@ -1,6 +1,7 @@
 #include "fd_runtime.h"
 #include "context/fd_capture_ctx.h"
 #include "fd_acc_mgr.h"
+#include "fd_alut_interp.h"
 #include "fd_bank.h"
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
@@ -21,9 +22,6 @@
 
 #include "program/fd_stake_program.h"
 #include "program/fd_builtin_programs.h"
-#include "program/fd_vote_program.h"
-#include "program/fd_bpf_loader_program.h"
-#include "program/fd_address_lookup_table_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_last_restart_slot.h"
@@ -469,95 +467,35 @@ fd_runtime_load_txn_address_lookup_tables(
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
-  ulong            readonly_lut_accs_cnt = 0UL;
-  ulong            writable_lut_accs_cnt = 0UL;
-  fd_acct_addr_t * readonly_lut_accs     = out_accts_alt+txn->addr_table_adtl_writable_cnt;
+  fd_alut_interp_t interp[1];
+  fd_alut_interp_new(
+      interp,
+      out_accts_alt,
+      txn,
+      payload,
+      hashes,
+      slot );
+
   fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
   for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
-    fd_txn_acct_addr_lut_t const * addr_lut  = &addr_luts[i];
-    fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(payload + addr_lut->addr_off);
+    fd_txn_acct_addr_lut_t const * addr_lut = &addr_luts[i];
+    fd_pubkey_t addr_lut_acc = FD_LOAD( fd_pubkey_t, payload+addr_lut->addr_off );
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
     fd_txn_account_t addr_lut_rec[1];
-    int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec,
-                                                      addr_lut_acc,
-                                                      funk,
-                                                      xid );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    int db_err = fd_txn_account_init_from_funk_readonly(
+        addr_lut_rec, &addr_lut_acc, funk,  xid );
+    if( FD_UNLIKELY( db_err!=FD_ACC_MGR_SUCCESS ) ) {
       return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
-    if( FD_UNLIKELY( memcmp( fd_txn_account_get_owner( addr_lut_rec ), fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
-    }
-
-    /* Realistically impossible case, but need to make sure we don't cause an OOB data access
-       https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
-    if( FD_UNLIKELY( fd_txn_account_get_data_len( addr_lut_rec ) < FD_LOOKUP_TABLE_META_SIZE ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
-    fd_bincode_decode_ctx_t decode_ctx = {
-      .data    = fd_txn_account_get_data( addr_lut_rec ),
-      .dataend = &fd_txn_account_get_data( addr_lut_rec )[FD_LOOKUP_TABLE_META_SIZE]
-    };
-
-    ulong total_sz = 0UL;
-    err = fd_address_lookup_table_state_decode_footprint( &decode_ctx, &total_sz );
-    if( FD_UNLIKELY( err ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
-    fd_address_lookup_table_state_t table[1];
-    fd_address_lookup_table_state_t * addr_lookup_table_state = fd_address_lookup_table_state_decode( table, &decode_ctx );
-
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
-    if( FD_UNLIKELY( addr_lookup_table_state->discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-    }
-
-    /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
-       https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
-    if( FD_UNLIKELY( (fd_txn_account_get_data_len( addr_lut_rec ) - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
-    fd_acct_addr_t * lookup_addrs     = (fd_acct_addr_t *)&fd_txn_account_get_data( addr_lut_rec )[FD_LOOKUP_TABLE_META_SIZE];
-    ulong            lookup_addrs_cnt = (fd_txn_account_get_data_len( addr_lut_rec ) - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
-
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
-    ulong active_addresses_len;
-    err = fd_get_active_addresses_len( &addr_lookup_table_state->inner.lookup_table,
-                                       slot,
-                                       hashes,
-                                       lookup_addrs_cnt,
-                                       &active_addresses_len );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L169-L182 */
-    uchar * writable_lut_idxs = (uchar *)payload + addr_lut->writable_off;
-    for( ulong j=0UL; j<addr_lut->writable_cnt; j++ ) {
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
-      if( writable_lut_idxs[j] >= active_addresses_len ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
-      }
-      out_accts_alt[writable_lut_accs_cnt++] = lookup_addrs[writable_lut_idxs[j]];
-    }
-
-    uchar * readonly_lut_idxs = (uchar *)payload + addr_lut->readonly_off;
-    for( ulong j=0UL; j<addr_lut->readonly_cnt; j++ ) {
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
-      if( readonly_lut_idxs[j] >= active_addresses_len ) {
-        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
-      }
-      readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
-    }
+    int err = fd_alut_interp_next(
+        interp,
+        &addr_lut_acc,
+        fd_txn_account_get_owner   ( addr_lut_rec ),
+        fd_txn_account_get_data    ( addr_lut_rec ),
+        fd_txn_account_get_data_len( addr_lut_rec ) );
+    if( FD_UNLIKELY( err ) ) return err;
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;

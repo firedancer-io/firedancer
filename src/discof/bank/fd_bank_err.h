@@ -59,24 +59,4 @@ fd_bank_err_from_runtime_err( int err ) {
     return 0;
 }
 
-#define FD_BANK_LUT_ERR_SUCCESS                            ( 0)
-#define FD_BANK_LUT_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND     (-1)
-#define FD_BANK_LUT_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER (-2)
-#define FD_BANK_LUT_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA  (-3)
-#define FD_BANK_LUT_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX (-5)
-
-#define FD_BANK_LUT_ERR_LAST                               (-5)
-
-static inline int
-fd_bank_lut_err_from_runtime_err( int err ) {
-   switch( err ) {
-      case FD_RUNTIME_EXECUTE_SUCCESS:                            return FD_BANK_LUT_ERR_SUCCESS;
-      case FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND:     return FD_BANK_LUT_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
-      case FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER: return FD_BANK_LUT_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
-      case FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA:  return FD_BANK_LUT_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
-      case FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX: return FD_BANK_LUT_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
-      default: FD_LOG_ERR(( "Unknown runtime LUT error %d", err ));
-   }
-}
-
 #endif /* HEADER_fd_src_discof_bank_fd_bank_err_h */

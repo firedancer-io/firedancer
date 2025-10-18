@@ -50,7 +50,13 @@
 #define FD_METRICS_COUNTER_RESOLF_TRANSACTION_BUNDLE_PEER_FAILURE_DESC "Count of transactions that failed to resolve because a peer transaction in the bundle failed"
 #define FD_METRICS_COUNTER_RESOLF_TRANSACTION_BUNDLE_PEER_FAILURE_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_RESOLF_TOTAL (13UL)
+#define FD_METRICS_COUNTER_RESOLF_DB_RACES_OFF  (29UL)
+#define FD_METRICS_COUNTER_RESOLF_DB_RACES_NAME "resolf_db_races"
+#define FD_METRICS_COUNTER_RESOLF_DB_RACES_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_RESOLF_DB_RACES_DESC "Number of database races encountered (diagnostic counter, not indicative of issues)"
+#define FD_METRICS_COUNTER_RESOLF_DB_RACES_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_RESOLF_TOTAL (14UL)
 extern const fd_metrics_meta_t FD_METRICS_RESOLF[FD_METRICS_RESOLF_TOTAL];
 
 #endif /* HEADER_fd_src_disco_metrics_generated_fd_metrics_resolf_h */

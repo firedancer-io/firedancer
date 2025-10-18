@@ -363,6 +363,8 @@ fd_progcache_push( fd_progcache_t * cache,
   /* Phase 1: Determine record's xid-key pair */
 
   rec->tag = 0;
+  rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+  rec->next_idx = FD_FUNK_REC_IDX_NULL;
   memcpy( rec->pair.key, prog_addr, 32UL );
   if( FD_UNLIKELY( txn ) ) {
     fd_funk_txn_xid_copy( rec->pair.xid, &txn->xid );

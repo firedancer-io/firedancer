@@ -360,7 +360,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   ulong child_slot  = input_ctx.slot_ctx.slot;
 
   /* Cancel existing funk transactions from the previous test */
-  fd_funk_txn_cancel_all( test_ctx->accdb_admin->funk );
+  fd_accdb_clear( test_ctx->accdb_admin );
 
   /* Reuse existing parent bank */
   FD_TEST( test_ctx->parent_bank != NULL );

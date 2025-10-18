@@ -385,11 +385,19 @@ fd_funk_rec_publish( fd_funk_t *             funk,
 void
 fd_funk_rec_cancel( fd_funk_t *             funk,
                     fd_funk_rec_prepare_t * prepare ) {
-  prepare->rec->map_next = FD_FUNK_REC_IDX_NULL;
-  memset( &prepare->rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+  fd_funk_rec_t * rec = prepare->rec;
+  rec->map_next  = FD_FUNK_REC_IDX_NULL;
+  rec->next_idx  = FD_FUNK_REC_IDX_NULL;
+  rec->prev_idx  = FD_FUNK_REC_IDX_NULL;
+  rec->val_sz    = 0;
+  rec->val_max   = 0;
+  rec->tag       = 0;
+  rec->val_gaddr = 0UL;
+  memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
   FD_COMPILER_MFENCE();
-  fd_funk_val_flush( prepare->rec, funk->alloc, funk->wksp );
-  fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
+  memset( prepare, 0, sizeof(fd_funk_rec_prepare_t) );
 }
 
 fd_funk_rec_t *
@@ -501,7 +509,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         TEST( (rec_idx<rec_max) && !rec_pool->ele[ rec_idx ].tag );
         rec_pool->ele[ rec_idx ].tag = 1;
         fd_funk_rec_query_t query[1];
-        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, &txn->xid, rec_pool->ele[ rec_idx ].pair.key, NULL, query );
+        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try( funk, &txn->xid, rec_pool->ele[ rec_idx ].pair.key, query );
         TEST( rec2 == rec_pool->ele + rec_idx );
         uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );

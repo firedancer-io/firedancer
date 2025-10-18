@@ -620,7 +620,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       if( ctx->full ) {
-        fd_funk_txn_remove_published( funk );
+        fd_accdb_clear( ctx->accdb_admin );
       } else {
         fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
         fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( funk ) );
@@ -637,7 +637,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
+      fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
       fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
       fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
       break;

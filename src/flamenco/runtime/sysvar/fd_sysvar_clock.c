@@ -94,7 +94,7 @@ fd_sysvar_clock_read( fd_funk_t *               funk,
       sol_sysvar_clock, clock,
       fd_txn_account_get_data( acc ),
       fd_txn_account_get_data_len( acc ),
-      &err );
+      NULL );
 }
 
 void
