@@ -108,6 +108,9 @@ typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
 #define SLIST_IMPL_STYLE 1
 #include "../../util/tmpl/fd_slist.c"
 
+#define SET_NAME descends_set
+#include "../../util/tmpl/fd_set_dynamic.c"
+
 struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_private {
   /* The txncache is a concurrent structure and will be accessed by multiple threads
      concurrently.  Insertion and querying only take a read lock as they can be done
