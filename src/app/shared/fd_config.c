@@ -12,6 +12,7 @@
 #include <stdlib.h> /* strtoul */
 #include <sys/utsname.h>
 #include <sys/mman.h>
+#include <time.h>
 
 /* TODO: Rewrite this ... */
 
@@ -242,6 +243,22 @@ fd_config_fill_net( fd_config_t * config ) {
   }
 }
 
+/* rfc3339_timestamp returns a RFC 3339 timestamp, millisecond resolution,
+   per https://datatracker.ietf.org/doc/html/rfc3339#section-5. */
+
+const char *
+rfc3339_timestamp( long nanos ) {
+    static char ts[26];
+    char        buf[20];
+    long        seconds = nanos / (long) 1e9;
+    long        millis = (long) ( nanos / (long) 1e6 ) % (long) 1e3;
+
+    strftime( buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", gmtime( &seconds ) );
+    snprintf( ts, sizeof(ts), "%s.%03ldZ", buf, millis );
+
+    return ts;
+}
+
 void
 fd_config_fill( fd_config_t * config,
                 int           netns,
@@ -300,6 +317,8 @@ fd_config_fill( fd_config_t * config,
 
   replace( config->log.path, "{user}", config->user );
   replace( config->log.path, "{name}", config->name );
+  /* Useful for per-invocation logfiles (not useful for other items). */
+  replace( config->log.path, "{timestamp}", rfc3339_timestamp( config->boot_timestamp_nanos ) );
 
   if( FD_LIKELY( !strcmp( "auto", config->log.colorize ) ) )       config->log.colorize1 = 2;
   else if( FD_LIKELY( !strcmp( "true", config->log.colorize ) ) )  config->log.colorize1 = 1;
