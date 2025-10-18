@@ -6,8 +6,9 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/accdb/fd_accdb_admin.h"
+#include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
-#include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
@@ -67,7 +68,9 @@ struct fd_snapin_tile {
   ulong seed;
   long boot_timestamp;
 
-  fd_funk_t       funk[1];
+  fd_accdb_admin_t accdb_admin[1];
+  fd_accdb_user_t  accdb[1];
+
   fd_txncache_t * txncache;
   uchar *         acc_data;
 
@@ -426,19 +429,21 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 static void
 process_account_header( fd_snapin_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
+  fd_funk_t * funk = ctx->accdb->funk;
+
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t const*)result->account_header.pubkey );
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, ctx->xid, &id, query );
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
     should_publish = 1;
-    rec = fd_funk_rec_prepare( ctx->funk, ctx->xid, &id, prepare, NULL );
+    rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, NULL );
     FD_TEST( rec );
   }
 
-  fd_account_meta_t * meta = fd_funk_val( rec, ctx->funk->wksp );
+  fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
   if( FD_UNLIKELY( meta ) ) {
     if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
       ctx->acc_data = NULL;
@@ -451,13 +456,13 @@ process_account_header( fd_snapin_tile_t *            ctx,
   }
 
   /* Allocate data space from heap, free old value (if any) */
-  fd_funk_val_flush( rec, ctx->funk->alloc, ctx->funk->wksp );
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
   ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
   ulong       alloc_max;
-  meta = fd_alloc_malloc_at_least( ctx->funk->alloc, 16UL, alloc_sz, &alloc_max );
+  meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
   if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
   memset( meta, 0, sizeof(fd_account_meta_t) );
-  rec->val_gaddr = fd_wksp_gaddr_fast( ctx->funk->wksp, meta );
+  rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
   rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
 
@@ -470,7 +475,7 @@ process_account_header( fd_snapin_tile_t *            ctx,
   ctx->acc_data = (uchar*)meta + sizeof(fd_account_meta_t);
   ctx->metrics.accounts_inserted++;
 
-  if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( ctx->funk, prepare );
+  if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( funk, prepare );
 }
 
 static void
@@ -592,6 +597,7 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
+  fd_funk_t * funk = ctx->accdb->funk;
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
@@ -614,10 +620,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       if( ctx->full ) {
-        fd_funk_txn_remove_published( ctx->funk );
+        fd_funk_txn_remove_published( funk );
       } else {
-        fd_funk_txn_cancel( ctx->funk, ctx->xid );
-        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
+        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( funk ) );
       }
       break;
 
@@ -632,7 +638,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
-      fd_funk_txn_prepare( ctx->funk, ctx->xid, &incremental_xid );
+      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
       fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
       break;
     }
@@ -648,7 +654,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       uchar slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk, ctx->xid, slot_history_mem );
+      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( funk, ctx->xid, slot_history_mem );
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx, slot_history ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed" ));
         transition_malformed( ctx, stem );
@@ -656,15 +662,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Publish any remaining funk txn */
-      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
-        fd_funk_txn_publish_into_parent( ctx->funk, ctx->xid );
+      if( FD_LIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
+        fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
+      FD_TEST( !fd_funk_last_publish_is_frozen( funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
-      fd_funk_txn_prepare( ctx->funk, ctx->xid, &target_xid );
-      fd_funk_txn_publish_into_parent( ctx->funk, &target_xid );
+      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
+      fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
       fd_stem_publish( stem, FD_SNAPIN_OUT_MANIFEST, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -768,8 +774,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->boot_timestamp = fd_log_wallclock();
 
-  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  fd_funk_txn_xid_set_root( ctx->xid );
+  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

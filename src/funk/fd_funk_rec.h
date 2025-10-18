@@ -79,6 +79,8 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*FD_FUNK_REC_ALIGN, record size is 
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
 #define MAP_IMPL_STYLE        1
+#define FD_FUNK_REC_MAP_CNT_WIDTH 43
+#define MAP_CNT_WIDTH         FD_FUNK_REC_MAP_CNT_WIDTH
 #include "../util/tmpl/fd_map_chain_para.c"
 
 typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
