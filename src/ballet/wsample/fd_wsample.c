@@ -140,7 +140,7 @@ struct __attribute__((aligned(64UL))) fd_wsample_private {
      but before any deletion so that restoring deleted elements can be
      implemented as a memcpy.
 
-     The tree iteself is surrounded by two dummy elements, dummy, and
+     The tree itself is surrounded by two dummy elements, dummy, and
      tree[internal_node_cnt], that aren't actually used.  This is
      because searching the tree branchlessly involves some out of bounds
      reads, and although the value is immediately discarded, it's better
