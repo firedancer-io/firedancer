@@ -3,8 +3,14 @@
 
 #include "../../funk/fd_funk.h"
 
+#define FD_ACCDB_DEPTH_MAX (128UL)
+
 struct fd_accdb_user {
   fd_funk_t funk[1];
+
+  /* Current fork cache */
+  fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
+  ulong             fork_depth;
 };
 
 typedef struct fd_accdb_user fd_accdb_user_t;
