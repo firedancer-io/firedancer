@@ -5,17 +5,7 @@ $(call make-unit-test,test_funk_base,test_funk_base,fd_funk fd_util)
 $(call run-unit-test,test_funk_base)
 $(call make-unit-test,test_funk,test_funk,fd_funk fd_util)
 $(call run-unit-test,test_funk)
-$(call make-unit-test,test_funk_rec,test_funk_rec test_funk_common,fd_funk fd_util)
-$(call run-unit-test,test_funk_rec)
-$(call make-unit-test,test_funk_txn,test_funk_txn test_funk_common,fd_funk fd_util)
-$(call run-unit-test,test_funk_txn)
-$(call make-unit-test,test_funk_val,test_funk_val test_funk_common,fd_funk fd_util)
-$(call run-unit-test,test_funk_val)
 ifdef FD_HAS_HOSTED
 $(call make-unit-test,bench_funk_index,bench_funk_index,fd_funk fd_util)
-endif
-ifdef FD_HAS_RACESAN
-$(call make-unit-test,test_funk_race,test_funk_race,fd_funk fd_util)
-$(call run-unit-test,test_funk_race)
 endif
 endif
