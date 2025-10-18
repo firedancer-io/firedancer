@@ -194,6 +194,7 @@ fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
     fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
     head = next;
+    /* FIXME Garbage collect tombstones here */
   }
 }
 
