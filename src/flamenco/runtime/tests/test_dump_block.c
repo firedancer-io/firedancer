@@ -419,11 +419,11 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
       fd_pubkey_t vote_address;
       fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
 
-      fd_vote_states_update_from_account( vote_states_prev,
-                                         &vote_address,
-                                         vote_acct->vote_account.data->bytes,
-                                         vote_acct->vote_account.data->size );
-      fd_vote_states_update_stake( vote_states_prev, &vote_address, vote_acct->stake );
+      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_update_from_account( vote_states_prev,
+                                                                                 &vote_address,
+                                                                                 vote_acct->vote_account.data->bytes,
+                                                                                 vote_acct->vote_account.data->size );
+      vote_state_ele->stake = vote_acct->stake;
     }
 
     fd_bank_vote_states_prev_end_locking_modify( test_ctx->parent_bank );
@@ -440,11 +440,11 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
       fd_pubkey_t vote_address;
       fd_memcpy( &vote_address, vote_acct->vote_account.address, sizeof(fd_pubkey_t) );
 
-      fd_vote_states_update_from_account( vote_states_prev_prev,
-                                         &vote_address,
-                                         vote_acct->vote_account.data->bytes,
-                                         vote_acct->vote_account.data->size );
-      fd_vote_states_update_stake( vote_states_prev_prev, &vote_address, vote_acct->stake );
+      fd_vote_state_ele_t * vote_state_ele = fd_vote_states_update_from_account( vote_states_prev_prev,
+                                                                                 &vote_address,
+                                                                                 vote_acct->vote_account.data->bytes,
+                                                                                 vote_acct->vote_account.data->size );
+      vote_state_ele->stake = vote_acct->stake;
     }
 
     fd_bank_vote_states_prev_prev_end_locking_modify( test_ctx->parent_bank );

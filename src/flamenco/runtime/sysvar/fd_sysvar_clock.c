@@ -152,8 +152,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
      a stake weighted median using the stake as of the end of epoch E-2
      if we are currently in epoch E. We do not count vote accounts that
      have not voted in an epoch's worth of slots (432k). */
-  fd_vote_states_t const * vote_states           = fd_bank_vote_states_locking_query( bank );
-  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
 
   FD_TEST( fd_vote_states_cnt( vote_states )<=FD_RUNTIME_MAX_VOTE_ACCOUNTS );
 
@@ -172,9 +171,7 @@ get_timestamp_estimate( fd_bank_t *             bank,
       continue;
     }
 
-    /* TODO: This should be pre-cached so we don't do map lookup here */
-    fd_vote_state_ele_t const * vote_state_prev = fd_vote_states_query_const( vote_states_prev_prev, &vote_state->vote_account );
-    if( FD_UNLIKELY( !vote_state_prev ) ) {
+    if( FD_UNLIKELY( !vote_state->stake_t_2 ) ) {
       /* Don't count vote accounts that didn't have stake at the end of
          epoch E-2. */
       continue;
@@ -200,15 +197,14 @@ get_timestamp_estimate( fd_bank_t *             bank,
        https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L46-L53 */
     ts_eles[ ts_ele_cnt ] = (ts_est_ele_t){
       .timestamp = estimate,
-      .stake     = vote_state_prev->stake,
+      .stake     = vote_state->stake_t_2,
     };
     ts_ele_cnt++;
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L54 */
-    total_stake += vote_state_prev->stake;
+    total_stake += vote_state->stake_t_2;
   }
   fd_bank_vote_states_end_locking_query( bank );
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L56-L58 */
   if( FD_UNLIKELY( total_stake==0UL ) ) {

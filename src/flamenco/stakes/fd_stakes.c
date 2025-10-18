@@ -27,7 +27,8 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 
 /* We need to update the amount of stake that each vote account has for
    the given epoch.  This can only be done after the stake history
-   sysvar has been updated.
+   sysvar has been updated.  We also cache the stakes for each of the
+   vote accounts for the previous epoch.
 
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L471 */
 void
@@ -78,6 +79,24 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
+  /* This corresponding logic does not exist in the Agave client.  The
+     stakes from epoch T-2 are cached in the vote states struct in order
+     to make clock calulations more efficient.  This is purely an
+     optimization. */
+
+  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+
+  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+    fd_vote_states_iter_t vs_iter_[1];
+    for( fd_vote_states_iter_t * vs_iter = fd_vote_states_iter_init( vs_iter_, vote_states );
+        !fd_vote_states_iter_done( vs_iter );
+        fd_vote_states_iter_next( vs_iter ) ) {
+      fd_vote_state_ele_t * vote_state      = fd_vote_states_iter_ele( vs_iter );
+      fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_states_prev, &vote_state->vote_account );
+      vote_state->stake_t_2 = !!vote_state_prev ? vote_state_prev->stake : 0UL;
+    }
+  }
+  fd_bank_vote_states_prev_prev_end_locking_query( bank );
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
