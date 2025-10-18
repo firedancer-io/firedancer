@@ -104,7 +104,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !shfunk   ) ) goto bail1;
   if( FD_UNLIKELY( !shpcache ) ) goto bail1;
 
-  if( FD_UNLIKELY( !fd_funk_join( runner->funk, funk_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_admin_join( runner->accdb_admin, funk_mem ) ) ) goto bail2;
+  if( FD_UNLIKELY( !fd_accdb_user_join ( runner->accdb,       funk_mem ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
 
@@ -141,9 +142,17 @@ bail1:
 
 void
 fd_solfuzz_runner_delete( fd_solfuzz_runner_t * runner ) {
+
+  fd_accdb_user_leave( runner->accdb, NULL );
   void * shfunk = NULL;
-  fd_funk_leave( runner->funk, &shfunk );
-  if( shfunk        ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+  fd_accdb_admin_leave( runner->accdb_admin, &shfunk );
+  if( shfunk ) fd_wksp_free_laddr( fd_funk_delete( shfunk ) );
+
+  fd_progcache_leave( runner->progcache, NULL );
+  void * shpcache = NULL;
+  fd_progcache_admin_leave( runner->progcache_admin, &shpcache );
+  if( shpcache ) fd_wksp_free_laddr( fd_funk_delete( shpcache ) );
+
   if( runner->spad  ) fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( runner->spad ) ) );
   if( runner->banks ) fd_wksp_free_laddr( fd_banks_delete( fd_banks_leave( runner->banks ) ) );
   fd_wksp_free_laddr( runner );
@@ -155,7 +164,7 @@ fd_solfuzz_runner_leak_check( fd_solfuzz_runner_t * runner ) {
     FD_LOG_CRIT(( "solfuzz leaked a spad frame (bump allocator)" ));
   }
 
-  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->funk->shmem->child_head_cidx ) ) ) ) {
+  if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( runner->accdb->funk->shmem->child_head_cidx ) ) ) ) {
     FD_LOG_CRIT(( "solfuzz leaked a funk txn" ));
   }
 }

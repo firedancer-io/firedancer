@@ -192,7 +192,7 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_funk_txn_cancel_all( runner->funk );
+  fd_funk_txn_cancel_all( runner->accdb->funk );
   fd_progcache_clear( runner->progcache_admin );
 }
 
@@ -202,7 +202,7 @@ static fd_txn_p_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                   fd_exec_test_block_context_t const * test_ctx,
                                   ulong *                              out_txn_cnt ) {
-  fd_funk_t *  funk  = runner->funk;
+  fd_funk_t *  funk  = runner->accdb->funk;
   fd_bank_t *  bank  = runner->bank;
   fd_banks_t * banks = runner->banks;
 
@@ -214,7 +214,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk, &parent_xid, xid );
+  fd_accdb_attach_child( runner->accdb_admin, &parent_xid, xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
 
   /* Restore feature flags */
@@ -384,7 +384,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid = { .ul = { slot, 0UL } };
-  fd_funk_txn_prepare( funk, xid, &fork_xid );
+  fd_accdb_attach_child        ( runner->accdb_admin,     xid, &fork_xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, xid, &fork_xid );
   xid[0] = fork_xid;
 
@@ -457,14 +457,14 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
 
     /* TODO:FIXME: */
     fd_vote_state_credits_t vote_state_credits;
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->funk, xid, &vote_state_credits, capture_ctx );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, xid, &vote_state_credits, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb->funk, xid, capture_ctx, runner->spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, capture_ctx, runner->spad );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb->funk, xid, capture_ctx, runner->spad );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -484,7 +484,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
 
       /* Finalize the transaction */
       fd_runtime_finalize_txn(
-          runner->funk,
+          runner->accdb->funk,
           runner->progcache,
           NULL,
           xid,
@@ -500,7 +500,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     }
 
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->funk, xid, capture_ctx, 1 );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb->funk, xid, capture_ctx, 1 );
   } FD_SPAD_FRAME_END;
 
   return res;
@@ -585,7 +585,7 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
                                                fd_exec_test_block_context_t const * test_ctx ) {
   /* Read epoch schedule sysvar */
   fd_epoch_schedule_t es_;
-  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( runner->funk, xid, &es_ );
+  fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( runner->accdb->funk, xid, &es_ );
   FD_TEST( sched!=NULL );
 
   ulong parent_slot = fd_bank_parent_slot_get( runner->bank );
@@ -625,10 +625,10 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
     /* One ahead of parent epoch, so use current acct_states */
     for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
       fd_txn_account_t acc[1];
-      fd_runtime_fuzz_load_account( acc, runner->funk, xid, &test_ctx->acct_states[i], 1 );
+      fd_runtime_fuzz_load_account( acc, runner->accdb->funk, xid, &test_ctx->acct_states[i], 1 );
       fd_pubkey_t pubkey;
       memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_runtime_fuzz_block_register_vote_account( runner->funk, xid, tmp_vs, &pubkey, runner->spad );
+      fd_runtime_fuzz_block_register_vote_account( runner->accdb->funk, xid, tmp_vs, &pubkey, runner->spad );
     }
     fd_stake_delegations_t * stake_delegations =
         fd_stake_delegations_join(
@@ -640,7 +640,7 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
     for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
       fd_pubkey_t pubkey;
       memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_runtime_fuzz_block_register_stake_delegation( runner->funk, xid, stake_delegations, &pubkey );
+      fd_runtime_fuzz_block_register_stake_delegation( runner->accdb->funk, xid, stake_delegations, &pubkey );
     }
     fd_runtime_fuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
   }

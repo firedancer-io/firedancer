@@ -23,7 +23,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
-  fd_funk_t * funk = runner->funk;
+  fd_funk_t * funk = runner->accdb->funk;
 
   /* Generate unique ID for funk txn */
 
@@ -33,7 +33,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   /* Create temporary funk transaction and txn / slot / epoch contexts */
 
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk, &parent_xid, xid );
+  fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, xid );
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
 
   /* Allocate contexts */
@@ -79,7 +79,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   uchar * progcache_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
   fd_exec_txn_ctx_setup( runner->bank,
-                         runner->funk->shmem,
+                         runner->accdb->funk->shmem,
                          runner->progcache->funk->shmem,
                          xid,
                          NULL,
@@ -263,7 +263,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->funk, xid );
+  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb->funk, xid );
   ctx->sysvar_cache = fd_bank_sysvar_cache_modify( runner->bank );
 
   uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
@@ -311,7 +311,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Refresh the setup from the updated slot and epoch ctx. */
   fd_exec_txn_ctx_setup( runner->bank,
-                         runner->funk->shmem,
+                         runner->accdb->funk->shmem,
                          runner->progcache->funk->shmem,
                          xid,
                          NULL,
@@ -330,7 +330,7 @@ void
 fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
                                    fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
-  fd_funk_txn_cancel_all( runner->funk );
+  fd_funk_txn_cancel_all( runner->accdb->funk );
   fd_progcache_clear( runner->progcache_admin );
 }
 
