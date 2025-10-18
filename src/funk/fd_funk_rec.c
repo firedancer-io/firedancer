@@ -386,6 +386,8 @@ void
 fd_funk_rec_cancel( fd_funk_t *             funk,
                     fd_funk_rec_prepare_t * prepare ) {
   prepare->rec->map_next = FD_FUNK_REC_IDX_NULL;
+  memset( &prepare->rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+  FD_COMPILER_MFENCE();
   fd_funk_val_flush( prepare->rec, funk->alloc, funk->wksp );
   fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
 }
