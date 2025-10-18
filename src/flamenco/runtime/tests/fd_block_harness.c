@@ -168,6 +168,7 @@ fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
    Returns block_info on success and NULL on failure. */
 static fd_txn_p_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
+                                  fd_runtime_stack_t *                 runtime_stack,
                                   fd_exec_test_block_context_t const * test_ctx,
                                   ulong *                              out_txn_cnt ) {
   fd_funk_t *  funk  = runner->funk;
@@ -321,7 +322,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
 
   /* Update leader schedule */
-  fd_runtime_update_leaders( bank, runner->spad );
+  fd_runtime_update_leaders( bank, runtime_stack );
 
   /* Initialize the blockhash queue and recent blockhashes sysvar from the input blockhash queue */
   ulong blockhash_seed; FD_TEST( fd_rng_secure( &blockhash_seed, sizeof(ulong) ) );
@@ -400,6 +401,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
    Returns the execution result. */
 static int
 fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
+                                fd_runtime_stack_t *      runtime_stack,
                                 fd_funk_txn_xid_t const * xid,
                                 fd_txn_p_t *              txn_ptrs,
                                 ulong                     txn_cnt ) {
@@ -424,9 +426,9 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runner->spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->funk, xid, capture_ctx, runtime_stack, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, capture_ctx, runner->spad );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->funk, xid, runtime_stack, capture_ctx );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -479,8 +481,9 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Set up the block execution context */
+    fd_runtime_stack_t * runtime_stack = fd_spad_alloc( runner->spad, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t) );
     ulong txn_cnt;
-    fd_txn_p_t * txn_ptrs = fd_runtime_fuzz_block_ctx_create( runner, input, &txn_cnt );
+    fd_txn_p_t * txn_ptrs = fd_runtime_fuzz_block_ctx_create( runner, runtime_stack, input, &txn_cnt );
     if( txn_ptrs==NULL ) {
       fd_runtime_fuzz_block_ctx_destroy( runner );
       return 0;
@@ -489,7 +492,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
+    int res = fd_runtime_fuzz_block_ctx_exec( runner, runtime_stack, &xid, txn_ptrs, txn_cnt );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

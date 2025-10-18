@@ -1268,7 +1268,7 @@ int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   fd_sysvar_cache_t const * sysvar_cache = fd_bank_sysvar_cache_query( txn_ctx->bank );
-  FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
+  FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
     int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
     if( FD_UNLIKELY( instr_exec_result ) ) {
       FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
@@ -1351,7 +1351,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     return fd_execute_instr_end( ctx, instr, instr_exec_result );
-  } FD_RUNTIME_TXN_SPAD_FRAME_END;
+  } FD_SPAD_FRAME_END;
 }
 
 void

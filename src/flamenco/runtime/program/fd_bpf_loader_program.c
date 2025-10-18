@@ -2618,10 +2618,13 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
                                      fd_funk_txn_xid_t const * xid,
                                      fd_pubkey_t const *       program_key,
                                      uchar const *             elf,
-                                     ulong                     elf_sz,
-                                     fd_spad_t *               runtime_spad ) {
+                                     ulong                     elf_sz ) {
+  /* FIXME: Breaking this until exec spad is replaced. */
+  FD_LOG_ERR(( "fd_directly_invoke_loader_v3_deploy is not implemented" ));
+  return 0;
+
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
+  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( NULL ), NULL, NULL );
 
   fd_exec_txn_ctx_setup( bank,
                          accdb_shfunk,
@@ -2649,5 +2652,5 @@ fd_directly_invoke_loader_v3_deploy( fd_bank_t *               bank,
      needed because the next time the program is invoked, the program
      cache updating logic will see that the cache entry is missing and
      will insert it then. */
-  return fd_deploy_program( instr_ctx, program_key, elf, elf_sz, runtime_spad );
+  return fd_deploy_program( instr_ctx, program_key, elf, elf_sz, NULL );
 }
