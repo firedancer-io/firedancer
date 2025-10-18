@@ -877,9 +877,10 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   }
 
   /* only allow 1-RTT "flag" frames when connection is ACTIVE, to prevent e.g. early 1-RTT PINGs */
-  if( conn->flags
-      && conn->upd_pkt_number >= app_pkt_number
-      && conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
+  uint flags_pending = conn->flags & ~(FD_QUIC_CONN_FLAGS_CLOSE_SENT | FD_QUIC_CONN_FLAGS_PING_SENT);
+  if( ( ( flags_pending != 0U )
+        & ( conn->upd_pkt_number >= app_pkt_number )
+        & ( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) ) ) {
     return fd_quic_enc_level_appdata_id;
   }
 
