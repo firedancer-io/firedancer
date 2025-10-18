@@ -218,6 +218,7 @@ fd_accdb_peek( fd_accdb_user_t *         accdb,
     FD_SPIN_PAUSE();
     /* FIXME backoff */
   }
+  if( !rec ) return NULL;
 
   *peek = (fd_accdb_peek_t) {
     .acc = {{

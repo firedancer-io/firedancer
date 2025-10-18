@@ -57,6 +57,10 @@ void
 fd_progcache_txn_attach_child( fd_progcache_admin_t *    cache,
                                fd_funk_txn_xid_t const * xid_parent,
                                fd_funk_txn_xid_t const * xid_new ) {
+  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: created with parent %lu:%lu",
+                (void *)cache->funk,
+                xid_new   ->ul[0], xid_new   ->ul[1],
+                xid_parent->ul[0], xid_parent->ul[1] ));
   fd_funk_txn_prepare( cache->funk, xid_parent, xid_new );
 }
 
@@ -400,15 +404,49 @@ fd_progcache_reset( fd_progcache_admin_t * cache ) {
   reset_rec_map( funk );
 }
 
-void
-fd_progcache_clear( fd_progcache_admin_t * cache ) {
-  /* FIXME this descends the progcache txn tree multiple times */
-  fd_progcache_reset( cache );
-  fd_funk_txn_cancel_all( cache->funk );
+/* clear_txn_list does a depth-first traversal of the txn tree.
+   Removes all txns. */
+
+static void
+clear_txn_list( fd_funk_t * funk,
+                ulong       txn_head_idx ) {
+  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
+  fd_funk_txn_map_t *  txn_map  = funk->txn_map;
+  for( ulong idx = txn_head_idx;
+       !fd_funk_txn_idx_is_null( idx );
+  ) {
+    fd_funk_txn_t * txn = &txn_pool->ele[ idx ];
+    fd_funk_txn_state_assert( txn, FD_FUNK_TXN_STATE_ACTIVE );
+    ulong next_idx  = fd_funk_txn_idx( txn->sibling_next_cidx );
+    ulong child_idx = fd_funk_txn_idx( txn->child_head_cidx );
+    txn->rec_head_idx      = FD_FUNK_REC_IDX_NULL;
+    txn->rec_tail_idx      = FD_FUNK_REC_IDX_NULL;
+    txn->child_head_cidx   = UINT_MAX;
+    txn->child_tail_cidx   = UINT_MAX;
+    txn->parent_cidx       = UINT_MAX;
+    txn->sibling_prev_cidx = UINT_MAX;
+    txn->sibling_next_cidx = UINT_MAX;
+    clear_txn_list( funk, child_idx );
+    fd_funk_txn_map_query_t query[1];
+    int rm_err = fd_funk_txn_map_remove( txn_map, &txn->xid, NULL, query, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_txn_map_remove failed (%i-%s)", rm_err, fd_map_strerror( rm_err ) ));
+    txn->state = FD_FUNK_TXN_STATE_FREE;
+    int free_err = fd_funk_txn_pool_release( txn_pool, txn, 1 );
+    if( FD_UNLIKELY( free_err!=FD_POOL_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_txn_pool_release failed (%i)", free_err ));
+    idx = next_idx;
+  }
+  funk->shmem->child_head_cidx = UINT_MAX;
+  funk->shmem->child_tail_cidx = UINT_MAX;
 }
 
 void
-fd_progcache_verify( fd_progcache_admin_t *       cache,
-                     fd_progcache_verify_stat_t * out_stat ) {
-  (void)cache; (void)out_stat;
+fd_progcache_clear( fd_progcache_admin_t * cache ) {
+  fd_funk_t * funk = cache->funk;
+  clear_txn_list( funk, fd_funk_txn_idx( funk->shmem->child_head_cidx ) );
+  reset_rec_map( funk );
+}
+
+void
+fd_progcache_verify( fd_progcache_admin_t * cache ) {
+  FD_TEST( fd_funk_verify( cache->funk )==FD_FUNK_SUCCESS );
 }

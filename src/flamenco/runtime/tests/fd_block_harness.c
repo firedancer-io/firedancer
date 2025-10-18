@@ -192,7 +192,7 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 
 static void
 fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
-  fd_funk_txn_cancel_all( runner->accdb->funk );
+  fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
 }
 
@@ -209,8 +209,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_banks_clear_bank( banks, bank );
 
   /* Generate unique ID for funk txn */
-  fd_funk_txn_xid_t xid[1] = {0};
-  xid[0] = fd_funk_generate_xid();
+  fd_funk_txn_xid_t xid[1] = {{ .ul={ LONG_MAX,LONG_MAX } }};
 
   /* Create temporary funk transaction and slot / epoch contexts */
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );

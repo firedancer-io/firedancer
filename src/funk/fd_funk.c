@@ -80,7 +80,6 @@ fd_funk_new( void * shmem,
   void * txn_map = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_txn_map_align(), fd_funk_txn_map_footprint( txn_chain_cnt ) );
   void * txn_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_txn_pool_align(), fd_funk_txn_pool_footprint() );
   fd_funk_txn_t * txn_ele = (fd_funk_txn_t *)FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_funk_txn_t), sizeof(fd_funk_txn_t) * txn_max );
-  for( ulong j=0UL; j<txn_max; j++ ) txn_ele[ j ].state = FD_FUNK_TXN_STATE_FREE;
 
   ulong rec_chain_cnt = fd_funk_rec_map_chain_cnt_est( rec_max );
   void * rec_map = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_rec_map_align(), fd_funk_rec_map_footprint( rec_chain_cnt ) );
@@ -109,7 +108,10 @@ fd_funk_new( void * shmem,
   funk->child_head_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
   funk->child_tail_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
-  for( ulong i=0UL; i<txn_max; i++ ) fd_rwlock_new( txn_join->ele[ i ].lock );
+  for( ulong i=0UL; i<txn_max; i++ ) {
+    fd_rwlock_new( txn_join->ele[ i ].lock );
+    txn_join->ele[ i ].state = FD_FUNK_TXN_STATE_FREE;
+  }
 
   fd_funk_txn_xid_set_root( funk->root         );
   fd_funk_txn_xid_set_root( funk->last_publish );

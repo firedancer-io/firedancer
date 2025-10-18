@@ -443,5 +443,5 @@ fd_accdb_clear( fd_accdb_admin_t * cache ) {
 
 void
 fd_accdb_verify( fd_accdb_admin_t * admin ) {
-  fd_funk_verify( admin->funk );
+  FD_TEST( fd_funk_verify( admin->funk )==FD_FUNK_SUCCESS );
 }
