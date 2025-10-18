@@ -11,7 +11,8 @@
    - Multi-session use */
 
 #include "../../capture/fd_solcap_writer.h"
-#include "../../../funk/fd_funk.h"
+#include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
 
@@ -23,7 +24,6 @@
    each other (or any other allocations) just fine. */
 
 struct fd_solfuzz_runner {
-  fd_funk_t    funk[1];
   fd_wksp_t *  wksp;
   fd_spad_t *  spad;
   fd_banks_t * banks;
@@ -31,6 +31,9 @@ struct fd_solfuzz_runner {
 
   fd_progcache_t       progcache[1];
   fd_progcache_admin_t progcache_admin[1];
+
+  fd_accdb_user_t      accdb[1];
+  fd_accdb_admin_t     accdb_admin[1];
 
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
