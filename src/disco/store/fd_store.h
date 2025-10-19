@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_repair_fd_store_h
-#define HEADER_fd_src_discof_repair_fd_store_h
+#ifndef HEADER_fd_src_disco_store_fd_store_h
+#define HEADER_fd_src_disco_store_fd_store_h
 
 /* fd_store is a high-performance in-memory storage engine for shreds as
    they are received from the network.
@@ -517,4 +517,4 @@ fd_store_print( fd_store_t const * store );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_repair_fd_store_h */
+#endif /* HEADER_fd_src_disco_store_fd_store_h */

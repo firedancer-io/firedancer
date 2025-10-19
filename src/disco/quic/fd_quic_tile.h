@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h
-#define HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h
+#ifndef HEADER_fd_src_disco_quic_fd_quic_tile_h
+#define HEADER_fd_src_disco_quic_fd_quic_tile_h
 
 #include "fd_tpu.h"
 #include "../stem/fd_stem.h"
@@ -69,4 +69,4 @@ typedef struct {
   uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 } fd_quic_ctx_t;
 
-#endif /* HEADER_fd_src_app_fdctl_run_tiles_fd_quic_tile_h */
+#endif /* HEADER_fd_src_disco_quic_fd_quic_tile_h */

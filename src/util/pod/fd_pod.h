@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_pod_fd_pod_h
-#define HEADER_fd_src_pod_fd_pod_h
+#ifndef HEADER_fd_src_util_pod_fd_pod_h
+#define HEADER_fd_src_util_pod_fd_pod_h
 
 /* pod is a set of APIs for managing flexible hierarchies of typed
    key-val pairs.  A pod is a data structure for holds these in memory
@@ -917,4 +917,4 @@ fd_pod_query_int128( uchar const * FD_RESTRICT pod,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_pod_fd_pod_h */
+#endif /* HEADER_fd_src_util_pod_fd_pod_h */

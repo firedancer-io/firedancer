@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_h2_fd_h2_base
-#define HEADER_fd_src_waltz_h2_fd_h2_base
+#ifndef HEADER_fd_src_waltz_h2_fd_h2_base_h
+#define HEADER_fd_src_waltz_h2_fd_h2_base_h
 
 #include "../../util/bits/fd_bits.h"
 
@@ -57,4 +57,4 @@ fd_h2_strerror( uint err );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_waltz_h2_fd_h2_base */
+#endif /* HEADER_fd_src_waltz_h2_fd_h2_base_h */

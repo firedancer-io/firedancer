@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_rebate_sum_h
-#define HEADER_fd_src_ballet_pack_fd_pack_rebate_sum_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_rebate_sum_h
+#define HEADER_fd_src_disco_pack_fd_pack_rebate_sum_h
 
 #include "../fd_disco_base.h"
 #include "fd_microblock.h"
@@ -110,4 +110,4 @@ fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
 void
 fd_pack_rebate_sum_clear( fd_pack_rebate_sum_t * s );
 
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_rebate_sum_h */
+#endif /* HEADER_fd_src_disco_pack_fd_pack_rebate_sum_h */

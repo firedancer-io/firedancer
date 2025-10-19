@@ -1,6 +1,5 @@
-#ifndef HEADER_fd_src_tango_quic_fd_quic_enum_h
-#define HEADER_fd_src_tango_quic_fd_quic_enum_h
-
+#ifndef HEADER_fd_src_waltz_quic_fd_quic_enum_h
+#define HEADER_fd_src_waltz_quic_fd_quic_enum_h
 
 /* FD_QUIC_STREAM_TYPE_* indicate stream type (two least significant
    bits of a stream ID) */
@@ -128,4 +127,4 @@
 /* initial RTT, used before it's measured */
 #define FD_QUIC_INITIAL_RTT_US 200e3f
 
-#endif
+#endif /* HEADER_fd_src_waltz_quic_fd_quic_enum_h */

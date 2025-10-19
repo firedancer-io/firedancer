@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_wiredancer_wd_f1_mon_h
-#define HEADER_fd_src_wiredancer_wd_f1_mon_h
+#ifndef HEADER_fd_src_wiredancer_test_wd_f1_mon_h
+#define HEADER_fd_src_wiredancer_test_wd_f1_mon_h
 
 // TODO remove unnecessary ones
 #include <stdint.h>

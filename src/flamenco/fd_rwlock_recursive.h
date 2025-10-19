@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_rwlock_recursive_h
-#define HEADER_fd_src_flamenco_rwlock_recursive_h
+#ifndef HEADER_fd_src_flamenco_fd_rwlock_recursive_h
+#define HEADER_fd_src_flamenco_fd_rwlock_recursive_h
 
 /* A very simple recursive/reentrant read-write spin lock:
    - Reentrant: the same thread can acquire the lock multiple times (up
@@ -230,4 +230,4 @@ static inline void fd_rwlock_recursive_runlock( fd_rwlock_recursive_t * lock ) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_rwlock_recursive_h */
+#endif /* HEADER_fd_src_flamenco_fd_rwlock_recursive_h */

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_hashes_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_hashes_h
 
 #include "../../../funk/fd_funk.h"
 #include "../../../funk/fd_funk_txn.h"
@@ -67,4 +67,4 @@ fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_hashes_h */

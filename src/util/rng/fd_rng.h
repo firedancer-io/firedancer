@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_rng_fd_rng_h
-#define HEADER_fd_src_rng_fd_rng_h
+#ifndef HEADER_fd_src_util_rng_fd_rng_h
+#define HEADER_fd_src_util_rng_fd_rng_h
 
 /* Simple fast high quality non-cryptographic pseudo random number
    generator.  Supports parallel generation, interprocess shared memory
@@ -470,4 +470,4 @@ fd_rng_secure( void * d,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_rng_fd_rng_h */
+#endif /* HEADER_fd_src_util_rng_fd_rng_h */

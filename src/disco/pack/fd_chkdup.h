@@ -1,5 +1,6 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_chkdup_h
-#define HEADER_fd_src_ballet_pack_fd_chkdup_h
+#ifndef HEADER_fd_src_disco_pack_fd_chkdup_h
+#define HEADER_fd_src_disco_pack_fd_chkdup_h
+
 #include "../../ballet/fd_ballet_base.h"
 #include "../../ballet/txn/fd_txn.h"
 
@@ -596,4 +597,4 @@ fd_chkdup_check_fast( fd_chkdup_t          * chkdup,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_pack_fd_chkdup_h */
+#endif /* HEADER_fd_src_disco_pack_fd_chkdup_h */

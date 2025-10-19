@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_est_tbl_h
-#define HEADER_fd_src_ballet_pack_fd_est_tbl_h
+#ifndef HEADER_fd_src_disco_pack_fd_est_tbl_h
+#define HEADER_fd_src_disco_pack_fd_est_tbl_h
 
 #include "../../ballet/fd_ballet_base.h"
 
@@ -189,4 +189,4 @@ fd_est_tbl_update( fd_est_tbl_t * tbl,
 
 #endif /* FD_HAS_DOUBLE */
 
-#endif /* HEADER_fd_src_ballet_pack_fd_est_tbl_h */
+#endif /* HEADER_fd_src_disco_pack_fd_est_tbl_h */

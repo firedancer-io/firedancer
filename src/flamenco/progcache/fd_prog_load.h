@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_fd_progcache_fd_prog_load_h
-#define HEADER_fd_src_flamenco_fd_progcache_fd_prog_load_h
+#ifndef HEADER_fd_src_flamenco_progcache_fd_prog_load_h
+#define HEADER_fd_src_flamenco_progcache_fd_prog_load_h
 
 /* fd_prog_load.h provides high-level APIs for loading Solana programs
    from the account database. */
@@ -60,4 +60,4 @@ fd_prog_load_env_from_bank( fd_prog_load_env_t * env,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_fd_progcache_fd_prog_load_h */
+#endif /* HEADER_fd_src_flamenco_progcache_fd_prog_load_h */

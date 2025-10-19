@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_util_encoders_fd_bincode_h
-#define HEADER_fd_src_util_encoders_fd_bincode_h
+#ifndef HEADER_fd_src_flamenco_types_fd_bincode_h
+#define HEADER_fd_src_flamenco_types_fd_bincode_h
 
 #include "../../util/fd_util.h"
 #include "../../util/valloc/fd_valloc.h"
@@ -609,4 +609,4 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
     res;                                                               \
   })
 
-#endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
+#endif /* HEADER_fd_src_flamenco_types_fd_bincode_h */

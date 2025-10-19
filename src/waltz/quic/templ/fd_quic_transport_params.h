@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_transport_params_h
-#define HEADER_fd_quic_transport_params_h
+#ifndef HEADER_fd_src_waltz_quic_templ_fd_quic_transport_params_h
+#define HEADER_fd_src_waltz_quic_templ_fd_quic_transport_params_h
 
 #include "../../../util/fd_util_base.h"
 #include <stdio.h>
@@ -288,5 +288,5 @@ fd_quic_encode_transport_params( uchar *                            buf,
                                  ulong                              buf_sz,
                                  fd_quic_transport_params_t const * params );
 
-#endif
+#endif /* HEADER_fd_src_waltz_quic_templ_fd_quic_transport_params_h */
 

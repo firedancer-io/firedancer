@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_txncache_h
-#define HEADER_fd_src_flamenco_runtime_txncache_h
+#ifndef HEADER_fd_src_flamenco_runtime_fd_txncache_h
+#define HEADER_fd_src_flamenco_runtime_fd_txncache_h
 
 /* A txn cache is a concurrent set storing the message hashes of
    transactions which have already executed.  Note the structure is
@@ -242,4 +242,4 @@ fd_txncache_query( fd_txncache_t *       tc,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_txncache_h */
+#endif /* HEADER_fd_src_flamenco_runtime_fd_txncache_h */

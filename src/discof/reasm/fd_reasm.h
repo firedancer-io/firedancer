@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_repair_fd_reasm_h
-#define HEADER_fd_src_discof_repair_fd_reasm_h
+#ifndef HEADER_fd_src_discof_reasm_fd_reasm_h
+#define HEADER_fd_src_discof_reasm_fd_reasm_h
 
 /* fd_reasm reassembles FEC sets into Replay order as they are received
    over the network via Turbine and Repair.  Every FEC set is guaranteed
@@ -295,4 +295,4 @@ fd_reasm_print( fd_reasm_t const * reasm );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_repair_fd_reasm_h */
+#endif /* HEADER_fd_src_discof_reasm_fd_reasm_h */

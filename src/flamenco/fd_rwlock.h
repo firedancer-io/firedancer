@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_rwlock_h
-#define HEADER_fd_src_flamenco_rwlock_h
+#ifndef HEADER_fd_src_flamenco_fd_rwlock_h
+#define HEADER_fd_src_flamenco_fd_rwlock_h
 
 /* A very simple read-write spin lock. */
 
@@ -71,4 +71,4 @@ fd_rwlock_unread( fd_rwlock_t * lock ) {
 # endif
 }
 
-#endif /* HEADER_fd_src_flamenco_rwlock_h */
+#endif /* HEADER_fd_src_flamenco_fd_rwlock_h */

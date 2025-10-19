@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_private_h
-#define HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_private_h
+#ifndef HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_private_h
+#define HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_private_h
 
 /* fd_solfuzz_private.h contains internal components for the solfuzz
    Protobuf shim. */
@@ -106,4 +106,4 @@ sol_compat_encode( uchar *              out,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_private_h */
+#endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_private_h */

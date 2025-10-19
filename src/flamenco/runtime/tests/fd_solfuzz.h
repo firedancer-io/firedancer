@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_h
-#define HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_h
+#ifndef HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h
+#define HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h
 
 /* fd_solfuzz.h provides internal/unstable APIs for executing solfuzz
    inputs.  This API is fully object-oriented and does not use globals
@@ -211,4 +211,4 @@ fd_solfuzz_type_run( fd_solfuzz_runner_t * runner,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_h */
+#endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h */

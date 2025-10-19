@@ -1,5 +1,6 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_cost_h
-#define HEADER_fd_src_ballet_pack_fd_pack_cost_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_cost_h
+#define HEADER_fd_src_disco_pack_fd_pack_cost_h
+
 #include "../../ballet/fd_ballet_base.h"
 #include "fd_compute_budget_program.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
@@ -326,4 +327,5 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 }
 #undef MAP_PERFECT_HASH_PP
 #undef PERFECT_HASH
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_cost_h */
+
+#endif /* HEADER_fd_src_disco_pack_fd_pack_cost_h */

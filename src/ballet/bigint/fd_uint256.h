@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_bigint_uint256_h
-#define HEADER_fd_src_ballet_bigint_uint256_h
+#ifndef HEADER_fd_src_ballet_bigint_fd_uint256_h
+#define HEADER_fd_src_ballet_bigint_fd_uint256_h
 
 /* Implementation of uint256. */
 
@@ -74,4 +74,4 @@ fd_uint256_bit( fd_uint256_t const * a,
 
 #include "./fd_uint256_mul.h"
 
-#endif /* HEADER_fd_src_ballet_bigint_uint256_h */
+#endif /* HEADER_fd_src_ballet_bigint_fd_uint256_h */

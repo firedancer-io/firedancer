@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_restore_fd_ssping_h
-#define HEADER_fd_src_discof_restore_fd_ssping_h
+#ifndef HEADER_fd_src_discof_restore_utils_fd_ssping_h
+#define HEADER_fd_src_discof_restore_utils_fd_ssping_h
 
 /* The snapshot pinger (ssping) is responsible for maintaining a list of
    peers that are reachable for snapshot download, and returning the
@@ -95,4 +95,4 @@ fd_ssping_advance( fd_ssping_t *          ssping,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_fd_ssping_h */
+#endif /* HEADER_fd_src_discof_restore_utils_fd_ssping_h */

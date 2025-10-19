@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_tango_quic_fd_quic_stream_pool_h
-#define HEADER_fd_src_tango_quic_fd_quic_stream_pool_h
+#ifndef HEADER_fd_src_waltz_quic_fd_quic_stream_pool_h
+#define HEADER_fd_src_waltz_quic_fd_quic_stream_pool_h
 
 #include "fd_quic_stream.h"
 
@@ -79,4 +79,4 @@ fd_quic_stream_pool_avail( fd_quic_stream_pool_t * pool ) {
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_waltz_quic_fd_quic_stream_pool_h */

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fdctl_run_tiles_h
-#define HEADER_fd_src_app_fdctl_run_tiles_h
+#ifndef HEADER_fd_src_disco_tiles_h
+#define HEADER_fd_src_disco_tiles_h
 
 #include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
@@ -193,4 +193,4 @@ typedef struct __attribute__((packed)) {
   uchar  last_entry_hash[32];
 } fd_poh_init_msg_t;
 
-#endif /* HEADER_fd_src_app_fdctl_run_tiles_h */
+#endif /* HEADER_fd_src_disco_tiles_h */

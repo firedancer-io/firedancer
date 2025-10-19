@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_archive_fd_tar_h
-#define HEADER_fd_src_archive_fd_tar_h
+#ifndef HEADER_fd_src_util_archive_fd_tar_h
+#define HEADER_fd_src_util_archive_fd_tar_h
 
 /* fd_tar implements the ustar and old-GNU versions of the TAR file
    format. This is not a general-purpose TAR implementation.  It is
@@ -351,4 +351,4 @@ fd_tar_writer_fill_space( fd_tar_writer_t * writer, void const * data, ulong sz 
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_archive_fd_tar_h */
+#endif /* HEADER_fd_src_util_archive_fd_tar_h */

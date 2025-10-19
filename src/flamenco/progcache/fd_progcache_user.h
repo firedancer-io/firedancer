@@ -1,6 +1,5 @@
-
-#ifndef HEADER_fd_src_flamenco_fd_progcache_h
-#define HEADER_fd_src_flamenco_fd_progcache_h
+#ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_user_h
+#define HEADER_fd_src_flamenco_progcache_fd_progcache_user_h
 
 /* fd_progcache_user.h provides an API for managing a cache of loaded
    Solana on-chain program.

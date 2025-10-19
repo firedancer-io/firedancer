@@ -1,5 +1,5 @@
-#ifndef HEADER_src_ballet_tls_fd_tls_serde_h
-#define HEADER_src_ballet_tls_fd_tls_serde_h
+#ifndef HEADER_fd_src_waltz_tls_fd_tls_serde_h
+#define HEADER_fd_src_waltz_tls_fd_tls_serde_h
 
 /* fd_tls_serde.h provides branch-minimizing (de-)serializer macros for
    internal use.  This file specifically exists for fd_tls_proto.c and
@@ -143,4 +143,4 @@
     (ulong)res;                                           \
   }))
 
-#endif /* HEADER_src_ballet_tls_fd_tls_serde_h */
+#endif /* HEADER_fd_src_waltz_tls_fd_tls_serde_h */

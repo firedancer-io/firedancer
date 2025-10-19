@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_choreo_forest_fd_forest_h
-#define HEADER_fd_src_choreo_forest_fd_forest_h
+#ifndef HEADER_fd_src_discof_forest_fd_forest_h
+#define HEADER_fd_src_discof_forest_fd_forest_h
 
 /* Forest is an API for repairing blocks as they are discovered from the
    cluster via Turbine or Gossip.  Shreds (from Turbine) and votes (from
@@ -643,4 +643,4 @@ fd_forest_print( fd_forest_t const * forest );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_choreo_forest_fd_forest_h */
+#endif /* HEADER_fd_src_discof_forest_fd_forest_h */

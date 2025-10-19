@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_sha256_constants_h
-#define HEADER_fd_src_ballet_sha256_constants_h
+#ifndef HEADER_fd_src_ballet_sha256_fd_sha256_constants_h
+#define HEADER_fd_src_ballet_sha256_fd_sha256_constants_h
 
 /* We don't want to use FD_IMPORT_BINARY here, because we want to make
    the values available to the compiler for constant propogation.  Using
@@ -24,4 +24,4 @@ static uint const fd_sha256_K[64] __attribute__((aligned(64))) = {
 #define FD_SHA256_INITIAL_G 0x1f83d9abU
 #define FD_SHA256_INITIAL_H 0x5be0cd19U
 
-#endif /* HEADER_fd_src_ballet_sha256_constants_h */
+#endif /* HEADER_fd_src_ballet_sha256_fd_sha256_constants_h */

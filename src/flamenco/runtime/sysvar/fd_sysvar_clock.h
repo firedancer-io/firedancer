@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_clock_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_fd_clock_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_clock_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_clock_h
 
 /* The clock sysvar provides an approximate measure of network time. */
 
@@ -61,4 +61,4 @@ fd_sysvar_clock_read( fd_funk_t *               funk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_clock_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_clock_h */

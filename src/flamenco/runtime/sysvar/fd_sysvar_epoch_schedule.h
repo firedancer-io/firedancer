@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h
 
 /* fd_sysvar_epoch_schedule provides methods for epoch numbers, a native
    concept of the Solana runtime.
@@ -131,4 +131,4 @@ fd_slot_to_leader_schedule_epoch( fd_epoch_schedule_t const * schedule,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_epoch_schedule_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_schedule_h */

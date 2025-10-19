@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_epoch_rewards_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_epoch_rewards_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_rewards_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_rewards_h
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
@@ -51,4 +51,4 @@ fd_sysvar_epoch_rewards_init( fd_bank_t *               bank,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_epoch_rewards_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_epoch_rewards_h */

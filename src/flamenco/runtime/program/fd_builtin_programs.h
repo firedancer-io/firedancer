@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h
-#define HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h
+#ifndef HEADER_fd_src_flamenco_runtime_program_fd_builtin_programs_h
+#define HEADER_fd_src_flamenco_runtime_program_fd_builtin_programs_h
 
 #include "../../fd_flamenco_base.h"
 #include "../fd_bank.h"
@@ -110,4 +110,4 @@ fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_program_fd_buildin_programs_h */
+#endif /* HEADER_fd_src_flamenco_runtime_program_fd_builtin_programs_h */
