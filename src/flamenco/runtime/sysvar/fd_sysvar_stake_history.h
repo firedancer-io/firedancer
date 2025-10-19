@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_sysvar_stake_history_h
-#define HEADER_fd_src_flamenco_runtime_fd_sysvar_stake_history_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
@@ -42,4 +42,4 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_sysvar_stake_history_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_stake_history_h */

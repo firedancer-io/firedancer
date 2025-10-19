@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_wiredancer_wd_f1_h
-#define HEADER_fd_src_wiredancer_wd_f1_h
+#ifndef HEADER_fd_src_wiredancer_c_wd_f1_h
+#define HEADER_fd_src_wiredancer_c_wd_f1_h
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -92,7 +92,7 @@ wd_ed25519_verify_init_resp( wd_wksp_t *       wd);
    which holds the signature of the message.
    public_key is assumed to point to first byte of a 32-byte memory
    region that holds the public key to use to verify this message.
-   Does no input argument checking.  This function takes a read 
+   Does no input argument checking.  This function takes a read
    interest in msg, sig, public_key and private_key for the duration
    the call.
    ctrl shows start_of_packet and end_of_packet boundaries.
@@ -111,4 +111,4 @@ wd_ed25519_verify_req( wd_wksp_t *   wd,
                        uint16_t      m_ctrl,
                        uint16_t      m_sz);
 
-#endif
+#endif /* HEADER_fd_src_wiredancer_c_wd_f1_h */

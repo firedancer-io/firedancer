@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_ipecho_genesis_hash_h
-#define HEADER_fd_src_discof_ipecho_genesis_hash_h
+#ifndef HEADER_fd_src_discof_genesis_genesis_hash_h
+#define HEADER_fd_src_discof_genesis_genesis_hash_h
 
 #include "../../ballet/sha256/fd_sha256.h"
 
@@ -51,4 +51,4 @@ compute_shred_version( char const * genesis_path,
   return 0;
 }
 
-#endif /* HEADER_fd_src_discof_ipecho_genesis_hash_h */
+#endif /* HEADER_fd_src_discof_genesis_genesis_hash_h */

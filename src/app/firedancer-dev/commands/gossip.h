@@ -1,5 +1,5 @@
-#ifndef FD_SRC_APP_FIREDANCER_DEV_COMMANDS_GOSSIP_H
-#define FD_SRC_APP_FIREDANCER_DEV_COMMANDS_GOSSIP_H
+#ifndef HEADER_fd_src_app_firedancer_dev_commands_gossip_h
+#define HEADER_fd_src_app_firedancer_dev_commands_gossip_h
 
 #include "../../shared/fd_config.h"
 
@@ -14,4 +14,4 @@
 void
 fd_gossip_subtopo( config_t * config, ulong tile_to_cpu[ FD_TILE_MAX ] );
 
-#endif /* FD_SRC_APP_FIREDANCER_DEV_COMMANDS_GOSSIP_H */
+#endif /* HEADER_fd_src_app_firedancer_dev_commands_gossip_h */

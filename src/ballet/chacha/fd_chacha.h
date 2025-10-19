@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_chacha20_fd_chacha20_h
-#define HEADER_fd_src_ballet_chacha20_fd_chacha20_h
+#ifndef HEADER_fd_src_ballet_chacha_fd_chacha_h
+#define HEADER_fd_src_ballet_chacha_fd_chacha_h
 
 #include "../fd_ballet_base.h"
 
@@ -38,4 +38,4 @@ fd_chacha20_block( void *       block,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_chacha20_fd_chacha20_h */
+#endif /* HEADER_fd_src_ballet_chacha_fd_chacha_h */

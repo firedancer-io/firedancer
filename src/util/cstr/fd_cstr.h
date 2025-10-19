@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_cstr_fd_cstr_h
-#define HEADER_fd_src_cstr_fd_cstr_h
+#ifndef HEADER_fd_src_util_cstr_fd_cstr_h
+#define HEADER_fd_src_util_cstr_fd_cstr_h
 
 /* APIs for manipulating '\0'-terminated character strings ("cstr") */
 
@@ -481,4 +481,4 @@ FD_PROTOTYPES_END
 #define fd_isascii(c)  (!!isascii((c)))
 #define fd_isblank(c)  (!!isblank((c)))
 
-#endif /* HEADER_fd_src_cstr_fd_cstr_h */
+#endif /* HEADER_fd_src_util_cstr_fd_cstr_h */

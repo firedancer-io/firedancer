@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_sysvar_last_restart_slot_h
-#define HEADER_fd_src_flamenco_runtime_fd_sysvar_last_restart_slot_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
@@ -63,4 +63,4 @@ fd_sysvar_last_restart_slot_derive(
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_sysvar_last_restart_slot_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_last_restart_slot_h */

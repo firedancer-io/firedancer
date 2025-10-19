@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_choreo_policy_fd_policy_h
-#define HEADER_fd_src_choreo_policy_fd_policy_h
+#ifndef HEADER_fd_src_discof_repair_fd_policy_h
+#define HEADER_fd_src_discof_repair_fd_policy_h
 
 /* fd_policy implements the policy of the Repair agent.  It determines
    what shreds the validator is expecting but has not yet received and
@@ -286,4 +286,4 @@ fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, lo
 void
 fd_policy_set_turbine_slot0( fd_policy_t * policy, ulong slot );
 
-#endif /* HEADER_fd_src_choreo_policy_fd_policy_h */
+#endif /* HEADER_fd_src_discof_repair_fd_policy_h */

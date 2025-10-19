@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
-#define HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_rent_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_rent_h
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
@@ -44,5 +44,5 @@ fd_sysvar_rent_read( fd_funk_t *               funk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_rent_h */
 

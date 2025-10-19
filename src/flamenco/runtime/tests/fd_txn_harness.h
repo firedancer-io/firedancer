@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_tests_harness_fd_txn_harness_h
-#define HEADER_fd_src_flamenco_runtime_tests_harness_fd_txn_harness_h
+#ifndef HEADER_fd_src_flamenco_runtime_tests_fd_txn_harness_h
+#define HEADER_fd_src_flamenco_runtime_tests_fd_txn_harness_h
 
 #include "fd_solfuzz.h"
 #include "../../../disco/pack/fd_microblock.h"
@@ -27,4 +27,4 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_txn_harness_h */
+#endif /* HEADER_fd_src_flamenco_runtime_tests_fd_txn_harness_h */

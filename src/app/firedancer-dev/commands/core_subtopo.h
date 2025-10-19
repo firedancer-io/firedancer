@@ -1,5 +1,5 @@
-#ifndef CORE_SUBTOPO_H
-#define CORE_SUBTOPO_H
+#ifndef HEADER_fd_src_app_firedancer_dev_commands_core_subtopo_h
+#define HEADER_fd_src_app_firedancer_dev_commands_core_subtopo_h
 
 #include "../../shared/fd_config.h"
 #include "../../../disco/topo/fd_topob.h"
@@ -79,4 +79,4 @@ fd_link_permit_no_consumers( fd_topo_t * topo, char * link_name ) {
   return found;
 }
 
-#endif /* CORE_SUBTOPO_H */
+#endif /* HEADER_fd_src_app_firedancer_dev_commands_core_subtopo_h */

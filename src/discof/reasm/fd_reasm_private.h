@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_discof_reasm_fd_reasm_private_h
+#define HEADER_fd_src_discof_reasm_fd_reasm_private_h
+
 #include "fd_reasm.h"
 
 #define POOL_NAME              pool
@@ -73,3 +76,5 @@ struct __attribute__((aligned(128UL))) fd_reasm {
   ulong *          out;         /* delivery queue of pool idxs to output */
   slot_mr_t *      slot_mr;     /* map of slot->mr */
 };
+
+#endif /* HEADER_fd_src_discof_reasm_fd_reasm_private_h */

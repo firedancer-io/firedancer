@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_microblock_h
-#define HEADER_fd_src_ballet_pack_fd_microblock_h
+#ifndef HEADER_fd_src_disco_pack_fd_microblock_h
+#define HEADER_fd_src_disco_pack_fd_microblock_h
 
 #include "../fd_txn_p.h"
 
@@ -65,4 +65,4 @@ typedef struct fd_entry_batch_header fd_entry_batch_header_t;
 
 FD_STATIC_ASSERT( FD_POH_SHRED_MTU<=USHORT_MAX, poh_shred_mtu );
 
-#endif /*HEADER_fd_src_ballet_pack_fd_microblock_h*/
+#endif /*HEADER_fd_src_disco_pack_fd_microblock_h */

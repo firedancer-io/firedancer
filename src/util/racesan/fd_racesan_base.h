@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_racesan_fd_racesan_base_h
-#define HEADER_fd_src_flamenco_racesan_fd_racesan_base_h
+#ifndef HEADER_fd_src_util_racesan_fd_racesan_base_h
+#define HEADER_fd_src_util_racesan_fd_racesan_base_h
 
 #include "../../util/fd_util_base.h"
 
@@ -34,4 +34,4 @@ fd_racesan_strhash( char const * s,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_racesan_fd_racesan_base_h */
+#endif /* HEADER_fd_src_util_racesan_fd_racesan_base_h */

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_replay_fd_replay_h
-#define HEADER_fd_src_disco_replay_fd_replay_h
+#ifndef HEADER_fd_src_wiredancer_test_fd_replay_loop_h
+#define HEADER_fd_src_wiredancer_test_fd_replay_loop_h
 
 /* fd_replay provides services to replay data from a pcap file into a
    tango frag stream. */
@@ -121,7 +121,7 @@ FD_PROTOTYPES_BEGIN
    diagnose configuration issues.  Otherwise,
    fd_replay_tile_scratch_footprint will return the same value as
    FD_REPLAY_TILE_SCRATCH_FOOTPRINT.
-   
+
    The lifetime of the cnc, mcache, dcache, out_fseq[*], rng and scratch
    used by this tile should be a superset of this tile's lifetime.
    While this tile is running, no other tile should use cnc for its
@@ -173,5 +173,5 @@ FD_PROTOTYPES_END
 
 #endif
 
-#endif /* HEADER_fd_src_disco_replay_fd_replay_h */
+#endif /* HEADER_fd_src_wiredancer_test_fd_replay_loop_h */
 

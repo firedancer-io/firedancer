@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_gossip_fd_crds_h
-#define HEADER_fd_src_flamenco_gossip_fd_crds_h
+#ifndef HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
+#define HEADER_fd_src_flamenco_gossip_crds_fd_crds_h
 
 #include "../fd_gossip_private.h"
 #include "../fd_gossip_out.h"
@@ -354,4 +354,4 @@ fd_crds_purged_mask_iter_hash( fd_crds_mask_iter_t * it,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_gossip_fd_crds_h */
+#endif /* HEADER_fd_src_flamenco_gossip_crds_fd_crds_h */

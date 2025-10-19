@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_shared_fd_cap_chk_h
-#define HEADER_fd_src_app_shared_fd_cap_chk_h
+#ifndef HEADER_fd_src_app_platform_fd_cap_chk_h
+#define HEADER_fd_src_app_platform_fd_cap_chk_h
 
 #include "../../util/fd_util_base.h"
 
@@ -106,4 +106,4 @@ fd_cap_chk_err( fd_cap_chk_t const * chk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_app_shared_fd_cap_chk_h */
+#endif /* HEADER_fd_src_app_platform_fd_cap_chk_h */

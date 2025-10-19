@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_http_fd_http_server_h
-#define HEADER_fd_src_ballet_http_fd_http_server_h
+#ifndef HEADER_fd_src_waltz_http_fd_http_server_h
+#define HEADER_fd_src_waltz_http_fd_http_server_h
 
 /* An fd_http_server is a WebSocket capable HTTP server designed to
    stream output messages quickly to many connected clients, where each
@@ -436,4 +436,4 @@ fd_http_server_poll( fd_http_server_t * http,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_http_fd_http_server_h */
+#endif /* HEADER_fd_src_waltz_http_fd_http_server_h */

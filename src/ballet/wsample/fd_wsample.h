@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_shred_fd_wsample_h
-#define HEADER_fd_src_ballet_shred_fd_wsample_h
+#ifndef HEADER_fd_src_ballet_wsample_fd_wsample_h
+#define HEADER_fd_src_ballet_wsample_fd_wsample_h
 
 /* This header defines methods for computing weighted "random" samples
    of the specific type used by Solana for computing the leader
@@ -193,4 +193,4 @@ fd_wsample_t * fd_wsample_restore_all( fd_wsample_t * sampler );
 
 
 
-#endif /* HEADER_fd_src_ballet_shred_fd_wsample_h */
+#endif /* HEADER_fd_src_ballet_wsample_fd_wsample_h */

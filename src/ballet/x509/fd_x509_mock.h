@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_x509_fd_x509_gen_h
-#define HEADER_fd_src_ballet_x509_fd_x509_gen_h
+#ifndef HEADER_fd_src_ballet_x509_fd_x509_mock_h
+#define HEADER_fd_src_ballet_x509_fd_x509_mock_h
 
 /* fd_x509_mock.h generates mock X.509 certificates for QUIC
    peer-to-peer use.  These certificates are deliberately crafted to
@@ -38,4 +38,4 @@ fd_x509_mock_pubkey( uchar const * cert,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_x509_fd_x509_gen_h */
+#endif /* HEADER_fd_src_ballet_x509_fd_x509_mock_h */

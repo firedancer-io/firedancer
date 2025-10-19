@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_util_fuzz_fd_fuzz_h
-#define HEADER_fd_src_util_fuzz_fd_fuzz_h
+#ifndef HEADER_fd_src_util_sanitize_fd_fuzz_h
+#define HEADER_fd_src_util_sanitize_fd_fuzz_h
 
 #include "../fd_util_base.h"
 
@@ -18,4 +18,4 @@ LLVMFuzzerMutate( uchar * data,
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_util_sanitize_fd_fuzz_h */

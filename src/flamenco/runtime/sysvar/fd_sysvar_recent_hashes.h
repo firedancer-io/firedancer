@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_recent_hashes_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_recent_hashes_h
 
 /* fd_sysvar_recent_hashes.h manages the "recent block hashes" sysvar
    account (address SysvarRecentB1ockHashes11111111111111111111).  */
@@ -46,4 +46,4 @@ fd_sysvar_recent_hashes_read( fd_funk_t *               funk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_recent_hashes_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_recent_hashes_h */

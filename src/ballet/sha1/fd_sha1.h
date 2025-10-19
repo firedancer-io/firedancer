@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_http_fd_sha1_h
-#define HEADER_fd_src_ballet_http_fd_sha1_h
+#ifndef HEADER_fd_src_ballet_sha1_fd_sha1_h
+#define HEADER_fd_src_ballet_sha1_fd_sha1_h
 
 #include "../fd_ballet_base.h"
 
@@ -12,4 +12,4 @@ fd_sha1_hash( uchar const * data,
               ulong         data_len,
               uchar *       hash );
 
-#endif /* HEADER_fd_src_ballet_http_fd_sha1_h */
+#endif /* HEADER_fd_src_ballet_sha1_fd_sha1_h */

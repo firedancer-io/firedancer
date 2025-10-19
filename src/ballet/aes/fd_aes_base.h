@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_aes_fd_aes_h
-#define HEADER_fd_src_ballet_aes_fd_aes_h
+#ifndef HEADER_fd_src_ballet_aes_fd_aes_base_h
+#define HEADER_fd_src_ballet_aes_fd_aes_base_h
 
 #include "../fd_ballet_base.h"
 #include "../../util/sanitize/fd_msan.h"
@@ -133,4 +133,4 @@ fd_aes_decrypt( uchar const *        in,
   fd_aes_private_decrypt( in, out, key );
 }
 
-#endif /* HEADER_fd_src_ballet_aes_fd_aes_h */
+#endif /* HEADER_fd_src_ballet_aes_fd_aes_base_h */

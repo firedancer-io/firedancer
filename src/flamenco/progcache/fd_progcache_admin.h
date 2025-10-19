@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_fd_progcache_admin_h
-#define HEADER_fd_src_flamenco_fd_progcache_admin_h
+#ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_admin_h
+#define HEADER_fd_src_flamenco_progcache_fd_progcache_admin_h
 
 #include "../../funk/fd_funk.h"
 
@@ -99,4 +99,4 @@ fd_progcache_verify( fd_progcache_admin_t *       cache,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_fd_progcache_admin_h */
+#endif /* HEADER_fd_src_flamenco_progcache_fd_progcache_admin_h */
