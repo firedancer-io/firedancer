@@ -77,11 +77,34 @@ fxt_write_provider_info( fd_trace_fxt_o_t * this ) {
 static int
 fxt_write_tile( fd_trace_fxt_o_t *     this,
                 fd_topo_tile_t const * tile ) {
+  ulong koid = tile->id + 1024uL;
+
+  /* Format tile name */
+  char name[ 64 ];
+  snprintf( name, sizeof(name), "%s:%lu", tile->name, tile->kind_id );
+
+  /* Write fake KOID with name */
+  ulong        name_len    = strlen( name );
+  ulong        rec_kobj_sz = fd_fxt_rec_kobj_sz( name_len );
+  ulong rec_kobj[ 2 ] = {
+    fd_fxt_rec_kobj_hdr(
+        rec_kobj_sz,
+        FD_FXT_KOBJ_TYPE_THREAD,
+        0x8000 | name_len,
+        0UL ),
+    koid
+  };
+  int err = fxt_write( this, rec_kobj, sizeof(rec_kobj) );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fxt_write_str( this, name, name_len );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  /* Write thread record */
   ulong tidx = tile->id+1UL; /* Fuchsia thread refs 1-indexed */
   ulong rec[ 3 ] = {
     fd_fxt_rec_thread_hdr( tidx ),
-    0UL,      /* placeholder: process KOID */
-    tile->id  /* placeholder: thread KOID */
+    0UL,  /* placeholder: process KOID */
+    koid  /* placeholder: thread KOID */
   };
   return fxt_write( this, rec, sizeof(rec) );
 }
