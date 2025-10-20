@@ -19,6 +19,7 @@
 #define FD_FXT_REC_THREAD  3
 #define FD_FXT_REC_EVENT   4
 #define FD_FXT_REC_BLOB    5
+#define FD_FXT_REC_KOBJ    7
 #define FD_FXT_REC_LOG     9
 #define FD_FXT_REC_LARGE  15
 
@@ -59,6 +60,11 @@
 /* FD_FXT_PROVIDER_EVENT_* give provider events */
 
 #define FD_FXT_META_PROVIDER_EVENT_OVERRUN 0
+
+/* FD_FXT_KOBJ_TYPE_* give ZX kernel object types */
+
+#define FD_FXT_KOBJ_TYPE_PROCESS 1
+#define FD_FXT_KOBJ_TYPE_THREAD  2
 
 FD_PROTOTYPES_BEGIN
 
@@ -116,6 +122,32 @@ fd_fxt_rec_provider_info_hdr( ulong provider_id, /* in [0,2^32-1] */
     ( FD_FXT_META_PROVIDER_INFO<<16 ) |
     ( provider_id              <<20 ) |
     ( name_len                 <<52 );
+}
+
+/* Kernel object record ***********************************************/
+
+/* fd_fxt_rec_kobj_sz gives the size of a kernel object record in bytes
+   (multiple of 8). */
+
+static inline ulong
+fd_fxt_rec_kobj_sz( ulong name_sz ) {
+  return 16UL + fd_ulong_align_up( name_sz, 8UL );
+}
+
+/* fd_fxt_rec_kobj_hdr constructs a kernel object record header. */
+
+static inline ulong
+fd_fxt_rec_kobj_hdr( ulong record_sz,
+                     ulong zx_obj_type,
+                     ulong name_ref,
+                     ulong arg_cnt ) {
+  ulong words = record_sz>>3;
+  return
+    ( FD_FXT_REC_KOBJ<< 0 ) |
+    ( words          << 4 ) |
+    ( zx_obj_type    <<16 ) |
+    ( name_ref       <<24 ) |
+    ( arg_cnt        <<40 );
 }
 
 FD_PROTOTYPES_END
