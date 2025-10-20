@@ -113,13 +113,5 @@ setsockopt: (and (not (or (eq (arg 0) 2)
 renameat: (and (eq (arg 0) dir_fd)
                (eq (arg 2) dir_fd))
 
-# snapshot: the temporary snapshot files are unlinked if just local
-# snapshot directories are loaded in.
-#
-# arg 0 is the file descriptor for the directory that the temporary
-# files are located in
-unlinkat: (and (eq (arg 0) dir_fd)
-               (eq (arg 2) 0))
-
 # shutdown: exit is called on shutdown
 exit: (eq (arg 0) 0)

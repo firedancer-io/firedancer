@@ -11,6 +11,9 @@
 [layout]
     gossvf_tile_count = 4
 [snapshots]
-    [[snapshots.sources.http]]
-        enabled = true
-        url = "http://solana-testnet-rpc.jumpisolated.com:8899"
+    #TODO: Remove this development config later
+    [snapshots.sources]
+        servers = [ "http://solana-testnet-rpc.jumpisolated.com:8899" ]
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []

@@ -941,7 +941,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2",  tile->out_cnt  ));
 
   fd_topo_link_t * snapct_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_SNAPCT ] ];
-  FD_TEST( 0==strcmp( snapct_link->name, "snapin_rd" ) );
+  FD_TEST( 0==strcmp( snapct_link->name, "snapin_ct" ) );
 
   fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_MANIFEST ] ];
   FD_TEST( 0==strcmp( writer_link->name, "snapin_manif" ) );
