@@ -10,5 +10,8 @@ char const * fd_trace_strtab[] = {
   "exec",
   "exec_sigverify",
   "exec_txn",
+  "exec_commit",
+  "exec_instr",
+  "vm_interp",
   NULL
 };
