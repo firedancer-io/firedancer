@@ -63,3 +63,93 @@ fd_trace_exec_txn_exit( void ) {
   fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
 }
 
+static inline void
+fd_trace_exec_commit_enter( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 4UL,
+      /* name_ref   */ 7UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_exec_commit_exit( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_END,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 4UL,
+      /* name_ref   */ 7UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_exec_instr_enter( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 4UL,
+      /* name_ref   */ 8UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_exec_instr_exit( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_END,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 4UL,
+      /* name_ref   */ 8UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_vm_interp_enter( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_BEGIN,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 4UL,
+      /* name_ref   */ 9UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+
+static inline void
+fd_trace_vm_interp_exit( void ) {
+  ulong const words[] = {
+    fd_fxt_rec_event_hdr(
+      /* rec_sz     */ 16UL,
+      /* event_type */ FD_FXT_EVENT_DURATION_END,
+      /* arg_cnt    */ 0UL,
+      /* thread_ref */ fd_fxt_pub_cur->thread_id,
+      /* cat_ref    */ 4UL,
+      /* name_ref   */ 9UL ),
+    (ulong)fd_tickcount(),
+  };
+  fd_fxt_pub_rec2( fd_fxt_pub_cur, words[0], words[1] );
+}
+

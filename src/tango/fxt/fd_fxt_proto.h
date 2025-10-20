@@ -82,6 +82,42 @@ fd_fxt_rec_event_hdr( ulong record_sz,    /* in [0,32767] */
     ( name_ref        <<48 );
 }
 
+/* Magic number record ************************************************/
+
+static inline ulong
+fd_fxt_rec_magic_number_hdr( void ) {
+  return
+    ( FD_FXT_REC_META       << 0 ) |
+    ( 1UL                   << 4 ) |
+    ( FD_FXT_META_TRACE_INFO<<16 ) |
+    ( ((ulong)FD_FXT_MAGIC) <<24 );
+}
+
+/* Provider info metadata record **************************************/
+
+/* fd_fxt_rec_provider_info_sz gives the size of a provider info
+   metadata record in bytes (multiple of 8). */
+
+static inline ulong
+fd_fxt_rec_provider_info_sz( ulong name_sz ) {
+  return 8UL + fd_ulong_align_up( name_sz, 8UL );
+}
+
+/* fd_fxt_rec_provider_hdr constructs a provider info metadata record
+   header. */
+
+static inline ulong
+fd_fxt_rec_provider_info_hdr( ulong provider_id, /* in [0,2^32-1] */
+                              ulong name_len ) { /* in [0,255] */
+  ulong words = fd_fxt_rec_provider_info_sz( name_len )>>3;
+  return
+    ( FD_FXT_REC_META          << 0 ) |
+    ( words                    << 4 ) |
+    ( FD_FXT_META_PROVIDER_INFO<<16 ) |
+    ( provider_id              <<20 ) |
+    ( name_len                 <<52 );
+}
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_fxt_fd_fxt_proto_h */
