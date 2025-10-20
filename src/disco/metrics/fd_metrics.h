@@ -5,7 +5,7 @@
 
 #include "generated/fd_metrics_all.h"
 
-#include "../../tango/tempo/fd_tempo.h"
+#include "../../tango/fd_tango.h"
 #include "../../util/hist/fd_histf.h"
 
 /* fd_metrics mostly defines way of laying out metrics in shared
@@ -42,6 +42,7 @@
     [ in_link_0_metrics ... in_link_N_metrics ]
     [ out_link_0_metrics ... out_link_N_metrics ]
     [ tile_metrics ]
+    [ fxt trace ring ]
 
    where every value is a ulong.  Tile metrics come after link metrics,
    so this base pointer points at the very start of the layout.  You
@@ -58,13 +59,39 @@ extern FD_TL ulong * fd_metrics_base_tl;
    set by calling fd_metrics_register. */
 extern FD_TL volatile ulong * fd_metrics_tl;
 
+struct __attribute__((aligned(8))) fd_metrics_hdr {
+  ulong in_link_cnt;
+  ulong out_link_consumer_cnt;
+  ulong trace_mcache_off;
+  ulong trace_dcache_off;
+};
+
+typedef struct fd_metrics_hdr fd_metrics_hdr_t;
+
+#define FD_METRICS_HDR_LINES (sizeof(fd_metrics_hdr_t)/sizeof(ulong))
+
+#define FD_METRICS_TRACE_DEPTH (256UL)
+#define FD_METRICS_TRACE_MTU    (64UL)
+
 #define FD_METRICS_ALIGN (128UL)
-#define FD_METRICS_FOOTPRINT(in_link_cnt, out_link_reliable_consumer_cnt)                                   \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
-    8UL, 16UL ),                                                                                            \
-    8UL, (in_link_cnt)*FD_METRICS_ALL_LINK_IN_TOTAL*sizeof(ulong) ),                                        \
-    8UL, (out_link_reliable_consumer_cnt)*FD_METRICS_ALL_LINK_OUT_TOTAL*sizeof(ulong) ),                    \
-    8UL, FD_METRICS_TOTAL_SZ ),                                                                             \
+#define FD_METRICS_COUNTERS_FOOTPRINT(in_link_cnt, out_link_reliable_consumer_cnt)                        \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
+    alignof(ulong), sizeof(fd_metrics_hdr_t) ),                                                           \
+    alignof(ulong), (in_link_cnt)*FD_METRICS_ALL_LINK_IN_TOTAL*sizeof(ulong) ),                           \
+    alignof(ulong), (out_link_reliable_consumer_cnt)*FD_METRICS_ALL_LINK_OUT_TOTAL*sizeof(ulong) ),       \
+    alignof(ulong), FD_METRICS_TOTAL_SZ ),                                                                \
+    FD_METRICS_ALIGN )
+
+#define FD_METRICS_TRACE_FOOTPRINT() \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,       \
+    FD_MCACHE_ALIGN,  FD_MCACHE_FOOTPRINT( FD_METRICS_TRACE_DEPTH, 0UL ) ), \
+    FD_DCACHE_ALIGN,  FD_DCACHE_FOOTPRINT( FD_DCACHE_REQ_DATA_SZ( FD_METRICS_TRACE_MTU, FD_METRICS_TRACE_DEPTH, 1UL, 1 ), 0UL ) ), \
+    FD_METRICS_ALIGN )
+
+#define FD_METRICS_FOOTPRINT(in_link_cnt, out_link_reliable_consumer_cnt)                             \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,                                 \
+    FD_METRICS_ALIGN, FD_METRICS_COUNTERS_FOOTPRINT( in_link_cnt, out_link_reliable_consumer_cnt ) ), \
+    FD_METRICS_ALIGN, FD_METRICS_TRACE_FOOTPRINT() ), \
     FD_METRICS_ALIGN )
 
 /* The following macros are convenience helpers for updating tile metric
@@ -125,17 +152,42 @@ FD_PROTOTYPES_BEGIN
 /* fd_metrics_tile returns a pointer to the tile-specific metrics area
    for the given metrics object.  */
 static inline volatile ulong *
-fd_metrics_tile( ulong * metrics ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[ 0 ] + FD_METRICS_ALL_LINK_OUT_TOTAL*metrics[ 1 ]; }
+fd_metrics_tile( ulong * metrics ) { return metrics + FD_METRICS_HDR_LINES + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[ 0 ] + FD_METRICS_ALL_LINK_OUT_TOTAL*metrics[ 1 ]; }
 
 /* fd_metrics_link_in returns a pointer the in-link metrics area for the
    given in link index of this metrics object. */
 static inline volatile ulong *
-fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*in_idx; }
+fd_metrics_link_in( ulong * metrics, ulong in_idx ) { return metrics + FD_METRICS_HDR_LINES + FD_METRICS_ALL_LINK_IN_TOTAL*in_idx; }
 
 /* fd_metrics_link_in returns a pointer the in-link metrics area for the
    given out link index of this metrics object. */
 static inline volatile ulong *
-fd_metrics_link_out( ulong * metrics, ulong out_idx ) { return metrics + 2UL + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[0] + FD_METRICS_ALL_LINK_OUT_TOTAL*out_idx; }
+fd_metrics_link_out( ulong * metrics, ulong out_idx ) { return metrics + FD_METRICS_HDR_LINES + FD_METRICS_ALL_LINK_IN_TOTAL*metrics[0] + FD_METRICS_ALL_LINK_OUT_TOTAL*out_idx; }
+
+/* fd_metrics_fxt_{mcache,dcache}(_const) join trace-related data
+   structures. */
+
+static inline fd_frag_meta_t *
+fd_metrics_fxt_mcache( ulong * metrics ) {
+  fd_metrics_hdr_t const * hdr = fd_type_pun_const( metrics );
+  return fd_mcache_join( (void *)( (ulong)metrics+hdr->trace_mcache_off ) );
+}
+
+static inline fd_frag_meta_t const *
+fd_metrics_fxt_mcache_const( ulong const * metrics ) {
+  return (fd_frag_meta_t const *)fd_metrics_fxt_mcache( (ulong *)metrics );
+}
+
+static inline uchar *
+fd_metrics_fxt_dcache( ulong * metrics ) {
+  fd_metrics_hdr_t const * hdr = fd_type_pun_const( metrics );
+  return fd_dcache_join( (void *)( (ulong)metrics+hdr->trace_dcache_off ) );
+}
+
+static inline uchar const *
+fd_metrics_fxt_dcache_const( ulong const * metrics ) {
+  return (uchar const *)fd_metrics_fxt_dcache( (ulong *)metrics );
+}
 
 /* fd_metrics_new formats an unused memory region for use as a metrics.
    Assumes shmem is a non-NULL pointer to this region in the local
@@ -144,26 +196,21 @@ fd_metrics_link_out( ulong * metrics, ulong out_idx ) { return metrics + 2UL + F
    region it points to will be formatted as a metrics, caller is not
    joined). */
 
-static inline void *
+void *
 fd_metrics_new( void * shmem,
                 ulong  in_link_cnt,
-                ulong  out_link_consumer_cnt ) {
-  fd_memset( shmem, 0, FD_METRICS_FOOTPRINT(in_link_cnt, out_link_consumer_cnt) );
-  ulong * metrics = shmem;
-  metrics[0] = in_link_cnt;
-  metrics[1] = out_link_consumer_cnt;
-  return shmem;
-}
+                ulong  out_link_consumer_cnt );
 
 /* fd_metrics_register sets the thread local values used by the macros
    like FD_MCNT_SET to point to the provided metrics object. */
+
+ulong *
+fd_metrics_register_ext( ulong * metrics,
+                         ulong   tile_id );
+
 static inline ulong *
 fd_metrics_register( ulong * metrics ) {
-  if( FD_UNLIKELY( !metrics ) ) FD_LOG_ERR(( "NULL metrics" ));
-
-  fd_metrics_base_tl = metrics;
-  fd_metrics_tl = fd_metrics_tile( metrics );
-  return metrics;
+  return fd_metrics_register_ext( metrics, fd_tile_id() );
 }
 
 static inline ulong
