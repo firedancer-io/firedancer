@@ -3,6 +3,7 @@
 
 #include "../../util/pod/fd_pod_format.h"
 #include "../../discof/replay/fd_exec.h"
+#include "../../disco/trace/generated/fd_trace_exec.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_exec_stack.h"
@@ -136,7 +137,9 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
+          fd_trace_exec_commit_enter();
           fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
+          fd_trace_exec_commit_exit();
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
@@ -156,6 +159,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         break;
       }
       case FD_EXEC_TT_TXN_SIGVERIFY: {
+        fd_trace_exec_sigverify_enter();
         fd_exec_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
         int res = fd_executor_txn_verify( &msg->txn, ctx->sha_lj );
         fd_exec_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
@@ -164,6 +168,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
         fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
         ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*out_msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
+        fd_trace_exec_sigverify_exit();
         break;
       }
       default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));

@@ -16,6 +16,12 @@
 
     <event name="exec_txn" type="DURATION" />
 
+    <event name="exec_commit" type="DURATION" />
+
+    <event name="exec_instr" type="DURATION" />
+
+    <event name="vm_interp" type="DURATION" />
+
 </category>
 
 </traces>
