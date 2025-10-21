@@ -413,11 +413,20 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, fd_hash_t const * 
     FD_LOG_INFO(( "[%s] subtracting (%s, %lu, %lu, %s)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, vote.slot, FD_BASE58_ENC_32_ALLOCA( &vote.hash ) ));
 #   endif
     int cf = __builtin_usubl_overflow( prev->replay_stake, voter->stake, &prev->replay_stake );
-    if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. prev->replay_stake %lu voter->stake %lu", __func__, prev->replay_stake, voter->stake ));
+    if( FD_UNLIKELY( cf ) ) {
+      FD_LOG_ERR(( "[%s] Integer underflow in replay_stake calculation: %lu - %lu",
+                   __func__, prev->replay_stake, voter->stake ));
+      return;  /* Prevent corrupted state propagation */
+    }
     fd_ghost_ele_t * ancestor = prev;
     while( FD_LIKELY( ancestor ) ) {
       cf = __builtin_usubl_overflow( ancestor->weight, voter->stake, &ancestor->weight );
-      if( FD_UNLIKELY( cf ) ) FD_LOG_CRIT(( "[%s] sub overflow. ancestor->weight %lu latest_vote->stake %lu", __func__, ancestor->weight, voter->stake ));
+      if( FD_UNLIKELY( cf ) ) {
+        FD_LOG_ERR(( "[%s] Integer underflow in weight calculation: %lu - %lu",
+                     __func__, ancestor->weight, voter->stake ));
+        /* Clamp to zero instead of underflowing */
+        ancestor->weight = 0UL;
+      }
       ancestor = fd_ghost_pool_ele( pool, ancestor->parent );
     }
   }
