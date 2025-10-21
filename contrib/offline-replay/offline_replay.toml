@@ -29,8 +29,6 @@
     path = "{log}"
 [paths]
     snapshots = "{ledger}"
-[hugetlbfs]
-    mount_path = "/data/firedancer/mnt"
 [snapshots]
     download = false
     incremental_snapshots = false

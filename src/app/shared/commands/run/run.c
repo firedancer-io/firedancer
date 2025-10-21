@@ -541,7 +541,6 @@ warn_unknown_files( config_t const * config,
     int known_file = 0;
     for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
       fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
-      if( !wksp->is_locked ) continue;
 
       char expected_path[ PATH_MAX ];
       workspace_path( config, wksp, expected_path );
