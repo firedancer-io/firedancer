@@ -226,10 +226,13 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
   /* SIMD-0334 fixed the length check in Agave V1.
      Now properly validates that input size is a multiple of 192. */
   if( FD_UNLIKELY( (in_sz % 192UL) != 0UL ) ) {
-    FD_LOG_WARNING(( "BN254_PAIR: invalid input size %lu (not divisible by 192)", in_sz ));
+    FD_LOG_WARNING(( "BN254_PAIR: VALIDATION_FAILED input_sz=%lu remainder=%lu", 
+                     in_sz, in_sz % 192UL ));
+    fd_memset( out, 0, 32 );
     return -1;
   }
   ulong elements_len = in_sz / 192UL;
+  FD_LOG_WARNING(( "BN254_PAIR: VALIDATION_OK input_sz=%lu pairs=%lu", in_sz, elements_len ));
   fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];
   fd_bn254_g2_t q[FD_BN254_PAIRING_BATCH_MAX];
 
@@ -271,9 +274,11 @@ fd_bn254_pairing_is_one_syscall( uchar       out[32],
   fd_bn254_final_exp( r, r );
 
   /* Output is 0 or 1, serialized as big endian uint256. */
+  int is_one = fd_bn254_fp12_is_one( r );
   fd_memset( out, 0, 32 );
-  if( FD_LIKELY( fd_bn254_fp12_is_one( r ) ) ) {
+  if( FD_LIKELY( is_one ) ) {
     out[31] = 1;
   }
+  FD_LOG_WARNING(( "BN254_PAIR: RESULT is_one=%d out[31]=%u", is_one, (uint)out[31] ));
   return 0;
 }

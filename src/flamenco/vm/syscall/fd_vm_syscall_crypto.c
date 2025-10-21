@@ -73,25 +73,42 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_ADD:
     /* Compute add */
-    if( FD_LIKELY( fd_bn254_g1_add_syscall( call_result, input, input_sz )==0 ) ) {
+    FD_LOG_WARNING(( "ALT_BN128_ADD: input_sz=%lu", input_sz ));
+    int add_result = fd_bn254_g1_add_syscall( call_result, input, input_sz );
+    FD_LOG_WARNING(( "ALT_BN128_ADD: syscall_ret=%d", add_result ));
+    if( FD_LIKELY( add_result==0 ) ) {
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_ADD: returning ret=%lu (success)", ret ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_ADD: returning ret=%lu (error)", ret ));
     }
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
     /* Compute scalar mul */
-    if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz,
-                                                   FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, &vm->instr_ctx->txn_ctx->features, fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
+    FD_LOG_WARNING(( "ALT_BN128_MUL: input_sz=%lu", input_sz ));
+    int mul_result = fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz,
+                                                     FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, &vm->instr_ctx->txn_ctx->features, fix_alt_bn128_multiplication_input_length ) );
+    FD_LOG_WARNING(( "ALT_BN128_MUL: syscall_ret=%d", mul_result ));
+    if( FD_LIKELY( mul_result==0 ) ) {
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_MUL: returning ret=%lu (success)", ret ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_MUL: returning ret=%lu (error)", ret ));
     }
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
     /* Compute pairing */
-    if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz )==0 ) ) {
-      /* TODO: quite possibly this should be (ulong)( call_result[31] != 0 );
-         to match Agave "r0 := 1 if one, else 0" logic */
+    FD_LOG_WARNING(( "ALT_BN128_PAIRING: input_sz=%lu", input_sz ));
+    int pairing_result = fd_bn254_pairing_is_one_syscall( call_result, input, input_sz );
+    FD_LOG_WARNING(( "ALT_BN128_PAIRING: syscall_ret=%d out[31]=%u", 
+                     pairing_result, pairing_result==0 ? (uint)call_result[31] : 0U ));
+    if( FD_LIKELY( pairing_result==0 ) ) {
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_PAIRING: returning ret=%lu (success)", ret ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_PAIRING: returning ret=%lu (error)", ret ));
     }
     break;
   }
@@ -170,45 +187,71 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
   switch( op ) {
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESS:
+    FD_LOG_WARNING(( "ALT_BN128_G1_COMPRESS: input_sz=%lu expected=%lu", input_sz, FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ));
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ) ) {
+      FD_LOG_WARNING(( "ALT_BN128_G1_COMPRESS: size mismatch, returning error" ));
       goto soft_error;
     }
     if( FD_LIKELY( fd_bn254_g1_compress( out_buf, fd_type_pun_const(input) ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ );
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_G1_COMPRESS: success" ));
+      FD_LOG_HEXDUMP_WARNING(( "ALT_BN128_G1_COMPRESS output", out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_G1_COMPRESS: compression failed" ));
     }
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_G1_DECOMPRESS:
+    FD_LOG_WARNING(( "ALT_BN128_G1_DECOMPRESS: input_sz=%lu expected=%lu", input_sz, FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ));
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G1_COMPRESSED_SZ ) ) {
+      FD_LOG_WARNING(( "ALT_BN128_G1_DECOMPRESS: size mismatch, returning error" ));
       goto soft_error;
     }
     if( FD_LIKELY( fd_bn254_g1_decompress( out_buf, fd_type_pun_const(input) ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ );
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_G1_DECOMPRESS: success" ));
+      FD_LOG_HEXDUMP_WARNING(( "ALT_BN128_G1_DECOMPRESS output", out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G1_SZ ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_G1_DECOMPRESS: decompression failed" ));
     }
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESS:
+    FD_LOG_WARNING(( "ALT_BN128_G2_COMPRESS: input_sz=%lu expected=%lu", input_sz, FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ));
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ) ) {
+      FD_LOG_WARNING(( "ALT_BN128_G2_COMPRESS: size mismatch, returning error" ));
       goto soft_error;
     }
     if( FD_LIKELY( fd_bn254_g2_compress( out_buf, fd_type_pun_const(input) ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ );
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_G2_COMPRESS: success" ));
+      FD_LOG_HEXDUMP_WARNING(( "ALT_BN128_G2_COMPRESS output", out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_G2_COMPRESS: compression failed" ));
     }
     break;
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_G2_DECOMPRESS:
+    FD_LOG_WARNING(( "ALT_BN128_G2_DECOMPRESS: input_sz=%lu expected=%lu", input_sz, FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ));
     if( FD_UNLIKELY( input_sz!=FD_VM_SYSCALL_SOL_ALT_BN128_G2_COMPRESSED_SZ ) ) {
+      FD_LOG_WARNING(( "ALT_BN128_G2_DECOMPRESS: size mismatch, returning error" ));
       goto soft_error;
     }
     if( FD_LIKELY( fd_bn254_g2_decompress( out_buf, fd_type_pun_const(input) ) ) ) {
       fd_memcpy( call_result, out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ );
       ret = 0UL; /* success */
+      FD_LOG_WARNING(( "ALT_BN128_G2_DECOMPRESS: success" ));
+      FD_LOG_HEXDUMP_WARNING(( "ALT_BN128_G2_DECOMPRESS output", out_buf, FD_VM_SYSCALL_SOL_ALT_BN128_G2_SZ ));
+    } else {
+      FD_LOG_WARNING(( "ALT_BN128_G2_DECOMPRESS: decompression failed" ));
     }
     break;
   }
+  
+  FD_LOG_WARNING(( "ALT_BN128_COMPRESSION: op=%lu returning ret=%lu", op, ret ));
 
 soft_error:
   *_ret = ret;

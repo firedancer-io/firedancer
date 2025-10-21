@@ -591,6 +591,9 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
   }
   effects->r0 = syscall_err ? 0 : vm->reg[0]; // Save only on success
   effects->cu_avail = (ulong)vm->cu;
+  
+  FD_LOG_WARNING(( "SYSCALL_EFFECTS: syscall_err=%d r0=%lu cu_avail=%lu", 
+                   syscall_err, effects->r0, effects->cu_avail ));
 
   if( vm->heap_max ) {
     effects->heap = FD_SCRATCH_ALLOC_APPEND(
