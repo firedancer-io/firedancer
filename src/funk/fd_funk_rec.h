@@ -179,7 +179,7 @@ fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
    records). fd_funk_rec_query_try will still return the record in this
    case, and the application should check for the flag. */
 
-fd_funk_rec_t const *
+fd_funk_rec_t *
 fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_txn_xid_t const * xid,
                        fd_funk_rec_key_t const * key,

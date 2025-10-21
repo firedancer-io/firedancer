@@ -428,7 +428,7 @@ process_account_header( fd_snapin_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t const*)result->account_header.pubkey );
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
@@ -450,10 +450,16 @@ process_account_header( fd_snapin_tile_t *            ctx,
        hash from the running lthash. */
   }
 
-  if( FD_LIKELY( rec->val_sz<sizeof(fd_account_meta_t)+result->account_header.data_len ) ) {
-    meta = fd_funk_val_truncate( (fd_funk_rec_t*)rec, ctx->funk->alloc, ctx->funk->wksp, 0UL, sizeof(fd_account_meta_t)+result->account_header.data_len, NULL );
-    FD_TEST( meta );
-  }
+  /* Allocate data space from heap, free old value (if any) */
+  fd_funk_val_flush( rec, ctx->funk->alloc, ctx->funk->wksp );
+  ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
+  ulong       alloc_max;
+  meta = fd_alloc_malloc_at_least( ctx->funk->alloc, 16UL, alloc_sz, &alloc_max );
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  memset( meta, 0, sizeof(fd_account_meta_t) );
+  rec->val_gaddr = fd_wksp_gaddr_fast( ctx->funk->wksp, meta );
+  rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
+  rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
 
   meta->dlen       = (uint)result->account_header.data_len;
   meta->slot       = result->account_header.slot;

@@ -66,7 +66,7 @@ fd_funk_rec_key_set_pair( fd_funk_xid_key_pair_t *  key_pair,
   fd_funk_rec_key_copy( key_pair->key, key );
 }
 
-fd_funk_rec_t const *
+fd_funk_rec_t *
 fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_txn_xid_t const * xid,
                        fd_funk_rec_key_t const * key,
@@ -91,7 +91,7 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
     if( err == FD_MAP_ERR_AGAIN ) continue;
     FD_LOG_CRIT(( "query returned err %d", err ));
   }
-  return fd_funk_rec_map_query_ele_const( query );
+  return fd_funk_rec_map_query_ele( query );
 }
 
 
