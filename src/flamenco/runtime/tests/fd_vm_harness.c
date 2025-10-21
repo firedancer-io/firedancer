@@ -597,7 +597,7 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
       l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
       goto error;
-    }  
+    }
     effects->heap->size = (uint)vm->heap_max;
     fd_memset( effects->heap->bytes, 0, vm->heap_max );
     if( input->syscall_invocation.heap_prefix ) {
@@ -658,7 +658,7 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
                                                                          &effects->input_data_regions_count,
                                                                          (void *)tmp_end,
                                                                          fd_ulong_sat_sub( output_end, tmp_end ) );
-                                                                         
+
   if( !!vm->input_mem_regions_cnt && !effects->input_data_regions ) {
     goto error;
   }
