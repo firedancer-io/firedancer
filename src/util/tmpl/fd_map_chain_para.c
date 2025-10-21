@@ -1195,6 +1195,13 @@
 #define MAP_IMPL_STYLE 0
 #endif
 
+/* If MAP_PEDANTIC is defined to non-zero, aborts with FD_LOG_CRIT
+   instead of gracefully returning if corruption is found. */
+
+#ifndef MAP_PEDANTIC
+#define MAP_PEDANTIC 0
+#endif
+
 /* Implementation *****************************************************/
 
 #define MAP_VER_WIDTH (64-MAP_CNT_WIDTH)
@@ -1960,16 +1967,25 @@ MAP_(remove)( MAP_(t) *         join,
     query->ver_cnt = ver_cnt;
 
     if( FD_UNLIKELY( ele_cnt>ele_max ) ) { /* optimize for not corrupt */
+#     if MAP_PEDANTIC
+      FD_LOG_NOTICE(( "Corrupt map chain %p (memo %016lx): ele_cnt=%lu > ele_max=%lu", (void *)chain, memo, ele_cnt, ele_max ));
+#     else
       err = FD_MAP_ERR_CORRUPT;
       goto done;
+#     endif /* MAP_PEDANTIC */
     }
 
     MAP_IDX_T * cur = &chain->head_cidx;
     for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) { /* guarantee bounded exec under corruption */
       ulong ele_idx = MAP_(private_idx)( *cur );
       if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* optimize for not corrupt */
+#       if MAP_PEDANTIC
+        FD_LOG_CRIT(( "Corrupt MAP_NEXT pointer at node %p (memo %016lx, ele_rem=%lu, ele_cnt=%lu): map_next=%lu >= ele_max=%lu",
+                      (void *)cur, memo, ele_rem, ele_cnt, ele_idx, ele_max ));
+#       else
         err = FD_MAP_ERR_CORRUPT;
         goto done;
+#       endif /* MAP_PEDANTIC */
       }
 
       if(
@@ -1992,8 +2008,13 @@ MAP_(remove)( MAP_(t) *         join,
 
     ulong ele_idx = MAP_(private_idx)( *cur );
     if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) { /* optimize for not corrupt */
+#     if MAP_PEDANTIC
+      FD_LOG_CRIT(( "Corrupt map chain %p (memo %016lx, ele_cnt=%lu): Found element past chain: ele_idx=%lu",
+                    (void *)chain, memo, ele_cnt, ele_idx ));
+#     else
       err = FD_MAP_ERR_CORRUPT;
       goto done;
+#     endif /* MAP_PEDANTIC */
     }
 
     err = FD_MAP_ERR_KEY;
@@ -2042,16 +2063,25 @@ MAP_(modify_try)( MAP_(t) *         join,
 
     ulong ele_cnt = MAP_(private_vcnt_cnt)( ver_cnt );
     if( FD_UNLIKELY( ele_cnt>ele_max ) ) { /* optimize for not corrupt */
+#     if MAP_PEDANTIC
+      FD_LOG_NOTICE(( "Corrupt map chain %p (memo %016lx): ele_cnt=%lu > ele_max=%lu", (void *)chain, memo, ele_cnt, ele_max ));
+#     else
       err = FD_MAP_ERR_CORRUPT;
       goto done;
+#     endif /* MAP_PEDANTIC */
     }
 
     MAP_IDX_T * cur = &chain->head_cidx;
     for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) { /* guarantee bounded exec under corruption */
       ulong ele_idx = MAP_(private_idx)( *cur );
       if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* optimize for not corrupt */
+#       if MAP_PEDANTIC
+        FD_LOG_CRIT(( "Corrupt MAP_NEXT pointer at node %p (memo %016lx, ele_rem=%lu, ele_cnt=%lu): map_next=%lu >= ele_max=%lu",
+                      (void *)cur, memo, ele_rem, ele_cnt, ele_idx, ele_max ));
+#       else
         err = FD_MAP_ERR_CORRUPT;
         goto done;
+#       endif /* MAP_PEDANTIC */
       }
 
       if(
@@ -2075,8 +2105,13 @@ MAP_(modify_try)( MAP_(t) *         join,
 
     ulong ele_idx = MAP_(private_idx)( *cur );
     if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) { /* optimize for not corrupt */
+#     if MAP_PEDANTIC
+      FD_LOG_CRIT(( "Corrupt map chain %p (memo %016lx, ele_cnt=%lu): Found element past chain: ele_idx=%lu",
+                    (void *)chain, memo, ele_cnt, ele_idx ));
+#     else
       err = FD_MAP_ERR_CORRUPT;
       goto done;
+#     endif /* MAP_PEDANTIC */
     }
 
     err = FD_MAP_ERR_KEY;
@@ -2133,7 +2168,13 @@ MAP_(query_try)( MAP_(t) const *   join,
   query->ver_cnt = then;
 
   if( FD_UNLIKELY( (now!=then) | (!!(then & (1UL<<MAP_CNT_WIDTH))) ) ) return FD_MAP_ERR_AGAIN;
-  if( FD_UNLIKELY( ele_cnt>ele_max                                 ) ) return FD_MAP_ERR_CORRUPT;
+  if( FD_UNLIKELY( ele_cnt>ele_max ) ) {
+#   if MAP_PEDANTIC
+    FD_LOG_NOTICE(( "Corrupt map chain %p (memo %016lx): ele_cnt=%lu > ele_max=%lu", (void *)chain, memo, ele_cnt, ele_max ));
+#   else
+    return FD_MAP_ERR_CORRUPT;
+#   endif /* MAP_PEDANTIC */
+  }
 
   /* Search the chain for key.  Since we know the numer of elements on
      the chain, we can bound this search to avoid corruption causing out
@@ -2171,7 +2212,14 @@ MAP_(query_try)( MAP_(t) const *   join,
     FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( now!=then ) ) return FD_MAP_ERR_AGAIN;
-    if( FD_UNLIKELY( corrupt   ) ) return FD_MAP_ERR_CORRUPT;
+    if( FD_UNLIKELY( corrupt ) ) {
+#     if MAP_PEDANTIC
+      FD_LOG_CRIT(( "Corrupt MAP_NEXT pointer at node %p (memo %016lx, ele_rem=%lu, ele_cnt=%lu): map_next=%lu >= ele_max=%lu",
+                    (void *)cur, memo, ele_rem, ele_cnt, ele_idx, ele_max ));
+#     else
+      return FD_MAP_ERR_CORRUPT;
+#     endif /* MAP_PEDANTIC */
+    }
 
     if( FD_LIKELY( found ) ) { /* Optimize for found */
       query->ele = (MAP_ELE_T *)&ele[ ele_idx ];
@@ -2196,7 +2244,14 @@ MAP_(query_try)( MAP_(t) const *   join,
   FD_COMPILER_MFENCE();
 
   if( FD_UNLIKELY( now!=then                              ) ) return FD_MAP_ERR_AGAIN;
-  if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) return FD_MAP_ERR_CORRUPT;
+  if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) {
+#   if MAP_PEDANTIC
+    FD_LOG_CRIT(( "Corrupt map chain %p (memo %016lx, ele_cnt=%lu): Found element past chain: ele_idx=%lu",
+                  (void *)chain, memo, ele_cnt, ele_idx ));
+#   else
+    return FD_MAP_ERR_CORRUPT;
+#   endif /* MAP_PEDANTIC */
+  }
 
   return FD_MAP_ERR_KEY;
 }
@@ -2470,12 +2525,25 @@ MAP_(txn_remove)( MAP_(t) *         join,
   query->chain   = chain;
   query->ver_cnt = ver_cnt;
 
-  if( FD_UNLIKELY( ele_cnt>ele_max ) ) return FD_MAP_ERR_CORRUPT; /* optimize for not corrupt */
+  if( FD_UNLIKELY( ele_cnt>ele_max ) ) { /* optimize for not corrupt */
+#   if MAP_PEDANTIC
+    FD_LOG_NOTICE(( "Corrupt map chain %p (memo %016lx): ele_cnt=%lu > ele_max=%lu", (void *)chain, memo, ele_cnt, ele_max ));
+#   else
+    return FD_MAP_ERR_CORRUPT;
+#   endif /* MAP_PEDANTIC */
+  }
 
   MAP_IDX_T * cur = &chain->head_cidx;
   for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) { /* guarantee bounded exec under corruption */
     ulong ele_idx = MAP_(private_idx)( *cur );
-    if( FD_UNLIKELY( ele_idx>=ele_max ) ) return FD_MAP_ERR_CORRUPT; /* optimize for not corrupt */
+    if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* optimize for not corrupt */
+#     if MAP_PEDANTIC
+      FD_LOG_CRIT(( "Corrupt MAP_NEXT pointer at node %p (memo %016lx, ele_rem=%lu, ele_cnt=%lu): map_next=%lu >= ele_max=%lu",
+                    (void *)cur, memo, ele_rem, ele_cnt, ele_idx, ele_max ));
+#     else
+      return FD_MAP_ERR_CORRUPT;
+#     endif /* MAP_PEDANTIC */
+    }
 
     if(
 #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
@@ -2492,7 +2560,14 @@ MAP_(txn_remove)( MAP_(t) *         join,
   }
 
   ulong ele_idx = MAP_(private_idx)( *cur );
-  if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) return FD_MAP_ERR_CORRUPT; /* optimize for not found */
+  if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) { /* optimize for not found */
+#   if MAP_PEDANTIC
+    FD_LOG_CRIT(( "Corrupt map chain %p (memo %016lx, ele_cnt=%lu): Found element past chain: ele_idx=%lu",
+                  (void *)chain, memo, ele_cnt, ele_idx ));
+#   else
+    return FD_MAP_ERR_CORRUPT;
+#   endif /* MAP_PEDANTIC */
+  }
   return FD_MAP_ERR_KEY;
 }
 
@@ -2522,13 +2597,26 @@ MAP_(txn_modify)( MAP_(t) *         join,
   query->chain   = chain;
   query->ver_cnt = ver_cnt;
 
-  if( FD_UNLIKELY( ele_cnt>ele_max ) ) return FD_MAP_ERR_CORRUPT; /* optimize for not corrupt */
+  if( FD_UNLIKELY( ele_cnt>ele_max ) ) { /* optimize for not corrupt */
+#   if MAP_PEDANTIC
+    FD_LOG_NOTICE(( "Corrupt map chain %p (memo %016lx): ele_cnt=%lu > ele_max=%lu", (void *)chain, memo, ele_cnt, ele_max ));
+#   else
+    return FD_MAP_ERR_CORRUPT;
+#   endif /* MAP_PEDANTIC */
+  }
 
   MAP_IDX_T * cur = &chain->head_cidx;
   for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) {
     ulong ele_idx = MAP_(private_idx)( *cur );
 
-    if( FD_UNLIKELY( ele_idx>=ele_max ) ) return FD_MAP_ERR_CORRUPT; /* optimize for not corrupt */
+    if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* optimize for not corrupt */
+#     if MAP_PEDANTIC
+      FD_LOG_CRIT(( "Corrupt MAP_NEXT pointer at node %p (memo %016lx, ele_rem=%lu, ele_cnt=%lu): map_next=%lu >= ele_max=%lu",
+                    (void *)cur, memo, ele_rem, ele_cnt, ele_idx, ele_max ));
+#     else
+      return FD_MAP_ERR_CORRUPT;
+#     endif /* MAP_PEDANTIC */
+    }
 
     if(
 #       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
@@ -2548,7 +2636,14 @@ MAP_(txn_modify)( MAP_(t) *         join,
   }
 
   ulong ele_idx = MAP_(private_idx)( *cur );
-  if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) return FD_MAP_ERR_CORRUPT; /* optimize for not corrupt */
+  if( FD_UNLIKELY( !MAP_(private_idx_is_null( ele_idx ) ) ) ) { /* optimize for not corrupt */
+#   if MAP_PEDANTIC
+    FD_LOG_CRIT(( "Corrupt map chain %p (memo %016lx, ele_cnt=%lu): Found element past chain: ele_idx=%lu",
+                  (void *)chain, memo, ele_cnt, ele_idx ));
+#   else
+    return FD_MAP_ERR_CORRUPT;
+#   endif /* MAP_PEDANTIC */
+  }
 
   return FD_MAP_ERR_KEY;
 }
@@ -2811,7 +2906,7 @@ MAP_(strerror)( int err ) {
 #undef MAP_
 #undef MAP_STATIC
 #undef MAP_VER_WIDTH
-
+#undef MAP_PEDANTIC
 #undef MAP_IMPL_STYLE
 #undef MAP_MAGIC
 #undef MAP_ALIGN
