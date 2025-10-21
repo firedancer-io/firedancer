@@ -4,3 +4,6 @@
         "entrypoint2.devnet.solana.com:8001",
         "entrypoint3.devnet.solana.com:8001",
     ]
+[snapshots]
+    [snapshots.sources.gossip]
+        enabled = true
