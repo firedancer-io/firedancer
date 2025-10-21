@@ -342,6 +342,9 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
   /* Calculate the requested length
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L532-L535 */
   ulong requested_len = fd_ulong_sat_sub( fd_ulong_sat_add( offset, sz ), region->vaddr_offset );
+  if( FD_UNLIKELY( requested_len > region->address_space_reserved ) ) {
+    return;
+  }
 
   /* Calculate the remaining allowed growth
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L549-L551 */
