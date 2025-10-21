@@ -24,19 +24,69 @@ fi
 mkdir -p dump
 
 GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
+REPO_URL="https://github.com/firedancer-io/test-vectors.git"
 
 echo $GIT_REF
 
+# Prepare local repo and enter it
 if [ ! -f dump/test-vectors/README.md ]; then
   cd dump
-  git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
+  git clone -q --no-tags --depth=1 "$REPO_URL" test-vectors
   cd test-vectors
 else
   cd dump/test-vectors
 fi
 
-git fetch origin $GIT_REF
-git checkout -q $GIT_REF
+safe_checkout() {
+  local ref="$1"
+
+  # Remove stale git lock if present
+  [ -f .git/index.lock ] && rm -f .git/index.lock
+
+  # Ensure remote URL is correct
+  if git remote get-url origin >/dev/null 2>&1; then
+    git remote set-url origin "$REPO_URL"
+  else
+    git remote add origin "$REPO_URL"
+  fi
+
+  # Clean any outstanding changes or spurious files
+  git reset -q --hard || true
+  git clean -q -fdx || true
+
+  # Fetch the exact commit (shallow first, fallback to full)
+  if ! git fetch -q --no-tags --depth=1 origin "$ref"; then
+    git fetch -q --no-tags origin "$ref"
+  fi
+
+  # Force detached checkout to the commit
+  git config advice.detachedHead false || true
+  if ! git checkout --detach -f -q "$ref"; then
+    git fetch -q --no-tags --prune origin || true
+    git checkout --detach -f -q "$ref"
+  fi
+
+  # Verify HEAD matches the requested commit
+  local head
+  head="$(git rev-parse HEAD 2>/dev/null || echo "")"
+  if [ "$head" != "$ref" ]; then
+    echo "Failed to checkout exact commit (HEAD=$head, expected $ref)"
+    return 1
+  fi
+  return 0
+}
+
+# Only perform checkout if not already at the desired commit
+current="$(git rev-parse HEAD || echo '')"
+if [ "$current" != "$GIT_REF" ]; then
+  tries=3
+  while ! safe_checkout "$GIT_REF"; do
+    tries=$((tries-1))
+    [ $tries -le 0 ] && { echo "Failed to checkout $GIT_REF"; exit 128; }
+    echo "Retrying checkout ($tries retries left)…"
+    sleep 1
+  done
+fi
 cd ../..
 
 WKSP=run-test-vectors
