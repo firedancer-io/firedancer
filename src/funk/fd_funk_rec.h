@@ -61,11 +61,12 @@ FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*FD_FUNK_REC_ALIGN, record size is 
    transaction id of all the records that were not updated by the
    publish.) */
 
-#define POOL_NAME          fd_funk_rec_pool
-#define POOL_ELE_T         fd_funk_rec_t
-#define POOL_IDX_T         uint
-#define POOL_NEXT          map_next
-#define POOL_IMPL_STYLE    1
+#define POOL_NAME       fd_funk_rec_pool
+#define POOL_ELE_T      fd_funk_rec_t
+#define POOL_IDX_T      uint
+#define POOL_NEXT       map_next
+#define POOL_IMPL_STYLE 1
+#define POOL_LAZY       1
 #include "../util/tmpl/fd_pool_para.c"
 
 #define MAP_NAME              fd_funk_rec_map

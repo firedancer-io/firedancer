@@ -12,6 +12,7 @@ typedef struct myele myele_t;
 #define POOL_IDX_T         uint
 #define POOL_NEXT          mynext
 #define POOL_IMPL_STYLE    0
+#define POOL_LAZY          1
 #include "fd_pool_para.c"
 
 FD_STATIC_ASSERT( FD_POOL_SUCCESS    == 0, unit_test );
