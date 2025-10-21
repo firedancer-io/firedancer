@@ -89,6 +89,8 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
   case FD_VM_SYSCALL_SOL_ALT_BN128_PAIRING:
     /* Compute pairing */
     if( FD_LIKELY( fd_bn254_pairing_is_one_syscall( call_result, input, input_sz )==0 ) ) {
+      /* TODO: quite possibly this should be (ulong)( call_result[31] != 0 );
+         to match Agave "r0 := 1 if one, else 0" logic */
       ret = 0UL; /* success */
     }
     break;
