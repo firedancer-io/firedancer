@@ -99,7 +99,6 @@ struct fd_configf {
     ulong max_account_records;
     ulong heap_size_gib;
     ulong max_database_transactions;
-    int   lock_pages;
   } funk;
 
   struct {

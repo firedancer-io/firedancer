@@ -289,11 +289,6 @@ fd_config_fill( fd_config_t * config,
     NULL,
     "%s/.huge",
     config->hugetlbfs.mount_path ) );
-  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.normal_page_mount_path,
-    sizeof(config->hugetlbfs.normal_page_mount_path),
-    NULL,
-    "%s/.normal",
-    config->hugetlbfs.mount_path ) );
 
   ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\" or \"gigantic\"" ));

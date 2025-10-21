@@ -85,7 +85,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
-  CFG_POP      ( bool,   funk.lock_pages                                     );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_vote_accounts                           );

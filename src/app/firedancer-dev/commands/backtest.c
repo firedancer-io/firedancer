@@ -77,8 +77,7 @@ backtest_topo( config_t * config ) {
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
-      config->firedancer.funk.heap_size_gib,
-      config->firedancer.funk.lock_pages );
+      config->firedancer.funk.heap_size_gib );
   fd_topob_tile_uses( topo, replay_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topob_wksp( topo, "progcache" );
@@ -337,7 +336,6 @@ configure_args( void ) {
 
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
-  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_normalpage;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
   args.configure.stages[ stage_idx++ ] = NULL;
 

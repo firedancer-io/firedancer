@@ -502,19 +502,6 @@ user = ""
     # setting.
     max_database_transactions = 2048
 
-    # Whether to lock the memory pages backing the database to physical
-    # memory pages, which cannot be paged out.
-    #
-    # If this option is false, then the database will be backed by normal
-    # pages which will be paged out to an on-disk file if the host comes
-    # under memory pressure. This is useful for when your machine doesn't
-    # have enough physical memory to run against clusters with a large
-    # number of accounts (e.g. mainnet).
-    #
-    # WARNING: disabling this option can cause performance degradation, as
-    # the database pages may be paged out.
-    lock_pages = true
-
 [runtime]
     max_vote_accounts = 2000000
 
