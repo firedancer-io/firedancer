@@ -1,5 +1,3 @@
-#define _GNU_SOURCE /* SOL_TCP (seccomp) */
-
 #include "fd_snapct_tile.h"
 #include "utils/fd_ssping.h"
 #include "utils/fd_ssctrl.h"
@@ -24,7 +22,7 @@
 
 #include "generated/fd_snapct_tile_seccomp.h"
 
-#define FD_SSPING_MAX_PEERS (65536UL)
+#define FD_SSPING_MAX_PEERS (65536UL) /* FIXME: Larger than necessary (max gossip CIs) */
 
 #define NAME "snapct"
 
@@ -404,7 +402,7 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
   return 1UL +                      /* stderr */
          1UL +                      /* logfile */
-         FD_SSPING_MAX_PEERS +      /* ssping max peers sockets */
+         1UL +                      /* ssping socket */
          FD_SNAPCT_MAX_HTTP_PEERS + /* http resolver max peers sockets */
          3UL;                       /* dirfd + 2 snapshot file fds in the worst case */
 }
@@ -420,7 +418,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t), sizeof(fd_snapct_tile_t) );
 
-  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd );
+  populate_sock_filter_policy_fd_snapct_tile( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->local_out.dir_fd, (uint)ctx->local_out.full_snapshot_fd, (uint)ctx->local_out.incremental_snapshot_fd, (uint)fd_ssping_get_sockfd( ctx->ssping ) );
   return sock_filter_policy_fd_snapct_tile_instr_cnt;
 }
 
@@ -444,6 +442,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=ctx->local_out.dir_fd ) )                  out_fds[ out_cnt++ ] = ctx->local_out.dir_fd;
   if( FD_LIKELY( -1!=ctx->local_out.full_snapshot_fd ) )        out_fds[ out_cnt++ ] = ctx->local_out.full_snapshot_fd;
   if( FD_LIKELY( -1!=ctx->local_out.incremental_snapshot_fd ) ) out_fds[ out_cnt++ ] = ctx->local_out.incremental_snapshot_fd;
+  out_fds[ out_cnt++ ] = fd_ssping_get_sockfd( ctx->ssping );
 
   return out_cnt;
 }
@@ -901,12 +900,14 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       }
     case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE: {
       ulong idx = gossip_ci_map_idx_query_const( ctx->gossip.ci_map, (fd_pubkey_t const *)msg->origin_pubkey, ULONG_MAX, ctx->gossip.ci_pool );
-      fd_ip4_port_t addr = gossip_ci_pool_ele_const( ctx->gossip.ci_pool, idx )->rpc_addr;
-      if( FD_LIKELY( !!addr.l ) ) {
-        int removed = fd_ssping_remove( ctx->ssping, addr );
-        if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, addr );
+      if( FD_LIKELY( idx!=ULONG_MAX ) ) {
+        fd_ip4_port_t addr = gossip_ci_pool_ele_const( ctx->gossip.ci_pool, idx )->rpc_addr;
+        if( FD_LIKELY( !!addr.l ) ) {
+          int removed = fd_ssping_remove( ctx->ssping, addr );
+          if( FD_LIKELY( removed ) ) fd_sspeer_selector_remove( ctx->selector, addr );
+        }
+        gossip_ci_map_idx_remove_fast( ctx->gossip.ci_map, idx, ctx->gossip.ci_pool );
       }
-      gossip_ci_map_idx_remove_fast( ctx->gossip.ci_map, idx, ctx->gossip.ci_pool );
       break;
     }
     case FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES: {
@@ -1130,9 +1131,13 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapct_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t) );
+  fd_snapct_tile_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t) );
+  void *             _ssping = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS ) );
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
+
+  ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, FD_SSPING_MAX_PEERS, 1UL, on_ping, ctx ) );
+  FD_TEST( ctx->ssping );
 
   /* By default, the snapct tile selects peers and its initial state is
      WAITING_FOR_PEERS. */
@@ -1241,7 +1246,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapct_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapct_tile_t),  sizeof(fd_snapct_tile_t)       );
-  void * _ssping          = FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS ) );
+                            FD_SCRATCH_ALLOC_APPEND( l, fd_ssping_align(),          fd_ssping_footprint( FD_SSPING_MAX_PEERS ) );
   void * _ci_pool         = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_pool_align(),     gossip_ci_pool_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
   void * _ci_map          = FD_SCRATCH_ALLOC_APPEND( l, gossip_ci_map_align(),      gossip_ci_map_footprint( gossip_ci_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ) ) );
   void * _ssresolver      = FD_SCRATCH_ALLOC_APPEND( l, fd_http_resolver_align(),   fd_http_resolver_footprint( FD_SNAPCT_MAX_HTTP_PEERS ) );
@@ -1261,9 +1266,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !tile->snapct.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
   else                                                            ctx->config.maximum_download_retry_abort = tile->snapct.maximum_download_retry_abort;
-
-  ctx->ssping = fd_ssping_join( fd_ssping_new( _ssping, FD_SSPING_MAX_PEERS, 1UL, on_ping, ctx ) );
-  FD_TEST( ctx->ssping );
 
   ctx->selector = fd_sspeer_selector_join( fd_sspeer_selector_new( _selector, FD_SSPING_MAX_PEERS, ctx->config.incremental_snapshot_fetch, 1UL ) );
 
