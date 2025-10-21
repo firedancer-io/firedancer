@@ -72,6 +72,7 @@ struct fd_snapin_tile {
   uchar *         acc_data;
 
   fd_funk_txn_xid_t xid[1]; /* txn XID */
+  fd_funk_txn_t *   funk_txn;
 
   fd_stem_context_t *      stem;
   fd_ssparse_t *           ssparse;
@@ -123,6 +124,7 @@ static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
   if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
     FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.3f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
+    fd_funk_rec_pool_unlock( ctx->funk->rec_pool );
   }
   return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
@@ -423,6 +425,30 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
+static fd_funk_rec_t *
+acquire_rec_object( fd_snapin_tile_t *        ctx,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_prepare_t *   prepare ) {
+  int err;
+  fd_funk_rec_t * rec = fd_funk_rec_pool_acquire_locked( ctx->funk->rec_pool, NULL, &err );
+  if( FD_UNLIKELY( !rec ) ) FD_LOG_ERR(( "Failed to allocate funk record object (err=%d). Increase [funk.max_account_records]?", err ));
+  memset( prepare, 0, sizeof(fd_funk_rec_prepare_t) );
+  prepare->rec = rec;
+  fd_funk_val_init( rec );
+  fd_funk_rec_key_copy( rec->pair.key, key );
+  rec->tag = 0;
+  rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+  rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  if( FD_LIKELY( ctx->full ) ) { /* optimize for full snapshot */
+    fd_funk_txn_xid_set_root( rec->pair.xid );
+  } else { /* incremental snapshot */
+    fd_funk_txn_xid_copy( rec->pair.xid, ctx->xid );
+    prepare->rec_head_idx = &ctx->funk_txn->rec_head_idx;
+    prepare->rec_tail_idx = &ctx->funk_txn->rec_tail_idx;
+  }
+  return rec;
+}
+
 static void
 process_account_header( fd_snapin_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
@@ -433,9 +459,8 @@ process_account_header( fd_snapin_tile_t *            ctx,
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
+    rec = acquire_rec_object( ctx, &id, prepare );
     should_publish = 1;
-    rec = fd_funk_rec_prepare( ctx->funk, ctx->xid, &id, prepare, NULL );
-    FD_TEST( rec );
   }
 
   fd_account_meta_t * meta = fd_funk_val( rec, ctx->funk->wksp );
@@ -607,12 +632,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
+      fd_funk_rec_pool_unlock( ctx->funk->rec_pool );
       if( ctx->full ) {
         fd_funk_txn_remove_published( ctx->funk );
       } else {
         fd_funk_txn_cancel( ctx->funk, ctx->xid );
+        ctx->funk_txn = NULL;
         fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
       }
+      fd_funk_rec_pool_lock( ctx->funk->rec_pool, 1 );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT: {
@@ -625,9 +653,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
+      fd_funk_rec_pool_unlock( ctx->funk->rec_pool );
       fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
       fd_funk_txn_prepare( ctx->funk, ctx->xid, &incremental_xid );
+      ctx->funk_txn = fd_funk_txn_query( &incremental_xid, ctx->funk->txn_map ); FD_TEST( ctx->funk_txn );
       fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
+      fd_funk_rec_pool_lock( ctx->funk->rec_pool, 1 );
       break;
     }
 
@@ -650,8 +681,10 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Publish any remaining funk txn */
+      fd_funk_rec_pool_unlock( ctx->funk->rec_pool );
       if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
         fd_funk_txn_publish_into_parent( ctx->funk, ctx->xid );
+        ctx->funk_txn = NULL;
       }
       FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
 
@@ -659,7 +692,9 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
       fd_funk_txn_prepare( ctx->funk, ctx->xid, &target_xid );
       fd_funk_txn_publish_into_parent( ctx->funk, &target_xid );
+      ctx->funk_txn = NULL;
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
+      fd_funk_rec_pool_lock( ctx->funk->rec_pool, 1 );
 
       fd_stem_publish( stem, FD_SNAPIN_OUT_MANIFEST, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
@@ -764,6 +799,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   fd_funk_txn_xid_set_root( ctx->xid );
+  ctx->funk_txn = NULL;
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -813,6 +849,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.pos                    = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
+
+  /* Gain an exclusive lock on the funk record pool */
+  FD_TEST( fd_funk_rec_pool_lock( ctx->funk->rec_pool, 1 )==FD_POOL_SUCCESS );
 }
 
 /* Control fragments can result in one extra publish to forward the

@@ -539,6 +539,8 @@ POOL_STATIC void *     POOL_(delete)( void *     shpool );
 
 POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join, POOL_ELE_T * sentinel, int blocking, int * _opt_err );
 
+POOL_STATIC POOL_ELE_T * POOL_(acquire_locked)( POOL_(t) * join, POOL_ELE_T * sentinel, int * _opt_err );
+
 POOL_STATIC int POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele, int blocking );
 
 POOL_STATIC int POOL_(is_empty)( POOL_(t) * join );
@@ -763,9 +765,10 @@ POOL_(acquire)( POOL_(t) *   join,
       if( FD_UNLIKELY( POOL_(idx_is_null)( ele_idx ) ) ) { /* opt for not empty */
 #       if POOL_LAZY
         return POOL_(acquire_lazy)( join, sentinel, blocking, _opt_err );
-#       endif
+#       else
         err = FD_POOL_ERR_EMPTY;
         break;
+#       endif
       }
 
       if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
@@ -808,6 +811,89 @@ POOL_(acquire)( POOL_(t) *   join,
 
   FD_COMPILER_MFENCE();
 
+  fd_int_store_if( !!_opt_err, _opt_err, err );
+  return ele;
+}
+
+#if POOL_LAZY
+
+static inline POOL_ELE_T *
+POOL_(acquire_lazy_locked)( POOL_(t) *   join,
+                            POOL_ELE_T * sentinel,
+                            int *        _opt_err ) {
+  POOL_ELE_T *     ele0    = join->ele;
+  ulong            ele_max = join->ele_max;
+  ulong volatile * _l      = (ulong volatile *)&join->pool->ver_lazy;
+
+  ulong ver_lazy = *_l; FD_TEST( ver_lazy & (1UL<<POOL_IDX_WIDTH) );
+
+  POOL_ELE_T * ele = sentinel;
+  int          err = FD_POOL_SUCCESS;
+
+  ulong ele_idx = POOL_(private_vidx_idx)( ver_lazy );
+  if( POOL_(idx_is_null)( ele_idx ) ) {
+    err = FD_POOL_ERR_EMPTY;
+    goto fail;
+  }
+
+  if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
+    err = FD_POOL_ERR_CORRUPT;
+    goto fail;
+  }
+
+  ulong ele_next = ele_idx+1UL;
+  if( FD_UNLIKELY( ele_next>=ele_max ) ) ele_next = POOL_(idx_null)();
+
+  ulong new_ver_lazy = POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_lazy )+2UL, ele_next );
+  *_l = new_ver_lazy;
+  ele = ele0 + ele_idx;
+
+fail:
+  fd_int_store_if( !!_opt_err, _opt_err, err );
+  return ele;
+}
+
+#endif /* POOL_LAZY */
+
+POOL_STATIC POOL_ELE_T *
+POOL_(acquire_locked)( POOL_(t) *   join,
+                       POOL_ELE_T * sentinel,
+                       int *        _opt_err ) {
+  POOL_ELE_T *     ele0    = join->ele;
+  ulong            ele_max = join->ele_max;
+  ulong volatile * _v      = (ulong volatile *)&join->pool->ver_top;
+
+  ulong ver_top  = *_v; FD_TEST( ver_top  & (1UL<<POOL_IDX_WIDTH) );
+
+  POOL_ELE_T * ele = sentinel;
+  int          err = FD_POOL_SUCCESS;
+
+  ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
+  if( POOL_(idx_is_null)( ele_idx ) ) {
+#   if POOL_LAZY
+    return POOL_(acquire_lazy_locked)( join, sentinel, _opt_err );
+#   else
+    err = FD_POOL_ERR_EMPTY;
+    goto fail;
+#   endif
+  }
+
+  if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
+    err = FD_POOL_ERR_CORRUPT;
+    goto fail;
+  }
+
+  ulong ele_nxt = POOL_(private_idx)( ele0[ ele_idx ].POOL_NEXT );
+  if( FD_UNLIKELY( (ele_nxt>=ele_max) & (!POOL_(idx_is_null)( ele_nxt )) ) ) {
+    err = FD_POOL_ERR_CORRUPT;
+    goto fail;
+  }
+
+  ulong new_ver_top = POOL_(private_vidx)( POOL_(private_vidx_ver)( ver_top )+2UL, ele_nxt );
+  *_v = new_ver_top;
+  ele = ele0 + ele_idx;
+
+fail:
   fd_int_store_if( !!_opt_err, _opt_err, err );
   return ele;
 }
