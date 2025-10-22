@@ -40,10 +40,15 @@ jobs:
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
         ALL,linux_gcc_arm_n1,ALL;
+        ALL,linux_gcc_zen3,ALL;
         ALL,linux_gcc_zen4,ALL;
         ALL,linux_gcc_zen5,ALL;
         ALL,linux_gcc_icelake,ALL;
         ALL,linux_gcc_x86_64,ALL
+      clang_exceptions: |
+        ALL,linux_clang_zen3,ALL;
+        ALL,linux_clang_zen4,ALL;
+        ALL,linux_clang_zen5,ALL;
   build_checks_2:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/builds.yml
