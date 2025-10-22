@@ -47,7 +47,8 @@ fd_accdb_peek( fd_accdb_user_t *         accdb,
                void const *              address );
 
 /* fd_accdb_peek_test verifies whether a previously taken peek still
-   refers to valid account data. */
+   refers to valid account data.  Returns 1 if still valid, 0 if peek
+   may have seen a conflict. */
 
 FD_FN_PURE static inline int
 fd_accdb_peek_test( fd_accdb_peek_t const * peek ) {
@@ -60,6 +61,31 @@ static inline void
 fd_accdb_peek_drop( fd_accdb_peek_t * peek ) {
   fd_accdb_spec_drop( peek->spec );
 }
+
+FD_PROTOTYPES_END
+
+/* In-place transactional write APIs **********************************/
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_modify_prepare prepares an account modification.  Creates a
+   copy of the previous version of the account.
+
+   FIXME ... extensive argument documentation + invariants ... */
+
+fd_accdb_rw_t *
+fd_accdb_modify_prepare( fd_accdb_user_t *         accdb,
+                         fd_accdb_rw_t *           rw,
+                         fd_funk_txn_xid_t const * txn_id,
+                         void const *              address,
+                         ulong                     data_min,
+                         int                       do_create );
+
+/* fd_accdb_write_publish publishes a previously prepared account write. */
+
+void
+fd_accdb_write_publish( fd_accdb_user_t * accdb,
+                        fd_accdb_rw_t *   write ); /* destroyed */
 
 FD_PROTOTYPES_END
 
