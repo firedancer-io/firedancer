@@ -284,11 +284,47 @@ check_macos_pkgs () {
   PACKAGE_INSTALL_CMD=( brew install ${MISSING_FORMULAE[*]} )
 }
 
+check_arch_pkgs () {
+  local REQUIRED_PKGS=(
+    base-devel        # C/C++ compiler, make, etc.
+    curl              # download rustup
+    zstd              # build system
+    cmake             # Agave (protobuf-src)
+    clang             # Agave (bindgen)
+    perl              # Agave (OpenSSL)
+    protobuf          # Agave, solfuzz
+    systemd-libs      # Agave
+  )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_PKGS+=( gmp lcov )
+  fi
+
+  echo "[~] Checking for required Arch Linux packages"
+
+  local MISSING_PKGS=( )
+  for pkg in "${REQUIRED_PKGS[@]}"; do
+    if ! pacman -Q "$pkg" &>/dev/null; then
+      MISSING_PKGS+=( "$pkg" )
+    fi
+  done
+
+  if [[ ${#MISSING_PKGS[@]} -eq 0 ]]; then
+    echo "[~] OK: Arch Linux packages required for build are installed"
+    return 0
+  fi
+
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  fi
+}
+
 check () {
   DISTRO="${ID_LIKE:-${ID:-}}"
   for word in $DISTRO ; do
     case "$word" in
-      fedora|debian|alpine|macos)
+      fedora|debian|alpine|macos|arch)
         check_${word}_pkgs
         ;;
       rhel|centos)
