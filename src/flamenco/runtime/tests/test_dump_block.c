@@ -300,7 +300,7 @@ register_stake_delegation_from_funk( fd_funk_t *               funk,
 
 /* Helper: Load accounts from protobuf into funk */
 static void
-load_accounts_from_proto( fd_funk_t * funk,
+load_accounts_from_proto( fd_accdb_user_t * accdb,
                           fd_funk_txn_xid_t const * xid,
                           fd_exec_test_acct_state_t const * acct_states,
                           pb_size_t acct_states_count ) {
@@ -318,8 +318,8 @@ load_accounts_from_proto( fd_funk_t * funk,
     fd_funk_rec_prepare_t prepare = {0};
     fd_txn_account_t acc[1];
 
-    int err = fd_txn_account_init_from_funk_mutable( acc, pubkey, funk, xid, 1, size, &prepare );
-    if( FD_UNLIKELY( err ) ) {
+    int ok = !!fd_txn_account_init_from_funk_mutable( acc, pubkey, accdb, xid, 1, size, &prepare );
+    if( FD_UNLIKELY( !ok ) ) {
       continue;
     }
 
@@ -336,7 +336,7 @@ load_accounts_from_proto( fd_funk_t * funk,
     fd_txn_account_set_owner( acc, (fd_pubkey_t const *)state->owner );
     fd_txn_account_set_readonly( acc );
 
-    fd_txn_account_mutable_fini( acc, funk, &prepare );
+    fd_txn_account_mutable_fini( acc, accdb, &prepare );
   }
 }
 
@@ -482,7 +482,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_accdb_attach_child( test_ctx->accdb_admin, &root_xid, &test_ctx->parent_xid );
 
   /* Load accounts into Funk */
-  load_accounts_from_proto( test_ctx->accdb->funk, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
+  load_accounts_from_proto( test_ctx->accdb, &test_ctx->parent_xid, input_ctx.acct_states, input_ctx.acct_states_count );
 
   /* Initialize and populate stake delegations cache from accounts */
   fd_stake_delegations_t * stake_delegations = fd_banks_stake_delegations_root_query( test_ctx->banks );

@@ -134,14 +134,14 @@ create_test_account( test_env_t * env,
 
   fd_txn_account_t acc[1];
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
+  int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
                                                    /* pubkey      */ &pubkey,
-                                                   /* funk        */ env->accdb->funk,
+                                                   /* funk        */ env->accdb,
                                                    /* xid         */ xid,
                                                    /* do_create   */ 1,
                                                    /* min_data_sz */ data_len,
                                                    /* prepare     */ &prepare );
-  FD_TEST( !err );
+  FD_TEST( ok );
 
   if( data ) {
     fd_txn_account_set_data( acc, data, data_len );
@@ -153,7 +153,7 @@ create_test_account( test_env_t * env,
   fd_txn_account_set_executable( acc, executable );
   fd_txn_account_set_owner( acc, &owner );
 
-  fd_txn_account_mutable_fini( acc, env->accdb->funk, &prepare );
+  fd_txn_account_mutable_fini( acc, env->accdb, &prepare );
 }
 
 /* query_rec_exact fetches a funk record at a precise xid:key pair. */

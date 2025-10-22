@@ -3,6 +3,7 @@
 
 #include "fd_sysvar_base.h"
 #include "../../types/fd_types.h"
+#include "../../accdb/fd_accdb_user.h"
 
 typedef struct fd_hard_forks_global fd_hard_forks_global_t;
 
@@ -14,14 +15,14 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sysvar_last_restart_slot_init( fd_bank_t *               bank,
-                                  fd_funk_t *               funk,
+                                  fd_accdb_user_t *         accdb,
                                   fd_funk_txn_xid_t const * xid,
                                   fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_sysvar_last_restart_slot_write(
     fd_bank_t *                               bank,
-    fd_funk_t *                               funk,
+    fd_accdb_user_t *                         accdb,
     fd_funk_txn_xid_t const *                 xid,
     fd_capture_ctx_t *                        capture_ctx,
     fd_sol_sysvar_last_restart_slot_t const * sysvar
@@ -35,7 +36,7 @@ fd_sysvar_last_restart_slot_write(
 void
 fd_sysvar_last_restart_slot_update(
     fd_bank_t *               bank,
-    fd_funk_t *               funk,
+    fd_accdb_user_t *         accdb,
     fd_funk_txn_xid_t const * xid,
     fd_capture_ctx_t *        capture_ctx,
     ulong                     last_restart_slot

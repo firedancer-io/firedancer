@@ -16,7 +16,7 @@
 /* Initialize the slot history sysvar account. */
 void
 fd_sysvar_slot_history_init( fd_bank_t *               bank,
-                             fd_funk_t *               funk,
+                             fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              fd_capture_ctx_t *        capture_ctx,
                              fd_spad_t *               runtime_spad );
@@ -25,7 +25,7 @@ fd_sysvar_slot_history_init( fd_bank_t *               bank,
    end of every slot, after execution has concluded. */
 int
 fd_sysvar_slot_history_update( fd_bank_t *               bank,
-                               fd_funk_t *               funk,
+                               fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx );
 

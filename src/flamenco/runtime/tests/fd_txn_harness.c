@@ -45,7 +45,8 @@ fd_runtime_fuzz_xid_cancel( fd_solfuzz_runner_t * runner,
 static fd_txn_p_t *
 fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                                 fd_exec_test_txn_context_t const * test_ctx ) {
-  fd_funk_t * funk = runner->accdb->funk;
+  fd_accdb_user_t * accdb = runner->accdb;
+  fd_funk_t *       funk  = runner->accdb->funk;
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
@@ -72,7 +73,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_bank_parent_slot_set( runner->bank, fd_bank_slot_get( runner->bank ) - 1UL );
 
   /* Initialize builtin accounts */
-  fd_builtin_programs_init( runner->bank, funk, &xid, NULL );
+  fd_builtin_programs_init( runner->bank, accdb, &xid, NULL );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -147,8 +148,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( runner->bank );
 
   /* Epoch schedule and rent get set from the epoch bank */
-  fd_sysvar_epoch_schedule_init( runner->bank, runner->accdb->funk, &xid, NULL );
-  fd_sysvar_rent_init( runner->bank, runner->accdb->funk, &xid, NULL );
+  fd_sysvar_epoch_schedule_init( runner->bank, runner->accdb, &xid, NULL );
+  fd_sysvar_rent_init( runner->bank, runner->accdb, &xid, NULL );
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - block_hash_queue
@@ -189,14 +190,14 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
       }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_bank_poh_set( runner->bank, blockhash );
-      fd_sysvar_recent_hashes_update( runner->bank, runner->accdb->funk, &xid, NULL );
+      fd_sysvar_recent_hashes_update( runner->bank, runner->accdb, &xid, NULL );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
     *fd_bank_genesis_hash_modify( runner->bank ) = (fd_hash_t){0};
     fd_bank_poh_set( runner->bank, (fd_hash_t){0} );
-    fd_sysvar_recent_hashes_update( runner->bank, runner->accdb->funk, &xid, NULL );
+    fd_sysvar_recent_hashes_update( runner->bank, runner->accdb, &xid, NULL );
   }
 
   /* Restore sysvars from account context */

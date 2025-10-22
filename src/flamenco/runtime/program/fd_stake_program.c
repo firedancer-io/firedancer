@@ -3237,7 +3237,7 @@ done:
 /* Public API *********************************************************/
 
 static void
-write_stake_config( fd_funk_t *               funk,
+write_stake_config( fd_accdb_user_t *         accdb,
                     fd_funk_txn_xid_t const * xid,
                     fd_stake_config_t const * stake_config ) {
   ulong                   data_sz  = fd_stake_config_size( stake_config );
@@ -3245,8 +3245,7 @@ write_stake_config( fd_funk_t *               funk,
 
   fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable( rec, acc_key, funk, xid, 1, data_sz, &prepare );
-  FD_TEST( !err );
+  FD_TEST( fd_txn_account_init_from_funk_mutable( rec, acc_key, accdb, xid, 1, data_sz, &prepare ) );
 
   fd_txn_account_set_lamports( rec, 960480UL );
   fd_txn_account_set_executable( rec, 0 );
@@ -3259,18 +3258,18 @@ write_stake_config( fd_funk_t *               funk,
 
   fd_txn_account_set_data( rec, stake_config, data_sz );
 
-  fd_txn_account_mutable_fini( rec, funk, &prepare );
+  fd_txn_account_mutable_fini( rec, accdb, &prepare );
 }
 
 void
-fd_stake_program_config_init( fd_funk_t *               funk,
+fd_stake_program_config_init( fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid ) {
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/config.rs#L26
   fd_stake_config_t stake_config = {
       .warmup_cooldown_rate = DEFAULT_WARMUP_COOLDOWN_RATE,
       .slash_penalty        = DEFAULT_SLASH_PENALTY,
   };
-  write_stake_config( funk, xid, &stake_config );
+  write_stake_config( accdb, xid, &stake_config );
 }
 
 int

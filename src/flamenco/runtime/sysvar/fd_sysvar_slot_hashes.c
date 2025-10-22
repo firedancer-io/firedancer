@@ -12,7 +12,7 @@ static const ulong slot_hashes_account_size = 20488;
 
 void
 fd_sysvar_slot_hashes_write( fd_bank_t *               bank,
-                             fd_funk_t *               funk,
+                             fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              fd_capture_ctx_t *        capture_ctx,
                              fd_slot_hashes_global_t * slot_hashes_global ) {
@@ -25,7 +25,7 @@ fd_sysvar_slot_hashes_write( fd_bank_t *               bank,
   if( fd_slot_hashes_encode_global( slot_hashes_global, &ctx ) ) {
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
   }
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_hashes_id, enc, slot_hashes_account_size );
 }
 
 ulong
@@ -80,7 +80,7 @@ fd_sysvar_slot_hashes_delete( void * mem ) {
 
 void
 fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
-                            fd_funk_t *               funk,
+                            fd_accdb_user_t *         accdb,
                             fd_funk_txn_xid_t const * xid,
                             fd_capture_ctx_t *        capture_ctx,
                             fd_spad_t *               runtime_spad ) {
@@ -89,7 +89,7 @@ fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
     fd_slot_hash_t * shnull                      = NULL;
     fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_join( fd_sysvar_slot_hashes_new( mem, FD_SYSVAR_SLOT_HASHES_CAP ), &shnull );
 
-    fd_sysvar_slot_hashes_write( bank, funk, xid, capture_ctx, slot_hashes_global );
+    fd_sysvar_slot_hashes_write( bank, accdb, xid, capture_ctx, slot_hashes_global );
     fd_sysvar_slot_hashes_delete( fd_sysvar_slot_hashes_leave( slot_hashes_global, shnull ) );
   } FD_SPAD_FRAME_END;
 }
@@ -97,12 +97,12 @@ fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
 /* https://github.com/anza-xyz/agave/blob/b11ca828cfc658b93cb86a6c5c70561875abe237/runtime/src/bank.rs#L2283-L2294 */
 void
 fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx,
                               fd_spad_t *               runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( funk, xid, runtime_spad );
+    fd_slot_hashes_global_t * slot_hashes_global = fd_sysvar_slot_hashes_read( accdb->funk, xid, runtime_spad );
     fd_slot_hash_t *          hashes             = NULL;
     if( FD_UNLIKELY( !slot_hashes_global ) ) {
       /* Note: Agave's implementation initializes a new slot_hashes if it doesn't already exist (refer to above URL). */
@@ -136,7 +136,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
       deq_fd_slot_hash_t_push_head( hashes, slot_hash );
     }
 
-    fd_sysvar_slot_hashes_write( bank, funk, xid, capture_ctx, slot_hashes_global );
+    fd_sysvar_slot_hashes_write( bank, accdb, xid, capture_ctx, slot_hashes_global );
     fd_sysvar_slot_hashes_leave( slot_hashes_global, hashes );
   } FD_SPAD_FRAME_END;
 }

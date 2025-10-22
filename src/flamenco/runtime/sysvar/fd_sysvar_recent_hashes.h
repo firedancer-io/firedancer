@@ -6,7 +6,7 @@
 
 #include "../../types/fd_types.h"
 #include "../../fd_flamenco_base.h"
-#include "../../../funk/fd_funk.h"
+#include "../../accdb/fd_accdb_user.h"
 
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.
@@ -23,14 +23,14 @@ FD_PROTOTYPES_BEGIN
 /* Initialize the recent hashes sysvar account. */
 void
 fd_sysvar_recent_hashes_init( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx );
 
 /* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
 void
 fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
-                                fd_funk_t *               funk,
+                                fd_accdb_user_t *         accdb,
                                 fd_funk_txn_xid_t const * xid,
                                 fd_capture_ctx_t *        capture_ctx );
 

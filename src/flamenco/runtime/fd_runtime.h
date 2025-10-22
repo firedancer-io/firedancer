@@ -434,14 +434,14 @@ fd_runtime_load_txn_address_lookup_tables(
 
 int
 fd_runtime_block_execute_prepare( fd_bank_t *               bank,
-                                  fd_funk_t *               funk,
+                                  fd_accdb_user_t  *        accdb,
                                   fd_funk_txn_xid_t const * xid,
                                   fd_capture_ctx_t *        capture_ctx,
                                   fd_spad_t *               runtime_spad );
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
-                                   fd_funk_t *               funk,
+                                   fd_accdb_user_t  *        accdb,
                                    fd_funk_txn_xid_t const * xid,
                                    fd_capture_ctx_t *        capture_ctx,
                                    int                       silent );
@@ -481,7 +481,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_bank_t *               bank,
-                                                fd_funk_t *               funk,
+                                                fd_accdb_user_t *         accdb,
                                                 fd_funk_txn_xid_t const * xid,
                                                 fd_capture_ctx_t *        capture_ctx,
                                                 fd_spad_t *               runtime_spad,
@@ -492,7 +492,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
 void
 fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_bank_t *                        bank,
-                         fd_funk_t *                        funk,
+                         fd_accdb_user_t *                  accdb,
                          fd_funk_txn_xid_t const *          xid,
                          fd_capture_ctx_t *                 capture_ctx,
                          fd_hash_t const *                  genesis_hash,

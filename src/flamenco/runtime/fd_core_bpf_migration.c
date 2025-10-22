@@ -64,7 +64,7 @@ tmp_account_read( tmp_account_t *           acc,
 
 void
 tmp_account_store( tmp_account_t *           acc,
-                   fd_funk_t *               funk,
+                   fd_accdb_user_t *         accdb,
                    fd_funk_txn_xid_t const * xid,
                    fd_bank_t *               bank,
                    fd_capture_ctx_t *        capture_ctx ) {
@@ -75,16 +75,16 @@ tmp_account_store( tmp_account_t *           acc,
   /* FIXME usage of "txn_account" */
   fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
-  int err = fd_txn_account_init_from_funk_mutable(
+  int ok = !!fd_txn_account_init_from_funk_mutable(
       rec,
       &acc->addr,
-      funk,
+      accdb,
       xid,
-      1UL,
+      1,
       acc->data_sz,
       &prepare );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
+  if( FD_UNLIKELY( !ok ) ) {
+    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable failed" ));
   }
 
   fd_lthash_value_t prev_hash[1];
@@ -96,7 +96,7 @@ tmp_account_store( tmp_account_t *           acc,
   fd_txn_account_set_data      ( rec, acc->data, acc->data_sz );
 
   fd_hashes_update_lthash( rec, prev_hash, bank, capture_ctx );
-  fd_txn_account_mutable_fini( rec, funk, &prepare );
+  fd_txn_account_mutable_fini( rec, accdb, &prepare );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.2/runtime/src/bank/builtins/core_bpf_migration/target_core_bpf.rs#L12 */
@@ -321,7 +321,7 @@ new_target_program_data_account( tmp_account_t *       acc,
 
 void
 migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
-                              fd_funk_t *                            funk,
+                              fd_accdb_user_t *                      accdb,
                               fd_funk_txn_xid_t const *              xid,
                               fd_bank_t *                            bank,
                               fd_pubkey_t const *                    builtin_program_id,
@@ -332,14 +332,14 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
       target,
       builtin_program_id,
       config->migration_target,
-      funk, xid,
+      accdb->funk, xid,
       spad ) ) )
     return;
 
   tmp_account_t source[1];
   if( FD_UNLIKELY( !source_buffer_new_checked(
       source,
-      funk, xid,
+      accdb->funk, xid,
       config->source_buffer_address,
       spad ) ) )
     return;
@@ -383,7 +383,7 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   assert( new_target_program_data->data_sz>=PROGRAMDATA_METADATA_SIZE );
   if( FD_UNLIKELY( !fd_directly_invoke_loader_v3_deploy(
       bank,
-      funk->shmem,
+      accdb->funk->shmem,
       xid,
       &target->program_account->addr,
       new_target_program_data->data   +PROGRAMDATA_METADATA_SIZE,
@@ -427,11 +427,11 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
   fd_bank_capitalization_set( bank, capitalization );
 
   /* Write back accounts */
-  tmp_account_store( new_target_program,      funk, xid, bank, capture_ctx );
-  tmp_account_store( new_target_program_data, funk, xid, bank, capture_ctx );
+  tmp_account_store( new_target_program,      accdb, xid, bank, capture_ctx );
+  tmp_account_store( new_target_program_data, accdb, xid, bank, capture_ctx );
   tmp_account_t empty; tmp_account_new( &empty, spad, 0UL );
   empty.addr = source->addr;
-  tmp_account_store( &empty, funk, xid, bank, capture_ctx );
+  tmp_account_store( &empty, accdb, xid, bank, capture_ctx );
 
   /* FIXME "remove the built-in program from the bank's list of builtins" */
   /* FIXME "update account data size delta" */
@@ -441,12 +441,12 @@ migrate_builtin_to_core_bpf1( fd_core_bpf_migration_config_t const * config,
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L235-L318 */
 void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
-                                fd_funk_t *                            funk,
+                                fd_accdb_user_t *                      accdb,
                                 fd_funk_txn_xid_t const *              xid,
                                 fd_core_bpf_migration_config_t const * config,
                                 fd_spad_t *                            spad,
                                 fd_capture_ctx_t *                     capture_ctx ) {
   fd_spad_push( spad );
-  migrate_builtin_to_core_bpf1( config, funk, xid, bank, config->builtin_program_id, spad, capture_ctx );
+  migrate_builtin_to_core_bpf1( config, accdb, xid, bank, config->builtin_program_id, spad, capture_ctx );
   fd_spad_pop( spad );
 }

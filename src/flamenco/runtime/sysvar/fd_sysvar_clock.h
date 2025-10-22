@@ -3,8 +3,8 @@
 
 /* The clock sysvar provides an approximate measure of network time. */
 
-#include "../../../funk/fd_funk.h"
 #include "../../types/fd_types.h"
+#include "../../accdb/fd_accdb_user.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/clock.rs#L10 */
 #define FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND ( 160UL )
@@ -23,7 +23,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sysvar_clock_init( fd_bank_t *               bank,
-                      fd_funk_t *               funk,
+                      fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_capture_ctx_t *        capture_ctx );
 
@@ -36,7 +36,7 @@ fd_sysvar_clock_init( fd_bank_t *               bank,
 
 void
 fd_sysvar_clock_update( fd_bank_t *               bank,
-                        fd_funk_t *               funk,
+                        fd_accdb_user_t *         accdb,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
                         ulong const *             parent_epoch );
@@ -45,7 +45,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
 void
 fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_funk_t *               funk,
+                       fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid,
                        fd_capture_ctx_t *        capture_ctx,
                        fd_sol_sysvar_clock_t *   clock );

@@ -3,6 +3,7 @@
 #include "fd_sysvar_epoch_schedule.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../program/fd_program_util.h"
 
 /* Syvar Clock Possible Values:
   slot:
@@ -55,7 +56,7 @@ unix_timestamp_from_genesis( fd_bank_t * bank ) {
 
 void
 fd_sysvar_clock_write( fd_bank_t *               bank,
-                       fd_funk_t *               funk,
+                       fd_accdb_user_t *         accdb,
                        fd_funk_txn_xid_t const * xid,
                        fd_capture_ctx_t *        capture_ctx,
                        fd_sol_sysvar_clock_t *   clock ) {
@@ -68,7 +69,7 @@ fd_sysvar_clock_write( fd_bank_t *               bank,
     FD_LOG_ERR(( "fd_sol_sysvar_clock_encode failed" ));
   }
 
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_clock_id, enc, sizeof(fd_sol_sysvar_clock_t) );
 }
 
 
@@ -99,7 +100,7 @@ fd_sysvar_clock_read( fd_funk_t *               funk,
 
 void
 fd_sysvar_clock_init( fd_bank_t *               bank,
-                      fd_funk_t *               funk,
+                      fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_capture_ctx_t *        capture_ctx ) {
   long timestamp = unix_timestamp_from_genesis( bank );
@@ -111,7 +112,7 @@ fd_sysvar_clock_init( fd_bank_t *               bank,
     .leader_schedule_epoch = 1,
     .unix_timestamp        = timestamp,
   };
-  fd_sysvar_clock_write( bank, funk, xid, capture_ctx, &clock );
+  fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, &clock );
 }
 
 struct ts_est_ele {
@@ -266,12 +267,12 @@ get_timestamp_estimate( fd_bank_t *             bank,
    https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2158-L2215 */
 void
 fd_sysvar_clock_update( fd_bank_t *               bank,
-                        fd_funk_t *               funk,
+                        fd_accdb_user_t *         accdb,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
                         ulong const *             parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
-  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( funk, xid, clock_ );
+  fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb->funk, xid, clock_ );
   if( FD_UNLIKELY( !clock ) ) FD_LOG_ERR(( "fd_sysvar_clock_read failed" ));
 
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
@@ -320,5 +321,5 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2209-L2214 */
-  fd_sysvar_clock_write( bank, funk, xid, capture_ctx, clock );
+  fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, clock );
 }
