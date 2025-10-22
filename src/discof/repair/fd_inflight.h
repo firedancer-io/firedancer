@@ -21,9 +21,6 @@ struct __attribute__((aligned(128UL))) fd_inflight {
   long          timestamp_ns;  /* timestamp when request was created (nanoseconds) */
   fd_pubkey_t   pubkey;        /* public key of the peer */
 
-  ulong         slot;          /* slot of the request */
-  ulong         shred_idx;     /* shred index of the request */
-
   /* Reserved for DLL eviction */
   ulong          prevll;      /* pool index of previous element in DLL */
   ulong          nextll;      /* pool index of next element in DLL */
@@ -77,29 +74,10 @@ fd_inflights_t *
 fd_inflights_join( void * shmem );
 
 void
-fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey, ulong slot, ulong shred_idx );
+fd_inflights_request_insert( fd_inflights_t * table, ulong nonce, fd_pubkey_t const * pubkey );
 
 long
 fd_inflights_request_remove( fd_inflights_t * table, ulong nonce, fd_pubkey_t * peer_out );
-
-/* Important! Caller must guarantee that the request list is not empty.
-   This function cannot fail and will always try to populate the output
-   parameters. Typical use should only call this after
-   fd_inflights_should_drain returns true. */
-
-void
-fd_inflights_request_pop( fd_inflights_t * table, ulong * nonce_out, ulong * slot_out, ulong * shred_idx_out );
-
-static inline int
-fd_inflights_should_drain( fd_inflights_t * table, long now ) {
-  /* peek at head */
-  if( FD_UNLIKELY( fd_inflight_dlist_is_empty( table->dlist, table->pool ) ) ) return 0;
-
-  fd_inflight_t * inflight_req = fd_inflight_dlist_ele_peek_head( table->dlist, table->pool );
-  if( FD_UNLIKELY( inflight_req->timestamp_ns + 100e6L < now ) ) return 1;
-  return 0;
-}
-
 
 fd_inflight_t *
 fd_inflights_request_query ( fd_inflights_t * table, ulong nonce );
