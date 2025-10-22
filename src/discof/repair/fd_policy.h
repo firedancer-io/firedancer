@@ -180,6 +180,7 @@ struct fd_policy {
   long              tsmax; /* maximum time for an iteration before resetting the DFS to root */
   long              tsref; /* reference timestamp for resetting DFS */
 
+  fd_forest_iter_t  iterf; /* forest iterator */
   ulong             tsreset; /* ms timestamp of last reset of iterf */
 
   ulong turbine_slot0;
@@ -285,5 +286,8 @@ fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, lo
 
 void
 fd_policy_set_turbine_slot0( fd_policy_t * policy, ulong slot );
+
+void
+fd_policy_reset( fd_policy_t * policy, fd_forest_t * forest );
 
 #endif /* HEADER_fd_src_discof_repair_fd_policy_h */
