@@ -11,6 +11,12 @@ struct fd_accdb_user {
   /* Current fork cache */
   fd_funk_txn_xid_t fork[ FD_ACCDB_DEPTH_MAX ];
   ulong             fork_depth;
+
+  /* Current txn cache */
+  ulong tip_txn_idx; /* ==ULONG_MAX if tip is root */
+
+  /* Ref counting */
+  ulong rw_active;
 };
 
 typedef struct fd_accdb_user fd_accdb_user_t;

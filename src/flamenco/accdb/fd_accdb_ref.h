@@ -87,6 +87,7 @@ union fd_accdb_rw {
   struct {
     fd_funk_rec_t *     rec;
     fd_account_meta_t * meta;
+    uint                published : 1;
   };
 };
 typedef union fd_accdb_rw fd_accdb_rw_t;
