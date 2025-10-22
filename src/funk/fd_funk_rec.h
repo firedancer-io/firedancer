@@ -107,55 +107,6 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( uint idx ) { return idx==
 
 /* Accessors */
 
-/* fd_funk_rec_modify attempts to modify the record corresponding to the
-   given key in the given transaction. If the record does not exist,
-   NULL will be returned. If the txn is NULL, the query will be done
-   against funk's last published transaction (the root). On success,
-   a mutable pointer to the funk record is returned.
-
-   Assumes funk is a current local join (NULL returns NULL), txn is NULL
-   or points to an in-preparation transaction in the caller's address
-   space, key points to a record key in the caller's address space (NULL
-   returns NULL). It is SAFE to do concurrent operations on funk with
-   fd_funk_rec_modify.
-
-   If there is contention for this record (or any records that are
-   hashed to same chain as this record), the function will block the
-   caller until the contention is resolved.
-
-   A call to fd_funk_rec_modify must be followed by a call to
-   fd_funk_rec_modify_publish.
-
-   The query argument remembers the query for later validity testing.
-
-   Important safety tips:
-
-   1. This function can encounter records that have the ERASE flag set
-   (i.e. are tombstones of erased records). fd_funk_rec_query_try will
-   still return the record in this case, and the application should
-   check for the flag.
-
-   2. This function will not error if a caller attempts to modify a
-   record from a non-current transaction (i.e. any funk transaction
-   with a child). However, the caller should NEVER do this as it
-   violates funk's invariants. */
-
-fd_funk_rec_t *
-fd_funk_rec_modify( fd_funk_t *               funk,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_funk_rec_key_t const * key,
-                    fd_funk_rec_query_t *     query );
-
-/* fd_funk_rec_modify_publish commits any modifications to the record
-   done by fd_funk_rec_modify. All notes from fd_funk_rec_modify
-   apply. Calling fd_funk_rec_modify_publish is required and is
-   responsible for freeing the lock on the record (and the hash
-   chain). */
-
-void
-fd_funk_rec_modify_publish( fd_funk_rec_query_t * query );
-
-
 /* fd_funk_rec_query_try queries the in-preparation transaction pointed to
    by txn for the record whose key matches the key pointed to by key.
    If txn is NULL, the query will be done for the funk's last published
@@ -189,20 +140,6 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
                        fd_funk_rec_key_t const * key,
                        fd_funk_rec_query_t *     query );
 
-/* fd_funk_rec_query_test returns SUCCESS if a prior query still has a
-   valid result. The coding pattern is:
-
-     for(;;) {
-       fd_funk_rec_query_t query[1];
-       fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, txn, key, query );
-       ... Optimistically read record value ...
-       if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) break;
-       ... Clean up and try again ...
-     }
-*/
-
-int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
-
 /* fd_funk_rec_query_try_global is the same as fd_funk_rec_query_try but
    will query txn's ancestors for key from youngest to oldest if key is
    not part of txn.  As such, the txn of the returned record may not
@@ -223,17 +160,6 @@ fd_funk_rec_query_try_global( fd_funk_t const *         funk,
                               fd_funk_rec_key_t const * key,
                               fd_funk_txn_xid_t *       xid_out,
                               fd_funk_rec_query_t *     query );
-
-/* fd_funk_rec_query_copy queries the in-preparation transaction pointed to
-   by txn for the record whose key matches the key pointed to by key. */
-
-uchar const *
-fd_funk_rec_query_copy( fd_funk_t *               funk,
-                        fd_funk_txn_xid_t const * xid,
-                        fd_funk_rec_key_t const * key,
-                        uchar *                   out,
-                        ulong                     out_max,
-                        ulong *                   sz_out );
 
 /* fd_funk_rec_{pair,xid,key} returns a pointer in the local address
    space of the {(transaction id,record key) pair,transaction id,record
@@ -271,29 +197,6 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
 void
 fd_funk_rec_publish( fd_funk_t *             funk,
                      fd_funk_rec_prepare_t * prepare );
-
-/* fd_funk_rec_cancel returns an unpublished funk record entry back to
-   the record object pool, invalidating the prepare struct.  The caller
-   cleans up any resources associated with the record (e.g. funk_val)
-   before calling this function. */
-
-void
-fd_funk_rec_cancel( fd_funk_t *             funk,
-                    fd_funk_rec_prepare_t * prepare );
-
-/* fd_funk_rec_clone copies a record from an ancestor transaction
-   to create a new record in the given transaction. The record can be
-   modified afterward and must then be published.
-
-   NOTE: fd_funk_rec_clone is NOT thread safe and should not be used
-   concurrently with other funk read/write operations. */
-
-fd_funk_rec_t *
-fd_funk_rec_clone( fd_funk_t *               funk,
-                   fd_funk_txn_xid_t const * xid,
-                   fd_funk_rec_key_t const * key,
-                   fd_funk_rec_prepare_t *   prepare,
-                   int *                     opt_err );
 
 /* Misc */
 
