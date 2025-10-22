@@ -641,6 +641,16 @@ test_publish_gc( fd_wksp_t * wksp ) {
   FD_TEST( query_rec_exact( env, &fork_c, &key )==NULL   );
   FD_TEST( query_rec_exact( env, &root,   &key )==frec_c );
 
+  /* Verify that only frec_c exists in funk rec map */
+  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, &frec_c->pair );
+  ulong chain_cnt = 0UL;
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
+       !fd_funk_rec_map_iter_done( iter );
+       iter = fd_funk_rec_map_iter_next( iter ) ) {
+    chain_cnt++;
+  }
+  FD_TEST( chain_cnt==1UL );
+
   test_env_destroy( env );
 }
 
@@ -658,6 +668,62 @@ test_publish_trivial( fd_wksp_t * wksp ) {
 
   /* FIXME more operations here ... */
 }
+
+/* test_root_nonroot_prio: non-rooted record should take priority over
+   rooted records. */
+
+static void
+test_root_nonroot_prio( fd_wksp_t * wksp ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_funk_txn_xid_t fork_1 = { .ul = { 1UL, 1UL } }; /* account deployed here */
+  fd_funk_txn_xid_t fork_2 = { .ul = { 2UL, 1UL } }; /* root */
+  fd_funk_txn_xid_t fork_3 = { .ul = { 3UL, 2UL } }; /* account redeployed here */
+  fd_funk_txn_xid_t fork_4 = { .ul = { 4UL, 2UL } }; /* tip */
+
+  test_env_txn_prepare( env, NULL, &fork_1 );
+  fd_funk_rec_key_t key = test_key( 1UL );
+  create_test_account( env, &fork_1, &key,
+                       &fd_solana_bpf_loader_program_id,
+                       valid_program_data,
+                       valid_program_data_sz,
+                       1 );
+  test_env_txn_publish( env, &fork_1 );
+
+  test_env_txn_prepare( env, &fork_1, &fork_2 );
+  test_env_txn_prepare( env, &fork_2, &fork_3 );
+  create_test_account( env, &fork_3, &key,
+                       &fd_solana_bpf_loader_program_id,
+                       valid_program_data,
+                       valid_program_data_sz,
+                       1 );
+  fd_progcache_invalidate( env->progcache, &fork_3, &key, 3UL );
+  test_env_txn_prepare( env, &fork_3, &fork_4 );
+
+  fd_prog_load_env_t load_env1 = {
+    .features    = env->features,
+    .slot        = 1UL,
+    .epoch       = 0UL,
+    .epoch_slot0 = 0UL
+  };
+  fd_progcache_rec_t const * rec1 = fd_progcache_pull( env->progcache, env->accdb, &fork_1, &key, &load_env1 );
+  FD_TEST( rec1 );
+  FD_TEST( rec1->slot==1UL );
+
+  fd_prog_load_env_t load_env4 = {
+    .features    = env->features,
+    .slot        = 4UL,
+    .epoch       = 0UL,
+    .epoch_slot0 = 0UL
+  };
+  fd_progcache_rec_t const * rec4 = fd_progcache_pull( env->progcache, env->accdb, &fork_4, &key, &load_env4 );
+  FD_TEST( rec4 );
+  FD_TEST( rec4->slot==4UL );
+
+  test_env_txn_cancel( env, &fork_4 );
+  test_env_txn_cancel( env, &fork_3 );
+  test_env_destroy( env );
+}
+
 
 
 struct test_case {
@@ -710,6 +776,7 @@ main( int     argc,
     TEST( test_invalidate_epoch_boundary ),
     TEST( test_publish_gc ),
     TEST( test_publish_trivial ),
+    TEST( test_root_nonroot_prio ),
     {0}
   };
 # undef TEST
