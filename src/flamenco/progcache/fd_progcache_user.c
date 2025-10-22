@@ -186,6 +186,7 @@ fd_progcache_search_chain( fd_progcache_t const *    cache,
   fd_funk_rec_t *                               rec_tbl   = cache->funk->rec_pool->ele;
   ulong                                         rec_max   = fd_funk_rec_pool_ele_max( cache->funk->rec_pool );
   ulong                                         ver_cnt   = FD_VOLATILE_CONST( chain->ver_cnt );
+  ulong                                         root_slot = fd_funk_last_publish( cache->funk )->ul[0];
 
   /* Start a speculative transaction for the chain containing revisions
      of the program cache key we are looking for. */
@@ -208,6 +209,8 @@ fd_progcache_search_chain( fd_progcache_t const *    cache,
     /* Skip over records from an older epoch (FIXME could bail early
        here if the chain is ordered) */
     ulong found_slot = rec->pair.xid->ul[0];
+    if( found_slot==ULONG_MAX ) found_slot = root_slot;
+
     if( FD_UNLIKELY( found_slot<epoch_slot0 ) ) continue;
 
     /* Skip over records that are older than what we already have */

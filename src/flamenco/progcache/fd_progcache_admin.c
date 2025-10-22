@@ -191,6 +191,34 @@ fd_progcache_txn_cancel( fd_progcache_admin_t * cache,
   fd_progcache_txn_cancel_tree( cache, txn );
 }
 
+/* fd_progcache_gc_root cleans up a stale "rooted" version of a
+   record. */
+
+static void
+fd_progcache_gc_root( fd_progcache_admin_t *         cache,
+                      fd_funk_xid_key_pair_t const * pair ) {
+  fd_funk_t * funk = cache->funk;
+
+  /* Phase 1: Remove record from map if found */
+
+  fd_funk_rec_query_t query[1];
+  int rm_err = fd_funk_rec_map_remove( funk->rec_map, pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+  if( rm_err==FD_MAP_ERR_KEY ) return;
+  if( FD_UNLIKELY( rm_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed: %i-%s", rm_err, fd_map_strerror( rm_err ) ));
+
+  /* Phase 2: Invalidate record */
+
+  fd_funk_rec_t * old_rec = query->ele;
+  memset( &old_rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+  FD_COMPILER_MFENCE();
+
+  /* Phase 3: Free record */
+
+  old_rec->map_next = FD_FUNK_REC_IDX_NULL;
+  fd_funk_val_flush( old_rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
+}
+
 /* fd_progcache_publish_recs publishes all of a progcache's records.
    It is assumed at this point that the txn has no more concurrent
    users. */
@@ -198,18 +226,27 @@ fd_progcache_txn_cancel( fd_progcache_admin_t * cache,
 static void
 fd_progcache_publish_recs( fd_progcache_admin_t * cache,
                            fd_funk_txn_t *        txn ) {
-  fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
   /* Iterate record list */
   uint head = txn->rec_head_idx;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
   while( !fd_funk_rec_idx_is_null( head ) ) {
     fd_funk_rec_t * rec = &cache->funk->rec_pool->ele[ head ];
+
+   /* Evict previous value from hash chain */
+    fd_funk_xid_key_pair_t pair[1];
+    fd_funk_rec_key_copy( pair->key, rec->pair.key );
+    fd_funk_txn_xid_set_root( pair->xid );
+    fd_progcache_gc_root( cache, pair );
+
+    /* Migrate record to root */
     uint next = rec->next_idx;
     rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     rec->next_idx = FD_FUNK_REC_IDX_NULL;
+    fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
     fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
-    head = next;
+
+    head = next; /* next record*/
   }
 }
 
@@ -271,8 +308,11 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
 
   fd_rwlock_unwrite( txn->lock );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
-  txn->child_head_cidx = UINT_MAX;
-  txn->child_tail_cidx = UINT_MAX;
+  txn->parent_cidx       = UINT_MAX;
+  txn->sibling_prev_cidx = UINT_MAX;
+  txn->sibling_next_cidx = UINT_MAX;
+  txn->child_head_cidx   = UINT_MAX;
+  txn->child_tail_cidx   = UINT_MAX;
   fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
 }
 
@@ -292,20 +332,6 @@ fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
 
   fd_progcache_txn_cancel_prev_list( cache, txn );
   fd_progcache_txn_cancel_next_list( cache, txn );
-  { /* Cancel left siblings */
-    ulong child_idx = fd_funk_txn_idx( txn->sibling_prev_cidx );
-    while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) {
-      funk->txn_pool->ele[ child_idx ].parent_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-      child_idx = fd_funk_txn_idx( funk->txn_pool->ele[ child_idx ].sibling_next_cidx );
-    }
-  }
-  { /* Cancel right siblings */
-    ulong child_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
-    while( FD_UNLIKELY( !fd_funk_txn_idx_is_null( child_idx ) ) ) {
-      funk->txn_pool->ele[ child_idx ].parent_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-      child_idx = fd_funk_txn_idx( funk->txn_pool->ele[ child_idx ].sibling_next_cidx );
-    }
-  }
   txn->sibling_prev_cidx = UINT_MAX;
   txn->sibling_next_cidx = UINT_MAX;
 
