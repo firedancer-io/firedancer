@@ -149,10 +149,6 @@ requests_remove( fd_forest_t * forest, ulong pool_idx ) {
   fd_forest_ref_t      * pool     = fd_forest_reqspool( forest );
   fd_forest_ref_t      * ele;
   if( FD_LIKELY( ele = fd_forest_requests_ele_remove( requests, &pool_idx, NULL, pool ) ) ) {
-    /* invalidate the iterator if it is on the removed slot. */
-    if( FD_UNLIKELY( forest->iter.ele_idx == pool_idx ) ) {
-      forest->iter.ele_idx = ULONG_MAX;
-    }
     fd_forest_reqslist_ele_remove( fd_forest_reqslist( forest ), ele, pool );
     fd_forest_reqspool_ele_release( pool, ele );
   }
@@ -636,7 +632,8 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
                  fd_forest_frontier_ele_query( frontier, &ele->slot, NULL, pool ) ) ) {
     /* There is a chance that we connected this ele to the main tree. If
        this ele doesn't have a parent in the consumed/requests map, add it to the
-       consumed/requests map. */
+       consumed/requests map. If there are no requests in the deque though
+       (common case after catchup), don't even bother iterating. */
     ulong ancestor = fd_forest_pool_idx( pool, ele );
     int   has_requests_anc = 0;
     int   has_consumed_anc = 0;
@@ -763,7 +760,6 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   fd_forest_orphaned_t * orphaned = fd_forest_orphaned( forest );
   fd_forest_frontier_t * frontier = fd_forest_frontier( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
-  fd_forest_ref_t *      conspool = fd_forest_conspool( forest );
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
   ulong                  null     = fd_forest_pool_idx_null( pool );
   ulong *                queue    = fd_forest_deque( forest );
@@ -854,7 +850,7 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
      In that case we need to continue repairing from the new root, so
      add it to the consumed map. */
 
-  if( FD_UNLIKELY( fd_forest_conslist_is_empty( fd_forest_conslist( forest ), conspool ) ) ) {
+  if( FD_UNLIKELY( fd_forest_conspool_used( fd_forest_conspool( forest ) ) == 0 ) ) {
     consumed_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
     requests_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
     new_root_ele->complete_idx = 0;
@@ -961,23 +957,14 @@ fd_forest_iter_next( fd_forest_t * forest ) {
           requests_insert( forest, fd_forest_pool_idx( pool, child ) );
           child = fd_forest_pool_ele_const( pool, child->sibling );
         }
-        /* so annoying. cant call requests_remove because itll invalidate the current iter->ele_idx,
-           so we explicitly pop the head and free the ele here. */
-        fd_forest_ref_t * head = fd_forest_reqslist_ele_pop_head( fd_forest_reqslist( forest ), reqspool );
-        fd_forest_requests_ele_remove ( fd_forest_requests( forest ), &head->idx, NULL, reqspool );
-        fd_forest_reqspool_ele_release( reqspool, head );
-
-        if( FD_UNLIKELY( iter->shred_idx == UINT_MAX && ( ele->buffered_idx == UINT_MAX || ele->buffered_idx < ele->complete_idx ) ) ) {
-          /* If we just made a highest_window_idx request, add this slot
-             back to the requests deque at the end.  Also condition on
-             whether or not this slot is still incomplete.  If the slot
-             is complete and we add it back to the loop, we will end up
-             infinite looping. */
+        requests_remove( forest, iter->ele_idx );  /* remove finished slot from head of requests deque */
+        if( FD_UNLIKELY( ele->complete_idx == UINT_MAX ) ) {
+          /* if we just made a highest_window_idx request, add this slot back to the requests deque at the end */
           requests_insert( forest, iter->ele_idx );
         }
       }
 
-      /* Move onto the next slot */
+      /* move onto the next slot */
       if( FD_UNLIKELY( fd_forest_reqslist_is_empty( reqslist, reqspool ) ) ) {
         iter->ele_idx = fd_forest_pool_idx_null( pool );
         iter->shred_idx = UINT_MAX;

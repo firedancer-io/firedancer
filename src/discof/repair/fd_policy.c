@@ -164,8 +164,6 @@ fd_policy_peer_select( fd_policy_t * policy ) {
   fd_peer_dlist_t * worst_dlist = policy->peers.slow;
   fd_peer_t       * pool        = policy->peers.pool;
 
-  if( FD_UNLIKELY( fd_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
-
   fd_peer_dlist_t * dlist = bucket_stages[policy->peers.select.stage] == FD_POLICY_LATENCY_FAST ? best_dlist : worst_dlist;
 
   while( FD_UNLIKELY( fd_peer_dlist_iter_done( policy->peers.select.iter, dlist, pool ) ) ) {
@@ -237,10 +235,10 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
        means that the shred_idx of the iterf is likely to be UINT_MAX,
        which means calling fd_forest_iter_next will advance the iterf
        to the next slot. */
-    forest->iter.shred_idx = UINT_MAX;
-    /* TODO: Heinous... I'm sorry. Easiest way to ensure this slot gets added back to the requests deque.
-       but maybe there should be an explicit API for it. */
-    return NULL;
+    //forest->iter.shred_idx = UINT_MAX; // heinous... i'm sorry
+    //fd_forest_iter_next( forest );
+    //if( FD_UNLIKELY( fd_forest_iter_done( forest->iter, forest ) ) ) break;
+    //continue;
   }
 
   if( FD_UNLIKELY( forest->iter.shred_idx == UINT_MAX ) ) {
@@ -302,7 +300,7 @@ fd_policy_peer_remove( fd_policy_t * policy, fd_pubkey_t const * key ) {
 
   if( FD_UNLIKELY( policy->peers.select.iter == fd_peer_pool_idx( policy->peers.pool, peer_ele ) ) ) {
     /* In general removal during iteration is safe, except when the iterator is on the peer to be removed. */
-    fd_peer_dlist_t * dlist = bucket_stages[policy->peers.select.stage] == FD_POLICY_LATENCY_FAST ? policy->peers.fast : policy->peers.slow;
+    fd_peer_dlist_t * dlist = policy->peers.select.stage == FD_POLICY_LATENCY_FAST ? policy->peers.fast : policy->peers.slow;
     policy->peers.select.iter = fd_peer_dlist_iter_fwd_next( policy->peers.select.iter, dlist, policy->peers.pool );
   }
 

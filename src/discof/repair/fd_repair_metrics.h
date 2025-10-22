@@ -18,7 +18,7 @@ struct fd_slot_metrics {
 };
 typedef struct fd_slot_metrics fd_slot_metrics_t;
 
-#define FD_CATCHUP_METRICS_MAX 16384
+#define FD_CATCHUP_METRICS_MAX 256
 
 struct fd_repair_metrics_t {
   fd_slot_metrics_t slots[ FD_CATCHUP_METRICS_MAX ];
