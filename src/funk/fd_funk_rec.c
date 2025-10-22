@@ -20,6 +20,7 @@
 #define MAP_IDX_T             uint
 #define MAP_NEXT              map_next
 #define MAP_MAGIC             (0xf173da2ce77ecdb0UL) /* Firedancer rec db version 0 */
+#define MAP_CNT_WIDTH         FD_FUNK_REC_MAP_CNT_WIDTH
 #define MAP_IMPL_STYLE        2
 #define MAP_PEDANTIC          1
 #include "../util/tmpl/fd_map_chain_para.c"
@@ -384,8 +385,19 @@ fd_funk_rec_publish( fd_funk_t *             funk,
 void
 fd_funk_rec_cancel( fd_funk_t *             funk,
                     fd_funk_rec_prepare_t * prepare ) {
-  fd_funk_val_flush( prepare->rec, funk->alloc, funk->wksp );
-  fd_funk_rec_pool_release( funk->rec_pool, prepare->rec, 1 );
+  fd_funk_rec_t * rec = prepare->rec;
+  rec->map_next  = FD_FUNK_REC_IDX_NULL;
+  rec->next_idx  = FD_FUNK_REC_IDX_NULL;
+  rec->prev_idx  = FD_FUNK_REC_IDX_NULL;
+  rec->val_sz    = 0;
+  rec->val_max   = 0;
+  rec->tag       = 0;
+  rec->val_gaddr = 0UL;
+  memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+  FD_COMPILER_MFENCE();
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
+  memset( prepare, 0, sizeof(fd_funk_rec_prepare_t) );
 }
 
 fd_funk_rec_t *
@@ -442,11 +454,15 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
   /* Iterate (again) over all records in use */
 
+  fd_funk_rec_map_shmem_private_chain_t * chain_tbl =
+    fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
   ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
   for( ulong chain_idx=0UL; chain_idx<chain_cnt; chain_idx++ ) {
+    ulong chain_ele_cnt = fd_funk_rec_map_private_vcnt_cnt( chain_tbl[ chain_idx ].ver_cnt );
+    ulong chain_ele_idx = 0UL;
     for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( rec_map, chain_idx );
          !fd_funk_rec_map_iter_done( iter );
-         iter = fd_funk_rec_map_iter_next( iter ) ) {
+         iter = fd_funk_rec_map_iter_next( iter ), chain_ele_idx++ ) {
       fd_funk_rec_t const * rec = fd_funk_rec_map_iter_ele_const( iter );
 
       /* Make sure every record either links up with the last published
@@ -467,6 +483,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
 
       }
     }
+    TEST( chain_ele_idx==chain_ele_cnt );
   }
 
   /* Clear record tags and then verify membership */
@@ -492,7 +509,7 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         TEST( (rec_idx<rec_max) && !rec_pool->ele[ rec_idx ].tag );
         rec_pool->ele[ rec_idx ].tag = 1;
         fd_funk_rec_query_t query[1];
-        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try_global( funk, &txn->xid, rec_pool->ele[ rec_idx ].pair.key, NULL, query );
+        fd_funk_rec_t const * rec2 = fd_funk_rec_query_try( funk, &txn->xid, rec_pool->ele[ rec_idx ].pair.key, query );
         TEST( rec2 == rec_pool->ele + rec_idx );
         uint next_idx = rec_pool->ele[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_pool->ele[ next_idx ].prev_idx==rec_idx );

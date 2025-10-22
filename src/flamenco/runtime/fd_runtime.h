@@ -473,14 +473,11 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 
 /* Epoch Boundary *************************************************************/
 
-/*
-   This is roughly Agave's process_new_epoch() which gets called from
+/* This is roughly Agave's process_new_epoch() which gets called from
    new_from_parent() for every slot.
    https://github.com/anza-xyz/agave/blob/v1.18.26/runtime/src/bank.rs#L1483
-   This needs to be called after funk_txn_prepare() because the accounts
-   that we modify when processing a new epoch need to be hashed into
-   the bank hash.
- */
+   Account changes done by this function are counted towards the first
+   slot of the new epoch (NOT the last slot of the old epoch). */
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_bank_t *               bank,

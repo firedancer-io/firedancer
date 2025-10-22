@@ -1,27 +1,8 @@
-#include "fd_progcache_admin.h"
+#include "fd_accdb_admin.h"
 
-/* Algorithm to estimate size of cache metadata structures (rec_pool
-   object pool and rec_map hashchain table).
-
-   FIXME Carefully balance this */
-
-static ulong
-fd_progcache_est_rec_max1( ulong wksp_footprint,
-                           ulong mean_cache_entry_size ) {
-  return wksp_footprint / mean_cache_entry_size;
-}
-
-ulong
-fd_progcache_est_rec_max( ulong wksp_footprint,
-                          ulong mean_cache_entry_size ) {
-  ulong est = fd_progcache_est_rec_max1( wksp_footprint, mean_cache_entry_size );
-  if( FD_UNLIKELY( est>(1UL<<31) ) ) FD_LOG_ERR(( "fd_progcache_est_rec_max(wksp_footprint=%lu,mean_cache_entry_size=%lu) failed: invalid parameters", wksp_footprint, mean_cache_entry_size ));
-  return fd_ulong_max( est, 2048UL );
-}
-
-fd_progcache_admin_t *
-fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
-                         void *                 shfunk ) {
+fd_accdb_admin_t *
+fd_accdb_admin_join( fd_accdb_admin_t * ljoin,
+                     void *             shfunk ) {
   if( FD_UNLIKELY( !ljoin ) ) {
     FD_LOG_WARNING(( "NULL ljoin" ));
     return NULL;
@@ -31,7 +12,7 @@ fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
     return NULL;
   }
 
-  memset( ljoin, 0, sizeof(fd_progcache_admin_t) );
+  memset( ljoin, 0, sizeof(fd_accdb_admin_t) );
   if( FD_UNLIKELY( !fd_funk_join( ljoin->funk, shfunk ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
@@ -40,13 +21,13 @@ fd_progcache_admin_join( fd_progcache_admin_t * ljoin,
 }
 
 void *
-fd_progcache_admin_leave( fd_progcache_admin_t * ljoin,
-                          void **                opt_shfunk ) {
-  if( FD_UNLIKELY( !ljoin ) ) FD_LOG_CRIT(( "NULL ljoin" ));
+fd_accdb_admin_leave( fd_accdb_admin_t * admin,
+                      void **            opt_shfunk ) {
+  if( FD_UNLIKELY( !admin ) ) FD_LOG_CRIT(( "NULL ljoin" ));
 
-  if( FD_UNLIKELY( !fd_funk_leave( ljoin->funk, opt_shfunk ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
+  if( FD_UNLIKELY( !fd_funk_leave( admin->funk, opt_shfunk ) ) ) FD_LOG_CRIT(( "fd_funk_leave failed" ));
 
-  return ljoin;
+  return admin;
 }
 
 /* Begin transaction-level operations.  It is assumed that funk_txn data
@@ -54,56 +35,85 @@ fd_progcache_admin_leave( fd_progcache_admin_t * ljoin,
    txn_map. */
 
 void
-fd_progcache_txn_attach_child( fd_progcache_admin_t *    cache,
-                               fd_funk_txn_xid_t const * xid_parent,
-                               fd_funk_txn_xid_t const * xid_new ) {
-  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: created with parent %lu:%lu",
-                (void *)cache->funk,
+fd_accdb_attach_child( fd_accdb_admin_t *        db,
+                       fd_funk_txn_xid_t const * xid_parent,
+                       fd_funk_txn_xid_t const * xid_new ) {
+  FD_LOG_INFO(( "accdb txn xid %lu:%lu: created with parent %lu:%lu",
                 xid_new   ->ul[0], xid_new   ->ul[1],
                 xid_parent->ul[0], xid_parent->ul[1] ));
-  fd_funk_txn_prepare( cache->funk, xid_parent, xid_new );
+  fd_funk_txn_prepare( db->funk, xid_parent, xid_new );
 }
 
 static void
-fd_progcache_txn_cancel_one( fd_progcache_admin_t * cache,
-                             fd_funk_txn_t *        txn ) {
-  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: cancel", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
+fd_accdb_txn_cancel_one( fd_accdb_admin_t * admin,
+                         fd_funk_txn_t *    txn ) {
+  FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: cancel", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
 
-  fd_funk_t * funk = cache->funk;
+  if( FD_UNLIKELY( txn->state!=FD_FUNK_TXN_STATE_ACTIVE ) ) {
+    FD_LOG_CRIT(( "cannot cancel xid %lu:%lu: unxpected state %u-%s",
+                  txn->xid.ul[0], txn->xid.ul[1],
+                  txn->state, fd_funk_txn_state_str( txn->state ) ));
+  }
+  fd_funk_t * funk = admin->funk;
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( txn->child_head_cidx ) ||
                    !fd_funk_txn_idx_is_null( txn->child_tail_cidx ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: txn at %p with xid %lu:%lu has children (data corruption?)",
+    FD_LOG_CRIT(( "fd_accdb_txn_cancel failed: txn at %p with xid %lu:%lu has children (data corruption?)",
                   (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
   }
 
   /* Phase 1: Drain users from transaction */
 
   fd_rwlock_write( txn->lock );
+  FD_COMPILER_MFENCE();
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_CANCEL;
 
-  /* Phase 2: Remove records */
+  /* Phase 2: Detach all records */
 
-  while( !fd_funk_rec_idx_is_null( txn->rec_head_idx ) ) {
-    fd_funk_rec_t * rec = &funk->rec_pool->ele[ txn->rec_head_idx ];
+  FD_COMPILER_MFENCE();
+  uint const rec_head_idx = txn->rec_head_idx;
+  txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
+  txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
+  FD_COMPILER_MFENCE();
+
+  /* Phase 3: Remove records */
+
+  ulong rec_cnt = 0UL;
+  uint rec_idx = rec_head_idx;
+  while( !fd_funk_rec_idx_is_null( rec_idx ) ) {
+    fd_funk_rec_t * rec = &funk->rec_pool->ele[ rec_idx ];
+    fd_funk_xid_key_pair_t pair = FD_VOLATILE_CONST( rec->pair );
+
     uint next_idx = rec->next_idx;
-    rec->next_idx = FD_FUNK_REC_IDX_NULL;
-    if( FD_LIKELY( !fd_funk_rec_idx_is_null( next_idx ) ) ) {
-      funk->rec_pool->ele[ next_idx ].prev_idx = FD_FUNK_REC_IDX_NULL;
+    if( FD_UNLIKELY( !fd_funk_txn_xid_eq( pair.xid, &txn->xid ) ) ) {
+      FD_LOG_CRIT(( "Record does not belong to txn being cancelled (data corruption?): rec_idx=%u", rec_idx ));
     }
 
-    fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+    /* Phase 3.1: Hide record */
 
     fd_funk_rec_query_t query[1];
-    int remove_err = fd_funk_rec_map_remove( funk->rec_map, &rec->pair, NULL, query, FD_MAP_FLAG_BLOCKING );
+    int remove_err = fd_funk_rec_map_remove( funk->rec_map, &pair, NULL, query, FD_MAP_FLAG_BLOCKING );
     if( FD_UNLIKELY( remove_err ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed: %i-%s", remove_err, fd_map_strerror( remove_err ) ));
+    if( FD_UNLIKELY( query->ele!=rec ) ) FD_LOG_CRIT(( "Found duplicate record in map idx[0]=%p idx[1]=%p", (void *)query->ele, (void *)rec ));
 
+    /* Phase 3.2: Mark record as invalid */
+
+    FD_COMPILER_MFENCE();
+    memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
+    FD_COMPILER_MFENCE();
+
+    /* Phase 3.3: Free record */
+
+    fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+    rec->next_idx = FD_FUNK_REC_IDX_NULL;
+    rec->prev_idx = FD_FUNK_REC_IDX_NULL;
     fd_funk_rec_pool_release( funk->rec_pool, rec, 1 );
-
-    txn->rec_head_idx = next_idx;
-    if( fd_funk_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
+    rec_idx = next_idx;
+    rec_cnt++;
   }
+  FD_LOG_INFO(( "accdb freed %lu records while cancelling txn %lu:%lu",
+                rec_cnt, txn->xid.ul[0], txn->xid.ul[1] ));
 
-  /* Phase 3: Remove transaction from fork graph */
+  /* Phase 4: Remove transaction from fork graph */
 
   uint self_cidx = fd_funk_txn_cidx( (ulong)( txn-funk->txn_pool->ele ) );
   uint prev_cidx = txn->sibling_prev_cidx; ulong prev_idx = fd_funk_txn_idx( prev_cidx );
@@ -123,17 +133,20 @@ fd_progcache_txn_cancel_one( fd_progcache_admin_t * cache,
     if( funk->shmem->child_tail_cidx==self_cidx ) funk->shmem->child_tail_cidx = prev_cidx;
   }
 
-  /* Phase 4: Remove transcation from index */
+  /* Phase 5: Remove transcation from index */
 
   fd_funk_txn_map_query_t query[1];
   int remove_err = fd_funk_txn_map_remove( funk->txn_map, &txn->xid, NULL, query, FD_MAP_FLAG_BLOCKING );
   if( FD_UNLIKELY( remove_err!=FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: fd_funk_txn_map_remove(%lu:%lu) failed: %i-%s",
+    FD_LOG_CRIT(( "fd_accdb_txn_cancel failed: fd_funk_txn_map_remove(%lu:%lu) failed: %i-%s",
                   txn->xid.ul[0], txn->xid.ul[1], remove_err, fd_map_strerror( remove_err ) ));
   }
 
-  /* Phase 5: Free transaction object */
+  /* Phase 6: Free transaction object */
 
+  txn->parent_cidx       = UINT_MAX;
+  txn->sibling_prev_cidx = UINT_MAX;
+  txn->sibling_next_cidx = UINT_MAX;
   fd_rwlock_unwrite( txn->lock );
   FD_VOLATILE( txn->state ) = FD_FUNK_TXN_STATE_FREE;
   fd_funk_txn_pool_release( funk->txn_pool, txn, 1 );
@@ -142,66 +155,66 @@ fd_progcache_txn_cancel_one( fd_progcache_admin_t * cache,
 /* Cancels txn and all children */
 
 static void
-fd_progcache_txn_cancel_tree( fd_progcache_admin_t * cache,
-                              fd_funk_txn_t *        txn ) {
+fd_accdb_txn_cancel_tree( fd_accdb_admin_t * accdb,
+                          fd_funk_txn_t *    txn ) {
   for(;;) {
     ulong child_idx = fd_funk_txn_idx( txn->child_head_cidx );
     if( fd_funk_txn_idx_is_null( child_idx ) ) break;
-    fd_funk_txn_t * child = &cache->funk->txn_pool->ele[ child_idx ];
-    fd_progcache_txn_cancel_tree( cache, child );
+    fd_funk_txn_t * child = &accdb->funk->txn_pool->ele[ child_idx ];
+    fd_accdb_txn_cancel_tree( accdb, child );
   }
-  fd_progcache_txn_cancel_one( cache, txn );
+  fd_accdb_txn_cancel_one( accdb, txn );
 }
 
 /* Cancels all left/right siblings */
 
 static void
-fd_progcache_txn_cancel_prev_list( fd_progcache_admin_t * cache,
-                                   fd_funk_txn_t *        txn ) {
-  ulong self_idx = (ulong)( txn - cache->funk->txn_pool->ele );
+fd_accdb_txn_cancel_prev_list( fd_accdb_admin_t * accdb,
+                               fd_funk_txn_t *    txn ) {
+  ulong self_idx = (ulong)( txn - accdb->funk->txn_pool->ele );
   for(;;) {
     ulong prev_idx = fd_funk_txn_idx( txn->sibling_prev_cidx );
     if( FD_UNLIKELY( prev_idx==self_idx ) ) FD_LOG_CRIT(( "detected cycle in fork graph" ));
     if( fd_funk_txn_idx_is_null( prev_idx ) ) break;
-    fd_funk_txn_t * sibling = &cache->funk->txn_pool->ele[ prev_idx ];
-    fd_progcache_txn_cancel_tree( cache, sibling );
+    fd_funk_txn_t * sibling = &accdb->funk->txn_pool->ele[ prev_idx ];
+    fd_accdb_txn_cancel_tree( accdb, sibling );
   }
 }
 
 static void
-fd_progcache_txn_cancel_next_list( fd_progcache_admin_t * cache,
-                                   fd_funk_txn_t *        txn ) {
-  ulong self_idx = (ulong)( txn - cache->funk->txn_pool->ele );
+fd_accdb_txn_cancel_next_list( fd_accdb_admin_t * accdb,
+                               fd_funk_txn_t *    txn ) {
+  ulong self_idx = (ulong)( txn - accdb->funk->txn_pool->ele );
   for(;;) {
     ulong next_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
     if( FD_UNLIKELY( next_idx==self_idx ) ) FD_LOG_CRIT(( "detected cycle in fork graph" ));
     if( fd_funk_txn_idx_is_null( next_idx ) ) break;
-    fd_funk_txn_t * sibling = &cache->funk->txn_pool->ele[ next_idx ];
-    fd_progcache_txn_cancel_tree( cache, sibling );
+    fd_funk_txn_t * sibling = &accdb->funk->txn_pool->ele[ next_idx ];
+    fd_accdb_txn_cancel_tree( accdb, sibling );
   }
 }
 
 void
-fd_progcache_txn_cancel( fd_progcache_admin_t * cache,
-                         fd_funk_txn_xid_t const * xid ) {
-  fd_funk_t * funk = cache->funk;
+fd_accdb_cancel( fd_accdb_admin_t *        accdb,
+                 fd_funk_txn_xid_t const * xid ) {
+  fd_funk_t * funk = accdb->funk;
 
   fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
   if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_cancel failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_accdb_txn_cancel failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
   }
 
-  fd_progcache_txn_cancel_next_list( cache, txn );
-  fd_progcache_txn_cancel_tree( cache, txn );
+  fd_accdb_txn_cancel_next_list( accdb, txn );
+  fd_accdb_txn_cancel_tree( accdb, txn );
 }
 
-/* fd_progcache_gc_root cleans up a stale "rooted" version of a
+/* fd_accdb_chain_gc_root cleans up a stale "rooted" version of a
    record. */
 
 static void
-fd_progcache_gc_root( fd_progcache_admin_t *         cache,
-                      fd_funk_xid_key_pair_t const * pair ) {
-  fd_funk_t * funk = cache->funk;
+fd_accdb_chain_gc_root( fd_accdb_admin_t *             accdb,
+                        fd_funk_xid_key_pair_t const * pair ) {
+  fd_funk_t * funk = accdb->funk;
 
   /* Phase 1: Remove record from map if found */
 
@@ -223,25 +236,28 @@ fd_progcache_gc_root( fd_progcache_admin_t *         cache,
   fd_funk_rec_pool_release( funk->rec_pool, old_rec, 1 );
 }
 
-/* fd_progcache_publish_recs publishes all of a progcache's records.
+/* fd_accdb_publish_recs moves all records in a transaction to the DB
+   root.  Currently, the DB root is stored by funk, which might change
+   in the future.
+
    It is assumed at this point that the txn has no more concurrent
    users. */
 
 static void
-fd_progcache_publish_recs( fd_progcache_admin_t * cache,
-                           fd_funk_txn_t *        txn ) {
+fd_accdb_publish_recs( fd_accdb_admin_t * accdb,
+                       fd_funk_txn_t *    txn ) {
   /* Iterate record list */
   uint head = txn->rec_head_idx;
   txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
   txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
   while( !fd_funk_rec_idx_is_null( head ) ) {
-    fd_funk_rec_t * rec = &cache->funk->rec_pool->ele[ head ];
+    fd_funk_rec_t * rec = &accdb->funk->rec_pool->ele[ head ];
 
-   /* Evict previous value from hash chain */
+    /* Evict previous value from hash chain */
     fd_funk_xid_key_pair_t pair[1];
     fd_funk_rec_key_copy( pair->key, rec->pair.key );
     fd_funk_txn_xid_set_root( pair->xid );
-    fd_progcache_gc_root( cache, pair );
+    fd_accdb_chain_gc_root( accdb, pair );
 
     /* Migrate record to root */
     uint next = rec->next_idx;
@@ -250,29 +266,26 @@ fd_progcache_publish_recs( fd_progcache_admin_t * cache,
     fd_funk_txn_xid_t const root = { .ul = { ULONG_MAX, ULONG_MAX } };
     fd_funk_txn_xid_st_atomic( rec->pair.xid, &root );
 
-    head = next; /* next record*/
+    head = next; /* next record */
   }
 }
 
-/* fd_progcache_txn_publish_one merges an in-prep transaction whose
+/* fd_accdb_txn_publish_one merges an in-prep transaction whose
    parent is the last published, into the parent. */
 
 static void
-fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
-                              fd_funk_txn_xid_t const * xid ) {
-  fd_funk_t * funk = cache->funk;
+fd_accdb_txn_publish_one( fd_accdb_admin_t * accdb,
+                          fd_funk_txn_t *    txn ) {
+  fd_funk_t * funk = accdb->funk;
 
   /* Phase 1: Mark transaction as "last published" */
 
-  fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
-  if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
-  }
-  FD_LOG_INFO(( "progcache txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
+  fd_funk_txn_xid_t xid[1]; fd_funk_txn_xid_copy( xid, fd_funk_txn_xid( txn ) );
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_accdb_publish failed: txn with xid %lu:%lu is not a child of the last published txn", xid->ul[0], xid->ul[1] ));
   }
   fd_funk_txn_xid_st_atomic( funk->shmem->last_publish, xid );
+  FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: publish", (void *)txn, txn->xid.ul[0], txn->xid.ul[1] ));
 
   /* Phase 2: Drain users from transaction */
 
@@ -281,7 +294,7 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
 
   /* Phase 3: Migrate records */
 
-  fd_progcache_publish_recs( cache, txn );
+  fd_accdb_publish_recs( accdb, txn );
 
   /* Phase 4: Remove transaction from fork graph
 
@@ -305,7 +318,7 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
   fd_funk_txn_map_query_t query[1];
   int remove_err = fd_funk_txn_map_remove( funk->txn_map, xid, NULL, query, 0 );
   if( FD_UNLIKELY( remove_err!=FD_MAP_SUCCESS ) ) {
-    FD_LOG_CRIT(( "fd_progcache_publish failed: fd_funk_txn_map_remove failed: %i-%s", remove_err, fd_map_strerror( remove_err ) ));
+    FD_LOG_CRIT(( "fd_accdb_publish failed: fd_funk_txn_map_remove failed: %i-%s", remove_err, fd_map_strerror( remove_err ) ));
   }
 
   /* Phase 6: Free transaction object */
@@ -321,21 +334,25 @@ fd_progcache_txn_publish_one( fd_progcache_admin_t *    cache,
 }
 
 void
-fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
-                               fd_funk_txn_xid_t const * xid ) {
-  fd_funk_t * funk = cache->funk;
+fd_accdb_advance_root( fd_accdb_admin_t *        accdb,
+                       fd_funk_txn_xid_t const * xid ) {
+  fd_funk_t * funk = accdb->funk;
 
   fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
   if( FD_UNLIKELY( !txn ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_advance_root failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_accdb_txn_advance_root failed: txn with xid %lu:%lu not found", xid->ul[0], xid->ul[1] ));
   }
 
   if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( fd_funk_txn_idx( txn->parent_cidx ) ) ) ) {
-    FD_LOG_CRIT(( "fd_progcache_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
+    FD_LOG_CRIT(( "fd_accdb_txn_advance_root: parent of txn %lu:%lu is not root", xid->ul[0], xid->ul[1] ));
   }
 
-  fd_progcache_txn_cancel_prev_list( cache, txn );
-  fd_progcache_txn_cancel_next_list( cache, txn );
+  FD_LOG_INFO(( "accdb txn laddr=%p xid %lu:%lu: advancing root",
+                (void *)txn,
+                xid->ul[0], xid->ul[1] ));
+
+  fd_accdb_txn_cancel_prev_list( accdb, txn );
+  fd_accdb_txn_cancel_next_list( accdb, txn );
   txn->sibling_prev_cidx = UINT_MAX;
   txn->sibling_next_cidx = UINT_MAX;
 
@@ -343,26 +360,7 @@ fd_progcache_txn_advance_root( fd_progcache_admin_t *    cache,
   funk->shmem->child_head_cidx = txn->child_head_cidx;
   funk->shmem->child_tail_cidx = txn->child_tail_cidx;
 
-  fd_progcache_txn_publish_one( cache, fd_funk_txn_xid( txn ) );
-}
-
-/* reset_txn_list does a depth-first traversal of the txn tree.
-   Detaches all recs from txns by emptying rec linked lists. */
-
-static void
-reset_txn_list( fd_funk_t * funk,
-                ulong       txn_head_idx ) {
-  fd_funk_txn_pool_t * txn_pool = funk->txn_pool;
-  for( ulong idx = txn_head_idx;
-       !fd_funk_txn_idx_is_null( idx );
-  ) {
-    fd_funk_txn_t * txn = &txn_pool->ele[ idx ];
-    fd_funk_txn_state_assert( txn, FD_FUNK_TXN_STATE_ACTIVE );
-    txn->rec_head_idx = FD_FUNK_REC_IDX_NULL;
-    txn->rec_tail_idx = FD_FUNK_REC_IDX_NULL;
-    reset_txn_list( funk, txn->child_head_cidx );
-    idx = fd_funk_txn_idx( txn->sibling_next_cidx );
-  }
+  fd_accdb_txn_publish_one( accdb, txn );
 }
 
 /* reset_rec_map frees all records in a funk instance. */
@@ -390,18 +388,15 @@ reset_rec_map( fd_funk_t * funk ) {
       if( FD_UNLIKELY( err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "fd_funk_rec_map_remove failed (%i-%s)", err, fd_map_strerror( err ) ));
 
       /* Free rec resources */
+      rec->map_next = FD_FUNK_REC_IDX_NULL;
+      rec->next_idx = FD_FUNK_REC_IDX_NULL;
+      rec->prev_idx = FD_FUNK_REC_IDX_NULL;
+      memset( &rec->pair, 0, sizeof(fd_funk_xid_key_pair_t) );
       fd_funk_val_flush( rec, alloc, wksp );
       fd_funk_rec_pool_release( rec_pool, rec, 1 );
       iter.ele_idx = next;
     }
   }
-}
-
-void
-fd_progcache_reset( fd_progcache_admin_t * cache ) {
-  fd_funk_t * funk = cache->funk;
-  reset_txn_list( funk, fd_funk_txn_idx( funk->shmem->child_head_cidx ) );
-  reset_rec_map( funk );
 }
 
 /* clear_txn_list does a depth-first traversal of the txn tree.
@@ -440,13 +435,13 @@ clear_txn_list( fd_funk_t * funk,
 }
 
 void
-fd_progcache_clear( fd_progcache_admin_t * cache ) {
+fd_accdb_clear( fd_accdb_admin_t * cache ) {
   fd_funk_t * funk = cache->funk;
   clear_txn_list( funk, fd_funk_txn_idx( funk->shmem->child_head_cidx ) );
   reset_rec_map( funk );
 }
 
 void
-fd_progcache_verify( fd_progcache_admin_t * cache ) {
-  FD_TEST( fd_funk_verify( cache->funk )==FD_FUNK_SUCCESS );
+fd_accdb_verify( fd_accdb_admin_t * admin ) {
+  FD_TEST( fd_funk_verify( admin->funk )==FD_FUNK_SUCCESS );
 }

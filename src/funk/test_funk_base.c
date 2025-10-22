@@ -42,6 +42,18 @@ fd_funk_rec_key_set_unique( fd_funk_rec_key_t * key ) {
   return key;
 }
 
+static fd_funk_txn_xid_t
+fd_funk_generate_xid( void ) {
+  fd_funk_txn_xid_t xid;
+  static FD_TL ulong seq = 0;
+  xid.ul[0] =
+    (fd_log_cpu_id() + 1U)*3138831853UL +
+    (fd_log_thread_id() + 1U)*9180195821UL +
+    (++seq)*6208101967UL;
+  xid.ul[1] = ((ulong)fd_tickcount())*2810745731UL;
+  return xid;
+}
+
 static fd_funk_xid_key_pair_t *
 fd_funk_xid_key_pair_set_unique( fd_funk_xid_key_pair_t * pair ) {
   pair->xid[0] = fd_funk_generate_xid();
