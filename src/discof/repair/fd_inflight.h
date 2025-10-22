@@ -4,18 +4,13 @@
 #include "../../flamenco/types/fd_types.h"
 
 /* fd_inflights tracks repair requests that are inflight to other
-   validators.  This module is useful for metrics and reporting.
-   In-exact updates of orphan requests and highest window requests from
-   this module are non-critical, but exact updates of shred requests are
-   critical. Repair tile relies on this module to be able to re-request
-   any shreds that it has sent, because policy next does not request any
-   shred twice.
-   (TODO should this be rolled into policy.h?)
-
-   Requests are key-ed by nonce as in the current strategy (see
-   fd_policy.h), all requests have a unique nonce.  The chances that an
-   inflight request does not get a response are non-negligible due to
-   shred tile upstream deduping duplicates. */
+   validators.  This module is not necessary for the repair protocol and
+   strategy, but is useful for metrics and reporting.  Incorrect updates
+   and removals from this module are non-critical.  Requests are key-ed
+   by nonce as in the current strategy (see fd_policy.h), all requests
+   have a unique nonce.  The chances that an inflight request does not
+   get a response are non-negligible due to shred tile upstream deduping
+   duplicates. */
 
 /* Max number of pending requests */
 #define FD_INFLIGHT_REQ_MAX (1<<20)
@@ -101,7 +96,7 @@ fd_inflights_should_drain( fd_inflights_t * table, long now ) {
   if( FD_UNLIKELY( fd_inflight_dlist_is_empty( table->dlist, table->pool ) ) ) return 0;
 
   fd_inflight_t * inflight_req = fd_inflight_dlist_ele_peek_head( table->dlist, table->pool );
-  if( FD_UNLIKELY( inflight_req->timestamp_ns + 90e6L < now ) ) return 1;
+  if( FD_UNLIKELY( inflight_req->timestamp_ns + 100e6L < now ) ) return 1;
   return 0;
 }
 
