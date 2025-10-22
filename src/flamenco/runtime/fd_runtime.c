@@ -922,7 +922,8 @@ fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
 static void
 fd_runtime_finalize_account( fd_funk_t *               funk,
                              fd_funk_txn_xid_t const * xid,
-                             fd_txn_account_t *        acc ) {
+                             fd_txn_account_t *        acc,
+                             fd_funk_rec_t *           prev_rec ) {
   if( FD_UNLIKELY( !fd_txn_account_is_mutable( acc ) ) ) {
     FD_LOG_CRIT(( "fd_runtime_finalize_account: account is not mutable" ));
   }
@@ -933,26 +934,45 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
 
   int err = FD_FUNK_SUCCESS;
 
-  fd_funk_rec_key_t     funk_key = fd_funk_acc_key( key );
-  fd_funk_rec_prepare_t prepare[1];
-  fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, xid, &funk_key, prepare, &err );
-  if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
-    FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
+  if( !prev_rec || !fd_funk_txn_xid_eq( prev_rec->pair.xid, xid ) ) {
+
+    fd_funk_rec_key_t     funk_key = fd_funk_acc_key( key );
+    fd_funk_rec_prepare_t prepare[1];
+    fd_funk_rec_t *       rec = fd_funk_rec_prepare( funk, xid, &funk_key, prepare, &err );
+    if( FD_UNLIKELY( !rec || err!=FD_FUNK_SUCCESS ) ) {
+      FD_LOG_ERR(( "fd_runtime_finalize_account: failed to prepare record (%i-%s)", err, fd_funk_strerror( err ) ));
+    }
+
+    if( FD_UNLIKELY( !fd_funk_val_truncate(
+        rec,
+        fd_funk_alloc( funk ),
+        fd_funk_wksp( funk ),
+        0UL,
+        record_sz,
+        &err ) ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+    }
+
+    fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );
+
+    fd_funk_rec_publish( funk, prepare );
+
+  } else {
+
+    if( FD_UNLIKELY( !fd_funk_val_truncate(
+        prev_rec,
+        fd_funk_alloc( funk ),
+        fd_funk_wksp( funk ),
+        0UL,
+        record_sz,
+        &err ) ) ) {
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+    }
+
+    fd_memcpy( fd_funk_val( prev_rec, fd_funk_wksp( funk ) ), record_data, record_sz );
+
   }
 
-  if( FD_UNLIKELY( !fd_funk_val_truncate(
-      rec,
-      fd_funk_alloc( funk ),
-      fd_funk_wksp( funk ),
-      0UL,
-      record_sz,
-      &err ) ) ) {
-    FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
-  }
-
-  fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );
-
-  fd_funk_rec_publish( funk, prepare );
 }
 
 /* fd_runtime_buffer_solcap_account_update buffers an account
@@ -1040,12 +1060,16 @@ fd_runtime_save_account( fd_funk_t *               funk,
   }
 
   /* Look up the previous version of the account from Funk */
-  fd_txn_account_t previous_account_version[1];
-  int err = fd_txn_account_init_from_funk_readonly( previous_account_version, account->pubkey, funk, xid );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
-    FD_LOG_CRIT(( "Failed to read old account version from Funk" ));
-    return;
-  }
+  int err = FD_ACC_MGR_SUCCESS;
+  fd_funk_rec_t * funk_prev_rec = NULL;
+  fd_account_meta_t const * prev_meta = fd_funk_get_acc_meta_readonly(
+      funk,
+      xid,
+      account->pubkey,
+      fd_type_pun( &funk_prev_rec ),
+      &err,
+      NULL );
+  uchar const * prev_data = (void const *)( prev_meta+1 );
 
   /* Hash the old version of the account */
   fd_lthash_value_t prev_hash[1];
@@ -1053,8 +1077,8 @@ fd_runtime_save_account( fd_funk_t *               funk,
   if( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     fd_hashes_account_lthash(
       account->pubkey,
-      fd_txn_account_get_meta( previous_account_version ),
-      fd_txn_account_get_data( previous_account_version ),
+      prev_meta,
+      prev_data,
       prev_hash );
   }
 
@@ -1066,7 +1090,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
-  fd_runtime_finalize_account( funk, xid, account );
+  fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );
 }
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
