@@ -9,7 +9,7 @@
 
 static void
 write_stake_history( fd_bank_t *               bank,
-                     fd_funk_t *               funk,
+                     fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid,
                      fd_capture_ctx_t *        capture_ctx,
                      fd_stake_history_t *      stake_history ) {
@@ -22,7 +22,7 @@ write_stake_history( fd_bank_t *               bank,
   if( FD_UNLIKELY( fd_stake_history_encode( stake_history, &encode )!=FD_BINCODE_SUCCESS ) )
     FD_LOG_ERR(("fd_stake_history_encode failed"));
 
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_stake_history_id, enc, sizeof(enc) );
 }
 
 fd_stake_history_t *
@@ -52,23 +52,23 @@ fd_sysvar_stake_history_read( fd_funk_t *               funk,
 
 void
 fd_sysvar_stake_history_init( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx ) {
   fd_stake_history_t stake_history;
   fd_stake_history_new( &stake_history );
-  write_stake_history( bank, funk, xid, capture_ctx, &stake_history );
+  write_stake_history( bank, accdb, xid, capture_ctx, &stake_history );
 }
 
 void
 fd_sysvar_stake_history_update( fd_bank_t *                                 bank,
-                                fd_funk_t *                                 funk,
+                                fd_accdb_user_t *                           accdb,
                                 fd_funk_txn_xid_t const *                   xid,
                                 fd_capture_ctx_t *                          capture_ctx,
                                 fd_epoch_stake_history_entry_pair_t const * pair ) {
 
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
     FD_LOG_CRIT(( "Failed to read stake history sysvar" ));
   }
 
@@ -90,6 +90,6 @@ fd_sysvar_stake_history_update( fd_bank_t *                                 bank
   stake_history->fd_stake_history[ idx ].entry.effective    = pair->entry.effective;
   stake_history->fd_stake_history[ idx ].entry.deactivating = pair->entry.deactivating;
 
-  write_stake_history( bank, funk, xid, capture_ctx, stake_history );
+  write_stake_history( bank, accdb, xid, capture_ctx, stake_history );
 
 }

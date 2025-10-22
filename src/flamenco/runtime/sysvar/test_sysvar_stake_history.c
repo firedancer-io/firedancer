@@ -1,6 +1,7 @@
 #include "fd_sysvar_stake_history.h"
 #include "../../types/fd_types.h"
 #include "test_sysvar_cache_util.h"
+#include "../fd_bank.h"
 #include "../fd_system_ids.h"
 
 FD_IMPORT_BINARY( example_stake_history, "src/flamenco/runtime/sysvar/test_sysvar_stake_history.bin" );
@@ -55,15 +56,15 @@ test_sysvar_stake_history_update( fd_wksp_t * wksp ) {
       .deactivating = 0x333UL,
     }
   };
-  fd_sysvar_stake_history_init( env->bank, env->funk, &env->xid, NULL );
-  fd_sysvar_stake_history_update( env->bank, env->funk, &env->xid, NULL, &entry0 );
-  fd_sysvar_cache_restore( env->bank, env->funk, &env->xid );
+  fd_sysvar_stake_history_init( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_stake_history_update( env->bank, env->accdb, &env->xid, NULL, &entry0 );
+  fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
   fd_bank_slot_set( env->bank, 432000UL );
   fd_bank_parent_slot_set( env->bank, 431999UL );
-  fd_sysvar_stake_history_update( env->bank, env->funk, &env->xid, NULL, &entry0 );
-  fd_sysvar_cache_restore( env->bank, env->funk, &env->xid );
+  fd_sysvar_stake_history_update( env->bank, env->accdb, &env->xid, NULL, &entry0 );
+  fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
   FD_TEST( fd_sysvar_cache_stake_history_is_valid( env->sysvar_cache )==1 );
 
   {

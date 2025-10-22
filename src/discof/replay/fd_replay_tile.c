@@ -2,6 +2,7 @@
 #include "fd_sched.h"
 #include "fd_exec.h"
 #include "fd_vote_tracker.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
 #include "../genesis/fd_genesi_tile.h"
@@ -548,11 +549,12 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
    - Vote account is not found in Funk (returns -1) */
 static int
 fd_replay_out_vote_tower_from_funk(
-  fd_funk_t const *         funk,
-  fd_funk_txn_xid_t const * xid,
-  fd_pubkey_t const *       pubkey,
-  ulong                     stake,
-  fd_replay_tower_t *       vote_tower_out ) {
+    fd_accdb_user_t *         accdb,
+    fd_funk_txn_xid_t const * xid,
+    fd_pubkey_t const *       pubkey,
+    ulong                     stake,
+    fd_replay_tower_t *       vote_tower_out
+) {
 
   fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
   vote_tower_out->key   = *pubkey;
@@ -562,18 +564,14 @@ fd_replay_out_vote_tower_from_funk(
   for(;;) {
     fd_memset( vote_tower_out->acc, 0, sizeof(vote_tower_out->acc) );
 
-    fd_funk_rec_query_t query;
-    fd_funk_rec_key_t funk_key = fd_funk_acc_key( pubkey );
-    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, xid, &funk_key, NULL, &query );
-    if( FD_UNLIKELY( !rec ) ) {
+    fd_accdb_peek_t peek[1];
+    if( FD_UNLIKELY( !fd_accdb_peek( accdb, peek, xid, pubkey->uc ) ) ) {
+      /* FIXME crash here? */
       FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
       return -1;
     }
 
-    uchar const * raw                  = fd_funk_val_const( rec, fd_funk_wksp(funk) );
-    fd_account_meta_t const * metadata = fd_type_pun_const( raw );
-
-    ulong data_sz = metadata->dlen;
+    ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
     if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
       FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
         FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
@@ -582,12 +580,11 @@ fd_replay_out_vote_tower_from_funk(
       return -1;
     }
 
-    fd_memcpy( vote_tower_out->acc, raw + sizeof(fd_account_meta_t), data_sz );
+    fd_memcpy( vote_tower_out->acc, fd_accdb_ref_data_const( peek->acc ), data_sz );
     vote_tower_out->acc_sz = data_sz;
 
-    if( FD_LIKELY( fd_funk_rec_query_test( &query ) == FD_FUNK_SUCCESS ) ) {
-      break;
-    }
+    if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
+    FD_SPIN_PAUSE();
   }
 
   return 0;
@@ -615,7 +612,7 @@ buffer_vote_towers( fd_replay_tile_t *        ctx,
     if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
     fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
     if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
-    if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk( ctx->accdb->funk,
+    if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk( ctx->accdb,
                                                          xid,
                                                          vote_account_pubkey,
                                                          vote_state->stake,
@@ -729,14 +726,14 @@ replay_block_start( fd_replay_tile_t *  ctx,
   fd_runtime_block_pre_execute_process_new_epoch(
       ctx->banks,
       bank,
-      ctx->accdb->funk,
+      ctx->accdb,
       &xid,
       ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+  FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
   return bank;
 }
 
@@ -829,7 +826,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_bank_shred_cnt_set( bank, fd_sched_get_shred_cnt( ctx->sched, bank->idx ) );
 
   /* Do hashing and other end-of-block processing. */
-  fd_runtime_block_execute_finalize( bank, ctx->accdb->funk, &xid, ctx->capture_ctx, 1 );
+  fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
   /* Mark the bank as frozen. */
   fd_banks_mark_bank_frozen( ctx->banks, bank );
@@ -956,14 +953,14 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   fd_runtime_block_pre_execute_process_new_epoch(
       ctx->banks,
       ctx->leader_bank,
-      ctx->accdb->funk,
+      ctx->accdb,
       &xid,
       ctx->capture_ctx,
       ctx->runtime_spad,
       &is_epoch_boundary );
   if( FD_UNLIKELY( is_epoch_boundary ) ) publish_stake_weights( ctx, stem, ctx->leader_bank, 1 );
 
-  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->accdb->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+  FD_TEST( !fd_runtime_block_execute_prepare( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
 
   /* Now that a bank has been created for the leader slot, increment the
      reference count until we are done with the leader slot. */
@@ -996,7 +993,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   }
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb->funk, &xid, ctx->capture_ctx, 0 );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, 0 );
 
   fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( ctx->leader_bank );
   FD_TEST( bank_hash );
@@ -1162,8 +1159,8 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
       fd_sha256_hash( poh->hash, 32UL, poh->hash );
     }
 
-    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb->funk, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
-    fd_runtime_block_execute_finalize( bank, ctx->accdb->funk, &xid, ctx->capture_ctx, 1 );
+    FD_TEST( !fd_runtime_block_execute_prepare( bank, ctx->accdb, &xid, ctx->capture_ctx, ctx->runtime_spad ) );
+    fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
     snapshot_slot = 0UL;
   }
@@ -1339,7 +1336,6 @@ boot_genesis( fd_replay_tile_t *  ctx,
               fd_stem_context_t * stem,
               ulong               in_idx,
               ulong               chunk ) {
-
   /* If we are bootstrapping, we can't wait to wait for our identity
      vote to be rooted as this creates a circular dependency. */
   ctx->has_identity_vote_rooted = 1;
@@ -1356,7 +1352,12 @@ boot_genesis( fd_replay_tile_t *  ctx,
   FD_TEST( bank );
   fd_funk_txn_xid_t xid = { .ul = { 0UL, FD_REPLAY_BOOT_BANK_IDX } };
 
-  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb->funk, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
+  /* Do genesis-related processing in a non-rooted transaction */
+  fd_funk_txn_xid_t root_xid; fd_funk_txn_xid_set_root( &root_xid );
+  fd_funk_txn_xid_t target_xid = { .ul = { 0UL, 0UL } };
+  fd_accdb_attach_child( ctx->accdb_admin, &root_xid, &target_xid );
+  fd_runtime_read_genesis( ctx->banks, bank, ctx->accdb, &xid, NULL, fd_type_pun_const( genesis_hash ), fd_type_pun_const( lthash ), genesis, ctx->runtime_spad );
+  fd_accdb_advance_root( ctx->accdb_admin, &target_xid );
 
   static const fd_txncache_fork_id_t txncache_root = { .val = USHORT_MAX };
   bank->txncache_fork_id = fd_txncache_attach_child( ctx->txncache, txncache_root );

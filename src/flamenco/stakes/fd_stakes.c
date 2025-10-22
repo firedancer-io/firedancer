@@ -103,7 +103,7 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
-                          fd_funk_t *                    funk,
+                          fd_accdb_user_t *              accdb,
                           fd_funk_txn_xid_t const *      xid,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
@@ -116,7 +116,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      accounts for the new epoch. */
 
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
@@ -153,9 +153,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     new_elem.entry.deactivating += new_entry.deactivating;
   }
 
-  fd_sysvar_stake_history_update( bank, funk, xid, capture_ctx, &new_elem );
+  fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 

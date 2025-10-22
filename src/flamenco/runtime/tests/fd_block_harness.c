@@ -202,9 +202,10 @@ static fd_txn_p_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
                                   fd_exec_test_block_context_t const * test_ctx,
                                   ulong *                              out_txn_cnt ) {
-  fd_funk_t *  funk  = runner->accdb->funk;
-  fd_bank_t *  bank  = runner->bank;
-  fd_banks_t * banks = runner->banks;
+  fd_accdb_user_t * accdb = runner->accdb;
+  fd_funk_t *       funk  = runner->accdb->funk;
+  fd_bank_t *       bank  = runner->bank;
+  fd_banks_t *      banks = runner->banks;
 
   fd_banks_clear_bank( banks, bank );
 
@@ -397,7 +398,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_hash_t hash;
     memcpy( &hash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
     fd_bank_poh_set( bank, hash );
-    fd_sysvar_recent_hashes_update( bank, funk, xid, NULL ); /* appends an entry */
+    fd_sysvar_recent_hashes_update( bank, accdb, xid, NULL ); /* appends an entry */
   }
 
   // Set the current poh from the input (we skip POH verification in this fuzzing target)
@@ -461,9 +462,9 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb->funk, xid, capture_ctx, runner->spad, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, xid, capture_ctx, runner->spad, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb->funk, xid, capture_ctx, runner->spad );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, capture_ctx, runner->spad );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -499,7 +500,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
     }
 
     /* Finalize the block */
-    fd_runtime_block_execute_finalize( runner->bank, runner->accdb->funk, xid, capture_ctx, 1 );
+    fd_runtime_block_execute_finalize( runner->bank, runner->accdb, xid, capture_ctx, 1 );
   } FD_SPAD_FRAME_END;
 
   return res;

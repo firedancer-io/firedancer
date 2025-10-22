@@ -59,7 +59,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sysvar_epoch_schedule_init( fd_bank_t *               bank,
-                               fd_funk_t *               funk,
+                               fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx );
 
@@ -77,7 +77,7 @@ fd_sysvar_epoch_schedule_read( fd_funk_t *               funk,
 
 void
 fd_sysvar_epoch_schedule_write( fd_bank_t *                 bank,
-                                fd_funk_t *                 funk,
+                                fd_accdb_user_t *           accdb,
                                 fd_funk_txn_xid_t const *   xid,
                                 fd_capture_ctx_t *          capture_ctx,
                                 fd_epoch_schedule_t const * epoch_schedule );

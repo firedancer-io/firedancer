@@ -53,13 +53,13 @@ FD_PROTOTYPES_BEGIN
 /* Initialize the builtin program accounts */
 void
 fd_builtin_programs_init( fd_bank_t *               bank,
-                          fd_funk_t *               funk,
+                          fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_write_builtin_account( fd_bank_t  *              bank,
-                          fd_funk_t  *              funk,
+                          fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           fd_capture_ctx_t *        capture_ctx,
                           fd_pubkey_t const         pubkey,
@@ -102,7 +102,7 @@ fd_num_precompiles( void );
 
 void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
-                                fd_funk_t *                            funk,
+                                fd_accdb_user_t *                      accdb,
                                 fd_funk_txn_xid_t const *              xid,
                                 fd_core_bpf_migration_config_t const * config,
                                 fd_spad_t *                            runtime_spad,

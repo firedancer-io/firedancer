@@ -2,11 +2,11 @@
 #include "fd_methods.h"
 #include "fd_webserver.h"
 #include "base_enc.h"
+#include "../../flamenco/accdb/fd_accdb_sync.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../flamenco/leaders/fd_multi_epoch_leaders.h"
-#include "../../disco/fd_disco_base.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../reasm/fd_reasm.h"
@@ -96,6 +96,7 @@ struct fd_rpc_global_ctx {
   int replay_towers_eom;
   ulong confirmed_slot;
   ulong root_slot;
+  fd_accdb_user_t * accdb;
 
   uchar account_buf[ FD_ACC_TOT_SZ_MAX ];
 };
@@ -123,16 +124,6 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
   vsnprintf(text, sizeof(text), format, ap);
   va_end(ap);
   fd_method_simple_error(ctx, errcode, text);
-}
-
-static const void *
-read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  return fd_funk_rec_query_copy( ctx->global->funk, xid, recid, ctx->global->account_buf, sizeof(ctx->global->account_buf), result_len );
-}
-
-static const void *
-read_account( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, ulong * result_len ) {
-  return fd_funk_rec_query_copy( ctx->global->funk, NULL, recid, ctx->global->account_buf, sizeof(ctx->global->account_buf), result_len );
 }
 
 static ulong
@@ -173,7 +164,9 @@ static int
 method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &ctx->global->ws;
 
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
+  ulong slot = fd_rpc_history_latest_slot( ctx->global->history );
+  fd_funk_txn_xid_t xid = { .ul={ slot, slot } }; /* FIXME source XID from replay tile */
+
     // Path to argument
     static const uint PATH[3] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -215,14 +208,12 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
 
-    ulong val_sz;
-    fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
-    const void * val        = read_account(ctx, &recid, &val_sz);
-    if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
-                           fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
-      return 0;
-    }
+  fd_accdb_peek_t peek[1];
+  if( FD_UNLIKELY( !fd_accdb_peek( ctx->global->accdb, peek, &xid, acct.uc ) ) ) {
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
+                          slot, ctx->call_id);
+    return 0;
+  }
 
     static const uint PATH3[5] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -247,14 +238,20 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
                          fd_rpc_history_latest_slot( ctx->global->history ) );
-    const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, off, len, ctx->global->spad );
+
+  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
+    const char * err = fd_account_to_json( ws, acct, enc, peek->acc, off, len, ctx->global->spad );
     if( err ) {
       fd_method_error(ctx, -1, "%s", err);
       return 0;
     }
+  } FD_SPAD_FRAME_END;
     fd_web_reply_sprintf(ws, "},\"id\":%s}" CRLF, ctx->call_id);
 
-  } FD_SPAD_FRAME_END;
+  if( FD_UNLIKELY( !fd_accdb_peek_test( peek ) ) ) {
+    fd_method_error( ctx, -1, "temporary account database error" );
+    return 0;
+  }
 
   return 0;
 }
@@ -264,7 +261,9 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static int
 method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
+  ulong slot = fd_rpc_history_latest_slot( ctx->global->history );
+  fd_funk_txn_xid_t xid = { .ul={ slot, slot } }; /* FIXME source XID from replay tile */
+
     // Path to argument
     static const uint PATH[3] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
@@ -283,18 +282,16 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
       fd_method_error(ctx, -1, "invalid base58 encoding");
       return 0;
     }
-    ulong val_sz;
-    fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
-    const void * val        = read_account(ctx, &recid, &val_sz);
-    if (val == NULL) {
-      fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
-                           fd_rpc_history_latest_slot( ctx->global->history ), ctx->call_id);
-      return 0;
-    }
-    fd_account_meta_t * metadata = (fd_account_meta_t *)val;
+
+  fd_accdb_peek_t peek[1];
+  if( FD_UNLIKELY( !fd_accdb_peek( ctx->global->accdb, peek, &xid, acct.uc ) ) ) {
+    fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
+                          slot, ctx->call_id);
+    return 0;
+  }
+  ulong const lamports = fd_accdb_ref_lamports( peek->acc );
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":%lu},\"id\":%s}" CRLF,
-                         fd_rpc_history_latest_slot( ctx->global->history ), metadata->lamports, ctx->call_id);
-  } FD_SPAD_FRAME_END;
+                         fd_rpc_history_latest_slot( ctx->global->history ), lamports, ctx->call_id);
   return 0;
 }
 
@@ -1016,7 +1013,9 @@ method_getMinimumBalanceForRentExemption(struct json_values* values, fd_rpc_ctx_
 
 static int
 method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
+  ulong slot = fd_rpc_history_latest_slot( ctx->global->history );
+  fd_funk_txn_xid_t xid = { .ul={ slot, slot } }; /* FIXME source XID from replay tile */
+
     static const uint ENC_PATH[4] = {
       (JSON_TOKEN_LBRACE<<16) | KEYW_JSON_PARAMS,
       (JSON_TOKEN_LBRACKET<<16) | 1,
@@ -1065,25 +1064,27 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
         fd_method_error(ctx, -1, "invalid base58 encoding");
         return 0;
       }
-      FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-        ulong val_sz;
-        fd_funk_rec_key_t recid = fd_funk_acc_key(&acct);
-        const void * val        = read_account(ctx, &recid, &val_sz);
-        if (val == NULL) {
-          fd_web_reply_sprintf(ws, "null");
-          continue;
-        }
+      fd_accdb_peek_t peek[1];
+      if( FD_UNLIKELY( !fd_accdb_peek( ctx->global->accdb, peek, &xid, acct.uc ) ) ) {
+        fd_web_reply_sprintf(ws, "null");
+        continue;
+      }
 
-        const char * err = fd_account_to_json( ws, acct, enc, val, val_sz, FD_LONG_UNSET, FD_LONG_UNSET, ctx->global->spad );
+      FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
+        const char * err = fd_account_to_json( ws, acct, enc, peek->acc, FD_LONG_UNSET, FD_LONG_UNSET, ctx->global->spad );
         if( err ) {
           fd_method_error(ctx, -1, "%s", err);
           return 0;
         }
       } FD_SPAD_FRAME_END;
+
+      if( FD_UNLIKELY( !fd_accdb_peek_test( peek ) ) ) {
+        fd_method_error( ctx, -1, "temporary account database error" );
+        return 0;
+      }
     }
 
     fd_web_reply_sprintf(ws, "]},\"id\":%s}" CRLF, ctx->call_id);
-  } FD_SPAD_FRAME_END;
   return 0;
 }
 
@@ -2208,26 +2209,30 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_slot_completed_t
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_new( ws );
 
-  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
-    ulong val_sz;
-    fd_funk_rec_key_t recid = fd_funk_acc_key(&sub->acct_subscribe.acct);
-    fd_funk_txn_xid_t xid;
-    xid.ul[0] = xid.ul[1] = msg->slot;
-    const void * val = read_account_with_xid(ctx, &recid, &xid, &val_sz);
-    if (val == NULL) {
-      /* Account not in tranaction */
-      return 0;
-    }
+  /* FIXME source XID from replay tile */
+  fd_funk_txn_xid_t   xid  = { .ul={ msg->slot, msg->slot } };
+  fd_pubkey_t const * addr = &sub->acct_subscribe.acct;
 
+  fd_accdb_peek_t peek[1];
+  if( FD_UNLIKELY( !fd_accdb_peek( ctx->global->accdb, peek, &xid, addr->uc ) ) ) {
+    return 0;
+  }
+
+  FD_SPAD_FRAME_BEGIN( ctx->global->spad ) {
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"method\":\"accountNotification\",\"params\":{\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":",
                          msg->slot);
-    const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, val, val_sz, sub->acct_subscribe.off, sub->acct_subscribe.len, ctx->global->spad );
+    const char * err = fd_account_to_json( ws, sub->acct_subscribe.acct, sub->acct_subscribe.enc, peek->acc, sub->acct_subscribe.off, sub->acct_subscribe.len, ctx->global->spad );
     if( err ) {
       FD_LOG_WARNING(( "error converting account to json: %s", err ));
       return 0;
     }
     fd_web_reply_sprintf(ws, "},\"subscription\":%lu}}" CRLF, sub->subsc_id);
   } FD_SPAD_FRAME_END;
+
+  if( FD_UNLIKELY( !fd_accdb_peek_test( peek ) ) ) {
+    fd_method_error( ctx, -1, "temporary account database error" );
+    return 0;
+  }
 
   return 1;
 }

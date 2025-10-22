@@ -14,7 +14,7 @@
 
 void
 fd_sysvar_account_update( fd_bank_t *               bank,
-                          fd_funk_t *               funk,
+                          fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           fd_capture_ctx_t *        capture_ctx,
                           fd_pubkey_t const *       address,

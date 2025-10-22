@@ -1,10 +1,10 @@
 #ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_hashes_h
 #define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_hashes_h
 
-#include "../../../funk/fd_funk.h"
-#include "../../../funk/fd_funk_txn.h"
-#include "../../fd_flamenco_base.h"
+#include "../../../funk/fd_funk_base.h"
+#include "../../accdb/fd_accdb_user.h"
 #include "../../types/fd_types.h"
+
 /* The slot hashes sysvar contains the most recent hashes of the slot's parent bank hashes. */
 
 /* FD_SYSVAR_SLOT_HASHES_CAP is the max number of entries that the
@@ -37,14 +37,14 @@ fd_sysvar_slot_hashes_delete( void * mem );
 /* Write a funk entry for the slot hashes sysvar account (exposed for tests) */
 void
 fd_sysvar_slot_hashes_write( fd_bank_t *               bank,
-                             fd_funk_t *               funk,
+                             fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
                              fd_capture_ctx_t *        capture_ctx,
                              fd_slot_hashes_global_t * slot_hashes_global );
 
 void
 fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
-                            fd_funk_t *               funk,
+                            fd_accdb_user_t *         accdb,
                             fd_funk_txn_xid_t const * xid,
                             fd_capture_ctx_t *        capture_ctx,
                             fd_spad_t *               runtime_spad );
@@ -52,7 +52,7 @@ fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
 fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx,
                               fd_spad_t *               runtime_spad );
