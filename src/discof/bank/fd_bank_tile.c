@@ -252,7 +252,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     } FD_SPAD_FRAME_END;
 
-    if( FD_UNLIKELY( !txn->flags ) ) {
+    if( FD_UNLIKELY( !txn_ctx->flags ) ) {
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
       fd_hash_t * signature = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off);
       int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
@@ -266,7 +266,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                     cost_tracker->account_cost_limit ));
     }
 
-    FD_TEST( txn->flags );
+    FD_TEST( txn_ctx->flags );
   }
 
   /* Indicate to pack tile we are done processing the transactions so
