@@ -233,7 +233,9 @@ struct fd_gossip_view_crds_value {
   long   wallclock_nanos;
   ushort length; /* Length of the value in bytes (incl. signature) */
 
-  uchar tag;
+  uchar  tag;
+  ushort gossvf_outcome; /* Outcome from gossvf pass (uses FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_* indices) */
+
   union{
     fd_gossip_view_contact_info_t    ci_view[ 1 ];
     fd_gossip_view_node_instance_t   node_instance[ 1 ];

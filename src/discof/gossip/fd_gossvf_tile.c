@@ -19,6 +19,15 @@
 #define IN_KIND_PINGS         (3)
 #define IN_KIND_GOSSIP        (4)
 
+#define CRDS_OUTCOME( name ) FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_##name##_IDX
+
+#define MARK_CRDS_FILTERED( ctx, container, i, outcome ) do {                                        \
+  ulong _outcome = (outcome);                                                                        \
+  (ctx)->metrics.crds_rx[ _outcome ]++;                                                              \
+  (ctx)->metrics.crds_rx_bytes[ _outcome ] += (container)->crds_values[ (i) ].length;                \
+  (container)->crds_values[ (i) ].gossvf_outcome = (ushort)_outcome;                                 \
+} while(0)
+
 struct peer {
   fd_pubkey_t pubkey;
 
@@ -362,6 +371,7 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
       }
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
+      ulong filtered_cnt = 0UL;
       ulong i = 0UL;
       while( i<view->pull_response->crds_values_len ) {
         ulong dedup_tag = ctx->seed ^ fd_ulong_load_8_fast( payload+view->pull_response->crds_values[ i ].signature_off );
@@ -369,44 +379,46 @@ verify_signatures( fd_gossvf_tile_ctx_t * ctx,
         FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
         FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache.map, ctx->tcache.map_cnt, dedup_tag );
         if( FD_UNLIKELY( ha_dup ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_DUPLICATE_IDX ] += view->pull_response->crds_values[ i ].length;
-          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-          view->pull_response->crds_values_len--;
+          MARK_CRDS_FILTERED( ctx, view->pull_response, i, CRDS_OUTCOME( DROPPED_PULL_RESPONSE_DUPLICATE ) );
+          filtered_cnt++;
+          i++;
           continue;
         }
 
         int err = verify_crds_value( &view->pull_response->crds_values[ i ], payload, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_SIGNATURE_IDX ] += view->pull_response->crds_values[ i ].length;
-          view->pull_response->crds_values[ i ] = view->pull_response->crds_values[ view->pull_response->crds_values_len-1UL ];
-          view->pull_response->crds_values_len--;
+          MARK_CRDS_FILTERED( ctx, view->pull_response, i, CRDS_OUTCOME( DROPPED_PULL_RESPONSE_SIGNATURE ) );
+          filtered_cnt++;
+          i++;
           continue;
         }
 
         i++;
       }
 
-      if( FD_UNLIKELY( !view->pull_response->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
+      if( FD_UNLIKELY( filtered_cnt==view->pull_response->crds_values_len ) ) {
+        return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
+      }
       return 0;
     }
     case FD_GOSSIP_MESSAGE_PUSH: {
+      ulong filtered_cnt = 0UL;
       ulong i = 0UL;
       while( i<view->push->crds_values_len ) {
         int err = verify_crds_value( &view->push->crds_values[ i ], payload, sha );
         if( FD_UNLIKELY( err!=FD_ED25519_SUCCESS ) ) {
-          ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ]++;
-          ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_SIGNATURE_IDX ] += view->push->crds_values[ i ].length;
-          view->push->crds_values[ i ] = view->push->crds_values[ view->push->crds_values_len-1UL ];
-          view->push->crds_values_len--;
+          MARK_CRDS_FILTERED( ctx, view->push, i, CRDS_OUTCOME( DROPPED_PUSH_SIGNATURE ) );
+          filtered_cnt++;
+          i++;
           continue;
         }
 
         i++;
       }
 
-      if( FD_UNLIKELY( !view->push->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+      if( FD_UNLIKELY( filtered_cnt==view->push->crds_values_len ) ) {
+        return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+      }
       return 0;
     }
     case FD_GOSSIP_MESSAGE_PRUNE: return verify_prune( view->prune, payload, sha );
@@ -439,7 +451,7 @@ is_entrypoint( fd_gossvf_tile_ctx_t * ctx,
   return 0;
 }
 
-static void
+static ulong
 filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
                            int                               tag,
                            fd_gossip_view_crds_container_t * container,
@@ -447,8 +459,8 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
   peer_t const * relayer = peer_map_ele_query_const( ctx->peer_map, (fd_pubkey_t*)(payload+container->from_off), NULL, ctx->peers );
   int keep_non_ci = (relayer && relayer->shred_version==ctx->shred_version) || (!relayer && is_entrypoint( ctx, ctx->peer ) );
 
-  ulong i = 0UL;
-  while( i<container->crds_values_len ) {
+  ulong filtered_cnt = 0UL;
+  for( ulong i=0UL; i<container->crds_values_len; i++ ) {
     int keep = container->crds_values[ i ].tag==FD_GOSSIP_VALUE_CONTACT_INFO;
     int no_origin = 0;
     if( FD_LIKELY( !keep && keep_non_ci ) ) {
@@ -458,50 +470,41 @@ filter_shred_version_crds( fd_gossvf_tile_ctx_t *            ctx,
     }
 
     if( FD_UNLIKELY( !keep ) ) {
+      ulong outcome;
       if( FD_UNLIKELY( tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
         if( FD_LIKELY( keep_non_ci ) ) {
           if( FD_LIKELY( no_origin ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PULL_RESPONSE_ORIGIN_NO_CONTACT_INFO );
           } else {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PULL_RESPONSE_ORIGIN_SHRED_VERSION );
           }
         } else {
           if( FD_LIKELY( !relayer ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_NO_CONTACT_INFO_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PULL_RESPONSE_RELAYER_NO_CONTACT_INFO );
           } else {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PULL_RESPONSE_RELAYER_SHRED_VERSION );
           }
         }
       } else {
         if( FD_LIKELY( keep_non_ci ) ) {
           if( FD_LIKELY( no_origin ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PUSH_ORIGIN_NO_CONTACT_INFO );
           } else {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_ORIGIN_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PUSH_ORIGIN_SHRED_VERSION );
           }
         } else {
           if( FD_LIKELY( !relayer ) ) {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_NO_CONTACT_INFO_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PUSH_RELAYER_NO_CONTACT_INFO );
           } else {
-            ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_SHRED_VERSION_IDX ]++;
-            ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_RELAYER_SHRED_VERSION_IDX ] += container->crds_values[ i ].length;
+            outcome = CRDS_OUTCOME( DROPPED_PUSH_RELAYER_SHRED_VERSION );
           }
         }
       }
-      container->crds_values[ i ] = container->crds_values[ container->crds_values_len-1UL ];
-      container->crds_values_len--;
-      continue;
+      MARK_CRDS_FILTERED( ctx, container, i, outcome );
+      filtered_cnt++;
     }
-
-    i++;
   }
+  return filtered_cnt;
 }
 
 static int
@@ -514,20 +517,18 @@ filter_shred_version( fd_gossvf_tile_ctx_t * ctx,
     case FD_GOSSIP_MESSAGE_PRUNE:
       return 0;
     case FD_GOSSIP_MESSAGE_PUSH: {
-      filter_shred_version_crds( ctx, view->tag, view->push, payload );
-      if( FD_UNLIKELY( !view->push->crds_values_len ) ) {
+      ulong filtered_cnt = filter_shred_version_crds( ctx, view->tag, view->push, payload );
+      if( FD_UNLIKELY( filtered_cnt==view->push->crds_values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
-      } else {
-        return 0;
       }
+      return 0;
     }
     case FD_GOSSIP_MESSAGE_PULL_RESPONSE: {
-      filter_shred_version_crds( ctx, view->tag, view->pull_response, payload );
-      if( FD_UNLIKELY( !view->pull_response->crds_values_len ) ) {
+      ulong filtered_cnt = filter_shred_version_crds( ctx, view->tag, view->pull_response, payload );
+      if( FD_UNLIKELY( filtered_cnt==view->pull_response->crds_values_len ) ) {
         return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
-      } else {
-        return 0;
       }
+      return 0;
     }
     case FD_GOSSIP_MESSAGE_PULL_REQUEST:
       FD_TEST( view->pull_request->pr_ci->tag==FD_GOSSIP_VALUE_CONTACT_INFO );
@@ -640,41 +641,25 @@ verify_addresses( fd_gossvf_tile_ctx_t * ctx,
       FD_LOG_ERR(( "unexpected view tag %u", view->tag ));
   }
 
-  ulong i = 0UL;
-  while( i<container->crds_values_len ) {
-    fd_gossip_view_crds_value_t const * value = &container->crds_values[ i ];
-    if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
-      i++;
-      continue;
-    }
+  ulong filtered_cnt = 0UL;
+  for( ulong i=0UL; i<container->crds_values_len; i++ ) {
+    fd_gossip_view_crds_value_t * value = &container->crds_values[ i ];
+    if( FD_UNLIKELY( value->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) continue;
 
     if( FD_UNLIKELY( ping_if_unponged_contact_info( ctx, value->ci_view->contact_info, stem ) ) ) {
-      if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
-        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ]++;
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_INACTIVE_IDX ] += value->length;
-      } else {
-        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_INACTIVE_IDX ]++;
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PULL_RESPONSE_INACTIVE_IDX ] += value->length;
-      }
-      container->crds_values[ i ] = container->crds_values[ container->crds_values_len-1UL ];
-      container->crds_values_len--;
-      continue;
+      ulong outcome = (view->tag==FD_GOSSIP_MESSAGE_PUSH) ?
+                      CRDS_OUTCOME( DROPPED_PUSH_INACTIVE ) :
+                      CRDS_OUTCOME( DROPPED_PULL_RESPONSE_INACTIVE );
+      MARK_CRDS_FILTERED( ctx, container, i, outcome );
+      filtered_cnt++;
     }
-
-    i++;
   }
 
-  if( FD_UNLIKELY( !container->crds_values_len ) ) {
-    if( view->tag==FD_GOSSIP_MESSAGE_PUSH ) {
-      return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
-    } else if( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) {
-      return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
-    } else {
-      __builtin_unreachable();
-    }
-  } else {
-    return 0;
+  if( FD_UNLIKELY( filtered_cnt==container->crds_values_len ) ) {
+    if( view->tag==FD_GOSSIP_MESSAGE_PUSH ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+    else                                    return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_RESPONSE_NO_VALID_CRDS_IDX;
   }
+  return 0;
 }
 
 static void
@@ -776,8 +761,15 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   ulong decode_sz = fd_gossip_msg_parse( view, payload, payload_sz );
   if( FD_UNLIKELY( !decode_sz ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_UNPARSEABLE_IDX;
 
-  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) FD_TEST( view->push->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
-  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) FD_TEST( view->pull_response->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
+  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
+    FD_TEST( view->push->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
+    for( ulong i=0UL; i<view->push->crds_values_len; i++ ) view->push->crds_values[ i ].gossvf_outcome = CRDS_OUTCOME( SUCCESS_PUSH );
+  }
+
+  if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_RESPONSE ) ) {
+    FD_TEST( view->pull_response->crds_values_len<=FD_GOSSIP_MSG_MAX_CRDS );
+    for( ulong i=0UL; i<view->pull_response->crds_values_len; i++ ) view->pull_response->crds_values[ i ].gossvf_outcome = CRDS_OUTCOME( SUCCESS_PULL_RESPONSE );
+  }
 
   if( FD_UNLIKELY( view->tag==FD_GOSSIP_MESSAGE_PULL_REQUEST ) ) {
     if( FD_UNLIKELY( view->pull_request->pr_ci->tag!=FD_GOSSIP_VALUE_CONTACT_INFO ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PULL_REQUEST_NOT_CONTACT_INFO_IDX;
@@ -797,21 +789,19 @@ handle_net( fd_gossvf_tile_ctx_t * ctx,
   }
 
   if( FD_LIKELY( view->tag==FD_GOSSIP_MESSAGE_PUSH ) ) {
-    ulong i = 0UL;
-    while( i<view->push->crds_values_len ) {
-      fd_gossip_view_crds_value_t const * value = &view->push->crds_values[ i ];
+    ulong filtered_cnt = 0UL;
+    for( ulong i=0UL; i<view->push->crds_values_len; i++ ) {
+      fd_gossip_view_crds_value_t * value = &view->push->crds_values[ i ];
       if( FD_UNLIKELY( value->wallclock_nanos<now-15L*1000L*1000L*1000L ||
                        value->wallclock_nanos>now+15L*1000L*1000L*1000L ) ) {
-        ctx->metrics.crds_rx[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ]++;
-        ctx->metrics.crds_rx_bytes[ FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_DROPPED_PUSH_WALLCLOCK_IDX ] += value->length;
-        view->push->crds_values[ i ] = view->push->crds_values[ view->push->crds_values_len-1UL ];
-        view->push->crds_values_len--;
-        continue;
+        MARK_CRDS_FILTERED( ctx, view->push, i, CRDS_OUTCOME( DROPPED_PUSH_WALLCLOCK ) );
+        filtered_cnt++;
       }
-      i++;
     }
 
-    if( FD_UNLIKELY( !view->push->crds_values_len ) ) return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+    if( FD_UNLIKELY( filtered_cnt==view->push->crds_values_len ) ) {
+      return FD_METRICS_ENUM_GOSSVF_MESSAGE_OUTCOME_V_DROPPED_PUSH_NO_VALID_CRDS_IDX;
+    }
   }
 
   int result = filter_shred_version( ctx, view, payload );

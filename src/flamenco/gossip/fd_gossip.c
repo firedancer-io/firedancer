@@ -16,6 +16,8 @@ FD_STATIC_ASSERT( FD_METRICS_ENUM_CRDS_VALUE_CNT==FD_GOSSIP_VALUE_LAST+1UL,
 
 #include <math.h>
 
+#define GOSSVF_OUTCOME( name ) FD_METRICS_ENUM_GOSSVF_CRDS_OUTCOME_V_##name##_IDX
+
 #define BLOOM_FALSE_POSITIVE_RATE (0.1)
 #define BLOOM_NUM_KEYS            (8.0)
 
@@ -491,6 +493,7 @@ rx_pull_response( fd_gossip_t *                          gossip,
                   long                                   now ) {
   for( ulong i=0UL; i<pull_response->crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t const * value = &pull_response->crds_values[ i ];
+    if( FD_UNLIKELY( value->gossvf_outcome!=GOSSVF_OUTCOME( SUCCESS_PULL_RESPONSE ) ) ) continue;
 
     int checks_res = fd_crds_checks_fast( gossip->crds, value, payload, 0 /* from_push_msg m*/ );
     if( FD_UNLIKELY( !!checks_res ) ) {
@@ -551,7 +554,7 @@ process_push_crds( fd_gossip_t *                       gossip,
                    uchar const *                       payload,
                    long                                now,
                    fd_stem_context_t *                 stem ) {
-  /* overrides_fast here, either count duplicates or purge if older (how!?) */
+  if( FD_UNLIKELY( value->gossvf_outcome!=GOSSVF_OUTCOME( SUCCESS_PUSH ) ) ) return -1;
 
   /* return values in both fd_crds_checks_fast and fd_crds_inserted need
      to be propagated since they both work the same (error>0 holds duplicate

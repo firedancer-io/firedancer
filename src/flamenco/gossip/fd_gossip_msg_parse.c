@@ -617,6 +617,7 @@ fd_gossip_msg_crds_vals_parse( fd_gossip_view_crds_value_t * crds_values,
 
   for( ulong i=0UL; i<crds_values_len; i++ ) {
     fd_gossip_view_crds_value_t * crds_view = &crds_values[i];
+    crds_view->gossvf_outcome = USHORT_MAX;
     CHECK_LEFT( 64U ); crds_view->signature_off = CUR_OFFSET             ; INC( 64U );
     CHECK_LEFT(  4U ); crds_view->tag           = FD_LOAD(uchar, CURSOR ); INC(  4U );
     ulong crds_data_sz = fd_gossip_msg_crds_data_parse( crds_view, payload, payload_sz, CUR_OFFSET );
