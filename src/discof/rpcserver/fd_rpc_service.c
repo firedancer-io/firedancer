@@ -96,6 +96,8 @@ struct fd_rpc_global_ctx {
   int replay_towers_eom;
   ulong confirmed_slot;
   ulong root_slot;
+
+  uchar account_buf[ FD_ACC_TOT_SZ_MAX ];
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 
@@ -125,12 +127,12 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
 
 static const void *
 read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  return fd_funk_rec_query_copy( ctx->global->funk, xid, recid, fd_spad_virtual(ctx->global->spad), result_len );
+  return fd_funk_rec_query_copy( ctx->global->funk, xid, recid, ctx->global->account_buf, sizeof(ctx->global->account_buf), result_len );
 }
 
 static const void *
 read_account( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, ulong * result_len ) {
-  return fd_funk_rec_query_copy( ctx->global->funk, NULL, recid, fd_spad_virtual(ctx->global->spad), result_len );
+  return fd_funk_rec_query_copy( ctx->global->funk, NULL, recid, ctx->global->account_buf, sizeof(ctx->global->account_buf), result_len );
 }
 
 static ulong

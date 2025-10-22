@@ -93,32 +93,13 @@ fd_rocksdb_root_iter_join( void * iter );
 void *
 fd_rocksdb_root_iter_leave( fd_rocksdb_root_iter_t * iter );
 
-/* fd_rocksdb_root_iter_seek
-
-    0 = success
-   -1 = seek for supplied slot failed
-   -2 = seek succeeded but slot did not match what we seeked for
-   -3 = seek succeeded but points at an empty slot */
-
-int
+fd_slot_meta_t *
 fd_rocksdb_root_iter_seek( fd_rocksdb_root_iter_t * iter,
                            fd_rocksdb_t *           db,
-                           ulong                    slot,
-                           fd_slot_meta_t *         m,
-                           fd_valloc_t              valloc );
+                           ulong                    slot );
 
-/*  fd_rocksdb_root_iter_next
-
-    0 = success
-   -1 = not properly initialized with a seek
-   -2 = invalid starting iterator
-   -3 = next returned an invalid iterator state
-   -4 = seek succeeded but points at an empty slot */
-
-int
-fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * iter,
-                           fd_slot_meta_t *         m,
-                           fd_valloc_t              valloc );
+fd_slot_meta_t *
+fd_rocksdb_root_iter_next( fd_rocksdb_root_iter_t * iter );
 
 int
 fd_rocksdb_root_iter_slot( fd_rocksdb_root_iter_t * self,
@@ -172,18 +153,9 @@ ulong
 fd_rocksdb_first_slot( fd_rocksdb_t * db,
                        char **        err );
 
-/* fd_rocksdb_get_meta
-
-   Retrieves the meta structure associated with the supplied slot.  If
-   there is an error, *err is set to a string describing the error.
-   It is expected that you should free() the error once done with it
-
-   returns a 0 if there is no obvious error */
-int
+fd_slot_meta_t * /* libc heap */
 fd_rocksdb_get_meta( fd_rocksdb_t *   db,
-                     ulong            slot,
-                     fd_slot_meta_t * m,
-                     fd_valloc_t      valloc );
+                     ulong            slot );
 
 /* fd_rocksdb_copy_over_slot_indexed_range copies over all entries for a
    given column family index into another rocksdb assuming that the key
