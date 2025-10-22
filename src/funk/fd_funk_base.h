@@ -43,7 +43,6 @@
      in preparation (if they are not frozen). */
 
 #include "../util/fd_util.h"
-#include "../util/valloc/fd_valloc.h"
 
 #if FD_HAS_X86
 #include <immintrin.h>

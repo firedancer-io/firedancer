@@ -1535,26 +1535,4 @@ fd_alloc_fprintf( fd_alloc_t * join,
   return cnt;
 }
 
-/* Virtual function table
-   TODO type pun functions instead of using virtual wrappers? */
-
-static void *
-fd_alloc_malloc_virtual( void * self,
-                         ulong  align,
-                         ulong  sz ) {
-  return fd_alloc_malloc( (fd_alloc_t *)self, align, sz );
-}
-
-static void
-fd_alloc_free_virtual( void * self,
-                       void * addr ) {
-  fd_alloc_free( (fd_alloc_t *)self, addr );
-}
-
-const fd_valloc_vtable_t
-fd_alloc_vtable = {
-  .malloc = fd_alloc_malloc_virtual,
-  .free   = fd_alloc_free_virtual
-};
-
 #undef TRAP

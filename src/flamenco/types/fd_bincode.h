@@ -2,7 +2,6 @@
 #define HEADER_fd_src_flamenco_types_fd_bincode_h
 
 #include "../../util/fd_util.h"
-#include "../../util/valloc/fd_valloc.h"
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
