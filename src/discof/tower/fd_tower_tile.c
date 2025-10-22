@@ -1,6 +1,7 @@
 #include "fd_tower_tile.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
+#include "../genesis/fd_genesi_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../choreo/ghost/fd_ghost.h"
 #include "../../choreo/tower/fd_tower.h"
@@ -331,8 +332,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
   (void)tspub;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESIS ) ) {
-    init_genesis( ctx, fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t) ) );
-    ctx->initialized = 1;
+    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
+      init_genesis( ctx, fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t) ) );
+      ctx->initialized = 1;
+    }
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
     if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
       snapshot_done( ctx, &ctx->manifest );

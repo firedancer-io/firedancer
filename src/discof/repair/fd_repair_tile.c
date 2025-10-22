@@ -92,6 +92,7 @@
 
 #define _GNU_SOURCE
 
+#include "../genesis/fd_genesi_tile.h"
 #include "../../disco/topo/fd_topo.h"
 #include "generated/fd_repair_tile_seccomp.h"
 #include "../../disco/fd_disco.h"
@@ -773,7 +774,7 @@ after_frag( ctx_t * ctx,
   ctx->stem = stem;
 
   uint in_kind = ctx->in_kind[ in_idx ];
-  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS ) ) {
+  if( FD_UNLIKELY( in_kind==IN_KIND_GENESIS && sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
     fd_forest_init( ctx->forest, 0 );
     return;
   }
