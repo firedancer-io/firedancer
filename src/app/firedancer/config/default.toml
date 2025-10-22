@@ -147,12 +147,15 @@ user = ""
     # there are no gossip entrypoints specified because this node will
     # be the origin entrypoint, then there must be a genesis file
     # present, and it will be used to create the genesis block of the
-    # new cluster.
+    # new cluster.  In this case, there is no point verifying the
+    # genesis hash.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
+    #
+    # TODO: Most of this is not yet implemented.
     genesis = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.
@@ -301,16 +304,18 @@ user = ""
     #
     # If download is allowed, and there is no local genesis file
     # already, the validator will contact each of the gossip
-    # entrypoints and attempt to download the genesis file from their
-    # RPC endpoint.  If none of the entrypoints is responsive or able to
-    # provide the genesis file, the validator will exit with an error.
+    # entrypoints, in order, and attempt to download the genesis file
+    # from their RPC endpoint.  If none of the entrypoints is responsive
+    # or able to provide the genesis file, the validator will exit with
+    # an error.
     #
-    # The genesis hash is verified against the expected_genesis_hash
-    # specified in this file, and it is then combined with information
-    # from the snapshot (the list of hard forks) to compute the shred
-    # version, which is itself verified against the
-    # expected_shred_version.  If there is any mismatch, the validator
-    # will exit with an error.
+    # The genesis hash is verified against both the
+    # expected_genesis_hash specified in this file, and the genesis hash
+    # contained in full and incremental snapshots being loaded.  If
+    # there is a genesis hash mismatch, the validator will exit with an
+    # error.
+    #
+    # TODO: Not yet implemented.
     genesis_download = true
 
     # Whether to allow downloading a new snapshot from a peer when
@@ -456,22 +461,22 @@ user = ""
     # still request the shred version from the gossip entrypoints, but
     # if the shred version is not equal to this value, the validator
     # will abort with an error.
-    #
-    # The shred version will also be computed locally, by combining the
-    # genesis.bin hash with the hard fork list from the loaded snapshot,
-    # and this shred version is also enforced to match or the validator
-    # will abort with an error.
     expected_shred_version = 0
 
-    # The genesis hash is just a SHA256 hash of the genesis.bin file,
+    # The genesis hash is just a SHA256 has of the genesis.bin file,
     # representing the parameters used to create the genesis block of
     # the chain.
     #
     # If the expected_genesis_hash is set to a base58 encoded string of
-    # such a hash, the validator will verify that the hash of the
-    # genesis.bin that is loaded from disk or downloaded from a peer
-    # matches this value.  If there is a mismatch, the validator will
+    # such a hash, the validator will verify that the genesis of the
+    # chain it loads matches this hash, and if not, the validator will
     # abort with an error.
+    #
+    # Both the actual hash of the downloaded (or already stored locally)
+    # genesis.bin file, and the genesis hash contained in any full or
+    # incremental snapshot being loaded must match this expected hash.
+    #
+    # TODO: Not yet implemented.
     expected_genesis_hash = ""
 
 # This section configures the "funk" account database.  Currently, funk

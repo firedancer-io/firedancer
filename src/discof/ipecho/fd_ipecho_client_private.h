@@ -18,7 +18,6 @@ typedef struct fd_ipecho_client_peer fd_ipecho_client_peer_t;
 struct fd_ipecho_client_private {
   long start_time_nanos;
   ulong peer_cnt;
-  ulong remaining_peer_cnt;
 
   struct pollfd pollfds[ 16UL ];
   fd_ipecho_client_peer_t peers[ 16UL ];

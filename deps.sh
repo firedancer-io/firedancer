@@ -139,7 +139,6 @@ fetch () {
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.6.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.7.0"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo bzip2     https://gitlab.com/bzip2/bzip2            "bzip2-1.0.8"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.5.1"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
   fi
@@ -421,16 +420,6 @@ install_zstd () {
   echo "[+] Successfully installed zstd"
 }
 
-install_bzip2 () {
-  cd "$PREFIX/git/bzip2"
-
-  echo "[+] Installing bzip2 to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" CFLAGS="-fPIC $EXTRA_CFLAGS -Wall -Winline -O2 -g" libbz2.a
-  cp libbz2.a "$PREFIX/lib"
-  cp bzlib.h "$PREFIX/include"
-  echo "[+] Successfully installed bzip2"
-}
-
 install_lz4 () {
   cd "$PREFIX/git/lz4/lib"
 
@@ -636,7 +625,6 @@ install () {
   ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_bzip2     )
     ( install_snappy    )
     ( install_rocksdb   )
   fi

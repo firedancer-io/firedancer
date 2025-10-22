@@ -2085,7 +2085,7 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
-void
+static void
 fd_gui_handle_genesis_hash( fd_gui_t *    gui,
                             uchar const * msg ) {
   FD_BASE58_ENCODE_32_BYTES(msg, hash_cstr);

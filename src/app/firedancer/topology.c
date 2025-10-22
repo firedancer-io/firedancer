@@ -551,7 +551,7 @@ fd_topo_initialize( config_t * config ) {
 
   /**/                 fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",  0UL,           "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "snapin_manif", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -762,7 +762,6 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "tower_out",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "replay_stake", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-    /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     if( FD_LIKELY( snapshots_enabled ) ) {
                          fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapct_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -862,15 +861,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->genesi.expected_shred_version = config->consensus.expected_shred_version;
     tile->genesi.entrypoints_cnt        = config->gossip.entrypoints_cnt;
     fd_memcpy( tile->genesi.entrypoints, config->gossip.resolved_entrypoints, tile->genesi.entrypoints_cnt * sizeof(fd_ip4_port_t) );
-
-    tile->genesi.has_expected_genesis_hash = !!strcmp( config->consensus.expected_genesis_hash, "" );
-
-    if( FD_UNLIKELY( strcmp( config->consensus.expected_genesis_hash, "" ) && !fd_base58_decode_32( config->consensus.expected_genesis_hash, tile->genesi.expected_genesis_hash ) ) ) {
-      FD_LOG_ERR(( "failed to decode [consensus.expected_genesis_hash] \"%s\" as base58", config->consensus.expected_genesis_hash ));
-    }
-
-    tile->genesi.target_gid = config->gid;
-    tile->genesi.target_uid = config->uid;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gossvf") ) ) {
 
@@ -983,8 +973,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     tile->replay.heap_size_gib  = config->tiles.replay.heap_size_gib;
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
-
-    tile->replay.expected_shred_version = config->consensus.expected_shred_version;
 
     /* not specified by [tiles.replay] */
 

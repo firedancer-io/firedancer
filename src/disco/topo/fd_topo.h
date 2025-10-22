@@ -360,8 +360,6 @@ struct fd_topo_tile {
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
 
-      ushort expected_shred_version;
-
       ulong heap_size_gib;
       ulong max_live_slots;
 
@@ -565,13 +563,7 @@ struct fd_topo_tile {
       ulong entrypoints_cnt;
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
-      int has_expected_genesis_hash;
-      uchar expected_genesis_hash[ 32UL ];
-
       char genesis_path[ PATH_MAX ];
-
-      uint target_gid;
-      uint target_uid;
     } genesi;
   };
 };

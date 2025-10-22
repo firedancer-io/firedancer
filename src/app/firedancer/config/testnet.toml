@@ -3,8 +3,6 @@
         "entrypoint.testnet.solana.com:8001",
         "entrypoint2.testnet.solana.com:8001",
     ]
-[consensus]
-    expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
 [funk]
     heap_size_gib = 40
     max_account_records = 200_000_000

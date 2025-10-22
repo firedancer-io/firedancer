@@ -860,10 +860,6 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
                              fd_gui_slot_completed_t * slot_completed,
                              long                      now );
 
-void
-fd_gui_handle_genesis_hash( fd_gui_t *    gui,
-                            uchar const * msg );
-
 static inline fd_gui_slot_t *
 fd_gui_get_slot( fd_gui_t const * gui, ulong _slot ) {
   fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];

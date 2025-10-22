@@ -24,7 +24,6 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
-#include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../util/clock/fd_clock.h"
@@ -33,6 +32,17 @@ static fd_http_static_file_t * STATIC_FILES;
 
 #include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/runtime/fd_bank.h"
+
+#include <sys/types.h>
+#include <unistd.h>
+#include <string.h>
+#include <poll.h>
+#include <stdio.h>
+
+#if FD_HAS_ZSTD
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+#endif
 
 #define IN_KIND_PLUGIN       ( 0UL)
 #define IN_KIND_POH_PACK     ( 1UL)
@@ -48,7 +58,6 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
 #define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
 #define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
-#define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -241,18 +250,14 @@ during_frag( fd_gui_ctx_t * ctx,
     sz = fd_stake_weight_msg_sz( leader_schedule->staked_cnt );
   }
 
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
-    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) sz = sizeof(fd_lthash_value_t)+sizeof(fd_hash_t);
-  }
-
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return;
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
     /* There are multiple frags types sent on this link, the currently the
-       only way to distinguish them is to check sz.  We dont actually read
-       from the dcache.  */
+     only way to distinguish them is to check sz.  We dont actually read
+     from the dcache.  */
     return;
   }
 
@@ -368,16 +373,6 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)ctx->buf;
       fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
-      break;
-    }
-    case IN_KIND_GENESI_OUT: {
-      FD_TEST( ctx->is_full_client );
-
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf+sizeof(fd_lthash_value_t) );
-      } else {
-        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf );
-      }
       break;
     }
     case IN_KIND_TOWER_OUT: {
@@ -764,7 +759,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {

@@ -4,7 +4,6 @@
 #include "fd_vote_tracker.h"
 #include "generated/fd_replay_tile_seccomp.h"
 
-#include "../genesis/fd_genesi_tile.h"
 #include "../poh/fd_poh.h"
 #include "../poh/fd_poh_tile.h"
 #include "../tower/fd_tower_tile.h"
@@ -72,14 +71,13 @@
 
 #define IN_KIND_SNAP    (0)
 #define IN_KIND_GENESIS (1)
-#define IN_KIND_IPECHO  (2)
-#define IN_KIND_TOWER   (3)
-#define IN_KIND_RESOLV  (4)
-#define IN_KIND_POH     (5)
-#define IN_KIND_EXEC    (6)
-#define IN_KIND_SHRED   (7)
-#define IN_KIND_VTXN    (8)
-#define IN_KIND_GUI     (9)
+#define IN_KIND_TOWER   (2)
+#define IN_KIND_RESOLV  (3)
+#define IN_KIND_POH     (4)
+#define IN_KIND_EXEC    (5)
+#define IN_KIND_SHRED   (6)
+#define IN_KIND_VTXN    (7)
+#define IN_KIND_GUI     (8)
 
 #define DEBUG_LOGGING 0
 
@@ -163,16 +161,6 @@ struct fd_replay_tile {
   fd_replay_out_link_t exec_out[ 1 ]; /* Sending work down to exec tiles */
 
   fd_vote_tracker_t *  vote_tracker;
-
-  int has_genesis_hash;
-  uchar genesis_hash[ 32UL ];
-
-#define FD_REPLAY_HARD_FORKS_MAX (64UL)
-  ulong hard_forks_cnt;
-  ulong hard_forks[ FD_REPLAY_HARD_FORKS_MAX ];
-
-  ushort expected_shred_version;
-  ushort ipecho_shred_version;
 
   /* A note on publishing ...
 
@@ -1517,10 +1505,6 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
                          ctx->banks,
                          fd_banks_bank_query( ctx->banks, FD_REPLAY_BOOT_BANK_IDX ),
                          ctx->vote_state_credits );
-
-      fd_snapshot_manifest_t const * manifest = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      ctx->hard_forks_cnt = manifest->hard_forks_len;
-      for( ulong i=0UL; i<manifest->hard_forks_len; i++ ) ctx->hard_forks[ i ] = manifest->hard_forks[ i ];
       break;
     }
     default: {
@@ -2146,60 +2130,6 @@ process_vote_txn_sent( fd_replay_tile_t *  ctx,
   }
 }
 
-static inline void
-maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
-  if( FD_LIKELY( ctx->expected_shred_version && ctx->ipecho_shred_version ) ) {
-    if( FD_UNLIKELY( ctx->expected_shred_version!=ctx->ipecho_shred_version ) ) {
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from ipecho", ctx->expected_shred_version, ctx->ipecho_shred_version ) );
-    }
-  }
-
-  if( FD_LIKELY( ctx->has_genesis_hash && ctx->hard_forks_cnt!=ULONG_MAX && (ctx->expected_shred_version || ctx->ipecho_shred_version) ) ) {
-    ushort expected_shred_version = ctx->expected_shred_version ? ctx->expected_shred_version : ctx->ipecho_shred_version;
-
-    union {
-      uchar  c[ 32 ];
-      ushort s[ 16 ];
-    } running_hash;
-    fd_memcpy( running_hash.c, ctx->genesis_hash, sizeof(fd_hash_t) );
-
-    ulong processed = 0UL;
-    ulong min_value = 0UL;
-    while( processed<ctx->hard_forks_cnt ) {
-      ulong min_index = ULONG_MAX;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]>=min_value && (min_index==ULONG_MAX || ctx->hard_forks[ i ]<ctx->hard_forks[ min_index ] ) ) {
-          min_index = i;
-        }
-      }
-
-      FD_TEST( min_index!=ULONG_MAX );
-      ulong min_value = ctx->hard_forks[ min_index ];
-      ulong min_count = 0UL;
-      for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
-        if( ctx->hard_forks[ i ]==min_value ) min_count++;
-      }
-
-      uchar data[ 48UL ];
-      fd_memcpy( data, running_hash.c, sizeof(fd_hash_t) );
-      fd_memcpy( data+32UL, &min_value, sizeof(ulong) );
-      fd_memcpy( data+40UL, &min_count, sizeof(ulong) );
-
-      FD_TEST( fd_sha256_hash( data, 48UL, running_hash.c ) );
-    }
-
-    ushort xor = 0;
-    for( ulong i=0UL; i<16UL; i++ ) xor ^= running_hash.s[ i ];
-
-    xor = fd_ushort_bswap( xor );
-    xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
-
-    if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash and hard forks", expected_shred_version, xor ) );
-    }
-  }
-}
-
 static inline int
 returnable_frag( fd_replay_tile_t *  ctx,
                  ulong               in_idx,
@@ -2220,27 +2150,11 @@ returnable_frag( fd_replay_tile_t *  ctx,
     FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   switch( ctx->in_kind[in_idx] ) {
-    case IN_KIND_GENESIS: {
-      uchar const * src = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
-      ctx->has_genesis_hash = 1;
-      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
-        boot_genesis( ctx, stem, in_idx, chunk );
-        fd_memcpy( ctx->genesis_hash, src+sizeof(fd_lthash_value_t), sizeof(fd_hash_t) );
-      } else {
-        fd_memcpy( ctx->genesis_hash, src, sizeof(fd_hash_t) );
-      }
-      maybe_verify_shred_version( ctx );
+    case IN_KIND_GENESIS:
+      boot_genesis( ctx, stem, in_idx, chunk );
       break;
-    }
-    case IN_KIND_IPECHO: {
-      FD_TEST( ctx->ipecho_shred_version && ctx->ipecho_shred_version<=USHORT_MAX );
-      ctx->ipecho_shred_version = (ushort)sig;
-      maybe_verify_shred_version( ctx );
-      break;
-    }
     case IN_KIND_SNAP:
       on_snapshot_message( ctx, stem, in_idx, chunk, sig );
-      maybe_verify_shred_version( ctx );
       break;
     case IN_KIND_EXEC: {
       process_exec_task_done( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sig );
@@ -2367,11 +2281,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->consensus_root      = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->published_root_slot = ULONG_MAX;
 
-  ctx->expected_shred_version = tile->replay.expected_shred_version;
-  ctx->ipecho_shred_version = 0;
-  ctx->has_genesis_hash = 0;
-  ctx->hard_forks_cnt = ULONG_MAX;
-
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */
   fd_cluster_version_t * cluster_version = fd_bank_cluster_version_modify( bank );
@@ -2492,7 +2401,6 @@ unprivileged_init( fd_topo_t *      topo,
     }
 
     if(      !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
-    else if( !strcmp( link->name, "ipecho_out"   ) ) ctx->in_kind[ i ] = IN_KIND_IPECHO;
     else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
     else if( !strcmp( link->name, "exec_replay"  ) ) ctx->in_kind[ i ] = IN_KIND_EXEC;
     else if( !strcmp( link->name, "tower_out"    ) ) ctx->in_kind[ i ] = IN_KIND_TOWER;
