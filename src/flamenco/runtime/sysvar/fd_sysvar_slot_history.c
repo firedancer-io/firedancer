@@ -100,7 +100,7 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
     .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
-  uchar __attribute__((aligned(FD_SLOT_HISTORY_GLOBAL_ALIGN))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
+  uchar __attribute__((aligned(FD_SLOT_HISTORY_GLOBAL_ALIGN))) slot_history_mem[ FD_SLOT_HISTORY_DECODED_SIZE ] = {0};
   fd_slot_history_global_t * history = fd_slot_history_decode_global( slot_history_mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
