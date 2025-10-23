@@ -64,25 +64,19 @@ fd_accdb_search_chain( fd_accdb_user_t const *   accdb,
   FD_COMPILER_MFENCE();
   uint ele_idx = chain->head_cidx;
 
-  /* Walk the map chain, remember the best entry */
-  fd_funk_rec_t * best      = NULL;
-  long            best_slot = -1L;
+  /* Walk the map chain, bail at the first entry
+     (Each chain is sorted newest-to-oldest) */
+  fd_funk_rec_t * best = NULL;
   for( ulong i=0UL; i<cnt; i++, ele_idx=rec_tbl[ ele_idx ].map_next ) {
     fd_funk_rec_t * rec = &rec_tbl[ ele_idx ];
 
     /* Skip over unrelated records (hash collision) */
     if( FD_UNLIKELY( !fd_funk_rec_key_eq( rec->pair.key, key ) ) ) continue;
 
-    /* Skip over records that are older than what we already have */
-    ulong found_slot = rec->pair.xid->ul[0];
-    if( FD_UNLIKELY( (long)found_slot<best_slot ) ) continue;
-
     /* Confirm that record is part of the current fork
        FIXME this has bad performance / pointer-chasing */
     if( FD_UNLIKELY( !fd_accdb_has_xid( accdb, rec->pair.xid ) ) ) continue;
 
-    best      = rec;
-    best_slot = (long)found_slot;
     if( FD_UNLIKELY( rec->map_next==ele_idx ) ) {
       FD_LOG_CRIT(( "fd_accdb_search_chain detected cycle" ));
     }
@@ -92,6 +86,8 @@ fd_accdb_search_chain( fd_accdb_user_t const *   accdb,
                       rec->map_next, rec_max ));
       }
     }
+    best = rec;
+    break;
   }
 
   /* Retry if we were overrun */
