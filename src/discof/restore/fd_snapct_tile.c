@@ -8,7 +8,6 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
-#include "../../app/shared/fd_config.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -48,7 +47,6 @@ typedef struct fd_restore_out_link fd_restore_out_link_t;
 #define FD_SNAPCT_WAITING_FOR_PEERS_TIMEOUT_DEADLINE_NANOS (2L*60L*1000L*1000L*1000L) /* 2 minutes */
 
 struct fd_snapct_gossip_ci_entry {
-  fd_ip4_port_t gossip_addr;
   fd_ip4_port_t rpc_addr;
   fd_pubkey_t   pubkey;
   long          wallclock_nanos;
@@ -115,7 +113,6 @@ struct fd_snapct_tile {
     uint maximum_download_retry_abort;
     uint max_full_snapshots_to_keep;
     uint max_incremental_snapshots_to_keep;
-    int  entrypoints_enabled;
     int  gossip_peers_enabled;
   } config;
 
@@ -152,9 +149,6 @@ struct fd_snapct_tile {
   struct {
     fd_snapct_gossip_ci_entry_t * ci_table;
     gossip_ci_map_t *             ci_map;
-    fd_ip4_port_t                 entrypoints[ GOSSIP_TILE_ENTRYPOINTS_MAX ];
-    ulong                         entrypoints_cnt;
-    ulong                         entrypoints_received;
     double                        fresh;
     ulong                         fresh_cnt;
     ulong                         total_cnt;
@@ -193,36 +187,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 static inline int
 should_shutdown( fd_snapct_tile_t * ctx ) {
   return ctx->state==FD_SNAPCT_STATE_SHUTDOWN;
-}
-
-static inline int
-is_entrypoint( fd_snapct_tile_t * ctx, fd_ip4_port_t addr ) {
-  for( ulong i=0UL; i<ctx->gossip.entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( ctx->gossip.entrypoints[ i ].l==addr.l ) ) return 1;
-  }
-  return 0;
-}
-
-static int
-all_entrypoints_received( fd_snapct_tile_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->config.entrypoints_enabled ) ) return 1;
-  if( FD_UNLIKELY( ctx->gossip.entrypoints_received==ctx->gossip.entrypoints_cnt ) ) return 1;
-
-  ulong received_gossip_entrypoints = 0UL;
-  for( ulong i=0UL; i<ctx->gossip.entrypoints_cnt; i++ ) {
-    for( gossip_ci_map_iter_t iter = gossip_ci_map_iter_init( ctx->gossip.ci_map, ctx->gossip.ci_table );
-         !gossip_ci_map_iter_done( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
-         iter = gossip_ci_map_iter_next( iter, ctx->gossip.ci_map, ctx->gossip.ci_table ) ) {
-      fd_snapct_gossip_ci_entry_t const * ci_entry = gossip_ci_map_iter_ele_const( iter, ctx->gossip.ci_map, ctx->gossip.ci_table );
-      if( FD_LIKELY( ci_entry->gossip_addr.l==ctx->gossip.entrypoints[ i ].l ) ) {
-        received_gossip_entrypoints++;
-        break;
-      }
-    }
-  }
-
-  ctx->gossip.entrypoints_received = received_gossip_entrypoints;
-  return received_gossip_entrypoints==ctx->gossip.entrypoints_cnt;
 }
 
 static int
@@ -517,7 +481,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_COLLECTING_PEERS: {
-      if( FD_UNLIKELY( (!gossip_saturated( ctx, now ) || !all_entrypoints_received( ctx )) && now<ctx->deadline_nanos ) ) break;
+      if( FD_UNLIKELY( !gossip_saturated( ctx, now ) && now<ctx->deadline_nanos ) ) break;
 
       fd_sspeer_t best = fd_sspeer_selector_best( ctx->selector, 0, ULONG_MAX );
       if( FD_UNLIKELY( !best.addr.l ) ) {
@@ -835,7 +799,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
   if( !( ( sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO ||
            sig==FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE ||
            sig==FD_GOSSIP_UPDATE_TAG_SNAPSHOT_HASHES ) &&
-         ( ctx->config.entrypoints_enabled || ctx->config.gossip_peers_enabled ) ) ) return;
+         ctx->config.gossip_peers_enabled ) ) return;
 
   FD_TEST( chunk>=ctx->gossip_in.chunk0 && chunk<=ctx->gossip_in.wmark );
   fd_gossip_update_message_t const * msg = fd_chunk_to_laddr_const( ctx->gossip_in.mem, chunk );
@@ -844,18 +808,14 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       /* FIXME: Keep ports as network byte order */
       fd_ip4_port_t new_addr    = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_RPC ];
       new_addr.port             = fd_ushort_bswap( new_addr.port );
-      fd_ip4_port_t gossip_addr = msg->contact_info.contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
-      gossip_addr.port          = fd_ushort_bswap( gossip_addr.port );
-      int addr_is_entrypoint    = is_entrypoint( ctx, gossip_addr );
 
-      if( FD_LIKELY( (ctx->config.entrypoints_enabled && addr_is_entrypoint) || ctx->config.gossip_peers_enabled ) ) {
+      if( FD_LIKELY( ctx->config.gossip_peers_enabled ) ) {
         fd_snapct_gossip_ci_entry_t * entry = ctx->gossip.ci_table + msg->contact_info.idx;
         if( FD_UNLIKELY( !fd_pubkey_eq( &entry->pubkey, (fd_pubkey_t const *)msg->origin_pubkey ) ) ) {
           FD_TEST( fd_pubkey_check_zero( &entry->pubkey ) );
           FD_TEST( ULONG_MAX==gossip_ci_map_idx_query_const( ctx->gossip.ci_map, (fd_pubkey_t const *)msg->origin_pubkey, ULONG_MAX, ctx->gossip.ci_table ) );
           gossip_ci_map_idx_insert( ctx->gossip.ci_map, msg->contact_info.idx, ctx->gossip.ci_table );
           entry->pubkey = *(fd_pubkey_t const *)msg->origin_pubkey;
-          entry->gossip_addr = gossip_addr;
           entry->wallclock_nanos = msg->wallclock_nanos;
         }
         fd_ip4_port_t cur_addr = entry->rpc_addr;
@@ -890,8 +850,7 @@ gossip_frag( fd_snapct_tile_t *  ctx,
       ulong idx = gossip_ci_map_idx_query_const( ctx->gossip.ci_map, (fd_pubkey_t const *)msg->origin_pubkey, ULONG_MAX, ctx->gossip.ci_table );
       if( FD_LIKELY( idx!=ULONG_MAX ) ) {
         fd_snapct_gossip_ci_entry_t * entry = ctx->gossip.ci_table + idx;
-        int addr_is_entrypoint = is_entrypoint( ctx, entry->gossip_addr );
-        if( FD_LIKELY( (ctx->config.entrypoints_enabled && addr_is_entrypoint) || ctx->config.gossip_peers_enabled ) ) {
+        if( FD_LIKELY( ctx->config.gossip_peers_enabled ) ) {
           on_snapshot_hash( ctx, entry->rpc_addr, msg );
         }
       }
@@ -1236,7 +1195,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->config.minimum_download_speed_mib        = tile->snapct.minimum_download_speed_mib;
   ctx->config.max_full_snapshots_to_keep        = tile->snapct.max_full_snapshots_to_keep;
   ctx->config.max_incremental_snapshots_to_keep = tile->snapct.max_incremental_snapshots_to_keep;
-  ctx->config.entrypoints_enabled               = tile->snapct.entrypoints_enabled;
   ctx->config.gossip_peers_enabled              = tile->snapct.gossip_peers_enabled;
 
   if( FD_UNLIKELY( !tile->snapct.maximum_download_retry_abort ) ) ctx->config.maximum_download_retry_abort = UINT_MAX;
@@ -1248,12 +1206,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gossip.ci_table = _ci_table;
 
   ctx->gossip.ci_map = gossip_ci_map_join( gossip_ci_map_new( _ci_map, gossip_ci_map_chain_cnt_est( GOSSIP_PEERS_MAX ), 0UL ) );
-
-  ctx->gossip.entrypoints_cnt = tile->snapct.gossip_entrypoints_cnt;
-  for( ulong i=0UL; i<tile->snapct.gossip_entrypoints_cnt; i++ ) {
-    ctx->gossip.entrypoints[ i ].l = tile->snapct.gossip_entrypoints[ i ].l;
-    ctx->gossip.entrypoints[ i ].port = fd_ushort_bswap( tile->snapct.gossip_entrypoints[ i ].port ); /* TODO: should be fixed in a future PR */
-  }
 
   int has_snapld_dc = 0, has_snapin_rd = 0;
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
@@ -1299,7 +1251,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->predicted_incremental.slot      = ULONG_MAX;
   ctx->predicted_incremental.dirty     = 0;
 
-  ctx->gossip.entrypoints_received = 0UL;
   ctx->gossip.saturated            = 0;
 }
 

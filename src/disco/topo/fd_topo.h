@@ -512,11 +512,7 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
 
-      int entrypoints_enabled;
       int gossip_peers_enabled;
-
-      ulong         gossip_entrypoints_cnt;
-      fd_ip4_port_t gossip_entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
       struct {
         ulong         peers_cnt;

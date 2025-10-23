@@ -128,10 +128,6 @@ struct fd_configf {
 
       struct {
         int enabled;
-      } entrypoints;
-
-      struct {
-        int enabled;
       } gossip;
 
       struct {

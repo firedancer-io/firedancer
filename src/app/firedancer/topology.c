@@ -915,12 +915,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->snapct.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
     tile->snapct.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
     tile->snapct.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
-
-    tile->snapct.entrypoints_enabled               = config->firedancer.snapshots.sources.entrypoints.enabled;
     tile->snapct.gossip_peers_enabled              = config->firedancer.snapshots.sources.gossip.enabled;
-    tile->snapct.gossip_entrypoints_cnt            = config->gossip.entrypoints_cnt;
-
-    for( ulong i=0UL; i<tile->snapct.gossip_entrypoints_cnt; i++ ) tile->snapct.gossip_entrypoints[ i ] = config->gossip.resolved_entrypoints[ i ];
 
     ulong peers_cnt          = config->firedancer.snapshots.sources.http.peers_cnt;
     ulong resolved_peers_cnt = 0UL;

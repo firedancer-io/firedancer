@@ -137,8 +137,8 @@ extern int * fd_log_private_shared_lock;
 static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
-  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.enabled || config->firedancer.snapshots.sources.entrypoints.enabled ) ) {
-    FD_LOG_ERR(( "snapshot-load command is incompatible with gossip or entrypoint snapshot sources" ));
+  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.enabled ) ) {
+    FD_LOG_ERR(( "snapshot-load command is incompatible with gossip snapshot sources" ));
   }
   snapshot_load_topo( config, args );
   fd_topo_t * topo = &config->topo;
