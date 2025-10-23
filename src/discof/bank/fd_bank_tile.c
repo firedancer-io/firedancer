@@ -165,11 +165,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
+    fd_spad_push( ctx->exec_spad );
 
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
+      fd_spad_pop( ctx->exec_spad );
       continue;
     }
 
@@ -250,22 +251,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        in finalize anyway. */
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
 
-    } FD_SPAD_FRAME_END;
-
-    if( FD_UNLIKELY( !txn_ctx->flags ) ) {
-      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-      fd_hash_t * signature = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off);
-      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
-      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-      FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
-                    "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
-                    "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                    FD_BASE58_ENC_32_ALLOCA( signature->uc ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
-                    cost_tracker->allocated_accounts_data_size,
-                    cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
-                    cost_tracker->account_cost_limit ));
-    }
-
+    fd_spad_pop( ctx->exec_spad );
     FD_TEST( txn_ctx->flags );
   }
 
