@@ -331,7 +331,6 @@ fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
 
     vote_state->stake     = 0UL;
     vote_state->stake_t_2 = 0UL;
-    vote_state->rewards   = 0UL;
   }
 }
 

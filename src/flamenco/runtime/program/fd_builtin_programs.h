@@ -48,6 +48,14 @@ struct fd_precompile_program {
 };
 typedef struct fd_precompile_program fd_precompile_program_t;
 
+struct fd_tmp_account {
+  fd_pubkey_t       addr;
+  fd_account_meta_t meta;
+  uchar             data[FD_RUNTIME_ACC_SZ_MAX]__attribute__((aligned(8UL)));
+  ulong             data_sz;
+};
+typedef struct fd_tmp_account fd_tmp_account_t;
+
 FD_PROTOTYPES_BEGIN
 
 /* Initialize the builtin program accounts */
@@ -104,8 +112,8 @@ void
 fd_migrate_builtin_to_core_bpf( fd_bank_t *                            bank,
                                 fd_accdb_user_t *                      accdb,
                                 fd_funk_txn_xid_t const *              xid,
+                                fd_runtime_stack_t *                   runtime_stack,
                                 fd_core_bpf_migration_config_t const * config,
-                                fd_spad_t *                            runtime_spad,
                                 fd_capture_ctx_t *                     capture_ctx );
 
 FD_PROTOTYPES_END

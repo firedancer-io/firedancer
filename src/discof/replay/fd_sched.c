@@ -1305,9 +1305,8 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   int has_aluts   = txn->transaction_version==FD_TXN_V0 && txn->addr_table_adtl_cnt>0;
   int serializing = 0;
   if( has_aluts ) {
-    /* FIXME: statically size out slot hashes decode footprint. */
-    FD_SPAD_FRAME_BEGIN( alut_ctx->runtime_spad ) {
-    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb->funk, alut_ctx->xid, alut_ctx->runtime_spad );
+    uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_slot_hashes_read( alut_ctx->accdb->funk, alut_ctx->xid, slot_hashes_mem );
     if( FD_LIKELY( slot_hashes_global ) ) {
       fd_slot_hash_t * slot_hash = deq_fd_slot_hash_t_join( (uchar *)slot_hashes_global + slot_hashes_global->hashes_offset );
       serializing = !!fd_runtime_load_txn_address_lookup_tables( txn, block->fec_buf+block->fec_buf_soff, alut_ctx->accdb->funk, alut_ctx->xid, alut_ctx->els, slot_hash, block->aluts );
@@ -1315,7 +1314,6 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
     } else {
       serializing = 1;
     }
-    } FD_SPAD_FRAME_END;
   }
 
   ulong bank_idx = (ulong)(block-sched->block_pool);

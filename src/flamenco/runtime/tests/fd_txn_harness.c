@@ -112,7 +112,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( rent );
   fd_bank_rent_set( runner->bank, *rent );
 
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
+  uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, slot_hashes_mem );
   FD_TEST( slot_hashes );
 
   fd_stake_history_t stake_history_[1];
@@ -124,7 +125,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( clock );
 
   /* Setup vote states dummy account */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( runner->bank ), FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION, 999UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( runner->bank ), 64UL, 999UL ) );
   if( FD_UNLIKELY( !vote_states ) ) {
     fd_bank_vote_states_end_locking_modify( runner->bank );
     return NULL;

@@ -976,7 +976,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     strncpy( tile->replay.cluster_version, config->tiles.replay.cluster_version, sizeof(tile->replay.cluster_version) );
 
-    tile->replay.heap_size_gib  = config->tiles.replay.heap_size_gib;
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
 
     tile->replay.expected_shred_version = config->consensus.expected_shred_version;
