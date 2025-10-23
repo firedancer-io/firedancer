@@ -71,6 +71,13 @@ RUST_CXXFLAGS=-include cstdint
 endif
 endif
 
+# Clang 20 hits the same missing <cstdint> include in RocksDB.
+ifeq ($(CC),clang)
+ifeq ($(CC_MAJOR_VERSION),20)
+RUST_CXXFLAGS=-include cstdint
+endif
+endif
+
 # Cargo build cannot cache the prior build if the command line changes,
 # for example if we did,
 #
