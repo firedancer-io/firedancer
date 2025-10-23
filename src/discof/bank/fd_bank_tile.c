@@ -9,7 +9,6 @@
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../util/pod/fd_pod_format.h"
 #include "../../disco/pack/fd_pack_rebate_sum.h"
-#include "../../disco/metrics/generated/fd_metrics_bank.h"
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
@@ -147,6 +146,24 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    ulong               sz,
                    ulong               begin_tspub,
                    fd_stem_context_t * stem ) {
+  /* Manual stack canary check - read the original canary value */
+  ulong original_canary;
+  __asm__ volatile ("movq %%fs:40, %0" : "=r" (original_canary));
+
+  /* Macro to check stack canary at any point */
+  #define CHECK_STACK_CANARY() do { \
+    ulong current_canary; \
+    __asm__ volatile ("movq %%fs:40, %0" : "=r" (current_canary)); \
+    volatile ulong *stack_canary_ptr = (volatile ulong *)((char*)__builtin_frame_address(0) - 56); \
+    if( FD_UNLIKELY( *stack_canary_ptr != original_canary ) ) { \
+      FD_LOG_ERR(( "Stack canary corruption detected! Expected: %016lx, Found: %016lx, Original: %016lx", \
+                   original_canary, *stack_canary_ptr, current_canary )); \
+      __builtin_trap(); \
+    } \
+  } while(0)
+
+  CHECK_STACK_CANARY();
+
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
@@ -159,9 +176,13 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
   fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
 
+  CHECK_STACK_CANARY();
+
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
+
+    CHECK_STACK_CANARY();
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
@@ -173,13 +194,20 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->bank_cu.actual_consumed_cus = 0U;
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
 
+    CHECK_STACK_CANARY();
+
     FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
 
+    CHECK_STACK_CANARY();
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
+    CHECK_STACK_CANARY();
+    
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
       continue;
     }
+
+    CHECK_STACK_CANARY();
 
     /* The account keys in the transaction context are laid out such
        that first the non-alt accounts are laid out, then the writable
@@ -188,6 +216,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
       writable_alt[ i-txn_descriptor->acct_addr_cnt ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
     }
+
+    CHECK_STACK_CANARY();
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -198,6 +228,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-err)<<24);
 
     ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
+
+    CHECK_STACK_CANARY();
 
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
@@ -210,6 +242,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
       actual_acct_data_cus = 0U;
     }
+
+    CHECK_STACK_CANARY();
 
     /* FeesOnly transactions are transactions that failed to load
        before they even reach the VM stage. They have zero execution
@@ -224,6 +258,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     FD_TEST( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
+    CHECK_STACK_CANARY();
+
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
        account data than it actually consumes will fail in the account
@@ -235,6 +271,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
                    err ));
     }
+
+    CHECK_STACK_CANARY();
 
     /* Commit must succeed so no failure path.  Once commit is called,
        the transactions MUST be mixed into the PoH otherwise we will
@@ -250,7 +288,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        in finalize anyway. */
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
 
+    CHECK_STACK_CANARY();
+
     } FD_SPAD_FRAME_END;
+
+    CHECK_STACK_CANARY();
 
     if( FD_UNLIKELY( !txn_ctx->flags ) ) {
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
@@ -269,12 +311,18 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     FD_TEST( txn_ctx->flags );
   }
 
+  CHECK_STACK_CANARY();
+
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
 
+  CHECK_STACK_CANARY();
+
   /* Prepare the rebate */
   fd_pack_rebate_sum_add_txn( ctx->rebater, (fd_txn_p_t const *)dst, writable_alt, txn_cnt );
+
+  CHECK_STACK_CANARY();
 
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the bank tile because
@@ -283,6 +331,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
   trailer->pack_txn_idx = ctx->_txn_idx;
   trailer->tips = 0UL;
+
+  CHECK_STACK_CANARY();
 
   long tickcount                 = fd_tickcount();
   long microblock_start_ticks    = fd_frag_meta_ts_decomp( begin_tspub, tickcount );
@@ -294,10 +344,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   long tx_end_ticks         = 0L; //(long)out_timestamps[ 2 ];
   long tx_preload_end_ticks = 0L; //(long)out_timestamps[ 3 ];
 
+  CHECK_STACK_CANARY();
+
   trailer->txn_start_pct       = (uchar)(((double)(tx_start_ticks       - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_load_end_pct    = (uchar)(((double)(tx_load_end_ticks    - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_end_pct         = (uchar)(((double)(tx_end_ticks         - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
   trailer->txn_preload_end_pct = (uchar)(((double)(tx_preload_end_ticks - microblock_start_ticks) * (double)UCHAR_MAX) / (double)microblock_duration_ticks);
+
+  CHECK_STACK_CANARY();
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -310,6 +364,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      PoH should eventually flush the pipeline before ending the slot. */
   metrics_write( ctx );
 
+  CHECK_STACK_CANARY();
+
   ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx );
 
   /* We always need to publish, even if there are no successfully executed
@@ -318,6 +374,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ulong new_sz = txn_cnt*sizeof(fd_txn_p_t) + sizeof(fd_microblock_trailer_t);
   fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, (ulong)fd_frag_meta_ts_comp( tickcount ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
+
+  CHECK_STACK_CANARY();
 }
 
 static inline void
