@@ -14,8 +14,7 @@ write_stake_history( fd_bank_t *               bank,
                      fd_capture_ctx_t *        capture_ctx,
                      fd_stake_history_t *      stake_history ) {
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/stake_history.rs#L12 */
-  uchar enc[FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ] = {0};
-
+  uchar __attribute__((aligned(FD_STAKE_HISTORY_ALIGN))) enc[ FD_SYSVAR_STAKE_HISTORY_BINCODE_SZ ] = {0};
   fd_bincode_encode_ctx_t encode =
     { .data    = enc,
       .dataend = enc + sizeof(enc) };

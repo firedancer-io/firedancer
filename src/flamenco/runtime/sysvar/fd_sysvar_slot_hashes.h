@@ -12,7 +12,7 @@
 
    https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/slot_hashes.rs#L19 */
 
-#define FD_SYSVAR_SLOT_HASHES_CAP   (512UL)
+#define FD_SYSVAR_SLOT_HASHES_CAP (512UL)
 
 FD_PROTOTYPES_BEGIN
 
@@ -42,20 +42,12 @@ fd_sysvar_slot_hashes_write( fd_bank_t *               bank,
                              fd_capture_ctx_t *        capture_ctx,
                              fd_slot_hashes_global_t * slot_hashes_global );
 
-void
-fd_sysvar_slot_hashes_init( fd_bank_t *               bank,
-                            fd_accdb_user_t *         accdb,
-                            fd_funk_txn_xid_t const * xid,
-                            fd_capture_ctx_t *        capture_ctx,
-                            fd_spad_t *               runtime_spad );
-
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
 fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
                               fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
-                              fd_capture_ctx_t *        capture_ctx,
-                              fd_spad_t *               runtime_spad );
+                              fd_capture_ctx_t *        capture_ctx );
 
 /* fd_sysvar_slot_hashes_read reads the slot hashes sysvar from funk.
    If the account doesn't exist in funk or if the account has zero
@@ -63,7 +55,7 @@ fd_sysvar_slot_hashes_update( fd_bank_t *               bank,
 fd_slot_hashes_global_t *
 fd_sysvar_slot_hashes_read( fd_funk_t *               funk,
                             fd_funk_txn_xid_t const * xid,
-                            fd_spad_t *               spad );
+                            uchar *                   slot_hashes_mem );
 
 FD_PROTOTYPES_END
 

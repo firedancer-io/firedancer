@@ -32,6 +32,7 @@ void
 fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_accdb_user_t *              accdb,
                               fd_funk_txn_xid_t const *      xid,
+                              fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
@@ -53,7 +54,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_bank_t *               bank,
                                             fd_funk_t *               funk,
                                             fd_funk_txn_xid_t const * xid,
-                                            fd_vote_state_credits_t * vote_state_credits,
+                                            fd_runtime_stack_t *      runtime_stack,
                                             fd_capture_ctx_t *        capture_ctx );
 
 /* fd_distribute_partitioned_epoch_rewards pays out rewards to stake

@@ -163,7 +163,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t *         ctx,
 
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( slot_history, entry->slot, NULL )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) return -1;
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( slot_history, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) return -1;
   }
   return 0;
 }

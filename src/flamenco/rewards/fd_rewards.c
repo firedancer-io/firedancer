@@ -10,6 +10,7 @@
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
 #include "../runtime/context/fd_capture_ctx.h"
+#include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
 
@@ -493,7 +494,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               ulong                          rewarded_epoch,
                               ulong                          total_rewards,
                               uint128                        total_points,
-                              fd_vote_state_credits_t *      recalc_vote_state_credits ) {
+                              fd_runtime_stack_t *           runtime_stack ) {
 
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
@@ -512,9 +513,12 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
   ulong minimum_stake_delegation = get_minimum_stake_delegation( bank );
   ulong stake_delegation_cnt     = fd_stake_delegations_cnt( stake_delegations );
 
-  fd_vote_states_t * vote_states = !!recalc_vote_state_credits ? fd_bank_vote_states_prev_locking_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_t * vote_states = !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_locking_modify( bank ) : fd_bank_vote_states_locking_modify( bank );
 
   fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_epoch_rewards_new( fd_bank_epoch_rewards_locking_modify( bank ), stake_delegation_cnt ) );
+
+  /* Reset the vote rewards for each vote account. */
+  fd_memset( runtime_stack->stakes.vote_rewards, 0UL, sizeof(runtime_stack->stakes.vote_rewards) );
 
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
@@ -534,7 +538,8 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
-    fd_vote_state_credits_t * realc_credit = !!recalc_vote_state_credits ? &recalc_vote_state_credits[ vote_state_ele->idx ] : NULL;
+    fd_vote_state_credits_t * realc_credit = !!runtime_stack->stakes.prev_vote_credits_used ?
+                                             &runtime_stack->stakes.vote_credits[ vote_state_ele->idx ] : NULL;
 
     /* redeem_rewards is actually just responisble for calculating the
        vote and stake rewards for each stake account.  It does not do
@@ -568,14 +573,14 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
           (long)calculated_stake_rewards->new_credits_observed );
     }
 
-    vote_state_ele->rewards += calculated_stake_rewards->voter_rewards;
+    runtime_stack->stakes.vote_rewards[ vote_state_ele->idx ] += calculated_stake_rewards->voter_rewards;
 
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
   }
 
   fd_bank_epoch_rewards_end_locking_modify( bank );
 
-  !!recalc_vote_state_credits ? fd_bank_vote_states_prev_end_locking_modify( bank ) : fd_bank_vote_states_end_locking_modify( bank );
+  !!runtime_stack->stakes.prev_vote_credits_used ? fd_bank_vote_states_prev_end_locking_modify( bank ) : fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
@@ -585,6 +590,7 @@ static uint128
 calculate_validator_rewards( fd_bank_t *                    bank,
                              fd_funk_t *                    funk,
                              fd_funk_txn_xid_t const *      xid,
+                             fd_runtime_stack_t *           runtime_stack,
                              fd_stake_delegations_t const * stake_delegations,
                              fd_capture_ctx_t *             capture_ctx,
                              ulong                          rewarded_epoch,
@@ -627,7 +633,7 @@ calculate_validator_rewards( fd_bank_t *                    bank,
       rewarded_epoch,
       *rewards_out,
       points,
-      0 );
+      runtime_stack );
 
   return points;
 }
@@ -660,6 +666,7 @@ static void
 calculate_rewards_for_partitioning( fd_bank_t *                            bank,
                                     fd_funk_t *                            funk,
                                     fd_funk_txn_xid_t const *              xid,
+                                    fd_runtime_stack_t *                   runtime_stack,
                                     fd_stake_delegations_t const *         stake_delegations,
                                     fd_capture_ctx_t *                     capture_ctx,
                                     ulong                                  prev_epoch,
@@ -676,6 +683,7 @@ calculate_rewards_for_partitioning( fd_bank_t *                            bank,
   uint128 points = calculate_validator_rewards( bank,
                                                 funk,
                                                 xid,
+                                                runtime_stack,
                                                 stake_delegations,
                                                 capture_ctx,
                                                 prev_epoch,
@@ -698,6 +706,7 @@ static void
 calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    bank,
                                                fd_accdb_user_t *              accdb,
                                                fd_funk_txn_xid_t const *      xid,
+                                               fd_runtime_stack_t *           runtime_stack,
                                                fd_stake_delegations_t const * stake_delegations,
                                                fd_capture_ctx_t *             capture_ctx,
                                                ulong                          prev_epoch ) {
@@ -710,6 +719,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
   calculate_rewards_for_partitioning( bank,
                                       accdb->funk,
                                       xid,
+                                      runtime_stack,
                                       stake_delegations,
                                       capture_ctx,
                                       prev_epoch,
@@ -727,7 +737,8 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
        fd_vote_states_iter_next( iter ) ) {
     fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
 
-    if( vote_state->rewards==0UL ) {
+    ulong rewards = runtime_stack->stakes.vote_rewards[ vote_state->idx ];
+    if( rewards==0UL ) {
       continue;
     }
 
@@ -756,21 +767,21 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
 
     fd_txn_account_set_slot( vote_rec, fd_bank_slot_get( bank ) );
 
-    if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_state->rewards ) ) ) {
+    if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
     fd_hashes_update_lthash( vote_rec, prev_hash,bank, capture_ctx );
     fd_txn_account_mutable_fini( vote_rec, accdb, &prepare );
 
-    distributed_rewards = fd_ulong_sat_add( distributed_rewards, vote_state->rewards );
+    distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
 
     if( capture_ctx ) {
       fd_solcap_write_vote_account_payout( capture_ctx->capture,
           vote_pubkey,
           fd_bank_slot_get( bank ),
           fd_txn_account_get_lamports( vote_rec ),
-          (long)vote_state->rewards );
+          (long)rewards );
     }
   }
 
@@ -969,6 +980,7 @@ void
 fd_begin_partitioned_rewards( fd_bank_t *                    bank,
                               fd_accdb_user_t *              accdb,
                               fd_funk_txn_xid_t const *      xid,
+                              fd_runtime_stack_t *           runtime_stack,
                               fd_capture_ctx_t *             capture_ctx,
                               fd_stake_delegations_t const * stake_delegations,
                               fd_hash_t const *              parent_blockhash,
@@ -978,6 +990,7 @@ fd_begin_partitioned_rewards( fd_bank_t *                    bank,
       bank,
       accdb,
       xid,
+      runtime_stack,
       stake_delegations,
       capture_ctx,
       parent_epoch );
@@ -1031,7 +1044,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
                                             fd_bank_t *               bank,
                                             fd_funk_t *               funk,
                                             fd_funk_txn_xid_t const * xid,
-                                            fd_vote_state_credits_t * vote_state_credits,
+                                            fd_runtime_stack_t *      runtime_stack,
                                             fd_capture_ctx_t *        capture_ctx ) {
 
   fd_sysvar_epoch_rewards_t epoch_rewards_sysvar[1];
@@ -1052,6 +1065,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
 
       https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L566 */
   FD_LOG_DEBUG(( "epoch rewards is active" ));
+  runtime_stack->stakes.prev_vote_credits_used = 1;
 
   ulong const slot           = fd_bank_slot_get( bank );
   ulong const epoch          = fd_bank_epoch_get( bank );
@@ -1094,7 +1108,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
       rewarded_epoch,
       epoch_rewards_sysvar->total_rewards,
       epoch_rewards_sysvar->total_points,
-      vote_state_credits );
+      runtime_stack );
 
   fd_epoch_rewards_t * epoch_rewards = fd_epoch_rewards_join( fd_bank_epoch_rewards_locking_modify( bank ) );
   fd_epoch_rewards_hash_into_partitions( epoch_rewards, &epoch_rewards_sysvar->parent_blockhash, epoch_rewards_sysvar->num_partitions );
@@ -1102,4 +1116,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_banks_t *              banks,
   /* Update the epoch reward status with the newly re-calculated partitions. */
   epoch_rewards->starting_block_height = epoch_rewards_sysvar->distribution_starting_block_height;
   fd_bank_epoch_rewards_end_locking_modify( bank );
+
+  runtime_stack->stakes.prev_vote_credits_used = 0;
 }

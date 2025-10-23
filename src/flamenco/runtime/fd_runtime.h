@@ -196,53 +196,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0) + FD_SOLFUZZ_MISC_FOOTPRINT
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 
-/* Helpers for runtime public frame management. */
-
-/* Helpers for runtime spad frame management. */
-struct fd_runtime_spad_verify_handle_private {
-  fd_spad_t *         spad;
-  fd_exec_txn_ctx_t * txn_ctx;
-};
-typedef struct fd_runtime_spad_verify_handle_private fd_runtime_spad_verify_handle_private_t;
-
-static inline void
-fd_runtime_spad_private_frame_end( fd_runtime_spad_verify_handle_private_t * _spad_handle ) {
-  /* fd_spad_verify() returns 0 if everything looks good, and non-zero
-     otherwise.
-
-     Since the fast spad alloc API doesn't check for or indicate an OOM
-     situation and is going to happily permit an OOB alloc, we need
-     some way of detecting that. Moreover, we would also like to detect
-     unbalanced frame push/pop or usage of more frames than allowed.
-     While surrounding the spad with guard regions will help detect the
-     former, it won't necessarily catch the latter.
-
-     On compliant transactions, fd_spad_verify() isn't all that
-     expensive.  Nonetheless, We invoke fd_spad_verify() only at the
-     peak of memory usage, and not gratuitously everywhere. One peak
-     would be right before we do the most deeply nested spad frame pop.
-     However, we do pops through compiler-inserted cleanup functions
-     that take only a single pointer, so we define this helper function
-     to access the needed context info.  The end result is that we do
-     super fast spad calls everywhere in the runtime, and every now and
-     then we invoke verify to check things. */
-  /* -1UL because spad pop is called after instr stack pop. */
-  if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
-    uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( TXN( &_spad_handle->txn_ctx->txn ), _spad_handle->txn_ctx->txn.payload );
-    FD_BASE58_ENCODE_64_BYTES( txn_signature, sig );
-    FD_LOG_ERR(( "spad corrupted or overflown on transaction %s", sig ));
-  }
-  fd_spad_pop( _spad_handle->spad );
-}
-
-#define FD_RUNTIME_TXN_SPAD_FRAME_BEGIN(_spad, _txn_ctx) do {                                                        \
-  fd_runtime_spad_verify_handle_private_t _spad_handle __attribute__((cleanup(fd_runtime_spad_private_frame_end))) = \
-    (fd_runtime_spad_verify_handle_private_t) { .spad = _spad, .txn_ctx = _txn_ctx };                                \
-  fd_spad_push( _spad_handle.spad );                                                                                 \
-  do
-
-#define FD_RUNTIME_TXN_SPAD_FRAME_END while(0); } while(0)
-
 FD_PROTOTYPES_BEGIN
 
 /* Runtime Helpers ************************************************************/
@@ -257,8 +210,8 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           fd_spad_t * runtime_spad );
+fd_runtime_update_leaders( fd_bank_t *          bank,
+                           fd_runtime_stack_t * runtime_stack );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -284,39 +237,6 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 #define FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT (6UL)
 #define FD_BLOCK_ERR_TRAILING_ENTRY          (7UL)
 #define FD_BLOCK_ERR_DUPLICATE_BLOCK         (8UL)
-
-/*
-   https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore_processor.rs#L1096
-   This function assumes a full block.
-   This needs to be called after epoch processing to get the up to date
-   hashes_per_tick.
-
-   Provide scratch memory >= the max size of a batch to use. This is because we can only
-   assemble shreds by batch, so we iterate and assemble shreds by batch in this function
-   without needing the caller to do so.
- */
-// FD_FN_UNUSED ulong /* FIXME */
-// fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
-//                                ulong             slot,
-//                                uchar *           block_data_mem,
-//                                ulong             block_data_sz,
-//                                ulong             tick_height,
-//                                ulong             max_tick_height,
-//                                ulong             hashes_per_tick );
-
-/* The following microblock-level functions are exposed and non-static due to also being used for fd_replay.
-   The block-level equivalent functions, on the other hand, are mostly static as they are only used
-   for offline replay */
-
-/* extra fine-grained streaming tick verification */
-// FD_FN_UNUSED int /* FIXME */
-// fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
-//                                     ulong                       slot,
-//                                     fd_microblock_hdr_t const * hdr,
-//                                     bool               slot_complete,
-//                                     ulong              tick_height,
-//                                     ulong              max_tick_height,
-//                                     ulong              hashes_per_tick );
 
 /*
    fd_runtime_microblock_verify_read_write_conflicts verifies that a
@@ -436,8 +356,8 @@ int
 fd_runtime_block_execute_prepare( fd_bank_t *               bank,
                                   fd_accdb_user_t  *        accdb,
                                   fd_funk_txn_xid_t const * xid,
-                                  fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad );
+                                  fd_runtime_stack_t *      runtime_stack,
+                                  fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
@@ -484,7 +404,7 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_accdb_user_t *         accdb,
                                                 fd_funk_txn_xid_t const * xid,
                                                 fd_capture_ctx_t *        capture_ctx,
-                                                fd_spad_t *               runtime_spad,
+                                                fd_runtime_stack_t *      runtime_stack,
                                                 int *                     is_epoch_boundary );
 
 /* Offline Replay *************************************************************/
@@ -498,7 +418,7 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_hash_t const *                  genesis_hash,
                          fd_lthash_value_t const *          genesis_lthash,
                          fd_genesis_solana_global_t const * genesis_block,
-                         fd_spad_t *                        runtime_spad );
+                         fd_runtime_stack_t *               runtime_stack );
 
 
 /* Returns whether the specified epoch should use the new vote account

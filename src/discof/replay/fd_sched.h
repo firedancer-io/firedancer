@@ -58,7 +58,6 @@ struct fd_sched_alut_ctx {
   fd_accdb_user_t   accdb[1];
   fd_funk_txn_xid_t xid[1];
   ulong             els; /* Effective lookup slot. */
-  fd_spad_t *       runtime_spad;
 };
 typedef struct fd_sched_alut_ctx fd_sched_alut_ctx_t;
 

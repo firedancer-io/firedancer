@@ -87,10 +87,6 @@ struct fd_vote_state_ele {
   ulong       last_vote_slot;
   long        last_vote_timestamp;
   uchar       commission;
-
-  /* This field is only used at the epoch boundary to stage rewards for
-     each vote account. */
-  ulong       rewards;
 };
 typedef struct fd_vote_state_ele fd_vote_state_ele_t;
 

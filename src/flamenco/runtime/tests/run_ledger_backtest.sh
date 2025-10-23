@@ -231,7 +231,6 @@ echo "
         ingest_mode = \"$INGEST_MODE\"
     [tiles.replay]
         cluster_version = \"$CLUSTER_VERSION\"
-        heap_size_gib = 50
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false

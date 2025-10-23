@@ -1,6 +1,7 @@
 #include "fd_sysvar.h"
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
+#include "../fd_runtime_stack.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
 #include "../program/fd_program_util.h"
@@ -115,13 +116,6 @@ fd_sysvar_clock_init( fd_bank_t *               bank,
   fd_sysvar_clock_write( bank, accdb, xid, capture_ctx, &clock );
 }
 
-struct ts_est_ele {
-  long    timestamp;
-  uint128 stake; /* should really be fine as ulong, but we match Agave*/
-};
-
-typedef struct ts_est_ele ts_est_ele_t;
-
 #define SORT_NAME  sort_stake_ts
 #define SORT_KEY_T ts_est_ele_t
 #define SORT_BEFORE(a,b) ( (a).timestamp < (b).timestamp )
@@ -137,12 +131,13 @@ typedef struct ts_est_ele ts_est_ele_t;
   https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2563-L2601 */
 long
 get_timestamp_estimate( fd_bank_t *             bank,
-                        fd_sol_sysvar_clock_t * clock ) {
+                        fd_sol_sysvar_clock_t * clock,
+                        fd_runtime_stack_t *    runtime_stack ) {
   fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( bank );
   ulong                       slot_duration  = (ulong)fd_bank_ns_per_slot_get( bank );
   ulong                       current_slot   = fd_bank_slot_get( bank );
 
-  static FD_TL ts_est_ele_t ts_eles[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
+  ts_est_ele_t * ts_eles = runtime_stack->clock_ts.staked_ts;
   ulong ts_ele_cnt = 0UL;
 
   /* https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/stake_weighted_timestamp.rs#L41 */
@@ -270,6 +265,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
                         fd_accdb_user_t *         accdb,
                         fd_funk_txn_xid_t const * xid,
                         fd_capture_ctx_t *        capture_ctx,
+                        fd_runtime_stack_t *      runtime_stack,
                         ulong const *             parent_epoch ) {
   fd_sol_sysvar_clock_t clock_[1];
   fd_sol_sysvar_clock_t * clock = fd_sysvar_clock_read( accdb->funk, xid, clock_ );
@@ -287,7 +283,7 @@ fd_sysvar_clock_update( fd_bank_t *               bank,
 
   /* TODO: Are we handling slot 0 correctly?
      https://github.com/anza-xyz/agave/blob/v2.3.7/runtime/src/bank.rs#L2176-L2183 */
-  long timestamp_estimate = get_timestamp_estimate( bank, clock );
+  long timestamp_estimate = get_timestamp_estimate( bank, clock, runtime_stack );
 
   /* If the timestamp was successfully calculated, use it. It not keep the old one. */
   if( FD_LIKELY( timestamp_estimate!=0L ) ) {
