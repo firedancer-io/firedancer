@@ -163,8 +163,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
 
-    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
@@ -172,6 +170,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        block, rebate the non-execution CUs too. */
     txn->bank_cu.actual_consumed_cus = 0U;
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
 
@@ -188,7 +188,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     writable_alt[ i ] = fd_type_pun_const( txn_ctx->account_keys+txn_descriptor->acct_addr_cnt );
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     /* Stash the result in the flags value so that pack can inspect it. */
     /* TODO: Need to translate the err to a hacky Frankendancer style err
