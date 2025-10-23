@@ -86,6 +86,17 @@ struct fd_snapin_tile {
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
 
+  /* TODO: union? */
+  struct {
+    fd_snapshot_existing_account_t existing_account;
+    fd_snapshot_account_t          account;
+    uchar                          acc_data[ USHORT_MAX ];
+    ulong                          acc_data_len;
+    int                            has_existing_account;
+    int                            has_account;
+    int                            has_acc_data;
+  } buffered_hash_messages;
+
   struct {
     int               enabled;
     ulong             received_lthashes;
@@ -463,7 +474,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
-static void
+static int
 process_account_header( fd_snapin_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t const*)result->account_header.pubkey );
@@ -471,6 +482,7 @@ process_account_header( fd_snapin_tile_t *            ctx,
   fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
   fd_funk_rec_t const * existing_rec = rec;
 
+  int ret_val = 0;
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !existing_rec && !ctx->full ) ) {
@@ -487,18 +499,41 @@ process_account_header( fd_snapin_tile_t *            ctx,
 
       if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
         ctx->acc_data = NULL;
-        fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-        fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
-        fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
-        ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
-        return;
+        ulong cr_avail = fd_stem_link_cr_avail( ctx->stem, 2UL );
+        if( FD_UNLIKELY( !cr_avail ) ) cr_avail = fd_stem_link_cr_avail_now( ctx->stem, 2UL );
+
+        if( FD_UNLIKELY( !cr_avail ) ) {
+          FD_TEST( ctx->buffered_hash_messages.has_account==0 );
+          fd_snapshot_account_t * acc = &ctx->buffered_hash_messages.account;
+          fd_snapshot_account_init( acc, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
+          ctx->buffered_hash_messages.has_account = 1;
+          return 1;
+        } else {
+          fd_snapshot_account_t * drop_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+          fd_snapshot_account_init( drop_account, result->account_header.pubkey, result->account_header.owner, result->account_header.lamports, (uchar)result->account_header.executable, result->account_header.data_len );
+          fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
+          ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+          return 0;
+        }
       }
 
+      ulong cr_avail = fd_stem_link_cr_avail( ctx->stem, 2UL );
+      if( FD_UNLIKELY( !cr_avail ) ) cr_avail = fd_stem_link_cr_avail_now( ctx->stem, 2UL );
+
+      if( FD_UNLIKELY( !cr_avail ) ) {
+        FD_TEST( ctx->buffered_hash_messages.has_existing_account==0 );
+        fd_snapshot_existing_account_t * existing_account = &ctx->buffered_hash_messages.existing_account;
+        fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
+        fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
+        ctx->buffered_hash_messages.has_existing_account = 1;
+        ret_val = 1;
+      } else {
         fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
         fd_snapshot_account_init( &existing_account->hdr, result->account_header.pubkey, meta->owner, meta->lamports, meta->executable, meta->dlen );
         fd_memcpy( existing_account->data, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen );
         fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
         ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+      }
     }
   }
 
@@ -524,21 +559,35 @@ process_account_header( fd_snapin_tile_t *            ctx,
   ctx->metrics.accounts_inserted++;
 
   if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( ctx->funk, prepare );
+  return ret_val;
 }
 
-static void
+static int
 process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
   if( FD_UNLIKELY( !ctx->acc_data ) ) {
-    uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-    fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
-    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
-    return;
+    ulong cr_avail = fd_stem_link_cr_avail( ctx->stem, 2UL );
+    if( FD_UNLIKELY( !cr_avail ) ) cr_avail = fd_stem_link_cr_avail_now( ctx->stem, 2UL );
+
+    if( FD_UNLIKELY( !cr_avail ) ) {
+      FD_TEST( result->account_data.len<=USHORT_MAX );
+      FD_TEST( ctx->buffered_hash_messages.has_acc_data==0 );
+      ctx->buffered_hash_messages.acc_data_len = (ushort)result->account_data.len;
+      fd_memcpy( ctx->buffered_hash_messages.acc_data, result->account_data.data, result->account_data.len );
+      ctx->buffered_hash_messages.has_acc_data = 1;
+      return 1;
+    } else {
+      uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+      fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
+      fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
+      ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+      return 0;
+    }
   }
 
   fd_memcpy( ctx->acc_data, result->account_data.data, result->account_data.len );
   ctx->acc_data += result->account_data.len;
+  return 0;
 }
 
 static int
@@ -557,6 +606,49 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     return 0;
   }
 
+  FD_TEST( ctx->buffered_hash_messages.has_acc_data + ctx->buffered_hash_messages.has_existing_account + ctx->buffered_hash_messages.has_account <= 1 );
+
+  if( ctx->buffered_hash_messages.has_acc_data ) {
+    ulong cr_avail = fd_stem_link_cr_avail( ctx->stem, 2UL );
+    if( FD_UNLIKELY( !cr_avail ) ) cr_avail = fd_stem_link_cr_avail_now( ctx->stem, 2UL );
+
+    if( FD_UNLIKELY( !cr_avail ) ) return 1;
+
+    uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    fd_memcpy( drop_account_data, ctx->buffered_hash_messages.acc_data, ctx->buffered_hash_messages.acc_data_len );
+    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, ctx->buffered_hash_messages.acc_data_len, 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, ctx->buffered_hash_messages.acc_data_len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    ctx->buffered_hash_messages.has_acc_data = 0;
+  }
+
+  if( ctx->buffered_hash_messages.has_existing_account ) {
+    ulong cr_avail = fd_stem_link_cr_avail( ctx->stem, 2UL );
+    if( FD_UNLIKELY( !cr_avail ) ) cr_avail = fd_stem_link_cr_avail_now( ctx->stem, 2UL );
+
+    if( FD_UNLIKELY( !cr_avail ) ) return 1;
+
+    fd_snapshot_existing_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    fd_snapshot_account_init( &existing_account->hdr, ctx->buffered_hash_messages.existing_account.hdr.pubkey, ctx->buffered_hash_messages.existing_account.hdr.owner, ctx->buffered_hash_messages.existing_account.hdr.lamports, ctx->buffered_hash_messages.existing_account.hdr.executable, ctx->buffered_hash_messages.existing_account.hdr.data_len );
+    fd_memcpy( existing_account->data, ctx->buffered_hash_messages.existing_account.data, ctx->buffered_hash_messages.existing_account.hdr.data_len );
+    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_existing_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    ctx->buffered_hash_messages.has_existing_account = 0;
+  }
+
+  if( ctx->buffered_hash_messages.has_account ) {
+    ulong cr_avail = fd_stem_link_cr_avail( ctx->stem, 2UL );
+    if( FD_UNLIKELY( !cr_avail ) ) cr_avail = fd_stem_link_cr_avail_now( ctx->stem, 2UL );
+
+    if( FD_UNLIKELY( !cr_avail ) ) return 1;
+
+    fd_snapshot_account_t * acc = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
+    fd_snapshot_account_init( acc, ctx->buffered_hash_messages.account.pubkey, ctx->buffered_hash_messages.account.owner, ctx->buffered_hash_messages.account.lamports, ctx->buffered_hash_messages.account.executable, ctx->buffered_hash_messages.account.data_len );
+    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_HDR, ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    ctx->buffered_hash_messages.has_account = 0;
+  }
+
+  int stop = 0;
   for(;;) {
     if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
     uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
@@ -624,12 +716,16 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       }
       break;
     }
-    case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
-      process_account_header( ctx, result );
+    case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER: {
+      int res = process_account_header( ctx, result );
+      if( FD_UNLIKELY( res ) ) stop = 1;
       break;
-    case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-      process_account_data( ctx, result );
+    }
+    case FD_SSPARSE_ADVANCE_ACCOUNT_DATA: {
+      int res = process_account_data( ctx, result );
+      if( FD_UNLIKELY( res ) ) stop = 1;
       break;
+    }
     case FD_SSPARSE_ADVANCE_DONE:
       ctx->state = FD_SNAPIN_STATE_DONE;
       break;
@@ -641,6 +737,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
   ctx->in.pos += result->bytes_consumed;
   if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
   else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
+
+  if( stop ) break;
   }
 
   int reprocess_frag = ctx->in.pos<sz;
@@ -980,6 +1078,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->hash_info.received_lthashes = 0UL;
   ctx->hash_info.num_lta_tiles     = fd_topo_tile_name_cnt( topo, "snaplta" );
   ctx->hash_info.num_lts_tiles     = fd_topo_tile_name_cnt( topo, "snaplts" );
+
+  fd_lthash_zero( &ctx->hash_info.expected_lthash );
+  fd_lthash_zero( &ctx->hash_info.calculated_lthash );
 }
 
 #define STEM_BURST 4UL /* For control fragments, one acknowledgement, and one malformed message */

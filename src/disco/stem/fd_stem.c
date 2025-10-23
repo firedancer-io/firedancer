@@ -249,11 +249,12 @@ STEM_(run1)( ulong                        in_cnt,
              ulong *                      cons_cnt_arr,
              ulong **                     cons_fseq_ordered,
              ulong *                      cons_offset,
+             int *                        link_kind,
              long                         lazy,
              fd_rng_t *                   rng,
              void *                       scratch,
              STEM_CALLBACK_CONTEXT_TYPE * ctx ) {
-  (void)cons_cnt_arr; (void)cons_fseq_ordered; (void)cons_offset;
+  (void)cons_cnt_arr; (void)cons_fseq_ordered; (void)cons_offset; (void)link_kind;
   /* in frag stream state */
   ulong               in_seq; /* current position in input poll sequence, in [0,in_cnt) */
   fd_stem_tile_in_t * in;     /* in[in_seq] for in_seq in [0,in_cnt) has information about input fragment stream currently at
@@ -516,6 +517,7 @@ STEM_(run1)( ulong                        in_cnt,
       .cons_cnt            = cons_cnt_arr,
       .cons_fseq_ordered   = cons_fseq_ordered,
       .cons_offset         = cons_offset,
+      .link_kind           = link_kind,
     };
 #endif
 
@@ -754,6 +756,7 @@ STEM_(run)( fd_topo_t *      topo,
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
   ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
+  int link_kind[ FD_TOPO_MAX_LINKS ];
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
@@ -761,12 +764,15 @@ STEM_(run)( fd_topo_t *      topo,
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
           cons_out[ reliable_cons_cnt ] = k;
           cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
+          link_kind[ k ] = RELIABLE_LINK;
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,
              you could construct a topology which has more than this
              consumers of links. */
           FD_TEST( reliable_cons_cnt<FD_TOPO_MAX_LINKS );
+        } else {
+          link_kind[ k ] = UNRELIABLE_LINK;
         }
       }
     }
@@ -811,6 +817,7 @@ STEM_(run)( fd_topo_t *      topo,
                cons_cnt_arr,
                cons_fseq_ordered,
                cons_offset,
+               link_kind,
                STEM_LAZY,
                rng,
                fd_alloca( FD_STEM_SCRATCH_ALIGN, STEM_(scratch_footprint)( polled_in_cnt, tile->out_cnt, reliable_cons_cnt ) ),

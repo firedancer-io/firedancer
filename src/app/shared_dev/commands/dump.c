@@ -320,7 +320,7 @@ dump_cmd_fn( args_t      * args,
 
     /* The purpose of the warmup period is to ensure that all frags in
        the pcap were from after the dump was started.  fd_stem currently
-       has no way to start from the most recently published frags when
+      has no way to start from the most recently published frags when
        joining links, so at startup we get a full ~depth set of callbacks
        for old frags.  This code assumes that we are caught up and only
        processing new frags by the time the warmup timer expires. */
@@ -339,6 +339,7 @@ dump_cmd_fn( args_t      * args,
                NULL,         /* _cons_out */
                NULL,         /* _cons_fseq */
                0UL,          /* burst */
+               NULL,
                NULL,
                NULL,
                NULL,
