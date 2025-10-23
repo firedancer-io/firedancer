@@ -23,10 +23,11 @@ run_ioctl( fd_ethtool_ioctl_t * ioc,
            int                  log_notsupp ) {
   ioc->ifr.ifr_data = data;
   if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) ) {
+    int error = errno;
     if( (!!log) & ((errno!=EOPNOTSUPP) | (!!log_notsupp)) )
       FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,%s) failed (%i-%s)",
                        ioc->ifr.ifr_name, cmd, errno, fd_io_strerror( errno ) ));
-    return errno;
+    return error;
   }
   return 0;
 }
@@ -328,9 +329,10 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   ioc->ifr.ifr_data = &esf;
   ret = ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr );
   if( FD_UNLIKELY( ret < 0 ) ) {
+    int error = errno;
     FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
                      ioc->ifr.ifr_name, errno, fd_io_strerror( errno ) ));
-    return errno;
+    return error;
   }
   if( FD_UNLIKELY( ret==ETHTOOL_F_UNSUPPORTED ) ) {
     FD_LOG_WARNING(( "error configuring network device (%s), unable to change fixed feature (%s)",
