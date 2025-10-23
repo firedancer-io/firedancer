@@ -165,6 +165,14 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
+    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
+    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
+
+    /* Assume failure, set below if success.  If it doesn't land in the
+       block, rebate the non-execution CUs too. */
+    txn->bank_cu.actual_consumed_cus = 0U;
+    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
+
     fd_spad_push( ctx->exec_spad );
 
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
@@ -183,15 +191,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     }
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
-    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
-    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
-
-    /* Assume failure, set below if success.  If it doesn't land in the
-       block, rebate the non-execution CUs too. */
-    txn->bank_cu.actual_consumed_cus = 0U;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
-    txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     /* Stash the result in the flags value so that pack can inspect it. */
     /* TODO: Need to translate the err to a hacky Frankendancer style err
