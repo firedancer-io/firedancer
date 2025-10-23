@@ -469,7 +469,8 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
                          fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx );
+                         fd_capture_ctx_t *        capture_ctx,
+                         int                       flags_nonzero );
 
 /* Epoch Boundary *************************************************************/
 

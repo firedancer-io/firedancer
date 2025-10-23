@@ -1043,14 +1043,20 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
                          fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx ) {
+                         fd_capture_ctx_t *        capture_ctx,
+                         int                       flags_nonzero ) {
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_execution_fees_modify( bank ), txn_ctx->execution_fee );
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_priority_fees_modify( bank ), txn_ctx->priority_fee );
 
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_signature_count_modify( bank ), TXN( &txn_ctx->txn )->signature_cnt );
+
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
 
   if( FD_UNLIKELY( txn_ctx->exec_err ) ) {
 
@@ -1071,10 +1077,14 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       fd_runtime_save_account( funk, xid, txn_ctx->rollback_nonce_account, bank, txn_ctx->spad_wksp, capture_ctx );
     }
 
+    if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
       fd_runtime_save_account( funk, xid, txn_ctx->rollback_fee_payer_account, bank, txn_ctx->spad_wksp, capture_ctx );
     }
+
+    if( flags_nonzero ) FD_TEST( txn_ctx->flags );
   } else {
 
     for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
@@ -1084,24 +1094,36 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
         continue;
       }
 
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
       fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts[i], txn_ctx->spad_wksp );
       if( FD_UNLIKELY( !acc_rec ) ) {
         FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
       }
 
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
       if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_stakes_update_vote_state( acc_rec, bank );
       }
+
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
 
       if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         fd_stakes_update_stake_delegation( acc_rec, bank );
       }
 
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
       /* Reclaim any accounts that have 0-lamports, now that any related
          cache updates have been applied. */
       fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts[i] );
 
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
       fd_runtime_save_account( funk, xid, &txn_ctx->accounts[i], bank, txn_ctx->spad_wksp, capture_ctx );
+
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
     }
 
     /* We need to queue any existing program accounts that may have
@@ -1112,37 +1134,57 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       for( uchar i=0; i<txn_ctx->programs_to_reverify_cnt; i++ ) {
         fd_pubkey_t const * program_key = &txn_ctx->programs_to_reverify[i];
         fd_progcache_invalidate( progcache, xid, program_key, current_slot );
+        if( flags_nonzero ) FD_TEST( txn_ctx->flags );
       }
   }
 
   int is_vote = fd_txn_is_simple_vote_transaction( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
   if( !is_vote ){
     ulong * nonvote_txn_count = fd_bank_nonvote_txn_count_modify( bank );
     FD_ATOMIC_FETCH_AND_ADD(nonvote_txn_count, 1);
 
+    if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
     if( FD_UNLIKELY( txn_ctx->exec_err ) ){
       ulong * nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_modify( bank );
       FD_ATOMIC_FETCH_AND_ADD( nonvote_failed_txn_count, 1 );
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
     }
   } else {
     if( FD_UNLIKELY( txn_ctx->exec_err ) ){
       ulong * failed_txn_count = fd_bank_failed_txn_count_modify( bank );
       FD_ATOMIC_FETCH_AND_ADD( failed_txn_count, 1 );
+      if( flags_nonzero ) FD_TEST( txn_ctx->flags );
     }
   }
 
   ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
   FD_ATOMIC_FETCH_AND_ADD( total_compute_units_used, txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter );
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
 
   /* Update the cost tracker */
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
+    FD_LOG_WARNING(( "transaction failed to fit into block despite pack guaranteeing it would "
+                     "(res=%d %u) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
+                     "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
+                     res, txn_ctx->flags, cost_tracker->block_cost, cost_tracker->vote_cost,
+                     cost_tracker->allocated_accounts_data_size,
+                     cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
+                     cost_tracker->account_cost_limit ));
     txn_ctx->flags = 0U;
+    if( flags_nonzero ) FD_TEST( txn_ctx->flags );
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
   txn_ctx->loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
+
+  if( flags_nonzero ) FD_TEST( txn_ctx->flags );
 
   if( FD_LIKELY( txncache && txn_ctx->nonce_account_idx_in_txn==ULONG_MAX ) ) {
     /* In Agave, durable nonce transactions are inserted to the status
@@ -1151,8 +1193,11 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
        nonce mechanism itself prevents double spend.  We skip this logic
        entirely to simplify and improve performance of the txn cache. */
 
+    if( flags_nonzero ) FD_TEST( txn_ctx->flags );
+
     fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
     fd_txncache_insert( txncache, bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+    if( flags_nonzero ) FD_TEST( txn_ctx->flags );
   }
 }
 

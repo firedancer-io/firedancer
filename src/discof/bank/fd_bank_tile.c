@@ -165,11 +165,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
-    FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
+    fd_spad_push( ctx->exec_spad );
 
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( err ) ]++;
+      fd_spad_pop( ctx->exec_spad );
       continue;
     }
 
@@ -248,9 +249,17 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+    FD_TEST( txn_ctx->flags );
+    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL, 1 );
+    FD_COMPILER_MFENCE();
+    FD_TEST( txn_ctx->flags );
+    FD_COMPILER_MFENCE();
 
-    } FD_SPAD_FRAME_END;
+    fd_spad_pop( ctx->exec_spad );
+
+    FD_COMPILER_MFENCE();
+    FD_TEST( txn_ctx->flags );
+    FD_COMPILER_MFENCE();
 
     if( FD_UNLIKELY( !txn_ctx->flags ) ) {
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
