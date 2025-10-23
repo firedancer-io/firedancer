@@ -425,8 +425,7 @@ install_bzip2 () {
   cd "$PREFIX/git/bzip2"
 
   echo "[+] Installing bzip2 to $PREFIX"
-  "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" CFLAGS="-fPIC $EXTRA_CFLAGS -Wall -Winline -O2 -g" libbz2.a
-  cp libbz2.a "$PREFIX/lib"
+  # Not building bzip2 here, see src/ballet/bzip2/Local.mk
   cp bzlib.h "$PREFIX/include"
   echo "[+] Successfully installed bzip2"
 }
