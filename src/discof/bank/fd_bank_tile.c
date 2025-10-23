@@ -185,9 +185,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
-    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
-      writable_alt[ i-txn_descriptor->acct_addr_cnt ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
-    }
+    writable_alt[ i ] = fd_type_pun_const( txn_ctx->account_keys+txn_descriptor->acct_addr_cnt );
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
