@@ -2174,7 +2174,7 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
       }
 
       FD_TEST( min_index!=ULONG_MAX );
-      ulong min_value = ctx->hard_forks[ min_index ];
+      min_value = ctx->hard_forks[ min_index ];
       ulong min_count = 0UL;
       for( ulong i=0UL; i<ctx->hard_forks_cnt; i++ ) {
         if( ctx->hard_forks[ i ]==min_value ) min_count++;
@@ -2186,6 +2186,8 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
       fd_memcpy( data+40UL, &min_count, sizeof(ulong) );
 
       FD_TEST( fd_sha256_hash( data, 48UL, running_hash.c ) );
+      processed += min_count;
+      min_value += 1UL;
     }
 
     ushort xor = 0;
@@ -2195,7 +2197,7 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
 
     if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash and hard forks", expected_shred_version, xor ) );
+      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, FD_BASE58_ENC_32_ALLOCA( &ctx->genesis_hash ) ));
     }
   }
 }
