@@ -24,6 +24,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../util/clock/fd_clock.h"
@@ -32,17 +33,6 @@ static fd_http_static_file_t * STATIC_FILES;
 
 #include "../../flamenco/gossip/fd_gossip_private.h"
 #include "../../flamenco/runtime/fd_bank.h"
-
-#include <sys/types.h>
-#include <unistd.h>
-#include <string.h>
-#include <poll.h>
-#include <stdio.h>
-
-#if FD_HAS_ZSTD
-#define ZSTD_STATIC_LINKING_ONLY
-#include <zstd.h>
-#endif
 
 #define IN_KIND_PLUGIN       ( 0UL)
 #define IN_KIND_POH_PACK     ( 1UL)
@@ -53,11 +43,12 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_NET_GOSSVF   ( 6UL) /* firedancer only */
 #define IN_KIND_GOSSIP_NET   ( 7UL) /* firedancer only */
 #define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
-#define IN_KIND_SNAPRD       ( 9UL) /* firedancer only */
+#define IN_KIND_SNAPCT       ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
 #define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
 #define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
 #define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
+#define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -250,14 +241,18 @@ during_frag( fd_gui_ctx_t * ctx,
     sz = fd_stake_weight_msg_sz( leader_schedule->staked_cnt );
   }
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
+    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) sz = sizeof(fd_lthash_value_t)+sizeof(fd_hash_t);
+  }
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
     if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return;
   }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
     /* There are multiple frags types sent on this link, the currently the
-     only way to distinguish them is to check sz.  We dont actually read
-     from the dcache.  */
+       only way to distinguish them is to check sz.  We dont actually read
+       from the dcache.  */
     return;
   }
 
@@ -309,8 +304,8 @@ after_frag( fd_gui_ctx_t *      ctx,
           ctx->peers->votes[ vote_count ].last_vote_slot      = vote_state->last_vote_slot;
           ctx->peers->votes[ vote_count ].last_vote_timestamp = vote_state->last_vote_timestamp;
           ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
-          ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
-          ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
+          // ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
+          // ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
 
           vote_count++;
         }
@@ -375,6 +370,16 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
       break;
     }
+    case IN_KIND_GENESI_OUT: {
+      FD_TEST( ctx->is_full_client );
+
+      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
+        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf+sizeof(fd_lthash_value_t) );
+      } else {
+        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf );
+      }
+      break;
+    }
     case IN_KIND_TOWER_OUT: {
       FD_TEST( ctx->is_full_client );
       fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)ctx->buf;
@@ -394,9 +399,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       }
       break;
     }
-    case IN_KIND_SNAPRD: {
+    case IN_KIND_SNAPCT: {
       FD_TEST( ctx->is_full_client );
-      fd_gui_handle_snapshot_update( ctx->gui, (fd_snaprd_update_t *)ctx->buf );
+      fd_gui_handle_snapshot_update( ctx->gui, (fd_snapct_update_t *)ctx->buf );
       break;
     }
     case IN_KIND_REPAIR_NET: {
@@ -706,7 +711,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
   ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL );
-  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snaprd", 0UL );
+  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
 
   fd_clock_default_init( ctx->clock, ctx->clock_mem );
   ctx->recal_next = fd_clock_recal_next( ctx->clock );
@@ -754,11 +759,12 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;   /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "snaprd_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;       /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;       /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "repair_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;    /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {

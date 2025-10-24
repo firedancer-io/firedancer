@@ -1,8 +1,7 @@
-#ifndef HEADER_fd_src_util_encoders_fd_bincode_h
-#define HEADER_fd_src_util_encoders_fd_bincode_h
+#ifndef HEADER_fd_src_flamenco_types_fd_bincode_h
+#define HEADER_fd_src_flamenco_types_fd_bincode_h
 
 #include "../../util/fd_util.h"
-#include "../../util/valloc/fd_valloc.h"
 
 typedef void
 (* fd_types_walk_fn_t)( void *       self,
@@ -597,6 +596,7 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
   __extension__({                                                      \
     void const * const buf_    = (buf);                                \
     ulong        const buf_sz_ = (buf_sz);                             \
+    int *              perr_   = (perr);                               \
     fd_##type##_t *    res     = NULL;                                 \
     fd_bincode_decode_ctx_t ctx = {0};                                 \
     ctx.data    = (void const *)( buf_ );                              \
@@ -606,7 +606,8 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
     if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
       res = fd_##type##_decode( (out), &ctx );                         \
     }                                                                  \
+    if( perr_ ) *perr_ = err;                                          \
     res;                                                               \
   })
 
-#endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
+#endif /* HEADER_fd_src_flamenco_types_fd_bincode_h */

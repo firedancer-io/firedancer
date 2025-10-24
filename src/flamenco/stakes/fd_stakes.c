@@ -27,7 +27,8 @@ fd_stake_weights_by_node( fd_vote_states_t const * vote_states,
 
 /* We need to update the amount of stake that each vote account has for
    the given epoch.  This can only be done after the stake history
-   sysvar has been updated.
+   sysvar has been updated.  We also cache the stakes for each of the
+   vote accounts for the previous epoch.
 
    https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L471 */
 void
@@ -78,13 +79,31 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
 
   fd_bank_total_epoch_stake_set( bank, total_stake );
 
+  /* This corresponding logic does not exist in the Agave client.  The
+     stakes from epoch T-2 are cached in the vote states struct in order
+     to make clock calulations more efficient.  This is purely an
+     optimization. */
+
+  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+
+  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+    fd_vote_states_iter_t vs_iter_[1];
+    for( fd_vote_states_iter_t * vs_iter = fd_vote_states_iter_init( vs_iter_, vote_states );
+        !fd_vote_states_iter_done( vs_iter );
+        fd_vote_states_iter_next( vs_iter ) ) {
+      fd_vote_state_ele_t * vote_state      = fd_vote_states_iter_ele( vs_iter );
+      fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_states_prev, &vote_state->vote_account );
+      vote_state->stake_t_2 = !!vote_state_prev ? vote_state_prev->stake : 0UL;
+    }
+  }
+  fd_bank_vote_states_prev_prev_end_locking_query( bank );
   fd_bank_vote_states_end_locking_modify( bank );
 }
 
 /* https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/stakes.rs#L280 */
 void
 fd_stakes_activate_epoch( fd_bank_t *                    bank,
-                          fd_funk_t *                    funk,
+                          fd_accdb_user_t *              accdb,
                           fd_funk_txn_xid_t const *      xid,
                           fd_capture_ctx_t *             capture_ctx,
                           fd_stake_delegations_t const * stake_delegations,
@@ -97,7 +116,7 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
      accounts for the new epoch. */
 
   fd_stake_history_t stake_history[1];
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 
@@ -134,9 +153,9 @@ fd_stakes_activate_epoch( fd_bank_t *                    bank,
     new_elem.entry.deactivating += new_entry.deactivating;
   }
 
-  fd_sysvar_stake_history_update( bank, funk, xid, capture_ctx, &new_elem );
+  fd_sysvar_stake_history_update( bank, accdb, xid, capture_ctx, &new_elem );
 
-  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( funk, xid, stake_history ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_stake_history_read( accdb->funk, xid, stake_history ) ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
 

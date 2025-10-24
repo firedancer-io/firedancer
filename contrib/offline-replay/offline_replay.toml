@@ -8,7 +8,6 @@
         rocksdb_path = "{ledger}/rocksdb"
     [tiles.replay]
         cluster_version = "{cluster_version}"
-        heap_size_gib = {heap_size}
     [tiles.gui]
         enabled = false
 [funk]
@@ -29,8 +28,6 @@
     path = "{log}"
 [paths]
     snapshots = "{ledger}"
-[hugetlbfs]
-    mount_path = "/data/firedancer/mnt"
 [snapshots]
     download = false
     incremental_snapshots = false

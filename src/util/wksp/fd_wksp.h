@@ -638,7 +638,7 @@ fd_wksp_usage( fd_wksp_t *       wksp,
 
      // Create the shared memory region and format as a workspace
      fd_shmem_create_multi( name, page_sz, sub_cnt, sub_page_cnt, sub_cpu_idx, mode );
-     void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL, 0 ) );
+     void * shmem = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, NULL ) );
      fd_wksp_new( shmem, name, seed, part_max, data_max );
      fd_shmem_leave( shmem, NULL, NULL );
 

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_env_fd_env_h
-#define HEADER_fd_src_env_fd_env_h
+#ifndef HEADER_fd_src_util_env_fd_env_h
+#define HEADER_fd_src_util_env_fd_env_h
 
 /* APIs for getting information from the environment */
 
@@ -67,4 +67,4 @@ fd_env_strip_cmdline_contains( int *        pargc,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_env_fd_env_h */
+#endif /* HEADER_fd_src_util_env_fd_env_h */

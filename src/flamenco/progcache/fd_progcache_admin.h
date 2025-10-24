@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_fd_progcache_admin_h
-#define HEADER_fd_src_flamenco_fd_progcache_admin_h
+#ifndef HEADER_fd_src_flamenco_progcache_fd_progcache_admin_h
+#define HEADER_fd_src_flamenco_progcache_fd_progcache_admin_h
 
 #include "../../funk/fd_funk.h"
 
@@ -76,27 +76,13 @@ fd_progcache_reset( fd_progcache_admin_t * cache );
 void
 fd_progcache_clear( fd_progcache_admin_t * cache );
 
-FD_PROTOTYPES_END
-
-/* Verify operations **************************************************/
-
-struct fd_progcache_verify_stat {
-  ulong txn_cnt;
-  ulong rec_cnt;
-};
-
-typedef struct fd_progcache_verify_stat fd_progcache_verify_stat_t;
-
-FD_PROTOTYPES_BEGIN
-
 /* fd_progcache_verify does various expensive data structure integrity
    checks.  Assumes no concurrent users of progcache.  Collects stats
    along the way. */
 
 void
-fd_progcache_verify( fd_progcache_admin_t *       cache,
-                     fd_progcache_verify_stat_t * out_stat );
+fd_progcache_verify( fd_progcache_admin_t * cache );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_fd_progcache_admin_h */
+#endif /* HEADER_fd_src_flamenco_progcache_fd_progcache_admin_h */

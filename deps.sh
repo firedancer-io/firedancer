@@ -139,6 +139,7 @@ fetch () {
   checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.6.0"
   checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.7.0"
   if [[ $DEVMODE == 1 ]]; then
+    checkout_repo bzip2     https://gitlab.com/bzip2/bzip2            "bzip2-1.0.8"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.5.1"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
   fi
@@ -284,11 +285,47 @@ check_macos_pkgs () {
   PACKAGE_INSTALL_CMD=( brew install ${MISSING_FORMULAE[*]} )
 }
 
+check_arch_pkgs () {
+  local REQUIRED_PKGS=(
+    base-devel        # C/C++ compiler, make, etc.
+    curl              # download rustup
+    zstd              # build system
+    cmake             # Agave (protobuf-src)
+    clang             # Agave (bindgen)
+    perl              # Agave (OpenSSL)
+    protobuf          # Agave, solfuzz
+    systemd-libs      # Agave
+  )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_PKGS+=( gmp lcov )
+  fi
+
+  echo "[~] Checking for required Arch Linux packages"
+
+  local MISSING_PKGS=( )
+  for pkg in "${REQUIRED_PKGS[@]}"; do
+    if ! pacman -Q "$pkg" &>/dev/null; then
+      MISSING_PKGS+=( "$pkg" )
+    fi
+  done
+
+  if [[ ${#MISSING_PKGS[@]} -eq 0 ]]; then
+    echo "[~] OK: Arch Linux packages required for build are installed"
+    return 0
+  fi
+
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  fi
+}
+
 check () {
   DISTRO="${ID_LIKE:-${ID:-}}"
   for word in $DISTRO ; do
     case "$word" in
-      fedora|debian|alpine|macos)
+      fedora|debian|alpine|macos|arch)
         check_${word}_pkgs
         ;;
       rhel|centos)
@@ -382,6 +419,15 @@ install_zstd () {
   echo "[+] Installing zstd to $PREFIX"
   "${MAKE[@]}" DESTDIR="$PREFIX" PREFIX="" MOREFLAGS="-fPIC $EXTRA_CFLAGS" install-pc install-static install-includes
   echo "[+] Successfully installed zstd"
+}
+
+install_bzip2 () {
+  cd "$PREFIX/git/bzip2"
+
+  echo "[+] Installing bzip2 to $PREFIX"
+  # Not building bzip2 here, see src/ballet/bzip2/Local.mk
+  cp bzlib.h "$PREFIX/include"
+  echo "[+] Successfully installed bzip2"
 }
 
 install_lz4 () {
@@ -589,6 +635,7 @@ install () {
   ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
+    ( install_bzip2     )
     ( install_snappy    )
     ( install_rocksdb   )
   fi

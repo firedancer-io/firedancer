@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_aes_fd_aes_h
-#define HEADER_fd_src_ballet_aes_fd_aes_h
+#ifndef HEADER_fd_src_ballet_aes_fd_aes_base_h
+#define HEADER_fd_src_ballet_aes_fd_aes_base_h
 
 #include "../fd_ballet_base.h"
 #include "../../util/sanitize/fd_msan.h"
@@ -81,7 +81,7 @@ FD_PROTOTYPES_END
 
   typedef fd_aes_key_ref_t               fd_aes_key_t;
   #define fd_aes_private_encrypt         fd_aes_ref_encrypt_core
-  #define fd_aes_private_decrypt         fd_aes_ref_encrypt_core
+  #define fd_aes_private_decrypt         fd_aes_ref_decrypt_core
   #define fd_aes_private_set_encrypt_key fd_aes_ref_set_encrypt_key
   #define fd_aes_private_set_decrypt_key fd_aes_ref_set_decrypt_key
 
@@ -133,4 +133,4 @@ fd_aes_decrypt( uchar const *        in,
   fd_aes_private_decrypt( in, out, key );
 }
 
-#endif /* HEADER_fd_src_ballet_aes_fd_aes_h */
+#endif /* HEADER_fd_src_ballet_aes_fd_aes_base_h */

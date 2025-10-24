@@ -22,6 +22,7 @@ jobs:
         ALL,linux_gcc_icelake,ALL;
         ALL,linux_gcc_x86_64,ALL;
         ALL,linux_gcc_zen2,ALL;
+        ALL,linux_gcc_zen3,ALL;
         gcc-8.5.0,linux_gcc_zen4,ALL;
         gcc-9.5.0,linux_gcc_zen4,ALL;
         gcc-10.5.0,linux_gcc_zen4,ALL;
@@ -33,6 +34,10 @@ jobs:
         gcc-12.4.0,linux_gcc_zen5,ALL;
         gcc-13.3.0,linux_gcc_zen5,ALL;
         gcc-14.1.0,linux_gcc_zen5,ALL
+      clang_exceptions: |
+        ALL,linux_clang_zen3,ALL;
+        ALL,linux_clang_zen4,ALL;
+        ALL,linux_clang_zen5,ALL;
       build_arm: true
       cid: 3
   builds_2:

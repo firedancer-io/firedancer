@@ -847,26 +847,26 @@
 
 </div>
 
-## Snaprd Tile
+## Snapct Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | State of the tile |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the full snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
-| <span class="metrics-name">snaprd_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
+| <span class="metrics-name">snapct_&#8203;state</span> | gauge | State of the tile |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the full snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
+| <span class="metrics-name">snapct_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
 
 </div>
 
@@ -1054,6 +1054,7 @@
 | <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
 | <span class="metrics-name">resolf_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
 | <span class="metrics-name">resolf_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">resolf_&#8203;db_&#8203;races</span> | counter | Number of database races encountered (diagnostic counter, not indicative of issues) |
 
 </div>
 

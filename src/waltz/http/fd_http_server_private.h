@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_http_fd_http_server_private_h
-#define HEADER_fd_src_ballet_http_fd_http_server_private_h
+#ifndef HEADER_fd_src_waltz_http_fd_http_server_private_h
+#define HEADER_fd_src_waltz_http_fd_http_server_private_h
 
 #include "fd_http_server.h"
 
@@ -154,4 +154,4 @@ struct __attribute__((aligned(FD_HTTP_SERVER_ALIGN))) fd_http_server_private {
   struct pollfd                       pollfds[ ]; */
 };
 
-#endif /* HEADER_fd_src_ballet_http_fd_http_server_private_h */
+#endif /* HEADER_fd_src_waltz_http_fd_http_server_private_h */

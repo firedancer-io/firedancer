@@ -7,7 +7,7 @@
 
 void
 fd_sysvar_rent_write( fd_bank_t *               bank,
-                      fd_funk_t *               funk,
+                      fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_capture_ctx_t *        capture_ctx,
                       fd_rent_t const *         rent ) {
@@ -24,16 +24,16 @@ fd_sysvar_rent_write( fd_bank_t *               bank,
   if( fd_rent_encode( rent, &ctx ) )
     FD_LOG_ERR(("fd_rent_encode failed"));
 
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_rent_id, enc, sz );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_rent_id, enc, sz );
 }
 
 void
 fd_sysvar_rent_init( fd_bank_t *               bank,
-                     fd_funk_t *               funk,
+                     fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid,
                      fd_capture_ctx_t *        capture_ctx ) {
   fd_rent_t const * rent = fd_bank_rent_query( bank );
-  fd_sysvar_rent_write( bank, funk, xid, capture_ctx, rent );
+  fd_sysvar_rent_write( bank, accdb, xid, capture_ctx, rent );
 }
 
 fd_rent_t const *

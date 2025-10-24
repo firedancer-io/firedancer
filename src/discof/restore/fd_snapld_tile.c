@@ -142,7 +142,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_TEST( tile->in_cnt==1UL );
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
-  FD_TEST( 0==strcmp( in_link->name, "snaprd_ld" ) );
+  FD_TEST( 0==strcmp( in_link->name, "snapct_ld" ) );
   ctx->in_rd.base = fd_topo_obj_wksp_base( topo, in_link->dcache_obj_id );
 
   FD_TEST( tile->out_cnt==1UL );
@@ -204,7 +204,7 @@ after_credit( fd_snapld_tile_t *  ctx,
           ctx->sent_meta = 1;
           fd_ssctrl_meta_t * meta = (fd_ssctrl_meta_t *)out;
           ulong next_chunk = fd_dcache_compact_next( ctx->out_dc.chunk, sizeof(fd_ssctrl_meta_t), ctx->out_dc.chunk0, ctx->out_dc.wmark );
-          fd_memcpy( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
+          memmove( fd_chunk_to_laddr( ctx->out_dc.mem, next_chunk ), out, data_len );
           char const * full_name;
           char const * incr_name;
           fd_sshttp_snapshot_names( ctx->sshttp, &full_name, &incr_name );

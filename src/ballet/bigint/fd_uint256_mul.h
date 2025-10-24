@@ -1,4 +1,4 @@
-#ifndef HEADER_fd_src_ballet_bigint_uint256_h
+#ifndef HEADER_fd_src_ballet_bigint_fd_uint256_h
 #error "Do not include this directly; use fd_uint256.h"
 #endif
 

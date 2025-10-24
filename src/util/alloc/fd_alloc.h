@@ -615,20 +615,6 @@ fd_alloc_max_expand( ulong max,
   return fd_ulong_max( fd_ulong_max( t0, t1 ), needed );
 }
 
-/* fd_alloc_vtable is the virtual function table implementing fd_valloc
-   for fd_alloc. */
-
-extern const fd_valloc_vtable_t fd_alloc_vtable;
-
-/* fd_alloc_virtual returns an abstract handle to the fd_alloc join.
-   Valid for lifetime of join. */
-
-FD_FN_CONST static inline fd_valloc_t
-fd_alloc_virtual( fd_alloc_t * alloc ) {
-  fd_valloc_t valloc = { alloc, &fd_alloc_vtable };
-  return valloc;
-}
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_alloc_fd_alloc_h */

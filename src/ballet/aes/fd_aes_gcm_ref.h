@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_ballet_aes_fd_aes_gcm_ref_h
+#define HEADER_fd_src_ballet_aes_fd_aes_gcm_ref_h
+
 #include "fd_aes_base.h"
 
 union fd_gcm128 {
@@ -45,3 +48,5 @@ fd_gcm_ghash_4bit( ulong             Xi[2],
                    fd_gcm128_t const Htable[16],
                    uchar const *     in,
                    ulong             len );
+
+#endif /* HEADER_fd_src_ballet_aes_fd_aes_gcm_ref_h */

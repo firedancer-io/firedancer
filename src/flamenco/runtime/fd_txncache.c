@@ -10,9 +10,9 @@ struct blockcache {
                             pointer is updated to the new item, and the new item is pointed to the previous head. */
   uint * pages;          /* A list of the txnpages containing the transactions for this blockcache. */
 
-  uchar * descends;      /* Each fork can descend from other forks in the txncache, and this array contains one value
-                            for each fork in the txncache.  If this fork descends from the fork at position id,
-                            then descends[ id ] will be 1, otherwise 1. */
+  descends_set_t * descends; /* Each fork can descend from other forks in the txncache, and this bit vector contains one
+                                value for each fork in the txncache.  If this fork descends from some other fork F, then
+                                the bit at index F in descends[] is set. */
 };
 
 typedef struct blockcache blockcache_t;
@@ -67,13 +67,19 @@ fd_txncache_new( void *                ljoin,
   ushort _max_txnpages               = fd_txncache_max_txnpages( max_active_slots, shmem->txn_per_slot_max );
   ushort _max_txnpages_per_blockhash = fd_txncache_max_txnpages_per_blockhash( max_active_slots, shmem->txn_per_slot_max );
 
+  ulong _descends_footprint = descends_set_footprint( max_active_slots );
+  if( FD_UNLIKELY( !_descends_footprint ) ) {
+    FD_LOG_WARNING(( "invalid max_active_slots" ));
+    return NULL;
+  }
+
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   fd_txncache_shmem_t * tc    = FD_SCRATCH_ALLOC_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,         sizeof(fd_txncache_shmem_t)                               );
   void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),           blockhash_map_footprint( blockhash_map_chains )           );
   void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),         blockcache_pool_footprint( max_active_slots )             );
   void * _blockcache_pages    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*_max_txnpages_per_blockhash*sizeof(uint) );
   void * _blockcache_heads    = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*shmem->txn_per_slot_max*sizeof(uint)     );
-  void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, alignof(uchar),                  max_active_slots*max_active_slots*sizeof(uchar)           );
+  void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                      );
   void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                              );
   void * _txnpages            = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)               );
 
@@ -87,10 +93,11 @@ fd_txncache_new( void *                ljoin,
   ltc->blockcache_shmem_pool = blockcache_pool_join( _blockcache_pool );
 
   for( ulong i=0UL; i<shmem->active_slots_max; i++ ) {
-    ltc->blockcache_pool[ i ].pages = (uint *)_blockcache_pages + i*_max_txnpages_per_blockhash;
-    ltc->blockcache_pool[ i ].heads = (uint *)_blockcache_heads + i*shmem->txn_per_slot_max;
-    ltc->blockcache_pool[ i ].descends = (uchar *)_blockcache_descends + i*max_active_slots;
-    ltc->blockcache_pool[ i ].shmem = ltc->blockcache_shmem_pool + i;
+    ltc->blockcache_pool[ i ].pages    = (uint *)_blockcache_pages + i*_max_txnpages_per_blockhash;
+    ltc->blockcache_pool[ i ].heads    = (uint *)_blockcache_heads + i*shmem->txn_per_slot_max;
+    ltc->blockcache_pool[ i ].descends = descends_set_join( (uchar *)_blockcache_descends + i*_descends_footprint );
+    ltc->blockcache_pool[ i ].shmem    = ltc->blockcache_shmem_pool + i;
+    FD_TEST( ltc->blockcache_pool[ i ].shmem );
   }
 
   FD_TEST( ltc->blockcache_shmem_pool );
@@ -231,7 +238,7 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
     fork->shmem->parent_id  = (fd_txncache_fork_id_t){ .val = USHORT_MAX };
     fork->shmem->sibling_id = (fd_txncache_fork_id_t){ .val = USHORT_MAX };
 
-    fd_memset( fork->descends, 0, tc->shmem->active_slots_max*sizeof(uchar) );
+    descends_set_null( fork->descends );
     root_slist_ele_push_tail( tc->shmem->root_ll, fork->shmem, tc->blockcache_shmem_pool );
   } else {
     blockcache_t * parent = &tc->blockcache_pool[ parent_fork_id.val ];
@@ -244,8 +251,8 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
     fork->shmem->parent_id  = parent_fork_id;
     parent->shmem->child_id = fork_id;
 
-    fd_memcpy( fork->descends, parent->descends, tc->shmem->active_slots_max*sizeof(uchar) );
-    fork->descends[ parent_fork_id.val ] = 1;
+    descends_set_copy( fork->descends, parent->descends );
+    descends_set_insert( fork->descends, parent_fork_id.val );
   }
 
   fork->shmem->txnhash_offset = 0UL;
@@ -301,7 +308,7 @@ remove_blockcache( fd_txncache_t * tc,
   tc->shmem->txnpages_free_cnt = (ushort)(tc->shmem->txnpages_free_cnt+blockcache->shmem->pages_cnt);
 
   ulong idx = blockcache_pool_idx( tc->blockcache_shmem_pool, blockcache->shmem );
-  for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) tc->blockcache_pool[ i ].descends[ idx ] = 0;
+  for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) descends_set_remove( tc->blockcache_pool[ i ].descends, idx );
 
   blockhash_map_ele_remove_fast( tc->blockhash_map, blockcache->shmem, tc->blockcache_shmem_pool );
   blockcache_pool_ele_release( tc->blockcache_shmem_pool, blockcache->shmem );
@@ -377,7 +384,7 @@ blockhash_on_fork( fd_txncache_t *      tc,
 
   while( candidate ) {
     ulong candidate_idx = blockcache_pool_idx( tc->blockcache_shmem_pool, candidate );
-    if( FD_LIKELY( fork->descends[ candidate_idx ] ) ) return &tc->blockcache_pool[ candidate_idx ];
+    if( FD_LIKELY( descends_set_test( fork->descends, candidate_idx ) ) ) return &tc->blockcache_pool[ candidate_idx ];
     candidate = blockhash_map_ele_next_const( candidate, NULL, tc->blockcache_shmem_pool );
   }
   return NULL;
@@ -434,7 +441,7 @@ fd_txncache_query( fd_txncache_t *       tc,
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
     fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
 
-    int descends = txn->fork_id.val==fork_id.val || fork->descends[ txn->fork_id.val ];
+    int descends = txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val );
     if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
       found = 1;
       break;

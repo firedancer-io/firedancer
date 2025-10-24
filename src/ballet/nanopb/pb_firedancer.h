@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_nanopb_pb_firedancer_h
-#define HEADER_fd_src_flamenco_nanopb_pb_firedancer_h
+#ifndef HEADER_fd_src_ballet_nanopb_pb_firedancer_h
+#define HEADER_fd_src_ballet_nanopb_pb_firedancer_h
 
 #ifdef PB_H_INCLUDED
 #error "Only include pb_firedancer.h"
@@ -14,4 +14,4 @@
 #include "pb.h"
 #include "../../util/fd_util.h"
 
-#endif /* HEADER_fd_src_flamenco_nanopb_pb_firedancer_h */
+#endif /* HEADER_fd_src_ballet_nanopb_pb_firedancer_h */

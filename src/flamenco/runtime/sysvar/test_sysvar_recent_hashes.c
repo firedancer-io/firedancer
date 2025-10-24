@@ -1,5 +1,8 @@
+#include "test_sysvar_cache_util.h"
 #include "fd_sysvar_base.h"
 #include "fd_sysvar_recent_hashes.h"
+#include "../fd_bank.h"
+#include "../fd_system_ids.h"
 #include "../../types/fd_types.h"
 
 FD_IMPORT_BINARY( example_recent_hashes, "src/flamenco/runtime/sysvar/test_sysvar_recent_hashes.bin" );
@@ -42,8 +45,8 @@ test_sysvar_recent_hashes_init( fd_wksp_t * wksp ) {
   fd_bank_rent_set( env->bank, rent );
 
   /* Create an empty recent hashes sysvar */
-  fd_sysvar_recent_hashes_init( env->bank, env->funk, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->funk, &env->xid );
+  fd_sysvar_recent_hashes_init( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
   FD_TEST( fd_sysvar_cache_recent_hashes_is_valid( env->sysvar_cache )==1 );
   {
     fd_bank_poh_set( env->bank, (fd_hash_t){0} );
@@ -80,8 +83,8 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
   fd_hash_t poh = { .ul={ 0x110b8a330ecf93c2UL, 0xb709306fbd53c744, 0xda66f7127781dd72, 0UL } };
   fd_bank_poh_set( env->bank, poh );
   fd_bank_lamports_per_signature_set( env->bank, 1000UL );
-  fd_sysvar_recent_hashes_update( env->bank, env->funk, &env->xid, NULL );
-  fd_sysvar_cache_restore( env->bank, env->funk, &env->xid );
+  fd_sysvar_recent_hashes_update( env->bank, env->accdb, &env->xid, NULL );
+  fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
   FD_TEST( fd_sysvar_cache_recent_hashes_is_valid( env->sysvar_cache )==1 );
   {
     ulong sz = 0UL;
@@ -98,8 +101,8 @@ test_sysvar_recent_hashes_update( fd_wksp_t * wksp ) {
     poh.ul[3] = i+1UL;
     fd_bank_poh_set( env->bank, poh );
     fd_bank_lamports_per_signature_set( env->bank, 1001UL+i );
-    fd_sysvar_recent_hashes_update( env->bank, env->funk, &env->xid, NULL );
-    fd_sysvar_cache_restore( env->bank, env->funk, &env->xid );
+    fd_sysvar_recent_hashes_update( env->bank, env->accdb, &env->xid, NULL );
+    fd_sysvar_cache_restore( env->bank, env->accdb->funk, &env->xid );
 
     ulong sz = 0UL;
     uchar const * data = fd_sysvar_cache_data_query( env->sysvar_cache, &fd_sysvar_recent_block_hashes_id, &sz );

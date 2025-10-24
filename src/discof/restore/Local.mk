@@ -1,6 +1,6 @@
 ifdef FD_HAS_SSE
-$(call add-hdrs,fd_snaprd_tile.h)
-$(call add-objs,fd_snaprd_tile,fd_discof)
+$(call add-hdrs,fd_snapct_tile.h)
+$(call add-objs,fd_snapct_tile,fd_discof)
 $(call add-objs,fd_snapld_tile,fd_discof)
 ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)

@@ -82,11 +82,15 @@ fd_runtime_fuzz_load_from_vm_input_regions( fd_vm_input_region_t const *        
     out_region->is_writable = vm_region->is_writable;
     out_region->offset = vm_region->vaddr_offset;
 
-    out_region->content = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                               PB_BYTES_ARRAY_T_ALLOCSIZE(vm_region->region_sz) );
-    FD_TEST( out_region->content );
-    out_region->content->size = vm_region->region_sz;
-    fd_memcpy( out_region->content->bytes, (void *)vm_region->haddr, vm_region->region_sz );
+    if( vm_region->region_sz > 0 ) {
+      out_region->content = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                                 PB_BYTES_ARRAY_T_ALLOCSIZE(vm_region->region_sz) );
+      FD_TEST( out_region->content );
+      out_region->content->size = vm_region->region_sz;
+      fd_memcpy( out_region->content->bytes, (void *)vm_region->haddr, vm_region->region_sz );
+    } else {
+      out_region->content = NULL;
+    }
   }
 
   ulong end = FD_SCRATCH_ALLOC_FINI( l, 1UL );

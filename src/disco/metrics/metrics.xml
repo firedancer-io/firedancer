@@ -432,6 +432,7 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+    <counter name="DbRaces" summary="Number of database races encountered (diagnostic counter, not indicative of issues)" />
 </tile>
 
 <tile name="resolv">
@@ -1012,7 +1013,7 @@ metric introduced.
     <counter name="NeighProbeRateLimitGlobal" summary="Number of neighbor solicit that exceeded the global rate limit" />
 </tile>
 
-<tile name="snaprd">
+<tile name="snapct">
     <gauge name="State" summary="State of the tile" />
     <counter name="FullNumRetries" summary="Number of times we aborted and retried full snapshot download because the peer was too slow" />
     <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />

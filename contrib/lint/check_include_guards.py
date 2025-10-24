@@ -8,7 +8,7 @@ import os
 
 
 def check_file(path):
-    guard_name = "HEADER_fd_" + str(path).replace(".", "_").replace("/", "_")
+    guard_name = "HEADER_fd_" + str(path).replace(".", "_").replace("/", "_").replace("-", "_")
     with open(path, "r") as f:
         # Skip whitespace lines
         while True:
@@ -27,6 +27,8 @@ def check_file(path):
 def main():
     # Recursive find .h files
     for path in Path("./src").rglob("*.h"):
+        if ".pb.h" in path.name:
+            continue
         try:
             check_file(path)
         except IOError:

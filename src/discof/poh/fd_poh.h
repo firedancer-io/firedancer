@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_poh_h
-#define HEADER_fd_src_discof_poh_h
+#ifndef HEADER_fd_src_discof_poh_fd_poh_h
+#define HEADER_fd_src_discof_poh_fd_poh_h
 
 /* Let's say there was a computer, the "leader" computer, that acted as
    a bank.  Users could send it messages saying they wanted to deposit
@@ -511,4 +511,4 @@ fd_poh1_mixin( fd_poh_t *          poh,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_poh_h */
+#endif /* HEADER_fd_src_discof_poh_fd_poh_h */

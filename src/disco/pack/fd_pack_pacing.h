@@ -1,5 +1,8 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_pacing_h
-#define HEADER_fd_src_ballet_pack_fd_pack_pacing_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_pacing_h
+#define HEADER_fd_src_disco_pack_fd_pack_pacing_h
+
+#include "../../util/bits/fd_bits.h"
+#include <math.h>
 
 /* One of the keys to packing well is properly pacing CU consumption.
    Without pacing, pack will end up filling the block with non-ideal
@@ -113,4 +116,4 @@ fd_pack_pacing_enabled_bank_cnt( fd_pack_pacing_t const * pacer,
                  (float)(fd_long_max( 1L, pacer->t_end - now )) * pacer->ticks_per_cu );
 }
 
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_pacing_h */
+#endif /* HEADER_fd_src_disco_pack_fd_pack_pacing_h */

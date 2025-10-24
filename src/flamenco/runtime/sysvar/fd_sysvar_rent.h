@@ -1,7 +1,8 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
-#define HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_rent_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_rent_h
 
 #include "fd_sysvar_base.h"
+#include "../../accdb/fd_accdb_user.h"
 #include "../../types/fd_types.h"
 
 FD_PROTOTYPES_BEGIN
@@ -12,7 +13,7 @@ FD_PROTOTYPES_BEGIN
 
 void
 fd_sysvar_rent_init( fd_bank_t *               bank,
-                     fd_funk_t *               funk,
+                     fd_accdb_user_t *         accdb,
                      fd_funk_txn_xid_t const * xid,
                      fd_capture_ctx_t *        capture_ctx );
 
@@ -20,7 +21,7 @@ fd_sysvar_rent_init( fd_bank_t *               bank,
 
 void
 fd_sysvar_rent_write( fd_bank_t *               bank,
-                      fd_funk_t *               funk,
+                      fd_accdb_user_t *         accdb,
                       fd_funk_txn_xid_t const * xid,
                       fd_capture_ctx_t *        capture_ctx,
                       fd_rent_t const *         rent );
@@ -44,5 +45,5 @@ fd_sysvar_rent_read( fd_funk_t *               funk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_sysvar_rent_h */
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_rent_h */
 

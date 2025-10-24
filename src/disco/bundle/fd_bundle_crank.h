@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_plugin_fd_bundle_crank_h
-#define HEADER_fd_src_disco_plugin_fd_bundle_crank_h
+#ifndef HEADER_fd_src_disco_bundle_fd_bundle_crank_h
+#define HEADER_fd_src_disco_bundle_fd_bundle_crank_h
 
 #include "../fd_disco_base.h"
 #include "../../ballet/txn/fd_txn.h"
@@ -337,4 +337,4 @@ struct fd_bundle_crank_gen_private {
 };
 typedef struct fd_bundle_crank_gen_private fd_bundle_crank_gen_t;
 
-#endif /* HEADER_fd_src_disco_plugin_fd_bundle_crank_h */
+#endif /* HEADER_fd_src_disco_bundle_fd_bundle_crank_h */

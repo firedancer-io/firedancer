@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_racesan_fd_racesan_async_h
-#define HEADER_fd_src_flamenco_racesan_fd_racesan_async_h
+#ifndef HEADER_fd_src_util_racesan_fd_racesan_async_h
+#define HEADER_fd_src_util_racesan_fd_racesan_async_h
 
 #include "fd_racesan.h"
 #include <ucontext.h>
@@ -46,4 +46,4 @@ fd_racesan_async_reset( fd_racesan_async_t * async );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_racesan_fd_racesan_async_h */
+#endif /* HEADER_fd_src_util_racesan_fd_racesan_async_h */

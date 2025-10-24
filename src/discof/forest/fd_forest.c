@@ -706,8 +706,9 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   fd_forest_blk_t * new_root_ele = query( forest, new_root_slot );
 
 # if FD_FOREST_USE_HANDHOLDING
-  if( FD_LIKELY( new_root_ele ) ) {
-    FD_TEST( new_root_ele->slot > old_root_ele->slot ); /* caller error - inval */
+  if( FD_UNLIKELY( new_root_ele->slot <= old_root_ele->slot ) ) {
+    FD_LOG_WARNING(( "tower sent us a root %lu older than forest root %lu", new_root_ele->slot, old_root_ele->slot ));
+    return NULL;
   }
 # endif
 
@@ -969,20 +970,8 @@ fd_forest_preorder_print( fd_forest_t const * forest ) {
   printf( "\n\n" );
 }
 
-/* TODO use bit tricks / change */
-static int
-num_digits( ulong slot ) {
-  /* using log10 */
-  int digits = 0;
-  while( slot ) {
-    digits++;
-    slot /= 10;
-  }
-  return digits;
-}
-
 static void
-ancestry_print2( fd_forest_t const * forest,
+orphaned_print( fd_forest_t const * forest,
                  fd_forest_blk_t const    * ele,
                  fd_forest_blk_t const    * prev,
                  ulong        last_printed,
@@ -992,7 +981,7 @@ ancestry_print2( fd_forest_t const * forest,
   if( FD_UNLIKELY( ele == NULL ) ) return;
 
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
-  int digits = num_digits( ele->slot );
+  int digits = (int)fd_ulong_base10_dig_cnt( ele->slot );
 
   /* If there is a prefix, this means we are on a fork,  and we need to
      indent to the correct depth. We do depth - 1 for more satisfying
@@ -1024,7 +1013,7 @@ ancestry_print2( fd_forest_t const * forest,
       depth += digits + 6;
     } else {
       printf( ", %lu] ── [%lu", prev->slot, ele->slot );
-      depth += digits + num_digits(prev->slot ) + 8;
+      depth += digits + (int)fd_ulong_base10_dig_cnt( prev->slot ) + 8;
     }
     last_printed = ele->slot;
   } else if( curr && curr->sibling != ULONG_MAX ) { // has multiple children, do not elide
@@ -1052,9 +1041,9 @@ ancestry_print2( fd_forest_t const * forest,
   new_prefix[0] = '\0'; /* first fork stays on the same line, no prefix */
   while( curr ) {
     if( fd_forest_pool_ele_const( pool, curr->sibling ) ) {
-      ancestry_print2( forest, curr, new_prev, last_printed, depth, new_prefix );
+      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix );
     } else {
-      ancestry_print2( forest, curr, new_prev, last_printed, depth, new_prefix );
+      orphaned_print( forest, curr, new_prev, last_printed, depth, new_prefix );
     }
     curr = fd_forest_pool_ele_const( pool, curr->sibling );
 
@@ -1069,7 +1058,7 @@ ancestry_print2( fd_forest_t const * forest,
 }
 
 static void
-ancestry_print3( fd_forest_t const * forest, fd_forest_blk_t const * ele, int space, const char * prefix, fd_forest_blk_t const * prev, int elide ) {
+ancestry_print( fd_forest_t const * forest, fd_forest_blk_t const * ele, int space, const char * prefix, fd_forest_blk_t const * prev, int elide ) {
   fd_forest_blk_t const * pool = fd_forest_pool_const( forest );
 
   if( ele == NULL ) return;
@@ -1104,21 +1093,21 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_blk_t const * ele, int sp
       /* current slot wasn't printed, but now that we are branching,
          we will want to print the current slot and close the bracket */
       printf( ", %lu]", ele->slot );
-      space += fd_int_max( num_digits( ele->slot ) + 2, 0 );
+      space += fd_int_max( (int)fd_ulong_base10_dig_cnt( ele->slot ) + 2, 0 );
     } else {
       printf( "]");
     }
 
     sprintf( new_prefix, "└── [" ); /* end branch */
-    ancestry_print3( forest, child, space + 5, new_prefix, prev, 0 );
+    ancestry_print( forest, child, space + 5, new_prefix, prev, 0 );
   } else if ( one_child && child->slot == ele->slot + 1 ) {
-    ancestry_print3( forest, child, space, prefix, prev, 1);
+    ancestry_print( forest, child, space, prefix, prev, 1);
   } else { /* multiple children */
     if( elide ) {
       /* current slot wasn't printed, but now that we are branching,
          we will want to print the current slot and close the bracket */
       printf( ", %lu]", ele->slot );
-      space += fd_int_max( num_digits( ele->slot ) + 2, 0 );
+      space += fd_int_max( (int)fd_ulong_base10_dig_cnt( ele->slot ) + 2, 0 );
     } else {
       printf( "]");
     }
@@ -1126,10 +1115,10 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_blk_t const * ele, int sp
     while( child ) {
       if( fd_forest_pool_ele_const( pool, child->sibling ) ) {
         sprintf( new_prefix, "├── [" ); /* branch indicating more siblings follow */
-        ancestry_print3( forest, child, space + 5, new_prefix, prev, 0 );
+        ancestry_print( forest, child, space + 5, new_prefix, prev, 0 );
       } else {
         sprintf( new_prefix, "└── [" ); /* end branch */
-        ancestry_print3( forest, child, space + 5, new_prefix, prev, 0 );
+        ancestry_print( forest, child, space + 5, new_prefix, prev, 0 );
       }
       child = fd_forest_pool_ele_const( pool, child->sibling );
     }
@@ -1139,7 +1128,7 @@ ancestry_print3( fd_forest_t const * forest, fd_forest_blk_t const * ele, int sp
 void
 fd_forest_ancestry_print( fd_forest_t const * forest ) {
   printf(("\n\n[Ancestry]\n" ) );
-  ancestry_print3( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
+  ancestry_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), forest->root ), 0, "[", NULL, 0 );
   fflush(stdout); /* Ensure ancestry printf output is flushed */
 }
 
@@ -1169,7 +1158,7 @@ fd_forest_orphaned_print( fd_forest_t const * forest ) {
        !fd_forest_subtrees_iter_done( iter, subtrees, pool );
        iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
     fd_forest_blk_t const * ele = fd_forest_subtrees_iter_ele_const( iter, subtrees, pool );
-    ancestry_print2( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
+    orphaned_print( forest, fd_forest_pool_ele_const( fd_forest_pool_const( forest ), fd_forest_pool_idx( pool, ele ) ), NULL, 0, 0, "" );
   }
   fflush(stdout);
 }

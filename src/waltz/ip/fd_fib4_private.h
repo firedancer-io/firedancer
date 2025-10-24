@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_route_fd_fib4_private_h
-#define HEADER_fd_src_waltz_route_fd_fib4_private_h
+#ifndef HEADER_fd_src_waltz_ip_fd_fib4_private_h
+#define HEADER_fd_src_waltz_ip_fd_fib4_private_h
 
 #include "fd_fib4.h"
 #include "../../util/fd_util.h"
@@ -72,4 +72,4 @@ static inline ulong   fd_fib4_hmap_get_probe_max ( ulong elem_max ) { return ele
 /* Get the hashmap's lock count. Each lock roughly protects 1/16 elements in the hashmap */
 static inline ulong   fd_fib4_hmap_get_lock_cnt  ( ulong elem_max ) { return ( elem_max<=32 ) ? 1 : ( elem_max>>4 );          }
 
-#endif /* HEADER_fd_src_waltz_route_fd_fib4_private_h */
+#endif /* HEADER_fd_src_waltz_ip_fd_fib4_private_h */

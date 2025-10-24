@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_h2_fd_h2_proto
-#define HEADER_fd_src_waltz_h2_fd_h2_proto
+#ifndef HEADER_fd_src_waltz_h2_fd_h2_proto_h
+#define HEADER_fd_src_waltz_h2_fd_h2_proto_h
 
 /* fd_h2_proto.h contains constants and data structures taken from
    HTTP/2 specs. */
@@ -166,4 +166,4 @@ fd_h2_setting_name( uint setting_id );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_waltz_h2_fd_h2_proto */
+#endif /* HEADER_fd_src_waltz_h2_fd_h2_proto_h */

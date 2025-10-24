@@ -46,6 +46,9 @@ typedef struct {
   fd_banks_t * banks;
   fd_spad_t *  exec_spad;
 
+  fd_funk_t      funk[1];
+  fd_progcache_t progcache[1];
+
   fd_exec_txn_ctx_t txn_ctx[1];
 
   struct {
@@ -62,11 +65,12 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,          FD_BLAKE3_FOOTPRINT );
-  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,   FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,            FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),      fd_txncache_footprint( tile->bank.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
+  l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
+  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -159,7 +163,17 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
 
+    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
+    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
+
+    /* Assume failure, set below if success.  If it doesn't land in the
+       block, rebate the non-execution CUs too. */
+    txn->bank_cu.actual_consumed_cus = 0U;
+    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+    FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
 
     int err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
@@ -171,20 +185,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
-    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
-      writable_alt[ i-txn_descriptor->acct_addr_cnt ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
-    }
+    writable_alt[ i ] = fd_type_pun_const( txn_ctx->account_keys+txn_descriptor->acct_addr_cnt );
 
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
-    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
-    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
-
-    /* Assume failure, set below if success.  If it doesn't land in the
-       block, rebate the non-execution CUs too. */
-    txn->bank_cu.actual_consumed_cus = 0U;
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
-    txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     /* Stash the result in the flags value so that pack can inspect it. */
     /* TODO: Need to translate the err to a hacky Frankendancer style err
@@ -243,7 +246,24 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
-    FD_TEST( txn->flags );
+
+    } FD_SPAD_FRAME_END;
+
+    if( FD_UNLIKELY( !txn_ctx->flags ) ) {
+      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+      fd_hash_t * signature = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off);
+      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+      FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
+                    "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
+                    "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
+                    FD_BASE58_ENC_32_ALLOCA( signature->uc ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                    cost_tracker->allocated_accounts_data_size,
+                    cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
+                    cost_tracker->account_cost_limit ));
+    }
+
+    FD_TEST( txn_ctx->flags );
   }
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -493,11 +513,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ), sizeof( fd_bank_ctx_t ) );
-  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,        FD_BLAKE3_FOOTPRINT );
-  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0)      );
-  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,          FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),    fd_txncache_footprint( tile->bank.max_live_slots ) );
+  fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
+  void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
+  void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
+  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
+  void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
+  void * pc_scratch   = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
 #define NONNULL( x ) (__extension__({                                        \
       __typeof__((x)) __x = (x);                                             \
@@ -512,11 +533,23 @@ unprivileged_init( fd_topo_t *      topo,
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
 
+  void * shfunk = fd_topo_obj_laddr( topo, tile->bank.funk_obj_id );
+  FD_TEST( shfunk );
+  fd_funk_t * funk = fd_funk_join( ctx->funk, shfunk );
+  FD_TEST( funk );
+
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->bank.progcache_obj_id );
+  FD_TEST( shprogcache );
+  fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  FD_TEST( progcache );
+
   NONNULL( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ), ctx->exec_spad, fd_wksp_containing( exec_spad ) ) );
   ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
   ctx->txn_ctx->spad          = ctx->exec_spad;
   ctx->txn_ctx->spad_wksp     = fd_wksp_containing( exec_spad );
-  NONNULL( fd_funk_join( ctx->txn_ctx->funk, fd_topo_obj_laddr( topo, tile->bank.funk_obj_id ) ) );
+  *(ctx->txn_ctx->funk)       = *funk;
+  *(ctx->txn_ctx->_progcache) = *progcache;
+  ctx->txn_ctx->progcache     = ctx->txn_ctx->_progcache;
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

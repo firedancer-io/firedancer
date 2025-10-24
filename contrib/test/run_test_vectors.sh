@@ -24,12 +24,14 @@ fi
 mkdir -p dump
 
 GIT_REF=${GIT_REF:-$(cat contrib/test/test-vectors-commit-sha.txt)}
+REPO_URL="https://github.com/firedancer-io/test-vectors.git"
 
 echo $GIT_REF
 
+# Prepare local repo and enter it
 if [ ! -f dump/test-vectors/README.md ]; then
   cd dump
-  git clone -q --depth=1 https://github.com/firedancer-io/test-vectors.git
+  git clone -q --no-tags --depth=1 "$REPO_URL" test-vectors
   cd test-vectors
 else
   cd dump/test-vectors
@@ -41,15 +43,7 @@ if ! git checkout -q $GIT_REF; then
 fi
 cd ../..
 
-WKSP=run-test-vectors
-# If workspace already exists, reset it (and hope that it has the correct size)
-if ./$OBJDIR/bin/fd_wksp_ctl query $WKSP --log-path '' >/dev/null 2>/dev/null; then
-  ./$OBJDIR/bin/fd_wksp_ctl reset $WKSP --log-path ''
-else
-  ./$OBJDIR/bin/fd_wksp_ctl new run-test-vectors $PAGE_CNT $PAGE_SZ 0 0644 --log-path ''
-fi
-
-SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" "--wksp" "$WKSP" --tile-cpus "f,0-$(( $NUM_PROCESSES - 1 ))" )
+SOL_COMPAT=( "$OBJDIR/unit-test/test_sol_compat" --tile-cpus "f,0-$(( $NUM_PROCESSES - 1 ))" )
 
 export FD_LOG_PATH=$LOG_PATH/solfuzz.log
 ${SOL_COMPAT[@]} \

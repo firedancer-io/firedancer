@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_quic_log_fd_quic_log_event_h
-#define HEADER_fd_src_waltz_quic_log_fd_quic_log_event_h
+#ifndef HEADER_fd_src_waltz_quic_log_fd_quic_log_h
+#define HEADER_fd_src_waltz_quic_log_fd_quic_log_h
 
 /* fd_quic_log.h contains ABI definitions for quic shm logging. */
 
@@ -70,4 +70,4 @@ struct fd_quic_log_error {
 
 typedef struct fd_quic_log_error fd_quic_log_error_t;
 
-#endif /* HEADER_fd_src_waltz_quic_log_fd_quic_log_event_h */
+#endif /* HEADER_fd_src_waltz_quic_log_fd_quic_log_h */

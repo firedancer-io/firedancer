@@ -537,6 +537,7 @@ fd_sandbox_private_landlock_restrict_self( int allow_connect,
   if( -1L==landlock_fd ) FD_LOG_ERR(( "landlock_create_ruleset() failed (%i-%s).", errno, fd_io_strerror( errno ) ));
 
   if( syscall( SYS_landlock_restrict_self, landlock_fd, 0 ) ) FD_LOG_ERR(( "landlock_restrict_self() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==close( (int)landlock_fd ) ) FD_LOG_ERR(( "close(landlock_fd) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void

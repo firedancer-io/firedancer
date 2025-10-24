@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../../fd_flamenco_base.h"
-#include "../../types/fd_types.h"
 #include "../fd_txn_account.h"
+#include "../fd_executor_err.h"
+#include "../../../ballet/txn/fd_txn.h"
 
 /* While the maximum number of instruction accounts allowed for instruction
    execution is 256, it is entirely possible to have a transaction with more

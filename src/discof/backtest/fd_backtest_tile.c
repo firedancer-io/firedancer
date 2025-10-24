@@ -352,7 +352,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
-  ctx->genesis = fd_topo_find_tile( topo, "snaprd", 0UL )==ULONG_MAX;
+  ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 
   ctx->end_slot = tile->archiver.end_slot;

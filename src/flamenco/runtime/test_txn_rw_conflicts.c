@@ -3,6 +3,7 @@
 #include "fd_runtime_err.h"
 #include "fd_system_ids.h"
 #include "program/fd_address_lookup_table_program.h"
+#include "../accdb/fd_accdb_admin.h"
 
 fd_features_t features;
 
@@ -103,7 +104,7 @@ void test_write_write_conflict_sentinel( fd_conflict_detect_ele_t * acct_map,
 }
 
 void
-add_address_lookup_table( fd_funk_t *               funk,
+add_address_lookup_table( fd_accdb_user_t *         accdb,
                           fd_funk_txn_xid_t const * xid,
                           fd_pubkey_t *             alt_acct_addr,
                           uchar *                   alt_acct_data,
@@ -117,8 +118,8 @@ add_address_lookup_table( fd_funk_t *               funk,
   fd_txn_account_t rec[1];
   fd_funk_rec_prepare_t prepare = {0};
   const ulong rec_sz = FD_LOOKUP_TABLE_META_SIZE+alt_acct_data_sz;
-  int result = fd_txn_account_init_from_funk_mutable( rec, alt_acct_addr, funk, xid, /* do_create */ 1, rec_sz, &prepare );
-  FD_TEST( result==FD_ACC_MGR_SUCCESS );
+  int ok = !!fd_txn_account_init_from_funk_mutable( rec, alt_acct_addr, accdb, xid, /* do_create */ 1, rec_sz, &prepare );
+  FD_TEST( ok );
 
   fd_address_lookup_table_state_t table;
   table.discriminant = fd_address_lookup_table_state_enum_lookup_table;
@@ -135,7 +136,7 @@ add_address_lookup_table( fd_funk_t *               funk,
   fd_txn_account_set_data_len( rec, rec_sz );
   fd_txn_account_set_owner( rec, &fd_solana_address_lookup_table_program_id );
   fd_memcpy( fd_txn_account_get_data_mut( rec )+FD_LOOKUP_TABLE_META_SIZE, alt_acct_data, alt_acct_data_sz );
-  fd_txn_account_mutable_fini( rec, funk, &prepare );
+  fd_txn_account_mutable_fini( rec, accdb, &prepare );
   /* other metadata fields (e.g., slot, hash, ...) are ommited */
 
   /* Append an address lookup table after txn_payload */
@@ -172,7 +173,7 @@ add_address_lookup_table( fd_funk_t *               funk,
 }
 
 void
-test_no_conflict_alt( fd_funk_t *                funk,
+test_no_conflict_alt( fd_accdb_user_t *          accdb,
                       fd_funk_txn_xid_t const *  xid,
                       fd_conflict_detect_ele_t * acct_map,
                       fd_acct_addr_t *           acct_arr ) {
@@ -187,7 +188,7 @@ test_no_conflict_alt( fd_funk_t *                funk,
   fd_base58_decode_32( "6KUbAnWkuAmAoQX7iAAh7r8n2EjERbqao2t1hfPChwpH", alt_acct_content[0].b );
   fd_base58_decode_32( "AEK3Z5CGNgmRQHxK9sRHbbn6MJ5oCg5M96qsXjQJE123", alt_acct_content[1].b );
 
-  add_address_lookup_table( funk,
+  add_address_lookup_table( accdb,
                             xid,
                             &alt_acct_addr,
                             (void*)&alt_acct_content,
@@ -200,14 +201,14 @@ test_no_conflict_alt( fd_funk_t *                funk,
 
   fd_acct_addr_t conflict_acct;
   int detected;
-  int err = fd_runtime_microblock_verify_read_write_conflicts(txns, txns_cnt, acct_map, acct_arr, funk, xid, slot, NULL, &features, &detected, &conflict_acct );
+  int err = fd_runtime_microblock_verify_read_write_conflicts(txns, txns_cnt, acct_map, acct_arr, accdb->funk, xid, slot, NULL, &features, &detected, &conflict_acct );
   FD_TEST( err==FD_RUNTIME_NO_CONFLICT_DETECTED );
   FD_TEST( 0==fd_conflict_detect_map_key_cnt( acct_map ) );
   FD_LOG_NOTICE(( "Pass test_no_conflict_alt" ));
 }
 
 void
-test_read_write_conflict_alt( fd_funk_t *                funk,
+test_read_write_conflict_alt( fd_accdb_user_t *          accdb,
                               fd_funk_txn_xid_t const *  xid,
                               fd_conflict_detect_ele_t * acct_map,
                               fd_acct_addr_t *           acct_arr ) {
@@ -222,7 +223,7 @@ test_read_write_conflict_alt( fd_funk_t *                funk,
   fd_base58_decode_32( "6KUbAnWkuAmAoQX7iAAh7r8n2EjERbqao2t1hfPChwpH", alt_acct_content[0].b );
   fd_base58_decode_32( "5drANtynCaE2fbXFMaWxSeB8BvHmdBNfb32PnGdpFr6P", alt_acct_content[1].b );
 
-  add_address_lookup_table( funk,
+  add_address_lookup_table( accdb,
                             xid,
                             &alt_acct_addr,
                             (void*)&alt_acct_content,
@@ -235,7 +236,7 @@ test_read_write_conflict_alt( fd_funk_t *                funk,
 
   fd_acct_addr_t conflict_acct;
   int detected;
-  int err = fd_runtime_microblock_verify_read_write_conflicts(txns, txns_cnt, acct_map, acct_arr, funk, xid, slot, NULL, &features, &detected, &conflict_acct );
+  int err = fd_runtime_microblock_verify_read_write_conflicts(txns, txns_cnt, acct_map, acct_arr, accdb->funk, xid, slot, NULL, &features, &detected, &conflict_acct );
   FD_TEST( err==FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE );
   FD_TEST( detected==FD_RUNTIME_READ_WRITE_CONFLICT_DETECTED );
   FD_TEST( 0==fd_conflict_detect_map_key_cnt( acct_map ) );
@@ -243,7 +244,7 @@ test_read_write_conflict_alt( fd_funk_t *                funk,
 }
 
 void
-test_write_write_conflict_alt( fd_funk_t *                funk,
+test_write_write_conflict_alt( fd_accdb_user_t *          accdb,
                                fd_funk_txn_xid_t const *  xid,
                                fd_conflict_detect_ele_t * acct_map,
                                fd_acct_addr_t *           acct_arr ) {
@@ -258,7 +259,7 @@ test_write_write_conflict_alt( fd_funk_t *                funk,
   fd_base58_decode_32( "5drANtynCaE2fbXFMaWxSeB8BvHmdBNfb32PnGdpFr6P", alt_acct_content[0].b );
   fd_base58_decode_32( "6KUbAnWkuAmAoQX7iAAh7r8n2EjERbqao2t1hfPChwpH", alt_acct_content[1].b );
 
-  add_address_lookup_table( funk,
+  add_address_lookup_table( accdb,
                             xid,
                             &alt_acct_addr,
                             (void*)&alt_acct_content,
@@ -271,7 +272,7 @@ test_write_write_conflict_alt( fd_funk_t *                funk,
 
   fd_acct_addr_t conflict_acct;
   int detected;
-  int err = fd_runtime_microblock_verify_read_write_conflicts( txns, txns_cnt, acct_map, acct_arr, funk, xid, slot, NULL, &features, &detected, &conflict_acct );
+  int err = fd_runtime_microblock_verify_read_write_conflicts( txns, txns_cnt, acct_map, acct_arr, accdb->funk, xid, slot, NULL, &features, &detected, &conflict_acct );
   FD_TEST( err==FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE );
   FD_TEST( detected==FD_RUNTIME_WRITE_WRITE_CONFLICT_DETECTED );
   FD_TEST( 0==fd_conflict_detect_map_key_cnt( acct_map ) );
@@ -279,7 +280,7 @@ test_write_write_conflict_alt( fd_funk_t *                funk,
 }
 
 void
-test_read_write_conflict_alt_sentinel( fd_funk_t *                funk,
+test_read_write_conflict_alt_sentinel( fd_accdb_user_t *          accdb,
                                        fd_funk_txn_xid_t const *  xid,
                                        fd_conflict_detect_ele_t * acct_map,
                                        fd_acct_addr_t *           acct_arr ) {
@@ -295,7 +296,7 @@ test_read_write_conflict_alt_sentinel( fd_funk_t *                funk,
   /* Add sentinel (fd_acct_addr_null) to the address lookup table as an read-only account */
   fd_base58_decode_32( "JEKNVnkbo3jma5nREBBJCDoXFVeKkD56V3xKrvRmWxFG", alt_acct_content[1].b );
 
-  add_address_lookup_table( funk,
+  add_address_lookup_table( accdb,
                             xid,
                             &alt_acct_addr,
                             (void*)&alt_acct_content,
@@ -308,7 +309,7 @@ test_read_write_conflict_alt_sentinel( fd_funk_t *                funk,
 
   fd_acct_addr_t conflict_acct;
   int detected;
-  int err = fd_runtime_microblock_verify_read_write_conflicts( txns, txns_cnt, acct_map, acct_arr, funk, xid, slot, NULL, &features, &detected, &conflict_acct );
+  int err = fd_runtime_microblock_verify_read_write_conflicts( txns, txns_cnt, acct_map, acct_arr, accdb->funk, xid, slot, NULL, &features, &detected, &conflict_acct );
   FD_TEST( err==FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE );
   FD_TEST( detected==FD_RUNTIME_READ_WRITE_CONFLICT_DETECTED );
   FD_TEST( 0==fd_conflict_detect_map_key_cnt( acct_map ) );
@@ -354,12 +355,14 @@ main( int     argc,
   fd_conflict_detect_ele_t * acct_map = fd_conflict_detect_map_join( fd_conflict_detect_map_new( acct_map_mem, lg_max_naccts ) );
   fd_acct_addr_t *  acct_arr = acct_arr_mem;
   FD_TEST( fd_funk_new( funk_mem, tag, seed, txn_max, rec_max ) );
-  fd_funk_t funk[1];
-  FD_TEST( fd_funk_join( funk, funk_mem ) );
+  fd_accdb_admin_t accdb_admin[1];
+  FD_TEST( fd_accdb_admin_join( accdb_admin, funk_mem ) );
+  fd_accdb_user_t accdb[1];
+  FD_TEST( fd_accdb_user_join( accdb, funk_mem ) );
 
   fd_funk_txn_xid_t xid = {.ul={ slot+1, slot+1 }};
-  fd_funk_txn_xid_t const * last_publish_xid = fd_funk_last_publish( funk );
-  fd_funk_txn_prepare( funk, last_publish_xid, &xid );
+  fd_funk_txn_xid_t const * last_publish_xid = fd_funk_last_publish( accdb_admin->funk );
+  fd_accdb_attach_child( accdb_admin, last_publish_xid, &xid );
 
   /**********************************************************************/
   /* Unit test without address lookup tables                            */
@@ -373,12 +376,13 @@ main( int     argc,
   /* Unit test with address lookup tables                               */
   /**********************************************************************/
 
-  test_no_conflict_alt( funk, &xid, acct_map, acct_arr );
-  test_read_write_conflict_alt( funk, &xid, acct_map, acct_arr );
-  test_write_write_conflict_alt( funk, &xid, acct_map, acct_arr );
-  test_read_write_conflict_alt_sentinel( funk, &xid, acct_map, acct_arr );
+  test_no_conflict_alt( accdb, &xid, acct_map, acct_arr );
+  test_read_write_conflict_alt( accdb, &xid, acct_map, acct_arr );
+  test_write_write_conflict_alt( accdb, &xid, acct_map, acct_arr );
+  test_read_write_conflict_alt_sentinel( accdb, &xid, acct_map, acct_arr );
 
-  fd_funk_leave( funk, NULL );
+  fd_accdb_user_leave( accdb, NULL );
+  fd_accdb_admin_leave( accdb_admin, NULL );
   fd_wksp_free_laddr( acct_arr_mem );
   fd_wksp_free_laddr( acct_map_mem );
   fd_wksp_free_laddr( fd_funk_delete( funk_mem ) );
