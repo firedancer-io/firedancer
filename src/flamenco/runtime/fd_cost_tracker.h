@@ -139,6 +139,22 @@ int
 fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
                                         fd_exec_txn_ctx_t const * txn_ctx );
 
+
+/* Currently the pack tile does not handle/track account cost limits.
+   fd_cost_tracker_would_account_cost_fit returns
+   FD_COST_TRACKER_SUCCESS if the transaction would not violate the
+   account cost limits and returns
+   FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT otherwise.
+
+   TODO: This function is only used in the leader pipeline in the bank
+   tile because currently the pack tile does not handle/track account
+   cost limits.  Once the pack tile supports account cost tracking, this
+   function should be removed. */
+
+int
+fd_cost_tracker_would_account_cost_fit( fd_cost_tracker_t * cost_tracker,
+                                        fd_exec_txn_ctx_t * txn_ctx );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_cost_tracker_h */

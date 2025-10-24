@@ -482,3 +482,55 @@ fd_cost_tracker_calculate_cost_and_add( fd_cost_tracker_t *       cost_tracker,
   add_transaction_cost( cost_tracker, txn_ctx, &txn_cost );
   return FD_COST_TRACKER_SUCCESS;
 }
+
+int
+fd_cost_tracker_would_account_cost_fit( fd_cost_tracker_t * cost_tracker,
+                                        fd_exec_txn_ctx_t * txn_ctx ) {
+
+  /* First compute the cost of the transaction. */
+
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L308-L319 */
+
+  account_cost_map_t const * map  = fd_type_pun_const(((cost_tracker_outer_t const *)cost_tracker)+1UL);
+  account_cost_t const *     pool = fd_type_pun_const( (void*)((ulong)cost_tracker + ((cost_tracker_outer_t const *)cost_tracker)->pool_offset) );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/cost-model/src/cost_model.rs#L83-L85 */
+  fd_transaction_cost_t txn_cost;
+  if( fd_txn_is_simple_vote_transaction( TXN( &txn_ctx->txn ), txn_ctx->txn.payload ) ) {
+    txn_cost = (fd_transaction_cost_t){ .discriminant = fd_transaction_cost_enum_simple_vote };
+  } else {
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L78-L81 */
+    ulong loaded_accounts_data_size_cost = fd_cost_tracker_calculate_loaded_accounts_data_size_cost( txn_ctx );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L82-L83 */
+    ulong instructions_data_cost = get_instructions_data_cost( txn_ctx );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L85-L93 */
+    txn_cost = calculate_non_vote_transaction_cost( txn_ctx, loaded_accounts_data_size_cost, instructions_data_cost );
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
+  ulong cost = transaction_cost_sum( &txn_cost );
+
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L295-L298 */
+  if( FD_UNLIKELY( cost>cost_tracker->account_cost_limit ) ) {
+    return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT;
+  }
+
+  /* Once the cost has been computed, check each of the writable
+     accounts to see if the cost exceeds any of the account cost
+     limits. */
+
+  for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (ushort)i ) ) continue;
+
+    fd_pubkey_t const * writable_acc = &txn_ctx->account_keys[i];
+
+    account_cost_t const * chained_cost = account_cost_map_ele_query_const( map, writable_acc, NULL, pool );
+    if( FD_UNLIKELY( chained_cost && fd_ulong_sat_add( chained_cost->cost, cost )>cost_tracker->account_cost_limit ) ) {
+      return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT;
+    }
+  }
+
+  return FD_COST_TRACKER_SUCCESS;
+}

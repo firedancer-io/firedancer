@@ -180,6 +180,17 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       continue;
     }
 
+    fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+    int err = fd_cost_tracker_would_account_cost_fit( cost_tracker, txn_ctx );
+    fd_bank_cost_tracker_end_locking_modify( bank );
+    if( FD_UNLIKELY( err ) ) {
+      /* This transaction would violate account cost limits.  We don't
+         want to include it in the block. */
+      fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
+      ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( FD_RUNTIME_TXN_ERR_WOULD_EXCEED_MAX_ACCOUNT_COST_LIMIT ) ]++;
+      continue;
+    }
+
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
