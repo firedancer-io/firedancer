@@ -742,6 +742,7 @@ fd_sbpf_elf_peek_strict( fd_sbpf_elf_info_t * info,
     | ( ehdr.e_ident[ FD_ELF_EI_DATA    ] != FD_ELF_DATA_LE        )
     | ( ehdr.e_ident[ FD_ELF_EI_VERSION ] != 1                     )
     | ( ehdr.e_ident[ FD_ELF_EI_OSABI   ] != FD_ELF_OSABI_NONE     )
+    // The 7 padding bytes [9, 16) must be 0. Byte 8 (EI_OSABI) is 0 due to above check, so check [8, 16).
     | ( fd_ulong_load_8( ehdr.e_ident+8 ) != 0UL                   )
     | ( ehdr.e_type                       != FD_ELF_ET_DYN         )
     | ( ehdr.e_machine                    != FD_ELF_EM_SBPF        )
