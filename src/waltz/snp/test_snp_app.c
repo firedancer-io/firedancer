@@ -1,8 +1,8 @@
 #define _POSIX_C_SOURCE 199309L
 
 #include "fd_snp_app.h"
-#include "fd_snp_private.h"
 #include "fd_snp.h"
+#include "fd_snp_private.h"
 #include "../../ballet/sha512/fd_sha512.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 

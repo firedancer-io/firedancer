@@ -54,22 +54,19 @@ typedef union {
 } fd_snp_in_ctx_t;
 
 typedef struct {
+  int                 skip_frag;
+  ulong               round_robin_id;
+  ulong               round_robin_cnt;
 
-  fd_pubkey_t      identity_key[1]; /* Just the public key */
+  fd_stem_context_t * stem;
+  ulong               sig;
+  ulong               tsorig;
 
-  int              skip_frag;
-  ulong            round_robin_id;
-  ulong            round_robin_cnt;
+  fd_snp_in_ctx_t     in[ 32 ];
+  int                 in_kind[ 32 ];
 
-  fd_keyswitch_t * keyswitch;
-
-  fd_stake_ci_t  * stake_ci;
-  /* These are used in between during_frag and after_frag */
-  fd_shred_dest_weighted_t * new_dest_ptr;
-  ulong                      new_dest_cnt;
-
-  fd_snp_in_ctx_t  in[ 32 ];
-  int              in_kind[ 32 ];
+  fd_keyswitch_t *    keyswitch;
+  fd_pubkey_t         identity_key[1]; /* Just the public key */
 
   /* Channels */
   fd_wksp_t *      net_out_mem;
@@ -87,27 +84,21 @@ typedef struct {
   ulong            sign_out_wmark;
   ulong            sign_out_chunk;
 
-  uchar            signature[ FD_ED25519_SIG_SZ ];
+  /* dests/stake_ci */
+  fd_stake_ci_t            * stake_ci;
+  fd_shred_dest_weighted_t * new_dest_ptr;
+  ulong                      new_dest_cnt;
 
   /* SNP */
   uchar *          packet;
   ulong            packet_sz;
   fd_snp_t *       snp;
+  fd_snp_meta_t    meta;
+  uchar            signature[ FD_ED25519_SIG_SZ ];
 
   /* SNP enforced destinations */
   ulong            enforced_cnt;
   ulong            enforced[ FD_TOPO_ADTL_DESTS_MAX ];
-
-  /* App-specific */
-  ulong            shred_cnt;
-
-  fd_stem_context_t * stem;
-
-  fd_snp_app_t * snp_app;
-
-  fd_snp_meta_t meta;
-  ulong         sig;
-  ulong         tsorig;
 } fd_snp_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -118,13 +109,11 @@ scratch_align( void ) {
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_snp_limits_t limits = snp_limits( tile );
-  fd_snp_app_limits_t limits_app = {0};
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_snp_tile_ctx_t), sizeof(fd_snp_tile_ctx_t)           );
-  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),        fd_stake_ci_footprint()             );
-  l = FD_LAYOUT_APPEND( l, fd_snp_align(),             fd_snp_footprint( &limits )         );
-  l = FD_LAYOUT_APPEND( l, fd_snp_app_align(),         fd_snp_app_footprint( &limits_app ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snp_tile_ctx_t), sizeof(fd_snp_tile_ctx_t)   );
+  l = FD_LAYOUT_APPEND( l, fd_stake_ci_align(),        fd_stake_ci_footprint()     );
+  l = FD_LAYOUT_APPEND( l, fd_snp_align(),             fd_snp_footprint( &limits ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -314,6 +303,30 @@ during_frag( fd_snp_tile_ctx_t * ctx,
   switch( ctx->in_kind[ in_idx ] ) {
 
     case IN_KIND_SHRED: {
+      /* Generally, in during_frag we memcpy the incoming frag to a new buffer
+         before processing it in after_frag.
+         In this case, the frag comes from shred tile and will go to the net tile,
+         so the new buffer can be taken from the net_out channel.
+
+         In this version of SNP we have 2 complexities:
+         1. the destination peer can either have SNP enabled or not, so we have
+            to either send a SNP or UDP packet.
+         2. the SNP tile is optional, so the shred tile has prepared a UDP packet
+            for the net tile (i.e. frag is a UDP packet).
+
+         To solve 1) we retrieve snp_enabled from the dest_meta map. If SNP were
+         required, we'd simply skip this and always send a SNP packet.
+         To solve 2) we invoke fd_snp_app_send() with the appropriate meta protocol,
+         that in turns copies the payload (the shred) in the correct position...
+         a long way to say that the memcpy is done by fd_snp_app_send().
+
+         Note that fd_snp_app_send() is designed so that it could also be used in the
+         application tile, in this case that'd be in the shred tile.
+         In future versions, when SNP tile is always present, we can prepare the packet
+         directly in the shred tile, and moreover just send a single dcache entry with
+         multiple mcache entries (one for each peer), thus reducing the work in the
+         application/shred tile. */
+
       /* Applications are unreliable channels, we copy the incoming packet
          and we'll process it in after_frag. */
       uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -334,8 +347,9 @@ during_frag( fd_snp_tile_ctx_t * ctx,
         snp_enabled = entry->val.snp_enabled;
       }
 
+      /* fd_snp_app_send is designed to be used in the app tile, in this case shred tile. */
       fd_snp_meta_t meta = fd_snp_meta_from_parts( snp_enabled ? FD_SNP_META_PROTO_V1 : FD_SNP_META_PROTO_UDP, 0/*app_id*/, ip4_daddr, udp_dport );
-      int res = fd_snp_app_send( ctx->snp_app, ctx->packet, FD_NET_MTU, dcache_entry + sizeof(fd_ip4_udp_hdrs_t), sz - sizeof(fd_ip4_udp_hdrs_t), meta );
+      int res = fd_snp_app_send( NULL/*ctx->snp_app*/, ctx->packet, FD_NET_MTU, dcache_entry + sizeof(fd_ip4_udp_hdrs_t), sz - sizeof(fd_ip4_udp_hdrs_t), meta );
       if( res < 0 ) {
         ctx->skip_frag = 1;
       }
@@ -491,6 +505,13 @@ snp_callback_rx( void const *  _ctx,
     memcpy( ctx->packet, packet, packet_sz );
   }
 
+  /* Because the SNP tileis optional, we need to pretend that the packet sent to
+     the shred tile is a UDP packet. Currently we can't just modify offsets without
+     modifying code in net/shred tiles, so we memmove the payload to the correct
+     position.
+     The proper way to handle this would be to access the payload via fd_snp_app_recv(),
+     but that requires changes in the shred tile that we wanted to avoid for this first
+     version. See also the comment related to fd_snp_app_send() above. */
   ulong adj_ctl       = 0UL;
   ulong adj_packet_sz = packet_sz;
   ulong proto;
@@ -545,13 +566,9 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   if( FD_LIKELY( tile->out_cnt==3UL ) ) { /* frankendancer */
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "snp_net"    ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SHRED_OUT_IDX]].name,  "snp_shred"  ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "snp_sign"   ) );
-  } else if( FD_LIKELY( tile->out_cnt==4UL ) ) { /* firedancer */
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "snp_net"    ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SHRED_OUT_IDX]].name,  "snp_shred"  ) );
-    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "snp_sign"   ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,   "snp_net"   ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SHRED_OUT_IDX]].name, "snp_shred" ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,  "snp_sign"  ) );
   } else {
     FD_LOG_ERR(( "snp tile has unexpected cnt of output links %lu", tile->out_cnt ));
   }
@@ -573,11 +590,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* SNP */
   fd_snp_limits_t limits = snp_limits( tile );
-  fd_snp_app_limits_t limits_app = { 0 };
-
-  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(),     fd_stake_ci_footprint()     );
-  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_align(),          fd_snp_footprint( &limits ) );
-  void * _snp_app  = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_app_align(),      fd_snp_app_footprint( &limits_app )  );
+  void * _stake_ci = FD_SCRATCH_ALLOC_APPEND( l, fd_stake_ci_align(), fd_stake_ci_footprint()     );
+  void * _snp      = FD_SCRATCH_ALLOC_APPEND( l, fd_snp_align(),      fd_snp_footprint( &limits ) );
 
   ctx->stake_ci = fd_stake_ci_join( fd_stake_ci_new( _stake_ci, ctx->identity_key ) );
 
@@ -589,7 +603,6 @@ unprivileged_init( fd_topo_t *      topo,
   snp->cb.sign = snp_callback_sign;
   snp->apps_cnt = 1;
   snp->apps[0].port = 8003;
-  snp->apps[0].multicast_ip = (uint)((239 << 24) + (0 << 16) + (192 << 8) + 18);
   /* Flow control initialization.  The allocation per connection is
      arbitrary at the moment. */
   snp->flow_cred_alloc = (long)( 4 * 1024 * 1024 ); /* 4MiB */
@@ -611,10 +624,10 @@ unprivileged_init( fd_topo_t *      topo,
       continue; /* only net_rx needs to be set in this case. */
     }
 
-    if( FD_LIKELY(      !strcmp( link->name, "shred_snp"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
-    else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CRDS;  /* reusing crds_shred */
-    else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
-    else if( FD_LIKELY( !strcmp( link->name, "sign_snp"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
+    if( FD_LIKELY(      !strcmp( link->name, "shred_snp"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
+    else if( FD_LIKELY( !strcmp( link->name, "crds_shred" ) ) ) ctx->in_kind[ i ] = IN_KIND_CRDS;  /* reusing crds_shred */
+    else if( FD_LIKELY( !strcmp( link->name, "stake_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_snp"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "shred tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !!link->mtu ) ) {
@@ -645,8 +658,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sign_out_wmark  = fd_dcache_compact_wmark ( ctx->sign_out_mem, sign_out->dcache, sign_out->mtu );
   ctx->sign_out_chunk  = ctx->sign_out_chunk0;
 
-  ctx->shred_cnt = 0UL;
-
   ctx->packet = NULL;
 
   ctx->enforced_cnt = tile->snp.enforced_destinations_cnt;
@@ -661,9 +672,6 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
 
   ctx->stem = NULL; /* to be set before every snp callback function */
-
-  fd_snp_app_t * snp_app = fd_snp_app_join( fd_snp_app_new( _snp_app, &limits_app ) );
-  ctx->snp_app = snp_app;
 }
 
 static ulong

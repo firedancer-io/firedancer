@@ -486,7 +486,7 @@ fd_snp_v1_client_fini_add_signature( fd_snp_conn_t * conn,
   return 0;
 }
 
-int
+void
 fd_snp_v1_finalize_packet( fd_snp_conn_t * conn,
                            uchar *         packet,
                            ulong           packet_sz ) {
@@ -504,8 +504,6 @@ fd_snp_v1_finalize_packet( fd_snp_conn_t * conn,
   uchar * hmac_out = packet+packet_sz-16;
   /* this assumes that packet has extra 16 bytes (hmac_out is 32 bytes, truncated to 16) */
   fd_hmac_sha256( packet, packet_sz-16, fd_snp_conn_tx_key( conn ), 32, hmac_out );
-
-  return (int)packet_sz;
 }
 
 int

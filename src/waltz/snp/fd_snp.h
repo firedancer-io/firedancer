@@ -5,18 +5,16 @@
 #include "fd_snp_proto.h"
 #include "../../util/net/fd_net_headers.h"
 
-/* FD_SNP_API marks public API declarations.  No-op for now. */
-#define FD_SNP_API
-
-/* fd_snp_limits_t defines the memory layout of an fd_snp_t object.
-   Limits are immutable and valid for the lifetime of an fd_snp_t
-   (i.e. outlasts joins, until fd_snp_delete) */
-
+/* fd_snp_limits_t defines the limits used to allocate
+   memory for the SNP instance. */
 struct __attribute__((aligned(16UL))) fd_snp_limits {
-  ulong peer_cnt;            /* instance-wide, max concurrent conn count */
+  ulong peer_cnt;            /* instance-wide, max peer count */
 };
 typedef struct fd_snp_limits fd_snp_limits_t;
 
+/* fd_snp_layout_t defines the memory layout of an fd_snp_t object.
+   Limits are immutable and valid for the lifetime of an fd_snp_t
+   (i.e. outlasts joins, until fd_snp_delete) */
 struct __attribute__((aligned(16UL))) fd_snp_layout {
   ulong meta_sz;             /* size of this struct */
   ulong conn_pool_off;       /* offset of connections pool mem region */
@@ -53,6 +51,7 @@ typedef int
                         ulong              session_id,   /* connection session id */
                         uchar const        to_sign[ FD_SNP_TO_SIGN_SZ ] ); /* payload to sign */
 
+/* fd_snp_callbacks_t defines the callbacks used by the SNP instance. */
 struct fd_snp_callbacks {
   /* Function pointers to user callbacks */
   void *           ctx;
@@ -62,6 +61,7 @@ struct fd_snp_callbacks {
 };
 typedef struct fd_snp_callbacks fd_snp_callbacks_t;
 
+/* fd_snp_applications_t defines the applications supported by the SNP instance. */
 struct fd_snp_applications {
   ushort            port;
   ushort            net_id;
@@ -71,6 +71,7 @@ struct fd_snp_applications {
 };
 typedef struct fd_snp_applications fd_snp_applications_t;
 
+/* fd_snp_dest_meta_t defines the metadata for a destination peer. */
 struct fd_snp_dest_meta {
   long   snp_handshake_tstamp;
   uint   update_idx;
@@ -83,6 +84,7 @@ struct fd_snp_dest_meta {
 };
 typedef struct fd_snp_dest_meta fd_snp_dest_meta_t;
 
+/* fd_snp_dest_meta_map_t defines the map of destination metadata. */
 struct __attribute__((aligned(32))) fd_snp_dest_meta_map {
   ulong              key;
   fd_snp_dest_meta_t val;
@@ -96,6 +98,7 @@ typedef struct fd_snp_dest_meta_map fd_snp_dest_meta_map_t;
 #define MAP_KEY_HASH(k) (k)
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+/* fd_snp_metrics_t defines the metrics for the SNP instance. */
 struct fd_snp_metrics {
   ulong   dest_meta_cnt;
   ulong   dest_meta_snp_available_cnt;
@@ -129,6 +132,7 @@ struct fd_snp_metrics {
 };
 typedef struct fd_snp_metrics fd_snp_metrics_t;
 
+/* fd_snp_t defines the SNP instance. */
 struct FD_SNP_ALIGNED fd_snp {
   ulong magic;   /* ==FD_SNP_MAGIC */
 
@@ -165,7 +169,10 @@ struct FD_SNP_ALIGNED fd_snp {
   fd_rng_t      rng_mem[ 1 ];
   fd_rng_t *    rng;
 
-  /* Metrics */
+  /* Metrics.
+     We currently duplicate the metrics for all vs enforced connections.
+     We want to monitor how SNP behaves when enforced, before we enforce it
+     for everybody. */
   fd_snp_metrics_t metrics_all[1];
   fd_snp_metrics_t metrics_enf[1];
 };
@@ -175,39 +182,27 @@ FD_PROTOTYPES_BEGIN
 
 /* construction API */
 
-FD_SNP_API static FD_FN_CONST inline ulong
+static FD_FN_CONST inline ulong
 fd_snp_align( void ) {
   return FD_SNP_ALIGN;
 }
 
-FD_SNP_API ulong
+/* fd_snp_footprint returns the footprint of the fd_snp_t structure. */
+ulong
 fd_snp_footprint( fd_snp_limits_t const * limits );
 
-ulong
-fd_snp_footprint_ext( fd_snp_limits_t const * limits,
-                      fd_snp_layout_t *       layout );
-
-FD_SNP_API void *
+/* fd_snp_new formats an unused memory region for use as a SNP.
+   mem is a non-NULL pointer to this region in the local address space
+   with the required footprint and alignment. */
+void *
 fd_snp_new( void *                   mem,
             fd_snp_limits_t const * limits );
 
 /* fd_snp_join joins the caller to the fd_snp.  shsnp points to the
-first byte of the memory region backing the SNP in the caller's
-address space.
-
-Returns a pointer in the local address space to the public fd_snp_t
-region on success (do not assume this to be just a cast of shsnp)
-and NULL on failure (logs details).  Reasons for failure are that
-shsnp is obviously not a pointer to a correctly formatted SNP object.
-Every successful join should have a matching leave.  The lifetime of
-the join is until the matching leave or the thread group is
-terminated. */
-
-FD_SNP_API fd_snp_t *
+   first byte of the memory region backing the SNP in the caller's
+   address space. */
+fd_snp_t *
 fd_snp_join( void * shsnp );
-
-
-/* Initialization ***************************************************/
 
 /* fd_snp_init initializes the SNP such that it is ready to serve.
    permits the calling thread exclusive access during which no other
@@ -219,54 +214,70 @@ fd_snp_join( void * shsnp );
    Performs various heap allocations and file system accesses such
    reading certs.  Reasons for failure include invalid config or
    fd_tls error. */
-
-FD_SNP_API fd_snp_t *
+fd_snp_t *
 fd_snp_init( fd_snp_t * snp );
 
 /* fd_snp_fini releases exclusive access over a SNP.  Zero-initializes
    references to external objects (aio, callbacks).  Frees any heap
    allocs made by fd_snp_init.  Returns snp. */
-
-FD_SNP_API fd_snp_t *
+fd_snp_t *
 fd_snp_fini( fd_snp_t * snp );
 
+/* Service API */
 
-/* Service API ******************************************************/
-
-/* fd_snp_send 'sends' data_sz of data to dst.  It actually encodes
-   into out_buf wire-ready */
-
-FD_SNP_API int
+/* fd_snp_send prepares a packet for sending and invokes the send callback.
+   It returns a negative value on error (packet dropped), and a non-negative
+   value on success (typically the packet size, but the return value is
+   controlled by the callback). */
+int
 fd_snp_send( fd_snp_t *    snp,
              uchar *       packet,
              ulong         packet_sz,
              fd_snp_meta_t meta );
 
-FD_SNP_API int
+/* fd_snp_process_packet processes an incoming packet received from
+   the network.
+   Depending on the packet, it invokes one of the registered callbacks:
+   - receive callback, if the packet contains a payload for an application
+   - send callback, if the packet requires sending a new packet in response
+   - sign callback, if the packet requires signing during handshake
+   It returns a negative value on error (packet dropped), and a non-negative
+   value on success (typically the packet size, but the return value is
+   controlled by the callback). */
+int
 fd_snp_process_packet( fd_snp_t * snp,
                        uchar *    packet,
                        ulong      packet_sz );
 
-FD_SNP_API int
+/* fd_snp_process_signature processes a signature received asynchronously.
+   It invokes the send callback to send the signed packet to the peer.
+   It returns a negative value on error (signature dropped), and a non-negative
+   value on success (typically the packet size, but the return value is
+   controlled by the callback). */
+int
 fd_snp_process_signature( fd_snp_t *  snp,
                           ulong       session_id,
                           uchar const signature[ 64 ] );
 
-FD_SNP_API int
+/* fd_snp_housekeeping performs housekeeping tasks, such as:
+   - checking for and removing expired connections
+   - implementing keep-alive logic
+   - implementing retry logic during handshakes
+   This function is expected to be called periodically by the snp tile.
+   It invokes the send callback to send any necessary packet.
+   The current implementation checks and potentially sends a packet
+   for every existing connection. */
+void
 fd_snp_housekeeping( fd_snp_t * snp );
 
-FD_SNP_API int
+/* fd_snp_set_identity implements the logic to respond to a set identity event.
+   Currently, it deletes all connections. While this may seem a bit extreme and
+   in future we may want to gracefully close connections, this is done so that
+   we avoid any unnecessary assumptions in the SNP state machine. */
+void
 fd_snp_set_identity( fd_snp_t *    snp,
                      uchar const * new_identity );
 
-int
-fd_snp_conn_delete( fd_snp_t *      snp,
-                    fd_snp_conn_t * conn );
-
-static inline ulong
-fd_snp_dest_meta_map_key_from_meta( fd_snp_meta_t meta ) {
-  return fd_snp_peer_addr_from_meta( meta );
-}
 
 static inline ulong
 fd_snp_dest_meta_map_key_from_parts( uint   ip4_addr,

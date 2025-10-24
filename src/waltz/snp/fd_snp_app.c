@@ -2,25 +2,20 @@
 #include "../../util/net/fd_net_headers.h"
 
 ulong
-fd_snp_app_footprint( fd_snp_app_limits_t const * limits ) {
-  (void)limits;
+fd_snp_app_footprint( void ) {
   return sizeof( fd_snp_app_t );
 }
 
 void *
-fd_snp_app_new( void * mem, fd_snp_app_limits_t const * limits ) {
+fd_snp_app_new( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) return NULL;
-  if( FD_UNLIKELY( !limits ) ) return NULL;
 
   ulong align = fd_snp_app_align();
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, align ) ) ) return NULL;
 
   /* Zero the entire memory region */
   fd_snp_app_t * snp = (fd_snp_app_t *)mem;
-  memset( snp, 0, fd_snp_app_footprint( limits ) );
-
-  /* Store the limits */
-  snp->limits = *limits;
+  memset( snp, 0, fd_snp_app_footprint() );
 
   /* Set magic number to indicate successful initialization */
   FD_COMPILER_MFENCE();
@@ -63,7 +58,7 @@ fd_snp_app_recv( fd_snp_app_t const * ctx,          /* snp_app context */
 
   fd_snp_peer_t peer = 0;
 
-  return ctx->cb.rx ? ctx->cb.rx( ctx->cb.ctx, peer, data, data_sz, meta ) : (int)data_sz;
+  return ctx && ctx->cb.rx ? ctx->cb.rx( ctx->cb.ctx, peer, data, data_sz, meta ) : (int)data_sz;
 }
 
 int
@@ -73,57 +68,40 @@ fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
                  void const *         data,         /* app data to send to peer */
                  ulong                data_sz,      /* size of app data to send to peer */
                  fd_snp_meta_t        meta ) {      /* connection metadata */
+  if( FD_UNLIKELY( packet==NULL ) ) {
+    return FD_SNP_FAILURE;
+  }
+
   ulong data_offset = 0UL;
   ulong actual_packet_sz = 0UL;
 
   ulong proto = meta & FD_SNP_META_PROTO_MASK;
   switch( proto ) {
+
     case FD_SNP_META_PROTO_UDP:
       data_offset = sizeof(fd_ip4_udp_hdrs_t);
       actual_packet_sz = data_sz + data_offset;
       break;
+
     case FD_SNP_META_PROTO_V1:
       data_offset = sizeof(fd_ip4_udp_hdrs_t) + 12;  /* 12 is for SNP header */
 
-      if( FD_LIKELY( packet!=NULL ) ) {
-        packet[data_offset] = FD_SNP_FRAME_DATAGRAM;
-        ushort data_sz_h = (ushort)data_sz;
-        memcpy( packet+data_offset+1, &data_sz_h, 2 );
-      }
+      packet[data_offset] = FD_SNP_FRAME_DATAGRAM;
+      ushort data_sz_h = (ushort)data_sz;
+      memcpy( packet+data_offset+1, &data_sz_h, 2 );
+
       data_offset += 3;
 
       actual_packet_sz = data_sz + data_offset + 19; /* 19 is for final MAC */
       break;
+
     default:
       return FD_SNP_FAILURE; /* Not implemented */
   }
-
   if( FD_UNLIKELY( packet_sz < actual_packet_sz ) ) {
     return FD_SNP_FAILURE;
   }
-  if( FD_LIKELY( packet!=NULL ) ) memcpy( packet + data_offset, data, data_sz );
 
-  return ctx->cb.tx ? ctx->cb.tx( ctx->cb.ctx, packet, actual_packet_sz, meta ) : (int)actual_packet_sz;
-}
-
-int
-fd_snp_app_send_many( FD_PARAM_UNUSED fd_snp_app_t const * ctx,
-                      FD_PARAM_UNUSED uchar *              packet,
-                      FD_PARAM_UNUSED ulong                packet_sz,
-                      FD_PARAM_UNUSED fd_snp_peer_t *      peers,
-                      FD_PARAM_UNUSED ulong                peers_sz,
-                      FD_PARAM_UNUSED void const *         data,
-                      FD_PARAM_UNUSED ulong                data_sz,
-                      FD_PARAM_UNUSED fd_snp_meta_t        meta ) {
-  return FD_SNP_FAILURE; /* Not implemented */
-}
-
-int
-fd_snp_app_send_broadcast( FD_PARAM_UNUSED fd_snp_app_t const * ctx,
-                           FD_PARAM_UNUSED uchar *              packet,
-                           FD_PARAM_UNUSED ulong                packet_sz,
-                           FD_PARAM_UNUSED void const *         data,
-                           FD_PARAM_UNUSED ulong                data_sz,
-                           FD_PARAM_UNUSED fd_snp_meta_t        meta ) {
-  return FD_SNP_FAILURE; /* Not implemented */
+  memcpy( packet + data_offset, data, data_sz );
+  return ctx && ctx->cb.tx ? ctx->cb.tx( ctx->cb.ctx, packet, actual_packet_sz, meta ) : (int)actual_packet_sz;
 }

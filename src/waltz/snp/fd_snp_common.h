@@ -1,9 +1,13 @@
 #ifndef HEADER_fd_src_waltz_snp_fd_snp_common_h
 #define HEADER_fd_src_waltz_snp_fd_snp_common_h
 
+/* Common definitions between fd_snp.h and fd_snp_app.h. */
+
 #include "../../util/fd_util_base.h"
 #include "../../util/bits/fd_bits.h"
 
+/* Debug and trace flags, useful for debugging logs (running a
+   non-production validator) or tracing (running tests). */
 #define FD_SNP_DEBUG_ENABLED (0)
 #define FD_SNP_TRACE_ENABLED (0)
 

@@ -3,12 +3,6 @@
 #include "fd_snp_private.h"
 #include "fd_snp_proto.h"
 
-ulong
-fd_snp_footprint( fd_snp_limits_t const * limits ) {
-  fd_snp_layout_t layout;
-  return fd_snp_footprint_ext( limits, &layout );
-}
-
 static inline int
 fd_snp_conn_map_lg_slot_cnt_from_peer_cnt( ulong peer_cnt ) {
   /* 2 insertions per connection (+1) and map should have twice the capacity (+1) */
@@ -76,6 +70,12 @@ fd_snp_footprint_ext( fd_snp_limits_t const * limits,
   offs                           += dest_meta_map_footprint_b;
 
   return offs;
+}
+
+ulong
+fd_snp_footprint( fd_snp_limits_t const * limits ) {
+  fd_snp_layout_t layout;
+  return fd_snp_footprint_ext( limits, &layout );
 }
 
 void *
@@ -305,7 +305,7 @@ fd_snp_conn_create( fd_snp_t * snp,
   /* init conn */
   conn->peer_addr = peer_addr;
   conn->session_id = session_id;
-  conn->state = FD_SNP_STATE_INVALID;
+  conn->state = FD_SNP_TYPE_INVALID;
   conn->last_pkt = last_pkt;
   conn->_pubkey = snp->config.identity;
   conn->is_server = is_server;
@@ -852,7 +852,7 @@ fd_snp_send( fd_snp_t *    snp,
              fd_snp_meta_t meta ) {
 
   /* 1. Validate input */
-  if( packet_sz > SNP_BASIC_PAYLOAD_MTU ) {
+  if( packet_sz > FD_SNP_MTU ) {
     return -1;
   }
 
@@ -861,7 +861,7 @@ fd_snp_send( fd_snp_t *    snp,
   if( FD_LIKELY( proto==FD_SNP_META_PROTO_UDP ) ) {
     FD_SNP_LOG_TRACE( "[snp-send] UDP send" );
     /* metrics */
-    ulong dest_meta_map_key = fd_snp_dest_meta_map_key_from_meta( meta );
+    ulong dest_meta_map_key = fd_snp_peer_addr_from_meta( meta );
     fd_snp_dest_meta_map_t sentinel = { 0 };
     fd_snp_dest_meta_map_t * dest_meta = fd_snp_dest_meta_map_query( snp->dest_meta_map, dest_meta_map_key, &sentinel );
     if( !!dest_meta->key && packet_sz>0UL ) {
@@ -977,7 +977,7 @@ fd_snp_process_packet( fd_snp_t * snp,
   snp->metrics_all->rx_pkts_cnt  += 1UL;
   fd_snp_dest_meta_map_t sentinel = { 0 };
   fd_snp_dest_meta_map_t * dest_meta = fd_snp_dest_meta_map_query( snp->dest_meta_map,
-    fd_snp_dest_meta_map_key_from_meta( fd_snp_meta_from_parts( 0, 0, src_ip, src_port ) ), &sentinel );
+    fd_snp_peer_addr_from_meta( fd_snp_meta_from_parts( 0, 0, src_ip, src_port ) ), &sentinel );
   if( !!dest_meta->key ) {
     if( !!dest_meta->val.snp_enforced ) {
       snp->metrics_enf->rx_bytes_cnt += packet_sz;
@@ -1230,7 +1230,7 @@ fd_snp_process_signature( fd_snp_t *  snp,
   return -1;
 }
 
-int
+void
 fd_snp_housekeeping( fd_snp_t * snp ) {
   ulong max  = fd_snp_conn_pool_max( snp->conn_pool );
   ulong used = fd_snp_conn_pool_used( snp->conn_pool );
@@ -1250,13 +1250,13 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
     if( conn->session_id == 0 ) continue;
     used_ele++;
 
-    if( conn->state==FD_SNP_STATE_INVALID ) {
+    if( conn->state==FD_SNP_TYPE_INVALID ) {
       FD_SNP_LOG_DEBUG_W( "[snp-hkp] connection invalid %s", fd_snp_log_conn( conn ) );
       fd_snp_conn_delete( snp, conn );
       continue;
     }
 
-    if( FD_SNP_STATE_INVALID < conn->state && conn->state < FD_SNP_TYPE_HS_DONE ) {
+    if( FD_SNP_TYPE_INVALID < conn->state && conn->state < FD_SNP_TYPE_HS_DONE ) {
       if( conn->retry_cnt >= FD_SNP_HANDSHAKE_RETRY_MAX ) {
         FD_SNP_LOG_DEBUG_W( "[snp-hkp] retry expired - deleting %s", FD_SNP_LOG_CONN( conn ) );
         /* metrics */
@@ -1412,11 +1412,9 @@ fd_snp_housekeeping( fd_snp_t * snp ) {
 #undef FD_SNP_KEEP_ALIVE_MS
 #undef FD_SNP_TIMEOUT_MS
 #undef FD_SNP_DEST_META_UPDATE_MS
-
-  return (int)used;
 }
 
-int
+void
 fd_snp_set_identity( fd_snp_t *    snp,
                      uchar const * new_identity ) {
   fd_memcpy( snp->config.identity, new_identity, 32UL );
@@ -1436,7 +1434,5 @@ fd_snp_set_identity( fd_snp_t *    snp,
       snp->metrics_enf->conn_acc_dropped_set_identity += 1UL;
     }
     fd_snp_conn_delete( snp, conn );
-
   }
-  return 0;
 }

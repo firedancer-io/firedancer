@@ -8,13 +8,6 @@
 
 /* TYPES */
 
-/* fd_snp_app_limits_t is a type to store config limits.  The size of
-   fd_snp_app_t depends on these limits. */
-struct __attribute__((aligned(FD_SNP_APP_ALIGN))) fd_snp_app_limits {
-  ulong max_peers_cnt;
-};
-typedef struct fd_snp_app_limits fd_snp_app_limits_t;
-
 /* CALLBACKS */
 
 /* send/tx callback is invoked by fd_snp_app_send* to actually send
@@ -45,9 +38,7 @@ typedef struct fd_snp_app_callbacks fd_snp_app_callbacks_t;
 /* fd_snp_app_t is a type to represent a SNP app context. */
 struct __attribute__((aligned(FD_SNP_APP_ALIGN))) fd_snp_app {
   ulong                  magic;
-  fd_snp_app_limits_t    limits;
   fd_snp_app_callbacks_t cb;
-  fd_snp_peer_t *        peers;
 };
 typedef struct fd_snp_app fd_snp_app_t;
 
@@ -60,23 +51,38 @@ fd_snp_app_align( void ) {
   return FD_SNP_APP_ALIGN;
 }
 
+/* fd_snp_app_footprint returns the footprint of the fd_snp_app_t structure. */
 ulong
-fd_snp_app_footprint( fd_snp_app_limits_t const * limits );
+fd_snp_app_footprint( void );
 
+/* fd_snp_app_new initializes a new fd_snp_app_t structure. */
 void *
-fd_snp_app_new( void * mem, fd_snp_app_limits_t const * limits );
+fd_snp_app_new( void * mem );
 
+/* fd_snp_app_join joins the caller to the fd_snp_app.
+   shsnp points to the first byte of the memory region backing the SNP app in
+   the caller's address space. */
 fd_snp_app_t *
 fd_snp_app_join( void * shsnp );
 
 /* APP API */
 
+/* fd_snp_app_recv receives data from a peer.
+   Concretely, it invokes the receive callback registered in the snp_app context `ctx`,
+   passing a pointer to the payload data (the position of the payload depends on the
+   incoming packet protocol).
+   packet, packet_sz and meta are received from the fd_snp_process_packet()
+   function (via its receive callback). */
 int
 fd_snp_app_recv( fd_snp_app_t const * ctx,          /* snp_app context */
                  uchar const *        packet,       /* input packet */
                  ulong                packet_sz,    /* size of input packet */
                  fd_snp_meta_t        meta );       /* connection metadata */
 
+/* fd_snp_app_send sends data to a peer.
+   Concretely, it prepares packet by storing data in the right position,
+   depending on the protocol (SNP vs UDP) and invokes the send callback
+   registered in the snp_app context `ctx`. */
 int
 fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
                  uchar *              packet,       /* output packet buffer */
@@ -84,24 +90,6 @@ fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
                  void const *         data,         /* app data to send to peer */
                  ulong                data_sz,      /* size of app data to send to peer */
                  fd_snp_meta_t        meta );       /* connection metadata */
-
-int
-fd_snp_app_send_many( fd_snp_app_t const * ctx,
-                      uchar *              packet,
-                      ulong                packet_sz,
-                      fd_snp_peer_t *      peers,
-                      ulong                peers_sz,
-                      void const *         data,
-                      ulong                data_sz,
-                      fd_snp_meta_t        meta );
-
-int
-fd_snp_app_send_broadcast( fd_snp_app_t const * ctx,
-                           uchar *              packet,
-                           ulong                packet_sz,
-                           void const *         data,
-                           ulong                data_sz,
-                           fd_snp_meta_t        meta );
 
 FD_PROTOTYPES_END
 
