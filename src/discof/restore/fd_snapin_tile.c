@@ -487,6 +487,110 @@ process_account_data( fd_snapin_tile_t *            ctx,
   ctx->acc_data += result->account_data.data_sz;
 }
 
+/* streamlined_insert inserts an unfragmented account.
+   Only used while loading a full snapshot, not an incremental. */
+
+static void
+streamlined_insert( fd_snapin_tile_t * ctx,
+                    fd_funk_rec_t *    rec,
+                    uchar const *      frame,
+                    ulong              slot ) {
+  ulong data_len   = fd_ulong_load_8_fast( frame+0x08UL );
+  ulong lamports   = fd_ulong_load_8_fast( frame+0x30UL );
+  ulong rent_epoch = fd_ulong_load_8_fast( frame+0x38UL ); (void)rent_epoch;
+  uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
+  _Bool executable = !!frame[ 0x60UL ];
+
+  fd_funk_t * funk = ctx->accdb->funk;
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
+  ulong       alloc_max;
+  fd_account_meta_t * meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  memset( meta, 0, sizeof(fd_account_meta_t) );
+  rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
+  rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
+  rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
+
+  /* Write metadata */
+  meta->dlen = (uint)data_len;
+  meta->slot = slot;
+  memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+  meta->lamports   = lamports;
+  meta->executable = (uchar)executable;
+
+  /* Write data */
+  uchar * acc_data = (uchar *)( meta+1 );
+  fd_memcpy( acc_data, frame+0x88UL, data_len );
+
+  ctx->metrics.accounts_inserted++;
+}
+
+/* process_account_batch is a happy path performance optimization
+   handling insertion of lots of small accounts.
+
+   The main optimization implemented for funk is prefetching hash map
+   accesses. */
+
+__attribute__((noinline)) static void
+process_account_batch( fd_snapin_tile_t *            ctx,
+                       fd_ssparse_advance_result_t * result ) {
+  fd_funk_t *         funk    = ctx->accdb->funk;
+  fd_funk_rec_map_t * rec_map = funk->rec_map;
+  fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
+
+  /* Derive map chains */
+  uint chain_idx[ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong chain_mask = rec_map->map->chain_cnt-1UL;
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    uchar const * frame  = result->account_batch.batch[ i ];
+    uchar const * pubkey = frame+0x10UL;
+    ulong         memo   = fd_funk_rec_key_hash1( pubkey, 0UL, rec_map->map->seed );
+    chain_idx[ i ] = (uint)( memo&chain_mask );
+  }
+
+  /* Prefetch map chains */
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    __builtin_prefetch( chain_tbl+chain_idx[ i ] );
+  }
+
+  /* Create map entries */
+  fd_funk_rec_t * recs[ FD_SSPARSE_ACC_BATCH_MAX ];
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    uchar const * frame  = result->account_batch.batch[ i ];
+    uchar const * pubkey = frame+0x10UL;
+    fd_funk_rec_key_t key = FD_LOAD( fd_funk_rec_key_t, pubkey );
+
+    fd_funk_rec_query_t query[1];
+    fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, ctx->xid, &key, query );
+    if( FD_LIKELY( !rec ) ) {  /* optimize for new account */
+      rec = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+      FD_TEST( rec );
+      memset( rec, 0, sizeof(fd_funk_rec_t) );
+      fd_funk_txn_xid_copy( rec->pair.xid, ctx->xid );
+      fd_funk_rec_key_copy( rec->pair.key, &key );
+      FD_TEST( fd_funk_rec_map_insert( funk->rec_map, rec, 0 )==FD_MAP_SUCCESS );
+      recs[ i ] = rec;
+    } else {  /* existing record for key found */
+      fd_account_meta_t const * existing = fd_funk_val( rec, funk->wksp );
+      FD_TEST( existing );
+      if( existing->slot <= result->account_batch.slot ) {
+        recs[ i ] = rec;
+      } else {
+        recs[ i ] = NULL;  /* skip record if existing value is newer */
+      }
+    }
+  }
+
+  /* Actually insert accounts */
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    if( recs[ i ] ) {
+      streamlined_insert( ctx, recs[ i ], result->account_batch.batch[ i ], result->account_batch.slot );
+    }
+  }
+}
+
 static int
 handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               chunk,
@@ -570,6 +674,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
         process_account_data( ctx, result );
         break;
+      case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
+        process_account_batch( ctx, result );
+        break;
       case FD_SSPARSE_ADVANCE_DONE:
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
@@ -601,6 +708,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+      fd_ssparse_batch_enable( ctx->ssparse, sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
