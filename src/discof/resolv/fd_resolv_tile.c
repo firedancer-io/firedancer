@@ -348,7 +348,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
-    if( FD_UNLIKELY( !ctx->bank ) ) {
+    if( FD_UNLIKELY( 1 || !ctx->bank ) ) {
       FD_MCNT_INC( RESOLF, NO_BANK_DROP, 1 );
       return 0;
     }
