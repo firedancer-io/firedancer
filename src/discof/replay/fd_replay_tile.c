@@ -849,7 +849,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     switch ( rc ) {
       case -1:
         /* Mismatch */
-        FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+        FD_LOG_CRIT(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
         break;
       case 0:
         /* Not ready */
