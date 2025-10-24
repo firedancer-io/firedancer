@@ -339,6 +339,7 @@ during_frag( fd_snp_tile_ctx_t * ctx,
       uint ip4_daddr     = hdr->ip4->daddr;
       ushort udp_dport   = fd_ushort_bswap( hdr->udp->net_dport );
 
+      //TODO: int snp_enabled = function(...)
       int snp_enabled = 0;
       ulong dest_meta_map_key = fd_snp_dest_meta_map_key_from_parts( ip4_daddr, udp_dport );
       fd_snp_dest_meta_map_t sentinel = { 0 };
@@ -347,10 +348,12 @@ during_frag( fd_snp_tile_ctx_t * ctx,
         snp_enabled = entry->val.snp_enabled;
       }
 
-      /* fd_snp_app_send is designed to be used in the app tile, in this case shred tile. */
+      /* fd_snp_app_send is designed to be used in the app tile, in this case shred tile.
+         */
       fd_snp_meta_t meta = fd_snp_meta_from_parts( snp_enabled ? FD_SNP_META_PROTO_V1 : FD_SNP_META_PROTO_UDP, 0/*app_id*/, ip4_daddr, udp_dport );
       int res = fd_snp_app_send( NULL/*ctx->snp_app*/, ctx->packet, FD_NET_MTU, dcache_entry + sizeof(fd_ip4_udp_hdrs_t), sz - sizeof(fd_ip4_udp_hdrs_t), meta );
       if( res < 0 ) {
+        //TODO: metrics (but this really should never fail...)
         ctx->skip_frag = 1;
       }
       ctx->packet_sz = (ulong)res;
@@ -365,6 +368,7 @@ during_frag( fd_snp_tile_ctx_t * ctx,
       FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
 
       /* on the shred channel we receive both packets from shred and repair */
+      //TODO: function(...)
       if( sz > 45
           && *(dcache_entry + 42UL)=='S'
           && *(dcache_entry + 43UL)=='N'
@@ -432,11 +436,13 @@ after_frag( fd_snp_tile_ctx_t * ctx,
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_SHRED: {
       /* Process all applications (with multicast) */
+      //TODO: metrics if failed to send
       fd_snp_send( ctx->snp, ctx->packet, ctx->packet_sz, ctx->meta );
     } break;
 
     case IN_KIND_NET_SHRED: {
       /* Process incoming network packets */
+      //TODO: metrics if dropped - need to distinguished invalid packet (dropped ok) vs internal error (dropped not ok)
       fd_snp_process_packet( ctx->snp, ctx->packet, ctx->packet_sz );
     } break;
 
@@ -446,6 +452,7 @@ after_frag( fd_snp_tile_ctx_t * ctx,
 
     case IN_KIND_SIGN: {
       /* Sign */
+      //TODO: metrics if failed, but should never fail
       fd_snp_process_signature( ctx->snp, sig /*session_id*/, ctx->signature );
     } break;
 
@@ -542,6 +549,7 @@ snp_callback_sign( void const *  _ctx,
   uchar * dst = fd_chunk_to_laddr( ctx->sign_out_mem, ctx->sign_out_chunk );
   memcpy( dst+0UL, &session_id, sizeof(ulong) );
   memcpy( dst+sizeof(ulong), to_sign, FD_SNP_TO_SIGN_SZ - sizeof(ulong) );
+  //TODO: metrics number of signatures requested + received => should always match => we shouldn't loose signatures
   fd_stem_publish( ctx->stem, SIGN_OUT_IDX /*ctx->sign_out_idx*/, sig, ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, 0UL, ctx->tsorig, tspub );
   ctx->sign_out_chunk = fd_dcache_compact_next( ctx->sign_out_chunk, FD_SNP_TO_SIGN_SZ, ctx->sign_out_chunk0, ctx->sign_out_wmark );
   return FD_SNP_SUCCESS;
@@ -602,6 +610,7 @@ unprivileged_init( fd_topo_t *      topo,
   snp->cb.tx = snp_callback_tx;
   snp->cb.sign = snp_callback_sign;
   snp->apps_cnt = 1;
+  //TODO: shred port from config
   snp->apps[0].port = 8003;
   /* Flow control initialization.  The allocation per connection is
      arbitrary at the moment. */
