@@ -174,6 +174,7 @@ snapshot_load_cmd_fn( args_t *   args,
   ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
 
   ulong total_off_old    = 0UL;
+  ulong decomp_off_old   = 0UL;
   ulong snapct_backp_old = 0UL;
   ulong snapct_wait_old  = 0UL;
   ulong snapld_backp_old = 0UL;
@@ -186,12 +187,13 @@ snapshot_load_cmd_fn( args_t *   args,
   sleep( 1 );
   puts( "" );
   puts( "Columns:" );
-  puts( "- bw:    Uncompressed bandwidth" );
+  puts( "- comp:  Compressed bandwidth"             );
+  puts( "- raw:   Uncompressed bandwidth"           );
   puts( "- backp: Backpressured by downstream tile" );
   puts( "- stall: Waiting on upstream tile"         );
   puts( "- acc:   Number of accounts"               );
   puts( "" );
-  puts( "-------------backp=(snapct,snapld,snapdc,snapin) busy=(snapct,snapld,snapdc,snapin)---------------" );
+  puts( "--------------------------------------------[ct],[ld],[dc],[in]--------[ct],[ld],[dc],[in]--------------" );
   long next = start+1000L*1000L*1000L;
   for(;;) {
     ulong snapct_status = FD_VOLATILE_CONST( snapct_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
@@ -210,6 +212,8 @@ snapshot_load_cmd_fn( args_t *   args,
 
     ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] +
                          snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
+    ulong decomp_off   = snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_READ ) ] +
+                         snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ ) ];
     ulong snapct_backp = snapct_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
     ulong snapct_wait  = snapct_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapct_backp;
     ulong snapld_backp = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
@@ -222,9 +226,10 @@ snapshot_load_cmd_fn( args_t *   args,
     double progress = 100.0 * (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] / (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
 
     ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
-    printf( "%.1f %% bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
+    printf( "%5.1f %% comp=%4.0f MB/s raw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%4.1f M/s\n",
             progress,
-            (double)( total_off-total_off_old )/1e6,
+            (double)( total_off -total_off_old  )/1e6,
+            (double)( decomp_off-decomp_off_old )/1e6,
             ( (double)( snapct_backp-snapct_backp_old )*ns_per_tick )/1e7,
             ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
             ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
@@ -236,6 +241,7 @@ snapshot_load_cmd_fn( args_t *   args,
             (double)( acc_cnt-acc_cnt_old  )/1e6 );
     fflush( stdout );
     total_off_old    = total_off;
+    decomp_off_old   = decomp_off;
     snapct_backp_old = snapct_backp;
     snapct_wait_old  = snapct_wait;
     snapld_backp_old = snapld_backp;
