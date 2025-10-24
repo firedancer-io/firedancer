@@ -85,7 +85,7 @@ init_device( char const *        device,
              int                 strict ) {
   FD_TEST( dedicated_mode || strict );
 
-  fd_ethtool_ioctl_t ioc;
+  fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
 
@@ -142,7 +142,6 @@ init_device( char const *        device,
     }
   }
 
-  fd_ethtool_ioctl_fini( &ioc );
   return 0;
 }
 
