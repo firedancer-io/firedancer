@@ -330,7 +330,7 @@ fd_funk_leave( fd_funk_t * funk,
 void *
 fd_funk_delete( void * shfunk );
 
-/* fd_funk_delete_fast is an optimized verison of fd_funk_delete.
+/* fd_funk_delete_fast is an optimized version of fd_funk_delete.
    Unlike fd_funk_delete, makes an additional assumption that this funk
    was created with a wksp_tag (see fd_funk_new) that is distinct from
    all other tags in the workspace.  Also unlike fd_funk_delete, frees

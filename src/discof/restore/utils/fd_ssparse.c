@@ -270,7 +270,7 @@ advance_tar( fd_ssparse_t *                ssparse,
   switch( desired_state ) {
     case FD_SSPARSE_STATE_VERSION:
       if( FD_UNLIKELY( ssparse->flags.seen_version ) ) {
-        FD_LOG_WARNING(( "unexpected duplicate verison file" ));
+        FD_LOG_WARNING(( "unexpected duplicate version file" ));
         return FD_SSPARSE_ADVANCE_ERROR;
       }
 
