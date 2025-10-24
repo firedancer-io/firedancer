@@ -17,6 +17,8 @@
 [runtime]
     max_live_slots = 4
     max_fork_width = 4
+    [runtime.program_cache]
+        heap_size_mib = 131072
 [consensus]
     vote = false
 [development]
