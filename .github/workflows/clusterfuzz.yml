@@ -5,7 +5,7 @@ on:
 jobs:
   solfuzz-build-and-publish:
     timeout-minutes: 30
-    runs-on: X64
+    runs-on: ubuntu-latest
     env:
       MACHINE: linux_clang_haswell
       OBJ_DIR: build/linux/clang/haswell
@@ -83,7 +83,7 @@ jobs:
           # - machine: linux_clang_icelake
           #   artifact_dir: build/linux/clang/icelake
           #   qualifier: highend
-    runs-on: X64
+    runs-on: ubuntu-latest
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: fuzz asan ubsan
