@@ -157,8 +157,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ulong bank_slot = fd_bank_slot_get( bank );
   FD_TEST( bank_slot==slot );
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
-
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
@@ -177,17 +175,23 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+      fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->exec_err ) ]++;
       continue;
     }
+
+    /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
+       the block.  It's a bit of a misnomer now that there are fee-only
+       transactions. */
+    FD_TEST( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
+    txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     /* The account keys in the transaction context are laid out such
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
     fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
-    writable_alt[ i ] = fd_type_pun_const( txn_ctx->account_keys+txn_descriptor->acct_addr_cnt );
-
-    txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    fd_acct_addr_t const * writable_alt = fd_type_pun_const( txn_ctx->account_keys+txn_descriptor->acct_addr_cnt );
+    fd_pack_rebate_sum_add_txn( ctx->rebater, txn, &writable_alt, 1UL );
 
     /* Stash the result in the flags value so that pack can inspect it. */
     /* TODO: Need to translate the err to a hacky Frankendancer style err
@@ -214,12 +218,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        FeesOnly votes are charged the fixed voe cost. */
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
     txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-
-    /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
-       the block.  It's a bit of a misnomer now that there are fee-only
-       transactions. */
-    FD_TEST( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
-    txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
@@ -269,9 +267,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
-
-  /* Prepare the rebate */
-  fd_pack_rebate_sum_add_txn( ctx->rebater, (fd_txn_p_t const *)dst, writable_alt, txn_cnt );
 
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the bank tile because
