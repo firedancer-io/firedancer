@@ -785,8 +785,10 @@ after_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
-    fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
-    if( FD_LIKELY( msg->new_root ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+    if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+      fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
+      if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) fd_forest_publish( ctx->forest, msg->root_slot );
+    }
     return;
   }
 
@@ -796,12 +798,14 @@ after_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_SHRED ) ) {
+
     /* There are 3 message types from shred:
         1. resolver evict - incomplete FEC set is evicted by resolver
         2. fec complete   - FEC set is completed by resolver. Also contains a shred.
         3. shred          - new shred
 
         Msgs 2 and 3 have a shred header in ctx->buffer */
+
     int resolver_evicted = sz == 0;
     int fec_completes    = sz == FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
     if( FD_UNLIKELY( resolver_evicted ) ) {

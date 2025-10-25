@@ -472,6 +472,15 @@ user = ""
     # abort with an error.
     expected_genesis_hash = ""
 
+    # Firedancer can process at most this many slots without rooting in
+    # the consensus rules before it must begin evicting.
+    #
+    # This is an estimate and should be set as generously as possible to
+    # allow for brief anomalies such as the validator disconnecting from
+    # part of the cluster due to data center issues.  Roughly, at 400 ms
+    # per slot, the default allows for 30 minutes without rooting.
+    max_unrooted_slots = 4096
+
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.

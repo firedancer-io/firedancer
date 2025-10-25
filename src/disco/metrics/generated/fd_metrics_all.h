@@ -38,6 +38,7 @@
 #include "fd_metrics_backt.h"
 #include "fd_metrics_exec.h"
 #include "fd_metrics_benchs.h"
+#include "fd_metrics_tower.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)

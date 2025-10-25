@@ -489,11 +489,12 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      ulong funk_obj_id;
-      char  identity_key_path[ PATH_MAX ];
-      char  vote_acc_path[ PATH_MAX ];
-      char  ledger_path[PATH_MAX];
+      ulong slot_max;
+      char  identity_key[ PATH_MAX ];
+      char  vote_account[ PATH_MAX ];
+      char  base_path[PATH_MAX];
     } tower;
+
     struct {
       char   folder_path[ PATH_MAX ];
       ushort repair_intake_listen_port;

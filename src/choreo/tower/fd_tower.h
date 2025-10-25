@@ -166,7 +166,7 @@
 
    In the Tower rules, once a vote reaches a conf count of 32, it is
    considered rooted and it is popped from the bottom of the tower. Here
-   is an example where 1 got rooted and therefore popped from the bottom:
+   is an example where 1 got rooted and popped from the bottom:
 
    (before)  slot | conf
             -----------
@@ -420,8 +420,10 @@
 */
 
 #include "../fd_choreo_base.h"
-#include "../epoch/fd_epoch.h"
+#include "fd_tower_accts.h"
+#include "fd_tower_forks.h"
 #include "../ghost/fd_ghost.h"
+#include "../notar/fd_notar.h"
 #include "../../disco/pack/fd_microblock.h"
 
 /* FD_TOWER_PARANOID:  Define this to non-zero at compile time
@@ -433,461 +435,101 @@
 
 #define FD_TOWER_VOTE_MAX (31UL)
 
+/* fd_tower is a representation of a validator's "vote tower" (described
+   in detail in the preamble at the top of this file).  The votes in the
+   tower are stored in an fd_deque.c ordered from lowest to highest vote
+   slot (highest to lowest confirmation count) relative to the head and
+   tail.  There can be at most FD_TOWER_VOTE_MAX votes in the tower. */
+
 struct fd_tower_vote {
   ulong slot; /* vote slot */
   ulong conf; /* confirmation count */
 };
 typedef struct fd_tower_vote fd_tower_vote_t;
 
-#define DEQUE_NAME fd_tower_votes
+#define DEQUE_NAME fd_tower
 #define DEQUE_T    fd_tower_vote_t
 #define DEQUE_MAX  FD_TOWER_VOTE_MAX
 #include "../../util/tmpl/fd_deque.c"
 
-/* fd_tower is a representation of a validator's "vote tower" (described
-   in detail in the preamble at the top of this file).  The votes in the
-   tower are stored in an fd_deque ordered from lowest to highest vote
-   slot (highest to lowest confirmation count) relative to the head and
-   tail .  There can be at most 31 votes in the tower.  This invariant
-   is upheld with every call to `fd_tower_vote`.
+typedef fd_tower_vote_t fd_tower_t; /* typedef for semantic clarity */
 
-   The definition of `fd_tower_t` is a simple typedef alias for
-   `fd_tower_vote_t` and is a transparent wrapper around the vote deque.
-   Relatedly, the tower API takes a local pointer to the first vote in
-   the deque (the result of `fd_deque_join`) as a parameter in all its
-   function signatures. */
+/* FD_TOWER_{ALIGN,FOOTPRINT} provided for static declarations. */
 
-typedef fd_tower_vote_t fd_tower_t;
+#define FD_TOWER_ALIGN     (alignof(fd_tower_private_t))
+#define FD_TOWER_FOOTPRINT (sizeof (fd_tower_private_t))
+FD_STATIC_ASSERT( alignof(fd_tower_private_t)==8UL,   FD_TOWER_ALIGN     );
+FD_STATIC_ASSERT( sizeof (fd_tower_private_t)==512UL, FD_TOWER_FOOTPRINT );
 
-/* fd_tower_sync_serde describes a serialization / deserialization
-   schema for a bincode-encoded TowerSync transaction.  The serde is
-   structured for zero-copy access ie. x-raying individual fields. */
+#define FD_TOWER_FLAG_ANCESTOR_ROLLBACK 0 /* rollback to an ancestor of our prev vote */
+#define FD_TOWER_FLAG_SIBLING_CONFIRMED 1 /* our prev vote was a duplicate and its sibling got confirmed */
+#define FD_TOWER_FLAG_SAME_FORK         2 /* prev vote is on the same fork */
+#define FD_TOWER_FLAG_SWITCH_PASS       3 /* successfully switched to a different fork */
+#define FD_TOWER_FLAG_SWITCH_FAIL       4 /* failed to switch to a different fork */
+#define FD_TOWER_FLAG_LOCKOUT_FAIL      5 /* failed lockout check */
+#define FD_TOWER_FLAG_THRESHOLD_FAIL    6 /* failed threshold check */
+#define FD_TOWER_FLAG_PROPAGATED_FAIL   7 /* failed propagated check */
 
-struct fd_tower_sync_serde /* CompactTowerSync */ {
-  ulong const * root;
-  struct /* short_vec */ {
-    ushort lockouts_cnt; /* variable-length so copied (ShortU16) */
-    struct /* Lockout */ {
-      ulong         offset; /* variable-length so copied (VarInt) */
-      uchar const * confirmation_count;
-    } lockouts[31];
-  };
-  fd_hash_t const * hash;
-  struct /* Option<UnixTimestamp> */ {
-    uchar const * timestamp_option;
-    long  const * timestamp;
-  };
-  fd_hash_t const * block_id;
+struct fd_tower_out {
+  uchar     flags;          /* one of FD_TOWER_{EMPTY,...} */
+  ulong     reset_slot;     /* slot to reset PoH to */
+  fd_hash_t reset_block_id; /* block ID to reset PoH to */
+  ulong     vote_slot;      /* slot to vote for (ULONG_MAX if no vote) */
+  fd_hash_t vote_block_id;  /* block ID to vote for */
+  ulong     root_slot;      /* new tower root slot (ULONG_MAX if no new root) */
+  fd_hash_t root_block_id;  /* new tower root block ID */
 };
-typedef struct fd_tower_sync_serde fd_tower_sync_serde_t;
-
-/* fd_tower_file_serde describes a serialization / deserialization
-   schema for checkpointing / restoring tower from a file.  This
-   corresponds exactly with the binary layout of a tower file that Agave
-   uses during boot, set-identity, and voting.
-
-   The serde is structured for zero-copy access ie. x-raying individual
-   fields. */
-
-struct fd_tower_file_serde /* SavedTowerVersions::Current */ {
-  uint const *             kind;
-  fd_ed25519_sig_t const * signature;
-  ulong const *            data_sz; /* serialized sz of data field below */
-  struct /* Tower1_14_11 */ {
-    fd_pubkey_t const *   node_pubkey;
-    ulong const *         threshold_depth;
-    double const *        threshold_size;
-    fd_voter_v2_serde_t   vote_state;
-    struct {
-      uint const *          last_vote_kind;
-      fd_tower_sync_serde_t last_vote;
-    };
-    struct /* BlockTimestamp */ {
-      ulong const * slot;
-      long const *  timestamp;
-    } last_timestamp;
-  } /* data */;
-};
-typedef struct fd_tower_file_serde fd_tower_file_serde_t;
-
-/* fd_tower_sign_fn is the signing callback used for signing tower
-   checkpoints after serialization. */
-
-typedef void (fd_tower_sign_fn)( void const * ctx, uchar * sig, uchar const * ser, ulong ser_sz );
-
-/* FD_TOWER_{ALIGN,FOOTPRINT} specify the alignment and footprint needed
-   for tower.  ALIGN is double x86 cache line to mitigate various kinds
-   of false sharing (eg. ACLPF adjacent cache line prefetch).  FOOTPRINT
-   is the size of fd_deque including the private header's start and end
-   and an exact multiple of ALIGN.  These are provided to facilitate
-   compile time tower declarations. */
-
-#define FD_TOWER_ALIGN     (128UL)
-#define FD_TOWER_FOOTPRINT (512UL)
-FD_STATIC_ASSERT( FD_TOWER_FOOTPRINT==sizeof(fd_tower_votes_private_t), FD_TOWER_FOOTPRINT );
-
-/* fd_tower_{align,footprint} return the required alignment and
-   footprint of a memory region suitable for use as a tower.  align
-   returns FD_TOWER_ALIGN.  footprint returns FD_TOWER_FOOTPRINT. */
-
-FD_FN_CONST static inline ulong
-fd_tower_align( void ) {
-   return FD_TOWER_ALIGN;
-}
-
-FD_FN_CONST static inline ulong
-fd_tower_footprint( void ) {
-   return FD_TOWER_FOOTPRINT;
-}
-
-/* fd_tower_new formats an unused memory region for use as a tower.  mem
-   is a non-NULL pointer to this region in the local address space with
-   the required footprint and alignment. */
-
-void *
-fd_tower_new( void * mem );
-
-/* fd_tower_join joins the caller to the tower.  tower points to the
-   first byte of the memory region backing the tower in the caller's
-   address space.
-
-   Returns a pointer in the local address space to tower on success. */
-
-fd_tower_t *
-fd_tower_join( void * tower );
-
-/* fd_tower_leave leaves a current local join.  Returns a pointer to the
-   underlying shared memory region on success and NULL on failure (logs
-   details).  Reasons for failure include tower is NULL. */
-
-void *
-fd_tower_leave( fd_tower_t * tower );
-
-/* fd_tower_delete unformats a memory region used as a tower.  Assumes
-   only the local process is joined to the region.  Returns a pointer to
-   the underlying shared memory region or NULL if used obviously in
-   error (e.g. tower is obviously not a tower ...  logs details).  The
-   ownership of the memory region is transferred to the caller. */
-
-void *
-fd_tower_delete( void * tower );
-
-/* fd_tower_lockout_check checks if we are locked out from voting for
-   the `slot`.  Returns 1 if we can vote for `slot` without violating
-   lockout, 0 otherwise.  Assumes tower is non-empty.
-
-   After voting for a slot n, we are locked out for 2^k slots, where k
-   is the confirmation count of that vote.  Once locked out, we cannot
-   vote for a different fork until that previously-voted fork expires at
-   slot n+2^k.  This implies the earliest slot in which we can switch
-   from the previously-voted fork is (n+2^k)+1.  We use `ghost` to
-   determine whether `slot` is on the same or different fork as previous
-   vote slots.
-
-   In the case of the tower, every vote has its own expiration slot
-   depending on confirmations. The confirmation count is the max number
-   of consecutive votes that have been pushed on top of the vote, and
-   not necessarily its current height in the tower.
-
-   For example, the following is a diagram of a tower pushing and
-   popping with each vote:
-
-
-   slot | confirmation count
-   -----|-------------------
-   4    |  1 <- vote
-   3    |  2
-   2    |  3
-   1    |  4
-
-
-   slot | confirmation count
-   -----|-------------------
-   9    |  1 <- vote
-   2    |  3
-   1    |  4
-
-
-   slot | confirmation count
-   -----|-------------------
-   10   |  1 <- vote
-   9    |  2
-   2    |  3
-   1    |  4
-
-
-   slot | confirmation count
-   -----|-------------------
-   11   |  1 <- vote
-   10   |  2
-   9    |  3
-   2    |  4
-   1    |  5
-
-
-   slot | confirmation count
-   -----|-------------------
-   18   |  1 <- vote
-   2    |  4
-   1    |  5
-
-
-   In the final tower, note the gap in confirmation counts between slot
-   18 and slot 2, even though slot 18 is directly above slot 2. */
-
-int
-fd_tower_lockout_check( fd_tower_t const * tower,
-                        fd_ghost_t const * ghost,
-                        ulong              slot,
-                        fd_hash_t const *  block_id );
-
-/* fd_tower_switch_check checks if we can switch to the fork of `slot`.
-   Returns 1 if we can switch, 0 otherwise.  Assumes tower is non-empty.
-
-   There are two forks of interest: our last vote fork ("vote fork") and
-   the fork we want to switch to ("switch fork"). The switch fork is the
-   fork of `slot`.
-
-   In order to switch, FD_TOWER_SWITCH_PCT of stake must have voted for
-   a different descendant of the GCA of vote_fork and switch_fork, and
-   also must be locked out from our last vote slot.
-
-   Recall from the lockout check a validator is locked out from voting
-   for our last vote slot when their last vote slot is on a different
-   fork, and that vote's expiration slot > our last vote slot.
-
-   The following pseudocode describes the algorithm:
-
-   ```
-   find the greatest common ancestor (gca) of vote_fork and switch_fork
-   for all validators v
-      if v's  locked out[1] from voting for our latest vote slot
-         add v's stake to switch stake
-   return switch stake >= FD_TOWER_SWITCH_PCT
-   ```
-
-   The switch check is used to safeguard optimistic confirmation.
-   Specifically: FD_TOWER_OPT_CONF_PCT + FD_TOWER_SWITCH_PCT >= 1. */
-
-int
-fd_tower_switch_check( fd_tower_t const * tower,
-                       fd_epoch_t const * epoch,
-                       fd_ghost_t const * ghost,
-                       ulong              slot,
-                       fd_hash_t const *  block_id );
-
-/* fd_tower_threshold_check checks if we pass the threshold required to
-   vote for `slot`.  This is only relevant after voting for (and
-   confirming) the same fork ie. the tower is FD_TOWER_THRESHOLD_DEPTH
-   deep.  Returns 1 if we pass the threshold check, 0 otherwise.
-
-   The following psuedocode describes the algorithm:
-
-   ```
-   for all vote accounts in the current epoch
-
-      simulate that the validator has voted for `slot`
-
-      pop all votes expired by that simulated vote
-
-      if the validator's latest tower vote after expiry >= our threshold
-      slot ie. our vote from FD_TOWER_THRESHOLD_DEPTH back (after
-      simulating a vote on our own tower the same way), then add
-      validator's stake to threshold_stake.
-
-   return threshold_stake >= FD_TOWER_THRESHOLD_RATIO
-   ```
-
-   The threshold check simulates voting for the current slot to expire
-   stale votes.  This is to prevent validators that haven't voted in a
-   long time from counting towards the threshold stake. */
-
-int
-fd_tower_threshold_check( fd_tower_t const *   tower,
-                          fd_epoch_t *         epoch,
-                          fd_pubkey_t *        vote_keys,
-                          fd_tower_t * const * vote_towers,
-                          ulong                vote_cnt,
-                          ulong                slot );
-
-/* fd_tower_reset_slot returns the slot to reset PoH to when building
-   the next leader block.  Assumes tower and ghost are both valid local
-   joins and in-sync ie. every vote slot in tower corresponds to a node
-   in ghost.  There is always a reset slot (ie. this function will never
-   return ULONG_MAX).  In general, we reset to the leaf of our last vote
-   fork (which is usually also the ghost head).
-   See the implementation for detailed documentation of each reset case.
-   */
-
-ulong
-fd_tower_reset_slot( fd_tower_t const * tower,
-                     fd_epoch_t const * epoch,
-                     fd_ghost_t const * ghost );
-
-/* fd_tower_vote_slot returns the correct vote slot to pick given the
-   ghost tree.  Returns FD_SLOT_NULL if we cannot vote, because we are
-   locked out, do not meet switch threshold, or fail the threshold
-   check.
-
-   Specifically, these are the two scenarios in which we can vote:
-
-   1. the ghost head is on the same fork as our last vote slot, and
-      we pass the threshold check.
-   2. the ghost head is on a different fork than our last vote slot,
-      but we pass both the lockout and switch checks so we can
-      switch to the ghost head's fork. */
-
-ulong
-fd_tower_vote_slot( fd_tower_t const *   tower,
-                    fd_epoch_t *         epoch,
-                    fd_pubkey_t *        voter_keys,
-                    fd_tower_t * const * voter_towers,
-                    ulong                voter_len,
-                    fd_ghost_t const *   ghost );
-
-/* fd_tower_simulate_vote simulates a vote on the vote tower for slot,
-   returning the new height (cnt) for all the votes that would have been
-   popped.  Assumes tower is non-empty. */
-
-ulong
-fd_tower_simulate_vote( fd_tower_t const * tower, ulong slot );
-
-/* Operations */
-
-/* fd_tower_vote votes for slot.  Assumes caller has already performed
-   the relevant tower checks (lockout_check, etc.) to ensure it is valid
-   to vote for `slot`.  Returns a new root if this vote results in the
-   lowest vote slot in the tower reaching max lockout.  The lowest vote
-   will also be popped from the tower.
-
-   Max lockout is equivalent to 1 << FD_TOWER_VOTE_MAX + 1 (which
-   implies confirmation count is FD_TOWER_VOTE_MAX + 1).  As a result,
-   fd_tower_vote also maintains the invariant that the tower contains at
-   most FD_TOWER_VOTE_MAX votes, because (in addition to vote expiry)
-   there will always be a pop before reaching FD_TOWER_VOTE_MAX + 1. */
-
-ulong
-fd_tower_vote( fd_tower_t * tower, ulong slot );
+typedef struct fd_tower_out fd_tower_out_t;
+
+/* fd_tower_vote_and_reset selects both a block to vote for and block to
+   reset to.  Returns a struct with a reason code (FD_TOWER_{EMPTY,...})
+   in addition to {reset,vote,root}_{slot,block_id}.
+
+   We can't always vote, so vote_slot may be ULONG_MAX which indicates
+   no vote should be cast and caller should ignore vote_block_id.  New
+   roots result from votes, so the same applies for root_slot (there is
+   not always a new root).  However there is always a reset block, so
+   reset_slot and reset_block_id will always be populated on return. The
+   implementation contains detailed documentation of the tower rules. */
+
+fd_tower_out_t
+fd_tower_vote_and_reset( fd_tower_t       * tower,
+                         fd_tower_accts_t * accts,
+                         fd_tower_forks_t * forks,
+                         fd_ghost_t       * ghost,
+                         fd_notar_t       * notar );
 
 /* Misc */
 
-/* fd_tower_sync_serde populates serde using the provided tower and args
-   to create a zero-copy view of a TowerSync vote transaction payload
-   ready for serialization. */
+/* fd_tower_reconcile reconciles our local tower with the on-chain tower
+   inside our vote account.  Mirrors what Agave does. */
 
-fd_tower_sync_serde_t *
-fd_tower_to_tower_sync( fd_tower_t const * tower, ulong root, fd_hash_t * bank_hash, fd_hash_t * block_id, long ts, fd_tower_sync_serde_t * ser );
+void
+fd_tower_reconcile( fd_tower_t  * tower,
+                    ulong         tower_root,
+                    uchar const * vote_acc );
 
-/* fd_tower_sync_serde populates serde using the provided tower and args
-   to create a zero-copy view of an Agave-compatible serialized Tower
-   ready for serialization. */
+/* fd_tower_from_vote_acc deserializes the vote account into tower.
+   Assumes tower is a valid local join and currently empty. */
 
-fd_tower_file_serde_t *
-fd_tower_serde( fd_tower_t const *      tower,
-                ulong                   root,
-                fd_tower_sync_serde_t * last_vote,
-                uchar const             pvtkey[static 32],
-                uchar const             pubkey[static 32],
-                fd_tower_file_serde_t * ser );
+void
+fd_tower_from_vote_acc( fd_tower_t  * tower,
+                        uchar const * vote_acc );
 
 /* fd_tower_to_vote_txn writes tower into a fd_tower_sync_t vote
    instruction and serializes it into a Solana transaction.  Assumes
    tower is a valid local join. */
 
 void
-fd_tower_to_vote_txn( fd_tower_t const *    tower,
+fd_tower_to_vote_txn( fd_tower_t    const * tower,
                       ulong                 root,
                       fd_lockout_offset_t * lockouts_scratch,
-                      fd_hash_t const *     bank_hash,
-                      fd_hash_t const *     recent_blockhash,
-                      fd_pubkey_t const *   validator_identity,
-                      fd_pubkey_t const *   vote_authority,
-                      fd_pubkey_t const *   vote_acc,
+                      fd_hash_t     const * bank_hash,
+                      fd_hash_t     const * recent_blockhash,
+                      fd_pubkey_t   const * validator_identity,
+                      fd_pubkey_t   const * vote_authority,
+                      fd_pubkey_t   const * vote_account,
                       fd_txn_p_t *          vote_txn );
-
-/* fd_tower_checkpt bincode-serializes tower into the provided file
-   descriptor.  Returns 0 on success meaning the above has been
-   successfully written to fd, -1 if an error occurred during
-   checkpointing.  Assumes tower is non-empty and a valid local join of
-   the current tower, root is the current tower root, last_vote is the
-   serde of the last vote sent, pvtkey / pubkey is the validator
-   identity keypair, fd is a valid open file descriptor to write to, buf
-   is a buffer of at least buf_max bytes to serialize to and write from.
-
-   The binary layout of the file is compatible with Agave and specified
-   in bincode.  fd_tower_serde_t describes the schema.  Firedancer can
-   restore towers checkpointed by Agave (>=2.3.7) and vice versa.
-
-   IMPORTANT SAFETY TIP! No other process should be writing to either
-   the memory pointed by tower or the file pointed to by path while
-   fd_tower_checkpt is in progress. */
-
-int
-fd_tower_checkpt( fd_tower_t const *      tower,
-                  ulong                   root,
-                  fd_tower_sync_serde_t * last_vote,
-                  uchar const             pubkey[static 32],
-                  fd_tower_sign_fn *      sign_fn,
-                  int                     fd,
-                  uchar *                 buf,
-                  ulong                   buf_max );
-
-/* fd_tower_restore restores tower from the bytes pointed to by restore.
-   Returns 0 on success, -1 on error.  Assumes tower is a valid local
-   join of an empty tower, pubkey is the identity key of the validator
-   associated with the tower, and fd is a valid open file descriptor to
-   read from.  On return, the state of the tower, tower root and tower
-   timestamp as of the time the file was checkpointed will be restored
-   into tower, root and ts respectively. Any errors encountered during
-   restore are logged with as informative an error message as can be
-   contextualized before returning -1.
-
-   The binary layout of the file is compatible with Agave and specified
-   in bincode.  fd_tower_serde_t describes the schema.  Firedancer can
-   restore towers checkpointed by Agave (>=2.3.7) and vice versa.
-
-   IMPORTANT SAFETY TIP! No other process should be writing to either
-   the memory pointed by tower or the file pointed to by path while
-   fd_tower_restore is in progress. */
-
-int
-fd_tower_restore( fd_tower_t * tower,
-                  ulong *      root,
-                  long *       ts,
-                  uchar const  pubkey[static 32],
-                  int          fd,
-                  uchar *      buf,
-                  ulong        buf_max,
-                  ulong *      buf_sz );
-
-/* fd_tower_serialize serializes the provided serde into buf.  Returns 0
-   on success, -1 if an error is encountered during serialization.
-   Assumes serde is populated with valid local pointers to values to
-   serialize (NULL if a field should be skipped) and buf is at least as
-   large as the serialized size of ser.  Populates the number of bytes
-   serialized in buf_sz.
-
-   serde is a zero-copy view of the Agave-compatible bincode-encoding of
-   a tower.  See also the struct definition of fd_tower_serde_t. */
-
-int
-fd_tower_serialize( fd_tower_file_serde_t * ser,
-                    uchar *            buf,
-                    ulong              buf_max,
-                    ulong *            buf_sz );
-
-/* fd_tower_deserialize deserializes buf into serde.  Returns 0 on
-   success, -1 if an error is encountered during deserialization.  buf
-   must be at least as large as is required during bincode-decoding of
-   ser otherwise returns an error.
-
-   serde is a zero-copy view of the Agave-compatible bincode-encoding of
-   a tower.  See also the struct definition of fd_tower_serde_t. */
-
-int
-fd_tower_deserialize( uchar *            buf,
-                      ulong              buf_sz,
-                      fd_tower_file_serde_t * de );
 
 /* fd_tower_verify checks tower is in a valid state. Valid iff:
    - cnt < FD_TOWER_VOTE_MAX
@@ -897,37 +539,21 @@ fd_tower_deserialize( uchar *            buf,
 int
 fd_tower_verify( fd_tower_t const * tower );
 
-/* fd_tower_on_duplicate checks if the tower is on the same fork with an
-   invalid ancestor. */
-
-int
-fd_tower_on_duplicate( fd_tower_t const * tower, fd_ghost_t const * ghost );
-
 /* fd_tower_print pretty-prints tower as a formatted table.
 
    Sample output:
 
         slot | confirmation count
    --------- | ------------------
-   279803918 | 1
-   279803917 | 2
-   279803916 | 3
-   279803915 | 4
-   279803914 | 5
-   279803913 | 6
-   279803912 | 7
+   279803931 | 1
+   279803930 | 2
+   ...
+   279803901 | 31
+   279803900 | root
 */
 
 void
-fd_tower_print( fd_tower_t const * tower, ulong root );
-
-/* fd_tower_from_vote_acc_data reads into the given tower the given vote account data.
-   The vote account data will be deserialized from the Solana vote account
-   representation, and the tower will be populated with the votes.
-
-   Assumes tower is a valid local join and currently empty. */
-void
-fd_tower_from_vote_acc_data( uchar const * data,
-                             fd_tower_t *  tower_out );
+fd_tower_print( fd_tower_t const * tower,
+                ulong              root );
 
 #endif /* HEADER_fd_src_choreo_tower_fd_tower_h */
