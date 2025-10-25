@@ -42,6 +42,7 @@ class Tile(Enum):
     SNAPWH = 36
     SNAPLA = 37
     SNAPLS = 38
+    TOWER = 39
 
 class MetricType(Enum):
     COUNTER = 0

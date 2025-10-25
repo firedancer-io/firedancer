@@ -80,6 +80,8 @@ fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
   CFG_POP      ( cstr,   gossip.host                                         );
 
+  CFG_POP      ( ulong,  consensus.max_unrooted_slots                        );
+
   CFG_POP      ( uint,   layout.exec_tile_count                              );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );

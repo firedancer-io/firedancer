@@ -134,6 +134,10 @@ struct fd_configf {
   } gossip;
 
   struct {
+    ulong max_unrooted_slots;
+  } consensus;
+
+  struct {
     struct {
       uint max_local_full_effective_age;
       uint max_local_incremental_age;
