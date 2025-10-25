@@ -52,6 +52,8 @@ struct fd_replay_slot_completed {
   long last_transaction_finished_nanos;   /* timestamp when replay received the last execution completion */
   long completion_time_nanos;             /* timestamp when replay completed finalizing the slot and notified tower */
 
+  int is_leader; /* whether we were leader for this slot */
+
   struct {
     ulong block_cost;
     ulong vote_cost;
@@ -92,11 +94,11 @@ struct fd_replay_tower {
 typedef struct fd_replay_tower fd_replay_tower_t;
 
 union fd_replay_message {
-  fd_replay_slot_completed_t slot_completed;
-  fd_replay_root_advanced_t  root_advanced;
-  fd_poh_reset_t             reset;
-  fd_became_leader_t         became_leader;
-  fd_replay_tower_t          tower;
+  fd_replay_slot_completed_t  slot_completed;
+  fd_replay_root_advanced_t   root_advanced;
+  fd_poh_reset_t              reset;
+  fd_became_leader_t          became_leader;
+  fd_replay_tower_t           tower;
 };
 
 typedef union fd_replay_message fd_replay_message_t;

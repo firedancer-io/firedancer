@@ -72,7 +72,7 @@ typedef struct fd_txn_m fd_txn_m_t;
 
 static FD_FN_CONST inline ulong
 fd_txn_m_align( void ) {
-  return alignof( fd_txn_m_t );
+  return alignof(fd_txn_m_t);
 }
 
 static inline ulong
