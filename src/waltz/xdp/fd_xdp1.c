@@ -146,7 +146,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( ldxh, r5, r2, 0                          );  // r5 = gre_hdr->flags/version
   *(code++) = FD_EBPF( jne_imm, r5, 0x0000, LBL_PASS            );  // if gre_hdr->flags/version != 0, goto LBL_PASS
   *(code++) = FD_EBPF( ldxh, r5, r2, 2                          );  // r5 = gre_hdr->protocol
-  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if gre_hdr->protocl != IP, goto LBL_PASS
+  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, LBL_PASS            );  // if gre_hdr->protocol != IP, goto LBL_PASS
 
 
   /* Advance r2 to start of inner ip4_hdr */
@@ -278,16 +278,20 @@ fd_xdp_install( uint           if_idx,
   ulong code_cnt = fd_xdp_gen_program( code_buf, xsk_map_fd, listen_ip4_addr, ports, ports_cnt, 1 );
 
   char ebpf_kern_log[ 32768UL ];
-  union bpf_attr attr = {
-    .prog_type = BPF_PROG_TYPE_XDP,
-    .insn_cnt  = (uint)code_cnt,
-    .insns     = (ulong)code_buf,
-    .license   = (ulong)FD_LICENSE,
-    /* Verifier logs */
-    .log_level = 6,
-    .log_size  = 32768UL,
-    .log_buf   = (ulong)ebpf_kern_log
-  };
+
+  /* Work around a compiler bug: Clang+ASan fails to zero-initialize the
+     entire struct if we use union assignment syntax.  (It memsets 148
+     bytes instead of 152, leaving 4 trailing bytes uninitialized, which
+     fails in BPF_PROG_LOAD) */
+  union bpf_attr attr = {0};
+  attr.prog_type = BPF_PROG_TYPE_XDP;
+  attr.insn_cnt  = (uint)code_cnt;
+  attr.insns     = (ulong)code_buf;
+  attr.license   = (ulong)FD_LICENSE;
+  attr.log_level = 6;
+  attr.log_size  = 32768UL;
+  attr.log_buf   = (ulong)ebpf_kern_log;
+
   int prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( -1==prog_fd ) ) {
     FD_LOG_WARNING(( "bpf(BPF_PROG_LOAD) failed (%i-%s)", errno, fd_io_strerror( errno ) ));

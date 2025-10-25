@@ -97,7 +97,6 @@ echo "
         snapshot = \"$SNAPSHOT\"
         cluster_version = \"$CLUSTER_VERSION\"
         enable_features = [ \"$ONE_OFFS\" ]
-        heap_size_gib = 50
     [tiles.gui]
         enabled = false
 [funk]

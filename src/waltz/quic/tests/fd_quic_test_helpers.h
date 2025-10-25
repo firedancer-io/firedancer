@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_quic_tests_fd_quic_helpers_h
-#define HEADER_fd_src_waltz_quic_tests_fd_quic_helpers_h
+#ifndef HEADER_fd_src_waltz_quic_tests_fd_quic_test_helpers_h
+#define HEADER_fd_src_waltz_quic_tests_fd_quic_test_helpers_h
 
 #include "../fd_quic.h"
 #include "../fd_quic_private.h"
@@ -179,4 +179,4 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_waltz_quic_tests_fd_quic_helpers_h */
+#endif /* HEADER_fd_src_waltz_quic_tests_fd_quic_test_helpers_h */

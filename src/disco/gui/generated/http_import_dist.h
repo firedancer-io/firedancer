@@ -17,6 +17,7 @@ typedef struct fd_http_static_file fd_http_static_file_t;
 
 extern fd_http_static_file_t STATIC_FILES_STABLE[]; /* null terminated */
 extern fd_http_static_file_t STATIC_FILES_ALPHA[]; /* null terminated */
+extern fd_http_static_file_t STATIC_FILES_DEV[]; /* null terminated */
 
 #endif /* HEADER_fd_src_disco_gui_generated_http_import_dist_h */
 

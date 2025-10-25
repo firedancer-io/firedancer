@@ -6,8 +6,9 @@
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../flamenco/accdb/fd_accdb_admin.h"
+#include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
-#include "../../funk/fd_funk.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
@@ -20,11 +21,6 @@
    for loading accounts into an in-memory database, though this may
    change. */
 
-#define FD_SNAPIN_STATE_LOADING   (0) /* We are inserting accounts from a snapshot */
-#define FD_SNAPIN_STATE_DONE      (1) /* We are done inserting accounts from a snapshot */
-#define FD_SNAPIN_STATE_MALFORMED (2) /* The snapshot is malformed, we are waiting for a reset notification */
-#define FD_SNAPIN_STATE_SHUTDOWN  (3) /* The tile is done, been told to shut down, and has likely already exited */
-
 /* 300 here is from status_cache.rs::MAX_CACHE_ENTRIES which is the most
    root slots Agave could possibly serve in a snapshot. */
 #define FD_SNAPIN_TXNCACHE_MAX_ENTRIES (300UL*FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT)
@@ -32,6 +28,9 @@
 /* 300 root slots in the slot deltas array, and each one references all
    151 prior blockhashes that it's able to. */
 #define FD_SNAPIN_MAX_SLOT_DELTA_GROUPS (300UL*151UL)
+
+#define FD_SNAPIN_OUT_SNAPCT   0UL
+#define FD_SNAPIN_OUT_MANIFEST 1UL
 
 struct fd_blockhash_entry {
   fd_hash_t blockhash;
@@ -69,7 +68,9 @@ struct fd_snapin_tile {
   ulong seed;
   long boot_timestamp;
 
-  fd_funk_t       funk[1];
+  fd_accdb_admin_t accdb_admin[1];
+  fd_accdb_user_t  accdb[1];
+
   fd_txncache_t * txncache;
   uchar *         acc_data;
 
@@ -79,7 +80,14 @@ struct fd_snapin_tile {
   fd_ssparse_t *           ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
   fd_slot_delta_parser_t * slot_delta_parser;
-  ulong                    bank_slot;
+
+  struct {
+    int manifest_done;
+    int status_cache_done;
+    int manifest_processed;
+  } flags;
+
+  ulong bank_slot;
 
   ulong blockhash_offsets_len;
   blockhash_group_t * blockhash_offsets;
@@ -116,10 +124,10 @@ typedef struct fd_snapin_tile fd_snapin_tile_t;
 
 static inline int
 should_shutdown( fd_snapin_tile_t * ctx ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPIN_STATE_SHUTDOWN ) ) {
-    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.1f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN ) ) {
+    FD_LOG_NOTICE(( "loaded %.1fM accounts from snapshot in %.3f seconds", (double)ctx->metrics.accounts_inserted/1e6, (double)(fd_log_wallclock()-ctx->boot_timestamp)/1e9 ));
   }
-  return ctx->state==FD_SNAPIN_STATE_SHUTDOWN;
+  return ctx->state==FD_SNAPSHOT_STATE_SHUTDOWN;
 }
 
 static ulong
@@ -155,7 +163,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t *         ctx,
 
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( slot_history, entry->slot, NULL )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) return -1;
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( slot_history, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) return -1;
   }
   return 0;
 }
@@ -171,10 +179,10 @@ verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
 }
 
 static void
-transition_malformed( fd_snapin_tile_t * ctx,
-                     fd_stem_context_t * stem ) {
-  ctx->state = FD_SNAPIN_STATE_MALFORMED;
-  fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_MALFORMED, 0UL, 0UL, 0UL, 0UL, 0UL );
+transition_malformed( fd_snapin_tile_t *  ctx,
+                      fd_stem_context_t * stem ) {
+  ctx->state = FD_SNAPSHOT_STATE_ERROR;
+  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPCT, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static int
@@ -334,7 +342,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
   }
 
   /* Now load the blockhash offsets for these blockhashes ... */
-  //FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
+  FD_TEST( ctx->blockhash_offsets_len ); /* Must be at least one else nothing would be rooted */
   for( ulong i=0UL; i<ctx->blockhash_offsets_len; i++ ) {
     fd_hash_t key;
     fd_memcpy( key.uc, ctx->blockhash_offsets[ i ].blockhash, 32UL );
@@ -396,38 +404,46 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 static void
 process_manifest( fd_snapin_tile_t * ctx ) {
   fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk );
-  ulong bank_slot = ctx->bank_slot = manifest->slot;
-  if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, bank_slot ) ) ) {
+
+  ctx->bank_slot = manifest->slot;
+  if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
     FD_LOG_WARNING(( "slot deltas verification failed" ));
     transition_malformed( ctx, ctx->stem );
     return;
   }
 
-  if( FD_UNLIKELY( populate_txncache( ctx, manifest->blockhashes, manifest->blockhashes_len ) ) ) return;
+  if( FD_UNLIKELY( populate_txncache( ctx, manifest->blockhashes, manifest->blockhashes_len ) ) ) {
+    FD_LOG_WARNING(( "populating txncache failed" ));
+    transition_malformed( ctx, ctx->stem );
+    return;
+  }
+
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-  fd_stem_publish( ctx->stem, 0UL, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( ctx->stem, FD_SNAPIN_OUT_MANIFEST, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
 static void
 process_account_header( fd_snapin_tile_t *            ctx,
                         fd_ssparse_advance_result_t * result ) {
+  fd_funk_t * funk = ctx->accdb->funk;
+
   fd_funk_rec_key_t id = fd_funk_acc_key( (fd_pubkey_t const*)result->account_header.pubkey );
   fd_funk_rec_query_t query[1];
-  fd_funk_rec_t const * rec = fd_funk_rec_query_try( ctx->funk, ctx->xid, &id, query );
+  fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, ctx->xid, &id, query );
 
   int should_publish = 0;
   fd_funk_rec_prepare_t prepare[1];
   if( FD_LIKELY( !rec ) ) {
     should_publish = 1;
-    rec = fd_funk_rec_prepare( ctx->funk, ctx->xid, &id, prepare, NULL );
+    rec = fd_funk_rec_prepare( funk, ctx->xid, &id, prepare, NULL );
     FD_TEST( rec );
   }
 
-  fd_account_meta_t * meta = fd_funk_val( rec, ctx->funk->wksp );
+  fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
   if( FD_UNLIKELY( meta ) ) {
     if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
       ctx->acc_data = NULL;
@@ -439,10 +455,16 @@ process_account_header( fd_snapin_tile_t *            ctx,
        hash from the running lthash. */
   }
 
-  if( FD_LIKELY( rec->val_sz<sizeof(fd_account_meta_t)+result->account_header.data_len ) ) {
-    meta = fd_funk_val_truncate( (fd_funk_rec_t*)rec, ctx->funk->alloc, ctx->funk->wksp, 0UL, sizeof(fd_account_meta_t)+result->account_header.data_len, NULL );
-    FD_TEST( meta );
-  }
+  /* Allocate data space from heap, free old value (if any) */
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
+  ulong       alloc_max;
+  meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  memset( meta, 0, sizeof(fd_account_meta_t) );
+  rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
+  rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
+  rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
 
   meta->dlen       = (uint)result->account_header.data_len;
   meta->slot       = result->account_header.slot;
@@ -453,7 +475,7 @@ process_account_header( fd_snapin_tile_t *            ctx,
   ctx->acc_data = (uchar*)meta + sizeof(fd_account_meta_t);
   ctx->metrics.accounts_inserted++;
 
-  if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( ctx->funk, prepare );
+  if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( funk, prepare );
 }
 
 static void
@@ -465,21 +487,159 @@ process_account_data( fd_snapin_tile_t *            ctx,
   ctx->acc_data += result->account_data.data_sz;
 }
 
+/* streamlined_insert inserts an unfragmented account.
+   Only used while loading a full snapshot, not an incremental. */
+
+static void
+streamlined_insert( fd_snapin_tile_t * ctx,
+                    fd_funk_rec_t *    rec,
+                    uchar const *      frame,
+                    ulong              slot ) {
+  ulong data_len   = fd_ulong_load_8_fast( frame+0x08UL );
+  ulong lamports   = fd_ulong_load_8_fast( frame+0x30UL );
+  ulong rent_epoch = fd_ulong_load_8_fast( frame+0x38UL ); (void)rent_epoch;
+  uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
+  _Bool executable = !!frame[ 0x60UL ];
+
+  fd_funk_t * funk = ctx->accdb->funk;
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+  fd_funk_val_flush( rec, funk->alloc, funk->wksp );
+  ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
+  ulong       alloc_max;
+  fd_account_meta_t * meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
+  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  memset( meta, 0, sizeof(fd_account_meta_t) );
+  rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
+  rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
+  rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
+
+  /* Write metadata */
+  meta->dlen = (uint)data_len;
+  meta->slot = slot;
+  memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+  meta->lamports   = lamports;
+  meta->executable = (uchar)executable;
+
+  /* Write data */
+  uchar * acc_data = (uchar *)( meta+1 );
+  fd_memcpy( acc_data, frame+0x88UL, data_len );
+
+  ctx->metrics.accounts_inserted++;
+}
+
+/* process_account_batch is a happy path performance optimization
+   handling insertion of lots of small accounts.
+
+   The main optimization implemented for funk is prefetching hash map
+   accesses. */
+
+__attribute__((noinline)) static void
+process_account_batch( fd_snapin_tile_t *            ctx,
+                       fd_ssparse_advance_result_t * result ) {
+  fd_funk_t *         funk    = ctx->accdb->funk;
+  fd_funk_rec_map_t * rec_map = funk->rec_map;
+  fd_funk_rec_t *     rec_tbl = funk->rec_pool->ele;
+  fd_funk_rec_map_shmem_private_chain_t * chain_tbl = fd_funk_rec_map_shmem_private_chain( rec_map->map, 0UL );
+
+  /* Derive map chains */
+  uint chain_idx[ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong chain_mask = rec_map->map->chain_cnt-1UL;
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    uchar const * frame  = result->account_batch.batch[ i ];
+    uchar const * pubkey = frame+0x10UL;
+    ulong         memo   = fd_funk_rec_key_hash1( pubkey, 0UL, rec_map->map->seed );
+    chain_idx[ i ] = (uint)( memo&chain_mask );
+  }
+
+  /* Parallel load hash chain heads */
+  uint map_node [ FD_SSPARSE_ACC_BATCH_MAX ];
+  uint chain_cnt[ FD_SSPARSE_ACC_BATCH_MAX ];
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    map_node [ i ] =       chain_tbl[ chain_idx[ i ] ].head_cidx;
+    chain_cnt[ i ] = (uint)chain_tbl[ chain_idx[ i ] ].ver_cnt;
+  }
+  uint chain_max = 0U;
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    chain_max = fd_uint_max( chain_max, chain_cnt[ i ] );
+  }
+
+  /* Parallel walk hash chains */
+  static fd_funk_rec_t dummy_rec = { .map_next = UINT_MAX };
+  fd_funk_rec_t * rec[ FD_SSPARSE_ACC_BATCH_MAX ] = {0};
+  for( ulong j=0UL; j<chain_max; j++ ) {
+    for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+      uchar const *   frame     = result->account_batch.batch[ i ];
+      uchar const *   pubkey    = frame+0x10UL;
+      int const       has_node  = j<chain_cnt[ i ];
+      fd_funk_rec_t * node      = has_node ? rec_tbl+map_node[ i ] : &dummy_rec;
+      int const       key_match = 0==memcmp( node->pair.key, pubkey, sizeof(fd_funk_rec_key_t) );
+      if( has_node && key_match ) rec[ i ] = node;
+      map_node[ i ] = node->map_next;
+    }
+  }
+
+  /* Create map entries */
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    uchar const * frame  = result->account_batch.batch[ i ];
+    uchar const * pubkey = frame+0x10UL;
+    fd_funk_rec_key_t key = FD_LOAD( fd_funk_rec_key_t, pubkey );
+
+    fd_funk_rec_t * r = rec[ i ];
+    if( FD_LIKELY( !r ) ) {  /* optimize for new account */
+      r = fd_funk_rec_pool_acquire( funk->rec_pool, NULL, 0, NULL );
+      FD_TEST( r );
+      memset( r, 0, sizeof(fd_funk_rec_t) );
+      fd_funk_txn_xid_copy( r->pair.xid, ctx->xid );
+      fd_funk_rec_key_copy( r->pair.key, &key );
+
+      /* Insert to hash map.  In theory, a key could appear twice in the
+         same batch.  All accounts in a batch are guaranteed to be from
+         the same slot though, so this is fine, assuming that accdb code
+         gracefully handles duplicate hash map entries. */
+      fd_funk_rec_map_shmem_private_chain_t * chain = &chain_tbl[ chain_idx[ i ] ];
+      ulong ver_cnt    = chain->ver_cnt;
+      uint  head_cidx  = chain->head_cidx;
+      chain->ver_cnt   = fd_funk_rec_map_private_vcnt( fd_funk_rec_map_private_vcnt_ver( ver_cnt ), fd_funk_rec_map_private_vcnt_cnt( ver_cnt )+1UL );
+      chain->head_cidx = (uint)( r-rec_tbl );
+      r->map_next      = head_cidx;
+      rec[ i ]         = r;
+    } else {  /* existing record for key found */
+      fd_account_meta_t const * existing = fd_funk_val( r, funk->wksp );
+      if( FD_UNLIKELY( !existing ) ) FD_LOG_HEXDUMP_NOTICE(( "r", r, sizeof(fd_funk_rec_t) ));
+      FD_TEST( existing );
+      if( existing->slot > result->account_batch.slot ) {
+        rec[ i ] = NULL;  /* skip record if existing value is newer */
+      }
+    }
+  }
+
+  /* Actually insert accounts */
+  for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+    if( rec[ i ] ) {
+      streamlined_insert( ctx, rec[ i ], result->account_batch.batch[ i ], result->account_batch.slot );
+    }
+  }
+}
+
 static int
 handle_data_frag( fd_snapin_tile_t *  ctx,
                   ulong               chunk,
                   ulong               sz,
                   fd_stem_context_t * stem ) {
-  if( FD_UNLIKELY( ctx->state==FD_SNAPIN_STATE_MALFORMED ) ) return 0;
-
-  FD_TEST( ctx->state==FD_SNAPIN_STATE_LOADING || ctx->state==FD_SNAPIN_STATE_DONE );
-  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
-
-  if( FD_UNLIKELY( ctx->state==FD_SNAPIN_STATE_DONE ) ) {
-    FD_LOG_WARNING(( "received data fragment while in done state" ));
+  if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_FINISHING ) ) {
     transition_malformed( ctx, stem );
     return 0;
   }
+  else if( FD_UNLIKELY( ctx->state==FD_SNAPSHOT_STATE_ERROR ) ) {
+    /* Ignore all data frags after observing an error in the stream until
+       we receive fail & init control messages to restart processing. */
+    return 0;
+  }
+  else if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_PROCESSING ) ) {
+    FD_LOG_ERR(( "invalid state for data frag %d", ctx->state ));
+  }
+
+  FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
 
   for(;;) {
     if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
@@ -503,8 +663,9 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         if( FD_UNLIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_ERROR ) ) {
           transition_malformed( ctx, stem );
           return 0;
+        } else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) {
+          ctx->flags.manifest_done = 1;
         }
-        else if( FD_LIKELY( res==FD_SSMANIFEST_PARSER_ADVANCE_DONE ) ) process_manifest( ctx );
         break;
       }
       case FD_SSPARSE_ADVANCE_STATUS_CACHE: {
@@ -533,6 +694,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
           bytes_remaining           -= sd_result->bytes_consumed;
           result->status_cache.data += sd_result->bytes_consumed;
         }
+
+        ctx->flags.status_cache_done = fd_slot_delta_parser_consume( ctx->slot_delta_parser, result->status_cache.data, 0UL, sd_result )==FD_SLOT_DELTA_PARSER_ADVANCE_DONE;
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
@@ -541,12 +704,20 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
         process_account_data( ctx, result );
         break;
+      case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
+        process_account_batch( ctx, result );
+        break;
       case FD_SSPARSE_ADVANCE_DONE:
-        ctx->state = FD_SNAPIN_STATE_DONE;
+        ctx->state = FD_SNAPSHOT_STATE_FINISHING;
         break;
       default:
         FD_LOG_ERR(( "unexpected fd_ssparse_advance result %d", res ));
         break;
+    }
+
+    if( FD_UNLIKELY( !ctx->flags.manifest_processed && ctx->flags.manifest_done && ctx->flags.status_cache_done ) ) {
+      process_manifest( ctx );
+      ctx->flags.manifest_processed = 1;
     }
 
     ctx->in.pos += result->bytes_consumed;
@@ -563,61 +734,65 @@ static void
 handle_control_frag( fd_snapin_tile_t *  ctx,
                      fd_stem_context_t * stem,
                      ulong               sig ) {
+  fd_funk_t * funk = ctx->accdb->funk;
   switch( sig ) {
-    case FD_SNAPSHOT_MSG_CTRL_RESET_FULL:
-      ctx->full = 1;
-      ctx->txncache_entries_len = 0UL;
+    case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
+    case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
+      fd_ssparse_batch_enable( ctx->ssparse, sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
+      ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
+      ctx->txncache_entries_len  = 0UL;
       ctx->blockhash_offsets_len = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
-      fd_funk_txn_remove_published( ctx->funk );
-      ctx->state = FD_SNAPIN_STATE_LOADING;
+      fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
       break;
-    case FD_SNAPSHOT_MSG_CTRL_RESET_INCREMENTAL:
-      ctx->full = 0;
-      ctx->txncache_entries_len = 0UL;
-      ctx->blockhash_offsets_len = 0UL;
-      fd_txncache_reset( ctx->txncache );
-      fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
-      fd_slot_delta_parser_init( ctx->slot_delta_parser );
-      fd_funk_txn_cancel( ctx->funk, ctx->xid );
-      fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( ctx->funk ) );
-      ctx->state = FD_SNAPIN_STATE_LOADING;
-      break;
-    case FD_SNAPSHOT_MSG_CTRL_EOF_FULL:
-      FD_TEST( ctx->full );
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPIN_STATE_DONE ) ) {
-        FD_LOG_WARNING(( "unexpected end of snapshot when not done parsing" ));
-        transition_malformed( ctx, stem );
-        break;
+
+    case FD_SNAPSHOT_MSG_CTRL_FAIL:
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_FINISHING ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      if( ctx->full ) {
+        fd_accdb_clear( ctx->accdb_admin );
+      } else {
+        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( funk ) );
       }
+      break;
 
-      ctx->txncache_entries_len = 0UL;
-      ctx->blockhash_offsets_len = 0UL;
-      fd_txncache_reset( ctx->txncache );
-      fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
-      fd_slot_delta_parser_init( ctx->slot_delta_parser );
+    case FD_SNAPSHOT_MSG_CTRL_NEXT: {
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
+        transition_malformed( ctx, stem );
+        return;
+      }
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      fd_funk_txn_xid_t incremental_xid = fd_funk_generate_xid();
-      fd_funk_txn_prepare( ctx->funk, ctx->xid, &incremental_xid );
+      fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
+      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
       fd_funk_txn_xid_copy( ctx->xid, &incremental_xid );
-
-      ctx->full     = 0;
-      ctx->state    = FD_SNAPIN_STATE_LOADING;
       break;
+    }
+
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      if( FD_UNLIKELY( ctx->state!=FD_SNAPIN_STATE_DONE ) ) {
-        FD_LOG_WARNING(( "unexpected end of snapshot when not done parsing" ));
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
+               ctx->state==FD_SNAPSHOT_STATE_FINISHING  ||
+               ctx->state==FD_SNAPSHOT_STATE_ERROR );
+      if( FD_UNLIKELY( ctx->state!=FD_SNAPSHOT_STATE_FINISHING ) ) {
         transition_malformed( ctx, stem );
-        break;
+        return;
       }
+      ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
       uchar slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( ctx->funk, ctx->xid, slot_history_mem );
+      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( funk, ctx->xid, slot_history_mem );
       if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx, slot_history ) ) ) {
         FD_LOG_WARNING(( "slot deltas verification failed" ));
         transition_malformed( ctx, stem );
@@ -625,58 +800,57 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       }
 
       /* Publish any remaining funk txn */
-      if( FD_LIKELY( fd_funk_last_publish_is_frozen( ctx->funk ) ) ) {
-        fd_funk_txn_publish_into_parent( ctx->funk, ctx->xid );
+      if( FD_LIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
+        fd_accdb_advance_root( ctx->accdb_admin, ctx->xid );
       }
-      FD_TEST( !fd_funk_last_publish_is_frozen( ctx->funk ) );
+      FD_TEST( !fd_funk_last_publish_is_frozen( funk ) );
 
       /* Make 'Last published' XID equal the restored slot number */
-      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, ctx->bank_slot } };
-      fd_funk_txn_prepare( ctx->funk, ctx->xid, &target_xid );
-      fd_funk_txn_publish_into_parent( ctx->funk, &target_xid );
+      fd_funk_txn_xid_t target_xid = { .ul = { ctx->bank_slot, 0UL } };
+      fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &target_xid );
+      fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
-      fd_stem_publish( stem, 0UL, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, FD_SNAPIN_OUT_MANIFEST, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
+
     case FD_SNAPSHOT_MSG_CTRL_SHUTDOWN:
-      ctx->state = FD_SNAPIN_STATE_SHUTDOWN;
+      FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
+      ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
       break;
+
+    case FD_SNAPSHOT_MSG_CTRL_ERROR:
+      ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      break;
+
     default:
       FD_LOG_ERR(( "unexpected control sig %lu", sig ));
       return;
   }
 
-  /* We must acknowledge after handling the control frag, because if it
-     causes us to generate a malformed transition, that must be sent
-     back to the snaprd controller before the acknowledgement. */
-  fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_ACK, 0UL, 0UL, 0UL, 0UL, 0UL );
+  /* Forward the control message down the pipeline */
+  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPCT, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int
 returnable_frag( fd_snapin_tile_t *  ctx,
-                 ulong               in_idx,
-                 ulong               seq,
+                 ulong               in_idx FD_PARAM_UNUSED,
+                 ulong               seq    FD_PARAM_UNUSED,
                  ulong               sig,
                  ulong               chunk,
                  ulong               sz,
-                 ulong               ctl,
-                 ulong               tsorig,
-                 ulong               tspub,
+                 ulong               ctl    FD_PARAM_UNUSED,
+                 ulong               tsorig FD_PARAM_UNUSED,
+                 ulong               tspub  FD_PARAM_UNUSED,
                  fd_stem_context_t * stem ) {
-  (void)in_idx;
-  (void)seq;
-  (void)ctl;
-  (void)tsorig;
-  (void)tspub;
+  FD_TEST( ctx->state!=FD_SNAPSHOT_STATE_SHUTDOWN );
 
   ctx->stem = stem;
-
-  FD_TEST( ctx->state!=FD_SNAPIN_STATE_SHUTDOWN );
-
   if( FD_UNLIKELY( sig==FD_SNAPSHOT_MSG_DATA ) ) return handle_data_frag( ctx, chunk, sz, stem );
-  else                                           handle_control_frag( ctx, stem, sig  );
+  else                                           handle_control_frag( ctx, stem, sig );
+  ctx->stem = NULL;
 
   return 0;
 }
@@ -734,12 +908,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
 
   ctx->full = 1;
-  ctx->state = FD_SNAPIN_STATE_LOADING;
+  ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
   ctx->boot_timestamp = fd_log_wallclock();
 
-  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
-  fd_funk_txn_xid_set_root( ctx->xid );
+  FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -765,7 +940,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2",  tile->out_cnt  ));
 
-  fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ 0UL ] ];
+  fd_topo_link_t * snapct_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_SNAPCT ] ];
+  FD_TEST( 0==strcmp( snapct_link->name, "snapin_rd" ) );
+
+  fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_MANIFEST ] ];
+  FD_TEST( 0==strcmp( writer_link->name, "snapin_manif" ) );
   ctx->manifest_out.wksp   = topo->workspaces[ topo->objs[ writer_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->manifest_out.chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( writer_link->dcache ), writer_link->dcache );
   ctx->manifest_out.wmark  = fd_dcache_compact_wmark ( ctx->manifest_out.wksp, writer_link->dcache, writer_link->mtu );
@@ -783,9 +962,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
   ctx->in.pos                    = 0UL;
+
+  fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 }
 
-#define STEM_BURST 2UL /* For control fragments, one acknowledgement, and one malformed message */
+/* Control fragments can result in one extra publish to forward the
+   message down the pipeline, in addition to the result / malformed
+   message / etc. */
+#define STEM_BURST 2UL
+
 #define STEM_LAZY  1000L
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_snapin_tile_t

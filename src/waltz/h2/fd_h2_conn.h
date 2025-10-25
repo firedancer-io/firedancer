@@ -217,7 +217,7 @@ fd_h2_tx_commit( fd_h2_conn_t *       conn,
 }
 
 /* fd_h2_tx is a slow streamlined variant of fd_h2_tx_{prepare,commit}.
-   This variant assumes that the frame paylaod is already available in
+   This variant assumes that the frame payload is already available in
    a separate buffer. */
 
 static inline void

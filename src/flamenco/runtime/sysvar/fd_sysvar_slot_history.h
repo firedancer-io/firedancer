@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_history_h
-#define HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_history_h
+#ifndef HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_history_h
+#define HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_history_h
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
@@ -16,16 +16,15 @@
 /* Initialize the slot history sysvar account. */
 void
 fd_sysvar_slot_history_init( fd_bank_t *               bank,
-                             fd_funk_t *               funk,
+                             fd_accdb_user_t *         accdb,
                              fd_funk_txn_xid_t const * xid,
-                             fd_capture_ctx_t *        capture_ctx,
-                             fd_spad_t *               runtime_spad );
+                             fd_capture_ctx_t *        capture_ctx );
 
 /* Update the slot history sysvar account. This should be called at the
    end of every slot, after execution has concluded. */
 int
 fd_sysvar_slot_history_update( fd_bank_t *               bank,
-                               fd_funk_t *               funk,
+                               fd_accdb_user_t *         accdb,
                                fd_funk_txn_xid_t const * xid,
                                fd_capture_ctx_t *        capture_ctx );
 
@@ -40,6 +39,6 @@ fd_sysvar_slot_history_read( fd_funk_t *               funk,
 
 int
 fd_sysvar_slot_history_find_slot( fd_slot_history_global_t const * history,
-                                  ulong                            slot,
-                                  fd_wksp_t *                      wksp );
-#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_history_h */
+                                  ulong                            slot );
+
+#endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_sysvar_slot_history_h */

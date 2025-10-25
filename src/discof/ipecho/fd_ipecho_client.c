@@ -99,6 +99,7 @@ fd_ipecho_client_init( fd_ipecho_client_t *  client,
   for( ulong i=peer_cnt; i<16UL; i++ ) client->pollfds[ i ].fd = -1;
 
   client->peer_cnt = peer_cnt;
+  client->remaining_peer_cnt = peer_cnt;
   client->start_time_nanos = fd_log_wallclock();
 }
 
@@ -107,7 +108,7 @@ close_one( fd_ipecho_client_t * client,
            ulong                idx ) {
   if( FD_UNLIKELY( -1==close( client->pollfds[ idx ].fd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   client->pollfds[ idx ].fd = -1;
-  client->peer_cnt--;
+  client->remaining_peer_cnt--;
 }
 
 static void
@@ -212,7 +213,7 @@ int
 fd_ipecho_client_poll( fd_ipecho_client_t * client,
                        ushort *             shred_version,
                        int *                charge_busy ) {
-  if( FD_UNLIKELY( !client->peer_cnt ) ) return -1;
+  if( FD_UNLIKELY( !client->remaining_peer_cnt ) ) return -1;
   if( FD_UNLIKELY( fd_log_wallclock()-client->start_time_nanos>2L*1000L*1000*1000L ) ) {
     close_all( client );
     return -1;

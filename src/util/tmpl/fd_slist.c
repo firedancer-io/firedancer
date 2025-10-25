@@ -91,7 +91,6 @@
      // myslist_idx_push_{head,tail} pushes the pool element whose index
      // is ele_idx to the slist's {head,tail} and returns join.  Assumes
      // ele_idx valid and not already in the slist.
-     /
      // myslist_idx_pop_head pops the pool element at the slist's head
      // and returns its pool index.  Assumes slist is not empty.
      //
@@ -135,10 +134,10 @@
      struct myslist_iter_private { ... internal use only ... };
      typedef struct myslist_iter_private myslist_iter_t;
 
-     myslist_iter_t  myslist_iter_fwd_init(                      myslist_t const * join, myele_t const * pool );
-     int             myslist_iter_done    ( myslist_iter_t iter, myslist_t const * join, myele_t const * pool );
-     myslist_iter_t  myslist_iter_fwd_next( myslist_iter_t iter, myslist_t const * join, myele_t const * pool ); // assumes !done
-     ulong           myslist_iter_idx     ( myslist_iter_t iter, myslist_t const * join, myele_t const * pool ); // assumes !done
+     myslist_iter_t  myslist_iter_init(                      myslist_t const * join, myele_t const * pool );
+     int             myslist_iter_done( myslist_iter_t iter, myslist_t const * join, myele_t const * pool );
+     myslist_iter_t  myslist_iter_next( myslist_iter_t iter, myslist_t const * join, myele_t const * pool ); // assumes !done
+     ulong           myslist_iter_idx ( myslist_iter_t iter, myslist_t const * join, myele_t const * pool ); // assumes !done
 
      // myslist_verify returns 0 if the myslist is not obviously corrupt
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
@@ -191,12 +190,12 @@
 #error "Define SLIST_ELE_T"
 #endif
 
-/* SLIST_IDX_T is the type used for the prev and next fields in the
-   SLIST_ELE_T.  Should be a primitive unsigned integer type.  Defaults
-   to ulong.  A slist can't use element memory regions with more
-   elements than the maximum value that can be represented by a
-   SLIST_IDX_T.  (E.g. if ushort, the maximum size element store
-   supported by the slist is 65535 elements.) */
+/* SLIST_IDX_T is the type used for the next field in the SLIST_ELE_T.
+   Should be a primitive unsigned integer type.  Defaults to ulong.  A
+   slist can't use element memory regions with more elements than the
+   maximum value that can be represented by a SLIST_IDX_T.  (E.g. if
+   ushort, the maximum size element store supported by the slist is
+   65535 elements.) */
 
 #ifndef SLIST_IDX_T
 #define SLIST_IDX_T ulong

@@ -3,6 +3,7 @@
 
 #include "../replay/fd_replay_tile.h"
 #include "../../ballet/txn/fd_txn.h"
+#include "../../flamenco/accdb/fd_accdb_ref.h"
 
 typedef struct fd_webserver fd_webserver_t;
 
@@ -48,13 +49,13 @@ const char* fd_block_to_json( fd_webserver_t * ws,
 
 #define FD_LONG_UNSET (1L << 63L)
 
-const char* fd_account_to_json( fd_webserver_t * ws,
-                                fd_pubkey_t acct,
-                                fd_rpc_encoding_t enc,
-                                uchar const * val,
-                                ulong val_sz,
-                                long off,
-                                long len,
-                                fd_spad_t * spad );
+char const *
+fd_account_to_json( fd_webserver_t *      ws,
+                    fd_pubkey_t           acct,
+                    fd_rpc_encoding_t     enc,
+                    fd_accdb_ro_t const * ro,
+                    long                  off,
+                    long                  len,
+                    fd_spad_t *           spad );
 
 #endif /* HEADER_fd_src_discof_rpcserver_fd_block_to_json_h */

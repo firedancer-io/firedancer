@@ -39,6 +39,7 @@ typedef struct fd_exec_test_elf_loader_effects {
     uint64_t entry_pc;
     pb_size_t calldests_count;
     uint64_t *calldests;
+    int32_t error;
 } fd_exec_test_elf_loader_effects_t;
 
 typedef struct fd_exec_test_elf_loader_fixture {
@@ -58,11 +59,11 @@ extern "C" {
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_ELF_BINARY_INIT_DEFAULT     {NULL}
 #define FD_EXEC_TEST_ELF_LOADER_CTX_INIT_DEFAULT {false, FD_EXEC_TEST_ELF_BINARY_INIT_DEFAULT, false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0}
-#define FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_DEFAULT {NULL, 0, 0, 0, 0, 0, NULL}
+#define FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_DEFAULT {NULL, 0, 0, 0, 0, 0, NULL, 0}
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_ELF_LOADER_CTX_INIT_DEFAULT, false, FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_ELF_BINARY_INIT_ZERO        {NULL}
 #define FD_EXEC_TEST_ELF_LOADER_CTX_INIT_ZERO    {false, FD_EXEC_TEST_ELF_BINARY_INIT_ZERO, false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0}
-#define FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_ZERO {NULL, 0, 0, 0, 0, 0, NULL}
+#define FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_ZERO {NULL, 0, 0, 0, 0, 0, NULL, 0}
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INIT_ZERO {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_ZERO, false, FD_EXEC_TEST_ELF_LOADER_CTX_INIT_ZERO, false, FD_EXEC_TEST_ELF_LOADER_EFFECTS_INIT_ZERO}
 
 /* Field tags (for use in manual encoding/decoding) */
@@ -76,6 +77,7 @@ extern "C" {
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_TEXT_OFF_TAG 5
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_ENTRY_PC_TAG 6
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_CALLDESTS_TAG 7
+#define FD_EXEC_TEST_ELF_LOADER_EFFECTS_ERROR_TAG 8
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_METADATA_TAG 1
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_INPUT_TAG 2
 #define FD_EXEC_TEST_ELF_LOADER_FIXTURE_OUTPUT_TAG 3
@@ -101,7 +103,8 @@ X(a, STATIC,   SINGULAR, UINT64,   rodata_sz,         2) \
 X(a, STATIC,   SINGULAR, UINT64,   text_cnt,          4) \
 X(a, STATIC,   SINGULAR, UINT64,   text_off,          5) \
 X(a, STATIC,   SINGULAR, UINT64,   entry_pc,          6) \
-X(a, POINTER,  REPEATED, UINT64,   calldests,         7)
+X(a, POINTER,  REPEATED, UINT64,   calldests,         7) \
+X(a, STATIC,   SINGULAR, INT32,    error,             8)
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_CALLBACK NULL
 #define FD_EXEC_TEST_ELF_LOADER_EFFECTS_DEFAULT NULL
 

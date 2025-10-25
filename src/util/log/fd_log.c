@@ -21,6 +21,7 @@
 #define _GNU_SOURCE
 
 #include "fd_log.h"
+#include "fd_backtrace.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -542,6 +543,7 @@ static int fd_log_private_level_stderr;  /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_flush;   /* 0 outside boot/halt, init at boot */
 static int fd_log_private_level_core;    /* 0 outside boot/halt, init at boot */
 static int fd_log_private_unclean_exit;
+static int fd_log_private_signal_handler;
 
 int fd_log_colorize     ( void ) { return FD_VOLATILE_CONST( fd_log_private_colorize      ); }
 int fd_log_level_logfile( void ) { return FD_VOLATILE_CONST( fd_log_private_level_logfile ); }
@@ -557,6 +559,7 @@ void fd_log_level_core_set   ( int level ) { FD_VOLATILE( fd_log_private_level_c
 
 int fd_log_private_logfile_fd( void ) { return FD_VOLATILE_CONST( fd_log_private_fileno ); }
 
+void fd_log_enable_signal_handler( void ) { fd_log_private_signal_handler = 1; }
 void fd_log_enable_unclean_exit( void ) { fd_log_private_unclean_exit = 1; }
 
 /* Buffer size used for vsnprintf calls (this is also one more than the
@@ -1006,51 +1009,32 @@ static void
 fd_log_private_sig_abort( int         sig,
                           siginfo_t * info,
                           void *      context ) {
-  (void)info; (void)context;
+  (void)sig; (void)info; (void)context;
 
   /* Thread could have caught signal while holding a lock.
      Hack around this re-entrancy problem by pointing the log lock to
      a dummy buffer. */
-  int * old_lock = fd_log_private_shared_lock;
-  static FD_TL int lock = 0;
+  int lock = 0;
   fd_log_private_shared_lock = &lock;
 
-  /* Hopefully all out streams are idle now and we have flushed out
-     all non-logging activity ... log a backtrace */
+#define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
+  FD_LOG_ERR_NOEXIT(( "Received signal %s", fd_io_strsignal( sig ) ));
+#undef FD_LOG_ERR_NOEXIT
 
 # if FD_HAS_BACKTRACE
 
-  void * btrace[128];
+  void * btrace[ 128UL ];
   int btrace_cnt = backtrace( btrace, 128 );
 
-  int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( log_fileno!=-1 ) {
-    fd_log_private_fprintf_0( log_fileno, "Caught signal %i, backtrace:\n", sig );
-    backtrace_symbols_fd( btrace, btrace_cnt, log_fileno );
-    fsync( log_fileno );
-  }
+  fd_backtrace_log( btrace, (ulong)btrace_cnt );
 
-  fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i, backtrace:\n", sig );
-  backtrace_symbols_fd( btrace, btrace_cnt, STDERR_FILENO );
-  fsync( STDERR_FILENO );
+# endif
 
-# else /* !FD_HAS_BACKTRACE */
-
-  int log_fileno = FD_VOLATILE_CONST( fd_log_private_fileno );
-  if( log_fileno!=-1 ) fd_log_private_fprintf_0( log_fileno, "Caught signal %i.\n", sig );
-
-  fd_log_private_fprintf_0( STDERR_FILENO, "\nCaught signal %i.\n", sig );
-
-# endif /* FD_HAS_BACKTRACE */
-
-  /* Do final log cleanup */
-
-  fd_log_private_cleanup();
-
-  usleep( (useconds_t)1000000 ); /* Give some time to let streams drain */
-
-  fd_log_private_shared_lock = old_lock;
-  raise( sig ); /* Continue with the original handler (probably the default and that will produce the core) */
+  /* Returning is going to cause SIGSYS since it's probably not allowed
+     in the sandbox, which is OK.  The parent process will terminate
+     everything anyway.  If we allow rt_sigreturn to be called in the
+     sandbox, then we will get a correct signal. */
+  return;
 }
 
 static void
@@ -1204,7 +1188,7 @@ fd_log_private_boot( int  *   pargc,
   /* Hook up signal handlers */
 
   int log_backtrace = fd_env_strip_cmdline_int( pargc, pargv, "--log-backtrace", "FD_LOG_BACKTRACE", 1 );
-  if( log_backtrace ) {
+  if( log_backtrace || fd_log_private_signal_handler ) {
 
 #   if FD_HAS_BACKTRACE
     /* If libgcc isn't already linked into the program when a trapped
@@ -1217,46 +1201,30 @@ fd_log_private_boot( int  *   pargc,
        for finding this.) */
 
     void * btrace[128];
-    int btrace_cnt = backtrace( btrace, 128 );
-    int fd = open( "/dev/null", O_WRONLY | O_APPEND );
-    if( FD_UNLIKELY( fd==-1 ) )
-      fd_log_private_fprintf_0( STDERR_FILENO,
-                                "open( \"/dev/null\", O_WRONLY | O_APPEND ) failed (%i-%s); attempting to continue\n",
-                                errno, fd_io_strerror( errno ) );
-    else {
-      backtrace_symbols_fd( btrace, btrace_cnt, fd );
-      if( FD_UNLIKELY( close( fd ) ) )
-        fd_log_private_fprintf_0( STDERR_FILENO,
-                                  "close( \"/dev/null\" ) failed (%i-%s); attempting to continue\n",
-                                  errno, fd_io_strerror( errno ) );
-    }
+    (void)backtrace( btrace, 128 );
 #   endif /* FD_HAS_BACKTRACE */
 
     /* This is all overridable POSIX sigs whose default behavior is to
        abort the program.  It will backtrace and then fallback to the
        default behavior. */
-    if( !fd_log_private_unclean_exit ) {
-      fd_log_private_sig_trap( SIGABRT   );
-      fd_log_private_sig_trap( SIGALRM   );
-      fd_log_private_sig_trap( SIGFPE    );
-      fd_log_private_sig_trap( SIGHUP    );
-      fd_log_private_sig_trap( SIGILL    );
-      fd_log_private_sig_trap( SIGINT    );
-      fd_log_private_sig_trap( SIGQUIT   );
-      fd_log_private_sig_trap( SIGPIPE   );
-      fd_log_private_sig_trap( SIGSEGV   );
-      fd_log_private_sig_trap( SIGTERM   );
-      fd_log_private_sig_trap( SIGUSR1   );
-      fd_log_private_sig_trap( SIGUSR2   );
-      fd_log_private_sig_trap( SIGBUS    );
-      fd_log_private_sig_trap( SIGPOLL   );
-      fd_log_private_sig_trap( SIGPROF   );
-      fd_log_private_sig_trap( SIGSYS    );
-      fd_log_private_sig_trap( SIGTRAP   );
-      fd_log_private_sig_trap( SIGVTALRM );
-      fd_log_private_sig_trap( SIGXCPU   );
-      fd_log_private_sig_trap( SIGXFSZ   );
-    }
+    fd_log_private_sig_trap( SIGABRT   );
+    fd_log_private_sig_trap( SIGALRM   );
+    fd_log_private_sig_trap( SIGFPE    );
+    fd_log_private_sig_trap( SIGHUP    );
+    fd_log_private_sig_trap( SIGILL    );
+    fd_log_private_sig_trap( SIGQUIT   );
+    fd_log_private_sig_trap( SIGPIPE   );
+    fd_log_private_sig_trap( SIGSEGV   );
+    fd_log_private_sig_trap( SIGUSR1   );
+    fd_log_private_sig_trap( SIGUSR2   );
+    fd_log_private_sig_trap( SIGBUS    );
+    fd_log_private_sig_trap( SIGPOLL   );
+    fd_log_private_sig_trap( SIGPROF   );
+    fd_log_private_sig_trap( SIGSYS    );
+    fd_log_private_sig_trap( SIGTRAP   );
+    fd_log_private_sig_trap( SIGVTALRM );
+    fd_log_private_sig_trap( SIGXCPU   );
+    fd_log_private_sig_trap( SIGXFSZ   );
   }
 
   /* Hook up the permanent log */
@@ -1348,6 +1316,34 @@ fd_log_private_boot_custom( int *        lock,
     FD_VOLATILE( fd_log_private_fileno ) = log_fd;
   } else {
     FD_VOLATILE( fd_log_private_fileno ) = fd_log_private_open_path( 0, log_path );
+  }
+
+  if( FD_UNLIKELY( fd_log_private_signal_handler ) ) {
+    /* See note above about needing to prime backtrace */
+    void * btrace[128];
+    (void)backtrace( btrace, 128 );
+
+    /* This is all overridable POSIX sigs whose default behavior is to
+       abort the program.  It will backtrace and then fallback to the
+       default behavior. */
+    fd_log_private_sig_trap( SIGABRT   );
+    fd_log_private_sig_trap( SIGALRM   );
+    fd_log_private_sig_trap( SIGFPE    );
+    fd_log_private_sig_trap( SIGHUP    );
+    fd_log_private_sig_trap( SIGILL    );
+    fd_log_private_sig_trap( SIGQUIT   );
+    fd_log_private_sig_trap( SIGPIPE   );
+    fd_log_private_sig_trap( SIGSEGV   );
+    fd_log_private_sig_trap( SIGUSR1   );
+    fd_log_private_sig_trap( SIGUSR2   );
+    fd_log_private_sig_trap( SIGBUS    );
+    fd_log_private_sig_trap( SIGPOLL   );
+    fd_log_private_sig_trap( SIGPROF   );
+    fd_log_private_sig_trap( SIGSYS    );
+    fd_log_private_sig_trap( SIGTRAP   );
+    fd_log_private_sig_trap( SIGVTALRM );
+    fd_log_private_sig_trap( SIGXCPU   );
+    fd_log_private_sig_trap( SIGXFSZ   );
   }
 
   /* At this point, logging online */

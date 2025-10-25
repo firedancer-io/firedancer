@@ -82,11 +82,15 @@ fd_runtime_fuzz_load_from_vm_input_regions( fd_vm_input_region_t const *        
     out_region->is_writable = vm_region->is_writable;
     out_region->offset = vm_region->vaddr_offset;
 
-    out_region->content = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
-                                               PB_BYTES_ARRAY_T_ALLOCSIZE(vm_region->region_sz) );
-    FD_TEST( out_region->content );
-    out_region->content->size = vm_region->region_sz;
-    fd_memcpy( out_region->content->bytes, (void *)vm_region->haddr, vm_region->region_sz );
+    if( vm_region->region_sz > 0 ) {
+      out_region->content = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                                                 PB_BYTES_ARRAY_T_ALLOCSIZE(vm_region->region_sz) );
+      FD_TEST( out_region->content );
+      out_region->content->size = vm_region->region_sz;
+      fd_memcpy( out_region->content->bytes, (void *)vm_region->haddr, vm_region->region_sz );
+    } else {
+      out_region->content = NULL;
+    }
   }
 
   ulong end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -145,8 +149,9 @@ do{
   ulong                    pre_lens[256]                           = {0};
   fd_vm_input_region_t     input_mem_regions[1000]                 = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t  acc_region_metas[256]                   = {0}; /* instr acc idx to idx */
-  uint                     input_mem_regions_cnt                   = 0U;
-  int                      direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  uint                     input_mem_regions_cnt                   = 0UL;
+  int                      direct_mapping                          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, account_data_direct_mapping );
+  int                      stricter_abi_and_runtime_constraints    = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, &instr_ctx->txn_ctx->features, stricter_abi_and_runtime_constraints );
 
   uchar *                  input_ptr      = NULL;
   uchar                    program_id_idx = instr_ctx->instr->program_id;
@@ -169,6 +174,7 @@ do{
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
+                                                      stricter_abi_and_runtime_constraints,
                                                       direct_mapping,
                                                       is_deprecated,
                                                       &input_ptr );
@@ -248,6 +254,7 @@ do{
     acc_region_metas, /* vm_acc_region_meta*/
     is_deprecated, /* is deprecated */
     direct_mapping, /* direct mapping */
+    stricter_abi_and_runtime_constraints, /* stricter_abi_and_runtime_constraints */
     0 /* dump_syscall_to_pb */
   );
 
@@ -445,12 +452,13 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
 
-  ulong                   input_sz                = 0UL;
-  ulong                   pre_lens[256]           = {0};
-  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
-  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
-  uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  ulong                   input_sz                               = 0UL;
+  ulong                   pre_lens[256]                          = {0};
+  fd_vm_input_region_t    input_mem_regions[1000]                = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]                  = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt                  = 0U;
+  int                     direct_mapping                         = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, account_data_direct_mapping );
+  int                     stricter_abi_and_runtime_constraints   = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, stricter_abi_and_runtime_constraints );
 
   uchar *            input_ptr      = NULL;
   uchar              program_id_idx = ctx->instr->program_id;
@@ -472,6 +480,7 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
                                                       input_mem_regions,
                                                       &input_mem_regions_cnt,
                                                       acc_region_metas,
+                                                      stricter_abi_and_runtime_constraints,
                                                       direct_mapping,
                                                       is_deprecated,
                                                       &input_ptr );
@@ -500,7 +509,8 @@ fd_solfuzz_syscall_run( fd_solfuzz_runner_t * runner,
               input_mem_regions_cnt,
               acc_region_metas,
               is_deprecated,
-              FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, &ctx->txn_ctx->features, bpf_account_data_direct_mapping ),
+              direct_mapping,
+              stricter_abi_and_runtime_constraints,
               0 /* dump_syscall_to_pb */ );
 
   // Override some execution state values from the syscall fuzzer input

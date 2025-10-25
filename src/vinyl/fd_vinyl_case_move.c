@@ -1,4 +1,3 @@
-  /* FIXME: NEEDS COMPRESSION SUPPORT */
   case FD_VINYL_REQ_TYPE_MOVE: {
 
     fd_vinyl_key_t const * req_key_src = MAP_REQ_GADDR( req->key_gaddr,       fd_vinyl_key_t, batch_cnt );
@@ -45,6 +44,8 @@
 
         if( FD_UNLIKELY( line_idx_dst<line_cnt ) ) { /* dst is in cache */
 
+          FD_CRIT( line[ line_idx_dst ].ele_idx==ele_idx_dst, "corruption detected" );
+
           ulong line_ctl_dst = line[ line_idx_dst ].ctl;
 
           long ref_dst = fd_vinyl_line_ctl_ref( line_ctl_dst );
@@ -78,7 +79,7 @@
 
       if( FD_UNLIKELY( err_src ) ) DONE( FD_VINYL_ERR_KEY );
 
-      ulong val_sz = (ulong)ele0[ ele_idx_src ].phdr.info._val_sz;
+      ulong val_sz = (ulong)ele0[ ele_idx_src ].phdr.info.val_sz;
 
       FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
@@ -113,15 +114,60 @@
 
         FD_CRIT( line_idx_src==ULONG_MAX, "corruption detected" );
 
-        ulong szc = fd_vinyl_data_szc( val_sz );
+        /* Read the encoded pair from the bstream */
 
-        obj_src = fd_vinyl_data_alloc( data, szc );
-        if( FD_UNLIKELY( !obj_src ) ) FD_LOG_CRIT(( "increase data cache size" ));
+        ulong ctl = ele0[ ele_idx_src ].phdr.ctl;
 
-        phdr_src = fd_vinyl_data_obj_phdr( obj_src );
+        int   type    = fd_vinyl_bstream_ctl_type ( ctl );
+        int   style   = fd_vinyl_bstream_ctl_style( ctl );
+        ulong val_esz = fd_vinyl_bstream_ctl_sz   ( ctl );
 
-        fd_vinyl_io_read_imm( io, seq_src, phdr_src, val_sz );
+        FD_CRIT( type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR,                                              "corruption detected" );
+        FD_CRIT( (style==FD_VINYL_BSTREAM_CTL_STYLE_RAW) | (style==FD_VINYL_BSTREAM_CTL_STYLE_LZ4), "corruption detected" );
+        FD_CRIT( val_esz<=FD_VINYL_VAL_MAX,                                                         "corruption detected" );
+
+        fd_vinyl_data_obj_t * cobj = fd_vinyl_data_alloc( data, fd_vinyl_data_szc( val_esz ) );
+        if( FD_UNLIKELY( !cobj ) ) FD_LOG_CRIT(( "increase data cache size" ));
+
+        fd_vinyl_bstream_phdr_t * cphdr    = fd_vinyl_data_obj_phdr( cobj );
+        ulong                     cpair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+
+        fd_vinyl_io_read_imm( io, seq_src, cphdr, cpair_sz );
         /* not an async read (so no read_cnt increment) */
+
+        /* Verify data integrity */
+
+        FD_ALERT( !fd_vinyl_bstream_pair_test( io_seed, seq_src, (fd_vinyl_bstream_block_t *)cphdr, cpair_sz ),
+                  "corruption detected" );
+
+        /* Decode the pair */
+
+        if( FD_LIKELY( style==FD_VINYL_BSTREAM_CTL_STYLE_RAW ) ) {
+
+          FD_CRIT( val_esz==val_sz, "corruption detected" );
+
+          obj_src  = cobj;
+          phdr_src = cphdr;
+
+        } else {
+
+          obj_src = fd_vinyl_data_alloc( data, fd_vinyl_data_szc( val_sz ) );
+          if( FD_UNLIKELY( !obj_src ) ) FD_LOG_CRIT(( "increase data cache size" ));
+
+          char const * cval = (char const *)fd_vinyl_data_obj_val( cobj    );
+          char *       val  = (char *)      fd_vinyl_data_obj_val( obj_src );
+          if( FD_UNLIKELY( (ulong)LZ4_decompress_safe( cval,  val, (int)val_esz, (int)val_sz )!=val_sz ) )
+            FD_LOG_CRIT(( "LZ4_decompress_safe failed" ));
+
+          phdr_src = fd_vinyl_data_obj_phdr( obj_src );
+
+          phdr_src->ctl  = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
+          phdr_src->key  = cphdr->key;
+          phdr_src->info = cphdr->info;
+
+          fd_vinyl_data_free( data, cobj );
+
+        }
 
         line_idx_src = fd_vinyl_line_evict_lru( &vinyl->line_idx_lru, line, line_cnt, ele0, ele_max, data );
 
@@ -135,6 +181,8 @@
 
         fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx_src, FD_VINYL_LINE_EVICT_PRIO_LRU );
 
+        if( line_idx_src==line_idx_dst ) line_idx_dst = ULONG_MAX; /* Handle evict_lru evicting the dst */
+
       }
 
       /* At this point, pair key_src is cached but not acquired and pair
@@ -145,15 +193,18 @@
          location of pair key_src's meta element.  So we reload if
          necessary. */
 
-      FD_ALERT( !memcmp( phdr_src, &ele0[ ele_idx_src ].phdr, sizeof(fd_vinyl_bstream_phdr_t) ), "corruption detected" );
+      FD_CRIT( fd_vinyl_bstream_ctl_type( phdr_src->ctl )==fd_vinyl_bstream_ctl_type( ele0[ ele_idx_src ].phdr.ctl ),
+                                                                                                    "corruption detected" );
+      FD_CRIT( fd_vinyl_key_eq( &phdr_src->key, &ele0[ ele_idx_src ].phdr.key ),                    "corruption detected" );
+      FD_CRIT( !memcmp( &phdr_src->info, &ele0[ ele_idx_src ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
 
-      accum_garbage_cnt += 2UL;
+      accum_garbage_cnt += 2UL; /* old src and new move block */
       accum_garbage_sz  += fd_vinyl_bstream_pair_sz( fd_vinyl_bstream_ctl_sz( ele0[ ele_idx_src ].phdr.ctl ) ) +
                            FD_VINYL_BSTREAM_BLOCK_SZ;
 
       if( FD_UNLIKELY( !err_dst ) ) {
 
-        accum_garbage_cnt++;
+        accum_garbage_cnt++; /* old dst */
         accum_garbage_sz += fd_vinyl_bstream_pair_sz( fd_vinyl_bstream_ctl_sz( ele0[ ele_idx_dst ].phdr.ctl ) );
 
         if( FD_UNLIKELY( line_idx_dst < line_cnt ) ) {
@@ -169,27 +220,25 @@
 
           ulong ver_dst = fd_vinyl_line_ctl_ver( line_ctl_dst );
 
+          fd_vinyl_data_free( data, obj_dst );
+
           line[ line_idx_dst ].obj     = NULL;
-          line[ line_idx_dst ].ele_idx = ULONG_MAX;
+          line[ line_idx_dst ].ele_idx = ULONG_MAX; // ele0[ ele_idx_dst ].line_idx = ULONG_MAX; /* Technically not necessary given below */
           line[ line_idx_dst ].ctl     = fd_vinyl_line_ctl( ver_dst+1UL, 0L );
 
           fd_vinyl_line_evict_prio( &vinyl->line_idx_lru, line, line_cnt, line_idx_dst, FD_VINYL_LINE_EVICT_PRIO_LRU );
-
-          fd_vinyl_data_free( data, obj_dst );
-
-          ulong pair_cnt = vinyl->pair_cnt;
-          FD_CRIT( pair_cnt, "corruption detected" );
-          vinyl->pair_cnt = pair_cnt - 1UL;
-
-          fd_vinyl_meta_remove_fast( ele0, ele_max, lock, lock_shift, line, line_cnt, ele_idx_dst ); /* See note below about atomicity for concurrent meta readers */
-
-          err_src = fd_vinyl_meta_query_fast( ele0, ele_max, key_src, memo_src, &_ele_idx_src );
-          ele_idx_src = _ele_idx_src; /* In [0,ele_max) */
-
-          FD_CRIT( !err_src, "corruption detected" );
-          /* Note: could test other fields post move too */
-
         }
+
+        fd_vinyl_meta_remove_fast( ele0, ele_max, lock, lock_shift, line, line_cnt, ele_idx_dst ); /* See note below about atomicity for concurrent meta readers */
+
+        ulong pair_cnt = vinyl->pair_cnt;
+        FD_CRIT( pair_cnt, "corruption detected" );
+        vinyl->pair_cnt = pair_cnt - 1UL;
+
+        err_src = fd_vinyl_meta_query_fast( ele0, ele_max, key_src, memo_src, &_ele_idx_src );
+        ele_idx_src = _ele_idx_src; /* In [0,ele_max) */
+        FD_CRIT( !err_src, "corruption detected" );
+        /* Note: could test other fields post move too */
 
       }
 
@@ -252,6 +301,8 @@
       ele0[ ele_idx_dst ].phdr.ctl = phdr_src->ctl;
       FD_COMPILER_MFENCE();
 
+      line[ line_idx_src ].ele_idx = ele_idx_dst;
+
       fd_vinyl_io_append_move( io, phdr_src, key_dst, NULL, 0UL );
       append_cnt++;
       accum_move_cnt++;
@@ -261,6 +312,8 @@
       ulong seq = fd_vinyl_io_append( io, phdr_src, pair_sz );
       append_cnt++;
       FD_CRIT( fd_vinyl_seq_eq( seq, seq_dst ), "unexpected append location" );
+
+      DONE( FD_VINYL_SUCCESS );
 
     next_move: /* silly language restriction */;
 

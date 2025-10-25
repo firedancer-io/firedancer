@@ -9,9 +9,6 @@
 #define FD_SLOT_NULL                 ( ULONG_MAX )
 #define FD_SHRED_IDX_NULL            ( UINT_MAX )
 
-#define FD_FUNK_KEY_TYPE_ACC       ((uchar)1)
-#define FD_FUNK_KEY_TYPE_ELF_CACHE ((uchar)2)
-
 /* CLUSTER_VERSION is the default value for the cluster version
    in the epoch context. This value will foll forward to the
    latest version.
@@ -95,6 +92,15 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 
 struct fd_txn_account;
 typedef struct fd_txn_account fd_txn_account_t;
+
+union fd_features;
+typedef union fd_features fd_features_t;
+
+struct fd_progcache;
+typedef struct fd_progcache fd_progcache_t;
+
+union fd_runtime_stack;
+typedef union fd_runtime_stack fd_runtime_stack_t;
 
 struct fd_account_meta {
   uchar owner[32];

@@ -953,156 +953,17 @@ void *fd_stake_reward_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   return mem;
 }
 
-void *fd_vote_reward_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_vote_reward_t *self = (fd_vote_reward_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_vote_reward_t);
-  fd_vote_reward_new(mem);
-  fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
-  self->vote_rewards = fd_rng_ulong( rng );
-  self->commission = fd_rng_uchar( rng );
-  self->needs_store = fd_rng_uchar( rng );
-  return mem;
-}
-
-void *fd_point_value_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_point_value_t *self = (fd_point_value_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_point_value_t);
-  fd_point_value_new(mem);
-  self->rewards = fd_rng_ulong( rng );
-  self->points = fd_rng_uint128( rng );
-  return mem;
-}
-
-void *fd_partitioned_stake_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_partitioned_stake_rewards_t *self = (fd_partitioned_stake_rewards_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_stake_rewards_t);
-  fd_partitioned_stake_rewards_new(mem);
-  self->partitions_len = fd_rng_ulong( rng ) % 8;
-  ulong total_count = 0UL;
-  for( ulong i=0; i < 4096; i++ ) {
-    self->partitions_lengths[i] = fd_rng_ulong( rng ) % 8;
-    total_count += self->partitions_lengths[ i ];
-  }
-  self->pool = fd_partitioned_stake_rewards_pool_join_new( alloc_mem, total_count );
-  self->partitions = fd_partitioned_stake_rewards_dlist_join_new( alloc_mem, self->partitions_len );
-  for( ulong i=0; i < self->partitions_len; i++ ) {
-    fd_partitioned_stake_rewards_dlist_new( &self->partitions[ i ] );
-    for( ulong j=0; j < self->partitions_lengths[ i ]; j++ ) {
-      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_pool_ele_acquire( self->pool );
-      fd_stake_reward_new( ele );
-      fd_stake_reward_generate( ele, alloc_mem, rng );
-      fd_partitioned_stake_rewards_dlist_ele_push_tail( &self->partitions[ i ], ele, self->pool );
-    }
-  }
-  return mem;
-}
-
-void *fd_stake_reward_calculation_partitioned_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_stake_reward_calculation_partitioned_t *self = (fd_stake_reward_calculation_partitioned_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_reward_calculation_partitioned_t);
-  fd_stake_reward_calculation_partitioned_new(mem);
-  fd_partitioned_stake_rewards_generate( &self->partitioned_stake_rewards, alloc_mem, rng );
-  self->total_stake_rewards_lamports = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_stake_reward_calculation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_stake_reward_calculation_t *self = (fd_stake_reward_calculation_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_stake_reward_calculation_t);
-  fd_stake_reward_calculation_new(mem);
-  self->stake_rewards_len = fd_rng_ulong( rng ) % 8;
-  self->pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, self->stake_rewards_len );
-  self->stake_rewards = fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
-  fd_stake_reward_calculation_dlist_new( self->stake_rewards );
-  for( ulong i=0; i < self->stake_rewards_len; i++ ) {
-    fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
-    fd_stake_reward_new( ele );
-    fd_stake_reward_generate( ele, alloc_mem, rng );
-    fd_stake_reward_calculation_dlist_ele_push_tail( self->stake_rewards, ele, self->pool );
-  }
-  self->total_stake_rewards_lamports = fd_rng_ulong( rng );
-  return mem;
-}
-
-void *fd_calculate_stake_vote_rewards_result_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculate_stake_vote_rewards_result_t *self = (fd_calculate_stake_vote_rewards_result_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculate_stake_vote_rewards_result_t);
-  fd_calculate_stake_vote_rewards_result_new(mem);
-  fd_stake_reward_calculation_generate( &self->stake_reward_calculation, alloc_mem, rng );
-  ulong vote_reward_map_len = fd_rng_ulong( rng ) % 8;
-  self->vote_reward_map_pool = fd_vote_reward_t_map_join_new( alloc_mem, fd_ulong_max( vote_reward_map_len, 15000 ) );
-  self->vote_reward_map_root = NULL;
-  for( ulong i=0; i < vote_reward_map_len; i++ ) {
-    fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_acquire( self->vote_reward_map_pool );
-    fd_vote_reward_generate( &node->elem, alloc_mem, rng );
-    fd_vote_reward_t_map_insert( self->vote_reward_map_pool, &self->vote_reward_map_root, node );
-  }
-  return mem;
-}
-
-void *fd_calculate_validator_rewards_result_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_calculate_validator_rewards_result_t *self = (fd_calculate_validator_rewards_result_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_calculate_validator_rewards_result_t);
-  fd_calculate_validator_rewards_result_new(mem);
-  fd_calculate_stake_vote_rewards_result_generate( &self->calculate_stake_vote_rewards_result, alloc_mem, rng );
-  fd_point_value_generate( &self->point_value, alloc_mem, rng );
-  return mem;
-}
-
 void *fd_partitioned_rewards_calculation_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_partitioned_rewards_calculation_t *self = (fd_partitioned_rewards_calculation_t *) mem;
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_partitioned_rewards_calculation_t);
   fd_partitioned_rewards_calculation_new(mem);
-  ulong vote_reward_map_len = fd_rng_ulong( rng ) % 8;
-  self->vote_reward_map_pool = fd_vote_reward_t_map_join_new( alloc_mem, fd_ulong_max( vote_reward_map_len, 15000 ) );
-  self->vote_reward_map_root = NULL;
-  for( ulong i=0; i < vote_reward_map_len; i++ ) {
-    fd_vote_reward_t_mapnode_t * node = fd_vote_reward_t_map_acquire( self->vote_reward_map_pool );
-    fd_vote_reward_generate( &node->elem, alloc_mem, rng );
-    fd_vote_reward_t_map_insert( self->vote_reward_map_pool, &self->vote_reward_map_root, node );
-  }
-  fd_stake_reward_calculation_partitioned_generate( &self->stake_rewards_by_partition, alloc_mem, rng );
+  self->validator_points = fd_rng_uint128( rng );
   self->old_vote_balance_and_staked = fd_rng_ulong( rng );
   self->validator_rewards = fd_rng_ulong( rng );
   self->validator_rate = fd_rng_double_o( rng );
   self->foundation_rate = fd_rng_double_o( rng );
   self->prev_epoch_duration_in_years = fd_rng_double_o( rng );
   self->capitalization = fd_rng_ulong( rng );
-  fd_point_value_generate( &self->point_value, alloc_mem, rng );
-  return mem;
-}
-
-void *fd_start_block_height_and_rewards_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_start_block_height_and_rewards_t *self = (fd_start_block_height_and_rewards_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_start_block_height_and_rewards_t);
-  fd_start_block_height_and_rewards_new(mem);
-  self->distribution_starting_block_height = fd_rng_ulong( rng );
-  fd_partitioned_stake_rewards_generate( &self->partitioned_stake_rewards, alloc_mem, rng );
-  return mem;
-}
-
-void *fd_fd_epoch_reward_status_inner_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_fd_epoch_reward_status_inner_t *self = (fd_fd_epoch_reward_status_inner_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_fd_epoch_reward_status_inner_t);
-  fd_fd_epoch_reward_status_inner_new(mem);
-  fd_start_block_height_and_rewards_generate( &self->Active, alloc_mem, rng );
-  return mem;
-}
-
-void fd_epoch_reward_status_inner_generate( fd_epoch_reward_status_inner_t * self, void **alloc_mem, uint discriminant, fd_rng_t * rng ) {
-  switch (discriminant) {
-  case 0: {
-    fd_start_block_height_and_rewards_generate( &self->Active, alloc_mem, rng );
-    break;
-  }
-  }
-}
-void *fd_epoch_reward_status_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_epoch_reward_status_t *self = (fd_epoch_reward_status_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_epoch_reward_status_t);
-  fd_epoch_reward_status_new(mem);
-  self->discriminant = fd_rng_uint( rng ) % 2;
-  fd_epoch_reward_status_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
   return mem;
 }
 
@@ -2365,15 +2226,6 @@ void *fd_txn_result_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   fd_txn_result_new(mem);
   self->discriminant = fd_rng_uint( rng ) % 2;
   fd_txn_result_inner_generate( &self->inner, alloc_mem, self->discriminant, rng );
-  return mem;
-}
-
-void *fd_pubkey_rewardinfo_pair_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
-  fd_pubkey_rewardinfo_pair_t *self = (fd_pubkey_rewardinfo_pair_t *) mem;
-  *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_pubkey_rewardinfo_pair_t);
-  fd_pubkey_rewardinfo_pair_new(mem);
-  fd_pubkey_generate( &self->pubkey, alloc_mem, rng );
-  fd_reward_info_generate( &self->reward_info, alloc_mem, rng );
   return mem;
 }
 

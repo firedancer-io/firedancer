@@ -13,16 +13,25 @@
 
 /* fd_ssinfo stores the resolved snapshot slot information from a peer. */
 struct fd_ssinfo {
-   struct {
-     ulong slot;
-   } full;
+  struct {
+    ulong slot;
+  } full;
 
-   struct {
-     ulong base_slot;
-     ulong slot;
-   } incremental;
- };
- typedef struct fd_ssinfo fd_ssinfo_t;
+  struct {
+    ulong base_slot;
+    ulong slot;
+  } incremental;
+};
+typedef struct fd_ssinfo fd_ssinfo_t;
+
+/* fd_sscluster_slot stores the highest full and incremental slot pair
+   seen in the cluster. */
+struct fd_sscluster_slot {
+  ulong full;
+  ulong incremental;
+};
+
+typedef struct fd_sscluster_slot fd_sscluster_slot_t;
 
  /* fd_sspeer_t represents a selected peer from the snapshot peer
     selector, including the peer's address, resolved snapshot slots,
@@ -49,6 +58,7 @@ fd_sspeer_selector_footprint( ulong max_peers );
 void *
 fd_sspeer_selector_new( void * shmem,
                         ulong  max_peers,
+                        int    incremental_snapshot_fetch,
                         ulong  seed );
 
 fd_sspeer_selector_t *
@@ -88,12 +98,13 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
    when the cluster slot updates (moves forward) */
 void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
-                                         fd_ssinfo_t const *    ssinfo );
+                                         ulong                  full_slot,
+                                         ulong                  incremental_slot );
 
 /* Obtain the cluster slot from the selector.  It is the highest
    resolved full/incremental slot pair seen from snapshot hashes or
    from resolved http peers. */
-fd_ssinfo_t
+fd_sscluster_slot_t
 fd_sspeer_selector_cluster_slot( fd_sspeer_selector_t * selector );
 
 FD_PROTOTYPES_END

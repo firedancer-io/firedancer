@@ -63,7 +63,7 @@
 #define FD_VINYL_REQ_FLAG_MODIFY (1UL<<0) /* (Acquire) The client intends to modify the given pairs (info and/or val)
                                              (Release) The client modified          the given pairs (info and/or val) */
 #define FD_VINYL_REQ_FLAG_IGNORE (1UL<<1) /* (Acquire) Ignore the existing pair val               (ignored if not MODIFY),
-                                             (Release) Cached pair val and/or info were clobbered (ignored if     MODIFY) */
+                                             (Release) Cached pair val and/or info were clobbered (ignored if MODIFY or an acquire-for-read FIXME: have acquire-for-read with ignore set flush?) */
 #define FD_VINYL_REQ_FLAG_CREATE (1UL<<2) /* (Acquire) Create any pairs that do not already exist (ignored if not MODIFY) */
 #define FD_VINYL_REQ_FLAG_EXCL   (1UL<<3) /* (Acquire) Do not modify any pairs that already exist (ignored if not MODIFY) */
 #define FD_VINYL_REQ_FLAG_ERASE  (1UL<<4) /* (Release) Erase given pairs                          (ignored if not MODIFY) */
@@ -188,6 +188,9 @@ struct __attribute__((aligned(FD_VINYL_REQ_ALIGN))) fd_vinyl_req {
                    released.  That is, pair key is currently
                    acquired-for-modify (this includes pair key in the
                    process of being created).
+
+         KEY     - pair key did not exist at bstream seq_present and
+                   is not in the process of being created.
 
        ACQUIRE (for modify)
 

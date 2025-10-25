@@ -27,13 +27,18 @@
    the mapping between each transaction index and the transaction itself.
 
    A transaction index is in one of the following states:
-     * FREE, which means it doesn't correspond to a transaction
+     * FREE, which means it doesn't correspond to a transaction.
      * PENDING, which means it corresponds to a transaction that can't
        be scheduled yet because it must come after transactions that
-       have not completed yet.
-     * READY, which means all predecessor transactions have completed,
-       but this transaction index has not been returned by
-       get_next_ready yet
+       have not completed execution yet.
+     * READY, which means all predecessor transactions have completed
+       execution, but this transaction index has not been returned by
+       get_next_ready yet.
+     * ZOMBIE, which means the transaction completed execution, and
+       successor transactions may be transitioned to the READY state,
+       but the transaction index should not be recycled yet, because
+       there are outstanding non-execution tasks associated with this
+       transaction.
      * DISPATCHED, which means this transaction index was returned by
        get_next_ready but has not been completed yet.
 
@@ -45,9 +50,12 @@
           |             -------------->  READY ----------------
           |                                                   |
           |                                                   |
+          |               complete_txn(reclaim)               V
+          |<-------------------------------------------- DISPATCHED
           |                                                   |
-          |                  complete_txn                     V
-          ---------------------------------------------- DISPATCHED
+          |                                                   | complete_txn(noreclaim)
+          |               complete_txn(reclaim)               V
+          |<---------------------------------------------- ZOMBIE
 
 
    Additionally, fd_rdisp is block-aware, and even somewhat fork-aware.
@@ -67,7 +75,7 @@
 
    Prior to properly introducing staging lanes, we need to introduce two
    more concepts.  A block can be insert-ready, schedule-ready, neither,
-   or both.  A block must be insert-ready to call fd_rdisp_add_txn on
+   or both.  A block must be insert-ready to call add_txn on
    it; a block must be schedule-ready to call get_next_ready on it.
    Various functions either require or modify these properties of a
    block.  These properties are necessary but not sufficient for the
@@ -220,8 +228,8 @@ fd_rdisp_add_block( fd_rdisp_t *          disp,
 
 /* fd_rdisp_remove_block deallocates a previously-allocated block with
    the block tag block, freeing all resources associated with it.  block
-   must be empty (not contain any transactions in the PENDING, READY, or
-   DISPATCHED states), and schedule-ready.
+   must be empty (not contain any transactions in the PENDING, READY,
+   DISPATCHED, or ZOMBIE states), and schedule-ready.
    Returns 0 on success, and -1 if block is not known.  After a
    successful return, the block tag block will not be known. */
 int
@@ -360,15 +368,26 @@ ulong
 fd_rdisp_get_next_ready( fd_rdisp_t           * disp,
                          FD_RDISP_BLOCK_TAG_T   schedule_block );
 
-/* fd_rdisp_complete_txn notifies the dispatcher that the
-   specified transaction (which must have been in the DISPATCHED state)
-   has completed.  Logs warning and returns on error (invalid txn_idx,
-   not in DISPATCHED state).  At the time this function returns, the
-   specified transaction index will be in the FREE state.  This function
-   may cause other transaction to transition from PENDING to READY. */
+/* fd_rdisp_complete_txn notifies the dispatcher that the specified
+   transaction (which must have been in the DISPATCHED state) has
+   completed.  Logs warning and returns on error (invalid txn_idx, not
+   in DISPATCHED state).  This function may cause other transactions to
+   transition from PENDING to READY.
+
+   At the time this function returns, the specified transaction index
+   will be in the FREE state, if reclaim!=0.  Otherwise, if reclaim==0,
+   the specified transaction index will be in the ZOMBIE state.  A
+   ZOMBIE transaction has the exact same effect as a FREE transaction on
+   causing other transactions to transition from PENDING to READY.
+   However, the dispatcher will not reclaim the specified transaction
+   index, until a future invocation of fd_rdisp_complete_txn where
+   reclaim!=0.  This is useful when there is non-execution work to be
+   done asynchronously for the transaction, but the caller would like to
+   unblock the execution of transactions that depend on this one. */
 void
 fd_rdisp_complete_txn( fd_rdisp_t * disp,
-                       ulong        txn_idx );
+                       ulong        txn_idx,
+                       int          reclaim );
 
 
 typedef struct {

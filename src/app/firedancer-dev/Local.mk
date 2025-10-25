@@ -20,8 +20,6 @@ $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
 
 $(call make-bin,firedancer-dev,main,fd_firedancer_dev fd_firedancer fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(SECP256K1_LIBS) $(ROCKSDB_LIBS) $(OPENSSL_LIBS))
 
-firedancer-dev: $(OBJDIR)/bin/firedancer-dev
-
 # $(call make-integration-test,test_fddev,tests/test_fddev,fd_fddev fd_fdctl fddev_shared fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util, $(SECP256K1_LIBS))
 # $(call run-integration-test,test_fddev)
 else

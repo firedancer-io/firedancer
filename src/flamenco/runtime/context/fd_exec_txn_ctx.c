@@ -193,10 +193,9 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
   memset( ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
   ctx->return_data.len = 0;
 
-  ctx->dirty_vote_acc  = 0;
-  ctx->failed_instr    = NULL;
-  ctx->instr_err_idx   = INT_MAX;
-  ctx->capture_ctx     = NULL;
+  ctx->failed_instr  = NULL;
+  ctx->instr_err_idx = INT_MAX;
+  ctx->capture_ctx   = NULL;
 
   ctx->instr_info_cnt     = 0UL;
   ctx->cpi_instr_info_cnt = 0UL;

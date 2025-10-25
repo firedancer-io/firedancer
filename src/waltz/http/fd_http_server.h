@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_http_fd_http_server_h
-#define HEADER_fd_src_ballet_http_fd_http_server_h
+#ifndef HEADER_fd_src_waltz_http_fd_http_server_h
+#define HEADER_fd_src_waltz_http_fd_http_server_h
 
 /* An fd_http_server is a WebSocket capable HTTP server designed to
    stream output messages quickly to many connected clients, where each
@@ -11,10 +11,10 @@
 
    The server does not allocate and has a built in allocation strategy
    and memory region for outgoing messages which the caller should use.
-   HTTP repsonse bodies and WebSocket frames are placed into an outgoing
+   HTTP response bodies and WebSocket frames are placed into an outgoing
    ring buffer, wrapping around when reaching the end, and the server
    will automatically evict slow clients that do not read their messages
-   in time and would be overwriten when the buffer has wrapped fully
+   in time and would be overwritten when the buffer has wrapped fully
    around.
 
    Using the outgoing ring has two steps,
@@ -304,7 +304,7 @@ fd_http_server_close( fd_http_server_t * http,
                       ulong              conn_id,
                       int                reason );
 
-/* Close an active WebSocket conection.  The connection ID must be an
+/* Close an active WebSocket connection.  The connection ID must be an
    open WebSocket connection ID in [0, max_ws_connection_cnt).  The
    connection will be forcibly (ungracefully) terminated.  The
    connection ID is released and should not be used again, as it may be
@@ -436,4 +436,4 @@ fd_http_server_poll( fd_http_server_t * http,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_ballet_http_fd_http_server_h */
+#endif /* HEADER_fd_src_waltz_http_fd_http_server_h */

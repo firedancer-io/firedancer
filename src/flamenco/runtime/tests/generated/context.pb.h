@@ -108,6 +108,8 @@ typedef struct fd_exec_test_slot_context {
     pb_byte_t poh[32];
     /* Parent bank hash */
     pb_byte_t parent_bank_hash[32];
+    /* Parent lt hash */
+    pb_byte_t parent_lthash[2048];
     /* The last executed slot */
     uint64_t prev_slot;
     /* Last slot lamports per signature */
@@ -135,7 +137,7 @@ extern "C" {
 #define FD_EXEC_TEST_INFLATION_INIT_DEFAULT      {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_DEFAULT, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
@@ -143,7 +145,7 @@ extern "C" {
 #define FD_EXEC_TEST_INFLATION_INIT_ZERO         {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO {0, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, false, FD_EXEC_TEST_INFLATION_INIT_ZERO, 0, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0, 0, false, FD_EXEC_TEST_FEE_RATE_GOVERNOR_INIT_ZERO, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -180,6 +182,7 @@ extern "C" {
 #define FD_EXEC_TEST_SLOT_CONTEXT_BLOCK_HEIGHT_TAG 2
 #define FD_EXEC_TEST_SLOT_CONTEXT_POH_TAG        3
 #define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_BANK_HASH_TAG 4
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_LTHASH_TAG 5
 #define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  6
 #define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   7
 #define FD_EXEC_TEST_SLOT_CONTEXT_PREV_EPOCH_CAPITALIZATION_TAG 8
@@ -256,6 +259,7 @@ X(a, STATIC,   SINGULAR, FIXED64,  slot,              1) \
 X(a, STATIC,   SINGULAR, FIXED64,  block_height,      2) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, poh,               3) \
 X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,   4) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lthash,     5) \
 X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         6) \
 X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          7) \
 X(a, STATIC,   SINGULAR, UINT64,   prev_epoch_capitalization,   8) \
@@ -292,7 +296,7 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
 #define FD_EXEC_TEST_FEE_RATE_GOVERNOR_SIZE      50
 #define FD_EXEC_TEST_INFLATION_SIZE              45
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           180
+#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2231
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */

@@ -339,8 +339,8 @@ fd_vinyl_bstream_pair_sz( ulong val_esz ) {
 /* fd_vinyl_bstream_hash returns a 64-bit hash of the 64-bit seed and
    the sz byte buffer buf.  Assumes buf is points to well aligned range
    of blocks stable for the duration of the call and sz is a multiple of
-   FD_VINYL_IO_BLOCK_SZ.  sz 0 returns seed.  Retains no interest in
-   buf. */
+   FD_VINYL_BSTREAM_BLOCK_SZ.  sz 0 returns seed.  Retains no interest
+   in buf. */
 
 FD_FN_PURE static inline ulong
 fd_vinyl_bstream_hash( ulong                            seed,

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_quic_types_h
-#define HEADER_fd_quic_types_h
+#ifndef HEADER_fd_src_waltz_quic_fd_quic_types_h
+#define HEADER_fd_src_waltz_quic_fd_quic_types_h
 
 /* Integer typedefs used by the templ macros. */
 
@@ -10,4 +10,4 @@
 
 #define FD_QUIC_CONN_ID_TYPE ulong
 
-#endif
+#endif /* HEADER_fd_src_waltz_quic_fd_quic_types_h */

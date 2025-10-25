@@ -1,5 +1,5 @@
-#ifndef HEADER_src_waltz_tls_fd_tls_proto_h
-#define HEADER_src_waltz_tls_fd_tls_proto_h
+#ifndef HEADER_fd_src_waltz_tls_fd_tls_proto_h
+#define HEADER_fd_src_waltz_tls_fd_tls_proto_h
 
 /* fd_tls_proto.h declares various TLS v1.3 data structures and provides
    internal APIs to decode and encode them from/to wire format.
@@ -561,4 +561,5 @@ fd_tls_extract_cert_pubkey( uchar const * cert,
 FD_PROTOTYPES_END
 
 #undef STATIC_SERDE
-#endif /* HEADER_src_waltz_tls_fd_tls_proto_h */
+
+#endif /* HEADER_fd_src_waltz_tls_fd_tls_proto_h */

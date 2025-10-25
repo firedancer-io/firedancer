@@ -135,7 +135,10 @@ fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L222-L232 */
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx ) ) ) {
+  int instr_err_code = 0;
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx, &instr_err_code ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_acct_idx ].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
@@ -572,7 +575,10 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   ushort const from_base_idx = 1UL;
   ushort const to_idx        = 2UL;
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx ) ) ) {
+  int instr_err_code = 0;
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx, &instr_err_code ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
     ushort idx_in_txn = ctx->instr->accounts[ from_base_idx ].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,

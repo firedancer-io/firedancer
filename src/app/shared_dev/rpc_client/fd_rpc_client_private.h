@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fddev_rpc_client_private_h
-#define HEADER_fd_src_app_fddev_rpc_client_private_h
+#ifndef HEADER_fd_src_app_shared_dev_rpc_client_fd_rpc_client_private_h
+#define HEADER_fd_src_app_shared_dev_rpc_client_fd_rpc_client_private_h
 
 #include "fd_rpc_client.h"
 
@@ -35,4 +35,4 @@ struct __attribute__((aligned(FD_RPC_CLIENT_ALIGN))) fd_rpc_client_private {
   struct fd_rpc_client_request requests[ FD_RPC_CLIENT_REQUEST_CNT ];
 };
 
-#endif /* HEADER_fd_src_app_fddev_rpc_client_private_h */
+#endif /* HEADER_fd_src_app_shared_dev_rpc_client_fd_rpc_client_private_h */

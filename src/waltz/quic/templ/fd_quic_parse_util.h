@@ -1,5 +1,5 @@
-#ifndef FD_QUIC_WALTZ_QUIC_TEMPL_FD_QUIC_PARSE_UTIL_H
-#define FD_QUIC_WALTZ_QUIC_TEMPL_FD_QUIC_PARSE_UTIL_H
+#ifndef HEADER_fd_src_waltz_quic_templ_fd_quic_parse_util_h
+#define HEADER_fd_src_waltz_quic_templ_fd_quic_parse_util_h
 
 #include <stddef.h>
 
@@ -156,4 +156,4 @@ fd_quic_pktnum_decode( uchar const * buf,
   return FD_LOAD( uint, scratch );
 }
 
-#endif
+#endif /* HEADER_fd_src_waltz_quic_templ_fd_quic_parse_util_h */

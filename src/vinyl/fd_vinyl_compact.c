@@ -94,7 +94,7 @@ fd_vinyl_compact( fd_vinyl_t * vinyl,
       int                    pair_style   = fd_vinyl_bstream_ctl_style( ctl );
       ulong                  pair_val_esz = fd_vinyl_bstream_ctl_sz   ( ctl );
       fd_vinyl_key_t const * pair_key     =       &block->phdr.key;
-      ulong                  pair_val_sz  = (ulong)block->phdr.info._val_sz;
+      ulong                  pair_val_sz  = (ulong)block->phdr.info.val_sz;
 
       ulong pair_sz = fd_vinyl_bstream_pair_sz( pair_val_esz );
 

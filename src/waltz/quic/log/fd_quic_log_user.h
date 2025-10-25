@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_quic_fd_quic_log_user_h
-#define HEADER_fd_src_waltz_quic_fd_quic_log_user_h
+#ifndef HEADER_fd_src_waltz_quic_log_fd_quic_log_user_h
+#define HEADER_fd_src_waltz_quic_log_fd_quic_log_user_h
 
 /* fd_quic_log_user.h defines an ABI for extracting high frequency logs
    from an fd_quic instance.
@@ -104,4 +104,4 @@ fd_quic_log_rx_tail( fd_quic_log_rx_t const * rx,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_waltz_quic_fd_quic_log_user_h */
+#endif /* HEADER_fd_src_waltz_quic_log_fd_quic_log_user_h */

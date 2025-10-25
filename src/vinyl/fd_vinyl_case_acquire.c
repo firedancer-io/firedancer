@@ -57,7 +57,7 @@
 
         /* At this point, pair key exists at bstream seq_present. */
 
-        ulong val_sz   = (ulong)ele0[ ele_idx ].phdr.info._val_sz;
+        ulong val_sz   = (ulong)ele0[ ele_idx ].phdr.info.val_sz;
         ulong line_idx = ele0[ ele_idx ].line_idx;
 
         FD_CRIT( val_sz<=FD_VINYL_VAL_MAX,                    "corruption detected" );
@@ -134,7 +134,7 @@
           /* If the ignore flag is set, set the cached value size to 0. */
 
           if( req_flag_ignore ) {
-            phdr->info._val_sz = 0U;
+            phdr->info.val_sz = 0U;
             val_sz            = 0UL;
           }
 
@@ -306,7 +306,7 @@
         phdr->key  = *key;
         phdr->info = ele0[ ele_idx ].phdr.info;
 
-        phdr->info._val_sz = 0U;
+        phdr->info.val_sz = 0U;
 
         memset( val, 0, fd_vinyl_data_szc_obj_footprint( szc ) - sizeof(fd_vinyl_data_obj_t) - sizeof(fd_vinyl_bstream_phdr_t) );
 

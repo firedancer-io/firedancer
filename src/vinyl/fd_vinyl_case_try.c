@@ -49,7 +49,7 @@
 
       FD_CRIT( fd_vinyl_bstream_ctl_type( pair_ctl )==FD_VINYL_BSTREAM_CTL_TYPE_PAIR, "corruption detected" );
 
-      ulong val_sz = (ulong)ele0[ ele_idx ].phdr.info._val_sz;
+      ulong val_sz = (ulong)ele0[ ele_idx ].phdr.info.val_sz;
 
       FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 

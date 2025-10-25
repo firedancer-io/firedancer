@@ -39,7 +39,7 @@ $(call add-objs,commands/run_agave,fd_fdctl)
 $(call make-lib,fdctl_version)
 $(call add-objs,version,fdctl_version)
 
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fdctl_platform fd_discoh fd_disco agave_validator fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util fdctl_version)
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
@@ -67,6 +67,13 @@ cargo-ledger-tool: check-agave-hash update-rust-toolchain
 # necessary once https://github.com/facebook/rocksdb/issues/13365 is fixed.
 ifeq ($(CC),gcc)
 ifeq ($(CC_MAJOR_VERSION),15)
+RUST_CXXFLAGS=-include cstdint
+endif
+endif
+
+# Clang 20 hits the same missing <cstdint> include in RocksDB.
+ifeq ($(CC),clang)
+ifeq ($(CC_MAJOR_VERSION),20)
 RUST_CXXFLAGS=-include cstdint
 endif
 endif
@@ -119,8 +126,6 @@ agave/target/$(RUST_PROFILE)/agave-ledger-tool: cargo-ledger-tool
 
 $(OBJDIR)/lib/libagave_validator.a: agave/target/$(RUST_PROFILE)/libagave_validator.a
 	$(MKDIR) $(dir $@) && cp agave/target/$(RUST_PROFILE)/libagave_validator.a $@
-
-fdctl: $(OBJDIR)/bin/fdctl
 
 $(OBJDIR)/bin/solana: agave/target/$(RUST_PROFILE)/solana
 	$(MKDIR) -p $(dir $@) && cp agave/target/$(RUST_PROFILE)/solana $@

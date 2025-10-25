@@ -18,11 +18,13 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L133-L141 */
   do {
     fd_guarded_borrowed_account_t owner_acc = {0};
-    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_OWNER, &owner_acc );
-
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_OWNER ) ) ) {
+    int instr_err_code = 0;
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_OWNER, &instr_err_code ) ) ) {
+      if( FD_UNLIKELY( !!instr_err_code ) ) return instr_err_code;
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
+
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_OWNER, &owner_acc );
     *owner_pubkey = *owner_acc.acct->pubkey;
     /* implicit drop of borrowed owner_acc */
   } while (0);

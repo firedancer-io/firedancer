@@ -1,10 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 #define HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 
-#include "../../ballet/txn/fd_txn.h"
-#include "../fd_flamenco_base.h"
-#include "program/fd_program_util.h"
-#include "fd_executor_err.h"
+#include "../accdb/fd_accdb_sync.h"
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
 
@@ -50,8 +47,6 @@ typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_FOOTPRINT (sizeof(fd_txn_account_t))
 #define FD_TXN_ACCOUNT_ALIGN     (8UL)
 #define FD_TXN_ACCOUNT_MAGIC     (0xF15EDF1C51F51AA1UL)
-
-#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1];
 
 FD_PROTOTYPES_BEGIN
 
@@ -122,10 +117,10 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
 
    IMPORTANT: Cannot be called in the executor tile. */
 
-int
+fd_account_meta_t *
 fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
                                        fd_pubkey_t const *       pubkey,
-                                       fd_funk_t *               funk,
+                                       fd_accdb_user_t *         accdb,
                                        fd_funk_txn_xid_t const * xid,
                                        int                       do_create,
                                        ulong                     min_data_sz,
@@ -139,7 +134,7 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
 
 void
 fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
-                             fd_funk_t *               funk,
+                             fd_accdb_user_t *         funk,
                              fd_funk_rec_prepare_t *   prepare );
 
 /* Simple accesssors and mutators. */

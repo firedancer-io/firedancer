@@ -36,7 +36,7 @@ fd_vinyl_bstream_pair_test( ulong                      seed,
   ulong pair_ctl     = hdr->ctl;
   int   pair_type    = fd_vinyl_bstream_ctl_type( pair_ctl );
   ulong pair_val_esz = fd_vinyl_bstream_ctl_sz  ( pair_ctl );
-  ulong pair_val_sz  = (ulong)hdr->phdr.info._val_sz;
+  ulong pair_val_sz  = (ulong)hdr->phdr.info.val_sz;
 
   ulong pair_sz = fd_vinyl_bstream_pair_sz( pair_val_esz );
 
@@ -76,7 +76,7 @@ fd_vinyl_bstream_pair_test_fast( ulong                            seed,
   ulong pair_ctl     = hdr->ctl;
   int   pair_type    = fd_vinyl_bstream_ctl_type( pair_ctl );
   ulong pair_val_esz = fd_vinyl_bstream_ctl_sz  ( pair_ctl );
-  ulong pair_val_sz  = (ulong)hdr->phdr.info._val_sz;
+  ulong pair_val_sz  = (ulong)hdr->phdr.info.val_sz;
 
   ulong pair_sz = fd_vinyl_bstream_pair_sz( pair_val_esz );
 
@@ -111,10 +111,10 @@ fd_vinyl_bstream_dead_test( ulong                      seed,
   int bad_ctl         = (block->dead.ctl != fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_DEAD,
                                                                   FD_VINYL_BSTREAM_CTL_STYLE_RAW,
                                                                   FD_VINYL_BSTREAM_BLOCK_SZ ) );
-  int bad_match       = fd_vinyl_seq_eq( block->dead.seq, seq );
+  int bad_match       = !fd_vinyl_seq_eq( block->dead.seq, seq );
   int bad_seq         = (!fd_ulong_is_aligned( block->dead.seq, FD_VINYL_BSTREAM_BLOCK_SZ ));
   int bad_pair_type   = (fd_vinyl_bstream_ctl_type( block->dead.phdr.ctl ) != FD_VINYL_BSTREAM_CTL_TYPE_PAIR);
-  int bad_pair_val_sz = ((ulong)block->dead.phdr.info._val_sz > FD_VINYL_VAL_MAX);
+  int bad_pair_val_sz = ((ulong)block->dead.phdr.info.val_sz > FD_VINYL_VAL_MAX);
   int bad_info_sz     = (dead_info_sz > FD_VINYL_BSTREAM_DEAD_INFO_MAX);
 
   if( FD_UNLIKELY( bad_ctl | bad_match | bad_seq | bad_pair_type | bad_pair_val_sz | bad_info_sz ) )
@@ -147,10 +147,10 @@ fd_vinyl_bstream_move_test( ulong                      seed,
   int bad_ctl        = (block->move.ctl != fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_MOVE,
                                                                  FD_VINYL_BSTREAM_CTL_STYLE_RAW,
                                                                  FD_VINYL_BSTREAM_BLOCK_SZ ) );
-  int bad_match      = fd_vinyl_seq_eq( block->move.seq, seq );
+  int bad_match      = !fd_vinyl_seq_eq( block->move.seq, seq );
   int bad_seq        = (!fd_ulong_is_aligned( block->move.seq, FD_VINYL_BSTREAM_BLOCK_SZ ));
   int bad_src_type   = (fd_vinyl_bstream_ctl_type( block->move.src.ctl ) != FD_VINYL_BSTREAM_CTL_TYPE_PAIR);
-  int bad_src_val_sz = ((ulong)block->move.src.info._val_sz > FD_VINYL_VAL_MAX);
+  int bad_src_val_sz = ((ulong)block->move.src.info.val_sz > FD_VINYL_VAL_MAX);
   int bad_move       = fd_vinyl_key_eq( &block->move.src.key, &block->move.dst );
   int bad_info_sz    = (move_info_sz > FD_VINYL_BSTREAM_MOVE_INFO_MAX);
   int bad_dst_type   = (fd_vinyl_bstream_ctl_type( dst->phdr.ctl ) != FD_VINYL_BSTREAM_CTL_TYPE_PAIR);
@@ -196,7 +196,7 @@ fd_vinyl_bstream_part_test( ulong                      seed,
   int bad_ctl       = (block->part.ctl != fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PART,
                                                                 FD_VINYL_BSTREAM_CTL_STYLE_RAW,
                                                                 FD_VINYL_BSTREAM_BLOCK_SZ ) );
-  int bad_match     = fd_vinyl_seq_eq( block->part.seq, seq );
+  int bad_match     = !fd_vinyl_seq_eq( block->part.seq, seq );
   int bad_seq       = (!fd_ulong_is_aligned( part_seq,  FD_VINYL_BSTREAM_BLOCK_SZ ));
   int bad_seq0      = (!fd_ulong_is_aligned( part_seq0, FD_VINYL_BSTREAM_BLOCK_SZ ));
   int bad_order     = fd_vinyl_seq_gt( part_seq0, part_seq );

@@ -1201,36 +1201,59 @@ fd_quic_conn_set_rx_max_data( fd_quic_conn_t * conn, ulong rx_max_data ) {
 /* packet processing */
 
 /* fd_quic_conn_free_pkt_meta frees all pkt_meta associated with
-   encryption levels less or equal to enc_level. Returns the number
-   of freed pkt_meta. */
+   enc_level. Returns the number of freed pkt_meta. */
 static ulong
 fd_quic_conn_free_pkt_meta( fd_quic_conn_t * conn,
                             uint             enc_level ) {
-  ulong                        freed   = 0UL;
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
   fd_quic_pkt_meta_t         * pool    = tracker->pool;
+  fd_quic_pkt_meta_ds_t      * sent = &tracker->sent_pkt_metas[enc_level];
 
-  for( uint j=0; j<=enc_level; ++j ) {
-    fd_quic_pkt_meta_ds_t * sent = &tracker->sent_pkt_metas[j];
-    fd_quic_pkt_meta_t    * prev = NULL;
-    for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
-                                                !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                                iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
-      fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-      if( FD_LIKELY( prev ) ) {
-        fd_quic_pkt_meta_pool_ele_release( pool, prev );
-      }
-      prev = e;
-    }
+  fd_quic_pkt_meta_t * prev = NULL;
+  for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
+                                             !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
+                                             iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
+    fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
     if( FD_LIKELY( prev ) ) {
       fd_quic_pkt_meta_pool_ele_release( pool, prev );
     }
-
-    conn->used_pkt_meta -= fd_quic_pkt_meta_ds_ele_cnt( sent );
-    freed               += fd_quic_pkt_meta_ds_ele_cnt( sent );
-    fd_quic_pkt_meta_ds_clear( tracker, j );
+    prev = e;
   }
-  return freed;
+  if( FD_LIKELY( prev ) ) {
+    fd_quic_pkt_meta_pool_ele_release( pool, prev );
+  }
+
+
+  /* Instead of paying log(n) to maintain the treap structure during ele_remove
+     on each iteration, we've returned all pkt_meta to the pool, but left them
+     in the treap. Then, we reinitialize the treap, in constant time deleting
+     all elements that were in the 'old treap'. This function now runs in linear
+     time, instead of O(n*lg(n)). */
+
+  ulong pre_ele_cnt = fd_quic_pkt_meta_ds_ele_cnt( sent );
+
+  fd_quic_pkt_meta_ds_clear( tracker, enc_level );
+  conn->used_pkt_meta -= pre_ele_cnt;
+
+  return pre_ele_cnt;
+}
+
+/* reclaim and free all pkt_meta for a given encryption level,
+   and return the number affected. */
+static ulong
+fd_quic_reclaim_pkt_meta_level( fd_quic_conn_t * conn, uint enc_level ) {
+  fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
+  fd_quic_pkt_meta_t         * pool     = tracker->pool;
+  fd_quic_pkt_meta_ds_t      * sent     = &tracker->sent_pkt_metas[enc_level];
+
+  for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
+                                             !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
+                                             iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
+    fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
+    fd_quic_reclaim_pkt_meta( conn, e, enc_level );
+  }
+
+  return fd_quic_conn_free_pkt_meta( conn, enc_level );
 }
 
 
@@ -1246,23 +1269,14 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
 
   fd_quic_ack_gen_abandon_enc_level( conn->ack_gen, enc_level );
 
-  fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_t         * pool    = tracker->pool;
-
+  ulong freed = 0UL;
   for( uint j = 0; j <= enc_level; ++j ) {
     conn->keys_avail = fd_uint_clear_bit( conn->keys_avail, (int)j );
     /* treat all packets as ACKed (freeing handshake data, etc.) */
-    fd_quic_pkt_meta_ds_t * sent  =  &tracker->sent_pkt_metas[j];
-
-    for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
-                                               !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
-                                               iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
-      fd_quic_pkt_meta_t * e = fd_quic_pkt_meta_ds_fwd_iter_ele( iter, pool );
-      fd_quic_reclaim_pkt_meta( conn, e, j );
-    }
+    freed += fd_quic_reclaim_pkt_meta_level( conn, j );
   }
 
-  return fd_quic_conn_free_pkt_meta( conn, enc_level );
+  return freed;
 }
 
 static void
@@ -1872,7 +1886,7 @@ fd_quic_handle_v1_handshake(
   /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
      > A server stops sending and processing Initial packets when it
      > receives its first Handshake packet. */
-  fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
+  if( FD_LIKELY( quic->config.role==FD_QUIC_ROLE_SERVER ) ) fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
   conn->peer_enc_level = (uchar)fd_uchar_max( conn->peer_enc_level, fd_quic_enc_level_handshake_id );
 
   /* handle frames */
@@ -3548,12 +3562,6 @@ fd_quic_conn_tx( fd_quic_t      * quic,
    * This ensures that ack-only packets only occur when nothing else needs
    * to be sent */
   uint enc_level = fd_quic_tx_enc_level( conn, 1 /* acks */ );
-  /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
-     > A client stops both sending and processing Initial packets when
-     > it sends its first Handshake packet. */
-  if( quic->config.role==FD_QUIC_ROLE_CLIENT && enc_level==fd_quic_enc_level_handshake_id ) {
-    fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
-  }
 
   /* nothing to send / bad state? */
   if( enc_level == ~0u ) return;
@@ -3574,6 +3582,13 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   //}
 
   while( enc_level != ~0u ) {
+    /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
+       > A client stops both sending and processing Initial packets when
+       > it sends its first Handshake packet. */
+    if( FD_UNLIKELY( (quic->config.role==FD_QUIC_ROLE_CLIENT) & (enc_level==fd_quic_enc_level_handshake_id) ) ) {
+      fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
+    }
+
     uint initial_pkt = 0;    /* is this the first initial packet? */
 
 
@@ -3968,7 +3983,7 @@ fd_quic_conn_free( fd_quic_t *      quic,
        enqueued once */
 
   /* free pkt_meta */
-  fd_quic_conn_free_pkt_meta( conn, fd_quic_enc_level_appdata_id );
+  for( uint j=0; j<=fd_quic_enc_level_appdata_id; ++j ) fd_quic_conn_free_pkt_meta( conn, j );
 
   /* remove all stream ids from map, and free stream */
 
@@ -4427,7 +4442,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
     /* already moved to another enc_level */
     if( enc_level < peer_enc_level ) {
-      cnt_freed += fd_quic_abandon_enc_level( conn, peer_enc_level );
+      cnt_freed += fd_quic_reclaim_pkt_meta_level( conn, enc_level );
       continue;
     }
 
@@ -4529,10 +4544,9 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     fd_quic_svc_prep_schedule_now( conn );
 
     /* free pkt_meta */
-    fd_quic_pkt_meta_remove_range( &tracker->sent_pkt_metas[enc_level],
-                                    pool,
-                                    pkt_meta->key.pkt_num,
-                                    pkt_meta->key.pkt_num );
+    fd_quic_pkt_meta_remove( &tracker->sent_pkt_metas[enc_level],
+                             pool,
+                             pkt_meta );
 
     conn->used_pkt_meta -= 1;
     cnt_freed++;
@@ -4776,6 +4790,7 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
       break;
   }
 }
+
 /* process lost packets
  * These packets will be declared lost and relevant data potentially resent */
 void

@@ -7,7 +7,7 @@
 #include "../../features/fd_features.h"
 #include "../fd_txncache.h"
 #include "../fd_bank_hash_cmp.h"
-#include "../../../funk/fd_funk.h"
+#include "../../progcache/fd_progcache_user.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
 
@@ -55,6 +55,8 @@ struct fd_exec_txn_ctx {
   int                                  enable_exec_recording;
   fd_bank_hash_cmp_t *                 bank_hash_cmp;
   fd_funk_t                            funk[1];
+  fd_progcache_t *                     progcache;
+  fd_progcache_t                       _progcache[1];
   fd_funk_txn_xid_t                    xid[1];
   ulong                                slot;
   ulong                                bank_idx;
@@ -117,8 +119,6 @@ struct fd_exec_txn_ctx {
   ulong                           execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
   ulong                           priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
   ulong                           collected_rent;                              /* Rent collected from accounts in this transaction */
-
-  uchar dirty_vote_acc : 1; /* 1 if this transaction maybe modified a vote account */
 
   fd_capture_ctx_t * capture_ctx;
 

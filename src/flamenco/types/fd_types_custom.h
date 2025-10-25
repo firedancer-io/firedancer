@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_types_custom
-#define HEADER_fd_src_flamenco_runtime_fd_types_custom
+#ifndef HEADER_fd_src_flamenco_types_fd_types_custom_h
+#define HEADER_fd_src_flamenco_types_fd_types_custom_h
 
 #include "../fd_flamenco_base.h"
 #include "fd_types_meta.h"
@@ -134,4 +134,4 @@ typedef struct fd_stake_weight_t_mapnode fd_stake_weight_t_mapnode_t;
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
 
-#endif /* HEADER_fd_src_flamenco_runtime_fd_types_custom */
+#endif /* HEADER_fd_src_flamenco_types_fd_types_custom_h */

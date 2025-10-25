@@ -147,7 +147,6 @@ send_to_net( fd_send_tile_ctx_t * ctx,
   fd_memcpy( packet_l4, udp_hdr,              sizeof(fd_udp_hdr_t) );
   fd_memcpy( packet_l5, payload,              payload_sz           );
 
-  FD_LOG_DEBUG(("voting: sending packet to " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS(ip_dst), fd_ushort_bswap(udp_hdr->net_dport) ));
   ulong sig   = fd_disco_netmux_sig( ip_dst, 0U, ip_dst, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   ulong tspub = (ulong)ctx->now;
   ulong sz_l2 = sizeof(fd_eth_hdr_t) + ip_sz + sizeof(fd_udp_hdr_t) + payload_sz;
@@ -854,8 +853,8 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 }
 
 
-#define STEM_BURST                        1UL /* send_txns */
-#define STEM_LAZY                         100000000UL /* 100ms */
+#define STEM_BURST 1UL
+#define STEM_LAZY  1000L
 
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_send_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_send_tile_ctx_t)

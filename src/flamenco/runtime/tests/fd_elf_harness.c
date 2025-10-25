@@ -4,6 +4,7 @@
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../../vm/fd_vm_base.h"
+#include "../../progcache/fd_prog_load.h"
 
 #define SORT_NAME        sort_ulong
 #define SORT_KEY_T       ulong
@@ -22,13 +23,17 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
   fd_sbpf_elf_info_t info;
   fd_spad_t * spad = runner->spad;
 
-  if( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ) {
+  if( FD_UNLIKELY( !input->has_elf ) ) {
     return 0UL;
   }
 
-  ulong  elf_sz  = input->elf.data->size;
-  void * elf_bin = fd_spad_alloc_check( spad, 8UL, elf_sz );
-  fd_memcpy( elf_bin, input->elf.data->bytes, elf_sz );
+  /* Occasionally testing elf_sz = 0 and NULL elf_bin */
+  ulong  elf_sz  = 0UL;
+  void * elf_bin = NULL;
+  if( FD_LIKELY( input->elf.data ) ) {
+    elf_sz  = input->elf.data->size;
+    elf_bin = input->elf.data->bytes;
+  }
 
   // Allocate space for captured effects
   ulong output_end = (ulong)output_buf + output_bufsz;
@@ -45,7 +50,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
 
   /* wrap the loader code in do-while(0) block so that we can exit
      immediately if execution fails at any point */
-
+  int err = FD_SBPF_ELF_SUCCESS;
   do{
     fd_features_t feature_set = {0};
     fd_runtime_fuzz_restore_features( &feature_set, &input->features );
@@ -53,16 +58,13 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     fd_sbpf_loader_config_t config = {
       .elf_deploy_checks = input->deploy_checks,
     };
-    fd_bpf_get_sbpf_versions(
-        &config.sbpf_min_version,
-        &config.sbpf_max_version,
-        UINT_MAX,
-        &feature_set );
 
-    int err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
+    fd_prog_versions_t versions = fd_prog_versions( &feature_set, UINT_MAX );
+    config.sbpf_min_version = versions.min_sbpf_version;
+    config.sbpf_max_version = versions.max_sbpf_version;
 
+    err = fd_sbpf_elf_peek( &info, elf_bin, elf_sz, &config );
     if( FD_UNLIKELY( err ) ) {
-      /* TODO: Capture error code */
       break;
     }
 
@@ -77,9 +79,9 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
         &feature_set,
         !!config.elf_deploy_checks );
 
-    err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config );
+    void * scratch = fd_spad_alloc( spad, 1UL, elf_sz );
+    err = fd_sbpf_program_load( prog, elf_bin, elf_sz, syscalls, &config, scratch, elf_sz );
     if( FD_UNLIKELY( err ) ) {
-      /* TODO: Capture error code */
       break;
     }
 
@@ -94,11 +96,15 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->rodata->size = (pb_size_t) prog->rodata_sz;
     fd_memcpy( elf_effects->rodata->bytes, prog->rodata, prog->rodata_sz );
 
-    elf_effects->text_cnt = prog->text_cnt;
-    elf_effects->text_off = prog->text_off;
+    elf_effects->text_cnt = prog->info.text_cnt;
+    elf_effects->text_off = prog->info.text_off;
     elf_effects->entry_pc = prog->entry_pc;
 
-    pb_size_t max_calldests_sz = (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests)+1U;
+    pb_size_t max_calldests_sz = 1U;
+    if( FD_LIKELY( prog->calldests ) ) {
+      max_calldests_sz += (pb_size_t)fd_sbpf_calldests_cnt( prog->calldests);
+    }
+
     elf_effects->calldests     = FD_SCRATCH_ALLOC_APPEND(l, 8UL, max_calldests_sz * sizeof(uint64_t));
     if( FD_UNLIKELY( _l > output_end ) ) {
       return 0UL;
@@ -108,11 +114,13 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     elf_effects->calldests[elf_effects->calldests_count++] = prog->entry_pc;
 
     /* Add the rest of the calldests */
-    for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
-                        !fd_sbpf_calldests_const_iter_done(target_pc);
-               target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
-      if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
-        elf_effects->calldests[elf_effects->calldests_count++] = target_pc;
+    if( FD_LIKELY( prog->calldests ) ) {
+      for( ulong target_pc=fd_sbpf_calldests_const_iter_init(prog->calldests);
+                          !fd_sbpf_calldests_const_iter_done(target_pc);
+                target_pc=fd_sbpf_calldests_const_iter_next(prog->calldests, target_pc) ) {
+        if( FD_LIKELY( target_pc!=prog->entry_pc ) ) {
+          elf_effects->calldests[elf_effects->calldests_count++] = target_pc;
+        }
       }
     }
 
@@ -120,6 +128,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
     sort_ulong_inplace( elf_effects->calldests, elf_effects->calldests_count );
   } while(0);
 
+  elf_effects->error = -err;
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
 
   *output = elf_effects;

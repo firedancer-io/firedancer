@@ -85,7 +85,7 @@ init_device( char const *        device,
              int                 strict ) {
   FD_TEST( dedicated_mode || strict );
 
-  fd_ethtool_ioctl_t ioc;
+  fd_ethtool_ioctl_t ioc __attribute__((cleanup(fd_ethtool_ioctl_fini)));
   if( FD_UNLIKELY( &ioc != fd_ethtool_ioctl_init( &ioc, device ) ) )
     FD_LOG_ERR(( "error configuring network device (%s), unable to init ethtool ioctl", device ));
 
@@ -142,7 +142,6 @@ init_device( char const *        device,
     }
   }
 
-  fd_ethtool_ioctl_fini( &ioc );
   return 0;
 }
 
@@ -201,12 +200,15 @@ check_device_is_modified( char const * device ) {
   FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
   if( channels.current!=channels.max ) return 1;
 
+  uint rxfh_queue_cnt;
+  FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
+
   uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
   uint rxfh_table_ele_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
   for( uint j=0U, q=0U; j<rxfh_table_ele_cnt; j++) {
     if( rxfh_table[ j ]!=q++ ) return 1;
-    if( q>=channels.current ) q = 0;
+    if( q>=rxfh_queue_cnt ) q = 0;
   }
 
   int ntuple_rules_empty;
@@ -228,13 +230,17 @@ check_device_is_configured( char const *        device,
   FD_TEST( 0==fd_ethtool_ioctl_channels_get_num( &ioc, &channels ) );
   if( channels.current!=(dedicated_mode ? channels.max : config->layout.net_tile_count) ) return 0;
 
+  uint rxfh_queue_cnt;
+  FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_queue_cnt( &ioc, &rxfh_queue_cnt ) );
+  rxfh_queue_cnt = fd_uint_min( rxfh_queue_cnt, channels.current );
+
   uint rxfh_table[ FD_ETHTOOL_MAX_RXFH_TABLE_CNT ] = { 0 };
   uint rxfh_table_ele_cnt;
   FD_TEST( 0==fd_ethtool_ioctl_rxfh_get_table( &ioc, rxfh_table, &rxfh_table_ele_cnt ) );
   int rxfh_error = (dedicated_mode && 0U==rxfh_table_ele_cnt);
   for( uint j=0U, q=!!dedicated_mode; !rxfh_error && j<rxfh_table_ele_cnt; j++) {
     rxfh_error = (rxfh_table[ j ]!=q++);
-    if( q>=channels.current ) q = !!dedicated_mode;
+    if( FD_UNLIKELY( q>=rxfh_queue_cnt ) ) q = !!dedicated_mode;
   }
   if( rxfh_error ) return 0;
 

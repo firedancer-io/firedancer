@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_archive_fd_ar_h
-#define HEADER_fd_src_archive_fd_ar_h
+#ifndef HEADER_fd_src_util_archive_fd_ar_h
+#define HEADER_fd_src_util_archive_fd_ar_h
 
 /* AR(5) is a simple archive format combining multiple files into one.
    The file format is structurally similar to TAR.
@@ -134,4 +134,4 @@ fd_ar_read_next( void *         stream,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_archive_fd_ar_h */
+#endif /* HEADER_fd_src_util_archive_fd_ar_h */

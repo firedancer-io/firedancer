@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_ballet_zstd_fd_zstd_private_h
+#define HEADER_fd_src_ballet_zstd_fd_zstd_private_h
+
 #include "fd_zstd.h"
 
 #define FD_ZSTD_DSTREAM_ALIGN (32UL)
@@ -15,3 +18,5 @@ struct __attribute__((aligned(FD_ZSTD_DSTREAM_ALIGN))) fd_zstd_dstream {
 
   __extension__ uchar mem[0];
 };
+
+#endif /* HEADER_fd_src_ballet_x509_fd_x509_mock_h */

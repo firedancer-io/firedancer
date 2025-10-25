@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_fd_h2_hdr_match_h
-#define HEADER_fd_src_waltz_fd_h2_hdr_match_h
+#ifndef HEADER_fd_src_waltz_h2_fd_h2_hdr_match_h
+#define HEADER_fd_src_waltz_h2_fd_h2_hdr_match_h
 
 /* fd_h2_hdr_match.h provides utils for building lookup tables for HTTP
    header names.
@@ -72,7 +72,7 @@ extern FD_TL ulong fd_h2_hdr_match_seed;
 #include "../../util/tmpl/fd_map.c"
 
 /* A h2_hdr_matcher is used to build a hash table for common header
-   names.  It is primarly designed for compile-time static lists of
+   names.  It is primarily designed for compile-time static lists of
    headers that a user might be interested in.  The user should not
    insert arbitrary entries into the map. */
 
@@ -234,5 +234,5 @@ FD_PROTOTYPES_END
 #define FD_H2_SEC_WEBSOCKET_PROTOCOL            -56  // sec-websocket-protocol
 #define FD_H2_SEC_WEBSOCKET_VERSION             -57  // sec-websocket-version
 
-#endif /* HEADER_fd_src_waltz_fd_h2_hdr_match_h */
+#endif /* HEADER_fd_src_waltz_h2_fd_h2_hdr_match_h */
 

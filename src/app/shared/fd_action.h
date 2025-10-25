@@ -115,6 +115,10 @@ union fdctl_args {
     ushort listen_port;
   } udpecho;
 
+  struct {
+    char topo[ 64 ];
+  } metrics;
+
 };
 
 typedef union fdctl_args args_t;

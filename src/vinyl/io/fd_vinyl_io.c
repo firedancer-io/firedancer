@@ -27,7 +27,7 @@ fd_vinyl_io_append_pair_raw( fd_vinyl_io_t *         io,
 
   /* Allocate scratch to hold the formatted pair */
 
-  ulong val_sz = (ulong)info->_val_sz;
+  ulong val_sz = (ulong)info->val_sz;
   FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
   ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
@@ -153,7 +153,7 @@ fd_vinyl_io_append_pair_inplace( fd_vinyl_io_t *           io,
                                  int *                     _style,
                                  ulong *                   _val_esz ) {
 
-  ulong val_sz = (ulong)phdr->info._val_sz;
+  ulong val_sz = (ulong)phdr->info.val_sz;
 
   FD_CRIT( val_sz <= FD_VINYL_VAL_MAX, "corruption detected" );
 

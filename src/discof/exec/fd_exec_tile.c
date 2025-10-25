@@ -2,9 +2,7 @@
 #include "generated/fd_exec_tile_seccomp.h"
 
 #include "../../util/pod/fd_pod_format.h"
-#include "../../disco/fd_txn_m.h"
 #include "../../discof/replay/fd_exec.h"
-#include "../../discof/replay/fd_vote_tracker.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
 #include "../../flamenco/runtime/fd_runtime.h"
@@ -34,9 +32,10 @@ typedef struct fd_exec_tile_ctx {
 
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
-  link_ctx_t            send_in[ 1 ];
-  link_ctx_t            exec_replay_out[ 1 ];    /* TODO: Remove with solcap v2 */
-  link_ctx_t            capture_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+
+  fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
+  fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
 
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
@@ -45,7 +44,7 @@ typedef struct fd_exec_tile_ctx {
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
-     from the dispatch/replay tile. The fd_exec_txn_ctx_t * is a valid
+     from the dispatch/replay tile.  The fd_exec_txn_ctx_t * is a valid
      local join that lives in the top-most frame of the spad that is
      setup when the exec tile is booted; its members are refreshed on
      the slot/epoch boundary. */
@@ -58,19 +57,17 @@ typedef struct fd_exec_tile_ctx {
 
   /* A transaction can be executed as long as there is a valid handle to
      a funk_txn and a bank. These are queried from fd_banks_t and
-     fd_funk_t.
-     TODO: These should probably be made read-only handles. */
+     fd_funk_t. */
   fd_banks_t *          banks;
-  fd_funk_t             funk[ 1 ];
+  fd_funk_t             funk[1];
+  fd_progcache_t        progcache[1];
 
   fd_txncache_t *       txncache;
-
-  fd_vote_tracker_t *   vote_tracker;
-  fd_signature_t        vote_signature[ 1 ];
 
   /* We need to ensure that all solcap updates have been published
      before this message. */
   int                   pending_txn_finalized_msg;
+  ulong                 txn_idx;
 } fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -84,118 +81,76 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t)                         );
   l = FD_LAYOUT_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint()                         );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
-  l = FD_LAYOUT_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
+  l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT                     );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static int
-before_frag( fd_exec_tile_ctx_t * ctx,
-             ulong                in_idx FD_FN_UNUSED,
-             ulong                seq    FD_FN_UNUSED,
-             ulong                sig ) {
-  return (sig&0xFFFFFFFFUL)!=ctx->tile_idx;
+static void
+metrics_write( fd_exec_tile_ctx_t * ctx ) {
+  fd_progcache_t * progcache = ctx->progcache;
+  FD_MCNT_SET( EXEC, PROGCACHE_MISSES,        progcache->metrics->miss_cnt       );
+  FD_MCNT_SET( EXEC, PROGCACHE_HITS,          progcache->metrics->hit_cnt        );
+  FD_MCNT_SET( EXEC, PROGCACHE_FILLS,         progcache->metrics->fill_cnt       );
+  FD_MCNT_SET( EXEC, PROGCACHE_FILL_TOT_SZ,   progcache->metrics->fill_tot_sz    );
+  FD_MCNT_SET( EXEC, PROGCACHE_INVALIDATIONS, progcache->metrics->invalidate_cnt );
+  FD_MCNT_SET( EXEC, PROGCACHE_DUP_INSERTS,   progcache->metrics->dup_insert_cnt );
 }
 
-static void
-during_frag( fd_exec_tile_ctx_t * ctx,
-             ulong                in_idx,
-             ulong                seq FD_PARAM_UNUSED,
-             ulong                sig,
-             ulong                chunk,
-             ulong                sz,
-             ulong                ctl FD_PARAM_UNUSED ) {
+static inline int
+returnable_frag( fd_exec_tile_ctx_t * ctx,
+                 ulong                in_idx,
+                 ulong                seq FD_PARAM_UNUSED,
+                 ulong                sig,
+                 ulong                chunk,
+                 ulong                sz,
+                 ulong                ctl FD_PARAM_UNUSED,
+                 ulong                tsorig FD_PARAM_UNUSED,
+                 ulong                tspub FD_PARAM_UNUSED,
+                 fd_stem_context_t *  stem ) {
+
+  if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
+
   if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in->chunk0 || chunk > ctx->replay_in->wmark ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
-                   chunk,
-                   sz,
-                   ctx->replay_in->chunk0,
-                   ctx->replay_in->wmark ));
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in->chunk0, ctx->replay_in->wmark ));
     }
-    if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
-      fd_exec_txn_msg_t * txn = (fd_exec_txn_msg_t *)fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+    switch( sig>>32 ) {
+      case FD_EXEC_TT_TXN_EXEC: {
+        FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
+        /* Execute. */
+        fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, msg->bank_idx, ctx->txn_ctx, &msg->txn, ctx->capture_ctx );
 
-      ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn(
-          ctx->banks,
-          txn->bank_idx,
-          ctx->txn_ctx,
-          &txn->txn,
-          ctx->exec_spad,
-          ctx->capture_ctx,
-          1 );
-    } else {
-      FD_LOG_CRIT(( "Unknown signature %lu", sig ));
-    }
-  }
-  else if( FD_LIKELY( in_idx==ctx->send_in->idx ) ) {
-    fd_txn_m_t * txnm    = fd_type_pun( fd_chunk_to_laddr( ctx->send_in->mem, chunk ) );
-    uchar *      payload = ((uchar *)txnm) + sizeof(fd_txn_m_t);
-    uchar        txn_mem[ FD_TXN_MAX_SZ ] __attribute__((aligned(alignof(fd_txn_t))));
-    fd_txn_t *   txn = (fd_txn_t *)txn_mem;
-    if( FD_UNLIKELY( !fd_txn_parse( payload, txnm->payload_sz, txn_mem, NULL ) ) ) {
-      FD_LOG_CRIT(( "Could not parse txn from send tile" ));
-    }
-    FD_STATIC_ASSERT( sizeof(*ctx->vote_signature) == FD_TXN_SIGNATURE_SZ, sizeof );
-    fd_memcpy( ctx->vote_signature, payload + txn->signature_off, FD_TXN_SIGNATURE_SZ );
-  }
-  else FD_LOG_ERR(( "invalid in_idx %lu", in_idx ));
-}
+        /* Commit. */
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
+        if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
+          fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
+          fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
+        }
 
-static void
-after_frag( fd_exec_tile_ctx_t * ctx,
-            ulong                in_idx,
-            ulong                seq    FD_PARAM_UNUSED,
-            ulong                sig,
-            ulong                sz     FD_PARAM_UNUSED,
-            ulong                tsorig FD_PARAM_UNUSED,
-            ulong                tspub  FD_PARAM_UNUSED,
-            fd_stem_context_t *  stem   FD_PARAM_UNUSED ) {
-  if( FD_LIKELY( in_idx==ctx->replay_in->idx ) ) {
-    if( FD_LIKELY( (sig>>32)==EXEC_NEW_TXN_SIG ) ) {
-      /* At this point we can assume that the transaction is done
-         executing.  Commit the transaction back to funk. */
+        /* Notify replay. */
+        ctx->txn_idx = msg->txn_idx;
+        ctx->pending_txn_finalized_msg = 1;
 
-      fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->txn_ctx->bank_idx );
-      if( FD_UNLIKELY( !bank ) ) {
-        FD_LOG_CRIT(( "Could not find bank for slot %lu", ctx->txn_ctx->slot ));
+        } FD_SPAD_FRAME_END;
+        break;
       }
-      ctx->txn_ctx->bank = bank;
-
-      fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), fd_bank_slot_get( bank ) } };
-
-      /* Query the vote signature against the recently generated vote txn
-        signatures.  If the query is successful, then we have seen our
-        own vote transaction and this should be marked in the bank. */
-      uchar * txn_signature = ctx->txn_ctx->txn.payload + TXN( &ctx->txn_ctx->txn )->signature_off;
-      if( fd_vote_tracker_query_sig( ctx->vote_tracker, (fd_signature_t *)txn_signature ) ) {
-        FD_ATOMIC_FETCH_AND_ADD( fd_bank_has_identity_vote_modify( bank ), 1 );
+      case FD_EXEC_TT_TXN_SIGVERIFY: {
+        fd_exec_txn_sigverify_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        int res = fd_executor_txn_verify( &msg->txn, ctx->sha_lj );
+        fd_exec_task_done_msg_t * out_msg = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
+        out_msg->bank_idx               = msg->bank_idx;
+        out_msg->txn_sigverify->txn_idx = msg->txn_idx;
+        out_msg->txn_sigverify->err     = (res!=FD_RUNTIME_EXECUTE_SUCCESS);
+        fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_SIGVERIFY<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*out_msg), 0UL, 0UL, 0UL );
+        ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*out_msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
+        break;
       }
-
-      if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
-          fd_runtime_finalize_txn(
-            ctx->funk,
-            ctx->txncache,
-            &xid,
-            ctx->txn_ctx,
-            bank,
-            ctx->capture_ctx );
-      } else {
-        /* This means that we should mark the block as dead. */
-        fd_banks_mark_bank_dead( ctx->banks, bank );
-      }
-
-      /* Notify the replay tile that we are done with this txn. */
-      ctx->pending_txn_finalized_msg = 1;
-    } else {
-      FD_LOG_ERR(( "Unknown message signature %lu", sig ));
+      default: FD_LOG_CRIT(( "unexpected signature %lu", sig ));
     }
-  }
-  else if( FD_LIKELY( in_idx==ctx->send_in->idx ) ) {
-    /* This means that the send tile has signed and sent a vote.  Add
-       this vote to the vote tracker. */
-    fd_vote_tracker_insert( ctx->vote_tracker, ctx->vote_signature );
-  }
-  else FD_LOG_ERR(( "invalid in_idx %lu", in_idx ));
+  } else FD_LOG_CRIT(( "invalid in_idx %lu", in_idx ));
+
+  return 0;
 }
 
 static void
@@ -212,7 +167,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
   void * capture_ctx_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_capture_ctx_align(),      fd_capture_ctx_footprint() );
   void * _txncache         = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),         fd_txncache_footprint( tile->exec.max_live_slots ) );
-  void * vote_tracker_mem  = FD_SCRATCH_ALLOC_APPEND( l, fd_vote_tracker_align(),     fd_vote_tracker_footprint() );
+  uchar * pc_scratch       = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN,  FD_PROGCACHE_SCRATCH_FOOTPRINT );
   ulong  scratch_alloc_mem = FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem - (ulong)scratch  - scratch_footprint( tile ) ) ) {
@@ -220,6 +175,12 @@ unprivileged_init( fd_topo_t *      topo,
       scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
       scratch_alloc_mem,
       (ulong)scratch + scratch_footprint( tile ) ) );
+  }
+
+  for( ulong i=0UL; i<FD_TXN_ACTUAL_SIG_MAX; i++ ) {
+    fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( ctx->sha_mem+i ) );
+    FD_TEST( sha );
+    ctx->sha_lj[i] = sha;
   }
 
   /********************************************************************/
@@ -238,17 +199,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_in->wmark  = fd_dcache_compact_wmark( ctx->replay_in->mem, replay_in_link->dcache, replay_in_link->mtu );
   ctx->replay_in->chunk  = ctx->replay_in->chunk0;
 
-  ulong send_tile_cnt = fd_topo_tile_name_cnt( topo, "send" );
-  if( send_tile_cnt>0UL ) {
-    ctx->send_in->idx = fd_topo_find_tile_in_link( topo, tile, "send_txns", 0UL );
-    FD_TEST( ctx->send_in->idx!=ULONG_MAX );
-    fd_topo_link_t * send_in_link = &topo->links[ tile->in_link_id[ ctx->send_in->idx ] ];
-    ctx->send_in->mem    = topo->workspaces[ topo->objs[ send_in_link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->send_in->chunk0 = fd_dcache_compact_chunk0( ctx->send_in->mem, send_in_link->dcache );
-    ctx->send_in->wmark  = fd_dcache_compact_wmark( ctx->send_in->mem, send_in_link->dcache, send_in_link->mtu );
-    ctx->send_in->chunk  = ctx->send_in->chunk0;
-  }
-
   ctx->exec_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "exec_replay", ctx->tile_idx );
   if( FD_LIKELY( ctx->exec_replay_out->idx!=ULONG_MAX ) ) {
     fd_topo_link_t * exec_replay_link = &topo->links[ tile->out_link_id[ ctx->exec_replay_out->idx ] ];
@@ -256,15 +206,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->exec_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->exec_replay_out->mem, exec_replay_link->dcache );
     ctx->exec_replay_out->wmark  = fd_dcache_compact_wmark( ctx->exec_replay_out->mem, exec_replay_link->dcache, exec_replay_link->mtu );
     ctx->exec_replay_out->chunk  = ctx->exec_replay_out->chunk0;
-  }
-
-  ctx->capture_replay_out->idx = fd_topo_find_tile_out_link( topo, tile, "capt_replay", ctx->tile_idx );
-  if( FD_UNLIKELY( ctx->capture_replay_out->idx!=ULONG_MAX ) ) {
-    fd_topo_link_t * capture_replay_link = &topo->links[ tile->out_link_id[ ctx->capture_replay_out->idx ] ];
-    ctx->capture_replay_out->mem    = topo->workspaces[ topo->objs[ capture_replay_link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->capture_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->capture_replay_out->mem, capture_replay_link->dcache );
-    ctx->capture_replay_out->wmark  = fd_dcache_compact_wmark( ctx->capture_replay_out->mem, capture_replay_link->dcache, capture_replay_link->mtu );
-    ctx->capture_replay_out->chunk  = ctx->capture_replay_out->chunk0;
   }
 
   /********************************************************************/
@@ -309,15 +250,15 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Failed to join bank hash cmp" ));
   }
 
-  /********************************************************************/
-  /* funk-specific setup                                              */
-  /********************************************************************/
+  void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
+  if( FD_UNLIKELY( !fd_funk_join( ctx->funk, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
 
-  FD_TEST( fd_funk_join( ctx->funk, fd_topo_obj_laddr( topo, tile->exec.funk_obj_id ) ) );
-
-  /********************************************************************/
-  /* setup txncache                                                   */
-  /********************************************************************/
+  void * shprogcache = fd_topo_obj_laddr( topo, tile->exec.progcache_obj_id );
+  if( FD_UNLIKELY( !fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->exec.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
@@ -332,20 +273,17 @@ unprivileged_init( fd_topo_t *      topo,
   fd_spad_push( ctx->exec_spad );
   uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-  ctx->txn_ctx->funk[0]       = *ctx->funk;
+  if( FD_UNLIKELY( !fd_funk_join( ctx->txn_ctx->funk, shfunk ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
+  }
+  ctx->txn_ctx->progcache = fd_progcache_join( ctx->txn_ctx->_progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  if( FD_UNLIKELY( !ctx->txn_ctx->progcache ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join() failed" ));
+  }
   ctx->txn_ctx->status_cache  = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
   ctx->txn_ctx->spad          = ctx->exec_spad;
   ctx->txn_ctx->spad_wksp     = ctx->exec_spad_wksp;
-
-  /********************************************************************/
-  /* Vote tracker                                                    */
-  /********************************************************************/
-
-  ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 0UL ) );
-  if( FD_UNLIKELY( !ctx->vote_tracker ) ) {
-    FD_LOG_ERR(( "Failed to join and create vote tracker object" ));
-  }
 
   /********************************************************************/
   /* Capture context                                                 */
@@ -388,8 +326,8 @@ publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
   }
 
   /* Copy the account update event to the buffer */
-  ulong chunk     = ctx->capture_replay_out->chunk;
-  uchar * out_ptr = fd_chunk_to_laddr( ctx->capture_replay_out->mem, chunk );
+  ulong chunk     = ctx->exec_replay_out->chunk;
+  uchar * out_ptr = fd_chunk_to_laddr( ctx->exec_replay_out->mem, chunk );
   fd_capture_ctx_account_update_msg_t * msg = (fd_capture_ctx_account_update_msg_t *)ctx->solcap_publish_buffer_ptr;
   memcpy( out_ptr, msg, sizeof(fd_capture_ctx_account_update_msg_t) );
   ctx->solcap_publish_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
@@ -403,12 +341,12 @@ publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
 
   /* Stem publish the account update event */
   ulong msg_sz = sizeof(fd_capture_ctx_account_update_msg_t) + msg->data_sz;
-  fd_stem_publish( stem, ctx->capture_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
-  ctx->capture_replay_out->chunk = fd_dcache_compact_next(
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, 0UL, chunk, msg_sz, 0UL, 0UL, 0UL );
+  ctx->exec_replay_out->chunk = fd_dcache_compact_next(
     chunk,
     msg_sz,
-    ctx->capture_replay_out->chunk0,
-    ctx->capture_replay_out->wmark );
+    ctx->exec_replay_out->chunk0,
+    ctx->exec_replay_out->wmark );
 
   /* Advance the number of account updates flushed */
   ctx->account_updates_flushed++;
@@ -426,26 +364,14 @@ publish_next_capture_ctx_account_update( fd_exec_tile_ctx_t * ctx,
 static void
 publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
                            fd_stem_context_t *  stem ) {
-  fd_exec_replay_txn_finalized_msg_t * msg = (fd_exec_replay_txn_finalized_msg_t *)
-    fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
-  msg->exec_tile_id = (uchar)ctx->tile_idx;
-  msg->bank_idx     = ctx->txn_ctx->bank_idx;
+  fd_exec_task_done_msg_t * msg = fd_chunk_to_laddr( ctx->exec_replay_out->mem, ctx->exec_replay_out->chunk );
+  msg->bank_idx          = ctx->txn_ctx->bank_idx;
+  msg->txn_exec->txn_idx = ctx->txn_idx;
+  msg->txn_exec->err     = !(ctx->txn_ctx->flags&FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
 
-  fd_stem_publish(
-    stem,
-    ctx->exec_replay_out->idx,
-    0UL,
-    ctx->exec_replay_out->chunk,
-    sizeof(fd_exec_replay_txn_finalized_msg_t),
-    0UL,
-    0UL,
-    0UL );
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, 0UL, 0UL );
 
-  ctx->exec_replay_out->chunk = fd_dcache_compact_next(
-    ctx->exec_replay_out->chunk,
-    sizeof(fd_exec_replay_txn_finalized_msg_t),
-    ctx->exec_replay_out->chunk0,
-    ctx->exec_replay_out->wmark );
+  ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
 
   ctx->pending_txn_finalized_msg = 0;
 }
@@ -455,11 +381,11 @@ after_credit( fd_exec_tile_ctx_t * ctx,
               fd_stem_context_t *  stem,
               int *                opt_poll_in,
               int *                charge_busy FD_PARAM_UNUSED ) {
-  /* If we have outstanding account updates to send to solcap, send them.
-     Note that we set opt_poll_in to 0 here because we must not consume
-     any more fragments from the exec tiles before publishing our messages,
-     so that solcap updates are not interleaved between slots.
-   */
+  /* If we have outstanding account updates to send to solcap, send
+     them.  Note that we set opt_poll_in to 0 here because we must not
+     consume any more fragments from the exec tiles before publishing
+     our messages, so that solcap updates are not interleaved between
+     slots. */
   if( FD_UNLIKELY( ctx->capture_ctx && ctx->account_updates_flushed < ctx->capture_ctx->account_updates_len ) ) {
     publish_next_capture_ctx_account_update( ctx, stem );
     *opt_poll_in = 0;
@@ -502,20 +428,19 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_exec_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_exec_tile_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_FRAG  before_frag
-#define STEM_CALLBACK_AFTER_CREDIT after_credit
-#define STEM_CALLBACK_DURING_FRAG  during_frag
-#define STEM_CALLBACK_AFTER_FRAG   after_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
+#define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_METRICS_WRITE   metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_execor = {
-    .name                     = "exec",
-    .loose_footprint          = 0UL,
-    .populate_allowed_seccomp = populate_allowed_seccomp,
-    .populate_allowed_fds     = populate_allowed_fds,
-    .scratch_align            = scratch_align,
-    .scratch_footprint        = scratch_footprint,
-    .unprivileged_init        = unprivileged_init,
-    .run                      = stem_run,
+  .name                     = "exec",
+  .loose_footprint          = 0UL,
+  .populate_allowed_seccomp = populate_allowed_seccomp,
+  .populate_allowed_fds     = populate_allowed_fds,
+  .scratch_align            = scratch_align,
+  .scratch_footprint        = scratch_footprint,
+  .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_shared_fd_sys_util_h
-#define HEADER_fd_src_app_shared_fd_sys_util_h
+#ifndef HEADER_fd_src_app_platform_fd_sys_util_h
+#define HEADER_fd_src_app_platform_fd_sys_util_h
 
 #include "../../util/fd_util.h"
 
@@ -37,4 +37,4 @@ fd_sys_util_user_to_uid( char const * user,
                          uint *       uid,
                          uint *       gid );
 
-#endif /* HEADER_fd_src_app_shared_fd_sys_util_h */
+#endif /* HEADER_fd_src_app_platform_fd_sys_util_h */

@@ -293,24 +293,3 @@ fd_spad_publish_sanitizer_impl( fd_spad_t * spad,
   fd_asan_unpoison( (void*)buf, sz );
   fd_msan_unpoison( (void*)buf, sz );
 }
-
-/* fd_valloc virtual function table for spad */
-static void *
-fd_spad_valloc_malloc( void * _self,
-                       ulong  align,
-                       ulong  sz ) {
-  fd_spad_t * spad = _self;
-  return fd_spad_alloc( spad, align, sz );
-}
-
-static void
-fd_spad_valloc_free( void * _self,
-                     void * _addr ) {
-  (void)_self; (void)_addr;
-}
-
-const fd_valloc_vtable_t
-fd_spad_vtable = {
-  .malloc = fd_spad_valloc_malloc,
-  .free   = fd_spad_valloc_free
-};

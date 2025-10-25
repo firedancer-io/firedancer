@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_ip_fd_netlink_h
-#define HEADER_fd_src_waltz_ip_fd_netlink_h
+#ifndef HEADER_fd_src_waltz_ip_fd_netlink1_h
+#define HEADER_fd_src_waltz_ip_fd_netlink1_h
 
 #if defined(__linux__)
 
@@ -104,4 +104,4 @@ FD_PROTOTYPES_END
 
 #endif /* defined(__linux__) */
 
-#endif /* HEADER_fd_src_waltz_ip_fd_netlink_h */
+#endif /* HEADER_fd_src_waltz_ip_fd_netlink1_h */

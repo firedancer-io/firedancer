@@ -118,7 +118,7 @@
 
         FD_CRIT( phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                   FD_VINYL_BSTREAM_CTL_STYLE_RAW,
-                                                  (ulong)ele0[ ele_idx ].phdr.info._val_sz ), "corruption detected" );
+                                                  (ulong)ele0[ ele_idx ].phdr.info.val_sz ),  "corruption detected" );
         FD_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                    "corruption detected" );
         FD_CRIT( !memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) ), "corruption detected" );
 
@@ -147,10 +147,10 @@
         FD_CRIT( (!modifying_existing) |
                  (phdr_ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                   FD_VINYL_BSTREAM_CTL_STYLE_RAW,
-                                                  (ulong)ele0[ ele_idx ].phdr.info._val_sz )), "corruption detected" );
-        FD_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                     "corruption detected" );
+                                                  (ulong)ele0[ ele_idx ].phdr.info.val_sz )), "corruption detected" );
+        FD_CRIT( fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key ),                    "corruption detected" );
 
-        ulong val_sz_after = (ulong)phdr->info._val_sz;
+        ulong val_sz_after = (ulong)phdr->info.val_sz;
 
         if( FD_UNLIKELY( val_sz_after > fd_vinyl_data_obj_val_max( obj ) ) ) FD_LOG_CRIT(( "client overran memory" ));
 
@@ -250,12 +250,12 @@
 
         if( FD_UNLIKELY( !( (phdr->ctl==fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR,
                                                               FD_VINYL_BSTREAM_CTL_STYLE_RAW,
-                                                              (ulong)ele0[ ele_idx ].phdr.info._val_sz )) &
+                                                              (ulong)ele0[ ele_idx ].phdr.info.val_sz ) ) &
                             (fd_vinyl_key_eq( &phdr->key, &ele0[ ele_idx ].phdr.key )                   ) &
                             (!memcmp( &phdr->info, &ele0[ ele_idx ].phdr.info, sizeof(fd_vinyl_info_t) )) ) ) )
           FD_LOG_CRIT(( "client clobbered pair info" ));
 
-        ulong val_sz_before = (ulong)phdr->info._val_sz;
+        ulong val_sz_before = (ulong)phdr->info.val_sz;
 
         ulong szc_after  = (ulong)obj->szc;
         ulong szc_before = fd_vinyl_data_szc( val_sz_before );

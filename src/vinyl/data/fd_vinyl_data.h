@@ -267,7 +267,7 @@ fd_vinyl_data_obj_val( fd_vinyl_data_obj_t const * obj ) {
 
 FD_FN_PURE static inline ulong
 fd_vinyl_data_obj_val_sz( fd_vinyl_data_obj_t const * obj ) {
-  return (ulong)fd_vinyl_data_obj_info( obj )->_val_sz;
+  return (ulong)fd_vinyl_data_obj_info( obj )->val_sz;
 }
 
 FD_FN_PURE static inline ulong
@@ -297,7 +297,7 @@ fd_vinyl_data_info( void const * val ) {
 
 FD_FN_PURE static inline ulong
 fd_vinyl_data_val_sz( void const * val ) {
-  return (ulong)fd_vinyl_data_info( val )->_val_sz;
+  return (ulong)fd_vinyl_data_info( val )->val_sz;
 }
 
 FD_FN_PURE static inline ulong

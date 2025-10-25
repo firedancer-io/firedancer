@@ -1,6 +1,6 @@
 /CODEOWNERS @firedancer-admin
 
-/agave @0x0ece @anwayde @jherrera-jump @ptaffet-jump @mmcgee-jump
+/agave @0x0ece @anwayde @jherrera-jump @ptaffet-jump @mmcgee-jump @alpeng-jump
 
 /config @ripatel-fd
 /src/ballet/txn/fd_txn_parse.c @ptaffet-jump

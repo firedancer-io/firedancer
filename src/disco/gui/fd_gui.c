@@ -9,7 +9,6 @@
 #include "../../disco/genesis/fd_genesis_cluster.h"
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
-#include "../../disco/shred/fd_stake_ci.h"
 
 #include <stdio.h>
 
@@ -94,6 +93,7 @@ fd_gui_new( void *                shmem,
         gui->summary.boot_progress.loading_snapshot[ i ].read_path[ 0 ] = '\0';
         gui->summary.boot_progress.loading_snapshot[ i ].insert_path[ 0 ] = '\0';
       }
+      gui->summary.boot_progress.catching_up_first_replay_slot = ULONG_MAX;
     } else {
       fd_memset( &gui->summary.boot_progress, 0, sizeof(gui->summary.boot_progress) );
       gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
@@ -122,13 +122,15 @@ fd_gui_new( void *                shmem,
   gui->summary.bank_tile_cnt   = fd_topo_tile_name_cnt( gui->topo, "bank"   );
   gui->summary.shred_tile_cnt  = fd_topo_tile_name_cnt( gui->topo, "shred"  );
 
-  gui->summary.slot_rooted                   = 0UL;
-  gui->summary.slot_optimistically_confirmed = 0UL;
-  gui->summary.slot_completed                = 0UL;
-  gui->summary.slot_estimated                = 0UL;
-  gui->summary.slot_caught_up                = 0UL;
+  gui->summary.slot_rooted                   = ULONG_MAX;
+  gui->summary.slot_optimistically_confirmed = ULONG_MAX;
+  gui->summary.slot_completed                = ULONG_MAX;
+  gui->summary.slot_estimated                = ULONG_MAX;
+  gui->summary.slot_caught_up                = ULONG_MAX;
+  gui->summary.slot_repair                   = ULONG_MAX;
+  gui->summary.slot_turbine                  = ULONG_MAX;
 
-  for( ulong i=0UL; i < (FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_repair[ i ].slot = ULONG_MAX;
+  for( ulong i=0UL; i < (FD_GUI_REPAIR_SLOT_HISTORY_SZ+1UL); i++ )  gui->summary.slots_max_repair[ i ].slot  = ULONG_MAX;
   for( ulong i=0UL; i < (FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL); i++ ) gui->summary.slots_max_turbine[ i ].slot = ULONG_MAX;
 
   gui->summary.estimated_tps_history_idx = 0UL;
@@ -143,8 +145,11 @@ fd_gui_new( void *                shmem,
   memset( gui->summary.tile_timers_snap[ 0 ], 0, sizeof(gui->summary.tile_timers_snap[ 0 ]) );
   memset( gui->summary.tile_timers_snap[ 1 ], 0, sizeof(gui->summary.tile_timers_snap[ 1 ]) );
   gui->summary.tile_timers_snap_idx    = 2UL;
-  gui->summary.tile_timers_history_idx = 0UL;
-  for( ulong i=0UL; i<FD_GUI_TILE_TIMER_LEADER_CNT; i++ ) gui->summary.tile_timers_leader_history_slot[ i ] = ULONG_MAX;
+
+  for( ulong i=0UL; i<FD_GUI_SLOTS_CNT;  i++ ) gui->slots[ i ]->slot             = ULONG_MAX;
+  for( ulong i=0UL; i<FD_GUI_LEADER_CNT; i++ ) gui->leader_slots[ i ]->slot      = ULONG_MAX;
+  gui->leader_slots_cnt      = 0UL;
+
 
   gui->block_engine.has_block_engine = 0;
 
@@ -155,8 +160,15 @@ fd_gui_new( void *                shmem,
   gui->vote_account.vote_account_cnt = 0UL;
   gui->validator_info.info_cnt       = 0UL;
 
-  for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
   gui->pack_txn_idx = 0UL;
+
+  gui->shreds.staged_next_broadcast = 0UL;
+  gui->shreds.staged_head           = 0UL;
+  gui->shreds.staged_tail           = 0UL;
+  gui->shreds.history_tail          = 0UL;
+  gui->shreds.history_slot          = ULONG_MAX;
+  gui->summary.catch_up_repair_sz  = 0UL;
+  gui->summary.catch_up_turbine_sz = 0UL;
 
   return gui;
 }
@@ -209,6 +221,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_completed_slot,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
+    fd_gui_printf_catch_up_history,
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -268,10 +281,11 @@ fd_gui_estimated_tps_snap( fd_gui_t * gui ) {
   ulong vote_txn_cnt           = 0UL;
   ulong nonvote_failed_txn_cnt = 0UL;
 
+  if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX ) ) return;
   for( ulong i=0UL; i<fd_ulong_min( gui->summary.slot_completed+1UL, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong _slot = gui->summary.slot_completed-i;
-    fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-    if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=_slot ) ) break; /* Slot no longer exists, no TPS. */
+    fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
+    if( FD_UNLIKELY( !slot ) ) break; /* Slot no longer exists, no TPS. */
     if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) continue; /* Slot is on this fork but was never completed, must have been in root path on boot. */
     if( FD_UNLIKELY( slot->completed_time+FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS*1000L*1000L*1000L<gui->next_sample_400millis ) ) break; /* Slot too old. */
     if( FD_UNLIKELY( slot->skipped ) ) continue; /* Skipped slots don't count to TPS. */
@@ -307,22 +321,50 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
 
     volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
+    if( FD_LIKELY( gui->summary.is_full_client ) ) {
+      cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, SUCCESSFUL_TRANSACTIONS ) ];
 
-    cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, SUCCESSFUL_TRANSACTIONS ) ];
+      cur->out.block_fail +=
+          bank_metrics[ MIDX( COUNTER, BANK, EXECUTED_FAILED_TRANSACTIONS ) ]
+        + bank_metrics[ MIDX( COUNTER, BANK, FEE_ONLY_TRANSACTIONS        ) ];
 
-    cur->out.block_fail +=
-        bank_metrics[ MIDX( COUNTER, BANK, EXECUTED_FAILED_TRANSACTIONS ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, FEE_ONLY_TRANSACTIONS        ) ];
+      cur->out.bank_invalid +=
+          bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_SLOT_HASHES_SYSVAR_NOT_FOUND ) ]
+        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_NOT_FOUND ) ]
+        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_OWNER ) ]
+        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_DATA ) ]
+        + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_INDEX ) ];
 
-    cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_SLOT_HASHES_SYSVAR_NOT_FOUND ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_ACCOUNT_NOT_FOUND ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_OWNER ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_ACCOUNT_DATA ) ]
-      + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_INDEX ) ];
+      cur->out.bank_invalid +=
+          bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+    } else {
+      cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_SUCCESS ) ];
+      cur->out.block_fail +=
+          bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSTRUCTON_ERROR ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSUFFICIENT_FUNDS_FOR_RENT ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_UNBALANCED_TRANSACTION ) ];
 
-    cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+      cur->out.bank_invalid +=
+          bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ACCOUNT_NOT_FOUND ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_PROGRAM_ACCOUNT_NOT_FOUND ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSUFFICIENT_FUNDS_FOR_FEE ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INVALID_ACCOUNT_FOR_FEE ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ALREADY_PROCESSED ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_BLOCKHASH_NOT_FOUND ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INVALID_PROGRAM_FOR_EXECUTION ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ADDRESS_LOOKUP_TABLE_NOT_FOUND ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INVALID_ADDRESS_LOOKUP_TABLE_OWNER ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INVALID_ADDRESS_LOOKUP_TABLE_DATA ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INVALID_ADDRESS_LOOKUP_TABLE_INDEX ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_MAX_LOADED_ACCOUNTS_DATA_SIZE_EXCEEDED ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_DUPLICATE_INSTRUCTION ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ACCOUNT_IN_USE ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ACCOUNT_LOADED_TWICE ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_SIGNATURE_FAILURE ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_TOO_MANY_ACCOUNT_LOCKS ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_BUNDLE_PEER ) ];
+    }
   }
 
 
@@ -374,21 +416,39 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
-    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
-    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
-                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
-    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ];
+    if( FD_LIKELY( gui->summary.is_full_client ) ) {
+      cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
+      cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
+      cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
+      cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ];
 
-    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_INSERTED ) ];
-    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_PUBLISHED ) ]
-                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_REMOVED ) ];
-    cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
+      ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_INSERTED ) ];
+      ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_PUBLISHED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_REMOVED ) ];
+      cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
+    } else {
+      cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLF, NO_BANK_DROP ) ];
+      cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLF, BLOCKHASH_EXPIRED ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
+      cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
+                                  + resolv_metrics[ MIDX( COUNTER, RESOLF, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
+      cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_OVERRUN ) ];
+
+      ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_INSERTED ) ];
+      ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_OVERRUN ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_PUBLISHED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLF, STASH_OPERATION_REMOVED ) ];
+      cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
+    }
   }
 
 
@@ -567,8 +627,8 @@ fd_gui_tile_stats_snap( fd_gui_t *                     gui,
 
 static void
 fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
-  fd_topo_tile_t const * snaprd = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snaprd", 0UL ) ];
-  volatile ulong * snaprd_metrics = fd_metrics_tile( snaprd->metrics );
+  fd_topo_tile_t const * snapct = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapct", 0UL ) ];
+  volatile ulong * snapct_metrics = fd_metrics_tile( snapct->metrics );
 
   fd_topo_tile_t const * snapdc = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapdc", 0UL ) ];
   volatile ulong * snapdc_metrics = fd_metrics_tile( snapdc->metrics );
@@ -576,21 +636,42 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
   fd_topo_tile_t const * snapin = &gui->topo->tiles[ fd_topo_find_tile( gui->topo, "snapin", 0UL ) ];
   volatile ulong * snapin_metrics = fd_metrics_tile( snapin->metrics );
 
-  ulong snapshot_phase = snaprd_metrics[ MIDX( GAUGE, SNAPRD, STATE ) ];
+  ulong snapshot_phase = snapct_metrics[ MIDX( GAUGE, SNAPCT, STATE ) ];
+
+  /* state transitions */
+  if( FD_UNLIKELY( gui->summary.slot_caught_up!=ULONG_MAX ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+  } else if( FD_LIKELY( snapshot_phase == FD_SNAPCT_STATE_SHUTDOWN && gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
+  } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_READING_FULL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_READING_FULL_HTTP
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_FULL_HTTP ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
+  } else if( FD_LIKELY( snapshot_phase==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE
+                     || snapshot_phase==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP
+                     || snapshot_phase==FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
+  }
+
+  /* It's possible for the incremental snapshot phase to be skipped, or
+     complete before we can sample it.  This ensures we always get at
+     least one pass of the metrics. */
+  if( FD_UNLIKELY( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP
+                && gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].reset_cnt==ULONG_MAX ) ) {
+    gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
+  }
 
   switch ( gui->summary.boot_progress.phase ) {
     case FD_GUI_BOOT_PROGRESS_TYPE_JOINING_GOSSIP: {
       gui->summary.boot_progress.joining_gossip_time_nanos = now;
-      if( FD_UNLIKELY( snapshot_phase >= 2UL ) ) {
-        gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT;
-        gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX ].sample_time_nanos = now;
-      }
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT:
     case FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT: {
       ulong snapshot_idx = fd_ulong_if( gui->summary.boot_progress.phase==FD_GUI_BOOT_PROGRESS_TYPE_LOADING_FULL_SNAPSHOT, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
-      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_DOWNLOAD_RETRIES ) ], snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
+      ulong _retry_cnt = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_DOWNLOAD_RETRIES ) ], snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_DOWNLOAD_RETRIES ) ]);
 
       /* reset boot state if necessary */
       if( FD_UNLIKELY( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt!=_retry_cnt ) ) {
@@ -598,8 +679,8 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
         gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].reset_cnt = _retry_cnt;
       }
 
-      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ],             snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_TOTAL ) ]             );
-      ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ],              snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ]              );
+      ulong _total_bytes                   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ],             snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_TOTAL ) ]             );
+      ulong _read_bytes                    = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ],              snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ]              );
       ulong _decompress_decompressed_bytes = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_READ ) ], snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ ) ] );
       ulong _decompress_compressed_bytes   = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_COMPRESSED_BYTES_READ ) ],   snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_COMPRESSED_BYTES_READ ) ]   );
       ulong _insert_bytes                  = fd_ulong_if( snapshot_idx==FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, snapin_metrics[ MIDX( GAUGE, SNAPIN, FULL_BYTES_READ ) ],              snapin_metrics[ MIDX( GAUGE, SNAPIN, INCREMENTAL_BYTES_READ ) ]              );
@@ -622,28 +703,17 @@ fd_gui_run_boot_progress( fd_gui_t * gui, long now ) {
       /* Use the latest compression ratio to estimate decompressed size */
       gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].insert_accounts_current = _insert_accounts;
 
-      if( FD_UNLIKELY( snapshot_phase >= 8UL ) ) {
-        gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_LOADING_INCREMENTAL_SNAPSHOT;
-        gui->summary.boot_progress.loading_snapshot[ FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX ].sample_time_nanos = now;
-      }
-      int slot_turbine_hist_full = gui->summary.slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ-1 ].slot!=ULONG_MAX;
-      if( FD_UNLIKELY( snapshot_phase == 12UL && slot_turbine_hist_full && gui->summary.slot_completed ) ) {
-        gui->summary.boot_progress.phase                           = FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP;
-        gui->summary.boot_progress.catching_up_time_nanos          = now;
-      }
-
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_CATCHING_UP: {
-      gui->summary.boot_progress.catching_up_time_nanos          = now;
-
-      if( FD_UNLIKELY( gui->summary.slots_max_turbine[ 0 ].slot < gui->summary.slot_completed + 5L) ) gui->summary.boot_progress.phase = FD_GUI_BOOT_PROGRESS_TYPE_RUNNING;
+      gui->summary.boot_progress.catching_up_time_nanos = now;
       break;
     }
     case FD_GUI_BOOT_PROGRESS_TYPE_RUNNING: break;
     default: FD_LOG_ERR(( "unknown boot progress phase: %d", gui->summary.boot_progress.phase ));
   }
 }
+
 int
 fd_gui_poll( fd_gui_t * gui, long now ) {
   int did_work = 0;
@@ -682,6 +752,12 @@ fd_gui_poll( fd_gui_t * gui, long now ) {
 
     fd_gui_printf_live_tile_timers( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    if( FD_LIKELY( gui->summary.is_full_client && gui->shreds.staged_next_broadcast<gui->shreds.staged_tail ) ) {
+      fd_gui_printf_shred_updates( gui );
+      fd_http_server_ws_broadcast( gui->http );
+      gui->shreds.staged_next_broadcast = gui->shreds.staged_tail;
+    }
 
     gui->next_sample_10millis += 10L*1000L*1000L;
     did_work = 1;
@@ -1005,8 +1081,8 @@ fd_gui_request_slot( fd_gui_t *    gui,
   if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   ulong _slot = slot_param->valueulong;
-  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
+  fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -1019,15 +1095,15 @@ fd_gui_request_slot( fd_gui_t *    gui,
 
 int
 fd_gui_request_slot_transactions( fd_gui_t *    gui,
-                     ulong         ws_conn_id,
-                     ulong         request_id,
-                     cJSON const * params ) {
+                                  ulong         ws_conn_id,
+                                  ulong         request_id,
+                                  cJSON const * params ) {
   const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
   if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   ulong _slot = slot_param->valueulong;
-  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
+  fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -1047,8 +1123,8 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
   if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
 
   ulong _slot = slot_param->valueulong;
-  fd_gui_slot_t const * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot || slot->slot==ULONG_MAX ) ) {
+  fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) {
     fd_gui_printf_null_query_response( gui->http, "slot", "query", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
@@ -1061,10 +1137,8 @@ fd_gui_request_slot_detailed( fd_gui_t *    gui,
 
 static inline ulong
 fd_gui_slot_duration( fd_gui_t const * gui, fd_gui_slot_t const * cur ) {
-  if( FD_UNLIKELY( cur->slot == ULONG_MAX || cur->slot == 0UL ) ) return ULONG_MAX;
-
-  fd_gui_slot_t const * prev = gui->slots[ (cur->slot - 1UL) % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( prev->slot == ULONG_MAX ||
+  fd_gui_slot_t const * prev = fd_gui_get_slot_const( gui, cur->slot-1UL );
+  if( FD_UNLIKELY( !prev ||
                    prev->skipped ||
                    prev->completed_time == LONG_MAX ||
                    prev->slot != (cur->slot - 1UL) ||
@@ -1073,6 +1147,15 @@ fd_gui_slot_duration( fd_gui_t const * gui, fd_gui_slot_t const * cur ) {
 
   return (ulong)(cur->completed_time - prev->completed_time);
 }
+
+/* All rankings are initialized / reset to ULONG_MAX.  These sentinels
+   sort AFTER non-sentinel ranking entries.  Equal slots are sorted by
+   oldest slot AFTER.  Otherwise sort by value according to ranking
+   type. */
+#define SORT_NAME fd_gui_slot_ranking_sort
+#define SORT_KEY_T fd_gui_slot_ranking_t
+#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).value==(b).value, (a).slot>(b).slot, fd_int_if( (a).type==FD_GUI_SLOT_RANKING_TYPE_DESC, (a).value>(b).value, (a).value<(b).value ) ) ) )
+#include "../../util/tmpl/fd_sort.c"
 
 static inline void
 fd_gui_try_insert_ranking( fd_gui_t               * gui,
@@ -1094,18 +1177,19 @@ fd_gui_try_insert_ranking( fd_gui_t               * gui,
     }
 
     ulong dur = fd_gui_slot_duration( gui, slot );
-    if( FD_LIKELY( dur!=ULONG_MAX ) ) TRY_INSERT_SLOT( duration, slot->slot, dur );
-    TRY_INSERT_SLOT( tips,          slot->slot, slot->tips                      );
-    TRY_INSERT_SLOT( fees,          slot->slot, slot->priority_fee              );
-    TRY_INSERT_SLOT( rewards,       slot->slot, slot->tips + slot->priority_fee );
-    TRY_INSERT_SLOT( compute_units, slot->slot, slot->compute_units             );
+    if( FD_LIKELY( dur!=ULONG_MAX ) ) TRY_INSERT_SLOT( duration, slot->slot, dur                         );
+    TRY_INSERT_SLOT( tips,           slot->slot, slot->tips                                              );
+    TRY_INSERT_SLOT( fees,           slot->slot, slot->priority_fee                                      );
+    TRY_INSERT_SLOT( rewards,        slot->slot, slot->tips + slot->priority_fee                         );
+    TRY_INSERT_SLOT( rewards_per_cu, slot->slot, slot->compute_units==0UL ? 0UL : (slot->tips + slot->priority_fee) / slot->compute_units );
+    TRY_INSERT_SLOT( compute_units,  slot->slot, slot->compute_units                                     );
 #undef TRY_INSERT_SLOT
 }
 
 static void
 fd_gui_update_slot_rankings( fd_gui_t * gui ) {
   if( FD_UNLIKELY( gui->summary.startup_progress.startup_ledger_max_slot==ULONG_MAX ) ) return;
-  if( FD_UNLIKELY( gui->summary.slot_rooted==0UL                                    ) ) return;
+  if( FD_UNLIKELY( gui->summary.slot_rooted==ULONG_MAX                              ) ) return;
 
   ulong epoch_start_slot = ULONG_MAX;
   ulong epoch            = ULONG_MAX;
@@ -1128,8 +1212,8 @@ fd_gui_update_slot_rankings( fd_gui_t * gui ) {
 
   /* Update the rankings. Only look through slots we haven't already. */
   for( ulong s = gui->summary.slot_rooted; s>=gui->epoch.epochs[ epoch_idx ].rankings_slot; s--) {
-    fd_gui_slot_t * slot = gui->slots[ s % FD_GUI_SLOTS_CNT ];
-    if( FD_UNLIKELY( slot->slot!=s || slot->slot==ULONG_MAX ) ) break;
+    fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, s );
+    if( FD_UNLIKELY( !slot ) ) break;
 
     fd_gui_try_insert_ranking( gui, gui->epoch.epochs[ epoch_idx ].rankings, slot );
     if( FD_UNLIKELY( slot->mine ) ) fd_gui_try_insert_ranking( gui, gui->epoch.epochs[ epoch_idx ].my_rankings, slot );
@@ -1149,6 +1233,28 @@ fd_gui_request_slot_rankings( fd_gui_t *    gui,
   int mine = !!(slot_param->type & cJSON_True);
   fd_gui_update_slot_rankings( gui );
   fd_gui_printf_slot_rankings_request( gui, request_id, mine );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+int
+fd_gui_request_slot_shreds( fd_gui_t *    gui,
+                            ulong         ws_conn_id,
+                            ulong         request_id,
+                            cJSON const * params ) {
+  const cJSON * slot_param = cJSON_GetObjectItemCaseSensitive( params, "slot" );
+  if( FD_UNLIKELY( !cJSON_IsNumber( slot_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  ulong _slot = slot_param->valueulong;
+
+  fd_gui_slot_t const * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot || gui->shreds.history_tail > slot->shreds.end_offset + FD_GUI_SHREDS_HISTORY_SZ ) ) {
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_rankings", request_id );
+    FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+    return 0;
+  }
+
+  fd_gui_printf_slot_shred_updates( gui, _slot, request_id );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   return 0;
 }
@@ -1225,6 +1331,16 @@ fd_gui_ws_message( fd_gui_t *    gui,
     int result = fd_gui_request_slot_rankings( gui, ws_conn_id, id, params );
     cJSON_Delete( json );
     return result;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "slot" ) && !strcmp( key->valuestring, "query_shreds" ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_slot_shreds( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
   } else if( FD_LIKELY( !strcmp( topic->valuestring, "summary" ) && !strcmp( key->valuestring, "ping" ) ) ) {
     fd_gui_printf_summary_ping( gui, id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -1237,10 +1353,10 @@ fd_gui_ws_message( fd_gui_t *    gui,
   return FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD;
 }
 
-static void
-fd_gui_clear_slot( fd_gui_t * gui,
-                   ulong      _slot,
-                   ulong      _parent_slot ) {
+static fd_gui_slot_t *
+fd_gui_clear_slot( fd_gui_t *      gui,
+                   ulong           _slot,
+                   ulong           _parent_slot ) {
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
 
   int mine = 0;
@@ -1258,6 +1374,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->slot                   = _slot;
   slot->parent_slot            = _parent_slot;
   slot->max_compute_units      = UINT_MAX;
+  slot->completed_time         = LONG_MAX;
   slot->mine                   = mine;
   slot->skipped                = 0;
   slot->must_republish         = 1;
@@ -1270,80 +1387,80 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->transaction_fee        = ULONG_MAX;
   slot->priority_fee           = ULONG_MAX;
   slot->tips                   = ULONG_MAX;
-  slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
-  slot->completed_time         = LONG_MAX;
-
-  slot->txs.leader_start_time  = LONG_MAX;
-  slot->txs.leader_end_time    = LONG_MAX;
-  slot->txs.microblocks_upper_bound = USHORT_MAX;
-  slot->txs.begin_microblocks  = 0U;
-  slot->txs.end_microblocks    = 0U;
-  slot->txs.reference_nanos    = LONG_MAX;
-  slot->txs.start_offset       = ULONG_MAX;
-  slot->txs.end_offset         = ULONG_MAX;
+  slot->shred_cnt              = UINT_MAX;
+  slot->shreds.start_offset    = ULONG_MAX;
+  slot->shreds.end_offset      = ULONG_MAX;
 
   if( FD_LIKELY( slot->mine ) ) {
     /* All slots start off not skipped, until we see it get off the reset
        chain. */
     gui->epoch.epochs[ epoch_idx ].my_total_slots++;
+
+    slot->leader_history_idx = gui->leader_slots_cnt++;
+    fd_gui_leader_slot_t * lslot = gui->leader_slots[ slot->leader_history_idx % FD_GUI_LEADER_CNT ];
+
+    lslot->slot                        = _slot;
+    lslot->leader_start_time           = LONG_MAX;
+    lslot->leader_end_time             = LONG_MAX;
+    lslot->tile_timers_sample_cnt      = 0UL;
+    lslot->txs.microblocks_upper_bound = USHORT_MAX;
+    lslot->txs.begin_microblocks       = 0U;
+    lslot->txs.end_microblocks         = 0U;
+    lslot->txs.start_offset            = ULONG_MAX;
+    lslot->txs.end_offset              = ULONG_MAX;
   }
 
   if( FD_UNLIKELY( !_slot ) ) {
     /* Slot 0 is always rooted */
     slot->level   = FD_GUI_SLOT_LEVEL_ROOTED;
   }
+
+  return slot;
 }
 
-static void
-fd_gui_handle_leader_schedule( fd_gui_t *    gui,
-                               ulong const * msg,
-                               long          now ) {
-  ulong epoch               = msg[ 0 ];
-  ulong staked_cnt          = msg[ 1 ];
-  ulong start_slot          = msg[ 2 ];
-  ulong slot_cnt            = msg[ 3 ];
-  ulong excluded_stake      = msg[ 4 ];
-  ulong vote_keyed_lsched   = msg[ 5 ];
+void
+fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
+                               fd_stake_weight_msg_t const * leader_schedule,
+                               long                          now ) {
+  FD_TEST( leader_schedule->staked_cnt<=MAX_STAKED_LEADERS );
+  FD_TEST( leader_schedule->slot_cnt<=MAX_SLOTS_PER_EPOCH );
 
-  FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
-  FD_TEST( slot_cnt<=MAX_SLOTS_PER_EPOCH );
-
-  ulong idx = epoch % 2UL;
+  ulong idx = leader_schedule->epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
 
-  gui->epoch.epochs[ idx ].epoch            = epoch;
-  gui->epoch.epochs[ idx ].start_slot       = start_slot;
-  gui->epoch.epochs[ idx ].end_slot         = start_slot + slot_cnt - 1; // end_slot is inclusive.
-  gui->epoch.epochs[ idx ].excluded_stake   = excluded_stake;
+  gui->epoch.epochs[ idx ].epoch            = leader_schedule->epoch;
+  gui->epoch.epochs[ idx ].start_slot       = leader_schedule->start_slot;
+  gui->epoch.epochs[ idx ].end_slot         = leader_schedule->start_slot + leader_schedule->slot_cnt - 1; // end_slot is inclusive.
+  gui->epoch.epochs[ idx ].excluded_stake   = leader_schedule->excluded_stake;
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
 
   memset( gui->epoch.epochs[ idx ].rankings,    (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].rankings)    );
   memset( gui->epoch.epochs[ idx ].my_rankings, (int)(UINT_MAX), sizeof(gui->epoch.epochs[ idx ].my_rankings) );
 
-  gui->epoch.epochs[ idx ].rankings_slot = start_slot;
+  gui->epoch.epochs[ idx ].rankings_slot = leader_schedule->start_slot;
 
-  fd_vote_stake_weight_t const * stake_weights = fd_type_pun_const( msg+6UL );
-  memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, staked_cnt*sizeof(fd_vote_stake_weight_t) );
+  fd_vote_stake_weight_t const * stake_weights = leader_schedule->weights;
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake_weights, leader_schedule->staked_cnt*sizeof(fd_vote_stake_weight_t) );
 
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
   gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
-                                                                               epoch,
+                                                                               leader_schedule->epoch,
                                                                                gui->epoch.epochs[ idx ].start_slot,
-                                                                               slot_cnt,
-                                                                               staked_cnt,
+                                                                               leader_schedule->slot_cnt,
+                                                                               leader_schedule->staked_cnt,
                                                                                gui->epoch.epochs[ idx ].stakes,
-                                                                               excluded_stake,
-                                                                               vote_keyed_lsched ) );
+                                                                               leader_schedule->excluded_stake,
+                                                                               leader_schedule->vote_keyed_lsched ) );
 
-  if( FD_UNLIKELY( start_slot==0UL ) ) {
+  if( FD_UNLIKELY( leader_schedule->start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = now;
   } else {
     gui->epoch.epochs[ idx ].start_time = LONG_MAX;
 
-    for( ulong i=0UL; i<fd_ulong_min( start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
-      fd_gui_slot_t * slot = gui->slots[ (start_slot-i) % FD_GUI_SLOTS_CNT ];
-      if( FD_UNLIKELY( slot->slot!=(start_slot-i) ) ) break;
+    for( ulong i=0UL; i<fd_ulong_min( leader_schedule->start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
+      fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, leader_schedule->start_slot-i );
+      if( FD_UNLIKELY( !slot ) ) break;
       else if( FD_UNLIKELY( slot->skipped ) ) continue;
 
       gui->epoch.epochs[ idx ].start_time = slot->completed_time;
@@ -1365,10 +1482,8 @@ fd_gui_handle_slot_start( fd_gui_t * gui,
   FD_TEST( gui->debug_in_leader_slot==ULONG_MAX );
   gui->debug_in_leader_slot = _slot;
 
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
-  slot->leader_state = FD_GUI_SLOT_LEADER_STARTED;
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, _parent_slot );
 
   fd_gui_tile_timers_snap( gui );
   gui->summary.tile_timers_snap_idx_slot_start = (gui->summary.tile_timers_snap_idx+(FD_GUI_TILE_TIMER_SNAP_CNT-1UL))%FD_GUI_TILE_TIMER_SNAP_CNT;
@@ -1389,26 +1504,35 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   }
   gui->debug_in_leader_slot = ULONG_MAX;
 
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  FD_TEST( slot->slot==_slot );
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  FD_TEST( slot );
 
-  slot->leader_state  = FD_GUI_SLOT_LEADER_ENDED;
   slot->compute_units = (uint)_cus_used;
 
   fd_gui_tile_timers_snap( gui );
-  /* Record slot number so we can detect overwrite. */
-  gui->summary.tile_timers_leader_history_slot[ gui->summary.tile_timers_history_idx ] = _slot;
-  /* Point into per-leader-slot storage. */
-  slot->tile_timers_history_idx = gui->summary.tile_timers_history_idx;
-  /* Downsample tile timers into per-leader-slot storage. */
+
+  /* Downsample tile timers. */
   ulong end = gui->summary.tile_timers_snap_idx;
   end = fd_ulong_if( end<gui->summary.tile_timers_snap_idx_slot_start, end+FD_GUI_TILE_TIMER_SNAP_CNT, end );
-  gui->summary.tile_timers_leader_history_slot_sample_cnt[ gui->summary.tile_timers_history_idx ] = end-gui->summary.tile_timers_snap_idx_slot_start;
-  ulong stride = fd_ulong_max( 1UL, (end-gui->summary.tile_timers_snap_idx_slot_start) / FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT );
-  for( ulong sample_snap_idx=gui->summary.tile_timers_snap_idx_slot_start, i=0UL; sample_snap_idx<end; sample_snap_idx+=stride, i++ ) {
-    memcpy( gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ], gui->summary.tile_timers_snap[ sample_snap_idx%FD_GUI_TILE_TIMER_SNAP_CNT ], sizeof(gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ]) );
+
+  fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+  if( FD_LIKELY( lslot ) ) {
+    ulong sample_count = 0UL;
+
+    fd_rng_t rng[ 1 ];
+    fd_rng_new( rng, 0UL, 0UL);
+
+    for( ulong sample_snap_idx=gui->summary.tile_timers_snap_idx_slot_start; sample_snap_idx<end && sample_count<FD_GUI_TILE_TIMER_SNAP_CNT; sample_snap_idx++ ) {
+      /* Sampling at radom from the list of samples.  By using a random
+         sample stride instead of a integral stride, we can downsample
+         more evenly over the duration of the entire block. */
+      if( FD_UNLIKELY( fd_rng_float_robust( rng ) > (float)(FD_GUI_TILE_TIMER_SNAP_CNT-sample_count) / (float)(end-gui->summary.tile_timers_snap_idx_slot_start-sample_count) ) ) continue;
+
+      memcpy( lslot->tile_timers[ sample_count ], gui->summary.tile_timers_snap[ sample_snap_idx%FD_GUI_TILE_TIMER_SNAP_CNT ], sizeof(lslot->tile_timers[ sample_count ]) );
+      sample_count++;
+    }
+    lslot->tile_timers_sample_cnt = sample_count;
   }
-  gui->summary.tile_timers_history_idx = (gui->summary.tile_timers_history_idx+1UL)%FD_GUI_TILE_TIMER_LEADER_CNT;
 
   /* When a slot ends, snap the state of the waterfall and save it into
      that slot, and also reset the reference counters to the end of the
@@ -1421,9 +1545,15 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   fd_gui_tile_stats_snap( gui, slot->waterfall_end, slot->tile_stats_end, now );
 }
 
+#define SORT_NAME fd_gui_ephemeral_slot_sort
+#define SORT_KEY_T fd_gui_ephemeral_slot_t
+#define SORT_BEFORE(a,b) fd_int_if( (a).slot==ULONG_MAX, 0, fd_int_if( (b).slot==ULONG_MAX, 1, fd_int_if( (a).slot==(b).slot, (a).timestamp_arrival_nanos>(b).timestamp_arrival_nanos, (a).slot>(b).slot ) ) )
+#include "../../util/tmpl/fd_sort.c"
+
 static inline void
-fd_gui_try_insert_ephemeral_slot( fd_gui_ephemeral_slot_t * slots, ulong insert_sz, ulong slot, long now ) {
-  for( ulong i=0UL; i<FD_GUI_TURBINE_SLOT_HISTORY_SZ; i++ ) {
+fd_gui_try_insert_ephemeral_slot( fd_gui_ephemeral_slot_t * slots, ulong slots_sz, ulong slot, long now ) {
+  int already_present = 0;
+  for( ulong i=0UL; i<slots_sz; i++ ) {
     /* evict any slots older than 4.8 seconds */
     if( FD_UNLIKELY( slots[ i ].slot!=ULONG_MAX && now-slots[ i ].timestamp_arrival_nanos>4800000000L ) ) {
       slots[ i ].slot = ULONG_MAX;
@@ -1433,14 +1563,58 @@ fd_gui_try_insert_ephemeral_slot( fd_gui_ephemeral_slot_t * slots, ulong insert_
     /* if we've already seen this slot, just update the timestamp */
     if( FD_UNLIKELY( slots[ i ].slot==slot ) ) {
       slots[ i ].timestamp_arrival_nanos = now;
-      return;
+      already_present = 1;
+    }
+  }
+  if( FD_LIKELY( already_present ) ) return;
+
+  /* Insert the new slot number, evicting a smaller slot if necessary */
+  slots[ slots_sz ].timestamp_arrival_nanos = now;
+  slots[ slots_sz ].slot = slot;
+  fd_gui_ephemeral_slot_sort_insert( slots, slots_sz+1UL );
+}
+
+static inline void
+fd_gui_try_insert_catch_up_slot( ulong * slots, ulong * slots_sz, ulong slot ) {
+  /* catch up history is run-length encoded */
+  int inserted = 0;
+  for( ulong i=0UL; i<*slots_sz; i++ ) {
+    if( FD_UNLIKELY( i%2UL==1UL && slots[ i ]==slot-1UL ) ) {
+      slots[ i ]++;
+      inserted = 1;
+      break;
+    } else if( FD_UNLIKELY( i%2UL==0UL && slots[ i ]==slot+1UL ) ) {
+      slots[ i ]--;
+      inserted = 1;
+      break;
+    }
+  }
+  if( FD_LIKELY( !inserted ) ) {
+    slots[ (*slots_sz)++ ] = slot;
+    slots[ (*slots_sz)++ ] = slot;
+  }
+
+  /* colesce intervals that touch */
+  ulong removed = 0UL;
+  for( ulong i=1UL; i<(*slots_sz)-1UL; i+=2 ) {
+    if( FD_UNLIKELY( slots[ i ]==slots[ i+1UL ] ) ) {
+      slots[ i ]     = ULONG_MAX;
+      slots[ i+1UL ] = ULONG_MAX;
+      removed += 2;
     }
   }
 
-  /* Insert the new slot number, evicting a smaller slot if necessary */
-  slots[ FD_GUI_TURBINE_SLOT_HISTORY_SZ ].timestamp_arrival_nanos = now;
-  slots[ FD_GUI_TURBINE_SLOT_HISTORY_SZ ].slot = slot;
-  fd_gui_ephemeral_slot_sort_insert( slots, insert_sz );
+  fd_sort_up_ulong_insert( slots, (*slots_sz) );
+  (*slots_sz) -= removed;
+}
+
+static inline int
+fd_gui_ephemeral_slots_contains( fd_gui_ephemeral_slot_t * slots, ulong slots_sz, ulong slot ) {
+  for( ulong i=0UL; i<slots_sz; i++ ) {
+    if( FD_UNLIKELY( slots[ i ].slot==ULONG_MAX ) ) break;
+    if( FD_UNLIKELY( slots[ i ].slot==slot ) ) return 1;
+  }
+  return 0;
 }
 
 void
@@ -1450,36 +1624,45 @@ fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      fec_idx,
                      int        is_turbine,
                      long       tsorig ) {
-  (void)shred_idx;
-  (void)fec_idx;
-  FD_TEST( slot!=ULONG_MAX );
+  int was_sent = fd_gui_ephemeral_slots_contains( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, slot );
+  if( FD_LIKELY( is_turbine ) ) fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, slot, tsorig );
 
-  ulong prev_max_turbine = gui->summary.slots_max_turbine[ 0 ].slot;
+  if( FD_UNLIKELY( !was_sent && is_turbine && slot!=gui->summary.slot_turbine ) ) {
+    gui->summary.slot_turbine = slot;
 
-  if( FD_LIKELY( is_turbine ) ) fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ+1UL, slot, tsorig );
-
-  if( FD_UNLIKELY( gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slots_max_turbine[ 0 ].slot!=prev_max_turbine ) ) {
     fd_gui_printf_turbine_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, &gui->summary.catch_up_turbine_sz, slot );
   }
+
+  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail++ ];
+  recv_event->timestamp = tsorig;
+  recv_event->shred_idx = (ushort)shred_idx;
+  recv_event->fec_idx   = (ushort)fec_idx;
+  recv_event->slot      = slot;
+  recv_event->event     = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
 }
 
 void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now ) {
-  ulong prev_max_repair = gui->summary.slots_max_repair[ 0 ].slot;
+  int was_sent = fd_gui_ephemeral_slots_contains( gui->summary.slots_max_repair, FD_GUI_REPAIR_SLOT_HISTORY_SZ, slot );
+  fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_repair, FD_GUI_REPAIR_SLOT_HISTORY_SZ, slot, now );
 
-  fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_repair, FD_GUI_REPAIR_SLOT_HISTORY_SZ+1UL, slot, now );
+  if( FD_UNLIKELY( !was_sent && slot!=gui->summary.slot_repair ) ) {
+    gui->summary.slot_repair = slot;
 
-  if( FD_UNLIKELY( gui->summary.slots_max_repair[ 0 ].slot!=ULONG_MAX && gui->summary.slots_max_repair[ 0 ].slot!=prev_max_repair ) ) {
     fd_gui_printf_repair_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
+
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_repair, &gui->summary.catch_up_repair_sz, slot );
   }
 }
 
 static void
-fd_gui_handle_reset_slot( fd_gui_t * gui,
-                          ulong *    msg,
-                          long       now ) {
+fd_gui_handle_reset_slot_legacy( fd_gui_t * gui,
+                                 ulong *    msg,
+                                 long       now ) {
   ulong last_landed_vote = msg[ 0 ];
 
   ulong parent_cnt = msg[ 1 ];
@@ -1489,8 +1672,8 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 
   for( ulong i=0UL; i<parent_cnt; i++ ) {
     ulong parent_slot = msg[2UL+i];
-    fd_gui_slot_t * slot = gui->slots[ parent_slot % FD_GUI_SLOTS_CNT ];
-    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
+    fd_gui_slot_t * slot = fd_gui_get_slot( gui, parent_slot );
+    if( FD_UNLIKELY( !slot ) ) {
       ulong parent_parent_slot = ULONG_MAX;
       if( FD_UNLIKELY( i!=parent_cnt-1UL) ) parent_parent_slot = msg[ 3UL+i ];
       fd_gui_clear_slot( gui, parent_slot, parent_parent_slot );
@@ -1525,10 +1708,9 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
 
   for( ulong i=0UL; i<fd_ulong_min( _slot+1, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
-    ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
-    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
-    if( FD_UNLIKELY( slot->slot==ULONG_MAX || slot->slot!=parent_slot ) ) fd_gui_clear_slot( gui, parent_slot, ULONG_MAX );
+    fd_gui_slot_t * slot = fd_gui_get_slot( gui, parent_slot );
+    if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, parent_slot, ULONG_MAX );
 
     /* The chain of parents may stretch into already rooted slots if
        they haven't been squashed yet, if we reach one of them we can
@@ -1589,14 +1771,13 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
   ulong slot_cnt = 0UL;
 
   /* If we've just caught up we should truncate our slot history to avoid including catch-up slots */
-  int just_caught_up = gui->summary.slot_caught_up && _slot>gui->summary.slot_caught_up && _slot<gui->summary.slot_caught_up+750UL;
+  int just_caught_up = gui->summary.slot_caught_up!=ULONG_MAX && _slot>gui->summary.slot_caught_up && _slot<gui->summary.slot_caught_up+750UL;
   ulong slot_duration_history_sz = fd_ulong_if( just_caught_up, _slot-gui->summary.slot_caught_up, 750UL );
   for( ulong i=0UL; i<fd_ulong_min( _slot+1, slot_duration_history_sz ); i++ ) {
     ulong parent_slot = _slot - i;
-    ulong parent_idx  = parent_slot % FD_GUI_SLOTS_CNT;
 
-    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
-    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+    fd_gui_slot_t const * slot = fd_gui_get_slot_const( gui, parent_slot );
+    if( FD_UNLIKELY( !slot) ) break;
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect _slot-i %lu got slot->slot %lu", _slot, i, _slot-i, slot->slot ));
     }
@@ -1614,15 +1795,23 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
     fd_http_server_ws_broadcast( gui->http );
   }
 
-  if( FD_LIKELY( _slot!=gui->summary.slot_completed ) ) {
+  if( FD_LIKELY( gui->summary.slot_completed==ULONG_MAX || _slot!=gui->summary.slot_completed ) ) {
     gui->summary.slot_completed = _slot;
     fd_gui_printf_completed_slot( gui );
     fd_http_server_ws_broadcast( gui->http );
 
     /* Also update slot_turbine which could be larger than the max
        turbine slot if we are leader */
-    if( FD_UNLIKELY( gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed > gui->summary.slots_max_turbine[ 0 ].slot ) ) {
-      fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ+1, gui->summary.slot_completed, now );
+    if( FD_UNLIKELY( gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed!=ULONG_MAX && gui->summary.slot_completed>gui->summary.slots_max_turbine[ 0 ].slot ) ) {
+      fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, gui->summary.slot_completed, now );
+    }
+
+    int slot_turbine_hist_full = gui->summary.slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ-1UL ].slot!=ULONG_MAX;
+    if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX && slot_turbine_hist_full && gui->summary.slots_max_turbine[ 0 ].slot < (gui->summary.slot_completed + 3UL) ) ) {
+      gui->summary.slot_caught_up = gui->summary.slot_completed + 4UL;
+
+      fd_gui_printf_slot_caught_up( gui );
+      fd_http_server_ws_broadcast( gui->http );
     }
   }
 
@@ -1650,8 +1839,8 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   ulong _parent_slot             = msg[ 9 ];
   ulong max_compute_units        = msg[ 10 ];
 
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, _parent_slot );
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, _parent_slot );
 
   slot->completed_time = now;
   slot->parent_slot = _parent_slot;
@@ -1662,7 +1851,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
        optimistically confirm a higher slot that skips this one, but
        then later we replay this one anyway to track the bank fork. */
 
-    if( FD_LIKELY( _slot<gui->summary.slot_optimistically_confirmed ) ) {
+    if( FD_LIKELY( gui->summary.slot_optimistically_confirmed!=ULONG_MAX && _slot<gui->summary.slot_optimistically_confirmed ) ) {
       /* Cluster might have already optimistically confirmed by the time
          we finish replaying it. */
       slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
@@ -1677,12 +1866,7 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->transaction_fee        = transaction_fee;
   slot->priority_fee           = priority_fee;
   slot->tips                   = tips;
-  if( FD_LIKELY( slot->leader_state==FD_GUI_SLOT_LEADER_UNSTARTED ) ) {
-    /* If we were already leader for this slot, then the poh component
-       calculated the CUs used and sent them there, rather than the
-       replay component which is sending this completed slot. */
-    slot->compute_units   = compute_units;
-  }
+  slot->compute_units          = compute_units;
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
@@ -1703,8 +1887,8 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
 }
 
 static void
-fd_gui_handle_rooted_slot( fd_gui_t * gui,
-                           ulong *    msg ) {
+fd_gui_handle_rooted_slot_legacy( fd_gui_t * gui,
+                                  ulong *    msg ) {
   ulong _slot = msg[ 0 ];
 
   // FD_LOG_WARNING(( "Got rooted slot %lu", _slot ));
@@ -1713,10 +1897,9 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui,
      i==_slot */
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
-    ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
-    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
-    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+    fd_gui_slot_t * slot = fd_gui_get_slot( gui, parent_slot );
+    if( FD_UNLIKELY( !slot ) ) break;
 
     if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
@@ -1742,10 +1925,9 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
      i==_slot */
   for( ulong i=0UL; i<fd_ulong_min( _slot, FD_GUI_SLOTS_CNT ); i++ ) {
     ulong parent_slot = _slot - i;
-    ulong parent_idx = parent_slot % FD_GUI_SLOTS_CNT;
 
-    fd_gui_slot_t * slot = gui->slots[ parent_idx ];
-    if( FD_UNLIKELY( slot->slot==ULONG_MAX) ) break;
+    fd_gui_slot_t * slot = fd_gui_get_slot( gui, parent_slot );
+    if( FD_UNLIKELY( !slot) ) break;
 
     if( FD_UNLIKELY( slot->slot>parent_slot ) ) {
       FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", _slot, i, parent_slot, slot->slot ));
@@ -1762,12 +1944,12 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
     }
   }
 
-  if( FD_UNLIKELY( _slot<gui->summary.slot_optimistically_confirmed ) ) {
+  if( FD_UNLIKELY( gui->summary.slot_optimistically_confirmed!=ULONG_MAX && _slot<gui->summary.slot_optimistically_confirmed ) ) {
     /* Optimistically confirmed slot went backwards ... mark some slots as no
        longer optimistically confirmed. */
     for( ulong i=gui->summary.slot_optimistically_confirmed; i>=_slot; i-- ) {
-      fd_gui_slot_t * slot = gui->slots[ i % FD_GUI_SLOTS_CNT ];
-      if( FD_UNLIKELY( slot->slot==ULONG_MAX ) ) break;
+      fd_gui_slot_t * slot = fd_gui_get_slot( gui, i );
+      if( FD_UNLIKELY( !slot ) ) break;
       if( FD_LIKELY( slot->slot==i ) ) {
         /* It's possible for the optimistically confirmed slot to skip
            backwards between two slots that we haven't yet replayed.  In
@@ -1778,14 +1960,6 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
         fd_http_server_ws_broadcast( gui->http );
       }
     }
-  }
-
-  int slot_turbine_hist_full = gui->summary.slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ-1UL ].slot!=ULONG_MAX;
-  if( FD_UNLIKELY( !gui->summary.slot_caught_up && slot_turbine_hist_full && gui->summary.slots_max_turbine[ 0 ].slot < (_slot + 3UL) ) ) {
-    gui->summary.slot_caught_up = _slot + 4UL;
-
-    fd_gui_printf_slot_caught_up( gui );
-    fd_http_server_ws_broadcast( gui->http );
   }
 
   gui->summary.slot_optimistically_confirmed = _slot;
@@ -1911,7 +2085,7 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
-static void
+void
 fd_gui_handle_genesis_hash( fd_gui_t *    gui,
                             uchar const * msg ) {
   FD_BASE58_ENCODE_32_BYTES(msg, hash_cstr);
@@ -1940,29 +2114,378 @@ fd_gui_handle_block_engine_update( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
-
 void
-fd_gui_handle_snapshot_update( fd_gui_t *           gui,
-                               fd_snaprd_update_t * msg ) {
+fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
+                               fd_snapct_update_t const * msg ) {
   FD_TEST( msg && fd_cstr_nlen( msg->read_path, 1 ) );
 
-  ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPRD_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
+  ulong snapshot_idx = fd_ulong_if( msg->type==FD_SNAPCT_SNAPSHOT_TYPE_FULL, FD_GUI_BOOT_PROGRESS_FULL_SNAPSHOT_IDX, FD_GUI_BOOT_PROGRESS_INCREMENTAL_SNAPSHOT_IDX );
 
   char const * filename = strrchr(msg->read_path, '/');
 
   /* Skip the '/'  */
   if( FD_UNLIKELY( filename ) ) filename++;
 
-  if (msg->type == FD_SNAPRD_SNAPSHOT_TYPE_INCREMENTAL) {
+  if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_INCREMENTAL) {
       ulong slot1, slot2;
       if ( FD_LIKELY( sscanf( filename, "incremental-snapshot-%lu-%lu-", &slot1, &slot2 ) ) ) gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot2;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
-  } else if (msg->type == FD_SNAPRD_SNAPSHOT_TYPE_FULL) {
+  } else if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_FULL) {
       ulong slot1;
       if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot1 ) ) ) gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot1;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   }
   fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
+}
+
+static void
+fd_gui_handle_reset_slot( fd_gui_t * gui, ulong reset_slot, long now ) {
+  FD_TEST( reset_slot!=ULONG_MAX );
+
+  /* reset_slot has not changed */
+  if( FD_UNLIKELY( gui->summary.slot_completed!=ULONG_MAX && reset_slot==gui->summary.slot_completed ) ) return;
+
+  ulong prev_slot_completed = gui->summary.slot_completed;
+  gui->summary.slot_completed = reset_slot;
+
+  if( FD_LIKELY( fd_gui_get_slot( gui, gui->summary.slot_completed ) ) ) {
+    fd_gui_printf_slot( gui, gui->summary.slot_completed );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  fd_gui_printf_completed_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+
+  /* Also update slot_turbine which could be larger than the max
+  turbine slot if we are leader */
+  if( FD_UNLIKELY( gui->summary.slots_max_turbine[ 0 ].slot!=ULONG_MAX && gui->summary.slot_completed > gui->summary.slots_max_turbine[ 0 ].slot ) ) {
+    fd_gui_try_insert_ephemeral_slot( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, gui->summary.slot_completed, now );
+  }
+
+  int slot_turbine_hist_full = gui->summary.slots_max_turbine[ FD_GUI_TURBINE_SLOT_HISTORY_SZ-1UL ].slot!=ULONG_MAX;
+  if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX && slot_turbine_hist_full && gui->summary.slots_max_turbine[ 0 ].slot < (gui->summary.slot_completed + 3UL) ) ) {
+    gui->summary.slot_caught_up = gui->summary.slot_completed + 4UL;
+
+    fd_gui_printf_slot_caught_up( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  /* ensure a history exists */
+  if( FD_UNLIKELY( prev_slot_completed==ULONG_MAX || gui->summary.slot_rooted==ULONG_MAX ) ) return;
+
+  /* slot complete recieved out of order on the same fork? */
+  FD_TEST( fd_gui_slot_is_ancestor( gui, prev_slot_completed, gui->summary.slot_completed ) || !fd_gui_slot_is_ancestor( gui, gui->summary.slot_completed, prev_slot_completed ) );
+
+  /* fork switch: we need to "undo" the previous fork */
+  int republish_skip_rate[ 2 ] = {0};
+  if( FD_UNLIKELY( !fd_gui_slot_is_ancestor( gui, prev_slot_completed, gui->summary.slot_completed ) ) ) {
+    /* The handling for skipped slot on a fork switch is tricky.  We
+        want to rebate back any slots that were skipped but are no
+        longer.  We also need to make sure we count skipped slots
+        towards the correct epoch. */
+    for( ulong i=fd_ulong_max( gui->summary.slot_completed, prev_slot_completed); i>gui->summary.slot_rooted; i-- ) {
+
+      int is_skipped_on_old_fork = i<=prev_slot_completed         && fd_gui_is_skipped_on_fork( gui, gui->summary.slot_rooted, prev_slot_completed,         i );
+      int is_skipped_on_new_fork = i<=gui->summary.slot_completed && fd_gui_is_skipped_on_fork( gui, gui->summary.slot_rooted, gui->summary.slot_completed, i );
+
+      if( FD_LIKELY( is_skipped_on_old_fork && !is_skipped_on_new_fork ) ) {
+        fd_gui_slot_t * skipped = fd_gui_get_slot( gui, i );
+        if( FD_LIKELY( !skipped ) ) {
+          fd_gui_slot_t * p = fd_gui_get_parent_slot_on_fork( gui, prev_slot_completed, i );
+          skipped = fd_gui_clear_slot( gui, i, p ? p->slot : ULONG_MAX );
+        }
+
+        skipped->skipped = 0;
+        fd_gui_printf_slot( gui, skipped->slot );
+        fd_http_server_ws_broadcast( gui->http );
+        skipped->must_republish = 0;
+
+        if( FD_LIKELY( skipped->mine ) ) {
+          for( ulong i=0UL; i<2UL; i++ ) {
+            if( FD_LIKELY( i>=gui->epoch.epochs[ i ].start_slot && i<=gui->epoch.epochs[ i ].end_slot ) ) {
+              gui->epoch.epochs[ i ].my_skipped_slots--;
+              republish_skip_rate[ i ] = 1;
+              break;
+            }
+          }
+        }
+      }
+
+      if( FD_LIKELY( !is_skipped_on_old_fork && is_skipped_on_new_fork ) ) {
+        fd_gui_slot_t * skipped = fd_gui_get_slot( gui, i );
+        if( FD_LIKELY( !skipped ) ) {
+          fd_gui_slot_t * p = fd_gui_get_parent_slot_on_fork( gui, prev_slot_completed, i );
+          skipped = fd_gui_clear_slot( gui, i, p ? p->slot : ULONG_MAX );
+        }
+
+        skipped->skipped = 1;
+        fd_gui_printf_slot( gui, skipped->slot );
+        fd_http_server_ws_broadcast( gui->http );
+        skipped->must_republish = 0;
+
+        if( FD_LIKELY( skipped->mine ) ) {
+          for( ulong i=0UL; i<2UL; i++ ) {
+            if( FD_LIKELY( i>=gui->epoch.epochs[ i ].start_slot && i<=gui->epoch.epochs[ i ].end_slot ) ) {
+              gui->epoch.epochs[ i ].my_skipped_slots++;
+              republish_skip_rate[ i ] = 1;
+              break;
+            }
+          }
+        }
+      }
+    }
+  } else {
+    /* publish new skipped slots  */
+    fd_gui_slot_t * s = fd_gui_get_slot( gui, gui->summary.slot_completed );
+    while( s && s->slot>=prev_slot_completed ) {
+      fd_gui_slot_t * p = fd_gui_get_slot( gui, s->parent_slot );
+      if( FD_UNLIKELY( !p ) ) break;
+      for( ulong i=p->slot+1; i<s->slot; i++ ) {
+        fd_gui_slot_t * skipped = fd_gui_get_slot( gui, i );
+        if( FD_LIKELY( !skipped ) ) {
+          fd_gui_slot_t * p = fd_gui_get_parent_slot_on_fork( gui, gui->summary.slot_completed, i );
+          skipped = fd_gui_clear_slot( gui, i, p ? p->slot : ULONG_MAX );
+        }
+        skipped->skipped = 1;
+        fd_gui_printf_slot( gui, skipped->slot );
+        fd_http_server_ws_broadcast( gui->http );
+        skipped->must_republish = 0;
+        if( FD_LIKELY( skipped->mine ) ) {
+          for( ulong i=0UL; i<2UL; i++ ) {
+            if( FD_LIKELY( i>=gui->epoch.epochs[ i ].start_slot && i<=gui->epoch.epochs[ i ].end_slot ) ) {
+              gui->epoch.epochs[ i ].my_skipped_slots++;
+              republish_skip_rate[ i ] = 1;
+              break;
+            }
+          }
+        }
+      }
+      s = p;
+    }
+  }
+
+  for( ulong i=0UL; i<2UL; i++ ) {
+    if( FD_LIKELY( republish_skip_rate[ i ] ) ) {
+      fd_gui_printf_skip_rate( gui, i );
+      fd_http_server_ws_broadcast( gui->http );
+    }
+  }
+}
+
+#define SORT_NAME fd_gui_slot_staged_shred_event_evict_sort
+#define SORT_KEY_T fd_gui_slot_staged_shred_event_t
+#define SORT_BEFORE(a,b) (__extension__({ (void)(b); (a).slot==ULONG_MAX; }))
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME fd_gui_slot_staged_shred_event_slot_sort
+#define SORT_KEY_T fd_gui_slot_staged_shred_event_t
+#define SORT_BEFORE(a,b) ((a).slot<(b).slot)
+#include "../../util/tmpl/fd_sort.c"
+
+static void
+fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
+  /* start at the new root and move backwards towards the old root,
+     rooting everything in-between */
+  for( ulong i=0UL; i<fd_ulong_min( root_slot, FD_GUI_SLOTS_CNT ); i++ ) {
+    ulong parent_slot = root_slot - i;
+
+    fd_gui_slot_t * slot = fd_gui_get_slot( gui, parent_slot );
+    if( FD_UNLIKELY( !slot ) ) break;
+
+    if( FD_UNLIKELY( slot->slot!=parent_slot ) ) {
+      FD_LOG_ERR(( "_slot %lu i %lu we expect parent_slot %lu got slot->slot %lu", root_slot, i, parent_slot, slot->slot ));
+    }
+    if( FD_UNLIKELY( slot->level>=FD_GUI_SLOT_LEVEL_ROOTED ) ) break;
+
+    /* change notarization levels and rebroadcast */
+    slot->level = FD_GUI_SLOT_LEVEL_ROOTED;
+    fd_gui_printf_slot( gui, parent_slot );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  /* archive root shred events.  We want to avoid n^2 iteration here
+     since it can significantly slow things down. Instead, we copy
+     over all rooted shreds to a scratch space, stable sort by slot,
+     copy the sorted arrays to the shred history. */
+  ulong evicted_cnt = 0UL; /* the total number evicted, including ignored */
+  ulong archive_cnt = 0UL; /* the total number evicted, NOT including ignored */
+  for( ulong i=gui->shreds.staged_head; i<gui->shreds.staged_tail; i++ ) {
+    /* ignore new shred events that came in after their slot was rooted */
+    if( FD_UNLIKELY( gui->shreds.history_slot!=ULONG_MAX && gui->shreds.staged[ i ].slot<=gui->shreds.history_slot ) ) {
+      gui->shreds.staged[ i ].slot = ULONG_MAX;
+      evicted_cnt++;
+    }
+
+    if( FD_UNLIKELY( gui->shreds.staged[ i ].slot<=root_slot ) ) {
+      /* move to scratch */
+      fd_memcpy( gui->shreds._staged_scratch, &gui->shreds.staged[ i ], sizeof(fd_gui_slot_staged_shred_event_t) );
+      archive_cnt++;
+
+      /* evict from staged */
+      gui->shreds.staged[ i ].slot = ULONG_MAX;
+      evicted_cnt++;
+    }
+  }
+
+  /* The entries from the staging area are evicted by setting their
+      slot field to ULONG MAX, then sorting the staging area.
+
+      IMPORTANT: this sort needs to be stable since we always keep
+      valid un-broadcast events at the end of the ring buffer */
+  if( FD_LIKELY( evicted_cnt ) ) {
+    fd_gui_slot_staged_shred_event_evict_sort_stable( &gui->shreds.staged[ gui->shreds.staged_head ], gui->shreds.staged_tail-gui->shreds.staged_head, gui->shreds._staged_scratch2 );
+    gui->shreds.staged_head += evicted_cnt;
+
+    /* In the rare case that we are archiving any shred events that have
+      not yet been broadcast, we'll increment
+      gui->shreds.staged_next_broadcast to keep it in bounds. */
+    gui->shreds.staged_next_broadcast = fd_ulong_max( gui->shreds.staged_head, gui->shreds.staged_next_broadcast );
+
+    /* sort scratch by slot increasing */
+    fd_gui_slot_staged_shred_event_slot_sort_stable( gui->shreds._staged_scratch, archive_cnt, gui->shreds._staged_scratch2 );
+
+    /* copy shred events to archive */
+    for( ulong i=0UL; i<archive_cnt; i++ ) {
+      if( FD_UNLIKELY( gui->shreds._staged_scratch[ i ].slot!=gui->shreds.history_slot ) ) {
+        fd_gui_slot_t * prev_slot = fd_gui_get_slot( gui, gui->shreds.history_slot );
+        if( FD_LIKELY( prev_slot ) ) prev_slot->shreds.end_offset = gui->shreds.history_tail;
+
+        gui->shreds.history_slot = gui->shreds._staged_scratch[ i ].slot;
+
+        fd_gui_slot_t * next_slot = fd_gui_get_slot( gui, gui->shreds.history_slot );
+        if( FD_LIKELY( next_slot ) ) next_slot->shreds.start_offset = gui->shreds.history_tail;
+      }
+
+      gui->shreds.history[ gui->shreds.history_tail ].timestamp = gui->shreds._staged_scratch[ i ].timestamp;
+      gui->shreds.history[ gui->shreds.history_tail ].shred_idx = gui->shreds._staged_scratch[ i ].shred_idx;
+      gui->shreds.history[ gui->shreds.history_tail ].event     = gui->shreds._staged_scratch[ i ].event;
+
+      gui->shreds.history_tail++;
+    }
+  }
+
+  gui->summary.slot_rooted = root_slot;
+  fd_gui_printf_root_slot( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+/* fd_gui_handle_tower_update handles updates from the tower tile, which
+   manages consensus related fork switching, rooting, slot confirmation. */
+void
+fd_gui_handle_tower_update( fd_gui_t *                   gui,
+                            fd_tower_slot_done_t const * tower,
+                            long                         now ) {
+  (void)now;
+
+  /* handle new root */
+  if( FD_LIKELY( tower->new_root && gui->summary.slot_rooted!=tower->root_slot ) ) {
+    fd_gui_handle_rooted_slot( gui, tower->root_slot );
+  }
+
+  if( FD_UNLIKELY( gui->summary.vote_distance!=tower->reset_slot-tower->vote_slot ) ) {
+    gui->summary.vote_distance = tower->reset_slot-tower->vote_slot;
+    fd_gui_printf_vote_distance( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+
+  if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
+    if( FD_UNLIKELY( tower->vote_slot==ULONG_MAX || (tower->vote_slot+150UL)<tower->reset_slot ) ) {
+      if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_DELINQUENT ) ) {
+        gui->summary.vote_state = FD_GUI_VOTE_STATE_DELINQUENT;
+        fd_gui_printf_vote_state( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    } else {
+      if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_VOTING ) ) {
+        gui->summary.vote_state = FD_GUI_VOTE_STATE_VOTING;
+        fd_gui_printf_vote_state( gui );
+        fd_http_server_ws_broadcast( gui->http );
+      }
+    }
+  }
+
+  /* todo ... optimistic confirmation, waiting on fd_ghost / fd_notar */
+}
+
+void
+fd_gui_handle_replay_update( fd_gui_t *                gui,
+                             fd_gui_slot_completed_t * slot_completed,
+                             long                      now ) {
+  (void)now;
+
+  if( FD_UNLIKELY( gui->summary.boot_progress.catching_up_first_replay_slot==ULONG_MAX ) ) {
+    gui->summary.boot_progress.catching_up_first_replay_slot = slot_completed->slot;
+  }
+
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, slot_completed->slot );
+  if( FD_UNLIKELY( slot ) ) {
+    /* Its possible that this slot was labeled as skipped by another
+       consensus fork at some point in the past. In this case no need to
+       clear it, but we should update parent_slot */
+       slot->parent_slot = slot_completed->parent_slot;
+  } else {
+    slot = fd_gui_clear_slot( gui, slot_completed->slot, slot_completed->parent_slot );
+  }
+
+  slot->completed_time    = slot_completed->completed_time;
+  slot->parent_slot       = slot_completed->parent_slot;
+  slot->max_compute_units = slot_completed->max_compute_units;
+  if( FD_LIKELY( slot->level<FD_GUI_SLOT_LEVEL_COMPLETED ) ) {
+    /* Typically a slot goes from INCOMPLETE to COMPLETED but it can
+       happen that it starts higher.  One such case is when we
+       optimistically confirm a higher slot that skips this one, but
+       then later we replay this one anyway to track the bank fork. */
+
+    if( FD_LIKELY( gui->summary.slot_optimistically_confirmed!=ULONG_MAX && slot->slot<gui->summary.slot_optimistically_confirmed ) ) {
+      /* Cluster might have already optimistically confirmed by the time
+         we finish replaying it. */
+      slot->level = FD_GUI_SLOT_LEVEL_OPTIMISTICALLY_CONFIRMED;
+    } else {
+      slot->level = FD_GUI_SLOT_LEVEL_COMPLETED;
+    }
+  }
+  slot->total_txn_cnt          = slot_completed->total_txn_cnt;
+  slot->vote_txn_cnt           = slot_completed->vote_txn_cnt;
+  slot->failed_txn_cnt         = slot_completed->failed_txn_cnt;
+  slot->nonvote_failed_txn_cnt = slot_completed->nonvote_failed_txn_cnt;
+  slot->transaction_fee        = slot_completed->transaction_fee;
+  slot->priority_fee           = slot_completed->priority_fee;
+  slot->tips                   = slot_completed->tips;
+  slot->compute_units          = slot_completed->compute_units;
+  slot->shred_cnt              = slot_completed->shred_cnt;
+
+  if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && slot->slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
+    gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
+  } else if( FD_UNLIKELY( gui->epoch.has_epoch[ 1 ] && slot->slot==gui->epoch.epochs[ 1 ].end_slot ) ) {
+    gui->epoch.epochs[ 1 ].end_time = slot->completed_time;
+  }
+
+  /* Broadcast new skip rate if one of our slots got completed. */
+  if( FD_LIKELY( slot->mine ) ) {
+    for( ulong i=0UL; i<2UL; i++ ) {
+      if( FD_LIKELY( slot->slot>=gui->epoch.epochs[ i ].start_slot && slot->slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+        fd_gui_printf_skip_rate( gui, i );
+        fd_http_server_ws_broadcast( gui->http );
+        break;
+      }
+    }
+  }
+
+  /* We'll treat the latest slot_complete from replay as the reset slot.
+     We get an explicit reset_slot from tower, but that message may come
+     in before we get the slot_complete from replay. */
+  if( FD_UNLIKELY( gui->summary.slot_completed!=slot->slot ) ) {
+    fd_gui_handle_reset_slot( gui, slot->slot, now );
+  }
+
+  /* Add a "slot complete" event for all of the shreds in this slot */
+  if( FD_UNLIKELY( slot->shred_cnt > FD_GUI_MAX_SHREDS_PER_BLOCK ) ) FD_LOG_ERR(( "unexpected shred_cnt=%lu", (ulong)slot->shred_cnt ));
+  fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail++ ];
+  slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
+  slot_complete_event->timestamp = slot_completed->completed_time;
+  slot_complete_event->shred_idx = USHORT_MAX;
+  slot_complete_event->fec_idx   = USHORT_MAX;
+  slot_complete_event->slot      = slot->slot;
 }
 
 void
@@ -1973,21 +2496,18 @@ fd_gui_plugin_message( fd_gui_t *    gui,
 
   switch( plugin_msg ) {
     case FD_PLUGIN_MSG_SLOT_ROOTED:
-      fd_gui_handle_rooted_slot( gui, (ulong *)msg );
+      fd_gui_handle_rooted_slot_legacy( gui, (ulong *)msg );
       break;
     case FD_PLUGIN_MSG_SLOT_OPTIMISTICALLY_CONFIRMED:
       fd_gui_handle_optimistically_confirmed_slot( gui, (ulong *)msg );
       break;
-    case FD_PLUGIN_MSG_SLOT_COMPLETED:
+    case FD_PLUGIN_MSG_SLOT_COMPLETED: {
       fd_gui_handle_completed_slot( gui, (ulong *)msg, now );
       break;
-    case FD_PLUGIN_MSG_SLOT_ESTIMATED:
-      gui->summary.slot_estimated = *(ulong const *)msg;
-      fd_gui_printf_estimated_slot( gui );
-      fd_http_server_ws_broadcast( gui->http );
-      break;
+    }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      fd_gui_handle_leader_schedule( gui, (ulong const *)msg, now );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "new fields breaks things" );
+      fd_gui_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }
     case FD_PLUGIN_MSG_SLOT_START: {
@@ -2011,7 +2531,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_SLOT_RESET: {
-      fd_gui_handle_reset_slot( gui, (ulong *)msg, now );
+      fd_gui_handle_reset_slot_legacy( gui, (ulong *)msg, now );
       break;
     }
     case FD_PLUGIN_MSG_BALANCE: {
@@ -2036,45 +2556,33 @@ fd_gui_plugin_message( fd_gui_t *    gui,
   }
 }
 
-static void
-fd_gui_init_slot_txns( fd_gui_t * gui,
-                       long       now,
-                       ulong      _slot ) {
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, ULONG_MAX );
-
-  /* initialize reference timestamp */
-  if ( FD_UNLIKELY( LONG_MAX==slot->txs.reference_nanos ) ) {
-    slot->txs.reference_nanos = now;
-  }
-}
-
 void
 fd_gui_became_leader( fd_gui_t * gui,
-                      long       now,
                       ulong      _slot,
                       long       start_time_nanos,
                       long       end_time_nanos,
                       ulong      max_compute_units,
                       ulong      max_microblocks ) {
-  fd_gui_init_slot_txns( gui, now, _slot );
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-  slot->max_compute_units = (uint)max_compute_units;
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, ULONG_MAX );
+  fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+  if( FD_UNLIKELY( !lslot ) ) return;
 
-  slot->txs.leader_start_time = start_time_nanos;
-  slot->txs.leader_end_time   = end_time_nanos;
-  if( FD_LIKELY( slot->txs.microblocks_upper_bound==USHORT_MAX ) ) slot->txs.microblocks_upper_bound = (ushort)max_microblocks;
+  slot->max_compute_units = (uint)max_compute_units;
+  lslot->leader_start_time = start_time_nanos;
+  lslot->leader_end_time   = end_time_nanos;
+  if( FD_LIKELY( lslot->txs.microblocks_upper_bound==USHORT_MAX ) ) lslot->txs.microblocks_upper_bound = (ushort)max_microblocks;
 }
 
 void
 fd_gui_unbecame_leader( fd_gui_t * gui,
-                        long       now,
                         ulong      _slot,
                         ulong      microblocks_in_slot ) {
-  fd_gui_init_slot_txns( gui, now, _slot );
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
-
-  slot->txs.microblocks_upper_bound = (ushort)microblocks_in_slot;
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, ULONG_MAX );
+  fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+  if( FD_LIKELY( !lslot ) ) return;
+  lslot->txs.microblocks_upper_bound = (ushort)microblocks_in_slot;
 }
 
 void
@@ -2085,11 +2593,14 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
                                    ulong        txn_cnt,
                                    uint         microblock_idx,
                                    ulong        pack_txn_idx ) {
-  fd_gui_init_slot_txns( gui, now, _slot );
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
-  if( FD_UNLIKELY( slot->txs.start_offset==ULONG_MAX ) ) slot->txs.start_offset = pack_txn_idx;
-  else                                                   slot->txs.start_offset = fd_ulong_min( slot->txs.start_offset, pack_txn_idx );
+  fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+  if( FD_UNLIKELY( !lslot ) ) return;
+
+  if( FD_UNLIKELY( lslot->txs.start_offset==ULONG_MAX ) ) lslot->txs.start_offset = pack_txn_idx;
+  else                                                    lslot->txs.start_offset = fd_ulong_min( lslot->txs.start_offset, pack_txn_idx );
 
   gui->pack_txn_idx = fd_ulong_max( gui->pack_txn_idx, pack_txn_idx+txn_cnt-1UL );
 
@@ -2113,7 +2624,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
     txn_entry->compute_units_requested     = cost_estimate & 0x1FFFFFU;
     txn_entry->priority_fee                = priority_rewards;
     txn_entry->transaction_fee             = sig_rewards;
-    txn_entry->timestamp_delta_start_nanos = (int)(now - slot->txs.reference_nanos);
+    txn_entry->timestamp_delta_start_nanos = (int)(now - lslot->leader_start_time);
     txn_entry->source_ipv4                 = txn_payload->source_ipv4;
     txn_entry->source_tpu                  = txn_payload->source_tpu;
     txn_entry->microblock_idx              = microblock_idx;
@@ -2127,7 +2638,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
      even if it received microblocks with multiple transactions
      (i.e. a bundle). This means that we need to calculate microblock
      count here based on the transaction count. */
-  slot->txs.begin_microblocks = (ushort)(slot->txs.begin_microblocks + txn_cnt);
+  lslot->txs.begin_microblocks = (ushort)(lslot->txs.begin_microblocks + txn_cnt);
 }
 
 void
@@ -2145,11 +2656,14 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
                                  ulong        tips ) {
   if( FD_UNLIKELY( 1UL!=txn_cnt ) ) FD_LOG_ERR(( "gui expects 1 txn per microblock from bank, found %lu", txn_cnt ));
 
-  fd_gui_init_slot_txns( gui, now, _slot );
-  fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
+  fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
+  if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
-  if( FD_UNLIKELY( slot->txs.end_offset==ULONG_MAX ) ) slot->txs.end_offset = pack_txn_idx + txn_cnt;
-  else                                                 slot->txs.end_offset = fd_ulong_max( slot->txs.end_offset, pack_txn_idx+txn_cnt );
+  fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
+  if( FD_UNLIKELY( !lslot ) ) return;
+
+  if( FD_UNLIKELY( lslot->txs.end_offset==ULONG_MAX ) ) lslot->txs.end_offset = pack_txn_idx + txn_cnt;
+  else                                                  lslot->txs.end_offset = fd_ulong_max( lslot->txs.end_offset, pack_txn_idx+txn_cnt );
 
   gui->pack_txn_idx = fd_ulong_max( gui->pack_txn_idx, pack_txn_idx+txn_cnt-1UL );
 
@@ -2160,7 +2674,7 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->bank_idx                  = bank_idx                           & 0x3FU;
     txn_entry->compute_units_consumed    = txn_p->bank_cu.actual_consumed_cus & 0x1FFFFFU;
     txn_entry->error_code                = (txn_p->flags >> 24)               & 0x3FU;
-    txn_entry->timestamp_delta_end_nanos = (int)(now - slot->txs.reference_nanos);
+    txn_entry->timestamp_delta_end_nanos = (int)(now - lslot->leader_start_time);
     txn_entry->txn_start_pct             = txn_start_pct;
     txn_entry->txn_load_end_pct          = txn_load_end_pct;
     txn_entry->txn_end_pct               = txn_end_pct;
@@ -2171,5 +2685,5 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
     txn_entry->flags                    |= (uchar)fd_uint_if(txn_p->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS, FD_GUI_TXN_FLAGS_LANDED_IN_BLOCK, 0U);
   }
 
-  slot->txs.end_microblocks = slot->txs.end_microblocks + (uint)txn_cnt;
+  lslot->txs.end_microblocks = lslot->txs.end_microblocks + (uint)txn_cnt;
 }

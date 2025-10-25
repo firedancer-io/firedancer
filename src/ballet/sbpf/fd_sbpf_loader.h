@@ -149,7 +149,7 @@ struct fd_sbpf_elf_info {
 
   uint  text_off; /* File offset of .text section (overlaps rodata segment) */
   uint  text_cnt; /* Instruction count */
-  ulong text_sz;  /* Length of text segment */
+  ulong text_sz;  /* size of text segment. Guaranteed to be <= bin_sz. */
 
   /* Known section indices
      In [-1,USHORT_MAX) where -1 means "not found" */
@@ -211,9 +211,6 @@ struct __attribute__((aligned(32UL))) fd_sbpf_program {
 
   /* text section within rodata segment */
   ulong * text;
-  ulong   text_cnt;  /* instruction count */
-  ulong   text_off;  /* instruction offset for use in CALL_REG instructions */
-  ulong   text_sz;   /* size of text segment. Guaranteed to be <= bin_sz. */
   ulong   entry_pc;  /* entrypoint PC (at text[ entry_pc ]). ULONG_MAX if not set. */
 
   /* Bit vector of valid call destinations (bit count is text_cnt). */
@@ -295,6 +292,10 @@ fd_sbpf_program_new( void *                     prog_mem,
    will be checked against when registering calldests for potential
    symbol collisions.
 
+   scratch should be a pointer to a scratch area with size scratch_sz,
+   used to allocate a temporary buffer for the parsed rodata sections
+   before copying it back into the rodata.  recommended size is bin_sz.
+
    On success, returns 0.
    On error, returns FD_SBPF_ERR_*.
 
@@ -309,7 +310,9 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
                       void const *                    bin,
                       ulong                           bin_sz,
                       fd_sbpf_syscalls_t *            syscalls,
-                      fd_sbpf_loader_config_t const * config );
+                      fd_sbpf_loader_config_t const * config,
+                      void *                          scratch,
+                      ulong                           scratch_sz );
 
 /* fd_sbpf_program_delete destroys the program object and unformats the
    memory regions holding it. */

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_tip_prog_blacklist_h
-#define HEADER_fd_src_ballet_pack_fd_pack_tip_prog_blacklist_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_tip_prog_blacklist_h
+#define HEADER_fd_src_disco_pack_fd_pack_tip_prog_blacklist_h
 
 #include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
 #include "../../ballet/fd_ballet_base.h"
@@ -155,4 +155,4 @@ fd_pack_tip_prog_check_blacklist( fd_acct_addr_t const * acct ) {
 #undef  _9n3d1K5YD2vECAbRFhFFGYNNjiXtHXJWn9F31t89vsAV
 #undef  _9ttgPBBhRYFuQccdR1DSnb7hydsWANoDsV3P9kaGMCEh
 
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_tip_prog_blacklist_h */
+#endif /* HEADER_fd_src_disco_pack_fd_pack_tip_prog_blacklist_h */

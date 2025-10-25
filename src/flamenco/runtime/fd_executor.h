@@ -59,7 +59,8 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
    be achieved by using fd_executor_acquire_instr_info_elem( txn_ctx ) to
    acquire an fd_instr_info_t element with the same lifetime as the txn_ctx */
 int
-fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx );
+fd_executor_txn_verify( fd_txn_p_t *  txn_p,
+                        fd_sha512_t * shas[ FD_TXN_ACTUAL_SIG_MAX ] );
 
 int
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
@@ -134,11 +135,14 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
 
 void
 fd_exec_txn_ctx_setup( fd_bank_t *               bank,
-                       fd_funk_t *               funk,
+                       void *                    accdb_shfunk,
+                       void *                    progcache_shfunk,
                        fd_funk_txn_xid_t const * xid,
                        fd_txncache_t *           status_cache,
                        fd_exec_txn_ctx_t *       ctx,
-                       fd_bank_hash_cmp_t *      bank_hash_cmp );
+                       fd_bank_hash_cmp_t *      bank_hash_cmp,
+                       void *                    progcache_scratch,
+                       ulong                     progcache_scratch_sz );
 
 FD_PROTOTYPES_END
 

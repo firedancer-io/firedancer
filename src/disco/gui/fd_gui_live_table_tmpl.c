@@ -107,16 +107,21 @@ Typical usage:
 
      ulong mytable_ele_max( mytable_t const * table );
      ulong mytable_ele_cnt( mytable_t const * table );
+     ulong mytable_col_cnt( void );
 
-     mytable_t * mytable_idx_insert( mytable_t * table, ulong     n, myrow_t * pool );
-     mytable_t * mytable_idx_remove( mytable_t * table, ulong     d, myrow_t * pool );
+     myrow_t * mytable_idx_insert( mytable_t * table, ulong n, myrow_t * pool );
+     void      mytable_idx_remove( mytable_t * table, ulong d, myrow_t * pool );
 
-     mytable_t * mytable_ele_insert( mytable_t * table, myrow_t * n, myrow_t * pool );
-     mytable_t * mytable_ele_remove( mytable_t * table, myrow_t * d, myrow_t * pool );
+     myrow_t *  mytable_ele_insert( mytable_t * table, myrow_t * n, myrow_t * pool );
+     void       mytable_ele_remove( mytable_t * table, myrow_t * d, myrow_t * pool );
 
      void mytable_seed( myrow_t * pool, ulong ele_max, ulong seed );
 
      int mytable_verify( mytable_t const * table, myrow_t const * pool );
+
+     // mytable_verify_sort_key checks that a sort key doesn't contain
+     // duplicate columns and that all sort directions are valid
+     int mytable_verify_sort_key( mytable_sort_key_t const * sort_key );
 
      // A sort key is a structure used to define multi-column sorting
      // behavior. It consists of:
@@ -180,12 +185,12 @@ Typical usage:
      // pool is a pointer in the caller's address space to the ele_max
      // linearly addressable storage region backing the table.
 
-     int                 mytable_fwd_iter_done     ( mytable_fwd_iter_t iter                                                        );
-     ulong               mytable_fwd_iter_idx      ( mytable_fwd_iter_t iter                                                        );
-     mytable_fwd_iter_t  mytable_fwd_iter_init     ( mytable_t * join, mytable_sort_key_t const * sort_key                          );
-     mytable_fwd_iter_t  mytable_fwd_iter_next     ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter );
-     myrow_t *           mytable_fwd_iter_ele      ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter );
-     myrow_t const *     mytable_fwd_iter_ele_const( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter );
+     int                 mytable_fwd_iter_done     ( mytable_fwd_iter_t iter                                                                        );
+     ulong               mytable_fwd_iter_idx      ( mytable_fwd_iter_t iter                                                                        );
+     mytable_fwd_iter_t  mytable_fwd_iter_init     ( mytable_t * join, mytable_sort_key_t const * sort_key,                          myrow_t * pool );
+     mytable_fwd_iter_t  mytable_fwd_iter_next     ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter, myrow_t * pool );
+     myrow_t *           mytable_fwd_iter_ele      ( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter, myrow_t * pool );
+     myrow_t const *     mytable_fwd_iter_ele_const( mytable_t * join, mytable_sort_key_t const * sort_key, mytable_fwd_iter_t iter, myrow_t * pool );
 */
 
 #ifndef LIVE_TABLE_NAME
@@ -272,7 +277,7 @@ static ulong LIVE_TABLE_(private_active_sort_key_idx) = ULONG_MAX;
 
 static int
 LIVE_TABLE_(private_row_lt)(LIVE_TABLE_ROW_T const * a, LIVE_TABLE_ROW_T const * b) {
-  FD_TEST( LIVE_TABLE_(private_active_sort_key_idx) < LIVE_TABLE_MAX_SORT_KEY_CNT+1UL );
+  FD_TEST( LIVE_TABLE_(private_active_sort_key_idx) < LIVE_TABLE_MAX_SORT_KEY_CNT );
 
   LIVE_TABLE_(sort_key_t) const * active_sort_key = &((LIVE_TABLE_(sort_key_t) *)(a->LIVE_TABLE_SORT_KEYS))[ LIVE_TABLE_(private_active_sort_key_idx) ];
 
@@ -345,9 +350,10 @@ LIVE_TABLE_STATIC LIVE_TABLE_ROW_T * LIVE_TABLE_(idx_insert)( LIVE_TABLE_(t) * j
 LIVE_TABLE_STATIC void               LIVE_TABLE_(idx_remove)( LIVE_TABLE_(t) * join, ulong pool_idx, LIVE_TABLE_ROW_T * pool );
 
 LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t) LIVE_TABLE_(fwd_iter_next)( LIVE_TABLE_(fwd_iter_t) iter, LIVE_TABLE_ROW_T const * pool );
-LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t) LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool );
+LIVE_TABLE_STATIC            LIVE_TABLE_(fwd_iter_t) LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool );
 
 LIVE_TABLE_STATIC int LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * table, LIVE_TABLE_ROW_T const * pool );
+LIVE_TABLE_STATIC int LIVE_TABLE_(verify_sort_key)( LIVE_TABLE_(sort_key_t) const * sort_key );
 
 LIVE_TABLE_STATIC void
 LIVE_TABLE_(sort_key_remove)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key );
@@ -397,8 +403,9 @@ LIVE_TABLE_(ele_insert)( LIVE_TABLE_(t) * join, LIVE_TABLE_ROW_T * row, LIVE_TAB
 static inline void
 LIVE_TABLE_(ele_remove)( LIVE_TABLE_(t) * join, LIVE_TABLE_ROW_T * row, LIVE_TABLE_ROW_T * pool ) { LIVE_TABLE_(idx_remove)( join, (ulong)(row - pool), pool ); }
 
-FD_FN_PURE static inline ulong LIVE_TABLE_(ele_cnt)( LIVE_TABLE_(t) * join ) { return join->count; }
-FD_FN_PURE static inline ulong LIVE_TABLE_(ele_max)( LIVE_TABLE_(t) * join ) { return join->max_rows; }
+FD_FN_PURE static inline ulong LIVE_TABLE_(ele_cnt)( LIVE_TABLE_(t) * join ) { return join->count;           }
+FD_FN_PURE static inline ulong LIVE_TABLE_(ele_max)( LIVE_TABLE_(t) * join ) { return join->max_rows;        }
+FD_FN_PURE static inline ulong LIVE_TABLE_(col_cnt)(                  void ) { return LIVE_TABLE_COLUMN_CNT; }
 
 FD_FN_PURE static inline ulong
 LIVE_TABLE_(active_sort_key_cnt)( LIVE_TABLE_(t) * join ) {
@@ -502,12 +509,20 @@ LIVE_TABLE_(private_query_sort_key)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key
 }
 
 static inline int LIVE_TABLE_(lt) ( LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T const * e0, LIVE_TABLE_ROW_T const * e1 ) {
-  ulong old_val = e0->LIVE_TABLE_SORT_KEYS;
-  ((LIVE_TABLE_ROW_T *)e0)->LIVE_TABLE_SORT_KEYS = (ulong)sort_key;
-  LIVE_TABLE_(private_active_sort_key_idx) = 0;
-  int lt = LIVE_TABLE_(private_row_lt)(e0, e1);
-  ((LIVE_TABLE_ROW_T *)e0)->LIVE_TABLE_SORT_KEYS = old_val;
-  return lt;
+  LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
+  for( ulong i=0UL; i<LIVE_TABLE_COLUMN_CNT; i++ ) {
+    if( FD_LIKELY( sort_key->dir[ i ]==0 ) ) continue;
+
+    void * col_a = ((uchar *)e0) + cols[ sort_key->col[ i ] ].off;
+    void * col_b = ((uchar *)e1) + cols[ sort_key->col[ i ] ].off;
+    int a_lt_b = cols[ sort_key->col[ i ] ].lt( col_a, col_b );
+    int b_lt_a = cols[ sort_key->col[ i ] ].lt( col_b, col_a );
+
+    if( FD_UNLIKELY( !(a_lt_b || b_lt_a) ) ) continue;
+    return fd_int_if( sort_key->dir[ i ]==1, a_lt_b, !a_lt_b );
+  }
+
+  return 0;
 }
 
 #endif /* LIVE_TABLE_IMPL_STYLE!=2 */
@@ -599,7 +614,7 @@ LIVE_TABLE_(leave)( LIVE_TABLE_(t) * join ) {
 
   LIVE_TABLE_(private_dlist_delete)( LIVE_TABLE_(private_dlist_leave)( join->dlist ) );
   for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
-    if( FD_LIKELY( join->treaps_is_active[ i ] ) ) continue;
+    if( FD_LIKELY( !join->treaps_is_active[ i ] ) ) continue;
     LIVE_TABLE_(private_active_sort_key_idx) = i;
     FD_TEST( LIVE_TABLE_(private_treap_delete)( LIVE_TABLE_(private_treap_leave)( join->treaps[ i ] ) ) );
   }
@@ -673,11 +688,11 @@ LIVE_TABLE_(sort_key_remove)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) con
   join->treaps[ sort_key_idx ] = NULL;
 }
 
-LIVE_TABLE_STATIC FD_FN_PURE LIVE_TABLE_(fwd_iter_t)
+LIVE_TABLE_STATIC LIVE_TABLE_(fwd_iter_t)
 LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const * sort_key, LIVE_TABLE_ROW_T * pool ) {
   ulong sort_key_idx = LIVE_TABLE_(private_query_sort_key)( join, sort_key );
   if( FD_UNLIKELY( sort_key_idx==ULONG_MAX ) ) {
-    for( ulong i=0UL; i<LIVE_TABLE_COLUMN_CNT; i++ ) {
+    for( ulong i=0UL; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
       if( FD_UNLIKELY( join->treaps_is_active[ i ] ) ) continue;
       sort_key_idx = i;
       LIVE_TABLE_(private_sort_key_create)( join, i, sort_key, pool );
@@ -693,6 +708,21 @@ LIVE_TABLE_(fwd_iter_init)( LIVE_TABLE_(t) * join, LIVE_TABLE_(sort_key_t) const
 }
 
 LIVE_TABLE_STATIC int
+LIVE_TABLE_(verify_sort_key)( LIVE_TABLE_(sort_key_t) const * key ) {
+  LIVE_TABLE_(sort_key_t) tmp_key[ 1 ];
+  fd_memcpy( tmp_key, key, sizeof(LIVE_TABLE_(sort_key_t)) );
+  fd_sort_up_ulong_insert( tmp_key->col, LIVE_TABLE_COLUMN_CNT );
+
+  for( ulong j=0UL; j<LIVE_TABLE_COLUMN_CNT; j++ ) {
+    if( FD_UNLIKELY( tmp_key->col[ j ]!=j || tmp_key->dir[ j ] > 1 || tmp_key->dir[ j ] < -1 ) ) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+LIVE_TABLE_STATIC int
 LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * join, LIVE_TABLE_ROW_T const * pool ) {
   ulong prev_sk_idx = LIVE_TABLE_(private_active_sort_key_idx);
   for( ulong i=0UL; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) {
@@ -703,15 +733,9 @@ LIVE_TABLE_(verify)( LIVE_TABLE_(t) const * join, LIVE_TABLE_ROW_T const * pool 
       FD_LOG_CRIT(("failed verify"));
     }
 
-    LIVE_TABLE_(sort_key_t) tmp_key[ 1 ];
-    fd_memcpy( tmp_key, &join->sort_keys[ i ], sizeof(LIVE_TABLE_(sort_key_t)) );
-    fd_sort_up_ulong_insert( tmp_key->col, LIVE_TABLE_COLUMN_CNT );
-
-    for( ulong j=0UL; j<LIVE_TABLE_COLUMN_CNT; j++ ) {
-      if( FD_UNLIKELY( tmp_key->col[ j ]!=j || tmp_key->dir[ j ] > 1 || tmp_key->dir[ j ] < -1 ) ) {
-        LIVE_TABLE_(private_sort_key_print)( &join->sort_keys[ i ] );
-        FD_LOG_CRIT(( "bad sort key %lu", i ));
-      }
+    if( FD_UNLIKELY( !LIVE_TABLE_(verify_sort_key)( &join->sort_keys[ i ] ) ) ) {
+      LIVE_TABLE_(private_sort_key_print)( &join->sort_keys[ i ] );
+      FD_LOG_CRIT(( "bad sort key %lu", i ));
     }
   }
   LIVE_TABLE_(private_active_sort_key_idx) = prev_sk_idx;

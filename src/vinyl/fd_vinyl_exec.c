@@ -595,7 +595,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
         /* Decode the pair */
 
         char * val    = (char *)fd_vinyl_data_obj_val( obj );
-        ulong  val_sz = (ulong)cphdr->info._val_sz;
+        ulong  val_sz = (ulong)cphdr->info.val_sz;
 
         FD_CRIT( val_sz <= FD_VINYL_VAL_MAX,                 "corruption detected" );
         FD_CRIT( fd_vinyl_data_obj_val_max( obj ) >= val_sz, "corruption detected" );
@@ -611,7 +611,7 @@ fd_vinyl_exec( fd_vinyl_t * vinyl ) {
           ulong        cval_sz = fd_vinyl_bstream_ctl_sz( cpair_ctl );
 
           ulong _val_sz = (ulong)LZ4_decompress_safe( cval, val, (int)cval_sz, (int)val_sz );
-          if( FD_UNLIKELY( _val_sz!=val_sz ) ) FD_LOG_CRIT(( "LZ4_decompres_safe failed" ));
+          if( FD_UNLIKELY( _val_sz!=val_sz ) ) FD_LOG_CRIT(( "LZ4_decompress_safe failed" ));
 
           fd_vinyl_data_free( data, cobj );
 

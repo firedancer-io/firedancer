@@ -59,6 +59,14 @@ fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
   return cnt_removed;
 }
 
+void
+fd_quic_pkt_meta_remove( fd_quic_pkt_meta_ds_t * ds,
+                         fd_quic_pkt_meta_t    * pool,
+                         fd_quic_pkt_meta_t    * pkt_meta ) {
+  fd_quic_pkt_meta_treap_ele_remove( ds, pkt_meta, pool );
+  fd_quic_pkt_meta_pool_ele_release( pool, pkt_meta );
+}
+
 fd_quic_pkt_meta_t *
 fd_quic_pkt_meta_min( fd_quic_pkt_meta_ds_t * ds,
                       fd_quic_pkt_meta_t    * pool ) {

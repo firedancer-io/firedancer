@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_util_net_headers_h
-#define HEADER_fd_src_util_net_headers_h
+#ifndef HEADER_fd_src_util_net_fd_net_headers_h
+#define HEADER_fd_src_util_net_fd_net_headers_h
 
 #include "fd_udp.h"
 #include "fd_eth.h"
@@ -109,4 +109,4 @@ fd_ip4_udp_hdr_strip( uchar const *         data,
   return 1;
 }
 
-#endif /* HEADER_fd_src_util_net_headers_h */
+#endif /* HEADER_fd_src_util_net_fd_net_headers_h */

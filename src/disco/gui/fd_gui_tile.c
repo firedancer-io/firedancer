@@ -24,22 +24,15 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
+#include "../../util/pod/fd_pod_format.h"
+
 #include "../../flamenco/gossip/fd_gossip_private.h"
-
-#include <sys/types.h>
-#include <unistd.h>
-#include <string.h>
-#include <poll.h>
-#include <stdio.h>
-
-#if FD_HAS_ZSTD
-#define ZSTD_STATIC_LINKING_ONLY
-#include <zstd.h>
-#endif
+#include "../../flamenco/runtime/fd_bank.h"
 
 #define IN_KIND_PLUGIN       ( 0UL)
 #define IN_KIND_POH_PACK     ( 1UL)
@@ -50,8 +43,12 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_NET_GOSSVF   ( 6UL) /* firedancer only */
 #define IN_KIND_GOSSIP_NET   ( 7UL) /* firedancer only */
 #define IN_KIND_GOSSIP_OUT   ( 8UL) /* firedancer only */
-#define IN_KIND_SNAPRD       ( 9UL) /* firedancer only */
+#define IN_KIND_SNAPCT       ( 9UL) /* firedancer only */
 #define IN_KIND_REPAIR_NET   (10UL) /* firedancer only */
+#define IN_KIND_TOWER_OUT    (11UL) /* firedancer only */
+#define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
+#define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
+#define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -81,8 +78,19 @@ struct fd_gui_in_ctx {
 
 typedef struct fd_gui_in_ctx fd_gui_in_ctx_t;
 
+struct fd_gui_out_ctx {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+};
+
+typedef struct fd_gui_out_ctx fd_gui_out_ctx_t;
+
 typedef struct {
   fd_topo_t * topo;
+  fd_banks_t * banks;
 
   int is_full_client;
   int snapshots_enabled;
@@ -123,6 +131,8 @@ typedef struct {
   ulong           in_kind[ 64UL ];
   ulong           in_bank_idx[ 64UL ];
   fd_gui_in_ctx_t in[ 64UL ];
+
+  fd_gui_out_ctx_t replay_out[ 1 ];
 } fd_gui_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -208,11 +218,6 @@ during_frag( fd_gui_ctx_t * ctx,
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
-  /* There are multiple frags types sent on this link, the currently the
-     only way to distinguish them is to check sz.  We dont actually read
-     from the dcache  */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) return;
-
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
     if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
@@ -228,16 +233,31 @@ during_frag( fd_gui_ctx_t * ctx,
       FD_TEST( staked_cnt<=MAX_STAKED_LEADERS );
       sz = fd_stake_weight_msg_sz( staked_cnt );
     }
+  }
 
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof( ctx->buf ) ) )
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_STAKE ) ) {
+    fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)src;
+    FD_TEST( sz==(ushort)(sizeof(fd_stake_weight_msg_t)+(leader_schedule->staked_cnt*sizeof(fd_vote_stake_weight_t))) );
+    sz = fd_stake_weight_msg_sz( leader_schedule->staked_cnt );
+  }
 
-    fd_memcpy( ctx->buf, src, sz );
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESI_OUT ) ) {
+    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) sz = sizeof(fd_lthash_value_t)+sizeof(fd_hash_t);
+  }
+
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY_OUT ) ) {
+    if( FD_LIKELY( sig!=REPLAY_SIG_SLOT_COMPLETED && sig!=REPLAY_SIG_BECAME_LEADER  ) ) return;
+  }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SHRED_OUT ) ) {
+    /* There are multiple frags types sent on this link, the currently the
+       only way to distinguish them is to check sz.  We dont actually read
+       from the dcache.  */
     return;
   }
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu] or too large (%lu)", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark, ctx->in[ in_idx ].mtu ));
 
   fd_memcpy( ctx->buf, src, sz );
 }
@@ -260,9 +280,115 @@ after_frag( fd_gui_ctx_t *      ctx,
       fd_gui_plugin_message( ctx->gui, sig, ctx->buf, fd_clock_now( ctx->clock ) );
       break;
     }
+    case IN_KIND_REPLAY_OUT: {
+      FD_TEST( ctx->is_full_client );
+      if( FD_UNLIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
+        fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)ctx->buf;
+
+        fd_bank_t * bank = fd_banks_bank_query( ctx->banks, replay->bank_idx );
+        FD_TEST( bank ); /* bank should already have positive refcnt */
+
+        fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
+        FD_TEST( fd_vote_states_cnt( vote_states )<FD_RUNTIME_MAX_VOTE_ACCOUNTS );
+
+        fd_vote_states_iter_t iter_[1];
+        ulong vote_count = 0UL;
+        for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+            !fd_vote_states_iter_done( iter );
+            fd_vote_states_iter_next( iter ) ) {
+          fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
+
+          ctx->peers->votes[ vote_count ].vote_account        = vote_state->vote_account;
+          ctx->peers->votes[ vote_count ].node_account        = vote_state->node_account;
+          ctx->peers->votes[ vote_count ].stake               = vote_state->stake;
+          ctx->peers->votes[ vote_count ].last_vote_slot      = vote_state->last_vote_slot;
+          ctx->peers->votes[ vote_count ].last_vote_timestamp = vote_state->last_vote_timestamp;
+          ctx->peers->votes[ vote_count ].commission          = vote_state->commission;
+          // ctx->peers->votes[ vote_count ].epoch               = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->epoch[ 0 ]   );
+          // ctx->peers->votes[ vote_count ].epoch_credits       = fd_ulong_if( !vote_state->credits_cnt, ULONG_MAX, vote_state->credits[ 0 ] );
+
+          vote_count++;
+        }
+        fd_bank_vote_states_end_locking_query( bank );
+
+        ulong max_compute_units = ULONG_MAX;
+        if( FD_LIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) ) ) ) {
+          fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
+          max_compute_units = cost_tracker->block_cost_limit;
+          fd_bank_cost_tracker_end_locking_query( bank );
+        }
+
+        fd_gui_slot_completed_t slot_completed;
+        if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {
+          fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, replay->parent_bank_idx );
+          FD_TEST( parent_bank );
+
+          slot_completed.total_txn_cnt          = (uint)(fd_bank_txn_count_get( bank )                 - fd_bank_txn_count_get( parent_bank ));
+          slot_completed.vote_txn_cnt           = slot_completed.total_txn_cnt - (uint)(fd_bank_nonvote_txn_count_get( bank ) - fd_bank_nonvote_txn_count_get( parent_bank ));
+          slot_completed.failed_txn_cnt         = (uint)(fd_bank_failed_txn_count_get( bank )          - fd_bank_failed_txn_count_get( parent_bank ));
+          slot_completed.nonvote_failed_txn_cnt = (uint)(fd_bank_nonvote_failed_txn_count_get( bank )  - fd_bank_nonvote_failed_txn_count_get( parent_bank ));
+
+          fd_stem_publish( stem, ctx->replay_out->idx, replay->parent_bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        } else {
+          slot_completed.total_txn_cnt          = (uint)fd_bank_txn_count_get( bank );
+          slot_completed.vote_txn_cnt           = slot_completed.total_txn_cnt - (uint)fd_bank_nonvote_txn_count_get( bank );
+          slot_completed.failed_txn_cnt         = (uint)fd_bank_failed_txn_count_get( bank );
+          slot_completed.nonvote_failed_txn_cnt = (uint)fd_bank_nonvote_failed_txn_count_get( bank );
+        }
+
+        slot_completed.slot                   = fd_bank_slot_get( bank );
+        slot_completed.completed_time         = replay->completion_time_nanos;
+        slot_completed.parent_slot            = fd_bank_parent_slot_get( bank );
+        slot_completed.max_compute_units      = (uint)max_compute_units;
+        slot_completed.transaction_fee        = fd_bank_execution_fees_get( bank );
+        slot_completed.priority_fee           = fd_bank_priority_fees_get( bank );
+        slot_completed.tips                   = 0UL;
+        slot_completed.compute_units          = (uint)fd_bank_total_compute_units_used_get( bank );
+        slot_completed.shred_cnt              = (uint)fd_bank_shred_cnt_get( bank );
+
+        /* release shared ownership of bank and parent_bank */
+        fd_stem_publish( stem, ctx->replay_out->idx, replay->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+
+        /* update vote info */
+        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ) );
+
+        /* update slot data */
+        fd_gui_handle_replay_update( ctx->gui, &slot_completed, fd_clock_now( ctx->clock ) );
+
+      } else if( FD_UNLIKELY( sig==REPLAY_SIG_BECAME_LEADER ) ) {
+        fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
+        fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+      } else {
+        return;
+      }
+      break;
+    }
+    case IN_KIND_REPLAY_STAKE: {
+      FD_TEST( ctx->is_full_client );
+
+      fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)ctx->buf;
+      fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_GENESI_OUT: {
+      FD_TEST( ctx->is_full_client );
+
+      if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
+        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf+sizeof(fd_lthash_value_t) );
+      } else {
+        fd_gui_handle_genesis_hash( ctx->gui, ctx->buf );
+      }
+      break;
+    }
+    case IN_KIND_TOWER_OUT: {
+      FD_TEST( ctx->is_full_client );
+      fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)ctx->buf;
+      fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
+      break;
+    }
     case IN_KIND_SHRED_OUT: {
       FD_TEST( ctx->is_full_client );
-      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) ) ) {
+      if( FD_LIKELY( sz!=0 && sz!=FD_SHRED_DATA_HEADER_SZ + FD_SHRED_MERKLE_ROOT_SZ * 2 + sizeof(int) ) ) {
         ulong slot = fd_disco_shred_out_shred_sig_slot( sig );
         int is_turbine = fd_disco_shred_out_shred_sig_is_turbine( sig );
         ulong shred_idx  = fd_disco_shred_out_shred_sig_shred_idx( sig );
@@ -273,9 +399,9 @@ after_frag( fd_gui_ctx_t *      ctx,
       }
       break;
     }
-    case IN_KIND_SNAPRD: {
+    case IN_KIND_SNAPCT: {
       FD_TEST( ctx->is_full_client );
-      fd_gui_handle_snapshot_update( ctx->gui, (fd_snaprd_update_t *)ctx->buf );
+      fd_gui_handle_snapshot_update( ctx->gui, (fd_snapct_update_t *)ctx->buf );
       break;
     }
     case IN_KIND_REPAIR_NET: {
@@ -289,8 +415,8 @@ after_frag( fd_gui_ctx_t *      ctx,
           case FD_REPAIR_KIND_PING:
           case FD_REPAIR_KIND_PONG:
           case FD_REPAIR_KIND_ORPHAN: break;
-          case FD_REPAIR_KIND_SHRED: fd_gui_handle_repair_slot( ctx->gui, msg->shred.slot, tsorig_ns ); break;
-          case FD_REPAIR_KIND_HIGHEST_SHRED: fd_gui_handle_repair_slot( ctx->gui, msg->highest_shred.slot, tsorig_ns ); break;
+          case FD_REPAIR_KIND_SHRED: { if( FD_UNLIKELY( msg->shred.slot==0 ) ) { break; } fd_gui_handle_repair_slot( ctx->gui, msg->shred.slot, tsorig_ns ); break; }
+          case FD_REPAIR_KIND_HIGHEST_SHRED: { if( FD_UNLIKELY( msg->highest_shred.slot==0 ) ) { break; } fd_gui_handle_repair_slot( ctx->gui, msg->highest_shred.slot, tsorig_ns ); break; }
           default: FD_LOG_ERR(( "unexpected repair msg kind %u", msg->kind ));
         }
       }
@@ -329,15 +455,14 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_POH_PACK: {
+      FD_TEST( !ctx->is_full_client );
       FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
       fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-      fd_gui_became_leader( ctx->gui, now, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+      fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_POH: {
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-      fd_gui_unbecame_leader( ctx->gui, now, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
       break;
     }
     case IN_KIND_PACK_BANK: {
@@ -479,7 +604,7 @@ gui_ws_open( ulong  conn_id,
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
   fd_gui_ws_open( ctx->gui, conn_id );
-  fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
+  if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
 }
 
 static void
@@ -488,7 +613,7 @@ gui_ws_close( ulong  conn_id,
               void * _ctx ) {
   (void) reason;
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
-  fd_gui_peers_ws_close( ctx->peers, conn_id );
+  if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_close( ctx->peers, conn_id );
 }
 
 static void
@@ -499,7 +624,7 @@ gui_ws_message( ulong         ws_conn_id,
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
   int reason = fd_gui_ws_message( ctx->gui, ws_conn_id, data, data_len );
-  if( reason==FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD ) reason = fd_gui_peers_ws_message( ctx->peers, ws_conn_id, data, data_len );
+  if( FD_UNLIKELY( ctx->is_full_client && reason==FD_HTTP_SERVER_CONNECTION_CLOSE_UNKNOWN_METHOD ) ) reason = fd_gui_peers_ws_message( ctx->peers, ws_conn_id, data, data_len );
 
   if( FD_UNLIKELY( reason<0 ) ) fd_http_server_ws_close( ctx->gui_server, ws_conn_id, reason );
 }
@@ -570,7 +695,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   fd_topo_tile_t * gui_tile = &topo->tiles[ fd_topo_find_tile( topo, "gui", 0UL ) ];
-  STATIC_FILES = fd_ptr_if( gui_tile->gui.frontend_release_channel==0UL, (fd_http_static_file_t *)STATIC_FILES_STABLE, (fd_http_static_file_t *)STATIC_FILES_ALPHA );
+  switch( gui_tile->gui.frontend_release_channel ) {
+    case 0: STATIC_FILES = STATIC_FILES_STABLE; break;
+    case 1: STATIC_FILES = STATIC_FILES_ALPHA;  break;
+    case 2: STATIC_FILES = STATIC_FILES_DEV;    break;
+    default: __builtin_unreachable();
+  }
 
   fd_http_server_params_t http_param = derive_http_params( tile );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
@@ -581,7 +711,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),        fd_alloc_footprint()                                      );
 
   ctx->is_full_client = ULONG_MAX!=fd_topo_find_tile( topo, "repair", 0UL );
-  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snaprd", 0UL );
+  ctx->snapshots_enabled = ULONG_MAX!=fd_topo_find_tile( topo, "snapct", 0UL );
 
   fd_clock_default_init( ctx->clock, ctx->clock_mem );
   ctx->recal_next = fd_clock_recal_next( ctx->clock );
@@ -609,21 +739,32 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->next_poll_deadline = fd_tickcount();
 
+  ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
+
+  if( FD_UNLIKELY( ctx->is_full_client ) ) {
+    FD_TEST( banks_obj_id!=ULONG_MAX );
+    ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) ); FD_TEST( ctx->banks );
+  }
+
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "plugin_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"  ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
-    else if( FD_LIKELY( !strcmp( link->name, "pack_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"   ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "shred_out"  ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;  /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf" ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "gossip_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT; /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "snaprd_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPRD;     /* full client only */
-    else if( FD_LIKELY( !strcmp( link->name, "repair_net" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET; /* full client only */
+    if( FD_LIKELY( !strcmp( link->name, "plugin_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_bank"    ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "shred_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_SHRED_OUT;    /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "net_gossvf"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET_GOSSVF;   /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_NET;   /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "gossip_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GOSSIP_OUT;   /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snapct_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPCT;       /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "repair_net"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPAIR_NET;   /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "tower_out"    ) ) ) ctx->in_kind[ i ] = IN_KIND_TOWER_OUT;    /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;   /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
@@ -635,6 +776,13 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mtu    = link->mtu;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+  }
+
+  if( FD_UNLIKELY( ctx->is_full_client ) ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "gui_replay", 0UL );
+    FD_TEST( idx!=ULONG_MAX );
+    fd_gui_out_ctx_t * replay_out = ctx->replay_out;
+    replay_out->idx    = idx;
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

@@ -1,7 +1,8 @@
-#ifndef HEADER_fd_src_app_shared_commands_monitor_h
-#define HEADER_fd_src_app_shared_commands_monitor_h
+#ifndef HEADER_fd_src_app_shared_commands_monitor_monitor_h
+#define HEADER_fd_src_app_shared_commands_monitor_monitor_h
 
 #include "../../fd_config.h"
+#include "../../fd_action.h"
 
 FD_PROTOTYPES_BEGIN
 
@@ -13,4 +14,4 @@ FD_PROTOTYPES_END
 
 extern action_t fd_action_monitor;
 
-#endif /* HEADER_fd_src_app_shared_commands_monitor_h */
+#endif /* HEADER_fd_src_app_shared_commands_monitor_monitor_h */

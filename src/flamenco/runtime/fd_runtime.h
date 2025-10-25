@@ -11,10 +11,8 @@
 #include "../features/fd_features.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "info/fd_runtime_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../../disco/pack/fd_microblock.h"
-#include "info/fd_microblock_info.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../vm/fd_vm_base.h"
 
@@ -82,7 +80,8 @@ FD_STATIC_ASSERT( (offsetof(fd_account_rec_t, data)%FD_ACCOUNT_REC_DATA_ALIGN )=
 #define MAX_PERMITTED_DATA_INCREASE (10240UL) // 10KB
 #define FD_BPF_ALIGN_OF_U128        (8UL    )
 FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_align );
-#define FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP (16UL)
+/* https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/ebpf.rs#L37-L38 */
+#define FD_RUNTIME_EBPF_HOST_ALIGN (16UL)
 
 /******** These macros bound out memory footprint ********/
 
@@ -125,16 +124,16 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                                                    sizeof(ulong)         /* instr data len */                                          + \
                                                                                          /* No instr data  */                                            \
                                                                    sizeof(fd_pubkey_t)), /* program id     */                                            \
-                                                                   FD_RUNTIME_INPUT_REGION_ALLOC_ALIGN_UP ) + FD_BPF_ALIGN_OF_U128)
+                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ) + FD_BPF_ALIGN_OF_U128)
 
 #define FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                           \
                                              ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
                                               ((FD_TXN_MTU-FD_TXN_MIN_SERIALIZED_SZ-account_lock_limit)*8UL)) /* We can have roughly this much duplicate offsets */
 
-/* Bincode valloc footprint over the execution of a single transaction.
+/* Bincode alloc footprint over the execution of a single transaction.
    As well as other footprint specific to each native program type.
 
-   N.B. We know that bincode valloc footprint is bounded, because
+   N.B. We know that bincode alloc footprint is bounded, because
    whenever we alloc something, we advance our pointer into the binary
    buffer, so eventually we are gonna reach the end of the buffer.
    This buffer is usually backed by and ultimately bounded in size by
@@ -197,53 +196,6 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0) + FD_SOLFUZZ_MISC_FOOTPRINT
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 
-/* Helpers for runtime public frame management. */
-
-/* Helpers for runtime spad frame management. */
-struct fd_runtime_spad_verify_handle_private {
-  fd_spad_t *         spad;
-  fd_exec_txn_ctx_t * txn_ctx;
-};
-typedef struct fd_runtime_spad_verify_handle_private fd_runtime_spad_verify_handle_private_t;
-
-static inline void
-fd_runtime_spad_private_frame_end( fd_runtime_spad_verify_handle_private_t * _spad_handle ) {
-  /* fd_spad_verify() returns 0 if everything looks good, and non-zero
-     otherwise.
-
-     Since the fast spad alloc API doesn't check for or indicate an OOM
-     situation and is going to happily permit an OOB alloc, we need
-     some way of detecting that. Moreover, we would also like to detect
-     unbalanced frame push/pop or usage of more frames than allowed.
-     While surrounding the spad with guard regions will help detect the
-     former, it won't necessarily catch the latter.
-
-     On compliant transactions, fd_spad_verify() isn't all that
-     expensive.  Nonetheless, We invoke fd_spad_verify() only at the
-     peak of memory usage, and not gratuitously everywhere. One peak
-     would be right before we do the most deeply nested spad frame pop.
-     However, we do pops through compiler-inserted cleanup functions
-     that take only a single pointer, so we define this helper function
-     to access the needed context info.  The end result is that we do
-     super fast spad calls everywhere in the runtime, and every now and
-     then we invoke verify to check things. */
-  /* -1UL because spad pop is called after instr stack pop. */
-  if( FD_UNLIKELY( _spad_handle->txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH-1UL && fd_spad_verify( _spad_handle->txn_ctx->spad ) ) ) {
-    uchar const * txn_signature = (uchar const *)fd_txn_get_signatures( TXN( &_spad_handle->txn_ctx->txn ), _spad_handle->txn_ctx->txn.payload );
-    FD_BASE58_ENCODE_64_BYTES( txn_signature, sig );
-    FD_LOG_ERR(( "spad corrupted or overflown on transaction %s", sig ));
-  }
-  fd_spad_pop( _spad_handle->spad );
-}
-
-#define FD_RUNTIME_TXN_SPAD_FRAME_BEGIN(_spad, _txn_ctx) do {                                                        \
-  fd_runtime_spad_verify_handle_private_t _spad_handle __attribute__((cleanup(fd_runtime_spad_private_frame_end))) = \
-    (fd_runtime_spad_verify_handle_private_t) { .spad = _spad, .txn_ctx = _txn_ctx };                                \
-  fd_spad_push( _spad_handle.spad );                                                                                 \
-  do
-
-#define FD_RUNTIME_TXN_SPAD_FRAME_END while(0); } while(0)
-
 FD_PROTOTYPES_BEGIN
 
 /* Runtime Helpers ************************************************************/
@@ -258,8 +210,8 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_bank_t * bank,
-                           fd_spad_t * runtime_spad );
+fd_runtime_update_leaders( fd_bank_t *          bank,
+                           fd_runtime_stack_t * runtime_stack );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
@@ -285,39 +237,6 @@ fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
 #define FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT (6UL)
 #define FD_BLOCK_ERR_TRAILING_ENTRY          (7UL)
 #define FD_BLOCK_ERR_DUPLICATE_BLOCK         (8UL)
-
-/*
-   https://github.com/anza-xyz/agave/blob/v2.1.0/ledger/src/blockstore_processor.rs#L1096
-   This function assumes a full block.
-   This needs to be called after epoch processing to get the up to date
-   hashes_per_tick.
-
-   Provide scratch memory >= the max size of a batch to use. This is because we can only
-   assemble shreds by batch, so we iterate and assemble shreds by batch in this function
-   without needing the caller to do so.
- */
-// FD_FN_UNUSED ulong /* FIXME */
-// fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
-//                                ulong             slot,
-//                                uchar *           block_data_mem,
-//                                ulong             block_data_sz,
-//                                ulong             tick_height,
-//                                ulong             max_tick_height,
-//                                ulong             hashes_per_tick );
-
-/* The following microblock-level functions are exposed and non-static due to also being used for fd_replay.
-   The block-level equivalent functions, on the other hand, are mostly static as they are only used
-   for offline replay */
-
-/* extra fine-grained streaming tick verification */
-// FD_FN_UNUSED int /* FIXME */
-// fd_runtime_microblock_verify_ticks( fd_blockstore_t *           blockstore,
-//                                     ulong                       slot,
-//                                     fd_microblock_hdr_t const * hdr,
-//                                     bool               slot_complete,
-//                                     ulong              tick_height,
-//                                     ulong              max_tick_height,
-//                                     ulong              hashes_per_tick );
 
 /*
    fd_runtime_microblock_verify_read_write_conflicts verifies that a
@@ -435,14 +354,14 @@ fd_runtime_load_txn_address_lookup_tables(
 
 int
 fd_runtime_block_execute_prepare( fd_bank_t *               bank,
-                                  fd_funk_t *               funk,
+                                  fd_accdb_user_t  *        accdb,
                                   fd_funk_txn_xid_t const * xid,
-                                  fd_capture_ctx_t *        capture_ctx,
-                                  fd_spad_t *               runtime_spad );
+                                  fd_runtime_stack_t *      runtime_stack,
+                                  fd_capture_ctx_t *        capture_ctx );
 
 void
 fd_runtime_block_execute_finalize( fd_bank_t *               bank,
-                                   fd_funk_t *               funk,
+                                   fd_accdb_user_t  *        accdb,
                                    fd_funk_txn_xid_t const * xid,
                                    fd_capture_ctx_t *        capture_ctx,
                                    int                       silent );
@@ -461,12 +380,11 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
-                                    fd_spad_t *         exec_spad,
-                                    fd_capture_ctx_t *  capture_ctx,
-                                    uchar               do_sigverify );
+                                    fd_capture_ctx_t *  capture_ctx );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,
+                         fd_progcache_t *          progcache,
                          fd_txncache_t *           txncache,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
@@ -475,51 +393,32 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 
 /* Epoch Boundary *************************************************************/
 
-/*
-   This is roughly Agave's process_new_epoch() which gets called from
+/* This is roughly Agave's process_new_epoch() which gets called from
    new_from_parent() for every slot.
    https://github.com/anza-xyz/agave/blob/v1.18.26/runtime/src/bank.rs#L1483
-   This needs to be called after funk_txn_prepare() because the accounts
-   that we modify when processing a new epoch need to be hashed into
-   the bank hash.
- */
+   Account changes done by this function are counted towards the first
+   slot of the new epoch (NOT the last slot of the old epoch). */
 void
 fd_runtime_block_pre_execute_process_new_epoch( fd_banks_t *              banks,
                                                 fd_bank_t *               bank,
-                                                fd_funk_t *               funk,
+                                                fd_accdb_user_t *         accdb,
                                                 fd_funk_txn_xid_t const * xid,
                                                 fd_capture_ctx_t *        capture_ctx,
-                                                fd_spad_t *               runtime_spad,
+                                                fd_runtime_stack_t *      runtime_stack,
                                                 int *                     is_epoch_boundary );
-
-/* `fd_runtime_update_program_cache()` is responsible for updating the
-   program cache with any programs referenced in the current
-   transaction. See fd_program_cache.h for more details.
-
-   Note that ALUTs must be resolved because programs referenced in ALUTs
-   can be invoked via CPI.
-
-   TODO: We need to remove the ALUT resolution from this function
-   because it is redundant (ALUTs get resolved again in the exec tile). */
-void
-fd_runtime_update_program_cache( fd_bank_t *               bank,
-                                 fd_funk_t *               funk,
-                                 fd_funk_txn_xid_t const * xid,
-                                 fd_txn_p_t const *        txn_p,
-                                 fd_spad_t *               runtime_spad );
 
 /* Offline Replay *************************************************************/
 
 void
 fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_bank_t *                        bank,
-                         fd_funk_t *                        funk,
+                         fd_accdb_user_t *                  accdb,
                          fd_funk_txn_xid_t const *          xid,
                          fd_capture_ctx_t *                 capture_ctx,
                          fd_hash_t const *                  genesis_hash,
                          fd_lthash_value_t const *          genesis_lthash,
                          fd_genesis_solana_global_t const * genesis_block,
-                         fd_spad_t *                        runtime_spad );
+                         fd_runtime_stack_t *               runtime_stack );
 
 
 /* Returns whether the specified epoch should use the new vote account

@@ -618,7 +618,6 @@ fd_vinyl_recover( fd_tpool_t * tpool, ulong t0, ulong t1, int level,
 
 t1 = t0 + 1UL; /* Turn off parallel recovery while it is untested */
 
-  ulong seq;
   if( FD_UNLIKELY( (t1-t0)<=1UL                     ) ||
       FD_UNLIKELY( fd_vinyl_recover_test( vinyl->io ) ) ) {
     fd_vinyl_data_reset( tpool,t0,t1, level, vinyl->data );
@@ -669,11 +668,13 @@ t1 = t0 + 1UL; /* Turn off parallel recovery while it is untested */
      seq_present can be stored in pair_max.  We retry with a serial
      recovery if parallel recovery fails. */
 
-  ulong rtmp[2];
+  ulong seq = fd_vinyl_io_seq_present( vinyl->io );
+
+  ulong rtmp[4];
   ulong lock[2];
 
   lock[0] = 0UL;
-  lock[1] = fd_vinyl_io_seq_present( vinyl->io );
+  lock[1] = seq;
 
   FD_MAP_REDUCE( fd_vinyl_recover_part_task, tpool,t0,t1, 0L,(long)(t1-t0), rtmp, vinyl, lock );
 

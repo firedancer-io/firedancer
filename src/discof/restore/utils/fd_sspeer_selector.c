@@ -68,7 +68,8 @@ struct fd_sspeer_selector_private {
   score_treap_t *       score_treap;
   score_treap_t *       shadow_score_treap;
   ulong *               peer_idx_list;
-  fd_ssinfo_t           cluster_ssinfo;
+  fd_sscluster_slot_t   cluster_slot;
+  int                   incremental_snapshot_fetch;
 
   ulong                 magic; /* ==FD_SSPEER_SELECTOR_MAGIC */
 };
@@ -94,6 +95,7 @@ fd_sspeer_selector_footprint( ulong max_peers ) {
 void *
 fd_sspeer_selector_new( void * shmem,
                         ulong  max_peers,
+                        int    incremental_snapshot_fetch,
                         ulong  seed ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
@@ -124,8 +126,9 @@ fd_sspeer_selector_new( void * shmem,
   selector->shadow_score_treap = score_treap_join( score_treap_new( _shadow_score_treap, max_peers ) );
   selector->peer_idx_list      = (ulong *)_peer_idx_list;
 
-  selector->cluster_ssinfo.full.slot         = 0UL;
-  selector->cluster_ssinfo.incremental.slot  = 0UL;
+  selector->cluster_slot.full          = 0UL;
+  selector->cluster_slot.incremental   = 0UL;
+  selector->incremental_snapshot_fetch = incremental_snapshot_fetch;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( selector->magic ) = FD_SSPEER_SELECTOR_MAGIC;
@@ -225,10 +228,10 @@ fd_sspeer_selector_score( fd_sspeer_selector_t * selector,
   if( FD_LIKELY( ssinfo && ssinfo->full.slot!=ULONG_MAX ) ) {
     if( FD_UNLIKELY( ssinfo->incremental.slot==ULONG_MAX ) ) {
       slot         = ssinfo->full.slot;
-      slots_behind = selector->cluster_ssinfo.full.slot>slot ? selector->cluster_ssinfo.full.slot - slot : 0UL;
+      slots_behind = selector->cluster_slot.full>slot ? selector->cluster_slot.full - slot : 0UL;
     } else {
       slot         = ssinfo->incremental.slot;
-      slots_behind = selector->cluster_ssinfo.incremental.slot>slot ? selector->cluster_ssinfo.incremental.slot - slot : 0UL;
+      slots_behind = selector->cluster_slot.incremental>slot ? selector->cluster_slot.incremental - slot : 0UL;
     }
   }
 
@@ -333,11 +336,24 @@ fd_sspeer_selector_best( fd_sspeer_selector_t * selector,
 
 void
 fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
-                                         fd_ssinfo_t const *    ssinfo ) {
-  if( FD_UNLIKELY( ssinfo->full.slot<=selector->cluster_ssinfo.full.slot &&
-                   ssinfo->incremental.slot<=selector->cluster_ssinfo.incremental.slot ) ) return;
+                                         ulong                  full_slot,
+                                         ulong                  incremental_slot ) {
+  if( full_slot==ULONG_MAX && incremental_slot==ULONG_MAX ) return;
 
-  selector->cluster_ssinfo = *ssinfo;
+  FD_TEST( full_slot!=ULONG_MAX );
+  if( FD_LIKELY( selector->incremental_snapshot_fetch ) ) {
+    /* incremental slot is less than or equal to cluster incremental slot */
+    if( FD_UNLIKELY( incremental_slot!=ULONG_MAX && selector->cluster_slot.incremental!=ULONG_MAX && incremental_slot<=selector->cluster_slot.incremental ) ) return;
+    /* incremental slot is less than or equal to cluster full slot when cluster incremental slot does not exist */
+    else if( FD_UNLIKELY( incremental_slot!=ULONG_MAX && selector->cluster_slot.incremental==ULONG_MAX && incremental_slot<=selector->cluster_slot.full ) )   return;
+    /* full slot is less than cluster full slot when incremental slot does not exist */
+    else if( FD_UNLIKELY( incremental_slot==ULONG_MAX && full_slot<=selector->cluster_slot.full ) )                                                           return;
+  } else {
+    if( FD_UNLIKELY( full_slot<=selector->cluster_slot.full ) ) return;
+  }
+
+  selector->cluster_slot.full        = full_slot;
+  selector->cluster_slot.incremental = incremental_slot;
 
   if( FD_UNLIKELY( score_treap_ele_cnt( selector->score_treap )==0UL ) ) return;
 
@@ -375,7 +391,7 @@ fd_sspeer_selector_process_cluster_slot( fd_sspeer_selector_t * selector,
 #endif
 }
 
-fd_ssinfo_t
+fd_sscluster_slot_t
 fd_sspeer_selector_cluster_slot( fd_sspeer_selector_t * selector ) {
-  return selector->cluster_ssinfo;
+  return selector->cluster_slot;
 }

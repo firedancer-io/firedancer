@@ -118,7 +118,7 @@ main( int     argc,
     memset( &cache.phdr.key,                             (int)((r>> 8) & 255UL), FD_VINYL_KEY_FOOTPRINT );
     memset( &cache.phdr.info,                            (int)((r>>16) & 255UL), FD_VINYL_INFO_SZ       );
     memset( cache.buf + sizeof(fd_vinyl_bstream_phdr_t), (int)((r>>24) & 255UL), val_sz                 );
-    cache.phdr.info._val_sz = (uint)val_sz;
+    cache.phdr.info.val_sz = (uint)val_sz;
 
     fd_vinyl_bstream_pair_hash( s, cache.block );
 
@@ -146,11 +146,11 @@ main( int     argc,
     cache.phdr.ctl       = phdr_ctl;
 
     /* Bad val_sz (and bad hash but val_sz will hit first) */
-    cache.phdr.info._val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
+    cache.phdr.info.val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
     end->ftr.hash_trail    = hash_trail;
     end->ftr.hash_blocks   = hash_blocks;
     FD_TEST( fd_vinyl_bstream_pair_test( s, 0UL, cache.block, pair_sz ) );
-    cache.phdr.info._val_sz = (uint)val_sz;
+    cache.phdr.info.val_sz = (uint)val_sz;
 
     /* Truncated */
     end->ftr.hash_trail    = hash_trail;
@@ -192,11 +192,11 @@ main( int     argc,
     cache.phdr.ctl       = phdr_ctl;
 
     /* Bad val_sz (and bad hash but val_sz will hit first) */
-    cache.phdr.info._val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
+    cache.phdr.info.val_sz = (uint)(FD_VINYL_VAL_MAX+1UL);
     end->ftr.hash_trail    = hash_trail;
     end->ftr.hash_blocks   = hash_blocks;
     FD_TEST( fd_vinyl_bstream_pair_test_fast( s, 0UL, cache.block, end ) );
-    cache.phdr.info._val_sz = (uint)val_sz;
+    cache.phdr.info.val_sz = (uint)val_sz;
 
     /* Bad trailing hash (fast will detect as leading blocks not matched to trailing blocks) */
     end->ftr.hash_trail  = hash_trail ^ 1UL;

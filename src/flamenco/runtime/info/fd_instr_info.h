@@ -1,9 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
-#include "../../fd_flamenco_base.h"
-#include "../../types/fd_types.h"
 #include "../fd_txn_account.h"
+#include "../fd_executor_err.h"
+#include "../../../ballet/txn/fd_txn.h"
 
 /* While the maximum number of instruction accounts allowed for instruction
    execution is 256, it is entirely possible to have a transaction with more
@@ -109,23 +109,38 @@ fd_instr_info_init_from_txn_instr( fd_instr_info_t *      instr,
                                    fd_exec_txn_ctx_t *    txn_ctx,
                                    fd_txn_instr_t const * txn_instr );
 
+/* https://github.com/anza-xyz/solana-sdk/blob/589e6237f203c2719c300dc044f4e00f48e66a8f/message/src/versions/v0/loaded.rs#L152-L157 */
 FD_FN_PURE static inline int
 fd_instr_acc_is_writable_idx( fd_instr_info_t const * instr,
                               ushort                  idx ) {
   if( FD_UNLIKELY( idx>=instr->acct_cnt ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    return 0;
   }
 
   return !!(instr->accounts[idx].is_writable);
 }
 
+/* fd_instr_acc_is_signer_idx returns:
+    - 1 if account is signer
+    - 0 (with *out_opt_err==0) if account is not signer
+  If an error occurs during query, returns 0 and writes the
+  error code to *out_opt_err. Possible values for out_opt_err:
+    - FD_EXECUTOR_INSTR_ERR_MISSING_ACC occurs when the instr account
+      index provided is invalid (out of bounds).
+    - 0 if the query was successful. Check the return value to see
+      if the account is a signer.
+
+  https://github.com/firedancer-io/agave/blob/9e6bb8209d012e819e55ad90949dec17bc150fca/transaction-context/src/lib.rs#L782-L791    */
 FD_FN_PURE static inline int
 fd_instr_acc_is_signer_idx( fd_instr_info_t const * instr,
-                            ushort                  idx ) {
+                            ushort                  idx,
+                            int *                   out_opt_err ) {
   if( FD_UNLIKELY( idx>=instr->acct_cnt ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    if( out_opt_err ) *out_opt_err = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    return 0;
   }
 
+  if( out_opt_err ) *out_opt_err = 0;
   return !!(instr->accounts[idx].is_signer);
 }
 
