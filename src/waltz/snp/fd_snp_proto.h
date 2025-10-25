@@ -1,5 +1,5 @@
-#ifndef HEADER_snp_proto_h
-#define HEADER_snp_proto_h
+#ifndef HEADER_fd_src_waltz_snp_fd_snp_proto_h
+#define HEADER_fd_src_waltz_snp_fd_snp_proto_h
 
 /* Protocol definitions, in common between fd_snp.h and fd_snp_v1.h. */
 
@@ -89,7 +89,7 @@ FD_STATIC_ASSERT( sizeof(fd_snp_pkt_t)==2048UL, fd_snp_pkt_t );
 struct FD_SNP_ALIGNED fd_snp_conn {
   ulong next; // fd_pool
 
-  ulong session_id; // can be removed if needed
+  ulong session_id;
   ulong peer_addr;
   ulong peer_session_id;
 
@@ -214,4 +214,4 @@ fd_snp_log_conn( fd_snp_conn_t * conn ) {
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_snp_proto_h */
+#endif /* HEADER_fd_src_waltz_snp_fd_snp_proto_h */

@@ -93,4 +93,4 @@ fd_snp_app_send( fd_snp_app_t const * ctx,          /* snp_app context */
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_waltz_snp_fd_snp_app_h */

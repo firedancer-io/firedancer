@@ -180,6 +180,4 @@ FD_PROTOTYPES_END
 #define FD_SNP_LOG_CONN( conn ) ""
 #endif
 
-
-
-#endif
+#endif /* HEADER_fd_src_waltz_snp_fd_snp_common_h */

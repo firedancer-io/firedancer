@@ -247,6 +247,17 @@ fd_snp_fini( fd_snp_t* snp ) {
 
 #define FD_SNP_MAX_SESSION_ID_RETRIES (10)
 
+/* fd_snp_conn_zeroize zeroes out a fd_snp_conn_t struct.
+   Because fd_snp_conn_t implements a fd_pool, we need to save
+   the field next before zeroing out, and restore it after.
+   We use fd_memset_explicit() to make sure key material is erased. */
+void
+fd_snp_conn_zeroize( fd_snp_conn_t * conn ) {
+  ulong next = conn->next;
+  fd_memset_explicit( conn, 0, sizeof(fd_snp_conn_t) );
+  conn->next = next;
+}
+
 /* fd_snp_conn_create a new fd_snp_conn_t struct from the snp pool,
    and inserts in the snp map by peer_addr and by session_id. */
 static inline fd_snp_conn_t *
@@ -303,6 +314,7 @@ fd_snp_conn_create( fd_snp_t * snp,
   FD_SNP_LOG_DEBUG_N( "fd_snp_conn_create is_server=%u %s", is_server, FD_SNP_LOG_CONN( conn ) );
 
   /* init conn */
+  fd_snp_conn_zeroize( conn );
   conn->peer_addr = peer_addr;
   conn->session_id = session_id;
   conn->state = FD_SNP_TYPE_INVALID;
@@ -371,7 +383,9 @@ fd_snp_conn_delete( fd_snp_t * snp,
     snp->metrics_enf->conn_acc_dropped     += 1UL;
   }
 
-  fd_snp_pkt_pool_ele_release( snp->last_pkt_pool, conn->last_pkt );
+  if( snp->last_pkt_pool ) {
+    fd_snp_pkt_pool_ele_release( snp->last_pkt_pool, conn->last_pkt );
+  }
 
   fd_snp_conn_map_t sentinel = { 0 };
   fd_snp_conn_map_t * entry0 = fd_snp_conn_map_query( snp->conn_map, conn->peer_addr, &sentinel );
@@ -383,7 +397,7 @@ fd_snp_conn_delete( fd_snp_t * snp,
     fd_snp_conn_map_remove( snp->conn_map, entry1 );
   }
 
-  conn->session_id = 0UL;
+  fd_snp_conn_zeroize( conn );
   fd_snp_conn_pool_ele_release( snp->conn_pool, conn );
   return 0;
 }

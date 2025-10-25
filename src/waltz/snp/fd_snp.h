@@ -292,4 +292,4 @@ fd_snp_dest_meta_map_key_from_conn( fd_snp_conn_t * conn ) {
 
 FD_PROTOTYPES_END
 
-#endif
+#endif /* HEADER_fd_src_waltz_snp_fd_snp_h */

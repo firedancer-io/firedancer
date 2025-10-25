@@ -1,5 +1,5 @@
-#ifndef HEADER_snp_s0_client_h
-#define HEADER_snp_s0_client_h
+#ifndef HEADER_fd_src_waltz_snp_fd_snp_v1_h
+#define HEADER_fd_src_waltz_snp_fd_snp_v1_h
 
 #include "fd_snp_proto.h"
 #include "../../ballet/ed25519/fd_x25519.h"
@@ -272,4 +272,4 @@ fd_snp_v1_crypto_enc_state_validate( fd_snp_config_t const * server,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_snp_s0_client_h */
+#endif /* HEADER_fd_src_waltz_snp_fd_snp_v1_h */
