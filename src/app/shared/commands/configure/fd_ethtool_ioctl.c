@@ -23,10 +23,11 @@ run_ioctl( fd_ethtool_ioctl_t * ioc,
            int                  log_notsupp ) {
   ioc->ifr.ifr_data = data;
   if( FD_UNLIKELY( ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr ) ) ) {
+    int error = errno;
     if( (!!log) & ((errno!=EOPNOTSUPP) | (!!log_notsupp)) )
       FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,%s) failed (%i-%s)",
                        ioc->ifr.ifr_name, cmd, errno, fd_io_strerror( errno ) ));
-    return errno;
+    return error;
   }
   return 0;
 }
@@ -152,9 +153,19 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
   /* Get current channel count */
   struct ethtool_channels ech = { .cmd = ETHTOOL_GCHANNELS };
   TRY_RUN_IOCTL( ioc, "ETHTOOL_GCHANNELS", &ech );
-  uint const num_channels = ech.combined_count ? ech.combined_count : ech.rx_count;
-  if( FD_UNLIKELY( start_idx >= num_channels ))
-    return EINVAL;
+  uint const channels_cnt = ech.combined_count ? ech.combined_count : ech.rx_count;
+
+  /* Get current RXFH queue count
+
+     Note: One would expect that ethtool can always configure the RXFH
+     indirection table to target all channels / queues supported by the
+     device.  This is not the case.  Some drivers limit the max queue
+     index in the table to less than the current channel count.  For
+     example, see ixgbe_rss_indir_tbl_max(). */
+  struct ethtool_rxnfc nfc = { .cmd = ETHTOOL_GRXRINGS };
+  TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXRINGS", &nfc );
+  uint const queue_cnt = (uint)nfc.data;
+  if( FD_UNLIKELY( start_idx>=queue_cnt || queue_cnt>channels_cnt ) ) return EINVAL;
 
   union {
     struct ethtool_rxfh_indir m;
@@ -169,19 +180,35 @@ fd_ethtool_ioctl_rxfh_set_suffix( fd_ethtool_ioctl_t * ioc,
   if( FD_UNLIKELY( (table_ele_cnt == 0) | (table_ele_cnt > FD_ETHTOOL_MAX_RXFH_TABLE_CNT) ) )
     return EINVAL;
 
-  /* Set table to round robin over all channels from [start_idx, num_channels) */
+  /* Set table to round robin over all channels from [start_idx, queue_cnt) */
   FD_LOG_NOTICE(( "RUN: `ethtool --set-rxfh-indir %s start %u equal %u`",
-                  ioc->ifr.ifr_name, start_idx, num_channels - start_idx ));
+                  ioc->ifr.ifr_name, start_idx, queue_cnt - start_idx ));
   rxfh.m.cmd = ETHTOOL_SRXFHINDIR;
   rxfh.m.size = table_ele_cnt;
-  uint i = start_idx;
-  for(uint j=0u; j<table_ele_cnt; j++) {
-    rxfh.m.ring_index[ j ] = i++;
-    if( i >= num_channels )
-      i = start_idx;
+  for( uint j=0u, q=start_idx; j<table_ele_cnt; j++ ) {
+    rxfh.m.ring_index[ j ] = q++;
+    if( FD_UNLIKELY( q>=queue_cnt ) ) q = start_idx;
   }
   TRY_RUN_IOCTL( ioc, "ETHTOOL_SRXFHINDIR", &rxfh );
 
+  return 0;
+}
+
+int
+fd_ethtool_ioctl_rxfh_get_queue_cnt( fd_ethtool_ioctl_t * ioc,
+                                     uint *               queue_cnt )
+{
+  struct ethtool_rxnfc nfc = { .cmd = ETHTOOL_GRXRINGS };
+  int ret = run_ioctl( ioc, "ETHTOOL_GRXRINGS", &nfc, 1, 0 );
+  if( FD_UNLIKELY( ret!=0 ) ) {
+    if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
+      *queue_cnt = 1;
+      return 0;
+    }
+    return ret;
+  }
+  *queue_cnt = (uint)nfc.data;
+  FD_TEST( *queue_cnt>0U );
   return 0;
 }
 
@@ -302,9 +329,10 @@ fd_ethtool_ioctl_feature_set( fd_ethtool_ioctl_t * ioc,
   ioc->ifr.ifr_data = &esf;
   ret = ioctl( ioc->fd, SIOCETHTOOL, &ioc->ifr );
   if( FD_UNLIKELY( ret < 0 ) ) {
+    int error = errno;
     FD_LOG_WARNING(( "error configuring network device (%s), ioctl(SIOCETHTOOL,ETHTOOL_SFEATURES) failed (%i-%s)",
                      ioc->ifr.ifr_name, errno, fd_io_strerror( errno ) ));
-    return errno;
+    return error;
   }
   if( FD_UNLIKELY( ret==ETHTOOL_F_UNSUPPORTED ) ) {
     FD_LOG_WARNING(( "error configuring network device (%s), unable to change fixed feature (%s)",
@@ -467,12 +495,12 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
   uint const rule_cnt = efc.m.rule_cnt;
   if( FD_UNLIKELY( rule_cnt > MAX_NTUPLE_RULES ) )
     return EINVAL;
-  if( rule_cnt == 0 ) {
-    *valid = (num_dports == 0);
+  if( rule_cnt!=num_dports ) {
+    *valid = 0;
     return 0;
   }
-  if( num_dports == 0 ) {
-    *valid = 0;
+  if( rule_cnt==0U ) {
+    *valid = 1;
     return 0;
   }
 
@@ -490,7 +518,8 @@ fd_ethtool_ioctl_ntuple_validate_udp_dport( fd_ethtool_ioctl_t * ioc,
       .fs = { .location = efc.m.rule_locs[ i ] }
     };
     TRY_RUN_IOCTL( ioc, "ETHTOOL_GRXCLSRULE", &get );
-    if( FD_UNLIKELY( ((get.fs.flow_type != UDP_V4_FLOW) | (get.fs.ring_cookie != queue_idx)) ||
+    uint flow_type = get.fs.flow_type & ~(uint)FLOW_RSS & ~(uint)FLOW_EXT & ~(uint)FLOW_MAC_EXT;
+    if( FD_UNLIKELY( ((flow_type != UDP_V4_FLOW) | (get.fs.ring_cookie != queue_idx)) ||
                      0!=memcmp( &get.fs.m_u, &EXPECTED_MASK, sizeof(EXPECTED_MASK) ) ||
                      0!=memcmp( &get.fs.m_ext, &EXPECTED_EXT_MASK, sizeof(EXPECTED_EXT_MASK)) ) ) {
       *valid = 0;

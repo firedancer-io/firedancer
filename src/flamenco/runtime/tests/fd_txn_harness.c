@@ -4,16 +4,13 @@
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
 #include "../fd_txn_account.h"
-#include "../fd_cost_tracker.h"
 #include "../program/fd_builtin_programs.h"
 #include "../sysvar/fd_sysvar_clock.h"
-#include "../sysvar/fd_sysvar_epoch_rewards.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../sysvar/fd_sysvar_stake_history.h"
-#include "../sysvar/fd_sysvar_last_restart_slot.h"
 #include "../../../disco/pack/fd_pack.h"
 #include <assert.h>
 
@@ -39,7 +36,8 @@ static void
 fd_runtime_fuzz_xid_cancel( fd_solfuzz_runner_t * runner,
                             fd_funk_txn_xid_t *   xid ) {
   if( FD_UNLIKELY( !xid ) ) return; // This shouldn't be false either
-  fd_funk_txn_cancel( runner->funk, xid );
+  fd_accdb_cancel( runner->accdb_admin, xid );
+  fd_progcache_clear( runner->progcache_admin );
 }
 
 /* Creates transaction execution context for a single test case. Returns a
@@ -47,15 +45,17 @@ fd_runtime_fuzz_xid_cancel( fd_solfuzz_runner_t * runner,
 static fd_txn_p_t *
 fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
                                 fd_exec_test_txn_context_t const * test_ctx ) {
-  fd_funk_t * funk = runner->funk;
+  fd_accdb_user_t * accdb = runner->accdb;
+  fd_funk_t *       funk  = runner->accdb->funk;
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
 
   /* Set up the funk transaction */
-  fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
+  fd_funk_txn_xid_t xid = { .ul = { slot, 0UL } };
   fd_funk_txn_xid_t parent_xid; fd_funk_txn_xid_set_root( &parent_xid );
-  fd_funk_txn_prepare( funk, &parent_xid, &xid );
+  fd_accdb_attach_child        ( runner->accdb_admin,     &parent_xid, &xid );
+  fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, &xid );
 
   /* Set up slot context */
   fd_banks_clear_bank( runner->banks, runner->bank );
@@ -73,7 +73,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_bank_parent_slot_set( runner->bank, fd_bank_slot_get( runner->bank ) - 1UL );
 
   /* Initialize builtin accounts */
-  fd_builtin_programs_init( runner->bank, runner->funk, &xid, NULL );
+  fd_builtin_programs_init( runner->bank, accdb, &xid, NULL );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -81,7 +81,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    FD_TXN_ACCOUNT_DECL( acc );
+    fd_txn_account_t acc[1];
     fd_runtime_fuzz_load_account( acc, funk, &xid, &test_ctx->account_shared_data[i], 1 );
   }
 
@@ -112,10 +112,12 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( rent );
   fd_bank_rent_set( runner->bank, *rent );
 
-  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, runner->spad );
+  uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
+  fd_slot_hashes_global_t * slot_hashes = fd_sysvar_slot_hashes_read( funk, &xid, slot_hashes_mem );
   FD_TEST( slot_hashes );
 
-  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, runner->spad );
+  fd_stake_history_t stake_history_[1];
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( funk, &xid, stake_history_ );
   FD_TEST( stake_history );
 
   fd_sol_sysvar_clock_t clock_[1];
@@ -123,7 +125,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( clock );
 
   /* Setup vote states dummy account */
-  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( runner->bank ), FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION, 999UL ) );
+  fd_vote_states_t * vote_states = fd_vote_states_join( fd_vote_states_new( fd_bank_vote_states_locking_modify( runner->bank ), 64UL, 999UL ) );
   if( FD_UNLIKELY( !vote_states ) ) {
     fd_bank_vote_states_end_locking_modify( runner->bank );
     return NULL;
@@ -147,8 +149,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_bank_vote_states_prev_prev_end_locking_modify( runner->bank );
 
   /* Epoch schedule and rent get set from the epoch bank */
-  fd_sysvar_epoch_schedule_init( runner->bank, runner->funk, &xid, NULL );
-  fd_sysvar_rent_init( runner->bank, runner->funk, &xid, NULL );
+  fd_sysvar_epoch_schedule_init( runner->bank, runner->accdb, &xid, NULL );
+  fd_sysvar_rent_init( runner->bank, runner->accdb, &xid, NULL );
 
   /* Blockhash queue is given in txn message. We need to populate the following two fields:
      - block_hash_queue
@@ -189,21 +191,18 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
       }
       // Recent block hashes cap is 150 (actually 151), while blockhash queue capacity is 300 (actually 301)
       fd_bank_poh_set( runner->bank, blockhash );
-      fd_sysvar_recent_hashes_update( runner->bank, runner->funk, &xid, NULL );
+      fd_sysvar_recent_hashes_update( runner->bank, runner->accdb, &xid, NULL );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
     num_blockhashes = 1;
     *fd_bank_genesis_hash_modify( runner->bank ) = (fd_hash_t){0};
     fd_bank_poh_set( runner->bank, (fd_hash_t){0} );
-    fd_sysvar_recent_hashes_update( runner->bank, runner->funk, &xid, NULL );
+    fd_sysvar_recent_hashes_update( runner->bank, runner->accdb, &xid, NULL );
   }
 
   /* Restore sysvars from account context */
-  fd_sysvar_cache_restore_fuzz( runner->bank, runner->funk, &xid );
-
-  /* Refresh the program cache */
-  fd_runtime_fuzz_refresh_program_cache( runner->bank, runner->funk, &xid, test_ctx->account_shared_data, test_ctx->account_shared_data_count, runner->spad );
+  fd_sysvar_cache_restore_fuzz( runner->bank, runner->accdb->funk, &xid );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
@@ -340,10 +339,17 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
                               int *                     exec_res ) {
 
   /* Setup the spad for account allocation */
-  uchar *             txn_ctx_mem        = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  uchar *             txn_ctx_mem        = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
   txn_ctx->flags                         = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  txn_ctx->funk[0]                       = *runner->funk;
+  if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
+    FD_LOG_CRIT(( "fd_funk_join failed" ));
+  }
+  uchar * pc_scratch = fd_spad_alloc_check( runner->spad, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  txn_ctx->progcache = fd_progcache_join( txn_ctx->_progcache, runner->progcache->funk->shmem, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
+  if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
+    FD_LOG_CRIT(( "fd_progcache_join failed" ));
+  }
   txn_ctx->bank_hash_cmp                 = NULL;
   txn_ctx->fuzz_config.enable_vm_tracing = runner->enable_vm_tracing;
   txn_ctx->xid[0]                        = *xid;
@@ -353,9 +359,7 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
       0UL,
       txn_ctx,
       txn,
-      runner->spad,
-      NULL,
-      0 );
+      NULL );
 
   return txn_ctx;
 }
@@ -374,7 +378,7 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     /* Setup the transaction context */
     fd_txn_p_t * txn = fd_runtime_fuzz_txn_ctx_create( runner, input );
 
-    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), fd_bank_slot_get( runner->bank ) } };
+    fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
     if( FD_UNLIKELY( txn==NULL ) ) {
       fd_runtime_fuzz_xid_cancel( runner, &xid );
       return 0;

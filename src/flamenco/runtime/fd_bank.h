@@ -23,8 +23,7 @@ FD_PROTOTYPES_BEGIN
       the caller is free to use the API wrong if there are no locks.
       Maybe just expose a different API if there are no locks?
    3. Rename locks to suffix with _query_locking and _query_locking_end
-   4. Replace memset with custom constructors for new banks.
-   5. Don't templatize out more complex types.
+   4. Don't templatize out more complex types.
   */
 
 /* A fd_bank_t struct is the representation of the bank state on Solana
@@ -86,7 +85,12 @@ FD_PROTOTYPES_BEGIN
   to handle block equivocation: if there are two different blocks for
   the same slot, we need to be able to differentiate and handle both
   blocks against different banks.  As mentioned above, the bank index is
-  just an index into the bank pool.
+  just an index into the bank pool.  The caller is responsible for
+  establishing a mapping from the bank index (which is managed by
+  fd_banks_t) and runtime state (e.g. slot number).
+
+  Most of the fields a fd_bank_t are templatized and can support CoW
+  sematics or locking semantics.
 
   Each field in fd_bank_t that is not CoW is laid out contiguously in
   the fd_bank_t struct as simple uchar buffers. This allows for a simple
@@ -98,15 +102,21 @@ FD_PROTOTYPES_BEGIN
   is modified, then the dirty flag is set, and an element of the pool
   is acquired and the data is copied over from the parent pool idx.
 
+  Not all fields in the bank are templatized: stake_delegations and
+  the cost_tracker.
+
   Currently, there is a delta-based field, fd_stake_delegations_t.
   Each bank stores a delta-based representation in the form of an
-  aligned uchar buffer. The full state is stored in fd_banks_t also as
+  aligned uchar buffer.  The full state is stored in fd_banks_t also as
   a uchar buffer which corresponds to the full state of stake
-  delegations for the current root. fd_banks_t also reserves another
+  delegations for the current root.  fd_banks_t also reserves another
   buffer which can store the full state of the stake delegations.
 
-  fd_bank_t also holds all of the rw-locks for the fields that have
-  rw-locks.
+  The cost tracker is allocated from a pool.  The lifetime of a cost
+  tracker element starts when the bank is linked to a parent with a
+  call to fd_banks_clone_from_parent() which makes the bank replayable.
+  The lifetime of a cost tracker element ends when the bank is marked
+  dead or when the bank is frozen.
 
   So, when a bank is cloned from a parent, the non CoW fields are copied
   over and the CoW fields just copy over a pool index. The CoW behavior
@@ -122,11 +132,34 @@ FD_PROTOTYPES_BEGIN
      by the max number of banks.  See fd_banks_footprint() for more
      details.
 
-  NOTE: An important invariant is that if a field is CoW, then it must
-  have a rw-lock.
+  There are also some important states that a bank can be in:
+  - Initialized: This bank has been created and linked to a parent bank
+    index with a call to fd_banks_new_bank().  However, it is not yet
+    replayable.
+  - Replayable: This bank has inherited state from its parent and now
+    transactions can be executed against it.  For a bank to become
+    replayable, it must've been initialized beforehand.
+  - Dead: This bank has been marked as dead.  This means that the block
+    that this bank is associated with is invalid.  A bank can be marked
+    dead before, during, or after it has finished replaying.  A bank
+    can still be executing transactions while it is marked dead, but it
+    shouldn't be dispatched any more work.
+  - Frozen: This bank has been marked as frozen and no other tasks
+    should be dispatched to it.  Any bank-specific resources will be
+    released (e.g. cost tracker element).  A bank can be marked frozen
+    in two cases:
+      1. The bank has finished executing all of its transactions
+      2. The bank has been marked dead and there are no outstanding
+         references to the bank.
+    A bank can only be copied from a parent bank
+    (fd_banks_clone_from_parent) if the parent bank has been frozen.
+    The program will crash if this invariant is violated.
 
-  NOTE: Another important invariant is that if a field is limiting its
-  fork width, then it must be CoW.
+  NOTE: An important invariant is that if a templatized field is CoW,
+  then it must have a rw-lock.
+
+  NOTE: Another important invariant is that if a templatized field is
+  limiting its fork width, then it must be CoW.
 
   The usage pattern is as follows:
 
@@ -139,8 +172,8 @@ FD_PROTOTYPES_BEGIN
    To clone bank from parent banks:
    fd_bank_t * bank_clone = fd_banks_clone_from_parent( banks, bank_index, parent_bank_index );
 
-   To publish a bank (aka update the root bank):
-   fd_bank_t * bank_publish = fd_banks_advance_root( banks, bank_index );
+   To advance the root bank
+   fd_bank_t * root_bank = fd_banks_advance_root( banks, bank_index );
 
    To query some arbitrary bank:
    fd_bank_t * bank_query = fd_banks_bank_query( banks, bank_index );
@@ -167,13 +200,7 @@ FD_PROTOTYPES_BEGIN
 
   fd_struct_t * field = fd_bank_field_locking_modify( bank );
   ... use field ...
-  fd_bank_field_locking_end_locking_modify( bank );
-
-  IMPORTANT SAFETY NOTE: fd_banks_t assumes that there is only one bank
-  being executed against at a time. However, it is safe to call
-  fd_banks_advance_root while threads are executing against a bank.
-
-  */
+  fd_bank_field_locking_end_locking_modify( bank ); */
 
 /* Define additional fields to the bank struct here. If trying to add
    a CoW field to the bank, define a pool for it as done below. */
@@ -265,6 +292,12 @@ FD_PROTOTYPES_BEGIN
   HAS_COW_##cow(name, footprint, align)
   FD_BANKS_ITER(X)
 
+struct fd_bank_cost_tracker {
+  ulong next;
+  uchar data[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
+};
+typedef struct fd_bank_cost_tracker fd_bank_cost_tracker_t;
+
 #undef X
 #undef HAS_COW_0
 #undef HAS_COW_1
@@ -289,6 +322,10 @@ FD_PROTOTYPES_BEGIN
 #define POOL_T    fd_bank_vote_states_prev_prev_t
 #include "../../util/tmpl/fd_pool.c"
 
+#define POOL_NAME fd_bank_cost_tracker_pool
+#define POOL_T    fd_bank_cost_tracker_t
+#include "../../util/tmpl/fd_pool.c"
+
 #define FD_BANK_FLAGS_INIT              (0x00000001UL) /* Initialized.  Not yet replayable. */
 #define FD_BANK_FLAGS_REPLAYABLE        (0x00000002UL) /* Replayable. */
 #define FD_BANK_FLAGS_FROZEN            (0x00000004UL) /* Frozen.  We finished replaying or because it was a snapshot/genesis loaded bank. */
@@ -311,21 +348,21 @@ FD_PROTOTYPES_BEGIN
 */
 
 struct fd_bank {
-  #define FD_BANK_HEADER_SIZE (offsetof(fd_bank_t, refcnt) + sizeof(ulong))
 
   /* Fields used for internal pool and bank management */
-  ulong             idx;         /* current fork idx of the bank (synchronized with the pool index) */
-  ulong             next;        /* reserved for internal use by pool and fd_banks_advance_root */
-  ulong             parent_idx;  /* index of the parent in the node pool */
-  ulong             child_idx;   /* index of the left-child in the node pool */
-  ulong             sibling_idx; /* index of the right-sibling in the node pool */
-  ulong             flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
+  ulong idx;         /* current fork idx of the bank (synchronized with the pool index) */
+  ulong next;        /* reserved for internal use by pool and fd_banks_advance_root */
+  ulong parent_idx;  /* index of the parent in the node pool */
+  ulong child_idx;   /* index of the left-child in the node pool */
+  ulong sibling_idx; /* index of the right-sibling in the node pool */
+  ulong flags;       /* (r) keeps track of the state of the bank, as well as some configurations */
 
   /* Define non-templatized types here. */
 
   /* Cost tracker. */
-  uchar       cost_tracker[FD_COST_TRACKER_FOOTPRINT] __attribute__((aligned(FD_COST_TRACKER_ALIGN)));
-  int         cost_tracker_dirty;
+
+  ulong       cost_tracker_pool_idx;
+  ulong       cost_tracker_pool_offset;
   fd_rwlock_t cost_tracker_lock;
 
   /* Stake delegations delta. */
@@ -334,14 +371,22 @@ struct fd_bank {
   int         stake_delegations_delta_dirty;
   fd_rwlock_t stake_delegations_delta_lock;
 
-  /* NOTE: Make sure that refcnt is the last field in the bank header. */
-  ulong             refcnt;      /* (r) reference count on the bank, see replay for more details */
+  ulong refcnt; /* (r) reference count on the bank, see replay for more details */
 
   fd_txncache_fork_id_t txncache_fork_id; /* fork id used by the txn cache */
+
+  /* Timestamps written and read only by replay */
+
+  long first_fec_set_received_nanos;
+  long preparation_begin_nanos;
+  long first_transaction_scheduled_nanos;
+  long last_transaction_finished_nanos;
 
   /* First, layout all non-CoW fields contiguously. This is done to
      allow for cloning the bank state with a simple memcpy. Each
      non-CoW field is just represented as a byte array. */
+
+  struct {
 
   #define HAS_COW_1(type, name, footprint, align)
 
@@ -355,15 +400,18 @@ struct fd_bank {
   #undef HAS_COW_0
   #undef HAS_COW_1
 
+  } non_cow;
+
   /* Now, layout all information needed for CoW fields. These are only
      copied when explicitly requested by the caller. The field's data
      is located at teh pool idx in the pool. If the dirty flag has been
      set, then the element has been copied over for this bank. */
 
   #define HAS_COW_1(type, name, footprint, align) \
-    int                  name##_dirty;            \
-    ulong                name##_pool_idx;         \
-    ulong                name##_pool_offset;
+    int   name##_dirty;                           \
+    ulong name##_pool_idx;                        \
+    ulong name##_pool_offset;                     \
+    ulong name##_pool_lock_offset;
 
   #define HAS_COW_0(type, name, footprint, align)
 
@@ -403,6 +451,14 @@ fd_bank_set_##name##_pool( fd_bank_t * bank, fd_bank_##name##_t * bank_pool ) { 
 static inline fd_bank_##name##_t *                                               \
 fd_bank_get_##name##_pool( fd_bank_t * bank ) {                                  \
   return fd_bank_##name##_pool_join( (uchar *)bank + bank->name##_pool_offset ); \
+}                                                                                \
+static inline void                                                               \
+fd_bank_set_##name##_pool_lock( fd_bank_t * bank, fd_rwlock_t * rwlock ) {       \
+  bank->name##_pool_lock_offset = (ulong)rwlock - (ulong)bank;                   \
+}                                                                                \
+static inline fd_rwlock_t *                                                      \
+fd_bank_get_##name##_pool_lock( fd_bank_t * bank ) {                             \
+  return (fd_rwlock_t *)( (uchar *)bank + bank->name##_pool_lock_offset );       \
 }
 #define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
 
@@ -412,6 +468,22 @@ FD_BANKS_ITER(X)
 #undef X
 #undef HAS_COW_0
 #undef HAS_COW_1
+
+/* Do the same setup for the cost tracker pool. */
+
+static inline void
+fd_bank_set_cost_tracker_pool( fd_bank_t * bank, fd_bank_cost_tracker_t * cost_tracker_pool ) {
+  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
+  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
+    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
+  }
+  bank->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)bank;
+}
+
+static inline fd_bank_cost_tracker_t *
+fd_bank_get_cost_tracker_pool( fd_bank_t * bank ) {
+  return fd_bank_cost_tracker_pool_join( (uchar *)bank + bank->cost_tracker_pool_offset );
+}
 
 /* fd_bank_t is the alignment for the bank state. */
 
@@ -458,6 +530,8 @@ struct fd_banks {
 
   ulong       pool_offset;     /* offset of pool from banks */
 
+  ulong       cost_tracker_pool_offset; /* offset of cost tracker pool from banks */
+
   /* stake_delegations_root will be the full state of stake delegations
      for the current root. It can get updated in two ways:
      1. On boot the snapshot will be directly read into the rooted
@@ -479,8 +553,9 @@ struct fd_banks {
 
   /* Layout all CoW pools. */
 
-  #define HAS_COW_1(type, name, footprint, align) \
-    ulong           name##_pool_offset; /* offset of pool from banks */
+  #define HAS_COW_1(type, name, footprint, align)                   \
+    ulong       name##_pool_offset; /* offset of pool from banks */ \
+    fd_rwlock_t name##_pool_lock;   /* lock for the pool */
 
   #define HAS_COW_0(type, name, footprint, align) /* Do nothing for these. */
 
@@ -518,16 +593,12 @@ FD_BANKS_ITER(X)
 
 static inline fd_cost_tracker_t *
 fd_bank_cost_tracker_locking_modify( fd_bank_t * bank ) {
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
+  FD_TEST( cost_tracker_mem );
   fd_rwlock_write( &bank->cost_tracker_lock );
-  if( FD_UNLIKELY( !bank->cost_tracker_dirty ) ) {
-    bank->cost_tracker_dirty = 1;
-    /* TODO: Use a real seed. */
-    uchar * mem = fd_cost_tracker_new( bank->cost_tracker, fd_bank_features_query( bank ), fd_bank_slot_get( bank ), 999UL );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_CRIT(( "Failed to allocate memory for cost tracker" ));
-    }
-  }
-  return fd_cost_tracker_join( bank->cost_tracker );
+  return fd_type_pun( cost_tracker_mem );
 }
 
 static inline void
@@ -535,10 +606,14 @@ fd_bank_cost_tracker_end_locking_modify( fd_bank_t * bank ) {
   fd_rwlock_unwrite( &bank->cost_tracker_lock );
 }
 
-static inline fd_cost_tracker_t *
+static inline fd_cost_tracker_t const *
 fd_bank_cost_tracker_locking_query( fd_bank_t * bank ) {
+  fd_bank_cost_tracker_t * cost_tracker_pool = fd_bank_get_cost_tracker_pool( bank );
+  FD_TEST( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( cost_tracker_pool ) );
+  uchar * cost_tracker_mem = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, bank->cost_tracker_pool_idx )->data;
+  FD_TEST( cost_tracker_mem );
   fd_rwlock_read( &bank->cost_tracker_lock );
-  return bank->cost_tracker_dirty ? fd_cost_tracker_join( bank->cost_tracker ) : NULL;
+  return fd_type_pun_const( cost_tracker_mem );
 }
 
 static inline void
@@ -653,6 +728,20 @@ FD_BANKS_ITER(X)
 #undef HAS_COW_0
 #undef HAS_COW_1
 
+static inline fd_bank_cost_tracker_t *
+fd_banks_get_cost_tracker_pool( fd_banks_t * banks ) {
+  return fd_bank_cost_tracker_pool_join( (uchar *)banks + banks->cost_tracker_pool_offset );
+}
+
+static inline void
+fd_banks_set_cost_tracker_pool( fd_banks_t *             banks,
+                                fd_bank_cost_tracker_t * cost_tracker_pool ) {
+  void * cost_tracker_pool_mem = fd_bank_cost_tracker_pool_leave( cost_tracker_pool );
+  if( FD_UNLIKELY( !cost_tracker_pool_mem ) ) {
+    FD_LOG_CRIT(( "Failed to leave cost tracker pool" ));
+  }
+  banks->cost_tracker_pool_offset = (ulong)cost_tracker_pool_mem - (ulong)banks;
+}
 
 /* fd_banks_root() and fd_banks_root_const() returns a non-const and
    const pointer to the root bank respectively. */
@@ -778,7 +867,8 @@ fd_banks_advance_root( fd_banks_t * banks,
                        ulong        bank_idx );
 
 /* fd_bank_clear_bank() clears the contents of a bank. This should ONLY
-   be used with banks that have no children.
+   be used with banks that have no children and should only be used in
+   testing and fuzzing.
 
    This function will memset all non-CoW fields to 0.
 
@@ -823,12 +913,15 @@ void
 fd_banks_mark_bank_dead( fd_banks_t * banks,
                          fd_bank_t *  bank );
 
-/* fd_banks_is_bank_dead returns 1 if the bank is dead, 0 otherwise. */
+/* fd_banks_mark_bank_frozen marks the current bank as frozen.  This
+   should be done when the bank is no longer being updated: it should be
+   done at the end of a slot.  This also releases the memory for the
+   cost tracker which only has to be persisted from the start of a slot
+   to the end. */
 
-static inline int
-fd_banks_is_bank_dead( fd_bank_t * bank ) {
-  return bank->flags & FD_BANK_FLAGS_DEAD;
-}
+void
+fd_banks_mark_bank_frozen( fd_banks_t * banks,
+                           fd_bank_t *  bank );
 
 /* fd_banks_new_bank reserves a bank index for a new bank.  New bank
    indicies should always be available.  After this function is called,
@@ -839,7 +932,8 @@ fd_banks_is_bank_dead( fd_bank_t * bank ) {
 
 fd_bank_t *
 fd_banks_new_bank( fd_banks_t * banks,
-                   ulong        parent_bank_idx );
+                   ulong        parent_bank_idx,
+                   long         now );
 
 
 /* fd_banks_is_full returns 1 if the banks are full, 0 otherwise. */

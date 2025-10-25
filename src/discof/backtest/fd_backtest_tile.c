@@ -1,5 +1,6 @@
 #include "fd_backtest_rocksdb.h"
 #include "../../disco/store/fd_store.h"
+#include "../../disco/metrics/fd_metrics.h"
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
 #include "../../discof/tower/fd_tower_tile.h"
@@ -60,6 +61,8 @@ struct fd_backt_tile {
   ulong reading_shred_cnt;
 
   ulong idle_cnt;
+
+  long prior_completion_timestamp;
 
   long  replay_time;
   long  publish_time;
@@ -208,6 +211,7 @@ after_credit( fd_backt_tile_t *   ctx,
   ulong fec_complete_sz = FD_SHRED_DATA_HEADER_SZ + sizeof(fd_hash_t) + sizeof(fd_hash_t) + sizeof(int);
 
   fd_stem_publish( stem, ctx->shred_out->idx, ULONG_MAX, ctx->shred_out->chunk, fec_complete_sz, 0, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
+
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, fec_complete_sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
 
   if( FD_UNLIKELY( ctx->reading_slot>ctx->end_slot && !ctx->shreds_cnt ) ) ctx->publish_time += fd_log_wallclock();
@@ -247,6 +251,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       ctx->initialized = 1;
       ctx->reading_slot = manifest->slot;
       ctx->start_slot  = manifest->slot;
+      FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
       fd_backtest_rocksdb_init( ctx->rocksdb, manifest->slot );
       break;
     }
@@ -256,6 +261,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
         ctx->initialized = 1;
         ctx->reading_slot = 0UL;
         ctx->start_slot  = 0UL;
+        FD_MGAUGE_SET( BACKT, START_SLOT, ctx->start_slot );
         ctx->replay_time = -fd_log_wallclock();
         ctx->publish_time = -fd_log_wallclock();
         fd_backtest_rocksdb_init( ctx->rocksdb, 0UL );
@@ -269,8 +275,14 @@ returnable_frag( fd_backt_tile_t *   ctx,
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
       if( FD_UNLIKELY( msg->slot==ctx->start_slot ) ) return 0;
 
+      long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
+
       if( FD_LIKELY( !memcmp( msg->bank_hash.uc, ctx->bank_hashes[ ctx->bank_hash_idx ], 32UL ) ) ) {
-        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s", msg->slot, FD_BASE58_ENC_32_ALLOCA( msg->bank_hash.uc ) ));
+        FD_LOG_NOTICE(( "Bank hash matches! slot=%lu, hash=%s (switch %.2f ms, begin %.2f ms, exec %.2f ms, finish %.2f ms)", msg->slot, FD_BASE58_ENC_32_ALLOCA( msg->bank_hash.uc ),
+          (double)(msg->preparation_begin_nanos-prior_completion_timestamp)/1e6,
+          (double)(msg->first_transaction_scheduled_nanos-msg->preparation_begin_nanos)/1e6,
+          (double)(msg->last_transaction_finished_nanos-msg->first_transaction_scheduled_nanos)/1e6,
+          (double)(msg->completion_time_nanos-msg->last_transaction_finished_nanos)/1e6 ));
       } else {
         /* Do not change this log as it is used in offline replay */
         FD_LOG_ERR(( "Bank hash mismatch! slot=%lu expected=%s, got=%s", msg->slot, FD_BASE58_ENC_32_ALLOCA( ctx->bank_hashes[ ctx->bank_hash_idx ] ), FD_BASE58_ENC_32_ALLOCA( msg->bank_hash.uc ) ));
@@ -278,6 +290,8 @@ returnable_frag( fd_backt_tile_t *   ctx,
       ctx->bank_hash_idx = (ctx->bank_hash_idx+1UL)%(sizeof(ctx->bank_hashes)/sizeof(ctx->bank_hashes[0]));
       ctx->bank_hash_cnt--;
       ctx->slot_cnt++;
+
+      ctx->prior_completion_timestamp = msg->completion_time_nanos;
 
       if( FD_UNLIKELY( msg->slot>=ctx->end_slot ) ) {
         ctx->replay_time    += fd_log_wallclock();
@@ -338,10 +352,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->snapshot_done = 0;
   ctx->initialized = 0;
-  ctx->genesis = fd_topo_find_tile( topo, "snaprd", 0UL )==ULONG_MAX;
+  ctx->genesis = fd_topo_find_tile( topo, "snapct", 0UL )==ULONG_MAX;
   ctx->idle_cnt = 0UL;
 
   ctx->end_slot = tile->archiver.end_slot;
+  FD_MGAUGE_SET( BACKT, FINAL_SLOT, ctx->end_slot );
   ctx->slot_cnt = 0UL;
 
   ctx->shreds_idx = 0UL;
@@ -353,6 +368,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->reading_slot_cnt = 0UL;
   ctx->reading_shred_cnt = 0UL;
   ctx->reading_shred_idx = 0UL;
+
+  ctx->prior_completion_timestamp = 0L;
 
   ctx->chained_prev_slot = ULONG_MAX;
   ctx->prev_slot = ULONG_MAX;
@@ -373,9 +390,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
     ctx->in[ i ].mtu    = link->mtu;
 
-    if(      !strcmp( link->name, "replay_out" ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
-    else if( !strcmp( link->name, "snap_out"   ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( !strcmp( link->name, "genesi_out" ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
+    if(      !strcmp( link->name, "replay_out"   ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    else if( !strcmp( link->name, "snapin_manif" ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( !strcmp( link->name, "genesi_out"   ) ) ctx->in_kind[ i ] = IN_KIND_GENESI;
     else FD_LOG_ERR(( "backtest tile has unexpected input link %s", link->name ));
   }
 

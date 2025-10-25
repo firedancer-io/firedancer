@@ -86,7 +86,7 @@ print_catchup_stats( fd_repair_metrics_t * repair_metrics ) {
 
   if( FD_LIKELY( turbine_ts > 0 ) ) { /* still have turbine slot0 in the catchup metrics */
     double pipelined_time = (double)(turbine_ts - min_ts);
-    FD_LOG_NOTICE(( "took %.3fs to reach first turbine.", pipelined_time / 1e9 ));
+    FD_LOG_NOTICE(( "took %.3fs to reach first turbine.", fd_metrics_convert_ticks_to_seconds((ulong)pipelined_time) ));
 
     /* Compute pipeline factor */
     double non_pipelined_time = (double)slot_cmpl_time_total;

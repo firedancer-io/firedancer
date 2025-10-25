@@ -1,3 +1,6 @@
+#!/bin/bash
+set -e
+
 source contrib/test/ledger_common.sh
 
 DUMP=${DUMP:="./dump"}
@@ -54,6 +57,7 @@ cp $DUMP/$LEDGER/devnet-398736132.toml $DUMP/$LEDGER/devnet-398736132_current.to
 export ledger_dir=$(realpath $DUMP/$LEDGER)
 sed -i "s#{ledger_dir}#${ledger_dir}#g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
 sed -i "s/max_total_banks = [0-9]*/max_total_banks = 32/g" "$DUMP/$LEDGER/devnet-398736132_current.toml"
+sed -i "s/minimum_download_speed_mib = 0/download = false/g" "$DUMP/$LEDGER/devnet-398736132_current.toml" # TODO: Set this properly in the configs
 
 echo "
 [gossip]

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_repair_fd_reasm_h
-#define HEADER_fd_src_discof_repair_fd_reasm_h
+#ifndef HEADER_fd_src_discof_reasm_fd_reasm_h
+#define HEADER_fd_src_discof_reasm_fd_reasm_h
 
 /* fd_reasm reassembles FEC sets into Replay order as they are received
    over the network via Turbine and Repair.  Every FEC set is guaranteed
@@ -132,6 +132,10 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong parent;  /* pool idx of the parent */
   ulong child;   /* pool idx of the left-child */
   ulong sibling; /* pool idx of the right-sibling */
+  /* When it's in the subtrees map, it's also in the subtreel dlist,
+     which uses these two pointers. */
+  ulong dlist_prev;
+  ulong dlist_next;
 
   /* Data */
 
@@ -205,39 +209,50 @@ fd_reasm_leave( fd_reasm_t * reasm );
 void *
 fd_reasm_delete( void * reasm );
 
-/* fd_reasm_root returns a pointer to the current root of of the reasm,
-   NULL if there is no root. */
-
-fd_reasm_fec_t *
-fd_reasm_root( fd_reasm_t * reasm );
-
-/* FIXME manifest_block_id */
-
-ulong
-fd_reasm_slot0( fd_reasm_t * reasm );
-
 /* fd_reasm_query returns a pointer to the ele keyed by merkle_root if
    found, NULL otherwise. */
 
 fd_reasm_fec_t *
 fd_reasm_query( fd_reasm_t const * reasm, fd_hash_t const * merkle_root );
 
-/* fd_reasm_init initializes reasm with a dummy root of key merkle_root
-   and with metadata slot.  All other fields are set to either pool null
-   idx or 0.  The dummy is inserted into the frontier but will not be
-   returned by fd_reasm_next. */
+/* fd_reasm_{root,parent,child,sibling} returns a pointer in the
+   caller's address space to the {root,parent,left-child,right-sibling}.
+   Assumes reasm is a current local join and blk is a valid pointer to a
+   pool element inside reasm.  const versions for each are also
+   provided. */
 
-fd_reasm_t *
-fd_reasm_init( fd_reasm_t * reasm, fd_hash_t const * merkle_root, ulong slot );
+FD_FN_PURE fd_reasm_fec_t       * fd_reasm_root         ( fd_reasm_t       * reasm                                 );
+FD_FN_PURE fd_reasm_fec_t const * fd_reasm_root_const   ( fd_reasm_t const * reasm                                 );
+FD_FN_PURE fd_reasm_fec_t       * fd_reasm_parent       ( fd_reasm_t       * reasm, fd_reasm_fec_t       * child   );
+FD_FN_PURE fd_reasm_fec_t const * fd_reasm_parent_const ( fd_reasm_t const * reasm, fd_reasm_fec_t const * child   );
+FD_FN_PURE fd_reasm_fec_t       * fd_reasm_child        ( fd_reasm_t       * reasm, fd_reasm_fec_t       * parent  );
+FD_FN_PURE fd_reasm_fec_t const * fd_reasm_child_const  ( fd_reasm_t const * reasm, fd_reasm_fec_t const * parent  );
+FD_FN_PURE fd_reasm_fec_t       * fd_reasm_sibling      ( fd_reasm_t       * reasm, fd_reasm_fec_t       * sibling );
+FD_FN_PURE fd_reasm_fec_t const * fd_reasm_sibling_const( fd_reasm_t const * reasm, fd_reasm_fec_t const * sibling );
 
-/* fd_reasm_has_next returns 1 if there is a next FEC set to return, 0
-   otherwise.  If this function returns 1, then fd_reasm_next() will be
-   guaranteed to return a FEC set. */
+/* FIXME manifest_block_id */
 
-int
-fd_reasm_has_next( fd_reasm_t * reasm );
+ulong
+fd_reasm_slot0( fd_reasm_t * reasm );
 
-/* fd_reasm_next returns the next successfully reassembled FEC set, NULL
+/* fd_reasm_free returns the free count of FEC sets that can be inserted
+   into the reasm. */
+
+ulong
+fd_reasm_free( fd_reasm_t * reasm );
+
+/* fd_reasm_peek returns the next successfully reassembled FEC set, NULL
+   if there is no FEC set to return.  This peeks at the head of the
+   reasm out queue.  Any FEC sets in the out queue are part of a
+   connected ancestry chain to the root therefore a parent is always
+   guaranteed to be returned by consume before its child (see top-level
+   documentation for details).  In order to actually consume and make
+   progress on consuming FEC sets, use fd_reasm_out(). */
+
+fd_reasm_fec_t *
+fd_reasm_peek( fd_reasm_t * reasm );
+
+/* fd_reasm_out returns the next successfully reassembled FEC set, NULL
    if there is no FEC set to return.  This pops and returns the head of
    the reasm out queue.  Any FEC sets in the out queue are part of a
    connected ancestry chain to the root therefore a parent is always
@@ -245,21 +260,7 @@ fd_reasm_has_next( fd_reasm_t * reasm );
    documentation for details). */
 
 fd_reasm_fec_t *
-fd_reasm_next( fd_reasm_t * reasm );
-
-/* fd_reasm_parent_bank_idx returns the bank index of the parent of the
-   FEC set.  Returns ULONG_MAX if the parent FEC's bank index has not
-   been set.  This function always assumes that the FEC has a parent. */
-
-ulong
-fd_reasm_parent_bank_idx( fd_reasm_t * reasm, fd_reasm_fec_t * fec );
-
-/* fd_reasm_full returns 1 if the reasm is full and can not insert any
-   more FEC sets and 0 otherwise.  This is used to backpressure the
-   caller if the reasm is full. */
-
-int
-fd_reasm_full( fd_reasm_t * reasm );
+fd_reasm_out( fd_reasm_t * reasm );
 
 /* fd_reasm_insert inserts a new FEC set into reasm.  Returns the newly
    inserted fd_reasm_fec_t, NULL on error.  Inserting this FEC set may
@@ -281,16 +282,17 @@ fd_reasm_insert( fd_reasm_t *      reasm,
                  int               slot_complete,
                  int               leader );
 
-/* fd_reasm_advances advances the reasm root to merkle_root root,
-   pruning (ie. map remove and release) any FEC sets that do not descend
-   from this new root. */
+/* fd_reasm_publish publishes merkle root as the new reasm root, pruning
+   (ie. map remove and release) any FEC sets that do not descend from
+   this new root. */
 
 fd_reasm_fec_t *
-fd_reasm_advance_root( fd_reasm_t * reasm, fd_hash_t const * merkle_root );
+fd_reasm_publish( fd_reasm_t * reasm,
+                  fd_hash_t const * merkle_root );
 
 void
 fd_reasm_print( fd_reasm_t const * reasm );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_repair_fd_reasm_h */
+#endif /* HEADER_fd_src_discof_reasm_fd_reasm_h */

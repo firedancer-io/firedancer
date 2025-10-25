@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_bitset_h
-#define HEADER_fd_src_ballet_pack_fd_pack_bitset_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_bitset_h
+#define HEADER_fd_src_disco_pack_fd_pack_bitset_h
 
 /* One of the main computational tasks of fd_pack is determining whether
    a given transaction conflicts with a different transaction or a group
@@ -207,4 +207,4 @@
 #  error "FD_PACK_BITSET_MODE not recognized"
 #endif
 
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_bitset_h */
+#endif /* HEADER_fd_src_disco_pack_fd_pack_bitset_h */

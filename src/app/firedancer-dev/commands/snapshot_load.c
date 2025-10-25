@@ -9,6 +9,7 @@
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../util/tile/fd_tile_private.h"
 #include "../../../util/pod/fd_pod_format.h"
+#include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 
 #include <sys/resource.h>
@@ -40,8 +41,7 @@ snapshot_load_topo( config_t *     config,
   fd_topo_obj_t * funk_obj = setup_topo_funk( topo, "funk",
       config->firedancer.funk.max_account_records,
       config->firedancer.funk.max_database_transactions,
-      config->firedancer.funk.heap_size_gib,
-      config->firedancer.funk.lock_pages );
+      config->firedancer.funk.heap_size_gib );
 
   static ushort tile_to_cpu[ FD_TILE_MAX ] = {0};
   if( args->snapshot_load.tile_cpus[0] ) {
@@ -55,67 +55,58 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[0], 0, 0 );
 
   /* read() tile */
-  fd_topob_wksp( topo, "snaprd" );
-  fd_topo_tile_t * snaprd_tile = fd_topob_tile( topo, "snaprd", "snaprd", "snaprd", tile_to_cpu[1], 0, 0 );
-  snaprd_tile->allow_shutdown = 1;
+  fd_topob_wksp( topo, "snapct" );
+  fd_topo_tile_t * snapct_tile = fd_topob_tile( topo, "snapct", "snapct", "snapct", tile_to_cpu[1], 0, 0 );
+  snapct_tile->allow_shutdown = 1;
+
+  /* load tile */
+  fd_topob_wksp( topo, "snapld" );
+  fd_topo_tile_t * snapld_tile = fd_topob_tile( topo, "snapld", "snapld", "snapld", tile_to_cpu[2], 0, 0 );
+  snapld_tile->allow_shutdown = 1;
 
   /* "snapdc": Zstandard decompress tile */
   fd_topob_wksp( topo, "snapdc" );
-  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "snapdc", tile_to_cpu[2], 0, 0 );
+  fd_topo_tile_t * snapdc_tile = fd_topob_tile( topo, "snapdc", "snapdc", "snapdc", tile_to_cpu[3], 0, 0 );
   snapdc_tile->allow_shutdown = 1;
-
-  /* Compressed data stream */
-  fd_topob_wksp( topo, "snap_zstd" );
-  fd_topob_link( topo, "snap_zstd", "snap_zstd", 8192UL, 16384, 1UL );
-
-  fd_topob_wksp( topo, "snaprd_rp" );
-  fd_topo_link_t * snaprd_rp_link = fd_topob_link( topo, "snaprd_rp", "snaprd_rp", 128UL, 0UL, 1UL );
-  snaprd_rp_link->permit_no_consumers = 1;
-
-  /* Uncompressed data stream */
-  fd_topob_wksp( topo, "snap_stream" );
-  fd_topob_link( topo, "snap_stream", "snap_stream", 2048UL, USHORT_MAX, 1UL );
-
-  /* snaprd tile -> compressed stream */
-  fd_topob_tile_out( topo, "snaprd", 0UL, "snap_zstd", 0UL );
-  fd_topob_tile_out( topo, "snaprd", 0UL, "snaprd_rp", 0UL );
-
-  /* compressed stream -> snapdc tile */
-  fd_topob_tile_in( topo, "snapdc", 0UL, "metric_in", "snap_zstd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-
-  /* snapdc tile -> uncompressed stream */
-  fd_topob_tile_out( topo, "snapdc", 0UL, "snap_stream", 0UL );
 
   /* "snapin": Snapshot parser tile */
   fd_topob_wksp( topo, "snapin" );
-  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "snapin", tile_to_cpu[3], 0, 0 );
+  fd_topo_tile_t * snapin_tile = fd_topob_tile( topo, "snapin", "snapin", "snapin", tile_to_cpu[4], 0, 0 );
   snapin_tile->allow_shutdown = 1;
 
-  /* uncompressed stream -> snapin tile */
-  fd_topob_tile_in  ( topo, "snapin", 0UL, "metric_in", "snap_stream", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  fd_topob_wksp( topo, "snapct_ld"    );
+  fd_topob_wksp( topo, "snapld_dc"    );
+  fd_topob_wksp( topo, "snapdc_in"    );
+  fd_topob_wksp( topo, "snapin_rd"    );
+  fd_topob_wksp( topo, "snapin_manif" );
+  fd_topob_wksp( topo, "snapct_repr"  );
 
-  /* snapin funk access */
+  fd_topob_link( topo, "snapct_ld",   "snapct_ld",     128UL,   sizeof(fd_ssctrl_init_t),       1UL );
+  fd_topob_link( topo, "snapld_dc",   "snapld_dc",     16384UL, USHORT_MAX,                     1UL );
+  fd_topob_link( topo, "snapdc_in",   "snapdc_in",     16384UL, USHORT_MAX,                     1UL );
+  fd_topob_link( topo, "snapin_rd",   "snapin_rd",     128UL,   0UL,                            1UL );
+  fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
+  fd_topob_link( topo, "snapct_repr", "snapct_repr",   128UL,   0UL,                            1UL )->permit_no_consumers = 1;
+
+  fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_rd",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_ld",    0UL                                       );
+  fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_repr",  0UL                                       );
+  fd_topob_tile_in ( topo, "snapld",  0UL, "metric_in", "snapct_ld",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapld",  0UL,              "snapld_dc",    0UL                                       );
+  fd_topob_tile_in ( topo, "snapdc",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapdc",  0UL,              "snapdc_in",    0UL                                       );
+  fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "snapdc_in",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_rd",    0UL                                       );
+  fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
+
+  /* snapin funk / txncache access */
   fd_topob_tile_uses( topo, snapin_tile, funk_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.funk_obj_id     = funk_obj->id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
 
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
-
-  /* snapshot manifest out link */
-  fd_topob_wksp( topo, "snap_out" );
-  fd_topo_link_t * snap_out_link = fd_topob_link( topo, "snap_out", "snap_out", 2UL, sizeof(fd_snapshot_manifest_t), 1UL );
-  snap_out_link->permit_no_consumers = 1;
-  fd_topob_tile_out( topo, "snapin", 0UL, "snap_out", 0UL );
-
-  fd_topob_link( topo, "snapdc_rd", "snap_zstd", 128UL, 0UL, 1UL );
-  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapdc_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "snapdc", 0UL, "snapdc_rd", 0UL );
-
-  fd_topob_wksp( topo, "snapin_rd" );
-  fd_topob_link( topo, "snapin_rd", "snapin_rd", 128UL, 0UL, 1UL );
-  fd_topob_tile_in( topo, "snaprd", 0UL, "metric_in", "snapin_rd", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "snapin", 0UL, "snapin_rd", 0UL );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
@@ -146,8 +137,8 @@ extern int * fd_log_private_shared_lock;
 static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
-  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.enabled || config->firedancer.snapshots.sources.entrypoints.enabled ) ) {
-    FD_LOG_ERR(( "snapshot-load command is incompatible with gossip or entrypoint snapshot sources" ));
+  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.enabled ) ) {
+    FD_LOG_ERR(( "snapshot-load command is incompatible with gossip snapshot sources" ));
   }
   snapshot_load_topo( config, args );
   fd_topo_t * topo = &config->topo;
@@ -172,17 +163,22 @@ snapshot_load_cmd_fn( args_t *   args,
   long start = fd_log_wallclock();
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
 
-  fd_topo_tile_t * snaprd_tile = &topo->tiles[ fd_topo_find_tile( topo, "snaprd", 0UL ) ];
+  fd_topo_tile_t * snapct_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapct", 0UL ) ];
+  fd_topo_tile_t * snapld_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapld", 0UL ) ];
   fd_topo_tile_t * snapdc_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapdc", 0UL ) ];
   fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
 
-  ulong volatile * const snaprd_metrics = fd_metrics_tile( snaprd_tile->metrics );
+  ulong volatile * const snapct_metrics = fd_metrics_tile( snapct_tile->metrics );
+  ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );
   ulong volatile * const snapdc_metrics = fd_metrics_tile( snapdc_tile->metrics );
   ulong volatile * const snapin_metrics = fd_metrics_tile( snapin_tile->metrics );
 
   ulong total_off_old    = 0UL;
-  ulong snaprd_backp_old = 0UL;
-  ulong snaprd_wait_old  = 0UL;
+  ulong decomp_off_old   = 0UL;
+  ulong snapct_backp_old = 0UL;
+  ulong snapct_wait_old  = 0UL;
+  ulong snapld_backp_old = 0UL;
+  ulong snapld_wait_old  = 0UL;
   ulong snapdc_backp_old = 0UL;
   ulong snapdc_wait_old  = 0UL;
   ulong snapin_backp_old = 0UL;
@@ -191,19 +187,21 @@ snapshot_load_cmd_fn( args_t *   args,
   sleep( 1 );
   puts( "" );
   puts( "Columns:" );
-  puts( "- bw:    Uncompressed bandwidth" );
+  puts( "- comp:  Compressed bandwidth"             );
+  puts( "- raw:   Uncompressed bandwidth"           );
   puts( "- backp: Backpressured by downstream tile" );
   puts( "- stall: Waiting on upstream tile"         );
   puts( "- acc:   Number of accounts"               );
   puts( "" );
-  puts( "-------------backp=(snaprd,snapdc,snapin) busy=(snaprd,snapdc,snapin)---------------" );
+  puts( "--------------------------------------------[ct],[ld],[dc],[in]--------[ct],[ld],[dc],[in]--------------" );
   long next = start+1000L*1000L*1000L;
   for(;;) {
-    ulong snaprd_status = FD_VOLATILE_CONST( snaprd_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    ulong snapct_status = FD_VOLATILE_CONST( snapct_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
+    ulong snapld_status = FD_VOLATILE_CONST( snapld_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapdc_status = FD_VOLATILE_CONST( snapdc_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
     ulong snapin_status = FD_VOLATILE_CONST( snapin_metrics[ MIDX( GAUGE, TILE, STATUS ) ] );
 
-    if( FD_UNLIKELY( snaprd_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) break;
+    if( FD_UNLIKELY( snapct_status==2UL && snapld_status==2UL && snapdc_status==2UL && snapin_status == 2UL ) ) break;
 
     long cur = fd_log_wallclock();
     if( FD_UNLIKELY( cur<next ) ) {
@@ -212,32 +210,42 @@ snapshot_load_cmd_fn( args_t *   args,
       continue;
     }
 
-    ulong total_off    = snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ] +
-                         snaprd_metrics[ MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) ];
-    ulong snaprd_backp = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
-    ulong snaprd_wait  = snaprd_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snaprd_backp;
+    ulong total_off    = snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] +
+                         snapct_metrics[ MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) ];
+    ulong decomp_off   = snapdc_metrics[ MIDX( GAUGE, SNAPDC, FULL_DECOMPRESSED_BYTES_READ ) ] +
+                         snapdc_metrics[ MIDX( GAUGE, SNAPDC, INCREMENTAL_DECOMPRESSED_BYTES_READ ) ];
+    ulong snapct_backp = snapct_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
+    ulong snapct_wait  = snapct_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapct_backp;
+    ulong snapld_backp = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
+    ulong snapld_wait  = snapld_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapld_backp;
     ulong snapdc_backp = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
     ulong snapdc_wait  = snapdc_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapdc_backp;
     ulong snapin_backp = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ];
     ulong snapin_wait  = snapin_metrics[ MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG   ) ] + snapin_backp;
 
-    double progress = 100.0 * (double)snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ] / (double)snaprd_metrics[ MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ];
+    double progress = 100.0 * (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ] / (double)snapct_metrics[ MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
 
     ulong acc_cnt      = snapin_metrics[ MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED    ) ];
-    printf( "%.1f %% bw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%) acc=%3.1f M/s\n",
+    printf( "%5.1f %% comp=%4.0f MB/s raw=%4.0f MB/s backp=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) busy=(%3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%) acc=%4.1f M/s\n",
             progress,
-            (double)( total_off-total_off_old )/1e6,
-            ( (double)( snaprd_backp-snaprd_backp_old )*ns_per_tick )/1e7,
+            (double)( total_off -total_off_old  )/1e6,
+            (double)( decomp_off-decomp_off_old )/1e6,
+            ( (double)( snapct_backp-snapct_backp_old )*ns_per_tick )/1e7,
+            ( (double)( snapld_backp-snapld_backp_old )*ns_per_tick )/1e7,
             ( (double)( snapdc_backp-snapdc_backp_old )*ns_per_tick )/1e7,
             ( (double)( snapin_backp-snapin_backp_old )*ns_per_tick )/1e7,
-            100-( ( (double)( snaprd_wait-snaprd_wait_old  )*ns_per_tick )/1e7 ),
+            100-( ( (double)( snapct_wait-snapct_wait_old  )*ns_per_tick )/1e7 ),
+            100-( ( (double)( snapld_wait-snapld_wait_old  )*ns_per_tick )/1e7 ),
             100-( ( (double)( snapdc_wait-snapdc_wait_old  )*ns_per_tick )/1e7 ),
             100-( ( (double)( snapin_wait-snapin_wait_old  )*ns_per_tick )/1e7 ),
             (double)( acc_cnt-acc_cnt_old  )/1e6 );
     fflush( stdout );
     total_off_old    = total_off;
-    snaprd_backp_old = snaprd_backp;
-    snaprd_wait_old  = snaprd_wait;
+    decomp_off_old   = decomp_off;
+    snapct_backp_old = snapct_backp;
+    snapct_wait_old  = snapct_wait;
+    snapld_backp_old = snapld_backp;
+    snapld_wait_old  = snapld_wait;
     snapdc_backp_old = snapdc_backp;
     snapdc_wait_old  = snapdc_wait;
     snapin_backp_old = snapin_backp;

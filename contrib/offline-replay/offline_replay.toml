@@ -8,7 +8,6 @@
         rocksdb_path = "{ledger}/rocksdb"
     [tiles.replay]
         cluster_version = "{cluster_version}"
-        heap_size_gib = {heap_size}
     [tiles.gui]
         enabled = false
 [funk]
@@ -18,6 +17,8 @@
 [runtime]
     max_live_slots = 4
     max_fork_width = 4
+    [runtime.program_cache]
+        heap_size_mib = 131072
 [consensus]
     vote = false
 [development]
@@ -29,9 +30,8 @@
     path = "{log}"
 [paths]
     snapshots = "{ledger}"
-[hugetlbfs]
-    mount_path = "/data/firedancer/mnt"
 [snapshots]
+    download = false
     incremental_snapshots = false
     minimum_download_speed_mib = 0
     maximum_local_snapshot_age = 0

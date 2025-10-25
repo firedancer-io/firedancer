@@ -142,7 +142,7 @@ main( int     argc,
 
     FD_LOG_NOTICE(( "Joining to --name %s", name ));
     fd_shmem_join_info_t info[1];
-    shmem    = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info, 0 ); /* logs details */
+    shmem    = fd_shmem_join( name, FD_SHMEM_JOIN_MODE_READ_WRITE, NULL, NULL, info ); /* logs details */
     if( FD_UNLIKELY( !shmem ) ) FD_LOG_ERR(( "fd_shmem_join failed" ));
     page_cnt = info->page_cnt;
     page_sz  = info->page_sz;

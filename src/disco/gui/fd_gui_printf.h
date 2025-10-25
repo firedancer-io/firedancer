@@ -34,6 +34,8 @@ void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
+void fd_gui_printf_shred_updates( fd_gui_t * gui );
+void fd_gui_printf_catch_up_history( fd_gui_t * gui );
 
 void
 fd_gui_printf_null_query_response( fd_http_server_t * http,
@@ -48,6 +50,15 @@ fd_gui_printf_skip_rate( fd_gui_t * gui,
 void
 fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx );
+
+void
+fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
+                           int *                actions,
+                           ulong *              idxs,
+                           ulong                count );
+
+void
+fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers );
 
 void
 fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
@@ -107,6 +118,11 @@ void
 fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
                                          ulong      _slot,
                                          ulong      id );
+
+void
+fd_gui_printf_slot_shred_updates( fd_gui_t * gui,
+                                  ulong      _slot,
+                                  ulong      id );
 
 void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );

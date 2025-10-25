@@ -4,6 +4,7 @@
 #include "fd_bank.h"
 #include "fd_executor_err.h"
 #include "sysvar/fd_sysvar_rent.h"
+#include "program/fd_program_util.h"
 
 #define MAX_PERMITTED_DATA_LENGTH                 (FD_RUNTIME_ACC_SZ_MAX) /* 10MiB */
 #define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
@@ -318,7 +319,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
     return 0;
   }
 
-  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction );
+  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->index_in_instruction, NULL );
 }
 
 /* fd_borrowed_account_is_writer mirrors the Agave function

@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_app_platform_fd_config_extract_h
+#define HEADER_fd_src_app_platform_fd_config_extract_h
+
 #include "../../util/fd_util.h"
 #include "../../util/pod/fd_pod.h"
 
@@ -143,3 +146,5 @@ fdctl_cfg_get_float( float *               out,
 }
 
 FD_PROTOTYPES_END
+
+#endif /* HEADER_fd_src_app_platform_fd_config_extract_h */

@@ -20,7 +20,7 @@ fd_feature_restore( fd_bank_t *               bank,
   /* Skip reverted features */
   if( FD_UNLIKELY( id->reverted ) ) return;
 
-  FD_TXN_ACCOUNT_DECL( acct_rec );
+  fd_txn_account_t acct_rec[1];
   int err = fd_txn_account_init_from_funk_readonly( acct_rec,
                                                     addr,
                                                     funk,

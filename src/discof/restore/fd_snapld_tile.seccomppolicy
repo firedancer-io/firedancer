@@ -1,0 +1,97 @@
+uint logfile_fd, uint in_full_fd, uint in_incr_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.  The other files that can be
+# written to are the out descriptors for the full and incremental
+# snapshots.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)
+
+# snapshot: need to be able to read from an open file for snapshot
+# loading
+#
+# arg 0 is the file descriptor that we want to read from
+read: (or (eq (arg 0) in_full_fd)
+          (eq (arg 0) in_incr_fd))
+
+# snapshot: Uses lseek to reset position in input file
+lseek: (and (or (eq (arg 0) in_full_fd)
+                (eq (arg 0) in_incr_fd))
+            (eq (arg 1) 0)
+            (eq (arg 2) "SEEK_SET"))
+
+# snapshot: establish connections for snapshot download.
+socket: (and (eq (arg 0) "AF_INET")
+             (eq (arg 1) "SOCK_STREAM")
+             (eq (arg 2) 0))
+
+# snapshot: need to be able to connect to a peer to download a snapshot
+# from and for snapshot slot resolution.
+#
+# arg 0 is the file descriptor of the socket to connect to.  We will
+# restrict this being called on any of the snapshot file descriptors,
+# STDERR or the logfile.
+connect: (not (or (eq (arg 0) 2)
+                  (eq (arg 0) logfile_fd)
+                  (eq (arg 0) in_full_fd)
+                  (eq (arg 0) in_incr_fd)))
+
+# snapshot: need to close sockets that were opened when calls to connect
+# fail.
+#
+# arg 0 is the file descriptor that we would like to close.  We will
+# restrict this being called on any of the snapshot file descriptors,
+# STDERR or the logfile.
+close: (not (or (eq (arg 0) 2)
+                (eq (arg 0) logfile_fd)
+                (eq (arg 0) in_full_fd)
+                (eq (arg 0) in_incr_fd)))
+
+# snapshot: we need to be send http requests to endpoints for snapshot
+# downloading
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on any of the snapshot file
+# descriptors, STDERR or the logfile.
+sendto: (not (or (eq (arg 0) 2)
+                 (eq (arg 0) logfile_fd)
+                 (eq (arg 0) in_full_fd)
+                 (eq (arg 0) in_incr_fd)))
+
+# snapshot: we need to be able to receive responses for any requests
+# that were sent out for snapshot download or slot resolution.
+#
+# arg 0 is the file descriptor that we would like to send a request to.
+# We will restrict this being called on any of the snapshot file
+# descriptors, STDERR or the logfile.
+recvfrom: (not (or (eq (arg 0) 2)
+                   (eq (arg 0) logfile_fd)
+                   (eq (arg 0) in_full_fd)
+                   (eq (arg 0) in_incr_fd)))
+
+# snapshot: we need to be able to configure out socket connection from
+# the peer that we download our snapshot from or resolve slot
+# information from.
+#
+# arg 0 is the file descriptor that corresponds to the socket that we
+# want to connect to.  We know that we don't want to connect to the
+# file descriptors used for logging, stderr, or any of the snapshot fds.
+setsockopt: (and (not (or (eq (arg 0) 2)
+                          (eq (arg 0) logfile_fd)
+                          (eq (arg 0) in_full_fd)
+                          (eq (arg 0) in_incr_fd)))
+                 (eq (arg 1) SOL_SOCKET)
+                 (eq (arg 2) SO_RCVTIMEO))
+
+# shutdown: exit is called on shutdown
+exit: (eq (arg 0) 0)

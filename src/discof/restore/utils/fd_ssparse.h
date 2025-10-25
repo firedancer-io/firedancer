@@ -11,7 +11,8 @@
 #define FD_SSPARSE_ADVANCE_STATUS_CACHE   ( 2)
 #define FD_SSPARSE_ADVANCE_ACCOUNT_HEADER ( 3)
 #define FD_SSPARSE_ADVANCE_ACCOUNT_DATA   ( 4)
-#define FD_SSPARSE_ADVANCE_DONE           ( 5)
+#define FD_SSPARSE_ADVANCE_ACCOUNT_BATCH  ( 5)
+#define FD_SSPARSE_ADVANCE_DONE           ( 6)
 
 /* fd_ssparse_t is a solana snapshot parser.  It is designed to parse a
    snapshot in streaming fasion, chunk by chunk. */
@@ -56,6 +57,10 @@ typedef struct acc_vec acc_vec_t;
 
 #include "../../../util/tmpl/fd_map_chain.c"
 
+/* FD_SSPARSE_ACC_BATCH_MAX controls the max number of accounts in a
+   batch. */
+#define FD_SSPARSE_ACC_BATCH_MAX (16UL)
+
 struct fd_ssparse_advance_result {
   ulong bytes_consumed;
 
@@ -87,6 +92,15 @@ struct fd_ssparse_advance_result {
       uchar const * data;
       ulong         data_sz;
     } account_data;
+
+    struct {
+      /* Points to first byte of each account entry
+         Each account entry is guaranteed unfragmented
+         Useful for fast path processing */
+      uchar const * batch[ FD_SSPARSE_ACC_BATCH_MAX ];
+      ulong         batch_cnt;
+      ulong         slot;
+    } account_batch;
   };
 };
 
@@ -124,6 +138,14 @@ fd_ssparse_advance( fd_ssparse_t *                ssparse,
                     uchar const *                 data,
                     ulong                         data_sz,
                     fd_ssparse_advance_result_t * result );
+
+/* fd_ssparse_batch_enable toggles whether batch processing is enabled.
+   If enabled, ssparse will deliver FD_SSPARSE_ADVANCE_ACCOUNT_BATCH
+   messages.  (These may help the caller processing accounts in batches
+   to amortize per-account overhead, such as slow DRAM/disk fetches.) */
+void
+fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
+                         int            enabled );
 
 /* Test/Fuzz APIs */
 

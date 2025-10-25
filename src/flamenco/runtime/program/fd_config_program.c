@@ -51,7 +51,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
-  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_CONFIG );
+  is_config_account_signer = fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_CONFIG, NULL );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
@@ -128,7 +128,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
 
-      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter ) ) ) {
+      if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, (uchar)counter, NULL ) ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account %s signer_key().is_none()", FD_BASE58_ENC_32_ALLOCA( signer ) );

@@ -1,5 +1,7 @@
 #include "fd_txn_account.h"
 #include "fd_runtime.h"
+#include "../accdb/fd_accdb_sync.h"
+#include "program/fd_program_util.h"
 
 void *
 fd_txn_account_new( void *              mem,
@@ -155,50 +157,51 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
   return FD_ACC_MGR_SUCCESS;
 }
 
-int
+fd_account_meta_t *
 fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
                                        fd_pubkey_t const *       pubkey,
-                                       fd_funk_t *               funk,
+                                       fd_accdb_user_t *         accdb,
                                        fd_funk_txn_xid_t const * xid,
                                        int                       do_create,
                                        ulong                     min_data_sz,
                                        fd_funk_rec_prepare_t *   prepare_out ) {
   memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
-  int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t * meta = fd_funk_get_acc_meta_mutable(
-      funk,
-      xid,
-      pubkey,
-      do_create,
-      min_data_sz,
-      NULL,
-      prepare_out,
-      &err );
 
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    return err;
+  fd_accdb_rw_t rw[1];
+  if( FD_UNLIKELY( !fd_accdb_modify_prepare( accdb, rw, xid, pubkey->uc, min_data_sz, do_create ) ) ) {
+    return NULL;
   }
-
-  /* exec tile should never call this function, so the global addresses
-     of meta and data should never be used. Instead, populate the
-     prepared_rec field so that any created records can be published
-     with fd_txn_account_mutable_fini. */
 
   if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
         acct,
         pubkey,
-        (fd_account_meta_t *)meta,
-        1 ), fd_funk_wksp( funk ) ) ) ) {
+        rw->meta,
+        1 ), fd_funk_wksp( accdb->funk ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
-  return FD_ACC_MGR_SUCCESS;
+  /* HACKY: Convert accdb_rw writable reference into txn_account.
+     In the future, use fd_accdb_modify_publish instead */
+  accdb->rw_active--;
+  fd_funk_txn_t * txn = accdb->funk->txn_pool->ele + accdb->tip_txn_idx;
+  if( FD_UNLIKELY( !fd_funk_txn_xid_eq( &txn->xid, xid ) ) ) FD_LOG_CRIT(( "accdb_user corrupt: not joined to the expected transaction" ));
+  if( !rw->published ) {
+    *prepare_out = (fd_funk_rec_prepare_t) {
+      .rec          = rw->rec,
+      .rec_head_idx = &txn->rec_head_idx,
+      .rec_tail_idx = &txn->rec_tail_idx
+    };
+  } else {
+    memset( prepare_out, 0, sizeof(fd_funk_rec_prepare_t) );
+  }
+
+  return rw->meta;
 }
 
 void
-fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
-                             fd_funk_t *               funk,
-                             fd_funk_rec_prepare_t *   prepare ) {
+fd_txn_account_mutable_fini( fd_txn_account_t *      acct,
+                             fd_accdb_user_t *       accdb,
+                             fd_funk_rec_prepare_t * prepare ) {
   fd_funk_rec_key_t key = fd_funk_acc_key( acct->pubkey );
 
   /* Check that the prepared record is still valid -
@@ -218,7 +221,7 @@ fd_txn_account_mutable_fini( fd_txn_account_t *        acct,
 
     /* Crashes the app if this key already exists in funk (conflicting
        write) */
-    fd_funk_rec_publish( funk, prepare );
+    fd_funk_rec_publish( accdb->funk, prepare );
   }
 }
 

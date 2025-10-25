@@ -51,7 +51,6 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_kill,
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
-  &fd_cfg_stage_normalpage,
   &fd_cfg_stage_sysctl,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_offloads,
@@ -102,7 +101,8 @@ extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
 
-extern fd_topo_run_tile_t fd_tile_snaprd;
+extern fd_topo_run_tile_t fd_tile_snapct;
+extern fd_topo_run_tile_t fd_tile_snapld;
 extern fd_topo_run_tile_t fd_tile_snapdc;
 extern fd_topo_run_tile_t fd_tile_snapin;
 
@@ -147,7 +147,8 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_benchs,
   &fd_tile_pktgen,
   &fd_tile_udpecho,
-  &fd_tile_snaprd,
+  &fd_tile_snapct,
+  &fd_tile_snapld,
   &fd_tile_snapdc,
   &fd_tile_snapin,
   &fd_tile_genesi,
@@ -187,6 +188,7 @@ extern action_t fd_action_shred_version;
 extern action_t fd_action_ipecho_server;
 extern action_t fd_action_send_test;
 extern action_t fd_action_gossip_dump;
+extern action_t fd_action_watch;
 
 action_t * ACTIONS[] = {
   &fd_action_run,
@@ -221,6 +223,7 @@ action_t * ACTIONS[] = {
   &fd_action_ipecho_server,
   &fd_action_send_test,
   &fd_action_gossip_dump,
+  &fd_action_watch,
   NULL,
 };
 

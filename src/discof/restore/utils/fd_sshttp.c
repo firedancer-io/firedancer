@@ -125,14 +125,18 @@ fd_sshttp_init( fd_sshttp_t * http,
     "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
     (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
 
+  /* TODO: Figure out recv coalescing properly and switch stream back
+     to non-blocking. */
   http->addr = addr;
-  http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  http->sockfd = socket( AF_INET, SOCK_STREAM, 0 );
   if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
 
-  int optval = 1;
-  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
-    FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-  }
+  struct timeval timeout = {
+    .tv_sec = 0UL,
+    .tv_usec = (ulong)10e3,
+  };
+
+  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout) ) ) ) FD_LOG_ERR(("setsockopt SO_RCVTIMEO failed (%d-%s)", errno, fd_io_strerror(errno)));
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,

@@ -820,26 +820,18 @@ fd_block_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
-fd_account_to_json( fd_webserver_t * ws,
-                    fd_pubkey_t acct,
-                    fd_rpc_encoding_t enc,
-                    uchar const * val,
-                    ulong val_sz,
-                    long off,
-                    long len,
-                    fd_spad_t * spad ) {
+char const *
+fd_account_to_json( fd_webserver_t *      ws,
+                    fd_pubkey_t           acct,
+                    fd_rpc_encoding_t     enc,
+                    fd_accdb_ro_t const * ro,
+                    long                  off,
+                    long                  len,
+                    fd_spad_t *           spad ) {
   fd_web_reply_sprintf(ws, "{\"data\":[\"");
 
-  fd_account_meta_t * metadata = (fd_account_meta_t *)val;
-  if (val_sz < sizeof(fd_account_meta_t)) {
-    return "failed to load account data";
-  }
-  val = (uchar*)val + sizeof(fd_account_meta_t);
-  val_sz = val_sz - sizeof(fd_account_meta_t);
-  if (val_sz > metadata->dlen)
-    val_sz = metadata->dlen;
-
+  void const * val    = fd_accdb_ref_data_const( ro );
+  ulong        val_sz = fd_accdb_ref_data_sz   ( ro );
   if (len != FD_LONG_UNSET && off != FD_LONG_UNSET) {
     if (enc == FD_ENC_JSON) {
       return "cannot use jsonParsed encoding with slice";
@@ -892,13 +884,13 @@ fd_account_to_json( fd_webserver_t * ws,
   }
 
   char owner[50];
-  fd_base58_encode_32((uchar*)metadata->owner, 0, owner);
+  fd_base58_encode_32( fd_accdb_ref_owner( ro ), 0, owner );
   char addr[50];
   fd_base58_encode_32(acct.uc, 0, addr);
   fd_web_reply_sprintf(ws, "\",\"%s\"],\"executable\":%s,\"lamports\":%lu,\"owner\":\"%s\",\"address\":\"%s\",\"rentEpoch\":%lu,\"space\":%lu}",
                        encstr,
-                       (metadata->executable ? "true" : "false"),
-                       metadata->lamports,
+                       (fd_accdb_ref_exec_bit( ro ) ? "true" : "false"),
+                       fd_accdb_ref_lamports( ro ),
                        owner,
                        addr,
                        ULONG_MAX,

@@ -39,8 +39,6 @@ typedef struct {
 
   ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
-  int   is_locked;    /* If the workspace should use pages locked and pinned to a specific numa node. */
-
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
@@ -353,6 +351,7 @@ struct fd_topo_tile {
       int   tx_metadata_storage;
       ulong funk_obj_id;
       ulong txncache_obj_id;
+      ulong progcache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
       char  cluster_version[ 32 ];
@@ -360,6 +359,8 @@ struct fd_topo_tile {
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       char  vote_account_path[ PATH_MAX ];
+
+      ushort expected_shred_version;
 
       ulong heap_size_gib;
       ulong max_live_slots;
@@ -381,6 +382,7 @@ struct fd_topo_tile {
     struct {
       ulong funk_obj_id;
       ulong txncache_obj_id;
+      ulong progcache_obj_id;
 
       ulong max_live_slots;
 
@@ -510,17 +512,17 @@ struct fd_topo_tile {
       uint max_full_snapshots_to_keep;
       uint max_incremental_snapshots_to_keep;
 
-      int entrypoints_enabled;
       int gossip_peers_enabled;
-
-      ulong         gossip_entrypoints_cnt;
-      fd_ip4_port_t gossip_entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
       struct {
         ulong         peers_cnt;
         fd_ip4_port_t peers[ 16UL ];
       } http;
-    } snaprd;
+    } snapct;
+
+    struct {
+      char snapshots_path[ PATH_MAX ];
+    } snapld;
 
     struct {
       ulong max_live_slots;
@@ -543,6 +545,7 @@ struct fd_topo_tile {
 
       ulong txncache_obj_id;
       ulong funk_obj_id;
+      ulong progcache_obj_id;
     } bank;
 
     struct {
@@ -558,7 +561,13 @@ struct fd_topo_tile {
       ulong entrypoints_cnt;
       fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
 
+      int has_expected_genesis_hash;
+      uchar expected_genesis_hash[ 32UL ];
+
       char genesis_path[ PATH_MAX ];
+
+      uint target_gid;
+      uint target_uid;
     } genesi;
   };
 };
@@ -643,15 +652,9 @@ fd_topo_workspace_align( void ) {
   return 4096UL;
 }
 
-static inline void *
+void *
 fd_topo_obj_laddr( fd_topo_t const * topo,
-                   ulong             obj_id ) {
-  fd_topo_obj_t const * obj = &topo->objs[ obj_id ];
-  FD_TEST( obj_id<FD_TOPO_MAX_OBJS );
-  FD_TEST( obj->id == obj_id );
-  FD_TEST( obj->offset );
-  return (void *)((ulong)topo->workspaces[ obj->wksp_id ].wksp + obj->offset);
-}
+                   ulong             obj_id );
 
 /* Returns a pointer in the local address space to the base address of
    the workspace out of which the given object was allocated. */

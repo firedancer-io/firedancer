@@ -16,6 +16,7 @@
 #include <openssl/evp.h>
 #include <openssl/err.h>
 #include <openssl/tls1.h>
+#include <openssl/core_dispatch.h>
 
 #include "fd_tls.h"
 #include "test_tls_helper.h"
@@ -27,35 +28,41 @@ static uchar _is_ossl_to_fd = 0;
 
 static uint const
 _ossl_level_to_fdtls[] = {
-  [ssl_encryption_initial]     = FD_TLS_LEVEL_INITIAL,
-  [ssl_encryption_early_data]  = FD_TLS_LEVEL_EARLY,
-  [ssl_encryption_handshake]   = FD_TLS_LEVEL_HANDSHAKE,
-  [ssl_encryption_application] = FD_TLS_LEVEL_APPLICATION
+  [OSSL_RECORD_PROTECTION_LEVEL_NONE]        = FD_TLS_LEVEL_INITIAL,
+  [OSSL_RECORD_PROTECTION_LEVEL_EARLY]       = FD_TLS_LEVEL_EARLY,
+  [OSSL_RECORD_PROTECTION_LEVEL_HANDSHAKE]   = FD_TLS_LEVEL_HANDSHAKE,
+  [OSSL_RECORD_PROTECTION_LEVEL_APPLICATION] = FD_TLS_LEVEL_APPLICATION
 };
 
-static OSSL_ENCRYPTION_LEVEL const
-_fdtls_level_to_ossl[] = {
-  [ FD_TLS_LEVEL_INITIAL     ] = ssl_encryption_initial,
-  [ FD_TLS_LEVEL_EARLY       ] = ssl_encryption_early_data,
-  [ FD_TLS_LEVEL_HANDSHAKE   ] = ssl_encryption_handshake,
-  [ FD_TLS_LEVEL_APPLICATION ] = ssl_encryption_application
-};
+/* Hardcode QUIC transport parameters */
+
+static uchar const tp_buf[] = { 0x01, 0x02, 0x47, 0xd0 };
 
 /* Save secrets */
 
 static uchar secret[ 32UL ][2][4][2] = {0};
 
+/* Track current OpenSSL encryption level for sending */
+static uint _ossl_send_level = FD_TLS_LEVEL_INITIAL;
+
 static int
-_ossl_secrets( SSL *                 ssl,
-               OSSL_ENCRYPTION_LEVEL enc_level,
-               uchar const *         read_secret,
-               uchar const *         write_secret,
-               ulong                 secret_len ) {
-  (void)ssl;
+_ossl_yield_secret( SSL *                 ssl,
+                    uint32_t              enc_level,
+                    int                   direction,
+                    uchar const *         secret_data,
+                    ulong                 secret_len,
+                    void *                arg ) {
+  (void)ssl; (void)arg;
   FD_TEST( secret_len==32UL );
   uint level = _ossl_level_to_fdtls[ enc_level ];
-  memcpy( secret[1][ level ][0], write_secret, 32UL );
-  memcpy( secret[1][ level ][1], read_secret,  32UL );
+  /* direction: 0=read, 1=write */
+  memcpy( secret[1][ level ][ direction ], secret_data, 32UL );
+
+  /* Track the current send encryption level - when we get a write secret, update it */
+  if( direction == 1 ) { /* write/send */
+    _ossl_send_level = level;
+  }
+
   return 1;
 }
 
@@ -75,13 +82,71 @@ static test_record_buf_t _ossl_out  = {0};
 static test_record_buf_t _fdtls_out = {0};
 
 static int
-_ossl_sendmsg( SSL *                 ssl,
-               OSSL_ENCRYPTION_LEVEL enc_level,
-               uchar const *         record,
-               ulong                 record_sz ) {
-  (void)ssl;
-  test_record_log( record, record_sz, !_is_ossl_to_fd );
-  test_record_send( &_ossl_out, _ossl_level_to_fdtls[ enc_level ], record, record_sz );
+_ossl_crypto_send( SSL *           ssl,
+                   uchar const *   buf,
+                   ulong           buf_len,
+                   ulong *         consumed,
+                   void *          arg ) {
+  (void)ssl; (void)arg;
+  /* OpenSSL provides CRYPTO frame data to send.
+     We track the current encryption level via the yield_secret callback. */
+  test_record_log( buf, buf_len, !_is_ossl_to_fd );
+  test_record_send( &_ossl_out, _ossl_send_level, buf, buf_len );
+  *consumed = buf_len;
+  return 1;
+}
+
+static int
+_ossl_crypto_recv_rcd( SSL *                 ssl,
+                       uchar const **        buf,
+                       ulong *               bytes_read,
+                       void *                arg ) {
+  (void)ssl; (void)arg;
+  test_record_t * rec = test_record_recv( &_fdtls_out );
+  if( !rec ) {
+    /* No data available - return success with 0 bytes to signal retry needed */
+    *buf = NULL;
+    *bytes_read = 0;
+    return 1; /* Return 1 (success) with datalen=0 means "no data yet, retry" */
+  }
+  FD_LOG_DEBUG(( "OpenSSL receiving message (%d)", rec->buf[0] ));
+  *buf = rec->buf;
+  *bytes_read = rec->cur;
+  return 1; /* Return 1 (success) with datalen>0 means "here's your data" */
+}
+
+static int
+_ossl_crypto_release_rcd( SSL *    ssl,
+                          ulong    bytes_read,
+                          void *   arg ) {
+  (void)ssl; (void)bytes_read; (void)arg;
+  /* In our test, we can just acknowledge the read */
+  return 1;
+}
+
+static int
+_ossl_got_transport_params( SSL *                ssl,
+                            uchar const *        params,
+                            ulong                params_len,
+                            void *               arg ) {
+  (void)ssl; (void)arg;
+  FD_TEST( params_len == 4UL );
+  FD_TEST( 0==memcmp( params, tp_buf, 4UL ) );
+  return 1;
+}
+
+static int
+_ossl_alert( SSL *   ssl,
+             uchar   alert_code,
+             void *  arg ) {
+  (void)ssl; (void)arg;
+
+  ERR_print_errors_fp( stderr );
+
+  FD_LOG_ERR(( "client: alert %u (%s-%s)",
+               alert_code,
+               SSL_alert_desc_string     ( alert_code ),
+               SSL_alert_desc_string_long( alert_code ) ));
   return 1;
 }
 
@@ -129,30 +194,13 @@ _fd_server_respond( fd_tls_t *            server,
 
 static void
 _ossl_respond( SSL * ssl ) {
-  test_record_t * rec;
-  while( (rec = test_record_recv( &_fdtls_out )) ) {
-    FD_LOG_DEBUG(( "Providing message to OpenSSL (%d)", rec->buf[0] ));
-    FD_TEST( 1==SSL_provide_quic_data( ssl, _fdtls_level_to_ossl[ rec->level ], rec->buf, rec->cur ) );
-    int res = SSL_do_handshake( ssl );
-    FD_TEST( res!=0 );
+  int res = SSL_do_handshake( ssl );
+  if( res!=1 ) {
     int err = SSL_get_error( ssl, res );
     FD_TEST( (err==0) | (err==SSL_ERROR_WANT_READ) | (err==SSL_ERROR_WANT_WRITE) );
-    FD_TEST( ERR_get_error()==0UL );
-    SSL_do_handshake( ssl );
-    SSL_do_handshake( ssl );
-    SSL_do_handshake( ssl );
   }
+  FD_TEST( ERR_get_error()==0UL );
 }
-
-static int
-_ossl_flush_flight( SSL * ssl ) {
-  (void)ssl;
-  return 1;
-}
-
-/* Hardcode QUIC transport parameters */
-
-static uchar const tp_buf[] = { 0x01, 0x02, 0x47, 0xd0 };
 
 static ulong
 _fdtls_quic_tp_self( void *  handshake,
@@ -174,21 +222,6 @@ _fdtls_quic_tp_peer( void  *       handshake,
 }
 
 /* Miscellaneous OpenSSL callbacks */
-
-static int
-_ossl_send_alert( SSL *                 ssl,
-                  OSSL_ENCRYPTION_LEVEL level,
-                  uchar                 alert ) {
-  (void)ssl; (void)level;
-
-  ERR_print_errors_fp( stderr );
-
-  FD_LOG_ERR(( "client: alert %u (%s-%s)",
-               alert,
-               SSL_alert_desc_string     ( alert ),
-               SSL_alert_desc_string_long( alert ) ));
-  return 1;
-}
 
 static void
 _ossl_info( SSL const * ssl,
@@ -228,14 +261,83 @@ _ossl_alpn_select( SSL *          ssl,
   FD_LOG_ERR(( "ALPN negotiation failed" ));
 }
 
+
+/* Set up OSSL_DISPATCH callbacks for QUIC TLS */
+
+static OSSL_DISPATCH const quic_method[] = {
+  { OSSL_FUNC_SSL_QUIC_TLS_CRYPTO_SEND,          (void(*)(void))_ossl_crypto_send },
+  { OSSL_FUNC_SSL_QUIC_TLS_CRYPTO_RECV_RCD,      (void(*)(void))_ossl_crypto_recv_rcd },
+  { OSSL_FUNC_SSL_QUIC_TLS_CRYPTO_RELEASE_RCD,   (void(*)(void))_ossl_crypto_release_rcd },
+  { OSSL_FUNC_SSL_QUIC_TLS_YIELD_SECRET,         (void(*)(void))_ossl_yield_secret },
+  { OSSL_FUNC_SSL_QUIC_TLS_GOT_TRANSPORT_PARAMS, (void(*)(void))_ossl_got_transport_params },
+  { OSSL_FUNC_SSL_QUIC_TLS_ALERT,                (void(*)(void))_ossl_alert },
+  { 0, NULL }
+};
+
+/* Helper functions */
+
+/* Reset global test state */
+static void
+_reset_test_state( uchar is_ossl_to_fd ) {
+  _is_ossl_to_fd = is_ossl_to_fd;
+  _ossl_send_level = FD_TLS_LEVEL_INITIAL;
+  test_record_reset( &_ossl_out  );
+  test_record_reset( &_fdtls_out );
+}
+
+/* Setup SSL with Ed25519 certificate and QUIC callbacks */
+static void
+_setup_ssl_cert_and_quic( SSL *           ssl,
+                          fd_rng_t *      rng,
+                          fd_sha512_t *   sha,
+                          uchar *         public_key_out ) {  /* out: 32 bytes */
+  /* Generate Ed25519 keypair */
+  uchar private_key[ 32 ];
+  for( ulong b=0; b<32UL; b++ ) private_key[b] = fd_rng_uchar( rng );
+  fd_ed25519_public_from_private( public_key_out, private_key, sha );
+
+  /* Set private key */
+  EVP_PKEY * pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, private_key, 32UL );
+  FD_TEST( pkey );
+  SSL_use_PrivateKey( ssl, pkey );
+  EVP_PKEY_free( pkey );
+
+  /* Generate and set certificate */
+  uchar cert[ FD_X509_MOCK_CERT_SZ ];
+  fd_x509_mock_cert( cert, public_key_out );
+  SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
+
+  /* Set up QUIC callbacks and transport params */
+  FD_TEST( 1==SSL_set_quic_tls_cbs( ssl, quic_method, NULL ) );
+  FD_TEST( 1==SSL_set_quic_tls_transport_params( ssl, tp_buf, sizeof(tp_buf) ) );
+}
+
+
+static fd_tls_t
+_fd_tls_t( void* sign_ctx, fd_rng_t* rng ) {
+  return (fd_tls_t) {
+    .rand       =  fd_tls_test_rand( rng ),
+    .secrets_fn = _fdtls_secrets,
+    .sendmsg_fn = _fdtls_sendmsg,
+
+    .quic = 1,
+    .quic_tp_peer_fn = _fdtls_quic_tp_peer,
+    .quic_tp_self_fn = _fdtls_quic_tp_self,
+
+    .sign = fd_tls_test_sign( sign_ctx ),
+
+    .alpn    = "\xasolana-tpu",
+    .alpn_sz = 11UL,
+  };
+}
+
+
 /* test_server connects an OpenSSL client to an fd_tls server */
 
 void
 test_server( SSL_CTX * ctx ) {
   FD_LOG_INFO(( "Testing OpenSSL client => fd_tls server" ));
-  _is_ossl_to_fd = 1;
-  test_record_reset( &_ossl_out  );
-  test_record_reset( &_fdtls_out );
+  _reset_test_state( 1 );
 
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
 
@@ -248,20 +350,7 @@ test_server( SSL_CTX * ctx ) {
   fd_tls_t * server = fd_tls_join( fd_tls_new( _server ) );
   fd_tls_test_sign_ctx_t server_sign_ctx[1];
   fd_tls_test_sign_ctx( server_sign_ctx, rng );
-  *server = (fd_tls_t) {
-    .rand       = fd_tls_test_rand( rng ),
-    .secrets_fn = _fdtls_secrets,
-    .sendmsg_fn = _fdtls_sendmsg,
-
-    .quic = 1,
-    .quic_tp_peer_fn = _fdtls_quic_tp_peer,
-    .quic_tp_self_fn = _fdtls_quic_tp_self,
-
-    .sign = fd_tls_test_sign( &server_sign_ctx ),
-
-    .alpn    = "\xasolana-tpu",
-    .alpn_sz = 11UL,
-  };
+  *server = _fd_tls_t( &server_sign_ctx, rng );
 
   fd_tls_estate_srv_t hs[1];
   FD_TEST( fd_tls_estate_srv_new( hs ) );
@@ -285,56 +374,32 @@ test_server( SSL_CTX * ctx ) {
   SSL * ssl = SSL_new( ctx );
   FD_TEST( ssl );
 
-  /* Set up client cert */
-
-  uchar client_private_key[ 32 ];
-  for( ulong b=0; b<32UL; b++ ) client_private_key[b] = fd_rng_uchar( rng );
-  uchar client_public_key[ 32 ];
-  fd_ed25519_public_from_private( client_public_key, client_private_key, sha );
-  EVP_PKEY * client_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, client_private_key, 32UL );
-  FD_TEST( client_pkey );
-  SSL_use_PrivateKey( ssl, client_pkey );
-  EVP_PKEY_free( client_pkey );
-
-  uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, client_public_key );
-  SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
-
   SSL_set_connect_state( ssl );
 
-  /* Set client QUIC transport params */
+  /* Set up client cert and QUIC */
 
-  ulong tp_sz = 4UL;
-  FD_TEST( 1==SSL_set_quic_transport_params( ssl, tp_buf, tp_sz ) );
+  uchar client_public_key[ 32 ];
+  _setup_ssl_cert_and_quic( ssl, rng, sha, client_public_key );
 
   /* Do handshake */
 
-  /* ClientHello */
-  int res = SSL_do_handshake( ssl );
-  FD_TEST( SSL_get_error( ssl, res )==SSL_ERROR_WANT_READ );
+  /* Initiate handshake - OpenSSL client sends ClientHello */
+  SSL_do_handshake( ssl );
 
-  /* RetryHelloRequest OR ServerHello, EncryptedExtensions, Certificate, CertificateVerify, server Finished */
-  _fd_server_respond( server, hs );
-  if( hs->base.state==FD_TLS_HS_START ) {
-    /* In case of RetryHelloRequest */
-    _ossl_respond( ssl );
+  /* Process handshake messages until connected. */
+  while( hs->base.state != FD_TLS_HS_CONNECTED ) {
+    /* fd_tls server processes incoming messages and generates responses */
     _fd_server_respond( server, hs );
+
+    /* OpenSSL client does the same */
+    _ossl_respond( ssl );
   }
 
-  _ossl_respond( ssl );
-
-  _fd_server_respond( server, hs );
-
-  /* Check if connected */
-  int ssl_res = SSL_do_handshake( ssl );
-  if( FD_UNLIKELY( SSL_do_handshake( ssl )!=1 ) ) {
-    FD_LOG_WARNING(( "OpenSSL handshake unsuccessful: %d", ssl_res ));
-    FD_LOG_ERR(( "SSL_get_error: %d", SSL_get_error( ssl, ssl_res ) ));
-  }
-  FD_TEST( hs->base.state==FD_TLS_HS_CONNECTED );
+  /* Verify both sides completed successfully */
+  FD_TEST( SSL_is_init_finished( ssl ) );
+  FD_TEST( hs->base.state == FD_TLS_HS_CONNECTED );
 
   /* Clean up */
-
   fd_tls_estate_srv_delete( hs );
   fd_tls_delete( fd_tls_leave( _server ) );
   SSL_free( ssl );
@@ -347,9 +412,7 @@ test_server( SSL_CTX * ctx ) {
 void
 test_client( SSL_CTX * ctx ) {
   FD_LOG_INFO(( "Testing fd_tls client => OpenSSL server" ));
-  _is_ossl_to_fd = 0;
-  test_record_reset( &_ossl_out  );
-  test_record_reset( &_fdtls_out );
+  _reset_test_state( 0 );
 
   fd_sha512_t _sha[1]; fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
 
@@ -363,27 +426,10 @@ test_client( SSL_CTX * ctx ) {
 
   SSL_set_accept_state( ssl );
 
-  /* Set up server cert */
+  /* Set up server cert and QUIC */
 
-  uchar server_private_key[ 32 ];
-  for( ulong b=0; b<32UL; b++ ) server_private_key[b] = fd_rng_uchar( rng );
   uchar server_public_key[ 32 ];
-  fd_ed25519_public_from_private( server_public_key, server_private_key, sha );
-
-  EVP_PKEY * server_pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, NULL, server_private_key, 32UL );
-  FD_TEST( server_pkey );
-  SSL_use_PrivateKey( ssl, server_pkey );
-  EVP_PKEY_free( server_pkey );
-
-  uchar cert[ FD_X509_MOCK_CERT_SZ ];
-  fd_x509_mock_cert( cert, server_public_key );
-  SSL_use_certificate_ASN1( ssl, cert, FD_X509_MOCK_CERT_SZ );
-
-  /* Set server QUIC transport params */
-
-  uchar tp_buf[] = { 0x01, 0x02, 0x47, 0xd0 };
-  ulong tp_sz = 4UL;
-  FD_TEST( 1==SSL_set_quic_transport_params( ssl, tp_buf, tp_sz ) );
+  _setup_ssl_cert_and_quic( ssl, rng, sha, server_public_key );
 
   /* Create fd_tls instance */
 
@@ -391,20 +437,7 @@ test_client( SSL_CTX * ctx ) {
   fd_tls_t * client = fd_tls_join( fd_tls_new( _client ) );
   fd_tls_test_sign_ctx_t client_sign_ctx[1];
   fd_tls_test_sign_ctx( client_sign_ctx, rng );
-  *client = (fd_tls_t) {
-    .rand       =  fd_tls_test_rand( rng ),
-    .secrets_fn = _fdtls_secrets,
-    .sendmsg_fn = _fdtls_sendmsg,
-
-    .quic = 1,
-    .quic_tp_peer_fn = _fdtls_quic_tp_peer,
-    .quic_tp_self_fn = _fdtls_quic_tp_self,
-
-    .sign = fd_tls_test_sign( &client_sign_ctx ),
-
-    .alpn    = "\xasolana-tpu",
-    .alpn_sz = 11UL,
-  };
+  *client = _fd_tls_t( &client_sign_ctx, rng );
 
   fd_tls_estate_cli_t hs[1];
   FD_TEST( fd_tls_estate_cli_new( hs ) );
@@ -426,18 +459,24 @@ test_client( SSL_CTX * ctx ) {
 
   /* Do handshake */
 
-  /* ClientHello */
+  /* Initiate handshake - fd_tls client sends ClientHello */
   fd_tls_client_handshake( client, hs, NULL, 0UL, FD_TLS_LEVEL_INITIAL );
-  /* ServerHello, EncryptedExtensions, Certificate, CertificateVerify, server Finished */
-  _ossl_respond( ssl );
-  /* client Finished */
-  _fd_client_respond( client, hs );
-  /* NewSessionTicket */
+
+  /* Process handshake messages back and forth until connected */
+  while( hs->base.state != FD_TLS_HS_CONNECTED ) {
+    /* OpenSSL server processes incoming messages and generates responses */
+    _ossl_respond( ssl );
+
+    /* fd_tls client does the same */
+    _fd_client_respond( client, hs );
+  }
+
+  /* OpenSSL may send NewSessionTicket after handshake completes */
   _ossl_respond( ssl );
 
-  /* Check if connected */
-  FD_TEST( hs->base.state==FD_TLS_HS_CONNECTED );
-  FD_TEST( SSL_do_handshake( ssl )==1 );
+  /* Verify both sides completed successfully */
+  FD_TEST( hs->base.state == FD_TLS_HS_CONNECTED );
+  FD_TEST( SSL_is_init_finished( ssl ) );
 
   /* Clean up */
 
@@ -468,13 +507,6 @@ main( int     argc,
 
   char const * ciphersuites = "TLS_AES_128_GCM_SHA256";
   FD_TEST( SSL_CTX_set_ciphersuites( ctx, ciphersuites ));
-
-  SSL_QUIC_METHOD quic_method = {
-    _ossl_secrets,
-    _ossl_sendmsg,
-    _ossl_flush_flight,
-    _ossl_send_alert };
-  FD_TEST( 1==SSL_CTX_set_quic_method( ctx, &quic_method ) );
 
   SSL_CTX_set_info_callback  ( ctx, _ossl_info   );
   SSL_CTX_set_keylog_callback( ctx, _ossl_keylog );

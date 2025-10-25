@@ -91,9 +91,10 @@ test_initial_token_odd_sz( fd_quic_t * server_quic,
   /* Verify server sent a retry packet (difference-based check) */
   FD_TEST( server_quic->metrics.conn_retry_cnt == initial_retry_count + 1 );
 
-  /* Verify the 46-byte token was counted in the "other sizes" category */
+  /* Verify the 46-byte token was counted in the "other sizes" category
+     See test_retry_integration for details on the expected increases */
   FD_TEST( server_quic->metrics.initial_token_len_cnt[2] == initial_token_len_other + 1 );
-  FD_TEST( server_quic->metrics.initial_token_len_cnt[1] == initial_token_len_our + 1 );
+  FD_TEST( server_quic->metrics.initial_token_len_cnt[1] == initial_token_len_our + 2 );
 
   /* Verify the connection was created */
   FD_TEST( server_quic->metrics.conn_created_cnt == conn_created_count + 1 );
@@ -126,10 +127,13 @@ test_retry_integration( fd_quic_t * server_quic,
   FD_TEST( server_quic->metrics.conn_created_cnt== 1 );
   FD_TEST( server_quic->metrics.conn_retry_cnt  == 1 );
 
-  /* Check initial token length metrics - should have seen 1 packet with no token (idx 0)
-     and 1 packet with retry token (idx 1) */
+  /* Check initial token length metrics - should have seen:
+     * 1 packet with no token (idx 0), the very first initial
+     * 2 packets with retry token with correct fd_quic len (idx 1):
+       - first the Initial with crypto frames triggered by Retry
+       - second an Initial with ack frame, ACKing server Initial */
   FD_TEST( server_quic->metrics.initial_token_len_cnt[0] == 1 ); /* no token */
-  FD_TEST( server_quic->metrics.initial_token_len_cnt[1] == 1 ); /* retry token */
+  FD_TEST( server_quic->metrics.initial_token_len_cnt[1] == 2 ); /* retry token */
   FD_TEST( server_quic->metrics.initial_token_len_cnt[2] == 0 ); /* other sizes */
   /* Server: Retry, Initial, Handshake
      Client: Initial, Initial, Handshake */

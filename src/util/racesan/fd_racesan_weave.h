@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_racesan_fd_racesan_weave_h
-#define HEADER_fd_src_flamenco_racesan_fd_racesan_weave_h
+#ifndef HEADER_fd_src_util_racesan_fd_racesan_weave_h
+#define HEADER_fd_src_util_racesan_fd_racesan_weave_h
 
 /* fd_racesan_weave.h tests interleavings of concurrent algorithms. */
 
@@ -36,4 +36,4 @@ fd_racesan_weave_exec_rand( fd_racesan_weave_t * weave,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_racesan_fd_racesan_weave_h */
+#endif /* HEADER_fd_src_util_racesan_fd_racesan_weave_h */

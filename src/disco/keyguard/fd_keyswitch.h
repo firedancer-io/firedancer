@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_keyguard_fd_keyswitch_public_h
-#define HEADER_fd_src_disco_keyguard_fd_keyswitch_public_h
+#ifndef HEADER_fd_src_disco_keyguard_fd_keyswitch_h
+#define HEADER_fd_src_disco_keyguard_fd_keyswitch_h
 
 #include "../fd_disco_base.h"
 

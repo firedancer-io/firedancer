@@ -136,11 +136,11 @@ fetch () {
   checkout_repo zstd      https://github.com/facebook/zstd          "v1.5.7"
   checkout_repo lz4       https://github.com/lz4/lz4                "v1.10.0"
   checkout_repo s2n       https://github.com/awslabs/s2n-bignum     "" "4d2e22a"
-  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.5.0"
-  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.6.0"
+  checkout_repo openssl   https://github.com/openssl/openssl        "openssl-3.6.0"
+  checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.7.0"
   if [[ $DEVMODE == 1 ]]; then
-    checkout_repo blst      https://github.com/supranational/blst     "v0.3.14"
-    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.2.1"
+    checkout_repo bzip2     https://gitlab.com/bzip2/bzip2            "bzip2-1.0.8"
+    checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v10.5.1"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.2"
   fi
 }
@@ -285,11 +285,47 @@ check_macos_pkgs () {
   PACKAGE_INSTALL_CMD=( brew install ${MISSING_FORMULAE[*]} )
 }
 
+check_arch_pkgs () {
+  local REQUIRED_PKGS=(
+    base-devel        # C/C++ compiler, make, etc.
+    curl              # download rustup
+    zstd              # build system
+    cmake             # Agave (protobuf-src)
+    clang             # Agave (bindgen)
+    perl              # Agave (OpenSSL)
+    protobuf          # Agave, solfuzz
+    systemd-libs      # Agave
+  )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_PKGS+=( gmp lcov )
+  fi
+
+  echo "[~] Checking for required Arch Linux packages"
+
+  local MISSING_PKGS=( )
+  for pkg in "${REQUIRED_PKGS[@]}"; do
+    if ! pacman -Q "$pkg" &>/dev/null; then
+      MISSING_PKGS+=( "$pkg" )
+    fi
+  done
+
+  if [[ ${#MISSING_PKGS[@]} -eq 0 ]]; then
+    echo "[~] OK: Arch Linux packages required for build are installed"
+    return 0
+  fi
+
+  if [[ -z "${SUDO}" ]]; then
+    PACKAGE_INSTALL_CMD=( pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  else
+    PACKAGE_INSTALL_CMD=( "${SUDO}" pacman -S --needed --noconfirm ${MISSING_PKGS[*]} )
+  fi
+}
+
 check () {
   DISTRO="${ID_LIKE:-${ID:-}}"
   for word in $DISTRO ; do
     case "$word" in
-      fedora|debian|alpine|macos)
+      fedora|debian|alpine|macos|arch)
         check_${word}_pkgs
         ;;
       rhel|centos)
@@ -385,6 +421,15 @@ install_zstd () {
   echo "[+] Successfully installed zstd"
 }
 
+install_bzip2 () {
+  cd "$PREFIX/git/bzip2"
+
+  echo "[+] Installing bzip2 to $PREFIX"
+  # Not building bzip2 here, see src/ballet/bzip2/Local.mk
+  cp bzlib.h "$PREFIX/include"
+  echo "[+] Successfully installed bzip2"
+}
+
 install_lz4 () {
   cd "$PREFIX/git/lz4/lib"
 
@@ -401,22 +446,6 @@ install_s2n () {
   cp x86/libs2nbignum.a "$PREFIX/lib"
   cp include/* "$PREFIX/include"
   echo "[+] Successfully installed s2n-bignum"
-}
-
-install_blst () {
-  cd "$PREFIX/git/blst"
-
-  echo "[+] Installing blst to $PREFIX"
-
-  # this is copied from ./build.sh:27
-  CFLAGS=${CFLAGS:--O2 -fno-builtin -fPIC -Wall -Wextra -Werror}
-  # this adds our flags, e.g. for MSAN
-  CFLAGS+=" $EXTRA_CFLAGS"
-
-  CFLAGS=$CFLAGS ./build.sh
-  cp libblst.a "$PREFIX/lib"
-  cp bindings/*.h "$PREFIX/include"
-  echo "[+] Successfully installed blst"
 }
 
 install_secp256k1 () {
@@ -538,11 +567,7 @@ install_rocksdb () {
   local NJOBS
   NJOBS=$(( $(nproc) / 2 ))
   NJOBS=$((NJOBS>0 ? NJOBS : 1))
-  make clean
-
-  # Fix a random build failure
-  git checkout HEAD -- db/blob/blob_file_meta.h
-  git apply <(echo -e "diff --git a/db/blob/blob_file_meta.h b/db/blob/blob_file_meta.h\nindex d7c8a12..8cfff9b 100644\n--- a/db/blob/blob_file_meta.h\n+++ b/db/blob/blob_file_meta.h\n@@ -5,6 +5,7 @@\n \n #pragma once\n \n+#include <cstdint>\n #include <cassert>\n #include <iosfwd>\n #include <memory>\n")
+  make clean-ext-libraries-all clean-rocks
 
   ROCKSDB_DISABLE_NUMA=1 \
   ROCKSDB_DISABLE_ZLIB=1 \
@@ -610,7 +635,7 @@ install () {
   ( install_openssl   )
   ( install_secp256k1 )
   if [[ $DEVMODE == 1 ]]; then
-    ( install_blst      )
+    ( install_bzip2     )
     ( install_snappy    )
     ( install_rocksdb   )
   fi

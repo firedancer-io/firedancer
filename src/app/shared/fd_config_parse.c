@@ -85,11 +85,13 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.max_account_records                            );
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
-  CFG_POP      ( bool,   funk.lock_pages                                     );
 
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
+
+  CFG_POP      ( ulong,  runtime.program_cache.heap_size_mib                 );
+  CFG_POP      ( ulong,  runtime.program_cache.mean_cache_entry_size         );
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
 
@@ -102,7 +104,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
-  CFG_POP      ( bool,   snapshots.sources.entrypoints.enabled               );
   CFG_POP      ( bool,   snapshots.sources.gossip.enabled                    );
   CFG_POP_TABLE( bool,   snapshots.sources.http, snapshots.sources.http.peers, enabled, 0 );
   CFG_POP_TABLE( cstr,   snapshots.sources.http, snapshots.sources.http.peers, url,     1 );
@@ -247,7 +248,6 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
-  CFG_POP      ( ulong,  tiles.replay.heap_size_gib                       );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
@@ -310,7 +310,9 @@ fd_config_extract_pod( uchar *       pod,
 
   CFG_POP      ( cstr,   development.udpecho.affinity                     );
 
-  CFG_POP      ( bool,   development.gui.websocket_compression            );
+  if( FD_UNLIKELY( !config->is_firedancer ) ) {
+    CFG_POP    ( bool,   development.gui.websocket_compression            );
+  }
   CFG_POP      ( cstr,   development.gui.frontend_release_channel         );
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {

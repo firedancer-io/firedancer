@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discoh_fd_bank_abi_h
-#define HEADER_fd_src_discoh_fd_bank_abi_h
+#ifndef HEADER_fd_src_discoh_bank_fd_bank_abi_h
+#define HEADER_fd_src_discoh_bank_fd_bank_abi_h
 
 #include "../../disco/pack/fd_pack.h"
 #include "../../ballet/blake3/fd_blake3.h"
@@ -145,4 +145,4 @@ fd_bank_abi_get_lookup_addresses( fd_bank_abi_txn_t const * txn );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discoh_fd_bank_abi_h */
+#endif /* HEADER_fd_src_discoh_bank_fd_bank_abi_h */

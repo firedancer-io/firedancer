@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_discof_restore_fd_ssping_h
-#define HEADER_fd_src_discof_restore_fd_ssping_h
+#ifndef HEADER_fd_src_discof_restore_utils_fd_ssping_h
+#define HEADER_fd_src_discof_restore_utils_fd_ssping_h
 
 /* The snapshot pinger (ssping) is responsible for maintaining a list of
    peers that are reachable for snapshot download, and returning the
@@ -20,8 +20,6 @@
 
 struct fd_sspeer_selector_private;
 typedef struct fd_sspeer_selector_private fd_sspeer_selector_t;
-
-#define FD_SSPING_ALIGN (8UL)
 
 #define FD_SSPING_MAGIC (0xF17EDA2CE55A1A60) /* FIREDANCE SSPING V0 */
 
@@ -93,6 +91,11 @@ fd_ssping_advance( fd_ssping_t *          ssping,
                    long                   now,
                    fd_sspeer_selector_t * selector);
 
+/* Return the ping socket file descriptor */
+
+int
+fd_ssping_get_sockfd( fd_ssping_t const * ssping );
+
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_discof_restore_fd_ssping_h */
+#endif /* HEADER_fd_src_discof_restore_utils_fd_ssping_h */

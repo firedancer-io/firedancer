@@ -92,7 +92,11 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L75-L78 */
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, err ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!(*err) ) ) {
+      return NULL;
+    }
     fd_log_collector_msg_literal( instr_ctx, "Authority did not sign" );
     *err = FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     return NULL;
@@ -314,7 +318,9 @@ fd_loader_v4_program_instruction_set_program_length( fd_exec_instr_ctx_t *      
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L205-L208 */
-    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
+    if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL, &err ) ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+      if( FD_UNLIKELY( !!err ) ) return err;
       fd_log_collector_msg_literal( instr_ctx, "Authority did not sign" );
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
@@ -639,7 +645,9 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L414-L417 */
-  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL, &err ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/transaction-context/src/lib.rs#L789 */
+    if( FD_UNLIKELY( !!err ) ) return err;
     fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
@@ -853,34 +861,16 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         return rc;
       }
 
-      /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
-         https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
-      fd_program_cache_entry_t const * cache_entry = NULL;
-      if( FD_UNLIKELY( fd_program_cache_load_entry( instr_ctx->txn_ctx->funk,
-                                                    instr_ctx->txn_ctx->xid,
-                                                    program_id,
-                                                    &cache_entry )!=0 ) ) {
-        fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-      }
+      /* Work around differences in program caching behavior between
+         Fireadncer and Agave here.
 
-      /* The program may be in the cache but could have failed verification in the current epoch. */
-      if( FD_UNLIKELY( cache_entry->failed_verification ) ) {
-        fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
-      }
+         Agave includes load failures due to program metadata (e.g.
+         "DelayVisibility", "Closed") in their cache.  Firedancer
+         does not create cache entries for these states, instead only
+         including load results ("FailedVerification", "Loaded").
 
-      /* After the program is deployed, we wait a slot before adding it to our program cache. Agave, on the other hand,
-         updates their program cache after every transaction. Because of this, for a program that was deployed in the
-         current slot, Agave would log "Program is not deployed", while we would log "Program is not cached" since
-         the program is not in the cache yet. The same thing holds for very old programs that fail ELF / VM validation
-         checks and are thus non-invokable - if this program was invoked, Agave would keep it in their program cache and label
-         it as "FailedVerification", while we would not include it at all.
-
-         Because of the difference in our caching behavior, we need to perform checks that will filter out every single program
-         from execution that Agave would. In Agave's `load_program_accounts()` function, they filter any retracted programs ("Closed")
-         and mark any programs deployed in the current slot as "DelayedVisibility". Any programs that fail verification will also
-         not be in the cache anyways. */
+         Therefore, Firedancer recovers the DelayVisibility and Closed
+         states on-the-fly before querying cahce. */
 
       fd_loader_v4_state_t const * state = fd_loader_v4_get_state( program.acct, &rc );
       if( FD_UNLIKELY( rc ) ) {
@@ -895,6 +885,25 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* Handle `DelayedVisibility` case */
       if( FD_UNLIKELY( state->slot>=instr_ctx->txn_ctx->slot ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/loader-v4/src/lib.rs#L522-L528 */
+      fd_prog_load_env_t load_env[1]; fd_prog_load_env_from_bank( load_env, instr_ctx->txn_ctx->bank );
+      fd_progcache_rec_t const * cache_entry =
+          fd_progcache_pull( instr_ctx->txn_ctx->progcache,
+                             instr_ctx->txn_ctx->funk,
+                             instr_ctx->txn_ctx->xid,
+                             program_id,
+                             load_env );
+      if( FD_UNLIKELY( !cache_entry ) ) {
+        fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
+        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      }
+
+      /* The program may be in the cache but could have failed verification in the current epoch. */
+      if( FD_UNLIKELY( cache_entry->executable==0 ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not deployed" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }

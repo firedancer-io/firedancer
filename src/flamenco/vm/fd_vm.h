@@ -23,11 +23,13 @@ typedef struct fd_vm_shadow fd_vm_shadow_t;
    within the larger input region. */
 
 struct __attribute__((aligned(8UL))) fd_vm_input_region {
-   ulong         vaddr_offset; /* Represents offset from the start of the input region. */
-   ulong         haddr;        /* Host address corresponding to the start of the mem region. */
-   uint          region_sz;    /* Size of the memory region. */
-   uchar         is_writable;  /* If the region can be written to or is read-only */
-   uchar         is_acct_data; /* Set if this is an account data region (either orig data or resize buffer). */
+   ulong vaddr_offset;           /* Represents offset from the start of the input region. */
+   ulong haddr;                  /* Host address corresponding to the start of the mem region. */
+   uint  region_sz;              /* Size of the memory region. */
+   ulong address_space_reserved; /* The amount of address space reserved for the region. */
+   uchar is_writable;            /* If the region can be written to or is read-only */
+   ulong padding;                /* Empty padding at the start of the region.*/
+   ulong acc_region_meta_idx;    /* Index of the acc_region_meta_t struct for the account corresponding to this region. */
 };
 typedef struct fd_vm_input_region fd_vm_input_region_t;
 
@@ -36,17 +38,13 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
-   uint                                region_idx;
-   uchar                               has_data_region;
-   uchar                               has_resizing_region;
-   /* offset of the accounts metadata region, relative to the start of the input region.
-      importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */
-   ulong                               metadata_region_offset;
+   uint               region_idx;
    /* FIXME: We can get rid of this field once DM is activated.  This is
       only a hack to make the non-DM code path happy.  When DM is
       activated, we could query the input_mem_region array for the
       original data len. */
-   ulong                               original_data_len;
+   ulong              original_data_len;
+   fd_txn_account_t * acct; /* The transaction account corresponding to this account. */
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
@@ -208,14 +206,15 @@ struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   ulong magic;    /* ==FD_VM_MAGIC */
 
-  int   direct_mapping;   /* If direct mapping is enabled or not */
-  ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
+  int   direct_mapping;                       /* If direct mapping feature flag is enabled */
+  int   stricter_abi_and_runtime_constraints; /* If stricter_abi_and_runtime_constraints feature flag is enabled */
 
   /* Agave uses the segv vaddr in several different cases, including:
      - Determining whether or not to return a regular or stack access violation
      - (If direct mapping is enabled) determining the instruction error
        code to return on store operations. */
   ulong segv_vaddr;
+  ulong segv_access_len;
   uchar segv_access_type;
 
   ulong sbpf_version;     /* SBPF version, SIMD-0161 */
@@ -292,7 +291,7 @@ fd_vm_init(
    ulong text_off,
    ulong text_sz,
    ulong entry_pc,
-   ulong * calldests,
+   ulong const * calldests,
    ulong sbpf_version,
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
@@ -302,6 +301,7 @@ fd_vm_init(
    fd_vm_acc_region_meta_t * acc_region_metas,
    uchar is_deprecated,
    int direct_mapping,
+   int stricter_abi_and_runtime_constraints,
    int dump_syscall_to_pb );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.

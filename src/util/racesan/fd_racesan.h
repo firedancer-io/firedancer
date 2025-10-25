@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_racesan_fd_racesan_h
-#define HEADER_fd_src_flamenco_racesan_fd_racesan_h
+#ifndef HEADER_fd_src_util_racesan_fd_racesan_h
+#define HEADER_fd_src_util_racesan_fd_racesan_h
 
 /* fd_racesan.h provides test utils for deterministically simulating
    data races.  Practically just a mechanism to inject callbacks into
@@ -84,4 +84,4 @@ fd_racesan_private_cleanup( int * unused ) {
     } while(0); \
   } while(0)
 
-#endif /* HEADER_fd_src_flamenco_racesan_fd_racesan_h */
+#endif /* HEADER_fd_src_util_racesan_fd_racesan_h */

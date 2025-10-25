@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_waltz_mib_fd_netdev_h
-#define HEADER_fd_src_waltz_mib_fd_netdev_h
+#ifndef HEADER_fd_src_waltz_mib_fd_netdev_tbl_h
+#define HEADER_fd_src_waltz_mib_fd_netdev_tbl_h
 
 /* fd_netdev_tbl.h provides a network interface table.
    The entrypoint of this API is fd_netlink_tbl_t. */
@@ -145,4 +145,4 @@ FD_PROTOTYPES_END
 char const *
 fd_oper_status_cstr( uint oper_status );
 
-#endif /* HEADER_fd_src_waltz_mib_fd_netdev_h */
+#endif /* HEADER_fd_src_waltz_mib_fd_netdev_tbl_h */

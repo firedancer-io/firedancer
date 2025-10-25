@@ -854,7 +854,7 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_fec_set_t const * out_fec_set[1];
     rv = fd_fec_resolver_force_complete( ctx->resolver, out_last_shred, out_fec_set, &ctx->out_merkle_roots[0] );
     if( FD_UNLIKELY( rv != FD_FEC_RESOLVER_SHRED_COMPLETES ) ) {
-      FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u %s", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx, FD_BASE58_ENC_32_ALLOCA( shred_sig ) ));
+      FD_LOG_WARNING(( "Shred tile %lu cannot force complete the slot %lu fec_set_idx %u last_idx %u %s", ctx->round_robin_id, out_last_shred->slot, out_last_shred->fec_set_idx, last_idx, FD_BASE58_ENC_32_ALLOCA( shred_sig ) ));
       FD_MCNT_INC( SHRED, FORCE_COMPLETE_FAILURE, 1UL );
       return;
     }
@@ -1038,6 +1038,17 @@ after_frag( fd_shred_ctx_t *    ctx,
       FD_STORE_SHARED_LOCK( ctx->store, shacq_start, shacq_end, shrel_end ) {
         fec = fd_store_insert( ctx->store, ctx->round_robin_id, (fd_hash_t *)fd_type_pun( &ctx->out_merkle_roots[fset_k] ) );
       } FD_STORE_SHARED_LOCK_END;
+
+      if( FD_UNLIKELY( !fec ) ) {
+        /* fec can be null for several reasons, but the most likely case
+           that Firedancer can run into during regular operation is when
+           it is our leader slot and someone is sending us back our own
+           FEC set shreds.  We could end up trying to insert our own FEC
+           set twice.  In development, this can also occur if you run
+           with a staked key and switch to another staked key without
+           changing the turbine receive port. */
+        return;
+      }
 
       for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
         fd_shred_t * data_shred = (fd_shred_t *)fd_type_pun( set->data_shreds[i] );

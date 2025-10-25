@@ -1,3 +1,6 @@
+#ifndef HEADER_fd_src_flamenco_rewards_fd_rewards_base_h
+#define HEADER_fd_src_flamenco_rewards_fd_rewards_base_h
+
 #include "../fd_flamenco_base.h"
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/native_token.rs#L6 */
@@ -14,3 +17,5 @@
 
 /* https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L219 */
 #define MAX_FACTOR_OF_REWARD_BLOCKS_IN_EPOCH (10UL)
+
+#endif /* HEADER_fd_src_flamenco_rewards_fd_rewards_base_h */

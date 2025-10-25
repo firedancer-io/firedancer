@@ -74,7 +74,7 @@ fd_backtest_rocksdb_new( void *       shmem,
     db->cfs,
     false,
     &err );
-  FD_TEST( !err );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_open_for_read_only_column_families(%s) failed: %s", path, err ));
   FD_TEST( db->db );
 
   db->readoptions = rocksdb_readoptions_create();
@@ -133,7 +133,7 @@ fd_backtest_rocksdb_next_root_slot( fd_backtest_rocksdb_t * db,
   ulong vallen;
   char * err = NULL;
   char * slot_meta = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 2 ], key, keylen, &vallen, &err );
-  FD_TEST( !err );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"meta\",...) failed: %s", err ));
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = slot_meta,
@@ -163,7 +163,7 @@ fd_backtest_rocksdb_shred( fd_backtest_rocksdb_t * db,
   ulong vallen;
   char * err = NULL;
   char const * shred = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 3 ], key, 16UL, &vallen, &err );
-  FD_TEST( !err );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"data_shred\",%lu:%lu) failed: %s", slot, shred_idx, err ));
   FD_TEST( vallen<=FD_SHRED_MAX_SZ );
   FD_TEST( fd_shred_parse( (uchar const*)shred, vallen ) );
 
@@ -179,7 +179,7 @@ fd_backtest_rocksdb_bank_hash( fd_backtest_rocksdb_t * db,
   ulong vallen;
   char * err = NULL;
   char const * frozen_hash = rocksdb_get_cf( db->db, db->readoptions, db->cfs[ 4 ], key, 8UL, &vallen, &err );
-  FD_TEST( !err );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "rocksdb_get_cf(\"bank_hashes\",%lu) failed: %s", slot, err ));
 
   fd_bincode_decode_ctx_t decode = {
     .data    = frozen_hash,

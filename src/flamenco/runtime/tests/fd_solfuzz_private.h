@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_private_h
-#define HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_private_h
+#ifndef HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_private_h
+#define HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_private_h
 
 /* fd_solfuzz_private.h contains internal components for the solfuzz
    Protobuf shim. */
@@ -27,14 +27,6 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
 int
 fd_runtime_fuzz_restore_features( fd_features_t *                    features,
                                   fd_exec_test_feature_set_t const * feature_set );
-
-void
-fd_runtime_fuzz_refresh_program_cache( fd_bank_t *                       bank,
-                                       fd_funk_t *                       funk,
-                                       fd_funk_txn_xid_t const *         xid,
-                                       fd_exec_test_acct_state_t const * acct_states,
-                                       ulong                             acct_states_count,
-                                       fd_spad_t *                       runtime_spad );
 
 typedef ulong( exec_test_run_fn_t )( fd_solfuzz_runner_t *,
                                      void const *,
@@ -114,4 +106,4 @@ sol_compat_encode( uchar *              out,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_private_h */
+#endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_private_h */

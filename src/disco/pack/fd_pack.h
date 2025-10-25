@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_pack_h
-#define HEADER_fd_src_ballet_pack_fd_pack_h
+#ifndef HEADER_fd_src_disco_pack_fd_pack_h
+#define HEADER_fd_src_disco_pack_fd_pack_h
 
 /* fd_pack defines methods that prioritizes Solana transactions,
    selecting a subset (potentially all) and ordering them to attempt to
@@ -668,4 +668,5 @@ void * fd_pack_delete( void      * mem  );
 int fd_pack_verify( fd_pack_t * pack, void * scratch );
 
 FD_PROTOTYPES_END
-#endif /* HEADER_fd_src_ballet_pack_fd_pack_h */
+
+#endif /* HEADER_fd_src_disco_pack_fd_pack_h */

@@ -1,3 +1,4 @@
+src/disco/gui/dist_*/**/* -diff linguist-generated=true
 src/flamenco/types/fd_types_reflect_generated.c -diff linguist-generated
 contrib/test/test-vectors-fixtures/** -diff linguist-generated
 src/flamenco/types/fixtures/** -diff binary

@@ -27,8 +27,14 @@ setup_topo_funk( fd_topo_t *  topo,
                  char const * wksp_name,
                  ulong        max_account_records,
                  ulong        max_database_transactions,
-                 ulong        heap_size_gib,
-                 int          lock_pages );
+                 ulong        heap_size_gib );
+
+fd_topo_obj_t *
+setup_topo_progcache( fd_topo_t *  topo,
+                      char const * wksp_name,
+                      ulong        max_cache_entries,
+                      ulong        max_database_transactions,
+                      ulong        heap_size_gib );
 
 fd_topo_obj_t *
 setup_topo_runtime_pub( fd_topo_t *  topo,

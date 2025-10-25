@@ -6,6 +6,12 @@ on:
 concurrency:
   group: on-pull-request_${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   tests:
     if: github.event.pull_request.draft == false
@@ -14,6 +20,12 @@ jobs:
   backtest:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/backtest.yml
+    secrets: inherit
+  benchmark:
+    if: github.event.pull_request.draft == false && github.event_name == 'pull_request'
+    uses: ./.github/workflows/benchmark.yml
+    with:
+      github-token: ${{ github.token }}
     secrets: inherit
   build_checks_1:
     if: github.event.pull_request.draft == false
@@ -28,10 +40,15 @@ jobs:
         ALL,linux_gcc_riscv,ALL;
         ALL,linux_gcc_power9,ALL;
         ALL,linux_gcc_arm_n1,ALL;
+        ALL,linux_gcc_zen3,ALL;
         ALL,linux_gcc_zen4,ALL;
         ALL,linux_gcc_zen5,ALL;
         ALL,linux_gcc_icelake,ALL;
         ALL,linux_gcc_x86_64,ALL
+      clang_exceptions: |
+        ALL,linux_clang_zen3,ALL;
+        ALL,linux_clang_zen4,ALL;
+        ALL,linux_clang_zen5,ALL;
   build_checks_2:
     if: github.event.pull_request.draft == false
     uses: ./.github/workflows/builds.yml

@@ -1,7 +1,7 @@
 #include "watch.h"
 #include "generated/watch_seccomp.h"
 
-#include "../../../../discof/restore/fd_snaprd_tile.h"
+#include "../../../../discof/restore/fd_snapct_tile.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 
 #include <errno.h>
@@ -25,20 +25,9 @@ watch_cmd_perm( args_t *         args FD_PARAM_UNUSED,
     fd_cap_chk_cap( chk, "watch", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
 }
 
-static void
-save_cursor( void ) {
-  char * save_cursor = "\033[s";
-  long save_written = 0L;
-  while( save_written<3L ) {
-    long w = write( STDOUT_FILENO, save_cursor+save_written, 3UL-(ulong)save_written );
-    if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
-    else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    save_written += w;
-  }
-}
 
-ulong lines_printed = 5UL;
-int ended_on_newline = 1;
+static ulong lines_printed;
+static int ended_on_newline = 1;
 
 static int
 drain( int fd ) {
@@ -53,18 +42,19 @@ drain( int fd ) {
     if( FD_LIKELY( !needs_reprint ) ) {
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
       char erase[ 128UL ];
+      ulong term_len = 0UL;
       if( FD_UNLIKELY( !ended_on_newline ) ) {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[1A\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
       }
 
-      long erase_written = 0L;
-      while( erase_written<13L ) {
-        long w = write( STDOUT_FILENO, erase+erase_written, 13UL-(ulong)erase_written );
+      ulong erase_written = 0L;
+      while( erase_written<term_len ) {
+        long w = write( STDOUT_FILENO, erase+erase_written, term_len-erase_written );
         if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
         else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        erase_written += w;
+        erase_written += (ulong)w;
       }
     }
     needs_reprint = 1;
@@ -79,8 +69,6 @@ drain( int fd ) {
 
     ended_on_newline = buf[ (ulong)result-1UL ]=='\n';
   }
-
-  if( FD_UNLIKELY( needs_reprint ) ) save_cursor();
 
   return needs_reprint;
 }
@@ -120,6 +108,7 @@ fmt_countf( char * buf,
   if( FD_LIKELY( count<1000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f", count ) );
   else if( FD_LIKELY( count<1000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f K", (double)count/1000.0 ) );
   else if( FD_LIKELY( count<1000000000UL ) ) FD_TEST( fd_cstr_printf_check( tmp, buf_sz, NULL, "%.1f M", (double)count/1000000.0 ) );
+  else memcpy( tmp, "-", 2UL );
 
   FD_TEST( fd_cstr_printf_check( buf, buf_sz, NULL, "%10s", tmp ) );
   return buf;
@@ -225,16 +214,43 @@ static ulong snapshot_acc_samples[ 100UL ];
   }))
 
 static void
+write_backtest( config_t const * config,
+                ulong const *    cur_tile ) {
+  ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
+  ulong start_slot = cur_tile[ backt_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, BACKT, START_SLOT ) ];
+  ulong final_slot = cur_tile[ backt_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, BACKT, FINAL_SLOT ) ];
+
+  ulong replay_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  ulong current_slot = cur_tile[ replay_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_SLOT ) ];
+  current_slot = current_slot ? current_slot : start_slot;
+
+  ulong total_slots = final_slot-start_slot;
+  ulong completed_slots = current_slot-start_slot;
+
+  double progress = 0.0;
+  if( FD_LIKELY( total_slots>0UL ) ) progress = 100.0 * (double)completed_slots / (double)total_slots;
+  else progress = 100.0;
+
+  PRINT( "🧪 \033[1m\033[92mBACKTEST....\033[0m\033[22m \033[1mPCT\033[22m %.1f %% (%lu/%lu)\033[K\n", progress, completed_slots, total_slots );
+}
+
+static void
 write_snapshots( config_t const * config,
                  ulong const *    cur_tile,
                  ulong const *    prev_tile ) {
-  ulong snaprd_idx = fd_topo_find_tile( &config->topo, "snaprd", 0UL );
-  ulong state = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, STATE ) ];
+  ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
+  ulong state = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ];
 
-  ulong bytes_read = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ];
-  ulong bytes_total = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, FULL_BYTES_TOTAL ) ];
+  ulong bytes_read = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ];
+  ulong bytes_total = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, FULL_BYTES_TOTAL ) ];
+
+  ulong gossip_fresh_count = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, GOSSIP_FRESH_COUNT ) ];
+  ulong gossip_total_count = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, GOSSIP_TOTAL_COUNT ) ];
+
   double progress = 0.0;
   if( FD_LIKELY( bytes_total>0UL ) ) progress = 100.0 * (double)bytes_read / (double)bytes_total;
+  else if( FD_LIKELY( gossip_total_count>0UL ) ) progress = 100.0 * (1.0 - (double)gossip_fresh_count / (double)gossip_total_count );
+  else progress = 0.0;
 
   ulong snap_rx_sum = 0UL;
   ulong num_snap_rx_samples = fd_ulong_min( snapshot_rx_idx, sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0]) );
@@ -248,79 +264,110 @@ write_snapshots( config_t const * config,
   double million_accounts_per_second = 0.0;
   if( FD_LIKELY( num_accounts_samples ) ) million_accounts_per_second = 100.0*(double)accounts_sum/(double)num_accounts_samples/1e6;
 
-  ulong snaprd_total_ticks = total_regime( &cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ ] );
+  ulong snapct_total_ticks = total_regime( &cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ snapct_idx*FD_METRICS_TOTAL_SZ ] );
+  ulong snapld_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapld", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapdc_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapdc", 0UL )*FD_METRICS_TOTAL_SZ ] );
   ulong snapin_total_ticks = total_regime( &cur_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ fd_topo_find_tile( &config->topo, "snapin", 0UL )*FD_METRICS_TOTAL_SZ ] );
-  snaprd_total_ticks = fd_ulong_max( snaprd_total_ticks, 1UL );
+  snapct_total_ticks = fd_ulong_max( snapct_total_ticks, 1UL );
+  snapld_total_ticks = fd_ulong_max( snapld_total_ticks, 1UL );
   snapdc_total_ticks = fd_ulong_max( snapdc_total_ticks, 1UL );
   snapin_total_ticks = fd_ulong_max( snapin_total_ticks, 1UL );
 
-  double snaprd_backp_pct = 100.0*(double)diff_tile( config, "snaprd", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snaprd_total_ticks;
+  double snapct_backp_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapct_total_ticks;
+  double snapld_backp_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapld_total_ticks;
   double snapdc_backp_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapdc_total_ticks;
   double snapin_backp_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)snapin_total_ticks;
 
-  double snaprd_idle_pct = 100.0*(double)diff_tile( config, "snaprd", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snaprd_total_ticks;
+  double snapct_idle_pct = 100.0*(double)diff_tile( config, "snapct", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapct_total_ticks;
+  double snapld_idle_pct = 100.0*(double)diff_tile( config, "snapld", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapld_total_ticks;
   double snapdc_idle_pct = 100.0*(double)diff_tile( config, "snapdc", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapdc_total_ticks;
   double snapin_idle_pct = 100.0*(double)diff_tile( config, "snapin", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)snapin_total_ticks;
 
-  PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
-    fd_snaprd_state_str( state ),
+  PRINT( "⚡ \033[1m\033[93mSNAPSHOTS...\033[0m\033[22m \033[1mSTATE\033[22m %s \033[1mPCT\033[22m %.1f %% \033[1mRX\033[22m %3.f MB/s \033[1mACC\033[22m %3.1f M/s \033[1mBACKP\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%% \033[1mBUSY\033[22m %3.0f%%,%3.0f%%,%3.0f%%,%3.0f%%\033[K\n",
+    fd_snapct_state_str( state ),
     progress,
     megabytes_per_second,
     million_accounts_per_second,
-    snaprd_backp_pct,
+    snapct_backp_pct,
+    snapld_backp_pct,
     snapdc_backp_pct,
     snapin_backp_pct,
-    100.0-snaprd_idle_pct-snaprd_backp_pct,
+    100.0-snapct_idle_pct-snapct_backp_pct,
+    100.0-snapld_idle_pct-snapld_backp_pct,
     100.0-snapdc_idle_pct-snapdc_backp_pct,
     100.0-snapin_idle_pct-snapin_backp_pct );
 }
 
-static void
+static uint
 write_gossip( config_t const * config,
               ulong const *    cur_tile,
+              ulong const *    prev_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
-  char * contact_info = COUNT( cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] );
-  PRINT( "💬 \033[1m\033[34mGOSSIP......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mCRDS\033[22m %s \033[1mPEERS\033[22m %s\033[K\n",
+  ulong gossip_tile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
+  if( gossip_tile_idx==ULONG_MAX ) return 0U;
+  char * contact_info = COUNT( cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, GOSSIP, CRDS_COUNT_CONTACT_INFO_V2 ) ] );
+
+  ulong gossip_total_ticks = total_regime( &cur_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ gossip_tile_idx*FD_METRICS_TOTAL_SZ ] );
+  gossip_total_ticks = fd_ulong_max( gossip_total_ticks, 1UL );
+  double gossip_backp_pct = 100.0*(double)diff_tile( config, "gossip", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) )/(double)gossip_total_ticks;
+  double gossip_idle_pct = 100.0*(double)diff_tile( config, "gossip", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) )/(double)gossip_total_ticks;
+  double gossip_busy_pct = 100.0 - gossip_backp_pct - gossip_idle_pct;
+
+  PRINT( "💬 \033[1m\033[34mGOSSIP......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mCRDS\033[22m %s \033[1mPEERS\033[22m %s \033[1mBUSY\033[22m %3.0f%% \033[1mBACKP\033[22m %3.0f%%\033[K\n",
     DIFF_LINK_BYTES( "net_gossvf", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "gossip_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     COUNT( total_crds( &cur_tile[ fd_topo_find_tile( &config->topo, "gossip", 0UL )*FD_METRICS_TOTAL_SZ ] ) ),
-    contact_info );
+    contact_info,
+    gossip_busy_pct,
+    gossip_backp_pct );
+  return 1U;
 }
 
-static void
+static uint
 write_repair( config_t const * config,
               ulong const *    cur_tile,
               ulong const *    cur_link,
               ulong const *    prev_link ) {
-  ulong repair_slot = cur_tile[ fd_topo_find_tile( &config->topo, "repair", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
-  ulong turbine_slot = cur_tile[ fd_topo_find_tile( &config->topo, "repair", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  if( repair_tile_idx==ULONG_MAX ) return 0U;
+  ulong repair_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, REPAIRED_SLOTS ) ];
+  ulong turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
   PRINT( "🧱 \033[1m\033[31mREPAIR......\033[0m\033[22m \033[1mRX\033[22m %s \033[1mTX\033[22m %s \033[1mREPAIR SLOT\033[22m %lu (%ld) \033[1mTURBINE SLOT\033[22m %lu\033[K\n",
     DIFF_LINK_BYTES( "net_repair", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     DIFF_LINK_BYTES( "repair_net", COUNTER, LINK, CONSUMED_SIZE_BYTES ),
     repair_slot,
     (long)repair_slot-(long)turbine_slot,
     turbine_slot );
+  return 1U;
 }
 
-static void
+static uint
 write_replay( config_t const * config,
               ulong const *    cur_tile ) {
-  ulong turbine_slot = cur_tile[ fd_topo_find_tile( &config->topo, "repair", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  ulong repair_tile_idx = fd_topo_find_tile( &config->topo, "repair", 0UL );
+  ulong replay_tile_idx = fd_topo_find_tile( &config->topo, "replay", 0UL );
+  if( replay_tile_idx==ULONG_MAX ) return 0U;
 
-  ulong reset_slot = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT ) ];
-  ulong next_leader_slot = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, NEXT_LEADER_SLOT ) ];
-  ulong leader_slot = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LEADER_SLOT ) ];
+  ulong reset_slot       = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, RESET_SLOT       ) ];
+  ulong next_leader_slot = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, NEXT_LEADER_SLOT ) ];
+  ulong leader_slot      = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LEADER_SLOT      ) ];
   char * next_leader_slot_str = fd_alloca_check( 1UL, 64UL );
+
+  ulong turbine_slot;
+  if( repair_tile_idx!=ULONG_MAX ) {
+    turbine_slot = cur_tile[ repair_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( COUNTER, REPAIR, CURRENT_SLOT ) ];
+  } else {
+    turbine_slot = reset_slot;
+  }
 
   ulong slot_in_seconds = (ulong)((double)(next_leader_slot-reset_slot)*0.4);
   if( FD_UNLIKELY( leader_slot ) ) FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "now" ) );
   else if( FD_LIKELY( next_leader_slot>0UL ) ) FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "%lum %lus", slot_in_seconds/60UL, slot_in_seconds%60UL ) );
   else FD_TEST( fd_cstr_printf_check( next_leader_slot_str, 64UL, NULL, "never" ) );
 
-  ulong root_distance = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_DISTANCE ) ];
-  ulong live_banks = cur_tile[ fd_topo_find_tile( &config->topo, "replay", 0UL )*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LIVE_BANKS ) ];
+  ulong root_distance = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, ROOT_DISTANCE ) ];
+  ulong live_banks    = cur_tile[ replay_tile_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, REPLAY, LIVE_BANKS    ) ];
 
   ulong sps_sum = 0UL;
   ulong num_sps_samples = fd_ulong_min( sps_samples_idx, sizeof(sps_samples)/sizeof(sps_samples[0]));
@@ -340,6 +387,7 @@ write_replay( config_t const * config,
     next_leader_slot_str,
     root_distance,
     live_banks );
+  return 1U;
 }
 
 static void
@@ -355,26 +403,32 @@ write_summary( config_t const * config,
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
   PRINT( "───────────────\033[K\n" );
 
-  ulong snaprd_idx = fd_topo_find_tile( &config->topo, "snaprd", 0UL );
+  ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
   int shutdown = 1;
-  if( FD_LIKELY( snaprd_idx!=ULONG_MAX ) ) shutdown = cur_tile[ snaprd_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPRD, STATE ) ]==FD_SNAPRD_STATE_SHUTDOWN;
+  if( FD_LIKELY( snapct_idx!=ULONG_MAX ) ) shutdown = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, STATE ) ]==FD_SNAPCT_STATE_SHUTDOWN;
 
   static long snap_shutdown_time = 0L;
   if( FD_UNLIKELY( !snap_shutdown_time && !shutdown ) ) snap_shutdown_time = 1L; /* Was not shutdown on boot */
   if( FD_UNLIKELY( !snap_shutdown_time && shutdown  ) ) snap_shutdown_time = 2L; /* Was shutdown on boot */
   if( FD_UNLIKELY( snap_shutdown_time==1L && shutdown  ) ) snap_shutdown_time = fd_log_wallclock();
 
-  long now = fd_log_wallclock();
-  if( FD_UNLIKELY( snap_shutdown_time==1L || now<snap_shutdown_time+(long)2e9 ) ) {
-    lines_printed = 5UL;
-    write_snapshots( config, cur_tile, prev_tile );
-  } else {
-    lines_printed = 4UL;
+  lines_printed = 1UL;
+
+  ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
+  if( FD_UNLIKELY( backt_idx!=ULONG_MAX ) ) {
+    lines_printed++;
+    write_backtest( config, cur_tile );
   }
 
-  write_gossip( config, cur_tile, cur_link, prev_link );
-  write_repair( config, cur_tile, cur_link, prev_link );
-  write_replay( config, cur_tile );
+  long now = fd_log_wallclock();
+  if( FD_UNLIKELY( snap_shutdown_time==1L || now<snap_shutdown_time+(long)2e9 ) ) {
+    lines_printed++;
+    write_snapshots( config, cur_tile, prev_tile );
+  }
+
+  lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
+  lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
+  lines_printed += write_replay( config, cur_tile );
 }
 
 static void
@@ -438,7 +492,6 @@ run( config_t const * config,
 
   ulong last_snap = 1UL;
 
-  save_cursor();
   write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
 
   long next = fd_log_wallclock()+(long)1e9;
@@ -457,25 +510,26 @@ run( config_t const * config,
       sps_samples_idx++;
       tps_samples[ tps_samples_idx%(sizeof(tps_samples)/sizeof(tps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, TRANSACTIONS_TOTAL ) );
       tps_samples_idx++;
-      snapshot_rx_samples[ snapshot_rx_idx%(sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0])) ] = (ulong)diff_tile( config, "snaprd", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPRD, FULL_BYTES_READ ) ) +
-                                                                                                            (ulong)diff_tile( config, "snaprd", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPRD, INCREMENTAL_BYTES_READ ) );
+      snapshot_rx_samples[ snapshot_rx_idx%(sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0])) ] = (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, FULL_BYTES_READ ) ) +
+                                                                                                            (ulong)diff_tile( config, "snapct", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPCT, INCREMENTAL_BYTES_READ ) );
       snapshot_rx_idx++;
       snapshot_acc_samples[ snapshot_acc_idx%(sizeof(snapshot_acc_samples)/sizeof(snapshot_acc_samples[0])) ] = (ulong)diff_tile( config, "snapin", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( GAUGE, SNAPIN, ACCOUNTS_INSERTED ) );
       snapshot_acc_idx++;
 
       /* move up n lines, delete n lines, and restore cursor and clear to end of screen */
       char erase[ 128UL ];
+      ulong term_len = 0UL;
       if( FD_UNLIKELY( !ended_on_newline ) ) {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[1A\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[1A\033[0J", lines_printed, lines_printed ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( erase, 128UL, NULL, "\033[%luA\033[%luM\033[u\033[0J", lines_printed, lines_printed ) );
+        FD_TEST( fd_cstr_printf_check( erase, 128UL, &term_len, "\033[%luA\033[%luM\033[0J", lines_printed, lines_printed ) );
       }
-      long erase_written = 0L;
-      while( erase_written<13L ) {
-        long w = write( STDOUT_FILENO, erase+erase_written, 13UL-(ulong)erase_written );
+      ulong erase_written = 0UL;
+      while( erase_written<term_len ) {
+        long w = write( STDOUT_FILENO, erase+erase_written, term_len-(ulong)erase_written );
         if( FD_UNLIKELY( -1==w && errno==EAGAIN ) ) continue;
         else if( FD_UNLIKELY( -1==w ) ) FD_LOG_ERR(( "write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-        erase_written += w;
+        erase_written += (ulong)w;
       }
 
       write_summary( config, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL), links+(1UL-last_snap)*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );

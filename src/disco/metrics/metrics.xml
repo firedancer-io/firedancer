@@ -432,6 +432,7 @@ metric introduced.
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
     <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
+    <counter name="DbRaces" summary="Number of database races encountered (diagnostic counter, not indicative of issues)" />
 </tile>
 
 <tile name="resolv">
@@ -1012,8 +1013,8 @@ metric introduced.
     <counter name="NeighProbeRateLimitGlobal" summary="Number of neighbor solicit that exceeded the global rate limit" />
 </tile>
 
-<tile name="snaprd">
-    <gauge name="State" summary="State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done." />
+<tile name="snapct">
+    <gauge name="State" summary="State of the tile" />
     <counter name="FullNumRetries" summary="Number of times we aborted and retried full snapshot download because the peer was too slow" />
     <counter name="IncrementalNumRetries" summary="Number of times we aborted and retried incremental snapshot download because the peer was too slow" />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
@@ -1025,10 +1026,16 @@ metric introduced.
     <gauge name="IncrementalBytesTotal" summary="Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted" />
     <gauge name="IncrementalDownloadRetries" summary="Number of times we retried the incremental snapshot download because the peer was too slow" />
     <gauge name="PredictedSlot" summary="The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted" />
+    <gauge name="GossipFreshCount" summary="Number of fresh gossip peers seen when collecting gossip peers. " />
+    <gauge name="GossipTotalCount" summary="Number of total gossip peers seen when collecting gossip peers. " />
+</tile>
+
+<tile name="snapld">
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
 </tile>
 
 <tile name="snapdc">
-    <gauge name="State" summary="State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = done." />
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
     <gauge name="FullCompressedBytesRead" summary="Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="FullDecompressedBytesRead" summary="Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalCompressedBytesRead" summary="Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted" />
@@ -1036,7 +1043,7 @@ metric introduced.
 </tile>
 
 <tile name="snapin">
-    <gauge name="State" summary="State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done." />
+    <gauge name="State" summary="State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN" />
     <gauge name="FullBytesRead" summary="Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="IncrementalBytesRead" summary="Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted" />
     <gauge name="AccountsInserted" summary="Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
@@ -1053,6 +1060,21 @@ metric introduced.
     <counter name="ConnectionsClosedError" summary="The number of connections to the ipecho service that have been made and closed abnormally" />
     <counter name="BytesRead" summary="The total number of bytes read from all connections to the ipecho service" />
     <counter name="BytesWritten" summary="The total number of bytes written to all connections to the ipecho service" />
+</tile>
+
+<tile name="backt">
+    <gauge name="FinalSlot" summary="The slot after which the backtest will complete" />
+    <gauge name="StartSlot" summary="The slot at which the backtest started" />
+</tile>
+
+<tile name="exec">
+    <counter name="ProgcacheMisses" summary="Number of program cache misses" />
+    <counter name="ProgcacheHits" summary="Number of program cache hits" />
+    <counter name="ProgcacheFills" summary="Number of program cache insertions" />
+    <counter name="ProgcacheFillTotSz" summary="Total number of bytes inserted into program cache" />
+    <counter name="ProgcacheFillFails" summary="Number of program cache load fails (tombstones inserted)" />
+    <counter name="ProgcacheDupInserts" summary="Number of time two tiles raced to insert the same cache entry" />
+    <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
 </tile>
 
 </metrics>

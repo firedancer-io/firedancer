@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
-#define HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h
+#ifndef HEADER_fd_src_app_shared_dev_commands_quic_trace_fd_quic_trace_h
+#define HEADER_fd_src_app_shared_dev_commands_quic_trace_fd_quic_trace_h
 
 #include "../../../shared/fd_config.h"
 #include "../../../shared/fd_action.h"
@@ -101,4 +101,4 @@ FD_PROTOTYPES_END
 
 extern action_t fd_action_quic_trace;
 
-#endif /* HEADER_fd_src_app_fddev_quic_trace_fd_quic_trace_h */
+#endif /* HEADER_fd_src_app_shared_dev_commands_quic_trace_fd_quic_trace_h */

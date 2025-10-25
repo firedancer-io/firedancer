@@ -1,6 +1,7 @@
 #include "fd_tower_tile.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
+#include "../genesis/fd_genesi_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../choreo/ghost/fd_ghost.h"
 #include "../../choreo/tower/fd_tower.h"
@@ -331,8 +332,10 @@ returnable_frag( fd_tower_tile_t *   ctx,
   (void)tspub;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GENESIS ) ) {
-    init_genesis( ctx, fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t) ) );
-    ctx->initialized = 1;
+    if( FD_LIKELY( sig==GENESI_SIG_BOOTSTRAP_COMPLETED ) ) {
+      init_genesis( ctx, fd_type_pun( (uchar*)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk )+sizeof(fd_lthash_value_t)+sizeof(fd_hash_t) ) );
+      ctx->initialized = 1;
+    }
   } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_SNAP ) ) {
     if( FD_UNLIKELY( fd_ssmsg_sig_message( sig )==FD_SSMSG_DONE ) ) {
       snapshot_done( ctx, &ctx->manifest );
@@ -437,9 +440,9 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY( !strcmp( link->name, "genesi_out"      ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
-    else if( FD_LIKELY( !strcmp( link->name, "snap_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
-    else if( FD_LIKELY( !strcmp( link->name, "replay_out" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    if( FD_LIKELY( !strcmp( link->name, "genesi_out"        ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESIS;
+    else if( FD_LIKELY( !strcmp( link->name, "snapin_manif" ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAP;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "tower tile has unexpected input link %lu %s", i, link->name ));
 
     ctx->in[ i ].mem    = link_wksp->wksp;

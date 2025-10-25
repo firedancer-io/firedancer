@@ -1,3 +1,4 @@
+#define _GNU_SOURCE /* sendmmsg */
 #include "fd_ssping.h"
 #include "fd_sspeer_selector.h"
 
@@ -5,7 +6,6 @@
 #include "../../../util/bits/fd_bits.h"
 #include "../../../util/log/fd_log.h"
 
-#include <poll.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -22,7 +22,17 @@
 #define PEER_DEADLINE_NANOS_VALID   (2L*60L*1000L*1000L*1000L) /* 2 minutes */
 #define PEER_DEADLINE_NANOS_INVALID (5L*60L*1000L*1000L*1000L) /* 5 minutes */
 
-#define FD_SSPING_RATE_LIMIT (64UL) /* Only ping up to 64 peers at a time */
+#define PING_BURST_MAX (16UL) /* Limit how many pings we can burst at once. */
+
+/* FIXME: This code uses fd_ip4_port_t as the key for peers, but it
+   should really just use uint (IPv4 address) as port has no meaning
+   for ICMP pings.  Making this change however requires some significant
+   changes in snapct as we are also effectively storing peer invalidation
+   state in this data structure.  The number of distinct peers with
+   the same IP address but different ports will be low, so this is fine
+   for now. */
+
+/* FIXME: Properly set and track sequence numbers for repeated pings. */
 
 struct fd_ssping_peer {
   ulong         refcnt;
@@ -41,10 +51,6 @@ struct fd_ssping_peer {
     ulong next;
     ulong prev;
   } deadline;
-
-  struct {
-    ulong idx;
-  } fd;
 
   int   state;
   ulong latency_nanos;
@@ -74,7 +80,6 @@ typedef struct fd_ssping_peer fd_ssping_peer_t;
 #define DLIST_ELE_T fd_ssping_peer_t
 #define DLIST_PREV  deadline.prev
 #define DLIST_NEXT  deadline.next
-
 #include "../../../util/tmpl/fd_dlist.c"
 
 struct fd_ssping_private {
@@ -87,10 +92,7 @@ struct fd_ssping_private {
   deadline_list_t *      refreshing;
   deadline_list_t *      invalid;
 
-  ulong                  fds_len;
-  struct pollfd *        fds;
-  ulong *                fds_idx;
-  ulong                  poll_idx;
+  int                    sockfd;
 
   fd_ssping_on_ping_fn_t on_ping_cb;
   void *                 cb_arg;
@@ -98,26 +100,38 @@ struct fd_ssping_private {
   ulong                  magic; /* ==FD_SSPING_MAGIC */
 };
 
+/* We attach the UDP port number associated with the peer to each ping
+   echo request, which must be reflected back to us in the echo reply.
+   This is used to look up the correct peer, which is keyed on both
+   IP address and UDP port.  The ICMP echo protocol has no concept
+   of UDP port which is why we must do this manually. */
+
+struct ssping_pkt {
+  struct icmphdr icmp;
+  ushort         port;
+};
+
 FD_FN_CONST ulong
 fd_ssping_align( void ) {
-  return FD_SSPING_ALIGN;
+  return fd_ulong_max( alignof(fd_ssping_t),
+         fd_ulong_max( peer_pool_align(),
+         fd_ulong_max( peer_map_align(),
+                       deadline_list_align() ) ) );
 }
 
 FD_FN_CONST ulong
 fd_ssping_footprint( ulong max_peers ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_SSPING_ALIGN,       sizeof(fd_ssping_t) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_ssping_t),  sizeof(fd_ssping_t) );
   l = FD_LAYOUT_APPEND( l, peer_pool_align(),     peer_pool_footprint( max_peers ) );
-  l = FD_LAYOUT_APPEND( l, peer_map_align(),      peer_map_footprint( max_peers ) );
+  l = FD_LAYOUT_APPEND( l, peer_map_align(),      peer_map_footprint( peer_map_chain_cnt_est( max_peers ) ) );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   l = FD_LAYOUT_APPEND( l, deadline_list_align(), deadline_list_footprint() );
-  l = FD_LAYOUT_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd) );
-  l = FD_LAYOUT_APPEND( l, sizeof(ulong),         max_peers*sizeof(ulong) );
-  return FD_LAYOUT_FINI( l, FD_SSPING_ALIGN );
+  return FD_LAYOUT_FINI( l, fd_ssping_align() );
 }
 
 void *
@@ -142,19 +156,17 @@ fd_ssping_new( void *                 shmem,
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_ssping_t * ssping = FD_SCRATCH_ALLOC_APPEND( l, FD_SSPING_ALIGN,     sizeof(fd_ssping_t) );
-  void * _pool         = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),   peer_pool_footprint( max_peers ) );
-  void * _map          = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),    peer_map_footprint( max_peers ) );
+  fd_ssping_t * ssping = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssping_t),  sizeof(fd_ssping_t) );
+  void * _pool         = FD_SCRATCH_ALLOC_APPEND( l, peer_pool_align(),     peer_pool_footprint( max_peers ) );
+  void * _map          = FD_SCRATCH_ALLOC_APPEND( l, peer_map_align(),      peer_map_footprint( peer_map_chain_cnt_est( max_peers ) ) );
   void * _unpinged     = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _pinged       = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _valid        = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _refreshing   = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
   void * _invalid      = FD_SCRATCH_ALLOC_APPEND( l, deadline_list_align(), deadline_list_footprint() );
-  struct pollfd * fds  = FD_SCRATCH_ALLOC_APPEND( l, sizeof(struct pollfd), max_peers*sizeof(struct pollfd) );
-  ulong * fds_idx      = FD_SCRATCH_ALLOC_APPEND( l, sizeof(ulong), max_peers*sizeof(ulong) );
 
   ssping->pool = peer_pool_join( peer_pool_new( _pool, max_peers ) );
-  ssping->map  = peer_map_join( peer_map_new( _map, max_peers, seed ) );
+  ssping->map  = peer_map_join( peer_map_new( _map, peer_map_chain_cnt_est( max_peers ), seed ) );
 
   ssping->unpinged   = deadline_list_join( deadline_list_new( _unpinged ) );
   ssping->pinged     = deadline_list_join( deadline_list_new( _pinged ) );
@@ -162,10 +174,12 @@ fd_ssping_new( void *                 shmem,
   ssping->refreshing = deadline_list_join( deadline_list_new( _refreshing ) );
   ssping->invalid    = deadline_list_join( deadline_list_new( _invalid ) );
 
-  ssping->fds_len  = 0UL;
-  ssping->fds      = fds;
-  ssping->fds_idx  = fds_idx;
-  ssping->poll_idx = 0UL;
+  /* Note: This uses an obscure feature of Linux called ICMP datagram
+     sockets or unprivileged ping sockets.  Normally one would have to
+     use SOCK_RAW sockets, but with this special feature any user can
+     send & receive ICMP echo packets. */
+  ssping->sockfd = socket( AF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_ICMP );
+  if( FD_UNLIKELY( -1==ssping->sockfd ) ) FD_LOG_ERR(( "socket(SOCK_DGRAM,IPPROTO_ICMP) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   ssping->on_ping_cb = on_ping_cb;
   ssping->cb_arg     = cb_arg;
@@ -199,6 +213,11 @@ fd_ssping_join( void * shping ) {
   return ssping;
 }
 
+int
+fd_ssping_get_sockfd( fd_ssping_t const * ssping ) {
+  return ssping->sockfd;
+}
+
 void
 fd_ssping_add( fd_ssping_t * ssping,
                fd_ip4_port_t addr ) {
@@ -207,6 +226,7 @@ fd_ssping_add( fd_ssping_t * ssping,
     if( FD_UNLIKELY( !peer_pool_free( ssping->pool ) ) ) return;
     peer = peer_pool_ele_acquire( ssping->pool );
     FD_TEST( peer );
+    memset( peer, 0, sizeof(fd_ssping_peer_t) );
     peer->refcnt        = 0UL;
     peer->state         = PEER_STATE_UNPINGED;
     peer->addr          = addr;
@@ -215,25 +235,6 @@ fd_ssping_add( fd_ssping_t * ssping,
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
   peer->refcnt++;
-}
-
-static inline void
-remove_ping_fd( fd_ssping_t * ssping,
-                ulong         idx ) {
-  FD_TEST( idx<ssping->fds_len );
-
-  if( FD_UNLIKELY( ssping->fds_len==1UL ) ) {
-    ssping->fds_len = 0UL;
-    return;
-  }
-
-  ssping->fds[ idx ] = ssping->fds[ ssping->fds_len-1UL ];
-  ssping->fds_idx[ idx ] = ssping->fds_idx[ ssping->fds_len-1UL ];
-
-  fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ idx ] );
-  peer->fd.idx = idx;
-
-  ssping->fds_len--;
 }
 
 int
@@ -249,14 +250,12 @@ fd_ssping_remove( fd_ssping_t * ssping,
         deadline_list_ele_remove( ssping->unpinged, peer, ssping->pool );
         break;
       case PEER_STATE_PINGED:
-        remove_ping_fd( ssping, peer->fd.idx );
         deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
         break;
       case PEER_STATE_VALID:
         deadline_list_ele_remove( ssping->valid, peer, ssping->pool );
         break;
       case PEER_STATE_REFRESHING:
-        remove_ping_fd( ssping, peer->fd.idx );
         deadline_list_ele_remove( ssping->refreshing, peer, ssping->pool );
         break;
       case PEER_STATE_INVALID:
@@ -270,160 +269,121 @@ fd_ssping_remove( fd_ssping_t * ssping,
   return 0;
 }
 
-static inline void
-unping_peer( fd_ssping_t *      ssping,
-             fd_ssping_peer_t * peer,
-             long               now ) {
-  FD_TEST( peer->state==PEER_STATE_PINGED || peer->state==PEER_STATE_REFRESHING );
-
-  remove_ping_fd( ssping, peer->fd.idx );
-  if( FD_UNLIKELY( peer->state==PEER_STATE_PINGED ) ) {
-    deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
-  } else if( FD_UNLIKELY( peer->state==PEER_STATE_REFRESHING ) ) {
-    deadline_list_ele_remove( ssping->refreshing, peer, ssping->pool );
-  }
-  peer->state = PEER_STATE_INVALID;
-  peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
-  deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-}
-
 void
 fd_ssping_invalidate( fd_ssping_t * ssping,
                       fd_ip4_port_t addr,
                       long          now ) {
   fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &addr, NULL, ssping->pool );
   if( FD_UNLIKELY( !peer ) ) return;
-
-  if( FD_UNLIKELY( peer->state==PEER_STATE_PINGED || peer->state==PEER_STATE_REFRESHING ) ) {
-    unping_peer( ssping, peer, now );
-  } else {
-    FD_TEST( peer->state==PEER_STATE_UNPINGED || peer->state==PEER_STATE_VALID );
-    if( FD_LIKELY( peer->state==PEER_STATE_UNPINGED ) ) {
+  switch( peer->state ) {
+    case PEER_STATE_UNPINGED:
       deadline_list_ele_remove( ssping->unpinged, peer, ssping->pool );
-    } else if( FD_UNLIKELY( peer->state==PEER_STATE_VALID ) ) {
+      break;
+    case PEER_STATE_PINGED:
+      deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
+      break;
+    case PEER_STATE_VALID:
       deadline_list_ele_remove( ssping->valid, peer, ssping->pool );
-    }
-    peer->state = PEER_STATE_INVALID;
-    peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
-    deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
+      break;
+    case PEER_STATE_REFRESHING:
+      deadline_list_ele_remove( ssping->refreshing, peer, ssping->pool );
+      break;
+    case PEER_STATE_INVALID:
+      return;
   }
+  peer->state = PEER_STATE_INVALID;
+  peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
+  deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
 }
 
 static inline void
-poll_advance( fd_ssping_t * ssping,
-              long          now ) {
-  if( FD_LIKELY( !ssping->fds_len ) ) return;
+recv_pings( fd_ssping_t * ssping,
+            long          now ) {
+  for( ulong i=0UL; i<PING_BURST_MAX; i++ ) {
+    struct ssping_pkt  pkt;
+    struct sockaddr_in addr;
+    socklen_t          alen   = sizeof(addr);
+    long               result = recvfrom( ssping->sockfd, &pkt, sizeof(pkt), 0, fd_type_pun( &addr ), &alen );
+    if( FD_UNLIKELY( result!=sizeof(pkt) || alen!=sizeof(addr) || pkt.icmp.type!=ICMP_ECHOREPLY ) ) break;
 
-  ulong next_poll_idx = fd_ulong_min( ssping->poll_idx+FD_SSPING_RATE_LIMIT, ssping->fds_len );
-  ulong fds_cnt       = fd_ulong_min( next_poll_idx - ssping->poll_idx, FD_SSPING_RATE_LIMIT );
-  int   nfds          = fd_syscall_poll( ssping->fds+ssping->poll_idx, (uint)fds_cnt, 0 );
-  if( FD_LIKELY( !nfds ) ) return;
-  else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return;
-  else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));
+    fd_ip4_port_t key = {
+      .addr = addr.sin_addr.s_addr,
+      .port = pkt.port
+    };
+    fd_ssping_peer_t * peer = peer_map_ele_query( ssping->map, &key, NULL, ssping->pool );
+    if( FD_UNLIKELY( peer==NULL || ( peer->state!=PEER_STATE_PINGED && peer->state!=PEER_STATE_REFRESHING ) ) ) continue;
 
-  for( ulong i=ssping->poll_idx; i<next_poll_idx; i++ ) {
-    struct pollfd * pfd = &ssping->fds[ i ];
-    if( FD_UNLIKELY( pfd->revents & (POLLERR|POLLHUP) ) ) {
-      unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
-      continue;
-    }
+    deadline_list_ele_remove( peer->state==PEER_STATE_PINGED ? ssping->pinged : ssping->refreshing, peer, ssping->pool );
+    FD_TEST( peer->deadline_nanos-PEER_DEADLINE_NANOS_PING<now );
+    peer->latency_nanos  = (ulong)(now - (peer->deadline_nanos - PEER_DEADLINE_NANOS_PING));
+    peer->state          = PEER_STATE_VALID;
+    peer->deadline_nanos = now + PEER_DEADLINE_NANOS_VALID;
+    deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
 
-    if( FD_LIKELY( pfd->revents & POLLOUT ) ) {
-      struct icmphdr icmp_hdr = (struct icmphdr){
-        .type             = ICMP_ECHO,
-        .code             = 0,
-        .un.echo.id       = 0, /* Automatically set by kernel for a ping socket */
-        .un.echo.sequence = 0, /* Only one ping goes out per socket, so nothing to change */
-        .checksum         = 0  /* Will be calculated by the kernel */
-      };
-
-      long result = sendto( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0, NULL, 0 );
-      if( FD_UNLIKELY( !result ) ) continue;
-      if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==result ) ) {
-        unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
-        continue;
-      }
-      pfd->revents &= ~POLLOUT;
-    }
-
-    if( FD_LIKELY( pfd->revents & POLLIN ) ) {
-      struct icmphdr icmp_hdr;
-      long result = recvfrom( pfd->fd, &icmp_hdr, sizeof(icmp_hdr), 0, NULL, NULL );
-      if( FD_UNLIKELY( -1==result && errno==EAGAIN ) ) continue;
-      else if( FD_UNLIKELY( -1==result || (ulong)result<sizeof(icmp_hdr) || icmp_hdr.type!=ICMP_ECHOREPLY ) ) {
-        unping_peer( ssping, peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] ), now );
-        continue;
-      }
-
-      fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, ssping->fds_idx[ i ] );
-      FD_TEST( peer->deadline_nanos>now );
-      peer->latency_nanos  = PEER_DEADLINE_NANOS_PING - (ulong)(peer->deadline_nanos - now);
-      peer->state          = PEER_STATE_VALID;
-      peer->deadline_nanos = now + PEER_DEADLINE_NANOS_VALID;
-
-      deadline_list_ele_remove( ssping->pinged, peer, ssping->pool );
-      deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
-      remove_ping_fd( ssping, i );
-
-      ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->latency_nanos );
-
-      /* fds_len could have decreased if we removed a ping fd */
-      next_poll_idx = fd_ulong_min( next_poll_idx, ssping->fds_len );
-    }
+    FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu nanos",
+                  FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port, peer->latency_nanos ));
+    ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->latency_nanos );
   }
-
-  if( FD_UNLIKELY( next_poll_idx>=ssping->fds_len ) ) ssping->poll_idx = 0UL;
-  else                                                ssping->poll_idx = next_poll_idx;
 }
 
-static int
-peer_connect( fd_ssping_t *      ssping,
-              fd_ssping_peer_t * peer ) {
-  int sockfd = socket( PF_INET, SOCK_DGRAM|SOCK_NONBLOCK, IPPROTO_ICMP );
-  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+static uint
+send_pings( fd_ssping_t *     ssping,
+            deadline_list_t * list,
+            long              until ) {
+  uint msg_cnt = 0U;
+  struct ssping_pkt  pkts  [ PING_BURST_MAX ];
+  struct iovec       iovs  [ PING_BURST_MAX ];
+  struct sockaddr_in addrs [ PING_BURST_MAX ];
+  struct mmsghdr     msgs  [ PING_BURST_MAX ];
+  for( deadline_list_iter_t iter = deadline_list_iter_fwd_init( list, ssping->pool );
+       msg_cnt<PING_BURST_MAX && !deadline_list_iter_done( iter, list, ssping->pool );
+       iter = deadline_list_iter_fwd_next( iter, list, ssping->pool ) ) {
+    fd_ssping_peer_t * peer = peer_pool_ele( ssping->pool, deadline_list_iter_idx( iter, list, ssping->pool ) );
+    if( peer->deadline_nanos>until ) break;
 
-  struct sockaddr_in addr = {
-    .sin_family = AF_INET,
-    .sin_port   = fd_ushort_bswap( peer->addr.port ),
-    .sin_addr   = { .s_addr = peer->addr.addr }
-  };
-
-  if( FD_UNLIKELY( -1==connect( sockfd, fd_type_pun( &addr ), sizeof(addr) ) && errno!=EINPROGRESS ) ) {
-    if( FD_UNLIKELY( -1==close( sockfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
+    pkts[ msg_cnt ] = (struct ssping_pkt){
+      .icmp = { .type = ICMP_ECHO },
+      .port = peer->addr.port
+    };
+    iovs[ msg_cnt ] = (struct iovec){
+      .iov_base = pkts + msg_cnt,
+      .iov_len = sizeof(struct ssping_pkt)
+    };
+    addrs[ msg_cnt ] = (struct sockaddr_in){
+      .sin_family = AF_INET,
+      .sin_addr   = { .s_addr = peer->addr.addr }
+    };
+    msgs[ msg_cnt ].msg_hdr = (struct msghdr){
+      .msg_name = addrs + msg_cnt,
+      .msg_namelen = sizeof(struct sockaddr_in),
+      .msg_iov = iovs + msg_cnt,
+      .msg_iovlen = 1,
+    };
+    msgs[ msg_cnt ].msg_len = 0;
+    msg_cnt++;
   }
 
-  ssping->fds[ ssping->fds_len ] = (struct pollfd){
-    .fd      = sockfd,
-    .events  = POLLIN|POLLOUT,
-    .revents = 0
-  };
-  ssping->fds_idx[ ssping->fds_len ] = peer_pool_idx( ssping->pool, peer );
-  peer->fd.idx = ssping->fds_len;
-  ssping->fds_len++;
-
-  return 0;
+  if( msg_cnt==0U ) return 0U;
+  int result = sendmmsg( ssping->sockfd, msgs, msg_cnt, 0 );
+  if( FD_UNLIKELY( -1==result ) ) {
+    if( errno!=EAGAIN && errno!=EINTR ) FD_LOG_WARNING(( "sendmmsg(%u) failed (%i-%s)", msg_cnt, errno, fd_io_strerror( errno ) ));
+    return 0U;
+  }
+  FD_TEST( result>=0 && result<=(int)PING_BURST_MAX );
+  return (uint)result;
 }
 
 void
 fd_ssping_advance( fd_ssping_t *          ssping,
                    long                   now,
                    fd_sspeer_selector_t * selector) {
-  while( !deadline_list_is_empty( ssping->unpinged, ssping->pool ) ) {
+  uint sent = send_pings( ssping, ssping->unpinged, LONG_MAX );
+  for( uint i=0U; i<sent; i++ ) {
     fd_ssping_peer_t * peer = deadline_list_ele_pop_head( ssping->unpinged, ssping->pool );
-
-    FD_LOG_INFO(( "pinging " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port ));
-    int result = peer_connect( ssping, peer );
-    if( FD_UNLIKELY( -1==result ) ) {
-      peer->state = PEER_STATE_INVALID;
-      peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
-      deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-    } else {
-      peer->state = PEER_STATE_PINGED;
-      peer->deadline_nanos = now + PEER_DEADLINE_NANOS_PING;
-      deadline_list_ele_push_tail( ssping->pinged, peer, ssping->pool );
-    }
+    FD_TEST( peer );
+    peer->state = PEER_STATE_PINGED;
+    peer->deadline_nanos = now + PEER_DEADLINE_NANOS_PING;
+    deadline_list_ele_push_tail( ssping->pinged, peer, ssping->pool );
   }
 
   while( !deadline_list_is_empty( ssping->pinged, ssping->pool ) ) {
@@ -435,27 +395,16 @@ fd_ssping_advance( fd_ssping_t *          ssping,
     peer->state = PEER_STATE_INVALID;
     peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-    remove_ping_fd( ssping, peer->fd.idx );
     fd_sspeer_selector_remove( selector, peer->addr );
   }
 
-  while( !deadline_list_is_empty( ssping->valid, ssping->pool ) ) {
-    fd_ssping_peer_t * peer = deadline_list_ele_peek_head( ssping->valid, ssping->pool );
-    if( FD_LIKELY( peer->deadline_nanos>now ) ) break;
-
-    deadline_list_ele_pop_head( ssping->valid, ssping->pool );
-
-    int result = peer_connect( ssping, peer );
-    if( FD_UNLIKELY( -1==result ) ) {
-      peer->state = PEER_STATE_INVALID;
-      peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
-      deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-      fd_sspeer_selector_remove( selector, peer->addr );
-    } else {
-      peer->state = PEER_STATE_REFRESHING;
-      peer->deadline_nanos = now + PEER_DEADLINE_NANOS_PING;
-      deadline_list_ele_push_tail( ssping->refreshing, peer, ssping->pool );
-    }
+  sent = send_pings( ssping, ssping->valid, now );
+  for( uint i=0U; i<sent; i++ ) {
+    fd_ssping_peer_t * peer = deadline_list_ele_pop_head( ssping->valid, ssping->pool );
+    FD_TEST( peer );
+    peer->state = PEER_STATE_REFRESHING;
+    peer->deadline_nanos = now + PEER_DEADLINE_NANOS_PING;
+    deadline_list_ele_push_tail( ssping->refreshing, peer, ssping->pool );
   }
 
   while( !deadline_list_is_empty( ssping->refreshing, ssping->pool ) ) {
@@ -467,7 +416,6 @@ fd_ssping_advance( fd_ssping_t *          ssping,
     peer->state = PEER_STATE_INVALID;
     peer->deadline_nanos = now + PEER_DEADLINE_NANOS_INVALID;
     deadline_list_ele_push_tail( ssping->invalid, peer, ssping->pool );
-    remove_ping_fd( ssping, peer->fd.idx );
     fd_sspeer_selector_remove( selector, peer->addr );
   }
 
@@ -482,5 +430,5 @@ fd_ssping_advance( fd_ssping_t *          ssping,
     deadline_list_ele_push_tail( ssping->unpinged, peer, ssping->pool );
   }
 
-  poll_advance( ssping, now );
+  recv_pings( ssping, now );
 }

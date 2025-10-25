@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_h
-#define HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_h
+#ifndef HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h
+#define HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h
 
 /* fd_solfuzz.h provides internal/unstable APIs for executing solfuzz
    inputs.  This API is fully object-oriented and does not use globals
@@ -11,7 +11,10 @@
    - Multi-session use */
 
 #include "../../capture/fd_solcap_writer.h"
-#include "../../../funk/fd_funk.h"
+#include "../../accdb/fd_accdb_admin.h"
+#include "../../accdb/fd_accdb_user.h"
+#include "../../progcache/fd_progcache_admin.h"
+#include "../../progcache/fd_progcache_user.h"
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
    for different inputs, even of different types.  Single-thread per
@@ -21,11 +24,16 @@
    each other (or any other allocations) just fine. */
 
 struct fd_solfuzz_runner {
-  fd_funk_t    funk[1];
   fd_wksp_t *  wksp;
   fd_spad_t *  spad;
   fd_banks_t * banks;
   fd_bank_t *  bank;
+
+  fd_progcache_t       progcache[1];
+  fd_progcache_admin_t progcache_admin[1];
+
+  fd_accdb_user_t      accdb[1];
+  fd_accdb_admin_t     accdb_admin[1];
 
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
@@ -206,4 +214,4 @@ fd_solfuzz_type_run( fd_solfuzz_runner_t * runner,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_runtime_tests_harness_fd_solfuzz_h */
+#endif /* HEADER_fd_src_flamenco_runtime_tests_fd_solfuzz_h */

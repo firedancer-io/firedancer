@@ -847,24 +847,36 @@
 
 </div>
 
-## Snaprd Tile
+## Snapct Tile
 
 <div class="metrics">
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snaprd_&#8203;state</span> | gauge | State of the tile. 0 = waiting for at least one peer from gossip, 1 = collecting peers from gossip, 2 = pinging peers, 3 = collecting ping responses, 4 = reading full snapshot file, 5 = reading incremental snapshot file, 6 = downloading full snapshot file, 7 = downloading incremental snapshot file, 8 = pinging peers before loading the incremental snapshot, 0 = collecting ping responses before loading the incremental snapshot, 10 = waiting for full snapshot to finish loading, 11 = waiting for incremental snapshot to finish loading, 12 = done. |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;full_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the full snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
-| <span class="metrics-name">snaprd_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
-| <span class="metrics-name">snaprd_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;state</span> | gauge | State of the tile |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried full snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;num_&#8203;retries</span> | counter | Number of times we aborted and retried incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;bytes_&#8203;total</span> | gauge | Total size of the full snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;full_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the full snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;bytes_&#8203;total</span> | gauge | Total size of the incremental snapshot file. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;incremental_&#8203;download_&#8203;retries</span> | gauge | Number of times we retried the incremental snapshot download because the peer was too slow |
+| <span class="metrics-name">snapct_&#8203;predicted_&#8203;slot</span> | gauge | The predicted slot from which replay starts after snapshot loading finishes. Might change if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapct_&#8203;gossip_&#8203;fresh_&#8203;count</span> | gauge | Number of fresh gossip peers seen when collecting gossip peers.  |
+| <span class="metrics-name">snapct_&#8203;gossip_&#8203;total_&#8203;count</span> | gauge | Number of total gossip peers seen when collecting gossip peers.  |
+
+</div>
+
+## Snapld Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapld_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
 
 </div>
 
@@ -874,7 +886,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0 = waiting for compressed byte stream, 1 = decompressing full snapshot, 2 = decompressing incremental snapshot, 3 = done. |
+| <span class="metrics-name">snapdc_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed full snapshot file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;full_&#8203;decompressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the decompressed file. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapdc_&#8203;incremental_&#8203;compressed_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the compressed incremental snapshot file. Might decrease if snapshot load is aborted and restarted |
@@ -888,7 +900,7 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0 = waiting for decompressed snapshot bytestream, 1 = processing full snapshot, 2 = processing incremental snapshot, 3 = done. |
+| <span class="metrics-name">snapin_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
 | <span class="metrics-name">snapin_&#8203;full_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the full snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;incremental_&#8203;bytes_&#8203;read</span> | gauge | Number of bytes read so far from the incremental snapshot. Might decrease if snapshot load is aborted and restarted |
 | <span class="metrics-name">snapin_&#8203;accounts_&#8203;inserted</span> | gauge | Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted |
@@ -1042,5 +1054,33 @@
 | <span class="metrics-name">resolf_&#8203;lut_&#8203;resolved</span><br/>{lut_&#8203;resolve_&#8203;result="<span class="metrics-enum">success</span>"} | counter | Count of address lookup tables resolved (Resolved successfully) |
 | <span class="metrics-name">resolf_&#8203;blockhash_&#8203;expired</span> | counter | Count of transactions that failed to resolve because the blockhash was expired |
 | <span class="metrics-name">resolf_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure</span> | counter | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
+| <span class="metrics-name">resolf_&#8203;db_&#8203;races</span> | counter | Number of database races encountered (diagnostic counter, not indicative of issues) |
+
+</div>
+
+## Backt Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">backt_&#8203;final_&#8203;slot</span> | gauge | The slot after which the backtest will complete |
+| <span class="metrics-name">backt_&#8203;start_&#8203;slot</span> | gauge | The slot at which the backtest started |
+
+</div>
+
+## Exec Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;misses</span> | counter | Number of program cache misses |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;hits</span> | counter | Number of program cache hits |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;fills</span> | counter | Number of program cache insertions |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;tot_&#8203;sz</span> | counter | Total number of bytes inserted into program cache |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
+| <span class="metrics-name">exec_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
 
 </div>

@@ -289,11 +289,6 @@ fd_config_fill( fd_config_t * config,
     NULL,
     "%s/.huge",
     config->hugetlbfs.mount_path ) );
-  FD_TEST( fd_cstr_printf_check( config->hugetlbfs.normal_page_mount_path,
-    sizeof(config->hugetlbfs.normal_page_mount_path),
-    NULL,
-    "%s/.normal",
-    config->hugetlbfs.mount_path ) );
 
   ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\" or \"gigantic\"" ));
@@ -389,6 +384,7 @@ fd_config_fill( fd_config_t * config,
 
   if(      FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "stable" ) ) ) config->development.gui.frontend_release_channel_enum = 0;
   else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "alpha"  ) ) ) config->development.gui.frontend_release_channel_enum = 1;
+  else if( FD_LIKELY( !strcmp( config->development.gui.frontend_release_channel, "dev"    ) ) ) config->development.gui.frontend_release_channel_enum = 2;
   else FD_LOG_ERR(( "[development.gui.release_channel] %s not recognized", config->development.gui.frontend_release_channel ));
 
   if( FD_LIKELY( config->is_live_cluster) ) {
@@ -596,7 +592,7 @@ fd_config_load( int           is_firedancer,
   config->boot_timestamp_nanos = fd_log_wallclock();
 
   if( FD_UNLIKELY( is_firedancer ) ) {
-    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "alpha" );
+    fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "dev" );
   } else {
     fd_cstr_printf_check( config->development.gui.frontend_release_channel, sizeof(config->development.gui.frontend_release_channel), NULL, "stable" );
   }

@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_disco_pcap_replay_fd_pcap_replay_h
-#define HEADER_fd_src_disco_pcap_replay_fd_pcap_replay_h
+#ifndef HEADER_fd_src_disco_pcap_fd_pcap_replay_h
+#define HEADER_fd_src_disco_pcap_fd_pcap_replay_h
 
 /* fd_pcap_replay provides services to pcap_replay data from a pcap file into a
    tango frag stream. */
@@ -155,4 +155,4 @@ fd_pcap_replay_tile( fd_cnc_t *       cnc,       /* Local join to the pcap_repla
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_disco_pcap_replay_fd_pcap_replay_h */
+#endif /* HEADER_fd_src_disco_pcap_fd_pcap_replay_h */

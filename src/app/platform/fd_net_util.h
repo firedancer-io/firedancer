@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_app_shared_fd_net_util_h
-#define HEADER_fd_src_app_shared_fd_net_util_h
+#ifndef HEADER_fd_src_app_platform_fd_net_util_h
+#define HEADER_fd_src_app_platform_fd_net_util_h
 
 #include "../../util/fd_util.h"
 
@@ -72,4 +72,4 @@ int
 fd_net_util_if_addr( const char * interface,
                      uint *       addr );
 
-#endif /* HEADER_fd_src_app_shared_fd_net_util_h */
+#endif /* HEADER_fd_src_app_platform_fd_net_util_h */

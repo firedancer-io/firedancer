@@ -25,8 +25,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
     .full = { .slot = 1000UL },
     .incremental = { .base_slot = 1000UL, .slot = 1500UL }
   };
-  fd_sspeer_selector_process_cluster_slot( selector, &cluster_ssinfo );
-
+  fd_sspeer_selector_process_cluster_slot( selector, cluster_ssinfo.full.slot, cluster_ssinfo.incremental.slot );
   /* Add a peer and it should be the best peer */
   fd_ip4_port_t addr = { .addr = FD_IP4_ADDR( 35, 123, 172, 227 ), .port = 8899 };
   FD_TEST( add_peer( selector, addr, 1000UL, 1500UL, 5L*1000L*1000L )==5UL*1000UL*1000UL );
@@ -59,7 +58,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   FD_TEST( best.score==3L*1000L*1000L );
 
   cluster_ssinfo.incremental.slot = 1600UL;
-  fd_sspeer_selector_process_cluster_slot( selector, &cluster_ssinfo );
+  fd_sspeer_selector_process_cluster_slot( selector, cluster_ssinfo.full.slot, cluster_ssinfo.incremental.slot );
 
   /* Add a peer that is slightly slower but caught up in slots */
   fd_ip4_port_t addr4 = { .addr = FD_IP4_ADDR( 35, 123, 172, 230 ), .port = 8899 };
@@ -90,7 +89,7 @@ test_basic_peer_selection( fd_sspeer_selector_t * selector ) {
   FD_TEST( best.score==3L*1000L*1000L + 75L*1000L );
 
   cluster_ssinfo.incremental.slot = 1700UL;
-  fd_sspeer_selector_process_cluster_slot( selector, &cluster_ssinfo );
+  fd_sspeer_selector_process_cluster_slot( selector, cluster_ssinfo.full.slot, cluster_ssinfo.incremental.slot );
 
   /* Add a peer that is fast and at the highest slot but not building
      off full slot, which makes it invalid an incremental peer */
@@ -126,7 +125,7 @@ main( int     argc,
 
   FD_TEST( wksp );
   void *                 shmem    = fd_wksp_alloc_laddr( wksp, fd_sspeer_selector_align(), fd_sspeer_selector_footprint( 65535UL ), 1UL );
-  fd_sspeer_selector_t * selector = fd_sspeer_selector_join( fd_sspeer_selector_new( shmem, 65535UL, 0UL ) );
+  fd_sspeer_selector_t * selector = fd_sspeer_selector_join( fd_sspeer_selector_new( shmem, 65535UL, 1, 0UL ) );
   FD_TEST( selector );
 
   test_basic_peer_selection( selector );

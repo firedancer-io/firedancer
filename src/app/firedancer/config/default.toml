@@ -147,15 +147,12 @@ user = ""
     # there are no gossip entrypoints specified because this node will
     # be the origin entrypoint, then there must be a genesis file
     # present, and it will be used to create the genesis block of the
-    # new cluster.  In this case, there is no point verifying the
-    # genesis hash.
+    # new cluster.
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
-    #
-    # TODO: Most of this is not yet implemented.
     genesis = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.
@@ -304,18 +301,16 @@ user = ""
     #
     # If download is allowed, and there is no local genesis file
     # already, the validator will contact each of the gossip
-    # entrypoints, in order, and attempt to download the genesis file
-    # from their RPC endpoint.  If none of the entrypoints is responsive
-    # or able to provide the genesis file, the validator will exit with
-    # an error.
+    # entrypoints and attempt to download the genesis file from their
+    # RPC endpoint.  If none of the entrypoints is responsive or able to
+    # provide the genesis file, the validator will exit with an error.
     #
-    # The genesis hash is verified against both the
-    # expected_genesis_hash specified in this file, and the genesis hash
-    # contained in full and incremental snapshots being loaded.  If
-    # there is a genesis hash mismatch, the validator will exit with an
-    # error.
-    #
-    # TODO: Not yet implemented.
+    # The genesis hash is verified against the expected_genesis_hash
+    # specified in this file, and it is then combined with information
+    # from the snapshot (the list of hard forks) to compute the shred
+    # version, which is itself verified against the
+    # expected_shred_version.  If there is any mismatch, the validator
+    # will exit with an error.
     genesis_download = true
 
     # Whether to allow downloading a new snapshot from a peer when
@@ -405,12 +400,6 @@ user = ""
     # you highly trust, and this is the default behavior of the
     # configuration.
     [snapshots.sources]
-        # Allow fetching of snapshots from peers specified in the gossip
-        # entrypoints.  Gossip entrypoints must be peers that are highly
-        # trusted as they are used to bootstrap your node.
-        [snapshots.sources.entrypoints]
-            enabled = false
-
         # Allow fetching of snapshots from arbitrary gossip peers that
         # are hosting a snapshot server.  This may allow faster snapshot
         # download if a peer in a local data-center is serving a good
@@ -429,7 +418,7 @@ user = ""
         #
         # If these peers have snapshots at the given paths, they will be
         # considered as additional sources for downloading snapshots
-        # when enabled alongside gossip and entrypoint sources.
+        # when enabled alongside gossip sources.
         [[snapshots.sources.http]]
             # Whether to enable fetching snapshots from a list of
             # HTTP peers.
@@ -461,22 +450,22 @@ user = ""
     # still request the shred version from the gossip entrypoints, but
     # if the shred version is not equal to this value, the validator
     # will abort with an error.
+    #
+    # The shred version will also be computed locally, by combining the
+    # genesis.bin hash with the hard fork list from the loaded snapshot,
+    # and this shred version is also enforced to match or the validator
+    # will abort with an error.
     expected_shred_version = 0
 
-    # The genesis hash is just a SHA256 has of the genesis.bin file,
+    # The genesis hash is just a SHA256 hash of the genesis.bin file,
     # representing the parameters used to create the genesis block of
     # the chain.
     #
     # If the expected_genesis_hash is set to a base58 encoded string of
-    # such a hash, the validator will verify that the genesis of the
-    # chain it loads matches this hash, and if not, the validator will
+    # such a hash, the validator will verify that the hash of the
+    # genesis.bin that is loaded from disk or downloaded from a peer
+    # matches this value.  If there is a mismatch, the validator will
     # abort with an error.
-    #
-    # Both the actual hash of the downloaded (or already stored locally)
-    # genesis.bin file, and the genesis hash contained in any full or
-    # incremental snapshot being loaded must match this expected hash.
-    #
-    # TODO: Not yet implemented.
     expected_genesis_hash = ""
 
 # This section configures the "funk" account database.  Currently, funk
@@ -502,19 +491,6 @@ user = ""
     # setting.
     max_database_transactions = 2048
 
-    # Whether to lock the memory pages backing the database to physical
-    # memory pages, which cannot be paged out.
-    #
-    # If this option is false, then the database will be backed by normal
-    # pages which will be paged out to an on-disk file if the host comes
-    # under memory pressure. This is useful for when your machine doesn't
-    # have enough physical memory to run against clusters with a large
-    # number of accounts (e.g. mainnet).
-    #
-    # WARNING: disabling this option can cause performance degradation, as
-    # the database pages may be paged out.
-    lock_pages = true
-
 [runtime]
     max_vote_accounts = 2000000
 
@@ -532,6 +508,17 @@ user = ""
     # of forks that play through the epoch boundary is greater than
     # max_fork_width, the client will crash.
     max_fork_width = 32
+
+    # The program cache pre-loads frequently executed programs for
+    # faster transaction execution.
+    [runtime.program_cache]
+        # The size of the loaded program cache in MiB.
+        heap_size_mib = 2048
+
+        # The mean expected heap utilization of a cache entry.  Controls
+        # the size of metadata structures (e.g. cache entry table).  It
+        # is not recommended to change this setting.
+        mean_cache_entry_size = 131072
 
 # This section configures the "groove" persistent account database.
 # [groove]
@@ -1388,25 +1375,6 @@ user = ""
         # TODO: What is this ... needs to be deleted
         cluster_version =  "1.18.0"
 
-        # Specifies the size in gigibytes of the replay heap allocator.
-        #
-        # Persistent usages of the replay heap include:
-        # - Epoch state (scales with number of vote and stake accounts)
-        # - Slot state (scale with number of vote accounts)
-        # - Sysvar cache (tiny)
-        #
-        # Notable temporary usages of the replay heap include:
-        # - In-memory allocations
-        # - Distributing stake rewards
-        #
-        # Full Firedancer still lacks an ability to robustly scale above
-        # runtime heap allocations dynamically.  Thus, a conservative
-        # default is chosen below.
-        #
-        # TODO: These will be replaced in favor of more granular
-        # per object allocations in the replay tile's context
-        heap_size_gib = 50
-
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other
         # transactions. It also uses this as the UDP src port.
@@ -1515,7 +1483,7 @@ user = ""
     # This option can be enabled in production if a crash cannot be
     # easily reproduced, but it decreases security and should not be
     # enabled during routine running of the validator.
-    core_dump = false
+    core_dump = true
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
@@ -1744,22 +1712,3 @@ user = ""
     # production networking stack.
     [development.udpecho]
         affinity = "auto"
-
-    # Development only options for the GUI tile.  These should not be
-    # change on a production validator.
-    [development.gui]
-        # Enables support for WebSocket compression.  Compression may
-        # improve startup speed when loading the GUI and decrease
-        # overall bandwidth use.  GUI WebSocket messages are by default
-        # always a single WebSocket text frame with plaintext JSON
-        # contents.  If this option is enabled, a client may indicate
-        # support for receiving compressed messages with the
-        # Sec-WebSocket-Protocol header.
-        #
-        # If compression is successfully negotiated, the server will
-        # optionally compress large frames with ZSTD, indicating this
-        # by marking the frame as binary instead of text.
-        #
-        # This option has not been tested or security audited and should
-        # not currently be used in production.
-        websocket_compression = false

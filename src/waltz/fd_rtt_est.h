@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_waltz_fd_rtt_est_h
-#define HEADER_fd_waltz_fd_rtt_est_h
+#ifndef HEADER_fd_src_waltz_fd_rtt_est_h
+#define HEADER_fd_src_waltz_fd_rtt_est_h
 
 /* fd_rtt_est.h provides an API to estimate RTT (round trip time) for
    packet transmissions to a single destination.  The 'duration' unit in
@@ -70,4 +70,4 @@ fd_rtt_sample( fd_rtt_estimate_t * est,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_waltz_fd_rtt_est_h */
+#endif /* HEADER_fd_src_waltz_fd_rtt_est_h */

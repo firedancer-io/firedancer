@@ -258,6 +258,16 @@ fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
                                ulong                   pkt_number_lo,
                                ulong                   pkt_number_hi );
 
+/* fd_quic_pkt_meta_remove removes a single pkt_meta from the ds and returns it to the pool.
+@arguments:
+- ds: pointer to the ds
+- pool: pointer to the backing pool
+- pkt_meta: pointer to the pkt_meta to remove. Assumed non-null */
+void
+fd_quic_pkt_meta_remove( fd_quic_pkt_meta_ds_t * ds,
+                       fd_quic_pkt_meta_t    * pool,
+                       fd_quic_pkt_meta_t    * pkt_meta );
+
 /* fd_quic_pkt_meta_min returns pointer to pkt_meta with smallest pkt_number in the ds
   @arguments:
   - ds: pointer to the ds
@@ -268,10 +278,10 @@ fd_quic_pkt_meta_t *
 fd_quic_pkt_meta_min( fd_quic_pkt_meta_ds_t * ds,
                       fd_quic_pkt_meta_t    * pool );
 
-/* fd_quic_pkt_meta_ds_clear clears all pkt_meta tracking for a given encoding level
+/* fd_quic_pkt_meta_ds_clear clears all pkt_meta tracking for a given encryption level
   @arguments:
   - tracker: pointer to the pkt_meta tracker
-  - enc_level: encoding level to clear */
+  - enc_level: encryption level to clear */
 void
 fd_quic_pkt_meta_ds_clear( fd_quic_pkt_meta_tracker_t * tracker,
                            uint                         enc_level );

@@ -19,7 +19,7 @@ sysvar_data_fill( fd_sysvar_cache_t *       cache,
   fd_sysvar_desc_t *      desc = &cache->desc      [ idx ];
 
   /* Read account from database */
-  FD_TXN_ACCOUNT_DECL( rec );
+  fd_txn_account_t rec[1];
   int err = fd_txn_account_init_from_funk_readonly( rec, key, funk, xid );
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     if( log_fails ) FD_LOG_DEBUG(( "Sysvar %s not found", pos->name ));

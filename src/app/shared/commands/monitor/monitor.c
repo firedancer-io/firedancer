@@ -265,7 +265,7 @@ static struct termios termios_backup;
 
 static void
 restore_terminal( void ) {
-  (void)tcsetattr( STDIN_FILENO, TCSANOW, &termios_backup );
+  (void)ioctl( STDIN_FILENO, TCSETS, &termios_backup );
 }
 
 static void
@@ -315,15 +315,15 @@ run_monitor( config_t const * config,
 
   /* Restore original terminal attributes at exit */
   atexit( restore_terminal );
-  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &termios_backup ) ) ) {
-    FD_LOG_ERR(( "tcgetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ioctl( STDIN_FILENO, TCGETS, &termios_backup ) ) ) {
+    FD_LOG_ERR(( "ioctl(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   /* Disable character echo and line buffering */
   struct termios term = termios_backup;
   term.c_lflag &= (tcflag_t)~(ICANON | ECHO);
-  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term ) ) ) {
-    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( ioctl( STDIN_FILENO, TCSETS, &term ) ) ) {
+    FD_LOG_WARNING(( "ioctl(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   for(;;) {

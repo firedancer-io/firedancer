@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include "fd_http_resolver.h"
 #include "fd_ssresolve.h"
 
@@ -185,8 +184,10 @@ fd_http_resolver_join( void * shresolver ) {
 void
 fd_http_resolver_add( fd_http_resolver_t * resolver,
                       fd_ip4_port_t        addr ) {
+  if( !peer_pool_free( resolver->pool ) ) {
+    FD_LOG_ERR(( "peer pool exhausted" ));
+  }
   fd_ssresolve_peer_t * peer = peer_pool_ele_acquire( resolver->pool );
-  FD_TEST( peer );
   peer->state                        = PEER_STATE_UNRESOLVED;
   peer->addr                         = addr;
   peer->fd.idx                       = ULONG_MAX;
@@ -199,11 +200,11 @@ fd_http_resolver_add( fd_http_resolver_t * resolver,
 static int
 create_socket( fd_http_resolver_t *  resolver,
                fd_ssresolve_peer_t * peer ) {
-  int sockfd = socket( PF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
+  int sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
 
   int optval = 1;
-  if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
+  if( FD_UNLIKELY( -1==setsockopt( sockfd, IPPROTO_TCP, TCP_NODELAY, &optval, sizeof(int) ) ) ) {
     FD_LOG_ERR(( "setsockopt() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -261,6 +262,10 @@ static inline void
 remove_peer( fd_http_resolver_t * resolver,
              ulong                idx ) {
   FD_TEST( idx<resolver->fds_len );
+
+  /* FIXME... */
+  close( resolver->fds[ idx ].fd );
+  close( resolver->fds[ idx+1UL ].fd );
 
   if( FD_UNLIKELY( resolver->fds_len==2UL ) ) {
     resolver->fds_len = 0UL;

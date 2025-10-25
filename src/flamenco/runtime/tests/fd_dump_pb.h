@@ -53,15 +53,104 @@
             * See solana-conformance/README.md for functionality and use cases */
 
 #include "../info/fd_instr_info.h"
-#include "../info/fd_runtime_block_info.h"
 #include "../../vm/fd_vm.h"
 #include "generated/block.pb.h"
 #include "generated/elf.pb.h"
+#include "../../../disco/fd_txn_p.h"
+
+/* The amount of memory allocated towards dumping blocks from ledgers */
+#define FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX (2UL<<30)
+#define FD_BLOCK_DUMP_CTX_MAX_TXN_CNT  (10000UL)
 
 FD_PROTOTYPES_BEGIN
 
-#define TOSTRING(x) #x
-#define STRINGIFY(x) TOSTRING(x)
+/***** Dumping context *****/
+
+/* Persistent context for block dumping.  Maintains state about
+   in-progress block dumping, such as any dynamic memory allocations
+   (which live in the spad) and the block context message. */
+struct fd_block_dump_ctx {
+  /* Block context message */
+  fd_exec_test_block_context_t block_context;
+
+  /* Collected transactions to dump */
+  fd_txn_p_t                   txns_to_dump[FD_BLOCK_DUMP_CTX_MAX_TXN_CNT];
+  ulong                        txns_to_dump_cnt;
+
+  /* Spad for dynamic memory allocations for the block context message*/
+  fd_spad_t *                  spad;
+};
+typedef struct fd_block_dump_ctx fd_block_dump_ctx_t;
+
+static inline ulong
+fd_block_dump_context_align( void ) {
+  return alignof(fd_block_dump_ctx_t);
+}
+
+static inline ulong
+fd_block_dump_context_footprint( void ) {
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, alignof(fd_block_dump_ctx_t), sizeof(fd_block_dump_ctx_t) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_spad_footprint( FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX ) );
+  l = FD_LAYOUT_FINI( l, fd_spad_align() );
+  return l;
+}
+
+static inline void *
+fd_block_dump_context_new( void * mem ) {
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  fd_block_dump_ctx_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_dump_ctx_t), sizeof(fd_block_dump_ctx_t) );
+  fd_spad_t *           spad = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(),              fd_spad_footprint( FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX ) );
+
+  ctx->spad             = fd_spad_new( spad, FD_BLOCK_DUMP_CTX_SPAD_MEM_MAX );
+  ctx->txns_to_dump_cnt = 0UL;
+  return ctx;
+}
+
+static inline fd_block_dump_ctx_t *
+fd_block_dump_context_join( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "NULL mem" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, fd_block_dump_context_align() ) ) ) {
+    FD_LOG_ERR(( "misaligned mem" ));
+    return NULL;
+  }
+
+  fd_block_dump_ctx_t * ctx = (fd_block_dump_ctx_t *)mem;
+  ctx->spad                 = fd_spad_join( ctx->spad );
+  return ctx;
+}
+
+static inline void *
+fd_block_dump_context_delete( void * mem ) {
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_WARNING(( "NULL mem" ));
+    return NULL;
+  }
+  return mem;
+}
+
+static inline void *
+fd_block_dump_context_leave( fd_block_dump_ctx_t * ctx ) {
+  if( FD_UNLIKELY( !ctx ) ) {
+    FD_LOG_WARNING(( "NULL ctx" ));
+    return NULL;
+  }
+  return (void *)ctx;
+}
+
+/* Resets the block dump context to prepare for the next block. */
+static inline void
+fd_block_dump_context_reset( fd_block_dump_ctx_t * ctx ) {
+  fd_memset( &ctx->block_context, 0, sizeof(ctx->block_context) );
+  fd_spad_reset( ctx->spad );
+  ctx->txns_to_dump_cnt = 0UL;
+}
+
+/****** Actual dumping functions ******/
 
 void
 fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
@@ -71,37 +160,44 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
 void
 fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
 
-/* Block dumping is a little bit special because the scope of the block fuzzer handles both block + new
-   epoch processing. Therefore, we have to dump a decent amount of state before an epoch boundary may be
-   crossed, and then dump the individual transactions within the block once the block has been fetched
-   from the blockstore. Therefore, dumping is split up into two functions. `fd_dump_block_to_protobuf`
-   will create an initial BlockContext type that saves some fields from the slot and epoch context, as well as any current
-   builtins and sysvar accounts.
+/* Block dumping is a little bit different than the other harnesses due
+   to the architecture of our system.  Unlike the other dumping
+   functions, blocks are dumped in two separate stages - transaction
+   execution and block finalization.  Transactions are streamed into
+   the exec tile as they come in from the dispatcher, so we maintain a
+   running list of transaction descriptors to dump within the dumping
+   context (using fd_dump_block_to_protobuf_collect_tx).  When the block
+   is finalized, we take the accumulated transaction descriptors and
+   convert them into Protobuf messages using
+   fd_dump_block_to_protobuf, along with other fields in the slot /
+   epoch context and any stake, vote, and transaction accounts.
 
-   `fd_dump_block_to_protobuf_tx_only` takes an existing block context message and a runtime block and dumps
-   the transactions within the block to be replayed.
+   How it works in the replay tile:
 
-   CAVEATS: Currently, due to how spad frames are handled in the runtime, there is an edge case where block dumping will
-   fail / segfault when dumping the last block of a partitioned epoch rewards distribution run. This will be fixed once the
-   lifetime of the partitions can exist beyond the rewards distribution period so that we don't have to push and pop
-   spad frames in disjoint sections of the runtime. */
+   ...boot up backtest...
+   unprivledged_init() {
+     fd_block_dump_context_new()
+   }
+
+   ...start executing transactions...
+
+   while( txns_to_execute ) {
+     fd_dump_block_to_protobuf_collect_tx()
+   }
+
+   ...finalize the block...
+   fd_dump_block_to_protobuf()
+   fd_block_dump_context_reset() */
 void
-fd_dump_block_to_protobuf( fd_banks_t *                   banks,
-                           fd_bank_t *                    bank,
-                           fd_funk_t *                    funk,
-                           fd_funk_txn_xid_t const *      xid,
-                           fd_capture_ctx_t const *       capture_ctx,
-                           fd_spad_t *                    spad,
-                           fd_exec_test_block_context_t * block_context_msg /* output */ );
+fd_dump_block_to_protobuf_collect_tx( fd_block_dump_ctx_t * dump_ctx,
+                                      fd_txn_p_t const *    txn );
 
 void
-fd_dump_block_to_protobuf_tx_only( fd_runtime_block_info_t const * block_info,
-                                   fd_bank_t *                     bank,
-                                   fd_funk_t *                     funk,
-                                   fd_funk_txn_xid_t const *       xid,
-                                   fd_capture_ctx_t const *        capture_ctx,
-                                   fd_spad_t *                     spad,
-                                   fd_exec_test_block_context_t *  block_context_msg );
+fd_dump_block_to_protobuf( fd_block_dump_ctx_t *     dump_ctx,
+                           fd_banks_t *              banks,
+                           fd_bank_t *               bank,
+                           fd_funk_t *               funk,
+                           fd_capture_ctx_t const *  capture_ctx );
 
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,

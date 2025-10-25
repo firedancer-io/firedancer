@@ -6,7 +6,7 @@
 
 static void
 write_epoch_rewards( fd_bank_t *                 bank,
-                     fd_funk_t *                 funk,
+                     fd_accdb_user_t *           accdb,
                      fd_funk_txn_xid_t const *   xid,
                      fd_capture_ctx_t *          capture_ctx,
                      fd_sysvar_epoch_rewards_t * epoch_rewards ) {
@@ -21,14 +21,14 @@ write_epoch_rewards( fd_bank_t *                 bank,
     FD_LOG_ERR(( "fd_sysvar_epoch_rewards_encode failed" ));
   }
 
-  fd_sysvar_account_update( bank, funk, xid, capture_ctx, &fd_sysvar_epoch_rewards_id, enc, sz );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_epoch_rewards_id, enc, sz );
 }
 
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
                               fd_funk_txn_xid_t const *   xid,
                               fd_sysvar_epoch_rewards_t * out ) {
-  FD_TXN_ACCOUNT_DECL( acc );
+  fd_txn_account_t acc[1];
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_epoch_rewards_id, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
@@ -54,12 +54,12 @@ fd_sysvar_epoch_rewards_read( fd_funk_t *                 funk,
    sysvars which only get updated once per slot and then synced up after) */
 void
 fd_sysvar_epoch_rewards_distribute( fd_bank_t *               bank,
-                                    fd_funk_t *               funk,
+                                    fd_accdb_user_t *         accdb,
                                     fd_funk_txn_xid_t const * xid,
                                     fd_capture_ctx_t *        capture_ctx,
                                     ulong                     distributed ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( funk, xid, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb->funk, xid, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 
@@ -73,16 +73,16 @@ fd_sysvar_epoch_rewards_distribute( fd_bank_t *               bank,
 
   epoch_rewards->distributed_rewards += distributed;
 
-  write_epoch_rewards( bank, funk, xid, capture_ctx, epoch_rewards );
+  write_epoch_rewards( bank, accdb, xid, capture_ctx, epoch_rewards );
 }
 
 void
 fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *               bank,
-                                      fd_funk_t *               funk,
+                                      fd_accdb_user_t *         accdb,
                                       fd_funk_txn_xid_t const * xid,
                                       fd_capture_ctx_t *        capture_ctx ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
-  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( funk, xid, epoch_rewards ) ) ) {
+  if( FD_UNLIKELY( !fd_sysvar_epoch_rewards_read( accdb->funk, xid, epoch_rewards ) ) ) {
     FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
   }
 
@@ -92,7 +92,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *               bank,
 
   epoch_rewards->active = 0;
 
-  write_epoch_rewards( bank, funk, xid, capture_ctx, epoch_rewards );
+  write_epoch_rewards( bank, accdb, xid, capture_ctx, epoch_rewards );
 }
 
 /* Create EpochRewards sysvar with calculated rewards
@@ -100,7 +100,7 @@ fd_sysvar_epoch_rewards_set_inactive( fd_bank_t *               bank,
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L25 */
 void
 fd_sysvar_epoch_rewards_init( fd_bank_t *               bank,
-                              fd_funk_t *               funk,
+                              fd_accdb_user_t *         accdb,
                               fd_funk_txn_xid_t const * xid,
                               fd_capture_ctx_t *        capture_ctx,
                               ulong                     distributed_rewards,
@@ -123,5 +123,5 @@ fd_sysvar_epoch_rewards_init( fd_bank_t *               bank,
     FD_LOG_ERR(( "total rewards overflow" ));
   }
 
-  write_epoch_rewards( bank, funk, xid, capture_ctx, &epoch_rewards );
+  write_epoch_rewards( bank, accdb, xid, capture_ctx, &epoch_rewards );
 }

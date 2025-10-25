@@ -201,7 +201,6 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
                              ulong                    deactivation_epoch,
                              ulong                    credits_observed,
                              double                   warmup_cooldown_rate ) {
-
   fd_stake_delegation_t * stake_delegation_pool = fd_stake_delegations_get_pool( stake_delegations );
   if( FD_UNLIKELY( !stake_delegation_pool ) ) {
     FD_LOG_CRIT(( "unable to retrieve join to stake delegation pool" ));
@@ -359,7 +358,7 @@ fd_stake_delegations_refresh( fd_stake_delegations_t *  stake_delegations,
       continue;
     }
 
-    FD_TXN_ACCOUNT_DECL( acct_rec );
+    fd_txn_account_t acct_rec[1];
     int err = fd_txn_account_init_from_funk_readonly(
         acct_rec,
         &stake_delegation->stake_account,

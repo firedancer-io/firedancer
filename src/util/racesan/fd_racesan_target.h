@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_racesan_fd_racesan_target_h
-#define HEADER_fd_src_flamenco_racesan_fd_racesan_target_h
+#ifndef HEADER_fd_src_util_racesan_fd_racesan_target_h
+#define HEADER_fd_src_util_racesan_fd_racesan_target_h
 
 /* fd_racesan_target.h provides macros to instrument a shared memory
    concurrent algorithm with racesan.  These are zero cost if racesan
@@ -39,4 +39,4 @@ extern FD_TL fd_racesan_t * fd_racesan_g;
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_flamenco_racesan_fd_racesan_target_h */
+#endif /* HEADER_fd_src_util_racesan_fd_racesan_target_h */

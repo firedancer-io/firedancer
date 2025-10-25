@@ -18,6 +18,7 @@ uint const _syscalls[] = {
   FD_IMPORT_BINARY( id##_elf, "src/ballet/sbpf/fixtures/" #id ".elf" );
 
 LOAD_ELF( duplicate_entrypoint_entry )
+LOAD_ELF( zero_text_cnt )
 
 /* Properties of duplicate_entrypoint_entry.elf we are testing:
   * Two symbol entries with the "entrypoint" as st_name:
@@ -38,7 +39,6 @@ LOAD_ELF( duplicate_entrypoint_entry )
 */
 
 void test_duplicate_entrypoint_entry( void ) {
-  // TODO: boilerplate
   fd_scratch_push();
   fd_sbpf_elf_info_t info;
 
@@ -59,16 +59,44 @@ void test_duplicate_entrypoint_entry( void ) {
   for( uint const * x = _syscalls; *x; x++ )
       fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
-  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, &config );
+  void * scratch = fd_scratch_alloc( 1UL, duplicate_entrypoint_entry_elf_sz );
+  int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, &config, scratch, duplicate_entrypoint_entry_elf_sz );
+
   FD_TEST( res == 0 );
-
-  // end of boilerplate
-
   FD_TEST( fd_sbpf_calldests_test( prog->calldests, 595UL )==0 );
   FD_TEST( fd_sbpf_calldests_test( prog->calldests, 3920UL )==0 );
   FD_TEST( prog->entry_pc==3920UL );
-
 }
+
+void test_zero_text_cnt( void ) {
+  fd_scratch_push();
+  fd_sbpf_elf_info_t info;
+
+  fd_sbpf_loader_config_t config = { 0 };
+  config.elf_deploy_checks = 0;
+  config.sbpf_min_version = FD_SBPF_V0;
+  config.sbpf_max_version = FD_SBPF_V3;
+
+  fd_sbpf_elf_peek( &info, zero_text_cnt_elf, zero_text_cnt_elf_sz, &config );
+
+  void * rodata = fd_scratch_alloc( FD_SBPF_PROG_RODATA_ALIGN, info.bin_sz );
+  FD_TEST( rodata );
+
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_scratch_alloc( fd_sbpf_program_align(), fd_sbpf_program_footprint( &info ) ), &info, rodata );
+
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_scratch_alloc( fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
+
+  for( uint const * x = _syscalls; *x; x++ )
+      fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
+
+  void * scratch = fd_scratch_alloc( 1UL, zero_text_cnt_elf_sz );
+  int res = fd_sbpf_program_load( prog, zero_text_cnt_elf, zero_text_cnt_elf_sz, syscalls, &config, scratch, zero_text_cnt_elf_sz );
+
+  FD_TEST( res == 0 );
+  FD_TEST( prog->calldests==NULL );
+  FD_TEST( prog->entry_pc==0UL );
+}
+
 
 int
 main(   int argc,
@@ -81,6 +109,7 @@ main(   int argc,
 
   // testing here
   test_duplicate_entrypoint_entry();
+  test_zero_text_cnt();
 
   fd_scratch_detach( NULL );
   fd_halt();

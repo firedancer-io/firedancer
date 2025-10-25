@@ -2,7 +2,7 @@ BASEDIR?=build
 
 OPT?=opt
 SHELL:=bash
-CPPFLAGS:=-isystem ./$(OPT)/include -DFD_HAS_BACKTRACE=0
+CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
 CC:=gcc
 CFLAGS=-std=c17 -fwrapv

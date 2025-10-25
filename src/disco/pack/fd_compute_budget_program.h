@@ -1,5 +1,6 @@
-#ifndef HEADER_fd_src_ballet_pack_fd_compute_budget_program_h
-#define HEADER_fd_src_ballet_pack_fd_compute_budget_program_h
+#ifndef HEADER_fd_src_disco_pack_fd_compute_budget_program_h
+#define HEADER_fd_src_disco_pack_fd_compute_budget_program_h
+
 #include "../../ballet/fd_ballet_base.h"
 #include "../../ballet/txn/fd_txn.h"
 
@@ -250,4 +251,4 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
   *out_rewards = total_fee;
 }
 
-#endif /* HEADER_fd_src_ballet_pack_fd_compute_budget_program_h */
+#endif /* HEADER_fd_src_disco_pack_fd_compute_budget_program_h */
