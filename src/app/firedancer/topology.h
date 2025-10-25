@@ -37,11 +37,6 @@ setup_topo_progcache( fd_topo_t *  topo,
                       ulong        heap_size_gib );
 
 fd_topo_obj_t *
-setup_topo_runtime_pub( fd_topo_t *  topo,
-                        char const * wksp_name,
-                        ulong        mem_max );
-
-fd_topo_obj_t *
 setup_topo_store( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        fec_max,
@@ -52,6 +47,9 @@ setup_topo_txncache( fd_topo_t *  topo,
                      char const * wksp_name,
                      ulong        max_live_slots,
                      ulong        max_txn_per_slot );
+void
+setup_topo_vinyl( fd_topo_t *    topo,
+                  fd_configf_t * config );
 
 void
 fd_topo_configure_tile( fd_topo_tile_t * tile,

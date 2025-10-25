@@ -101,6 +101,34 @@ fd_topo_obj_callbacks_t fd_obj_cb_funk = {
   .new       = funk_new,
 };
 
+/* cnc: a tile admin message queue */
+
+static ulong
+cnc_align( fd_topo_t const *     topo,
+           fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return fd_cnc_align();
+}
+
+static ulong
+cnc_footprint( fd_topo_t const *     topo,
+               fd_topo_obj_t const * obj ) {
+  return fd_cnc_footprint( VAL("app_sz") );
+}
+
+static void
+cnc_new( fd_topo_t const *     topo,
+         fd_topo_obj_t const * obj ) {
+  FD_TEST( fd_cnc_new( fd_topo_obj_laddr( topo, obj->id ), VAL("app_sz"), VAL("type"), fd_log_wallclock() ) );
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_cnc = {
+  .name      = "cnc",
+  .footprint = cnc_footprint,
+  .align     = cnc_align,
+  .new       = cnc_new,
+};
+
 static ulong
 fec_sets_footprint( fd_topo_t const *     topo,
                     fd_topo_obj_t const * obj ) {
