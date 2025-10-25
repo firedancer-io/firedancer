@@ -1,6 +1,7 @@
 #include "topology.h"
 
 #include "../../ballet/lthash/fd_lthash.h"
+#include "../../choreo/fd_choreo_base.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../discof/poh/fd_poh.h"
 #include "../../discof/replay/fd_exec.h"
@@ -391,6 +392,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* TODO: Explain this .... USHORT_MAX is not dcache max */
   ulong pending_fec_shreds_depth = fd_ulong_min( fd_ulong_pow2_up( config->tiles.shred.max_pending_shred_sets * FD_REEDSOL_DATA_SHREDS_MAX ), USHORT_MAX + 1 /* dcache max */ );
+  ulong max_unrooted_slots       = config->firedancer.consensus.max_unrooted_slots;
 
   /*                                  topo, link_name,      wksp_name,      depth,                                    mtu,                           burst */
   /**/                 fd_topob_link( topo, "gossip_net",   "net_gossip",   32768UL,                                  FD_NET_MTU,                    1UL );
@@ -454,7 +456,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_out",    "shred_out",    pending_fec_shreds_depth,                 FD_SHRED_OUT_MTU,              3UL ); /* TODO: Pretty sure burst of 3 is incorrect here */
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL ); /* TODO: Also pending_fec_shreds_depth? Seems wrong */
-  /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    1024UL,                                   sizeof(fd_tower_slot_done_t),  1UL );
+  /**/                 fd_topob_link( topo, "tower_out",    "tower_out",    max_unrooted_slots,                       sizeof(fd_tower_msg_t),        1UL );
   /**/                 fd_topob_link( topo, "send_out",     "send_out",     128UL,                                    FD_TPU_RAW_MTU,                1UL );
 
                        fd_topob_link( topo, "replay_exec",  "replay_exec",  16384UL,                                  sizeof(fd_exec_task_msg_t),    1UL );
@@ -616,6 +618,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(    topo, "replay",  0UL,          "metric_in", "poh_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_in(    topo, "exec",    i,            "metric_in", "replay_exec",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "replay_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   if( snapshots_enabled ) {
                        fd_topob_tile_in (   topo, "tower",   0UL,          "metric_in", "snapin_manif", 0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -1143,9 +1146,10 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
 
-    strncpy( tile->tower.identity_key_path, config->paths.identity_key, sizeof(tile->tower.identity_key_path) );
-    strncpy( tile->tower.vote_acc_path, config->paths.vote_account, sizeof(tile->tower.vote_acc_path) );
-    strncpy( tile->tower.ledger_path, config->paths.base, sizeof(tile->tower.ledger_path) );
+    tile->tower.slot_max = config->firedancer.consensus.max_unrooted_slots;
+    strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
+    strncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
+    strncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "send" ) ) ) {
 
