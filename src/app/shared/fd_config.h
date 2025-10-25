@@ -103,6 +103,12 @@ struct fd_configf {
   } funk;
 
   struct {
+    int   enabled;
+    ulong max_account_records;
+    ulong file_size_gib;
+  } vinyl;
+
+  struct {
     uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
     uint sign_tile_count;
     uint gossvf_tile_count;
@@ -212,6 +218,7 @@ struct fd_config {
     char vote_account[ PATH_MAX ];
     char snapshots[ PATH_MAX ];
     char genesis[ PATH_MAX ];
+    char accounts[ PATH_MAX ];
   } paths;
 
   struct {
