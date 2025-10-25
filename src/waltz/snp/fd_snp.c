@@ -692,7 +692,7 @@ fd_snp_cache_packet_for_retry( fd_snp_conn_t * conn,
                                uchar const *   packet,
                                ulong           packet_sz,
                                fd_snp_meta_t   meta ) {
-  if( conn==NULL ) {
+  if( FD_UNLIKELY( conn==NULL || conn->last_pkt==NULL ) ) {
     return -1;
   }
   conn->retry_cnt = 0;
@@ -978,11 +978,10 @@ fd_snp_process_packet( fd_snp_t * snp,
   fd_snp_dest_meta_map_t sentinel = { 0 };
   fd_snp_dest_meta_map_t * dest_meta = fd_snp_dest_meta_map_query( snp->dest_meta_map,
     fd_snp_peer_addr_from_meta( fd_snp_meta_from_parts( 0, 0, src_ip, src_port ) ), &sentinel );
-  if( !!dest_meta->key ) {
-    if( !!dest_meta->val.snp_enforced ) {
-      snp->metrics_enf->rx_bytes_cnt += packet_sz;
-      snp->metrics_enf->rx_pkts_cnt  += 1UL;
-    }
+  int snp_enforced = dest_meta->key && dest_meta->val.snp_enforced;
+  if( snp_enforced ) {
+    snp->metrics_enf->rx_bytes_cnt += packet_sz;
+    snp->metrics_enf->rx_pkts_cnt  += 1UL;
   }
 
   uchar snp_app_id;
@@ -1065,17 +1064,24 @@ fd_snp_process_packet( fd_snp_t * snp,
   ulong pkt_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t);
   uchar to_sign[32];
   int sz = 0;
+  fd_snp_conn_t conn_empty[1] = { 0 };
+  conn_empty->peer_addr = peer_addr;
+  conn_empty->snp_enforced = (uchar)snp_enforced; /* only used for accurate metrics */
   switch( type ) {
 
     /* HS1. Server receives client_init and sends server_init */
     case FD_SNP_TYPE_HS_CLIENT_INIT: {
-      fd_snp_conn_t _conn[1] = { 0 }; _conn->peer_addr = peer_addr;
-      sz = fd_snp_v1_server_init( &snp->config, _conn, pkt, pkt_sz, pkt, NULL );
+      /* Whether there was or not an existing connection, we allow to create a new one */
+      conn = conn_empty; /* As a side effect, conn is not NULL */
+      sz = fd_snp_v1_server_init( &snp->config, conn, pkt, pkt_sz, pkt, NULL );
       FD_SNP_LOG_DEBUG_N( "[snp-hsk] fd_snp_v1_server_init sz=%d %s", sz, FD_SNP_LOG_CONN( conn ) );
     } break;
 
     /* HS2. Client receives server_init and sends client_cont */
     case FD_SNP_TYPE_HS_SERVER_INIT: {
+      if( conn==NULL ) {
+        return -1;
+      }
       sz = fd_snp_v1_client_cont( &snp->config, conn, pkt, pkt_sz, pkt, NULL );
       FD_SNP_LOG_DEBUG_N( "[snp-hsk] fd_snp_v1_client_cont sz=%d %s", sz, FD_SNP_LOG_CONN( conn ) );
       if( sz > 0 ) {
@@ -1085,9 +1091,8 @@ fd_snp_process_packet( fd_snp_t * snp,
 
     /* HS3. Server receives client_cont and sends server_fini */
     case FD_SNP_TYPE_HS_CLIENT_CONT: {
-      fd_snp_conn_t _conn[1] = { 0 }; _conn->peer_addr = peer_addr;
-      sz = fd_snp_v1_server_fini_precheck( &snp->config, _conn, pkt, pkt_sz, pkt, to_sign );
-      FD_SNP_LOG_DEBUG_N( "[snp-hsk] fd_snp_v1_server_fini_precheck sz=%d %s", sz, FD_SNP_LOG_CONN( conn ) );
+      sz = fd_snp_v1_server_fini_precheck( &snp->config, conn_empty, pkt, pkt_sz, pkt, to_sign );
+      FD_SNP_LOG_DEBUG_N( "[snp-hsk] fd_snp_v1_server_fini_precheck sz=%d %s", sz, FD_SNP_LOG_CONN( conn_empty ) );
       if( FD_UNLIKELY( sz < 0 ) ) {
         return -1;
       }
