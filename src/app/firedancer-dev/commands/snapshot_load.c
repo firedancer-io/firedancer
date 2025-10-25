@@ -43,6 +43,10 @@ snapshot_load_topo( config_t *     config,
       config->firedancer.funk.max_database_transactions,
       config->firedancer.funk.heap_size_gib );
 
+  if( config->firedancer.vinyl.enabled ) {
+    setup_topo_vinyl( topo, &config->firedancer );
+  }
+
   static ushort tile_to_cpu[ FD_TILE_MAX ] = {0};
   if( args->snapshot_load.tile_cpus[0] ) {
     ulong cpu_cnt = fd_tile_private_cpus_parse( args->snapshot_load.tile_cpus, tile_to_cpu );
@@ -105,6 +109,16 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   snapin_tile->snapin.funk_obj_id     = funk_obj->id;
   snapin_tile->snapin.txncache_obj_id = txncache_obj->id;
+  if( config->firedancer.vinyl.enabled ) {
+    ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+    ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+
+    fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
+    fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+
+    fd_topob_tile_uses( topo, snapin_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, snapin_tile, vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  }
 
   snapin_tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
 

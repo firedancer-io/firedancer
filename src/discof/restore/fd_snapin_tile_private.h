@@ -12,6 +12,8 @@
 #include "../../flamenco/accdb/fd_accdb_user.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../disco/stem/fd_stem.h"
+#include "../../vinyl/io/fd_vinyl_io.h"
+#include "../../vinyl/meta/fd_vinyl_meta.h"
 
 struct blockhash_group {
   uchar blockhash[ 32UL ];
@@ -78,6 +80,22 @@ struct fd_snapin_tile {
     ulong       chunk;
     ulong       mtu;
   } manifest_out;
+
+  struct {
+    fd_vinyl_io_t * io;
+    fd_vinyl_meta_t map[1];
+  } vinyl;
+
+  struct {
+    uchar * pair;
+    ulong   pair_sz;
+
+    uchar * dst;
+    ulong   dst_rem;
+    ulong   data_rem;
+
+    fd_vinyl_meta_ele_t * meta_ele;
+  } vinyl_op;
 };
 
 typedef struct fd_snapin_tile fd_snapin_tile_t;
@@ -88,22 +106,38 @@ void fd_snapin_process_account_header_funk( fd_snapin_tile_t * ctx, fd_ssparse_a
 void fd_snapin_process_account_data_funk  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
 void fd_snapin_process_account_batch_funk ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
 
+void fd_snapin_process_account_header_vinyl( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+void fd_snapin_process_account_data_vinyl  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+void fd_snapin_process_account_batch_vinyl ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+
 static inline void
 fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
                                   fd_ssparse_advance_result_t * result ) {
-  fd_snapin_process_account_header_funk( ctx, result );
+  if( ctx->use_vinyl ) {
+    fd_snapin_process_account_header_vinyl( ctx, result );
+  } else {
+    fd_snapin_process_account_header_funk( ctx, result );
+  }
 }
 
 static inline void
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
-  fd_snapin_process_account_data_funk( ctx, result );
+  if( ctx->use_vinyl ) {
+    fd_snapin_process_account_data_vinyl( ctx, result );
+  } else {
+    fd_snapin_process_account_data_funk( ctx, result );
+  }
 }
 
 static inline void
 fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
                                  fd_ssparse_advance_result_t * result ) {
-  fd_snapin_process_account_batch_funk( ctx, result );
+  if( ctx->use_vinyl ) {
+    fd_snapin_process_account_batch_vinyl( ctx, result );
+  } else {
+    fd_snapin_process_account_batch_funk( ctx, result );
+  }
 }
 
 FD_PROTOTYPES_END

@@ -533,6 +533,13 @@ struct fd_topo_tile {
       ulong max_live_slots;
       ulong funk_obj_id;
       ulong txncache_obj_id;
+
+      uint  use_vinyl : 1;
+      ulong vinyl_meta_map_obj_id;
+      ulong vinyl_meta_pool_obj_id;
+      ulong vinyl_bstream_sz;
+
+      char  vinyl_path[ PATH_MAX ];
     } snapin;
 
     struct {

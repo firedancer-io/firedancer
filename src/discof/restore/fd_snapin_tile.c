@@ -9,6 +9,11 @@
 
 #include "generated/fd_snapin_tile_seccomp.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/mman.h>
+
 #define NAME "snapin"
 
 /* The snapin tile is a state machine that parses and loads a full
@@ -26,6 +31,8 @@
 
 #define FD_SNAPIN_OUT_SNAPCT   0UL
 #define FD_SNAPIN_OUT_MANIFEST 1UL
+
+#define FD_SNAPIN_IO_SPAD_MAX (16UL<<20) /* 16 MiB of I/O scratch space */
 
 struct fd_blockhash_entry {
   fd_hash_t blockhash;
@@ -59,7 +66,7 @@ should_shutdown( fd_snapin_tile_t * ctx ) {
 
 static ulong
 scratch_align( void ) {
-  return 128UL;
+  return 512UL;
 }
 
 static ulong
@@ -67,13 +74,14 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),      sizeof(fd_snapin_tile_t)                             );
+  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(),         fd_vinyl_io_bd_footprint( FD_SNAPIN_IO_SPAD_MAX )    );
   l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),             fd_ssparse_footprint( 1UL<<24UL )                    );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
-  return FD_LAYOUT_FINI( l, alignof(fd_snapin_tile_t) );
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
@@ -481,7 +489,8 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
-      fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
+      fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
+      fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -621,9 +630,32 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapin_tile_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+  fd_snapin_tile_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t)                          );
+  void *             _vinyl_io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(),    fd_vinyl_io_bd_footprint( FD_SNAPIN_IO_SPAD_MAX ) );
 
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
+
+  ctx->use_vinyl = !!tile->snapin.use_vinyl;
+  if( ctx->use_vinyl ) {
+    void * shmap = fd_topo_obj_laddr( topo, tile->snapin.vinyl_meta_map_obj_id  );
+    void * shele = fd_topo_obj_laddr( topo, tile->snapin.vinyl_meta_pool_obj_id );
+
+    FD_TEST( fd_vinyl_meta_join( ctx->vinyl.map, shmap, shele ) );
+
+    /* FIXME move this to a new configure stage */
+
+    int vinyl_fd = open( tile->snapin.vinyl_path, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC, 0644 );
+    if( FD_UNLIKELY( vinyl_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC,0644) failed (%i-%s)", tile->snapin.vinyl_path, errno, strerror( errno ) ));
+
+    ulong bstream_sz = tile->snapin.vinyl_bstream_sz;
+    FD_TEST( 0==ftruncate( vinyl_fd, (long)bstream_sz ) );
+
+    char const * info    = "accdb";
+    ulong        info_sz = strlen( info ) + 1UL;
+    ulong        io_seed = (ulong)fd_tickcount();
+    ctx->vinyl.io = fd_vinyl_io_bd_init( _vinyl_io, FD_SNAPIN_IO_SPAD_MAX, vinyl_fd, 1, info, info_sz, io_seed );
+    FD_TEST( ctx->vinyl.io );
+  }
 }
 
 FD_FN_UNUSED static void
@@ -633,6 +665,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                             );
+  /*                */(void)FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(),        fd_vinyl_io_bd_footprint( FD_SNAPIN_IO_SPAD_MAX )    );
   void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),            fd_ssparse_footprint( 1UL<<24UL )                    );
   void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots ) );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                              );

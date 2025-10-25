@@ -20,9 +20,8 @@
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
-#include "../../flamenco/gossip/fd_gossip.h"
-#include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
+#include "../../vinyl/meta/fd_vinyl_meta.h"
 
 #include <sys/random.h>
 #include <sys/types.h>
@@ -149,6 +148,28 @@ setup_topo_txncache( fd_topo_t *  topo,
   FD_TEST( fd_pod_insertf_ulong( topo->props, max_txn_per_slot, "obj.%lu.max_txn_per_slot", obj->id ) );
 
   return obj;
+}
+
+void
+setup_topo_vinyl( fd_topo_t *    topo,
+                  fd_configf_t * config ) {
+  (void)config;
+  fd_topob_wksp( topo, "vinyl" );
+
+  fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "vinyl" );
+  ulong const meta_max  = fd_ulong_pow2_up( config->vinyl.max_account_records );
+  ulong const lock_cnt  = fd_vinyl_meta_lock_cnt_est ( meta_max );
+  ulong const probe_max = fd_vinyl_meta_probe_max_est( meta_max );
+  fd_pod_insertf_ulong( topo->props, meta_max,  "obj.%lu.ele_max",   map_obj->id );
+  fd_pod_insertf_ulong( topo->props, lock_cnt,  "obj.%lu.lock_cnt",  map_obj->id );
+  fd_pod_insertf_ulong( topo->props, probe_max, "obj.%lu.probe_max", map_obj->id );
+  fd_pod_insertf_ulong( topo->props, (ulong)fd_tickcount(), "obj.%lu.seed", map_obj->id );
+
+  fd_topo_obj_t * meta_pool_obj = fd_topob_obj( topo, "vinyl_meta_e", "vinyl" );
+  fd_pod_insertf_ulong( topo->props, meta_max, "obj.%lu.cnt", meta_pool_obj->id );
+
+  fd_pod_insert_ulong( topo->props, "vinyl.meta_map",  map_obj->id );
+  fd_pod_insert_ulong( topo->props, "vinyl.meta_pool", meta_pool_obj->id );
 }
 
 static int
@@ -947,9 +968,16 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapin" ) ) ) {
 
-    tile->snapin.max_live_slots = config->firedancer.runtime.max_live_slots;
+    tile->snapin.max_live_slots  = config->firedancer.runtime.max_live_slots;
     tile->snapin.funk_obj_id     = fd_pod_query_ulong( config->topo.props, "funk",     ULONG_MAX );
     tile->snapin.txncache_obj_id = fd_pod_query_ulong( config->topo.props, "txncache", ULONG_MAX );
+
+    tile->snapin.use_vinyl              = !!config->firedancer.vinyl.enabled;
+    tile->snapin.vinyl_meta_map_obj_id  = fd_pod_query_ulong( config->topo.props, "vinyl.meta_map",  ULONG_MAX );
+    tile->snapin.vinyl_meta_pool_obj_id = fd_pod_query_ulong( config->topo.props, "vinyl.meta_pool", ULONG_MAX );
+    tile->snapin.vinyl_bstream_sz       = config->firedancer.vinyl.file_size_gib<<30;
+
+    strcpy( tile->snapin.vinyl_path, config->firedancer.vinyl.path );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
     tile->repair.max_pending_shred_sets    = config->tiles.shred.max_pending_shred_sets;
