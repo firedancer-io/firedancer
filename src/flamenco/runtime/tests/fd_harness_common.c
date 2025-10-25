@@ -19,7 +19,7 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( accdb->funk, xid, pubkey, NULL, NULL, NULL) ) ) {
+  if( FD_UNLIKELY( fd_funk_get_acc_meta_readonly( accdb->funk, xid, pubkey, NULL, NULL ) ) ) {
     return 0;
   }
 

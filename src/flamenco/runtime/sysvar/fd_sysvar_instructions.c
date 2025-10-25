@@ -57,12 +57,11 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
      2. Case 2: rec->meta==NULL
         - `fd_executor_setup_accounts_for_txn()` did not make an spad allocation for this account
         - spad memory is sized out for allocations for 128 (max number) accounts
-        - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */
   if( !fd_txn_account_is_mutable( rec ) ) {
-    uchar *             mem  = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
-    fd_account_meta_t * meta = (fd_account_meta_t *)mem;
-    fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, &fd_sysvar_instructions_id, meta, 1 ), txn_ctx->spad_wksp );
+    fd_account_meta_t * meta = fd_spad_alloc_check( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
+    void *              data = fd_spad_alloc_check( txn_ctx->spad, FD_ACCOUNT_REC_DATA_ALIGN, serialized_sz );
+    fd_txn_account_t *  acc  = fd_txn_account_join( fd_txn_account_new( rec, &fd_sysvar_instructions_id, meta, data, serialized_sz, 1 ), txn_ctx->spad_wksp );
     if( FD_UNLIKELY( !acc ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }

@@ -97,8 +97,6 @@ struct fd_rpc_global_ctx {
   ulong confirmed_slot;
   ulong root_slot;
   fd_accdb_user_t * accdb;
-
-  uchar account_buf[ FD_ACC_TOT_SZ_MAX ];
 };
 typedef struct fd_rpc_global_ctx fd_rpc_global_ctx_t;
 

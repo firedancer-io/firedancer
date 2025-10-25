@@ -31,9 +31,11 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   fd_account_meta_t *             meta;
   uchar *                         data;
+  ulong                           dlen;
 
   int                             is_mutable;
   long                            meta_soff;
+  long                            data_soff;
 
   ulong                           starting_dlen;
   ulong                           starting_lamports;
@@ -61,6 +63,8 @@ void *
 fd_txn_account_new( void *              mem,
                     fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
+                    void *              data,
+                    ulong               data_sz,
                     int                 is_mutable );
 
 /* fd_txn_account_join joins a thread with an indepedent address space

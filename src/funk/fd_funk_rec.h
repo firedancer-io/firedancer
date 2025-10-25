@@ -10,7 +10,7 @@
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
-#define FD_FUNK_REC_ALIGN     (32UL)
+#define FD_FUNK_REC_ALIGN     (64UL)
 
 /* FD_FUNK_REC_IDX_NULL gives the map record idx value used to represent
    NULL.  This value also set a limit on how large rec_max can be. */
@@ -26,15 +26,13 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   fd_funk_xid_key_pair_t pair;     /* Transaction id and record key pair */
   uint                   map_next; /* Internal use by map */
 
-  /* These fields are managed by the user */
-
-  uchar user[ 12 ];
-
   /* These fields are managed by funk.  TODO: Consider using record
      index compression here (much more debatable than in txn itself). */
 
-  uint  next_idx;  /* Record map index of next record in its transaction */
-  uint  prev_idx;  /* Record map index of previous record in its transaction */
+  uint next_idx;  /* Record map index of next record in its transaction */
+  uint prev_idx;  /* Record map index of previous record in its transaction */
+
+  uchar user[ 52 ];
 
   /* Note: use of uint here requires FD_FUNK_REC_VAL_MAX to be at most
      (1UL<<28)-1. */
@@ -51,7 +49,7 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 3U*FD_FUNK_REC_ALIGN, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is wrong );
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and

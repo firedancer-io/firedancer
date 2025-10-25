@@ -222,8 +222,9 @@ fd_write_builtin_account( fd_bank_t  *              bank,
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash(
     &pubkey,
-    fd_txn_account_get_meta( rec ),
-    fd_txn_account_get_data( rec ),
+    fd_txn_account_get_meta    ( rec ),
+    fd_txn_account_get_data    ( rec ),
+    fd_txn_account_get_data_len( rec ),
     prev_hash );
 
   fd_txn_account_set_data( rec, data, sz );

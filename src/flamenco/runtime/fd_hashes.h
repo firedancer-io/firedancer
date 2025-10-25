@@ -51,9 +51,10 @@ FD_PROTOTYPES_BEGIN
    The account data pointer must be readable for account->dlen bytes. */
 
 void
-fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
+fd_hashes_account_lthash( fd_pubkey_t const *       pubkey,
                           fd_account_meta_t const * account,
-                          uchar const             * data,
+                          uchar const *             data,
+                          ulong                     dlen,
                           fd_lthash_value_t *       lthash_out );
 
 /* fd_hashes_update_lthash updates the bank's incremental lthash when an

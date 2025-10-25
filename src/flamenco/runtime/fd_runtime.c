@@ -9,6 +9,7 @@
 #include "fd_runtime_stack.h"
 
 #include "fd_executor.h"
+#include "fd_txn_account.h"
 #include "sysvar/fd_sysvar_cache.h"
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
@@ -231,7 +232,7 @@ fd_runtime_run_incinerator( fd_bank_t *               bank,
   }
 
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+  fd_hashes_account_lthash( rec->pubkey, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), fd_txn_account_get_data_len( rec ), prev_hash );
 
   ulong new_capitalization = fd_ulong_sat_sub( fd_bank_capitalization_get( bank ), fd_txn_account_get_lamports( rec ) );
   fd_bank_capitalization_set( bank, new_capitalization );
@@ -300,7 +301,7 @@ fd_runtime_freeze( fd_bank_t *               bank,
       }
 
       fd_lthash_value_t prev_hash[1];
-      fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+      fd_hashes_account_lthash( leader, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), fd_txn_account_get_data_len( rec ), prev_hash );
 
       fd_bank_epoch_leaders_end_locking_query( bank );
 
@@ -859,9 +860,10 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
     FD_LOG_CRIT(( "fd_runtime_finalize_account: account is not mutable" ));
   }
 
-  fd_pubkey_t const * key         = acc->pubkey;
-  uchar       const * record_data = (uchar *)fd_txn_account_get_meta( acc );
-  ulong               record_sz   = fd_account_meta_get_record_sz( acc->meta );
+  fd_pubkey_t const *       key            = acc->pubkey;
+  fd_account_meta_t const * record_meta    = fd_txn_account_get_meta( acc );
+  uchar const *             record_data    = fd_txn_account_get_data( acc );
+  ulong                     record_data_sz = fd_txn_account_get_data_len( acc );
 
   int err = FD_FUNK_SUCCESS;
 
@@ -879,28 +881,32 @@ fd_runtime_finalize_account( fd_funk_t *               funk,
         fd_funk_alloc( funk ),
         fd_funk_wksp( funk ),
         0UL,
-        record_sz,
+        record_data_sz,
         &err ) ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_data_sz, err, fd_funk_strerror( err ) ));
     }
 
-    fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_sz );
+    memcpy( rec->user, record_meta, sizeof(fd_account_meta_t) );
+
+    fd_memcpy( fd_funk_val( rec, fd_funk_wksp( funk ) ), record_data, record_data_sz );
 
     fd_funk_rec_publish( funk, prepare );
 
   } else {
+
+    memcpy( prev_rec->user, record_meta, sizeof(fd_account_meta_t) );
 
     if( FD_UNLIKELY( !fd_funk_val_truncate(
         prev_rec,
         fd_funk_alloc( funk ),
         fd_funk_wksp( funk ),
         0UL,
-        record_sz,
+        record_data_sz,
         &err ) ) ) {
-      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_sz, err, fd_funk_strerror( err ) ));
+      FD_LOG_ERR(( "fd_funk_val_truncate(sz=%lu) for account failed (%i-%s)", record_data_sz, err, fd_funk_strerror( err ) ));
     }
 
-    fd_memcpy( fd_funk_val( prev_rec, fd_funk_wksp( funk ) ), record_data, record_sz );
+    fd_memcpy( fd_funk_val( prev_rec, fd_funk_wksp( funk ) ), record_data, record_data_sz );
 
   }
 
@@ -923,12 +929,13 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
   }
 
   /* Get account data */
-  fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  void const * data              = fd_txn_account_get_data( account );
+  fd_account_meta_t const * meta    = fd_txn_account_get_meta    ( account );
+  void const *              data    = fd_txn_account_get_data    ( account );
+  ulong                     data_sz = fd_txn_account_get_data_len( account );
 
   /* Calculate account hash using lthash */
   fd_lthash_value_t lthash[1];
-  fd_hashes_account_lthash( account->pubkey, meta, data, lthash );
+  fd_hashes_account_lthash( account->pubkey, meta, data, data_sz, lthash );
 
   /* Calculate message size */
   if( FD_UNLIKELY( capture_ctx->account_updates_len > FD_CAPTURE_CTX_MAX_ACCOUNT_UPDATES ) ) {
@@ -940,14 +947,14 @@ fd_runtime_buffer_solcap_account_update( fd_txn_account_t *        account,
   fd_capture_ctx_account_update_msg_t * account_update_msg = (fd_capture_ctx_account_update_msg_t *)(capture_ctx->account_updates_buffer_ptr);
   account_update_msg->pubkey               = *account->pubkey;
   account_update_msg->info                 = fd_txn_account_get_solana_meta( account );
-  account_update_msg->data_sz              = meta->dlen;
+  account_update_msg->data_sz              = data_sz;
   account_update_msg->bank_idx             = bank->idx;
   memcpy( account_update_msg->hash.uc, lthash->bytes, sizeof(fd_hash_t) );
   capture_ctx->account_updates_buffer_ptr += sizeof(fd_capture_ctx_account_update_msg_t);
 
   /* Write the account data to the buffer */
-  memcpy( capture_ctx->account_updates_buffer_ptr, data, meta->dlen );
-  capture_ctx->account_updates_buffer_ptr += meta->dlen;
+  memcpy( capture_ctx->account_updates_buffer_ptr, data, data_sz );
+  capture_ctx->account_updates_buffer_ptr += data_sz;
 
   capture_ctx->account_updates_len++;
 }
@@ -992,15 +999,15 @@ fd_runtime_save_account( fd_funk_t *               funk,
 
   /* Look up the previous version of the account from Funk */
   int err = FD_ACC_MGR_SUCCESS;
-  fd_funk_rec_t * funk_prev_rec = NULL;
-  fd_account_meta_t const * prev_meta = fd_funk_get_acc_meta_readonly(
+  fd_funk_rec_t const * funk_prev_rec = fd_funk_get_acc_meta_readonly(
       funk,
       xid,
       account->pubkey,
-      fd_type_pun( &funk_prev_rec ),
       &err,
       NULL );
-  uchar const * prev_data = (void const *)( prev_meta+1 );
+  fd_account_meta_t const * prev_meta    = fd_type_pun_const( funk_prev_rec->user );
+  uchar const *             prev_data    = fd_funk_val_const( funk_prev_rec, fd_funk_wksp( funk ) );
+  ulong                     prev_data_sz = funk_prev_rec->val_sz;
 
   /* Hash the old version of the account */
   fd_lthash_value_t prev_hash[1];
@@ -1010,6 +1017,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
       account->pubkey,
       prev_meta,
       prev_data,
+      prev_data_sz,
       prev_hash );
   }
 
@@ -1021,7 +1029,7 @@ fd_runtime_save_account( fd_funk_t *               funk,
   fd_runtime_buffer_solcap_account_update( account, bank, capture_ctx );
 
   /* Save the new version of the account to Funk */
-  fd_runtime_finalize_account( funk, xid, account, funk_prev_rec );
+  fd_runtime_finalize_account( funk, xid, account, (fd_funk_rec_t *)funk_prev_rec );
 }
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
@@ -1346,8 +1354,9 @@ fd_feature_activate( fd_bank_t *               bank,
     fd_lthash_value_t prev_hash[1];
     fd_hashes_account_lthash(
       addr,
-      fd_txn_account_get_meta( modify_acct_rec ),
-      fd_txn_account_get_data( modify_acct_rec ),
+      fd_txn_account_get_meta    ( modify_acct_rec ),
+      fd_txn_account_get_data    ( modify_acct_rec ),
+      fd_txn_account_get_data_len( modify_acct_rec ),
       prev_hash );
 
     feature->has_activated_at = 1;

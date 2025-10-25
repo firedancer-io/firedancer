@@ -296,7 +296,7 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              ushort                    idx ) {
   (void) ctx;
   (void) idx;
-  return fd_account_meta_exists( fd_txn_account_get_meta( acc ) );
+  return fd_account_meta_exists( fd_txn_account_get_meta( acc ), fd_txn_account_get_data_len( acc ) );
 }
 
 int

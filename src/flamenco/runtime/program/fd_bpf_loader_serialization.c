@@ -393,7 +393,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
 
-      ulong acc_data_len = metadata->dlen;
+      ulong acc_data_len = fd_borrowed_account_get_data_len( &view_acc );
       pre_lens[i] = acc_data_len;
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L535 */
@@ -507,8 +507,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
 
       uchar * post_data = buffer+start;
 
-      fd_account_meta_t const * metadata_check = fd_borrowed_account_get_acc_meta( &view_acc );
-      if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen )>MAX_PERMITTED_DATA_INCREASE ||
+      if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, fd_borrowed_account_get_data_len( &view_acc ) )>MAX_PERMITTED_DATA_INCREASE ||
                        post_len>MAX_PERMITTED_DATA_LENGTH ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
@@ -677,7 +676,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( ulong, serialized_params, lamports );
       serialized_params += sizeof(ulong);
 
-      ulong acc_data_len = metadata->dlen;
+      ulong acc_data_len = fd_borrowed_account_get_data_len( &view_acc );
       FD_STORE( ulong, serialized_params, acc_data_len );
       serialized_params += sizeof(ulong);
 

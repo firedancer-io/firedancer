@@ -3,6 +3,7 @@
 #include "fd_bank.h"
 #include "fd_hashes.h"
 #include "fd_runtime.h"
+#include "fd_runtime_const.h"
 #include "fd_runtime_err.h"
 
 #include "context/fd_exec_txn_ctx.h"
@@ -938,21 +939,28 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
     rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
   } else {
     int err = FD_ACC_MGR_SUCCESS;
-    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+    fd_funk_rec_t const * rec = fd_funk_get_acc_meta_readonly(
         txn_ctx->funk,
         txn_ctx->xid,
         fee_payer_key,
-        NULL,
         &err,
         NULL );
+    FD_TEST( rec );
+    fd_account_meta_t const * meta = fd_type_pun_const( rec->user );
+    ulong data_len = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
+    /* FIXME why not use rec->val_sz here? */
 
-    ulong  data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
-    void * fee_payer_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + data_len );
-    fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + data_len );
+    fd_account_meta_t * fee_payer_meta = fd_spad_alloc( txn_ctx->spad, sizeof(fd_account_meta_t), sizeof(fd_account_meta_t) );
+    void *              fee_payer_data = fd_spad_alloc( txn_ctx->spad, 8UL, data_len );
+    *fee_payer_meta = *meta;
+    fd_memcpy( fee_payer_data, fd_funk_val( rec, txn_ctx->funk->wksp ), data_len );
+
     if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
           txn_ctx->rollback_fee_payer_account,
           fee_payer_key,
-          (fd_account_meta_t *)fee_payer_data,
+          fee_payer_meta,
+          fee_payer_data,
+          data_len,
           1 ), txn_ctx->spad_wksp ) ) ) {
       FD_LOG_CRIT(( "Failed to join txn account" ));
     }
@@ -1410,11 +1418,10 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
   fd_pubkey_t * acc = &txn_ctx->account_keys[ idx ];
 
   int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+  fd_funk_rec_t const * rec = fd_funk_get_acc_meta_readonly(
       txn_ctx->funk,
       txn_ctx->xid,
       acc,
-      NULL,
       &err,
       NULL );
 
@@ -1426,8 +1433,19 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
+  fd_account_meta_t const * src_meta = NULL;
+  void const *              src_data = NULL;
+  ulong                     src_dlen = 0UL;
+  if( rec ) {
+    src_meta = fd_type_pun_const( rec->user );
+    src_data = fd_funk_val( rec, txn_ctx->funk->wksp );
+    src_dlen = rec->val_sz;
+  }
+
   int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
+  void *              account_data = NULL;
+  ulong               account_dlen = 0UL;
   fd_wksp_t *         data_wksp    = NULL;
 
   if( is_writable ) {
@@ -1436,19 +1454,21 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
 
-    uchar * new_raw_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-    ulong   dlen         = !!meta ? meta->dlen : 0UL;
+    account_meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
+    account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_DATA_ALIGN, FD_RUNTIME_ACC_SZ_MAX );
+    ulong dlen = rec ? rec->val_sz : 0UL;
+    account_dlen = dlen;
 
-    if( FD_LIKELY( meta ) ) {
+    if( FD_LIKELY( rec ) ) {
       /* Account exists, copy the data into the staging area */
-      fd_memcpy( new_raw_data, (uchar *)meta, sizeof(fd_account_meta_t)+dlen );
+      *account_meta = *src_meta;
+      fd_memcpy( account_data, src_data, dlen );
     } else {
       /* Account did not exist, set up metadata */
-      fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
+      fd_account_meta_init( account_meta );
     }
 
-    account_meta = (fd_account_meta_t *)new_raw_data;
-    data_wksp    = txn_ctx->spad_wksp;
+    data_wksp = txn_ctx->spad_wksp;
 
   } else {
     /* If the account is not writable, then we can simply initialize
@@ -1457,11 +1477,12 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
        metadata. */
 
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
-      account_meta = (fd_account_meta_t *)meta;
+      account_meta = (fd_account_meta_t *)src_meta;
+      account_data = (void *)src_data;
+      account_dlen = src_dlen;
       data_wksp    = fd_funk_wksp( txn_ctx->funk );
     } else {
-      uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
-      account_meta = (fd_account_meta_t *)mem;
+      account_meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
       data_wksp    = txn_ctx->spad_wksp;
       fd_account_meta_init( account_meta );
     }
@@ -1471,6 +1492,8 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
       txn_account,
       acc,
       account_meta,
+      account_data,
+      account_dlen,
       is_writable ), data_wksp ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }

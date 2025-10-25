@@ -761,8 +761,9 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     fd_lthash_value_t prev_hash[1];
     fd_hashes_account_lthash(
       vote_pubkey,
-      fd_txn_account_get_meta( vote_rec ),
-      fd_txn_account_get_data( vote_rec ),
+      fd_txn_account_get_meta    ( vote_rec ),
+      fd_txn_account_get_data    ( vote_rec ),
+      fd_txn_account_get_data_len( vote_rec ),
       prev_hash );
 
     fd_txn_account_set_slot( vote_rec, fd_bank_slot_get( bank ) );
@@ -827,8 +828,9 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
   fd_lthash_value_t prev_hash[1];
   fd_hashes_account_lthash(
     stake_pubkey,
-    fd_txn_account_get_meta( stake_acc_rec ),
-    fd_txn_account_get_data( stake_acc_rec ),
+    fd_txn_account_get_meta    ( stake_acc_rec ),
+    fd_txn_account_get_data    ( stake_acc_rec ),
+    fd_txn_account_get_data_len( stake_acc_rec ),
     prev_hash );
 
   fd_txn_account_set_slot( stake_acc_rec, fd_bank_slot_get( bank ) );

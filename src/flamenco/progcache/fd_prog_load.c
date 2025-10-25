@@ -60,11 +60,15 @@ fd_get_executable_program_content_for_upgradeable_loader( fd_funk_t const *     
 
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
 
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      funk, xid, programdata_address, NULL, NULL, out_xid );
-  if( FD_UNLIKELY( !meta ) ) return NULL;
+  fd_funk_rec_t const * acc = fd_funk_get_acc_meta_readonly(
+      funk, xid, programdata_address, NULL, out_xid );
+  if( FD_UNLIKELY( !acc ) ) return NULL;
+  fd_account_meta_t const * meta = fd_type_pun_const( acc->user );
+  void const *              data = fd_funk_val_const( acc, funk->wksp );
+  ulong                     dlen = acc->val_sz;
+
   fd_txn_account_t _rec[1];
-  fd_txn_account_t * programdata_acc = fd_txn_account_join( fd_txn_account_new( _rec, programdata_address, (void *)meta, 0 ), funk->wksp );
+  fd_txn_account_t * programdata_acc = fd_txn_account_join( fd_txn_account_new( _rec, programdata_address, (fd_account_meta_t *)meta, (void *)data, dlen, 0 ), funk->wksp );
   if( FD_UNLIKELY( !programdata_acc ) ) FD_LOG_CRIT(( "fd_txn_account_new failed" ));
 
   /* We don't actually need to decode here, just make sure that the account
@@ -110,11 +114,16 @@ fd_prog_load_elf( fd_funk_t const *         accdb,
 
   fd_funk_txn_xid_t _out_xid;
   if( !out_xid ) out_xid = &_out_xid;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      accdb, xid, &prog_addr, NULL, NULL, out_xid );
-  if( FD_UNLIKELY( !meta ) ) return NULL;
+
+  fd_funk_rec_t const * acc = fd_funk_get_acc_meta_readonly(
+      accdb, xid, &prog_addr, NULL, out_xid );
+  if( FD_UNLIKELY( !acc ) ) return NULL;
+  fd_account_meta_t const * meta = fd_type_pun_const( acc->user );
+  void const *              data = fd_funk_val_const( acc, accdb->wksp );
+  ulong                     dlen = acc->val_sz;
+
   fd_txn_account_t _rec[1];
-  fd_txn_account_t * rec = fd_txn_account_join( fd_txn_account_new( _rec, &prog_addr, (void *)meta, 0 ), accdb->wksp );
+  fd_txn_account_t * rec = fd_txn_account_join( fd_txn_account_new( _rec, &prog_addr, (fd_account_meta_t *)meta, (void *)data, dlen, 0 ), accdb->wksp );
   if( FD_UNLIKELY( !rec ) ) FD_LOG_CRIT(( "fd_txn_account_new failed" ));
 
   /* v1/v2 loaders: Programdata is just the account data.

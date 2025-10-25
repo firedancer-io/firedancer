@@ -31,22 +31,22 @@ tmp_account_read( fd_tmp_account_t *        acc,
                   fd_funk_txn_xid_t const * xid,
                   fd_pubkey_t const *       addr ) {
   int opt_err = 0;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+  fd_funk_rec_t const * rec = fd_funk_get_acc_meta_readonly(
       funk,
       xid,
       addr,
-      NULL,
       &opt_err,
       NULL );
   if( FD_UNLIKELY( opt_err!=FD_ACC_MGR_SUCCESS ) ) {
     if( FD_LIKELY( opt_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) return NULL;
     FD_LOG_CRIT(( "fd_funk_get_acc_meta_readonly failed (%d) %s", opt_err, FD_BASE58_ENC_32_ALLOCA( addr ) ));
   }
-  tmp_account_new( acc, meta->dlen );
+  tmp_account_new( acc, rec->val_sz );
+  fd_account_meta_t const * meta = fd_type_pun_const( rec->user );
   acc->meta = *meta;
   acc->addr = *addr;
-  fd_memcpy( acc->data, fd_account_meta_get_data_const( meta ), meta->dlen );
-  acc->data_sz = meta->dlen;
+  fd_memcpy( acc->data, fd_funk_val( rec, funk->wksp ), rec->val_sz );
+  acc->data_sz = rec->val_sz;
   return acc;
 }
 
@@ -76,7 +76,7 @@ tmp_account_store( fd_tmp_account_t *        acc,
   }
 
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( &acc->addr, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+  fd_hashes_account_lthash( &acc->addr, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), fd_txn_account_get_data_len( rec ), prev_hash );
 
   fd_txn_account_set_executable( rec, acc->meta.executable    );
   fd_txn_account_set_owner     ( rec, fd_type_pun_const( acc->meta.owner ) );
@@ -138,7 +138,6 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
         funk,
         xid,
         program_address,
-        NULL,
         &opt_err,
         NULL );
     if( opt_err==FD_ACC_MGR_SUCCESS ) {
@@ -166,7 +165,6 @@ target_builtin_new_checked( target_builtin_t *        target_builtin,
         funk,
         xid,
         &program_data_address,
-        NULL,
         &opt_err,
         NULL );
     if( opt_err==FD_ACC_MGR_SUCCESS ) {

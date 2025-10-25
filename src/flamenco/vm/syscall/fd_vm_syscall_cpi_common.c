@@ -284,14 +284,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     fd_guarded_borrowed_account_t callee_acct = {0};
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
 
-    fd_pubkey_t const *       account_key = callee_acct.acct->pubkey;
-    fd_account_meta_t const * acc_meta    = fd_borrowed_account_get_acc_meta( &callee_acct );
+    fd_pubkey_t const * account_key = callee_acct.acct->pubkey;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
     if( fd_borrowed_account_is_executable( &callee_acct ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
-      FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
+      FD_VM_CU_UPDATE( vm, fd_borrowed_account_get_data_len( &callee_acct ) / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
     }
 

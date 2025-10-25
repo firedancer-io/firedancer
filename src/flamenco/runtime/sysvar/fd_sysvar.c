@@ -20,7 +20,7 @@ fd_sysvar_account_update( fd_bank_t *               bank,
   fd_funk_rec_prepare_t prepare = {0};
   fd_txn_account_init_from_funk_mutable( rec, address, accdb, xid, 1, sz, &prepare );
   fd_lthash_value_t prev_hash[1];
-  fd_hashes_account_lthash( address, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), prev_hash );
+  fd_hashes_account_lthash( address, fd_txn_account_get_meta( rec ), fd_txn_account_get_data( rec ), fd_txn_account_get_data_len( rec ), prev_hash );
 
   ulong const slot            = fd_bank_slot_get( bank );
   ulong const lamports_before = fd_txn_account_get_lamports( rec );

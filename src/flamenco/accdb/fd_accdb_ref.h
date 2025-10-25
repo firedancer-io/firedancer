@@ -24,6 +24,7 @@
 struct fd_accdb_ref {
   ulong rec_laddr;
   ulong meta_laddr;
+  ulong data_laddr;
 };
 typedef struct fd_accdb_ref fd_accdb_ref_t;
 
@@ -34,6 +35,7 @@ union fd_accdb_ro {
   struct {
     fd_funk_rec_t const *     rec;
     fd_account_meta_t const * meta;
+    void const *              data;
   };
 };
 typedef union fd_accdb_ro fd_accdb_ro_t;
@@ -42,12 +44,12 @@ FD_PROTOTYPES_BEGIN
 
 static inline void const *
 fd_accdb_ref_data_const( fd_accdb_ro_t const * ro ) {
-  return (void *)( ro->meta+1 );
+  return ro->data;
 }
 
 static inline ulong
 fd_accdb_ref_data_sz( fd_accdb_ro_t const * ro ) {
-  return ro->meta->dlen;
+  return ro->rec->val_sz;
 }
 
 static inline ulong
@@ -87,6 +89,7 @@ union fd_accdb_rw {
   struct {
     fd_funk_rec_t *     rec;
     fd_account_meta_t * meta;
+    void *              data;
     uint                published : 1;
   };
 };
@@ -99,16 +102,12 @@ FD_PROTOTYPES_BEGIN
 
 static inline ulong
 fd_accdb_ref_data_max( fd_accdb_rw_t * rw ) {
-  ulong data_max;
-  if( FD_UNLIKELY( __builtin_usubl_overflow( rw->rec->val_max, sizeof(fd_account_meta_t), &data_max ) ) ) {
-    FD_LOG_CRIT(( "invalid rec->val_max %lu for account at rec %p", (ulong)rw->rec->val_max, (void *)rw->rec ));
-  }
-  return data_max;
+  return rw->rec->val_max;
 }
 
 static inline void *
 fd_accdb_ref_data( fd_accdb_rw_t * rw ) {
-  return (void *)( rw->meta+1 );
+  return rw->data;
 }
 
 static inline void
@@ -121,14 +120,13 @@ fd_accdb_ref_data_set( fd_accdb_rw_t * rw,
                   data_sz, (void *)rw->rec, data_max ));
   }
   fd_memcpy( fd_accdb_ref_data( rw ), data, data_sz );
-  rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & (FD_FUNK_REC_VAL_MAX-1);
+  rw->rec->val_sz = ((uint)data_sz) & (FD_FUNK_REC_VAL_MAX-1);
 }
 
 FD_FN_UNUSED static void
 fd_accdb_ref_data_sz_set( fd_accdb_rw_t * rw,
                           ulong           data_sz ) {
-  ulong prev_sz = rw->meta->dlen;
+  ulong prev_sz = rw->rec->val_sz;
   if( data_sz>prev_sz ) {
     /* Increasing size, zero out tail */
     ulong data_max = fd_accdb_ref_data_max( rw );
@@ -139,8 +137,7 @@ fd_accdb_ref_data_sz_set( fd_accdb_rw_t * rw,
     void * tail = (uchar *)fd_accdb_ref_data( rw ) + prev_sz;
     fd_memset( tail, 0, data_sz-prev_sz );
   }
-  rw->meta->dlen  = (uint)data_sz;
-  rw->rec->val_sz = (uint)( sizeof(fd_account_meta_t)+data_sz ) & (FD_FUNK_REC_VAL_MAX-1);
+  rw->rec->val_sz = ((uint)data_sz) & (FD_FUNK_REC_VAL_MAX-1);
 }
 
 static inline void

@@ -7,6 +7,8 @@ void *
 fd_txn_account_new( void *              mem,
                     fd_pubkey_t const * pubkey,
                     fd_account_meta_t * meta,
+                    void *              data,
+                    ulong               data_sz,
                     int                 is_mutable ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -34,12 +36,12 @@ fd_txn_account_new( void *              mem,
 
   txn_account->magic             = FD_TXN_ACCOUNT_MAGIC;
 
-  txn_account->starting_dlen     = meta->dlen;
+  txn_account->starting_dlen     = data_sz;
+  txn_account->dlen              = data_sz;
   txn_account->starting_lamports = meta->lamports;
 
-  uchar * data = (uchar *)meta + sizeof(fd_account_meta_t);
-
   txn_account->meta_soff = (long)( (ulong)meta - (ulong)mem );
+  txn_account->data_soff = (long)( (ulong)data - (ulong)mem );
 
   txn_account->meta       = meta;
   txn_account->data       = data;
@@ -77,7 +79,7 @@ fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
   }
 
   txn_account->meta = (void *)( (ulong)mem + (ulong)txn_account->meta_soff );
-  txn_account->data = (void *)( (ulong)txn_account->meta + sizeof(fd_account_meta_t) );
+  txn_account->data = (void *)( (ulong)mem + (ulong)txn_account->data_soff );
 
   return txn_account;
 }
@@ -134,11 +136,10 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
                                         fd_funk_txn_xid_t const * xid ) {
 
   int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+  fd_funk_rec_t const * rec = fd_funk_get_acc_meta_readonly(
       funk,
       xid,
       pubkey,
-      NULL,
       &err,
       NULL );
 
@@ -146,10 +147,15 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
     return err;
   }
 
+  fd_account_meta_t * meta = (fd_account_meta_t *)rec->user;
+  void *              data = fd_funk_val( rec, funk->wksp );
+
   if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
         acct,
         pubkey,
-        (fd_account_meta_t *)meta,
+        meta,
+        data,
+        rec->val_sz,
         0 ), fd_funk_wksp( funk ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
@@ -176,6 +182,8 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
         acct,
         pubkey,
         rw->meta,
+        fd_accdb_ref_data( rw ),
+        fd_accdb_ref_data_sz( rw->ro ),
         1 ), fd_funk_wksp( accdb->funk ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
@@ -293,7 +301,7 @@ fd_txn_account_get_data_len( fd_txn_account_t const * acct ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  return acct->meta->dlen;
+  return acct->dlen;
 }
 
 int
@@ -398,7 +406,7 @@ fd_txn_account_set_data( fd_txn_account_t * acct,
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  acct->meta->dlen = (uint)data_sz;
+  acct->dlen = (uint)data_sz;
   fd_memcpy( acct->data, data, data_sz );
 }
 
@@ -410,7 +418,7 @@ fd_txn_account_set_data_len( fd_txn_account_t * acct, ulong data_len ) {
   if( FD_UNLIKELY( !acct->meta ) ) {
     FD_LOG_CRIT(( "account is not setup" ));
   }
-  acct->meta->dlen = (uint)data_len;
+  acct->dlen = (uint)data_len;
 }
 
 void
@@ -447,12 +455,12 @@ fd_txn_account_resize( fd_txn_account_t * acct,
   /* Because the memory for an account is preallocated for the transaction
      up to the max account size, we only need to zero out bytes (for the case
      where the account grew) and update the account dlen. */
-  ulong old_sz    = acct->meta->dlen;
+  ulong old_sz    = acct->dlen;
   ulong new_sz    = dlen;
   ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
   fd_memset( acct->data+old_sz, 0, memset_sz );
 
-  acct->meta->dlen = (uint)dlen;
+  acct->dlen = (uint)dlen;
 }
 
 ushort

@@ -17,18 +17,17 @@ main( int argc, char ** argv ) {
 
   fd_pubkey_t pubkey = { .ul = { 9, 10 } };
 
-  uchar * data  = fd_wksp_alloc_laddr( wksp, 1UL, 1000UL, 1UL );
-  uchar * data2 = fd_wksp_alloc_laddr( wksp, 1UL, 1000UL, 1UL );
-  fd_account_meta_t * meta = (fd_account_meta_t *)data;
+  uchar * acc_data = fd_wksp_alloc_laddr( wksp, 1UL, 1000UL, 1UL );
+  uchar * data2    = fd_wksp_alloc_laddr( wksp, 1UL, 1000UL, 1UL );
+  fd_account_meta_t meta[1];
   fd_account_meta_init( meta );
-  meta->dlen = 100UL;
-  uchar * acc_data = fd_account_meta_get_data( meta );
 
-  FD_TEST( !fd_txn_account_new( NULL, &pubkey, meta, 0 ) );
-  FD_TEST( !fd_txn_account_new( tx_acc_mem, NULL, meta, 0 ) );
-  FD_TEST( !fd_txn_account_new( tx_acc_mem, &pubkey, NULL, 0 ) );
+  FD_TEST( !fd_txn_account_new( NULL,       &pubkey, meta, acc_data, 100UL, 0 ) );
+  FD_TEST( !fd_txn_account_new( tx_acc_mem, NULL,    meta, acc_data, 100UL, 0 ) );
+  FD_TEST( !fd_txn_account_new( tx_acc_mem, &pubkey, NULL, acc_data, 100UL, 0 ) );
+  FD_TEST( !fd_txn_account_new( tx_acc_mem, &pubkey, meta, NULL,     100UL, 0 ) );
 
-  uchar * new_tx_account = fd_txn_account_new( tx_acc_mem, &pubkey, meta, 0 );
+  uchar * new_tx_account = fd_txn_account_new( tx_acc_mem, &pubkey, meta, acc_data, 100UL, 0 );
   FD_TEST( new_tx_account );
 
   FD_TEST( !fd_txn_account_join( NULL, wksp ) );
@@ -64,8 +63,7 @@ main( int argc, char ** argv ) {
 
   /* Repeat similar tests with a mutable account */
 
-  meta->dlen = 101UL;
-  txn_account = fd_txn_account_join( fd_txn_account_new( tx_acc_mem, &pubkey, meta, 1 ), wksp );
+  txn_account = fd_txn_account_join( fd_txn_account_new( tx_acc_mem, &pubkey, meta, acc_data, 101UL, 1 ), wksp );
   FD_TEST( txn_account );
 
   FD_TEST( fd_txn_account_is_mutable( txn_account ) );

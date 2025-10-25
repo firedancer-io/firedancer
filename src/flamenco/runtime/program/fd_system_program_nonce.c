@@ -991,18 +991,20 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
            Now figure out the state that the nonce account should
            advance to.
          */
-        fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
+        fd_funk_rec_t const * rec = fd_funk_get_acc_meta_readonly(
             txn_ctx->funk,
             txn_ctx->xid,
             &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
-            NULL,
             &err,
             NULL );
-        ulong acc_data_len = meta->dlen;
-
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
+
+        fd_account_meta_t const * acc_meta = fd_type_pun_const( rec->user );
+        void const *              acc_data = fd_funk_val( rec, txn_ctx->funk->wksp );
+        ulong acc_data_len = rec->val_sz;
+
         fd_nonce_state_versions_t new_state = {
           .discriminant = fd_nonce_state_versions_enum_current,
           .inner = { .current = {
@@ -1020,20 +1022,17 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        ulong old_tot_len = sizeof(fd_account_meta_t)+acc_data_len;
-        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
-        if( FD_UNLIKELY( !borrowed_account_data ) ) {
-          FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
-        }
-        if( FD_UNLIKELY( !meta ) ) {
-          FD_LOG_CRIT(( "Failed to get meta for nonce account" ));
-        }
-        fd_memcpy( borrowed_account_data, meta, sizeof(fd_account_meta_t)+acc_data_len );
+        fd_account_meta_t * ba_meta = fd_spad_alloc_check( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
+        void *              ba_data = fd_spad_alloc_check( txn_ctx->spad, FD_ACCOUNT_REC_DATA_ALIGN, fd_ulong_max( FD_ACC_NONCE_SZ_MAX, acc_data_len ) );
+        *ba_meta = *acc_meta;
+        fd_memcpy( ba_data, acc_data, acc_data_len );
 
         if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
               txn_ctx->rollback_nonce_account,
               &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
-              (fd_account_meta_t *)borrowed_account_data,
+              ba_meta,
+              ba_data,
+              acc_data_len,
               1 ), txn_ctx->spad_wksp ) ) ) {
           FD_LOG_CRIT(( "Failed to join txn account" ));
         }

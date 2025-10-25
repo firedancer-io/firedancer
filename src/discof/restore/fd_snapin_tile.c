@@ -443,8 +443,9 @@ process_account_header( fd_snapin_tile_t *            ctx,
     FD_TEST( rec );
   }
 
-  fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
-  if( FD_UNLIKELY( meta ) ) {
+  void * data = fd_funk_val( rec, funk->wksp );
+  if( FD_UNLIKELY( data ) ) {
+    fd_account_meta_t * meta = fd_type_pun( rec->user );
     if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
       ctx->acc_data = NULL;
       return;
@@ -457,22 +458,21 @@ process_account_header( fd_snapin_tile_t *            ctx,
 
   /* Allocate data space from heap, free old value (if any) */
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
-  ulong const alloc_sz = sizeof(fd_account_meta_t)+result->account_header.data_len;
+  ulong const data_sz = result->account_header.data_len;
   ulong       alloc_max;
-  meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
-  memset( meta, 0, sizeof(fd_account_meta_t) );
-  rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
+  data = fd_alloc_malloc_at_least( funk->alloc, 16UL, data_sz, &alloc_max );
+  if( FD_UNLIKELY( data_sz && !data ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, data );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
-  rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
+  rec->val_sz    = (uint)( data_sz  & FD_FUNK_REC_VAL_MAX );
 
-  meta->dlen       = (uint)result->account_header.data_len;
+  fd_account_meta_t * meta = fd_type_pun( rec->user );
   meta->slot       = result->account_header.slot;
   memcpy( meta->owner, result->account_header.owner, sizeof(fd_pubkey_t) );
   meta->lamports   = result->account_header.lamports;
-  meta->executable = (uchar)result->account_header.executable;
+  meta->executable = !!result->account_header.executable;
 
-  ctx->acc_data = (uchar*)meta + sizeof(fd_account_meta_t);
+  ctx->acc_data = data;
   ctx->metrics.accounts_inserted++;
 
   if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( funk, prepare );
@@ -504,25 +504,23 @@ streamlined_insert( fd_snapin_tile_t * ctx,
   fd_funk_t * funk = ctx->accdb->funk;
   if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
   fd_funk_val_flush( rec, funk->alloc, funk->wksp );
-  ulong const alloc_sz = sizeof(fd_account_meta_t)+data_len;
-  ulong       alloc_max;
-  fd_account_meta_t * meta = fd_alloc_malloc_at_least( funk->alloc, 16UL, alloc_sz, &alloc_max );
-  if( FD_UNLIKELY( !meta ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  ulong alloc_max;
+  void * data = fd_alloc_malloc_at_least( funk->alloc, 16UL, data_len, &alloc_max );
+  if( FD_UNLIKELY( data_len && !data ) ) FD_LOG_ERR(( "Ran out of heap memory while loading snapshot (increase [funk.heap_size_gib])" ));
+  fd_account_meta_t * meta = fd_type_pun( rec->user );
   memset( meta, 0, sizeof(fd_account_meta_t) );
   rec->val_gaddr = fd_wksp_gaddr_fast( funk->wksp, meta );
   rec->val_max   = (uint)( fd_ulong_min( alloc_max, FD_FUNK_REC_VAL_MAX ) & FD_FUNK_REC_VAL_MAX );
-  rec->val_sz    = (uint)( alloc_sz  & FD_FUNK_REC_VAL_MAX );
+  rec->val_sz    = (uint)( data_len&FD_FUNK_REC_VAL_MAX );
 
   /* Write metadata */
-  meta->dlen = (uint)data_len;
   meta->slot = slot;
   memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
   meta->lamports   = lamports;
   meta->executable = (uchar)executable;
 
   /* Write data */
-  uchar * acc_data = (uchar *)( meta+1 );
-  fd_memcpy( acc_data, frame+0x88UL, data_len );
+  fd_memcpy( data, frame+0x88UL, data_len );
 
   ctx->metrics.accounts_inserted++;
 }
@@ -604,9 +602,7 @@ process_account_batch( fd_snapin_tile_t *            ctx,
       r->map_next      = head_cidx;
       rec[ i ]         = r;
     } else {  /* existing record for key found */
-      fd_account_meta_t const * existing = fd_funk_val( r, funk->wksp );
-      if( FD_UNLIKELY( !existing ) ) FD_LOG_HEXDUMP_NOTICE(( "r", r, sizeof(fd_funk_rec_t) ));
-      FD_TEST( existing );
+      fd_account_meta_t * existing = fd_type_pun( r->user );
       if( existing->slot > result->account_batch.slot ) {
         rec[ i ] = NULL;  /* skip record if existing value is newer */
       }

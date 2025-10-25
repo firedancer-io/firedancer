@@ -12,6 +12,7 @@ void
 fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
                           fd_account_meta_t const * account,
                           uchar const             * data,
+                          ulong                     dlen,
                           fd_lthash_value_t       * lthash_out ) {
   fd_lthash_zero( lthash_out );
 
@@ -25,7 +26,7 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
   fd_blake3_t b3[1];
   fd_blake3_init( b3 );
   fd_blake3_append( b3, &account->lamports, sizeof( ulong ) );
-  fd_blake3_append( b3, data, account->dlen );
+  fd_blake3_append( b3, data, dlen );
   fd_blake3_append( b3, &executable, sizeof( uchar ) );
   fd_blake3_append( b3, account->owner, FD_PUBKEY_FOOTPRINT );
   fd_blake3_append( b3, pubkey, FD_PUBKEY_FOOTPRINT );
@@ -67,7 +68,7 @@ fd_hashes_update_lthash( fd_txn_account_t const  * account,
   /* Hash the new version of the account */
   fd_lthash_value_t new_hash[1];
   fd_account_meta_t const * meta = fd_txn_account_get_meta( account );
-  fd_hashes_account_lthash( account->pubkey, meta, fd_txn_account_get_data( account ), new_hash );
+  fd_hashes_account_lthash( account->pubkey, meta, fd_txn_account_get_data( account ), fd_txn_account_get_data_len( account ), new_hash );
 
   /* Subtract the old hash of the account from the bank lthash */
   fd_lthash_value_t * bank_lthash = fd_type_pun( fd_bank_lthash_locking_modify( bank ) );

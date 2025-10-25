@@ -228,7 +228,8 @@ fd_accdb_peek1( fd_accdb_user_t *         accdb,
   *peek = (fd_accdb_peek_t) {
     .acc = {{
       .rec  = rec,
-      .meta = fd_funk_val( rec, funk->wksp )
+      .meta = fd_type_pun_const( rec->user ),
+      .data = fd_funk_val_const( rec, funk->wksp )
     }},
     .spec = {{
       .key  = *key,
@@ -257,8 +258,7 @@ fd_accdb_copy_account( fd_account_meta_t *   out_meta,
   if( FD_LIKELY( out_meta->lamports ) ) {
     memcpy( out_meta->owner, fd_accdb_ref_owner( acc ), 32UL );
     out_meta->executable = !!fd_accdb_ref_exec_bit( acc );
-    out_meta->dlen       = (uint)fd_accdb_ref_data_sz( acc );
-    fd_memcpy( out_data, fd_accdb_ref_data_const( acc ), out_meta->dlen );
+    fd_memcpy( out_data, fd_accdb_ref_data_const( acc ), fd_accdb_ref_data_sz( acc ) );
   }
 }
 
@@ -286,13 +286,14 @@ fd_accdb_prep_create( fd_accdb_rw_t *           rw,
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
 
-  fd_account_meta_t * meta = val;
+  fd_account_meta_t * meta = fd_type_pun( rec->user );
   meta->slot = xid->ul[0];
 
   accdb->rw_active++;
   *rw = (fd_accdb_rw_t) {
     .rec       = rec,
     .meta      = meta,
+    .data      = val,
     .published = 0
   };
   return rw;
@@ -312,7 +313,8 @@ fd_accdb_prep_inplace( fd_accdb_rw_t *   rw,
   accdb->rw_active++;
   *rw = (fd_accdb_rw_t) {
     .rec       = rec,
-    .meta      = fd_funk_val( rec, accdb->funk->wksp ),
+    .meta      = fd_type_pun( rec->user ),
+    .data      = fd_funk_val( rec, accdb->funk->wksp ),
     .published = 1
   };
   if( FD_UNLIKELY( !rw->meta->lamports ) ) {
@@ -356,22 +358,20 @@ fd_accdb_modify_prepare( fd_accdb_user_t *         accdb,
 
     /* Record not found */
     if( !do_create ) return NULL;
-    ulong  val_sz_min = sizeof(fd_account_meta_t)+data_min;
-    ulong  val_sz  = data_min;
     ulong  val_max = 0UL;
-    void * val     = fd_alloc_malloc_at_least( accdb->funk->alloc, 16UL, val_sz_min, &val_max );
-    if( FD_UNLIKELY( !val ) ) {
+    void * val     = fd_alloc_malloc_at_least( accdb->funk->alloc, 16UL, data_min, &val_max );
+    if( FD_UNLIKELY( data_min && !val ) ) {
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", data_min ));
     }
-    fd_memset( val, 0, val_sz_min );
-    return fd_accdb_prep_create( rw, accdb, xid, address, val, val_sz, val_max );
+    fd_memset( val, 0, data_min );
+    return fd_accdb_prep_create( rw, accdb, xid, address, val, data_min, val_max );
 
   } else if( fd_funk_txn_xid_eq( peek->acc->rec->pair.xid, xid ) ) {
 
     /* Mutable record found, modify in-place */
     fd_funk_rec_t * rec = (void *)( peek->acc->ref->rec_laddr );
     ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
-    ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_min, acc_orig_sz );
+    ulong  val_sz_min  = fd_ulong_max( data_min, acc_orig_sz );
     void * val         = fd_funk_val_truncate( rec, accdb->funk->alloc, accdb->funk->wksp, 16UL, val_sz_min, NULL );
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", acc_orig_sz ));
@@ -381,30 +381,22 @@ fd_accdb_modify_prepare( fd_accdb_user_t *         accdb,
   } else {
 
     /* Frozen record found, copy out to new object */
-    ulong  acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
-    ulong  val_sz_min  = sizeof(fd_account_meta_t)+fd_ulong_max( data_min, acc_orig_sz );
-    ulong  val_sz      = peek->acc->rec->val_sz;
-    ulong  val_max     = 0UL;
-    void * val         = fd_alloc_malloc_at_least( accdb->funk->alloc, 16UL, val_sz_min, &val_max );
-    if( FD_UNLIKELY( !val ) ) {
+    ulong   acc_orig_sz = fd_accdb_ref_data_sz( peek->acc );
+    ulong   val_sz_min  = fd_ulong_max( data_min, acc_orig_sz );
+    ulong   val_sz      = peek->acc->rec->val_sz;
+    ulong   val_max     = 0UL;
+    uchar * data        = fd_alloc_malloc_at_least( accdb->funk->alloc, 16UL, val_sz_min, &val_max );
+    if( FD_UNLIKELY( val_sz_min && !data ) ) {
       FD_LOG_CRIT(( "Failed to modify account: out of memory allocating %lu bytes", acc_orig_sz ));
     }
 
-    fd_account_meta_t * meta     = val;
-    uchar *             data     = (uchar *)( meta+1 );
-    ulong               data_max = val_max - sizeof(fd_account_meta_t);
+    rw = fd_accdb_prep_create( rw, accdb, xid, address, data, val_sz, val_max );
+    fd_account_meta_t * meta = fd_type_pun( rw->rec->user );
     fd_accdb_copy_account( meta, data, peek->acc );
-    if( acc_orig_sz<data_max ) {
-      /* Zero out trailing data */
-      uchar * tail    = data    +acc_orig_sz;
-      ulong   tail_sz = data_max-acc_orig_sz;
-      fd_memset( tail, 0, tail_sz );
-    }
     if( FD_UNLIKELY( !fd_accdb_peek_test( peek ) ) ) {
       FD_LOG_CRIT(( "Failed to modify account: data race detected, account was removed while being read" ));
     }
-
-    return fd_accdb_prep_create( rw, accdb, xid, address, val, val_sz, val_max );
+    return rw;
 
   }
 }

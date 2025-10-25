@@ -237,6 +237,7 @@ fd_funk_rec_prepare( fd_funk_t *               funk,
   rec->tag      = 0;
   rec->prev_idx = FD_FUNK_REC_IDX_NULL;
   rec->next_idx = FD_FUNK_REC_IDX_NULL;
+  memset( rec->user, 0, sizeof(rec->user) );
   fd_funk_rec_txn_release( txn_query );
   return rec;
 }

@@ -129,19 +129,19 @@ initialize_accdb( fd_genesi_tile_t * ctx ) {
     fd_funk_rec_key_t key[1]; memcpy( key->uc, account->key.uc, sizeof(fd_pubkey_t) );
     fd_funk_rec_t * rec = fd_funk_rec_prepare( ctx->accdb->funk, &root_xid, key, prepare, NULL );
     FD_TEST( rec );
-    fd_account_meta_t * meta = fd_funk_val_truncate( rec, ctx->accdb->funk->alloc, ctx->accdb->funk->wksp, 16UL, sizeof(fd_account_meta_t)+account->account.data_len, NULL );
+    fd_account_meta_t * meta = fd_type_pun( rec->user );
     FD_TEST( meta );
-    void * data = (void *)( meta+1 );
+    void * data = fd_funk_val_truncate( rec, ctx->accdb->funk->alloc, ctx->accdb->funk->wksp, 16UL, account->account.data_len, NULL );
+    FD_TEST( data );
     fd_memcpy( meta->owner, account->account.owner.uc, sizeof(fd_pubkey_t) );
     meta->lamports = account->account.lamports;
     meta->slot = 0UL;
     meta->executable = !!account->account.executable;
-    meta->dlen = (uint)account->account.data_len;
     fd_memcpy( data, fd_solana_account_data_join( &account->account ), account->account.data_len );
     fd_funk_rec_publish( ctx->accdb->funk, prepare );
 
     fd_lthash_value_t new_hash[1];
-    fd_hashes_account_lthash( &account->key, meta, data, new_hash );
+    fd_hashes_account_lthash( &account->key, meta, data, account->account.data_len, new_hash );
     fd_lthash_add( ctx->lthash, new_hash );
   }
 }
