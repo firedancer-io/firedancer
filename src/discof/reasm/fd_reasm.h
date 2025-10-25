@@ -137,29 +137,22 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   ulong dlist_prev;
   ulong dlist_next;
 
-  /* Data */
+  /* Data (set on insert) */
 
-  ulong  slot;          /* The slot of the FEC set */
-  uint   fec_set_idx;   /* The index of first shred in the FEC set */
-  ushort parent_off;    /* The offset for the parent slot of the FEC set */
-  ushort data_cnt;      /* The number of data shreds in the FEC set */
-  int    free;          /* Whether the FEC set is a valid pool member */
-  int    data_complete; /* Whether the FEC set completes an entry batch */
-  int    slot_complete; /* Whether the FEC set completes the slot */
-  int    leader;        /* Whether the FEC set corresponds to FECs produced during a leader slot */
-  int    eqvoc;         /* Whether the FEC set is equivocating.  Note,
-                           this doesn't track all types of equivocations
-                           (i.e. equivocations not on a slot boundary
-                           and malformed FEC indices).
-                           TODO: this will change with fix-32. */
+  ulong  slot;          /* slot of the FEC set */
+  uint   fec_set_idx;   /* index of first shred in the FEC set */
+  ushort parent_off;    /* offset for the parent slot of the FEC set */
+  ushort data_cnt;      /* number of data shreds in the FEC set */
+  int    free;          /* Whether this FEC is currently in the pool */
+  int    data_complete; /* whether this FEC completes an entry batch */
+  int    slot_complete; /* whether this FEC completes the slot */
+  int    leader;        /* whether this FEC was produced by us as leader */
+  int    eqvoc;         /* whether this FEC equivocates */
 
-  /* Metadata (set by caller)
+  /* Data (set by caller) */
 
-     parent_bank_idx and bank_idx are used to track downstream
-     consumers of the reasm_fecs from reasm_next().  parent_bank_idx and
-     bank_idx is set externally in the replay tile. */
-  ulong parent_bank_idx;
   ulong bank_idx;
+  ulong parent_bank_idx;
 };
 typedef struct fd_reasm_fec fd_reasm_fec_t;
 
@@ -182,7 +175,9 @@ fd_reasm_footprint( ulong fec_max );
    address space with the required footprint and alignment. */
 
 void *
-fd_reasm_new( void * shmem, ulong fec_max, ulong seed );
+fd_reasm_new( void * shmem,
+              ulong  fec_max,
+              ulong  seed );
 
 /* fd_reasm_join joins the caller to the reasm.  reasm points
    to the first byte of the memory region backing the reasm in the
@@ -214,7 +209,8 @@ fd_reasm_delete( void * reasm );
    found, NULL otherwise. */
 
 fd_reasm_fec_t *
-fd_reasm_query( fd_reasm_t const * reasm, fd_hash_t const * merkle_root );
+fd_reasm_query( fd_reasm_t const * reasm,
+                fd_hash_t  const * merkle_root );
 
 /* fd_reasm_{root,parent,child,sibling} returns a pointer in the
    caller's address space to the {root,parent,left-child,right-sibling}.
@@ -288,7 +284,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
    this new root. */
 
 fd_reasm_fec_t *
-fd_reasm_publish( fd_reasm_t * reasm,
+fd_reasm_publish( fd_reasm_t      * reasm,
                   fd_hash_t const * merkle_root );
 
 void

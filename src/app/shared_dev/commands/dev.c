@@ -108,13 +108,6 @@ update_config_for_dev( fd_config_t * config ) {
       shred->shred.expected_shred_version = shred_version;
     }
   }
-  ulong store_id = fd_topo_find_tile( &config->topo, "storei", 0 );
-  if( FD_UNLIKELY( store_id!=ULONG_MAX ) ) {
-    fd_topo_tile_t * storei = &config->topo.tiles[ store_id ];
-    if( FD_LIKELY( storei->store_int.expected_shred_version==(ushort)0 ) ) {
-      storei->store_int.expected_shred_version = shred_version;
-    }
-  }
 }
 
 /* Run Firedancer entirely in a single process for development and

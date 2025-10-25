@@ -2434,7 +2434,7 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
   (void)now;
 
   /* handle new root */
-  if( FD_LIKELY( tower->new_root && gui->summary.slot_rooted!=tower->root_slot ) ) {
+  if( FD_LIKELY( tower->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=tower->root_slot ) ) {
     fd_gui_handle_rooted_slot( gui, tower->root_slot );
   }
 

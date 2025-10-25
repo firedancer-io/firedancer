@@ -767,10 +767,15 @@ after_frag( ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_kind==IN_KIND_TOWER ) ) {
-    fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
-    if( FD_LIKELY( msg->new_root ) ) {
-      fd_forest_publish( ctx->forest, msg->root_slot );
-      fd_policy_reset  ( ctx->policy, ctx->forest );
+    if( FD_UNLIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) {
+      fd_tower_slot_done_t const * msg = (fd_tower_slot_done_t const *)fd_type_pun_const( ctx->buffer );
+      if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
+        fd_forest_publish( ctx->forest, msg->root_slot );
+        fd_policy_reset  ( ctx->policy, ctx->forest );
+      }
+    } else if( FD_LIKELY( sig == FD_TOWER_SIG_DUPLICATE_CONFIRMED ) ) {
+      fd_tower_duplicate_confirmed_t const * msg = (fd_tower_duplicate_confirmed_t const *)fd_type_pun_const( ctx->buffer );
+      (void)msg;
     }
     return;
   }

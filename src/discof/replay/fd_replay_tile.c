@@ -730,7 +730,8 @@ static void
 publish_slot_completed( fd_replay_tile_t *  ctx,
                         fd_stem_context_t * stem,
                         fd_bank_t *         bank,
-                        int                 is_initial ) {
+                        int                 is_initial,
+                        int                 is_leader ) {
 
   ulong slot = fd_bank_slot_get( bank );
 
@@ -788,6 +789,8 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
     parent_bank->refcnt++;
     slot_info->parent_bank_idx = parent_bank->idx;
   }
+
+  slot_info->is_leader = is_leader;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_SLOT_COMPLETED, ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_slot_completed_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -863,7 +866,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Must be last so we can measure completion time correctly, even
      though we could technically do this before the hash cmp and vote
      tower stuff. */
-  publish_slot_completed( ctx, stem, bank, 0 );
+  publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
 
   /* If enabled, dump the block to a file and reset the dumping
      context state */
@@ -1014,7 +1017,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
-  publish_slot_completed( ctx, stem, ctx->leader_bank, 0 );
+  publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
 
   /* Copy the vote tower of all the vote accounts into the buffer,
       which will be published in after_credit. */
@@ -1418,7 +1421,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
 
   FD_TEST( fd_block_id_map_ele_insert( ctx->block_id_map, block_id_ele, ctx->block_id_arr ) );
 
-  publish_slot_completed( ctx, stem, bank, 1 );
+  publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
   publish_root_advanced( ctx, stem );
   publish_reset( ctx, stem, bank );
 }
@@ -1498,7 +1501,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
        slot_bank needed in blockstore_init. */
     init_after_snapshot( ctx );
 
-    publish_slot_completed( ctx, stem, bank, 1 );
+    publish_slot_completed( ctx, stem, bank, 1, 0 /* is_leader */ );
     publish_root_advanced( ctx, stem );
 
     fd_reasm_fec_t * fec = fd_reasm_insert( ctx->reasm, &manifest_block_id, NULL, snapshot_slot, 0, 0, 0, 0, 1, 0 ); /* FIXME manifest block_id */
@@ -2046,7 +2049,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
     FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", reset_bank_idx ));
   }
 
-  if( FD_LIKELY( msg->new_root ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
+  if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
   ctx->reset_bank = bank;
 
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
@@ -2079,10 +2082,10 @@ process_tower_update( fd_replay_tile_t *           ctx,
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
-  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, new_root=%d, root_slot=%lu, root_block_id=%s)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->new_root, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
+  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, root_slot=%lu, root_block_id=%s)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
   maybe_become_leader( ctx, stem );
 
-  if( FD_LIKELY( msg->new_root ) ) {
+  if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
 
     FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
     fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
@@ -2262,7 +2265,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      process_tower_update( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) process_tower_update( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_SHRED: {

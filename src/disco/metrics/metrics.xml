@@ -1084,4 +1084,15 @@ metric introduced.
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
 </tile>
 
+<tile name="tower">
+    <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
+    <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
+    <counter name="SameFork" summary="Same fork as prev vote (can vote)" />
+    <counter name="SwitchPass" summary="Prev vote was on a different fork, but we are allowed to switch (can vote)" />
+    <counter name="SwitchFail" summary="Prev vote was on a different fork, and we are not allowed to switch (can't vote)" />
+    <counter name="LockoutFail" summary="Locked out (can't vote)" />
+    <counter name="ThresholdFail" summary="Did not pass threshold check (can't vote)" />
+    <counter name="PropagatedFail" summary="Prev leader block did not propagate (can't vote)" />
+</tile>
+
 </metrics>
