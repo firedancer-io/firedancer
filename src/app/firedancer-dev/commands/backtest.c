@@ -49,6 +49,7 @@ backtest_topo( config_t * config ) {
   ulong exec_tile_cnt   = config->firedancer.layout.exec_tile_count;
 
   int disable_snap_loader = !config->gossip.entrypoints_cnt;
+  int snap_vinyl          = !!config->firedancer.vinyl.enabled;
   int solcap_enabled      = strlen( config->capture.solcap_capture )>0;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
@@ -87,6 +88,10 @@ backtest_topo( config_t * config ) {
       config->firedancer.funk.max_database_transactions,
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
   fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  if( snap_vinyl ) {
+    setup_topo_vinyl( topo, &config->firedancer );
+  }
 
   /**********************************************************************/
   /* Add the executor tiles to topo                                     */
@@ -276,7 +281,15 @@ backtest_topo( config_t * config ) {
       fd_ulong_pow2_up( FD_PACK_MAX_TXNCACHE_TXN_PER_SLOT ) );
   fd_topob_tile_uses( topo, replay_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   if( FD_LIKELY( !disable_snap_loader ) ) {
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    fd_topob_tile_uses( topo, snapin_tile, txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    if( snap_vinyl ) {
+      ulong vinyl_map_obj_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX ); FD_TEST( vinyl_map_obj_id !=ULONG_MAX );
+      ulong vinyl_pool_obj_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX ); FD_TEST( vinyl_pool_obj_id!=ULONG_MAX );
+      fd_topo_obj_t * vinyl_map_obj  = &topo->objs[ vinyl_map_obj_id ];
+      fd_topo_obj_t * vinyl_pool_obj = &topo->objs[ vinyl_pool_obj_id ];
+      fd_topob_tile_uses( topo, snapin_tile, vinyl_map_obj,  FD_SHMEM_JOIN_MODE_READ_WRITE );
+      fd_topob_tile_uses( topo, snapin_tile, vinyl_pool_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    }
   }
   for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], txncache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );

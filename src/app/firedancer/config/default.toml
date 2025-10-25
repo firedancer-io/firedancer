@@ -155,6 +155,10 @@ user = ""
     # Firedancer instance.
     genesis = ""
 
+    # Absolute path to the file backing the vinyl account database.
+    # Only used if [vinyl.enabled] is set.
+    accounts = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -466,6 +470,8 @@ user = ""
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.
+#
+# FIXME rename 'funk' to human-readable name like 'accounts.live_db'
 [funk]
     # The size of the funk heap in gigabytes.  This value must be large
     # enough to store all Solana accounts uncompressed.
@@ -485,6 +491,12 @@ user = ""
     # that is not yet finalized.  It is not recommended to change this
     # setting.
     max_database_transactions = 2048
+
+# FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
+[vinyl]
+    enabled = false
+    max_account_records = 30_000_000
+    file_size_gib = 16
 
 [runtime]
     max_vote_accounts = 2000000
