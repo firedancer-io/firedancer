@@ -471,6 +471,8 @@ user = ""
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.
+#
+# FIXME rename 'funk' to human-readable name like 'accounts.live_db'
 [funk]
     # The size of the funk heap in gigabytes.  This value must be large
     # enough to store all Solana accounts uncompressed.
@@ -490,6 +492,13 @@ user = ""
     # that is not yet finalized.  It is not recommended to change this
     # setting.
     max_database_transactions = 2048
+
+# FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
+[vinyl]
+    enabled = false
+    path = "/home/{user}/.firedancer/{name}.accounts.vinyl"
+    max_account_records = 30_000_000
+    file_size_gib = 16
 
 [runtime]
     max_vote_accounts = 2000000

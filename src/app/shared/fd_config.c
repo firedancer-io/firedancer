@@ -461,6 +461,9 @@ fd_config_validatef( fd_configf_t const * config ) {
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
+
+  CFG_HAS_NON_ZERO( vinyl.max_account_records );
+  CFG_HAS_NON_ZERO( vinyl.file_size_gib       );
 }
 
 static void
