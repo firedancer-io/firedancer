@@ -86,6 +86,11 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.heap_size_gib                                  );
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
 
+  CFG_POP      ( bool,   vinyl.enabled                                       );
+  CFG_POP      ( cstr,   vinyl.path                                          );
+  CFG_POP      ( ulong,  vinyl.max_account_records                           );
+  CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
+
   CFG_POP      ( ulong,  runtime.max_live_slots                              );
   CFG_POP      ( ulong,  runtime.max_vote_accounts                           );
   CFG_POP      ( ulong,  runtime.max_fork_width                              );
@@ -97,7 +102,7 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( bool,   snapshots.incremental_snapshots                     );
   CFG_POP      ( uint,   snapshots.maximum_local_snapshot_age                );
-  CFG_POP      ( bool,   snapshots.genesis_download                         );
+  CFG_POP      ( bool,   snapshots.genesis_download                          );
   CFG_POP      ( bool,   snapshots.download                                  );
   CFG_POP_ARRAY( cstr,   snapshots.known_validators                          );
   CFG_POP      ( uint,   snapshots.minimum_download_speed_mib                );

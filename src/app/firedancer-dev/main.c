@@ -26,6 +26,9 @@ extern fd_topo_obj_callbacks_t fd_obj_cb_banks;
 extern fd_topo_obj_callbacks_t fd_obj_cb_funk;
 extern fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp;
 
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta;
+extern fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele;
+
 fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_mcache,
   &fd_obj_cb_dcache,
@@ -44,6 +47,8 @@ fd_topo_obj_callbacks_t * CALLBACKS[] = {
   &fd_obj_cb_banks,
   &fd_obj_cb_funk,
   &fd_obj_cb_bank_hash_cmp,
+  &fd_obj_cb_vinyl_meta,
+  &fd_obj_cb_vinyl_meta_ele,
   NULL,
 };
 
