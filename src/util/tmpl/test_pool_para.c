@@ -214,6 +214,9 @@ main( int     argc,
   FD_TEST(  mypool_peek_const( pool )==(ele_max ? shele : NULL) );
   FD_TEST(  mypool_peek      ( pool )==(ele_max ? shele : NULL) );
 
+  FD_TEST( !mypool_verify  ( pool ) );
+  FD_TEST( !mypool_is_empty( pool ) );
+
   mypool_unlock( pool );
   FD_TEST( !mypool_is_locked( pool ) );
 
