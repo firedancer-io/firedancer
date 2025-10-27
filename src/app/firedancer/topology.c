@@ -736,7 +736,7 @@ fd_topo_initialize( config_t * config ) {
       config->firedancer.runtime.program_cache.heap_size_mib<<20 );
   /**/                 fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FOR(exec_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FOR(bank_tile_cnt)   fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "bank",   i   ) ], progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui" );
