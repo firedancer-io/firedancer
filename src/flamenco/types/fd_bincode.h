@@ -592,23 +592,29 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
    }
    ... parse success ... */
 
-#define fd_bincode_decode_static( type, out, buf, buf_sz, perr )       \
+#define fd_bincode_decode_static1( type, suffix, out, buf, buf_sz, perr ) \
   __extension__({                                                      \
     void const * const buf_    = (buf);                                \
     ulong        const buf_sz_ = (buf_sz);                             \
     int *              perr_   = (perr);                               \
-    fd_##type##_t *    res     = NULL;                                 \
+    fd_##type##suffix##_t *    res     = NULL;                         \
     fd_bincode_decode_ctx_t ctx = {0};                                 \
     ctx.data    = (void const *)( buf_ );                              \
     ctx.dataend = (void const *)( (ulong)ctx.data + buf_sz_ );         \
     ulong total_sz = 0UL;                                              \
     int err = fd_##type##_decode_footprint( &ctx, &total_sz );         \
     if( FD_LIKELY( err==FD_BINCODE_SUCCESS ) ) {                       \
-      res = fd_##type##_decode( (out), &ctx );                         \
+      res = fd_##type##_decode##suffix( (out), &ctx );                 \
     }                                                                  \
     if( perr_ ) *perr_ = err;                                          \
     res;                                                               \
   })
+
+#define fd_bincode_decode_static( t,o,b,s,p ) \
+  fd_bincode_decode_static1( t, , o, b, s, p )
+
+#define fd_bincode_decode_static_global( t,o,b,s,p ) \
+  fd_bincode_decode_static1( t, _global, o, b, s, p )
 
 #define fd_bincode_decode_static_limited_deserialize( type, out, buf, buf_sz, limit, perr ) \
   fd_bincode_decode_static( type, out, buf, buf_sz>limit ? limit : buf_sz, perr )
