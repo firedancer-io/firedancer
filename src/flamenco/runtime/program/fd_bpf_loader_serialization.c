@@ -381,16 +381,19 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L532 */
       fd_pubkey_t key = *acc;
       FD_STORE( fd_pubkey_t, serialized_params, key );
+      acc_region_metas[i].expected_pubkey_offset = (uint)(serialized_params - serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L533 */
       fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->owner;
       FD_STORE( fd_pubkey_t, serialized_params, owner );
+      acc_region_metas[i].expected_owner_offset = (uint)(serialized_params - serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L534 */
       ulong lamports = metadata->lamports;
       FD_STORE( ulong, serialized_params, lamports );
+      acc_region_metas[i].expected_lamports_offset = (uint)(serialized_params - serialized_params_start);
       serialized_params += sizeof(ulong);
 
       ulong acc_data_len = metadata->dlen;
@@ -671,10 +674,12 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
 
       fd_pubkey_t key = *acc;
       FD_STORE( fd_pubkey_t, serialized_params, key );
+      acc_region_metas[i].expected_pubkey_offset = (uint)(serialized_params - serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       ulong lamports = metadata->lamports;
       FD_STORE( ulong, serialized_params, lamports );
+      acc_region_metas[i].expected_lamports_offset = (uint)(serialized_params - serialized_params_start);
       serialized_params += sizeof(ulong);
 
       ulong acc_data_len = metadata->dlen;
@@ -687,6 +692,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
 
       fd_pubkey_t owner = *(fd_pubkey_t *)&metadata->owner;
       FD_STORE( fd_pubkey_t, serialized_params, owner );
+      acc_region_metas[i].expected_owner_offset = (uint)(serialized_params - serialized_params_start);
       serialized_params += sizeof(fd_pubkey_t);
 
       uchar is_executable = (uchar)metadata->executable;
