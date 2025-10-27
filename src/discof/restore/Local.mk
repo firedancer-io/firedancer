@@ -6,7 +6,7 @@ ifdef FD_HAS_ZSTD
 $(call add-objs,fd_snapdc_tile,fd_discof)
 endif
 ifdef FD_HAS_INT128
-$(call add-objs,fd_snapin_tile,fd_discof)
+$(call add-objs,fd_snapin_tile fd_snapin_tile_funk,fd_discof)
 endif
 endif
 ifdef FD_HAS_INT128

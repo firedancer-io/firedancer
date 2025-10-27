@@ -45,7 +45,7 @@ fd_accdb_user_delete( void * ljoin ) {
   return ljoin;
 }
 
-/* fd_accdb_join joins the caller to an accdb funk instance. */
+/* fd_accdb_user_join joins the caller to an accdb funk instance. */
 
 fd_accdb_user_t *
 fd_accdb_user_join( fd_accdb_user_t * ljoin,
