@@ -3,7 +3,8 @@
    redundant. */
 
 #include "fd_sbpf_loader.h"
-#include "../../util/fd_util.h"
+#include "fd_sbpf_opcodes.h"
+#include "../murmur3/fd_murmur3.h"
 
 #include <errno.h>
 #include <fcntl.h> /* open */
@@ -29,8 +30,9 @@ main( int     argc,
 
   /* Parse command line arguments */
 
-  char const * bin_path    = fd_env_strip_cmdline_cstr( &argc, &argv, "--bin",        NULL, NULL );
-  char const * rodata_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--rodata-out", NULL, NULL );
+  char const * bin_path    = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--bin",         NULL, NULL );
+  char const * rodata_path = fd_env_strip_cmdline_cstr    ( &argc, &argv, "--rodata-out",  NULL, NULL );
+  int const    fixup_calls = fd_env_strip_cmdline_contains( &argc, &argv, "--fixup-calls" );
 
   /* Validate command line arguments */
 
@@ -101,6 +103,25 @@ main( int     argc,
 
   void * scratch = malloc( bin_sz );
   int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config, scratch, bin_sz );
+
+  /* Undo calldest hashing */
+
+  if( fixup_calls ) {
+    ulong * text0 = prog->text;
+    ulong * text1 = text0 + prog->info.text_cnt;
+    for( ulong * t=text0; t<text1; t++ ) {
+      ulong insn = *t;
+      ulong opc  = insn & 0xFF;
+      uint  imm  = (uint)(insn >> 32);
+      if( (opc!=FD_SBPF_OP_CALL_IMM) || (imm==UINT_MAX) ) continue;
+
+      ulong target_pc = fd_pchash_inverse( imm );
+      if( FD_UNLIKELY( target_pc >= prog->info.text_cnt ) ) continue;
+
+      long new_imm = (long)target_pc - ( t-text0 ) - 1L;
+      *t = (insn & UINT_MAX) | ( (ulong)(uint)new_imm << 32UL );
+    }
+  }
 
   FD_LOG_HEXDUMP_NOTICE(( "Output rodata segment", prog->rodata, prog->rodata_sz ));
 
