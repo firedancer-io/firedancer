@@ -49,7 +49,7 @@ maybe_kill( config_t const * config,
 
   ulong cmdline_len = strlen( proc_cmdline );
   if( FD_LIKELY( cmdline_len>=5UL ) ) {
-    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "fddev" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5UL), "fddev" ) ) ) {
       killed = 1;
       FD_LOG_NOTICE(( "killing process `%s` (%lu): is fddev", proc_cmdline, pid ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -60,8 +60,8 @@ maybe_kill( config_t const * config,
     }
   }
 
-  if( FD_LIKELY( cmdline_len>=9UL ) ) {
-    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "firedancer" ) ) ) {
+  if( FD_LIKELY( cmdline_len>=10UL ) ) {
+    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-10UL), "firedancer" ) ) ) {
       killed = 1;
       FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer", proc_cmdline, pid ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -69,7 +69,7 @@ maybe_kill( config_t const * config,
   }
 
   if( FD_LIKELY( cmdline_len>=14UL ) ) {
-    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-5), "firedancer-dev" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( proc_cmdline + (cmdline_len-14UL), "firedancer-dev" ) ) ) {
       killed = 1;
       FD_LOG_NOTICE(( "killing process `%s` (%lu): is firedancer-dev", proc_cmdline, pid ));
       if( FD_UNLIKELY( -1==kill( (int)pid, SIGKILL ) && errno!=ESRCH ) ) FD_LOG_ERR(( "kill failed (%i-%s)", errno, fd_io_strerror( errno ) ));
