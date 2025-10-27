@@ -214,5 +214,6 @@ jobs:
           if [ "${{ matrix.gcc_version }}" != "8" ]; then
             source /opt/rh/gcc-toolset-${{ matrix.gcc_version }}/enable
           fi
+          ./deps.sh +dev fetch install
           make -j clean
           make -j all

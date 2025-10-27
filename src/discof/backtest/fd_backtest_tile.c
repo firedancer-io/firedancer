@@ -6,6 +6,8 @@
 #include "../../discof/tower/fd_tower_tile.h"
 #include "../../util/pod/fd_pod.h"
 
+#include <stdlib.h> /* exit(2) */
+
 #define SHRED_BUFFER_LEN (1048576UL)
 #define BANK_HASH_BUFFER_LEN (4096UL)
 
