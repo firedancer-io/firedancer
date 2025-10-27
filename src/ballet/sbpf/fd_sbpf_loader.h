@@ -88,7 +88,7 @@
 #include "../../util/tmpl/fd_set_dynamic.c"
 
 /* fd_sbpf_syscall_func_t is a callback implementing an sBPF syscall.
-   vm is a handle to the running VM.  Returns 0 on suceess or an integer
+   vm is a handle to the running VM.  Returns 0 on success or an integer
    error code on failure.
 
    IMPORTANT SAFETY TIP!  See notes in
