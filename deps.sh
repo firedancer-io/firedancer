@@ -37,7 +37,7 @@ DEVMODE=0
 MSAN=0
 _CC="${CC:=gcc}"
 _CXX="${CXX:=g++}"
-EXTRA_CFLAGS=""
+EXTRA_CFLAGS="-g3 -fno-omit-frame-pointer"
 EXTRA_CXXFLAGS=""
 EXTRA_LDFLAGS=""
 
@@ -665,7 +665,7 @@ while [[ $# -gt 0 ]]; do
       PREFIX="$(pwd)/opt-msan"
       _CC=clang
       _CXX=clang++
-      EXTRA_CFLAGS+="-fsanitize=memory -fno-omit-frame-pointer"
+      EXTRA_CFLAGS+="-fsanitize=memory"
       EXTRA_CXXFLAGS+="$EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
       EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;

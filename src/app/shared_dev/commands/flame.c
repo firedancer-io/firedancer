@@ -3,6 +3,7 @@
 #include "../../shared/fd_action.h"
 #include "../../platform/fd_sys_util.h"
 #include "../../../disco/metrics/fd_metrics.h"
+#include "../../../util/pod/fd_pod.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -59,6 +60,13 @@ flame_cmd_fn( args_t *   args,
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( &config->topo );
+
+  int sandbox = fd_pod_query_int( config->topo.props, "sandbox", 0 );
+  if( FD_UNLIKELY( sandbox ) ) {
+    FD_LOG_WARNING(( "flame command will not resolve symbols correctly when "
+                     "Firedancer is running sandboxed, and all stacks will "
+                     "show as [unknown]" ));
+  }
 
   ulong tile_cnt = 0UL;
   ulong tile_idxs[ 128UL ];
@@ -128,9 +136,8 @@ flame_cmd_fn( args_t *   args,
   if( FD_LIKELY( !record_pid ) ) {
     char * args[ 11 ] = {
       "/usr/bin/perf",
-      "script",
       "record",
-      "flamegraph",
+      "-g",
       "-F",
       "99",
       whole_process ? "-p" : "-t",
