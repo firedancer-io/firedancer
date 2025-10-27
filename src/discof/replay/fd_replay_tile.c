@@ -975,9 +975,9 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
 
-  fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx );
-
   ulong curr_slot = fd_bank_slot_get( ctx->leader_bank );
+
+  fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
 
   /* Do hashing and other end-of-block processing */
   fd_funk_txn_map_t * txn_map = fd_funk_txn_map( ctx->accdb->funk );
@@ -993,10 +993,10 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
   fd_bank_hash_cmp_lock( bank_hash_cmp );
-  fd_bank_hash_cmp_insert( bank_hash_cmp, fd_bank_slot_get( ctx->leader_bank ), bank_hash, 1, 0 );
+  fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
 
   /* Try to move the bank hash comparison watermark forward */
-  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < fd_bank_slot_get( ctx->leader_bank ); cmp_slot++ ) {
+  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
     if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
       bank_hash_cmp->watermark = cmp_slot;
       break;
@@ -1376,7 +1376,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   fd_store_exrel( ctx->store );
 
   ctx->published_root_slot = 0UL;
-  fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
+  fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, 0UL );
 
   fd_bank_block_height_set( bank, 1UL );
 
@@ -1470,7 +1470,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
       ctx->next_leader_tickcount = LONG_MAX;
     }
 
-    fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX );
+    fd_sched_block_add_done( ctx->sched, bank->idx, ULONG_MAX, snapshot_slot );
     FD_TEST( bank->idx==0UL );
 
     fd_funk_txn_xid_t xid = { .ul = { snapshot_slot, FD_REPLAY_BOOT_BANK_IDX } };

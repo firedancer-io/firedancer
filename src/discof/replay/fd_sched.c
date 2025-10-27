@@ -956,12 +956,13 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
 }
 
 void
-fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx ) {
+fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_idx, ulong slot ) {
   FD_TEST( sched->canary==FD_SCHED_MAGIC );
   FD_TEST( bank_idx<sched->block_cnt_max );
 
   fd_sched_block_t * block = block_pool_ele( sched, bank_idx );
   add_block( sched, bank_idx, parent_bank_idx );
+  block->slot                   = slot;
   block->txn_parsed_cnt         = UINT_MAX;
   block->txn_exec_done_cnt      = UINT_MAX;
   block->txn_sigverify_done_cnt = UINT_MAX;
@@ -971,10 +972,15 @@ fd_sched_block_add_done( fd_sched_t * sched, ulong bank_idx, ulong parent_bank_i
   block->block_end_signaled     = 1;
   block->block_start_done       = 1;
   block->block_end_done         = 1;
+  if( FD_LIKELY( parent_bank_idx!=ULONG_MAX ) ) {
+    fd_sched_block_t * parent_block = block_pool_ele( sched, parent_bank_idx );
+    block->parent_slot = parent_block->slot;
+  }
   if( FD_UNLIKELY( parent_bank_idx==ULONG_MAX ) ) {
     /* Assumes that a NULL parent implies the snapshot slot. */
-    sched->root_idx = bank_idx;
-    block->rooted   = 1;
+    block->parent_slot = ULONG_MAX;
+    block->rooted      = 1;
+    sched->root_idx    = bank_idx;
   }
 }
 
