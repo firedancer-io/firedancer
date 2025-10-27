@@ -612,6 +612,12 @@ struct fd_topo_tile {
       ulong vinyl_data_obj_id;
       char  vinyl_bstream_path[ PATH_MAX ];
     } vinyl;
+
+    struct {
+      ulong capture_start_slot;
+      char solcap_capture[ PATH_MAX ];
+      int solcap_fd;
+    } capctx;
   };
 };
 

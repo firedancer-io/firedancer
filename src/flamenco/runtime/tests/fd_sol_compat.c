@@ -51,7 +51,6 @@ static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
   /* Cleanup test runner */
   if( runner->solcap ) {
-    fd_solcap_writer_flush( runner->solcap );
     fd_wksp_free_laddr( fd_solcap_writer_delete( runner->solcap ) );
     runner->solcap = NULL;
     fclose( runner->solcap_file );
