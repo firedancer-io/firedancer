@@ -1,179 +1,200 @@
 #ifndef HEADER_fd_src_flamenco_capture_fd_solcap_proto_h
 #define HEADER_fd_src_flamenco_capture_fd_solcap_proto_h
 
-#include "../fd_flamenco_base.h"
+#include "../types/fd_types.h"
+#include "../../util/net/fd_pcapng_private.h"
+#include <stdbool.h>
+#include <bits/stdint-uintn.h>
 
-/* fd_solcap_proto defines the capture data format "solcap".
-
-   solcap is a portable file format for capturing Solana runtime data
-   suitable for replay and debugging.  It is laid out as follows:
-
-     File Header
-     File Protobuf Object
-     Chunk 0
-       Chunk Header
-       Chunk Protobuf Object
-       Data ...
-     Chunk 1
-       Chunk Header
-       Chunk Protobuf Object
-       Data ...
-     Chunk N ...
-
-   The file header briefly describes the file's content type and points
-   to the first chunk.  Additional metadata, such as slot bounds, are
-   stored in a Protobuf blob following the header.  Currently, the
-   following content types are implemented:
-
-     SOLCAP_V1_BANK:  Bank pre-image, version 0
-                      (assumed to only contain SOLCAP_V1_BANK chunks)
-
-   Capture content is divided into variable-length chunks. Each chunk
-   contains a fixed-size binary header containing type and length
-   information. Following the header is a serialized Protobuf object
-   with chunk-specific information.
-
-   Typically, readers sequentially read in chunks, loading one chunk
-   into memory at a time.  Within a chunk, data structures are laid out
-   in arbitrary order which requires random access.  Random access out-
-   side of chunks is rarely required.  Readers should ignore chunks of
-   unknown content type.
-
-   Furthermore:
-   - Byte order is little endian
-   - There should be no gaps between slots
-   - Suffix `_foff` ("file offset") refers to an offset from the
-     beginning of a stream
-   - Suffix `_coff` ("chunk offset") refers to an offset from the first
-     byte of the header of the current chunk
-
-   Why a mix of C structs and Protobufs?  We prefer the use of Protobuf
-   to easily support additions to the schema.  Fixed-size/fixed-offset
-   structures are only used to support navigating the file. */
-
-/* TODO Pending features:
-   - Fork support
-   - Compression
-   - Chunk Table */
-
-/* FD_SOLCAP_V1_FILE_MAGIC identifies a solcap version 0 file. */
-
-#define FD_SOLCAP_V1_FILE_MAGIC (0x806fe7581b1da4b7UL)
-
-/* fd_solcap_fhdr_t is the file header of a capture file. */
-
-struct fd_solcap_fhdr {
-  /* 0x00 */ ulong magic;        /* ==FD_SOLCAP_V1_NULL_MAGIC */
-  /* 0x08 */ ulong chunk0_foff;  /* Offset of first chunk from begin of stream */
-
-  /* Metadata;  Protobuf fd_solcap_FileMeta */
-  /* 0x10 */ uint meta_sz;
-  /* 0x14 */ uint _pad14[3];
+/* fd_solana_account_meta_t is the metadata for a Solana account */
+struct __attribute__((packed)) fd_solana_account_meta {
+  ulong lamports;
+  uchar owner[32];
+  uchar executable;
+  uchar padding[3];
 };
+typedef struct fd_solana_account_meta fd_solana_account_meta_t;
 
-typedef struct fd_solcap_fhdr fd_solcap_fhdr_t;
-
-/* FD_SOLCAP_V1_{...}_MAGIC identifies a chunk type.
-
-     NULL: ignored chunk -- can be used to patch out existing chunks
-     ACCT: account chunk
-     ACTB: account table chunk
-     BANK: bank hash preimage capture
-           Metadata Protobuf type fd_solcap_BankChunk */
-
-#define FD_SOLCAP_V1_MAGIC_MASK (0xfffffffffffff000UL)
-#define FD_SOLCAP_V1_NULL_MAGIC (0x805fe7580b1da000UL)
-#define FD_SOLCAP_V1_ACCT_MAGIC (0x805fe7580b1da4bAUL)
-#define FD_SOLCAP_V1_ACTB_MAGIC (0x805fe7580b1da4bBUL)
-#define FD_SOLCAP_V1_BANK_MAGIC (0x805fe7580b1da4b8UL)
-#define FD_SOLCAP_V1_TRXN_MAGIC (0x805fe7580b1da4bCUL)
-
-#define FD_SOLCAP_V1_REWARD_BEGIN_MAGIC (0x805fe7580b1da050UL)
-#define FD_SOLCAP_V1_REWARD_CALC_MAGIC  (0x805fe7580b1da051UL)
-#define FD_SOLCAP_V1_REWARD_VOTE_MAGIC  (0x805fe7580b1da052UL)
-#define FD_SOLCAP_V1_REWARD_STAKE_MAGIC (0x805fe7580b1da053UL)
-
-FD_PROTOTYPES_BEGIN
-
-static inline int
-fd_solcap_is_chunk_magic( ulong magic ) {
-  return (magic & FD_SOLCAP_V1_MAGIC_MASK) == FD_SOLCAP_V1_NULL_MAGIC;
+static inline fd_solana_account_meta_t* fd_solana_account_meta_init(
+    fd_solana_account_meta_t* meta, ulong lamports, void const* owner,
+    int exec_bit) {
+  meta->lamports = lamports;
+  fd_memcpy(meta->owner, owner, sizeof(fd_pubkey_t));
+  meta->executable = !!exec_bit;
+  return meta;
 }
 
-FD_PROTOTYPES_END
+/* fd_solcap_proto defines the capture of "solcap" data.
 
-/* fd_solcap_chunk_t is the fixed size header of a chunk.  A "chunk
-   offset" points to the first byte of this structure.  Immediately
-   following this structure is a serialized Protobuf blob, the type of
-   which is decided by the chunk's magic.  meta_sz indicates the size
-   of such blob. */
+   It is built as a PCapNG format, adhering completely to specification.
 
-struct fd_solcap_chunk {
-  /* 0x00 */ ulong magic;
-  /* 0x08 */ ulong total_sz;
-  /* 0x10 */ uint  meta_coff;
-  /* 0x14 */ uint  meta_sz;
-  /* 0x18 */ ulong _pad18;
-  /* 0x20 */
+   .solcap is a format for capturing Solana runtime data suitable for
+   replay and debugging. The format is described below:
+
+
+   [Section Header Block (file header) ]
+   [Interface Description Block (IDB, linktype=147, snaplen=0) ]
+   [Enhanced Packet Block #1 (interface_id=0)]
+      -- payload start: fd_solcap_chunk_int_hdr
+      -- payload rest: packet data (solcap custom format)
+   [Enhanced Packet Block #2]
+      -- ...
+
+   The solcap format is built as the pcapng format, allowing for easy
+   interoperability with existing tools that support pcapng. The format
+   of the chunk headers is determined by the pcapng packet blocks.
+   See https://pcapng.com/ for more information.
+
+   Section Header Block (SHB) - The file header.
+   Interface Description Block (IDB) - The header of the interface.
+
+   Enhanced Packet Block (EPB) - A single solcap message.
+   The internal chunk header contains additional metadata about the
+   message, used for identifying the message and its position in the
+   stream.
+
+      There can be a variety of messages within the EPB blocks, each
+      differentiated via an internal chunk header. This internal chunk
+      header allows for the reader to process the message in the correct
+      encoding scheme. Currently the list of messages is:
+      - Account Updates
+      - Bank Preimages
+
+      The dumping of the exectuion can be done in multiple ways:
+         1. To a 'capture link' which is read by a solcap tile and then
+         subsequently written to a file. This is the default when running
+         firedancer live or a subcommand that uses a topo (backtest).
+
+         2. To a file directly. This is currently used for block harnesses.
+         The neccessity of this path is for the single threaded execution
+         mode of the harness.
+*/
+
+#define SOLCAP_WRITE_ACCOUNT_HDR         (1UL)
+#define SOLCAP_WRITE_ACCOUNT_DATA        (2UL)
+#define SOLCAP_STAKE_ACCOUNT_PAYOUT      (4UL)
+#define SOLCAP_STAKE_REWARDS_BEGIN       (5UL)
+#define SOLCAP_WRITE_BANK_PREIMAGE       (6UL)
+#define SOLCAP_WRITE_STAKE_REWARD_EVENT  (7UL)
+#define SOLCAP_WRITE_VOTE_ACCOUNT_PAYOUT (8UL)
+
+#define SOLCAP_SIG_MAP(x) (((const ushort[]){ \
+    [SOLCAP_WRITE_ACCOUNT_HDR] = SOLCAP_WRITE_ACCOUNT_DATA, \
+    [SOLCAP_WRITE_ACCOUNT_DATA] = SOLCAP_WRITE_ACCOUNT_DATA, \
+    [SOLCAP_STAKE_ACCOUNT_PAYOUT] = SOLCAP_STAKE_ACCOUNT_PAYOUT, \
+    [SOLCAP_STAKE_REWARDS_BEGIN] = SOLCAP_STAKE_REWARDS_BEGIN, \
+    [SOLCAP_WRITE_BANK_PREIMAGE] = SOLCAP_WRITE_BANK_PREIMAGE, \
+    [SOLCAP_WRITE_STAKE_REWARD_EVENT] = SOLCAP_WRITE_STAKE_REWARD_EVENT, \
+    [SOLCAP_WRITE_VOTE_ACCOUNT_PAYOUT] = SOLCAP_WRITE_VOTE_ACCOUNT_PAYOUT, \
+})[x])
+
+struct __attribute__((packed)) fd_solcap_buf_msg {
+  ushort sig;
+  ulong  slot;
+  ulong  txn_idx;
+  /* Data follows immediately after this struct in memory */
 };
+typedef struct fd_solcap_buf_msg fd_solcap_buf_msg_t;
 
-typedef struct fd_solcap_chunk fd_solcap_chunk_t;
+/* FD_SOLCAP_V2_FILE_MAGIC identifies a solcap version 2 file. */
 
-/* fd_solcap_account_tbl_t is an entry of the table of accounts that
-   were changed in a block.  meta_coff points to the chunk offset of a
-   Protobuf-serialized fd_solcap_AccountMeta object, with serialized
-   size meta_sz.  key is the account address.  data_coff points to the
-   chunk offset of the account's data, with size data_sz.
+#define FD_SOLCAP_V1_FILE_MAGIC       (0x806fe7581b1da4b7UL) /* deprecated */
+#define FD_SOLCAP_V2_FILE_MAGIC       FD_PCAPNG_BLOCK_TYPE_SHB /* 0x0A0D0D0A */
+#define FD_SOLCAP_V2_BYTE_ORDER_MAGIC FD_PCAPNG_BYTE_ORDER_MAGIC /* 0x1A2B3C4D */
 
-   The table of accounts should ideally be sorted to match the order of
-   accounts in the accounts delta vector. */
+/* Solcap uses standard PCapNG structures for file framing:
+   - fd_pcapng_shb_t: Section Header Block (file header)
+   - fd_pcapng_idb_t: Interface Description Block
+   - fd_pcapng_epb_t: Enhanced Packet Block (wraps each message)
 
-struct fd_solcap_account_tbl {
-  /* 0x00 */ uchar key  [ 32 ];
-  /* 0x20 */ long  acc_coff;  /* chunk offset to account chunk */
-  /* 0x28 */ ulong _pad28[5];
-  /* 0x50 */
+   These are defined in fd_pcapng_private.h and provide correct
+   PCapNG compatibility for interoperability with standard tools.
+*/
+
+/* PCapNG block type constants for solcap */
+#define SOLCAP_PCAPNG_BLOCK_TYPE_IDB FD_PCAPNG_BLOCK_TYPE_IDB /* 1 */
+#define SOLCAP_PCAPNG_BLOCK_TYPE_EPB FD_PCAPNG_BLOCK_TYPE_EPB /* 6 */
+#define SOLCAP_IDB_HDR_LINK_TYPE     147 /* DLT_USER(0) */
+#define SOLCAP_IDB_HDR_SNAP_LEN      0   /* unlimited */
+
+/* fd_solcap_chunk_int_hdr: Internal chunk header (muxing layer)
+
+   This header immediately follows the fd_pcapng_epb_t header within
+   each Enhanced Packet Block. It serves as the muxing layer that
+   identifies which type of solcap message follows via the block_type
+   field, and provides temporal context (slot) and ordering (txn_idx).
+*/
+
+struct __attribute__((packed)) fd_solcap_chunk_int_hdr {
+   /* 0x00 */ uint32_t block_type; /* Message type (SOLCAP_WRITE_*) */
+   /* 0x04 */ uint32_t slot; /* Solana slot number */
+   /* 0x08 */ uint64_t txn_idx; /* Transaction index within slot */
 };
+typedef struct fd_solcap_chunk_int_hdr fd_solcap_chunk_int_hdr_t;
 
-typedef struct fd_solcap_account_tbl fd_solcap_account_tbl_t;
+/* Block footer: Every PCapNG block ends with a redundant 4-byte length
+   field (uint32_t) for backward navigation. No structure needed, just
+   write the block_len value directly. */
 
-/* Hardcoded limits ***************************************************/
+/*
+   The following structures are the solcap messages that can be encoded.
+   They are used by the runtime to write messages to the shared buffer
+   and written to the file.
+*/
+struct __attribute__((packed)) fd_solcap_account_update_hdr {
+   fd_pubkey_t key;
+   fd_solana_account_meta_t info; /* TODO: merge into solcap remove from types.json in future */
+   ulong data_sz;
+};
+typedef struct fd_solcap_account_update_hdr fd_solcap_account_update_hdr_t;
 
-/* FD_SOLCAP_FHDR_SZ is the number of bytes occupied by the file header.
-   Immediately after the file header is the first chunk. */
+struct __attribute__((packed))fd_solcap_bank_preimage {
+   fd_hash_t bank_hash;
+   fd_hash_t prev_bank_hash;
+   fd_hash_t accounts_lt_hash_checksum;
+   fd_hash_t poh_hash;
+   ulong     signature_cnt;
+};
+typedef struct fd_solcap_bank_preimage fd_solcap_bank_preimage_t;
 
-#define FD_SOLCAP_FHDR_SZ (256UL)
+struct fd_solcap_buf_msg_stake_rewards_begin {
+   ulong   payout_epoch;
+   ulong   reward_epoch;
+   ulong   inflation_lamports;
+   ulong   total_points;
+};
+typedef struct fd_solcap_buf_msg_stake_rewards_begin fd_solcap_buf_msg_stake_rewards_begin_t;
 
-/* FD_SOLCAP_ACC_TBL_CNT is the number of entries that fit in the in-
-   memory buffer for the account table.
+struct fd_solcap_buf_msg_stake_reward_event {
+   fd_pubkey_t stake_acc_addr;
+   fd_pubkey_t vote_acc_addr;
+   uint        commission;
+   long        vote_rewards;
+   long        stake_rewards;
+   long        new_credits_observed;
+};
+typedef struct fd_solcap_buf_msg_stake_reward_event fd_solcap_buf_msg_stake_reward_event_t;
 
-   N.b: to support epoch boundaries increase this number to 2097152 */
 
-#define FD_SOLCAP_ACC_TBL_CNT (8192U)
+struct fd_solcap_buf_msg_vote_account_payout {
+   fd_pubkey_t vote_acc_addr;
+   ulong       update_slot;
+   ulong       lamports;
+   long        lamports_delta;
+};
+typedef struct fd_solcap_buf_msg_vote_account_payout fd_solcap_buf_msg_vote_account_payout_t;
 
-/* FD_SOLCAP_FILE_META_FOOTPRINT is the max size of the FileMeta
-   Protobuf struct. */
 
-#define FD_SOLCAP_FILE_META_FOOTPRINT (1024U)
-
-/* FD_SOLCAP_ACTB_META_FOOTPRINT is the max size of the
-   AccountChunkMeta Protobuf struct. */
-
-#define FD_SOLCAP_ACTB_META_FOOTPRINT (128UL)
-
-/* FD_SOLCAP_ACCOUNT_META_FOOTPRINT is the max size of the AccountMeta
-   Protobuf struct. */
-
-#define FD_SOLCAP_ACCOUNT_META_FOOTPRINT (1024UL)
-
-/* FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT is the max size of the BankPreimage
-   Protobuf struct. */
-
-#define FD_SOLCAP_BANK_PREIMAGE_FOOTPRINT (512UL)
-
-/* FD_SOLCAP_TRANSACTION_FOOTPRINT is the max size of the Transaction
-   Protobuf struct. */
-
-#define FD_SOLCAP_TRANSACTION_FOOTPRINT (128UL)
+struct fd_solcap_buf_msg_stake_account_payout {
+   fd_pubkey_t stake_acc_addr;
+   ulong       update_slot;
+   ulong       lamports;
+   long        lamports_delta;
+   ulong       credits_observed;
+   long        credits_observed_delta;
+   ulong       delegation_stake;
+   long        delegation_stake_delta;
+};
+typedef struct fd_solcap_buf_msg_stake_account_payout fd_solcap_buf_msg_stake_account_payout_t;
 
 #endif /* HEADER_fd_src_flamenco_capture_fd_solcap_proto_h */

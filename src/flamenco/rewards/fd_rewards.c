@@ -7,7 +7,7 @@
 #include "../stakes/fd_stakes.h"
 #include "../runtime/program/fd_stake_program.h"
 #include "../runtime/sysvar/fd_sysvar_stake_history.h"
-#include "../runtime/context/fd_capture_ctx.h"
+#include "../capture/fd_capture_ctx.h"
 #include "../runtime/fd_runtime_stack.h"
 #include "../runtime/fd_runtime.h"
 #include "fd_epoch_rewards.h"
@@ -537,7 +537,7 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
                               fd_funk_t *                    funk,
                               fd_funk_txn_xid_t const *      xid,
                               fd_stake_delegations_t const * stake_delegations,
-                              fd_capture_ctx_t *             capture_ctx,
+                              fd_capture_ctx_t *             capture_ctx FD_PARAM_UNUSED,
                               fd_stake_history_t const *     stake_history,
                               ulong                          rewarded_epoch,
                               ulong                          total_rewards,
@@ -610,16 +610,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
       continue;
     }
 
-    if( capture_ctx ) {
-      fd_solcap_write_stake_reward_event( capture_ctx->capture,
-          &stake_delegation->stake_account,
-          voter_acc,
-          vote_state_ele->commission,
-          (long)calculated_stake_rewards->voter_rewards,
-          (long)calculated_stake_rewards->staker_rewards,
-          (long)calculated_stake_rewards->new_credits_observed );
-    }
-
     runtime_stack->stakes.vote_rewards[ vote_state_ele->idx ] += calculated_stake_rewards->voter_rewards;
 
     fd_epoch_rewards_insert( epoch_rewards, &stake_delegation->stake_account, calculated_stake_rewards->new_credits_observed, calculated_stake_rewards->staker_rewards );
@@ -658,15 +648,6 @@ calculate_validator_rewards( fd_bank_t *                    bank,
 
   /* If there are no points, then we set the rewards to 0. */
   *rewards_out = points>0UL ? *rewards_out: 0UL;
-
-  if( capture_ctx ) {
-    ulong const epoch = fd_bank_epoch_get( bank );
-    fd_solcap_writer_stake_rewards_begin( capture_ctx->capture,
-        epoch,
-        epoch-1UL, /* FIXME: this is not strictly correct */
-        *rewards_out,
-        (fd_w_u128_t){ .ud=points } );
-  }
 
   /* Calculate the stake and vote rewards for each account. We want to
      use the vote states from the end of the current_epoch. */
@@ -823,14 +804,6 @@ calculate_rewards_and_distribute_vote_rewards( fd_bank_t *                    ba
     fd_txn_account_mutable_fini( vote_rec, accdb, &prepare );
 
     distributed_rewards = fd_ulong_sat_add( distributed_rewards, rewards );
-
-    if( capture_ctx ) {
-      fd_solcap_write_vote_account_payout( capture_ctx->capture,
-          vote_pubkey,
-          fd_bank_slot_get( bank ),
-          fd_txn_account_get_lamports( vote_rec ),
-          (long)rewards );
-    }
   }
 
   fd_bank_vote_states_end_locking_query( bank );
@@ -897,7 +870,6 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
     return 1;
   }
 
-  ulong old_credits_observed = stake_state->inner.stake.stake.credits_observed;
   stake_state->inner.stake.stake.credits_observed = new_credits_observed;
   stake_state->inner.stake.stake.delegation.stake = fd_ulong_sat_add( stake_state->inner.stake.stake.delegation.stake,
                                                                       reward_lamports );
@@ -915,18 +887,6 @@ distribute_epoch_reward_to_stake_acc( fd_bank_t *               bank,
       stake_state->inner.stake.stake.credits_observed,
       stake_state->inner.stake.stake.delegation.warmup_cooldown_rate );
   fd_bank_stake_delegations_delta_end_locking_modify( bank );
-
-  if( capture_ctx ) {
-    fd_solcap_write_stake_account_payout( capture_ctx->capture,
-        stake_pubkey,
-        fd_bank_slot_get( bank ),
-        fd_txn_account_get_lamports( stake_acc_rec ),
-        (long)reward_lamports,
-        new_credits_observed,
-        (long)( new_credits_observed-old_credits_observed ),
-        stake_state->inner.stake.stake.delegation.stake,
-        (long)reward_lamports );
-  }
 
   if( FD_UNLIKELY( write_stake_state( stake_acc_rec, stake_state ) != 0 ) ) {
     FD_LOG_ERR(( "write_stake_state failed" ));
