@@ -1975,6 +1975,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
+        FD_LOG_WARNING(("TXN ERR %d", msg->txn_exec->err));
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
@@ -1989,6 +1990,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to sigverify.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
+        FD_LOG_WARNING(("TXN SIGVERIFY ERR %d", msg->txn_sigverify->err));
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
