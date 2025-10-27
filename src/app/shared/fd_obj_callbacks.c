@@ -53,9 +53,14 @@ dcache_footprint( fd_topo_t const *     topo,
 }
 
 static ulong
-dcache_align( fd_topo_t const *     topo FD_FN_UNUSED,
-              fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_dcache_align();
+dcache_align( fd_topo_t const *     topo,
+              fd_topo_obj_t const * obj ) {
+  /* Raise the dcache alignment to the max of (file system LBA size,
+     normal page size, and natural dcache alignment).  Facilitates
+     advanced use cases such as memory mapping and DMAing dcache
+     contents. */
+  (void)topo; (void)obj;
+  return fd_ulong_max( fd_ulong_max( 4096UL, FD_SHMEM_NORMAL_PAGE_SZ ), fd_dcache_align() );
 }
 
 static void

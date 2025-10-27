@@ -155,6 +155,8 @@ user = ""
     # Firedancer instance.
     genesis = ""
 
+    accounts = ""
+
 # Firedancer logs to two places by default: stderr and a logfile.
 # stdout is not used for logging, and will only be used to print command
 # output or boot errors.  Messages to "stderr" are abbreviated and not
@@ -491,7 +493,6 @@ user = ""
 # FIXME rename 'vinyl' to human-readable name like 'accounts.root_db'
 [vinyl]
     enabled = false
-    path = "/home/{user}/.firedancer/{name}.accounts.vinyl"
     max_account_records = 30_000_000
     file_size_gib = 16
 

@@ -1,6 +1,7 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssmsg.h"
+#include "utils/fd_vinyl_io_wd.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -8,11 +9,6 @@
 #include "../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
 
 #include "generated/fd_snapin_tile_seccomp.h"
-
-#include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <sys/mman.h>
 
 #define NAME "snapin"
 
@@ -28,11 +24,6 @@
 /* 300 root slots in the slot deltas array, and each one references all
    151 prior blockhashes that it's able to. */
 #define FD_SNAPIN_MAX_SLOT_DELTA_GROUPS (300UL*151UL)
-
-#define FD_SNAPIN_OUT_SNAPCT   0UL
-#define FD_SNAPIN_OUT_MANIFEST 1UL
-
-#define FD_SNAPIN_IO_SPAD_MAX (16UL<<20) /* 16 MiB of I/O scratch space */
 
 struct fd_blockhash_entry {
   fd_hash_t blockhash;
@@ -74,13 +65,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapin_tile_t),      sizeof(fd_snapin_tile_t)                             );
-  l = FD_LAYOUT_APPEND( l, fd_vinyl_io_bd_align(),         fd_vinyl_io_bd_footprint( FD_SNAPIN_IO_SPAD_MAX )    );
   l = FD_LAYOUT_APPEND( l, fd_ssparse_align(),             fd_ssparse_footprint( 1UL<<24UL )                    );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),            fd_txncache_footprint( tile->snapin.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, fd_ssmanifest_parser_align(),   fd_ssmanifest_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, fd_slot_delta_parser_align(),   fd_slot_delta_parser_footprint()                     );
   l = FD_LAYOUT_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   l = FD_LAYOUT_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
+  if( tile->snapin.use_vinyl ) {
+    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapin.snapwr_depth ) );
+    l = FD_LAYOUT_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+  }
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -117,7 +111,7 @@ static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPCT, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static int
@@ -357,7 +351,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-  fd_stem_publish( ctx->stem, FD_SNAPIN_OUT_MANIFEST, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( ctx->stem, ctx->out_mani_idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
@@ -479,7 +473,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      fd_ssparse_batch_enable( ctx->ssparse, sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
+      fd_ssparse_batch_enable( ctx->ssparse, ctx->use_vinyl || sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL );
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_PROCESSING;
       ctx->full = sig==FD_SNAPSHOT_MSG_CTRL_INIT_FULL;
@@ -491,6 +485,12 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
       fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
+      if( ctx->use_vinyl ) {
+        if( sig==FD_SNAPSHOT_MSG_CTRL_INIT_INCR ) {
+          fd_snapin_vinyl_txn_begin( ctx );
+        }
+        fd_snapin_vinyl_wd_init( ctx );
+      }
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
@@ -499,11 +499,18 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
                ctx->state==FD_SNAPSHOT_STATE_ERROR );
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
 
-      if( ctx->full ) {
-        fd_accdb_clear( ctx->accdb_admin );
+      if( ctx->use_vinyl ) {
+        fd_snapin_vinyl_wd_fini( ctx );
+        if( ctx->vinyl.txn_active ) {
+          fd_snapin_vinyl_txn_cancel( ctx );
+        }
       } else {
-        fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
-        fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( funk ) );
+        if( ctx->full ) {
+          fd_accdb_clear( ctx->accdb_admin );
+        } else {
+          fd_accdb_cancel( ctx->accdb_admin, ctx->xid );
+          fd_funk_txn_xid_copy( ctx->xid, fd_funk_last_publish( funk ) );
+        }
       }
       break;
 
@@ -516,6 +523,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         return;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      if( ctx->use_vinyl ) {
+        fd_snapin_vinyl_wd_fini( ctx );
+        if( ctx->vinyl.txn_active ) {
+          fd_snapin_vinyl_txn_commit( ctx );
+        }
+      }
 
       fd_funk_txn_xid_t incremental_xid = { .ul={ LONG_MAX, LONG_MAX } };
       fd_accdb_attach_child( ctx->accdb_admin, ctx->xid, &incremental_xid );
@@ -532,6 +546,13 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         return;
       }
       ctx->state = FD_SNAPSHOT_STATE_IDLE;
+
+      if( ctx->use_vinyl ) {
+        fd_snapin_vinyl_wd_fini( ctx );
+        if( ctx->vinyl.txn_active ) {
+          fd_snapin_vinyl_txn_commit( ctx );
+        }
+      }
 
       uchar slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
       fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( funk, ctx->xid, slot_history_mem );
@@ -553,7 +574,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
-      fd_stem_publish( stem, FD_SNAPIN_OUT_MANIFEST, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->out_mani_idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
 
@@ -561,10 +582,17 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
       ctx->state = FD_SNAPSHOT_STATE_SHUTDOWN;
       metrics_write( ctx ); /* ensures that shutdown state is written to metrics workspace before the tile actually shuts down */
+      if( ctx->use_vinyl ) fd_snapin_vinyl_shutdown( ctx );
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_ERROR:
       ctx->state = FD_SNAPSHOT_STATE_ERROR;
+      if( ctx->use_vinyl ) {
+        fd_snapin_vinyl_wd_fini( ctx );
+        if( ctx->vinyl.txn_active ) {
+          fd_snapin_vinyl_txn_cancel( ctx );
+        }
+      }
       break;
 
     default:
@@ -573,7 +601,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, FD_SNAPIN_OUT_SNAPCT, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int
@@ -614,47 +642,29 @@ populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
-                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-
-  populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
-  return sock_filter_policy_fd_snapin_tile_instr_cnt;
+  (void)topo;
+  if( tile->snapin.use_vinyl ) {
+    return fd_snapin_vinyl_seccomp( out_cnt, out );
+  } else {
+    populate_sock_filter_policy_fd_snapin_tile( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+    return sock_filter_policy_fd_snapin_tile_instr_cnt;
+  }
 }
-
 
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_snapin_tile_t * ctx       = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t)                          );
-  void *             _vinyl_io = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(),    fd_vinyl_io_bd_footprint( FD_SNAPIN_IO_SPAD_MAX ) );
-
+  fd_snapin_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
-  ctx->use_vinyl = !!tile->snapin.use_vinyl;
-  if( ctx->use_vinyl ) {
-    void * shmap = fd_topo_obj_laddr( topo, tile->snapin.vinyl_meta_map_obj_id  );
-    void * shele = fd_topo_obj_laddr( topo, tile->snapin.vinyl_meta_pool_obj_id );
-
-    FD_TEST( fd_vinyl_meta_join( ctx->vinyl.map, shmap, shele ) );
-
-    /* FIXME move this to a new configure stage */
-
-    int vinyl_fd = open( tile->snapin.vinyl_path, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC, 0644 );
-    if( FD_UNLIKELY( vinyl_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC,0644) failed (%i-%s)", tile->snapin.vinyl_path, errno, strerror( errno ) ));
-
-    ulong bstream_sz = tile->snapin.vinyl_bstream_sz;
-    FD_TEST( 0==ftruncate( vinyl_fd, (long)bstream_sz ) );
-
-    char const * info    = "accdb";
-    ulong        info_sz = strlen( info ) + 1UL;
-    ulong        io_seed = (ulong)fd_tickcount();
-    ctx->vinyl.io = fd_vinyl_io_bd_init( _vinyl_io, FD_SNAPIN_IO_SPAD_MAX, vinyl_fd, 1, info, info_sz, io_seed );
-    FD_TEST( ctx->vinyl.io );
+  if( tile->snapin.use_vinyl ) {
+    ctx->use_vinyl = 1;
+    fd_snapin_vinyl_privileged_init( ctx, topo, tile );
   }
 }
 
@@ -665,13 +675,18 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t),     sizeof(fd_snapin_tile_t)                             );
-  /*                */(void)FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_bd_align(),        fd_vinyl_io_bd_footprint( FD_SNAPIN_IO_SPAD_MAX )    );
   void * _ssparse         = FD_SCRATCH_ALLOC_APPEND( l, fd_ssparse_align(),            fd_ssparse_footprint( 1UL<<24UL )                    );
   void * _txncache        = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),           fd_txncache_footprint( tile->snapin.max_live_slots ) );
   void * _manifest_parser = FD_SCRATCH_ALLOC_APPEND( l, fd_ssmanifest_parser_align(),  fd_ssmanifest_parser_footprint()                              );
   void * _sd_parser       = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_delta_parser_align(),  fd_slot_delta_parser_footprint()                              );
   ctx->txncache_entries   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sstxncache_entry_t), sizeof(fd_sstxncache_entry_t)*FD_SNAPIN_TXNCACHE_MAX_ENTRIES );
   ctx->blockhash_offsets  = FD_SCRATCH_ALLOC_APPEND( l, alignof(blockhash_group_t),     sizeof(blockhash_group_t)*FD_SNAPIN_MAX_SLOT_DELTA_GROUPS    );
+  void * _io_wd = NULL;
+  void * _io_mm = NULL;
+  if( tile->snapin.use_vinyl ) {
+    _io_wd = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_wd_align(), fd_vinyl_io_wd_footprint( tile->snapin.snapwr_depth ) );
+    _io_mm = FD_SCRATCH_ALLOC_APPEND( l, fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( FD_SNAPIN_IO_SPAD_MAX     ) );
+  }
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
@@ -703,19 +718,22 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 2",  tile->out_cnt  ));
+  if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
 
-  fd_topo_link_t * snapct_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_SNAPCT ] ];
-  FD_TEST( 0==strcmp( snapct_link->name, "snapin_ct" ) );
+  ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
+  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_rd`" ));
+  ctx->out_ct_idx = out_link_ct_idx;
 
-  fd_topo_link_t * writer_link = &topo->links[ tile->out_link_id[ FD_SNAPIN_OUT_MANIFEST ] ];
-  FD_TEST( 0==strcmp( writer_link->name, "snapin_manif" ) );
-  ctx->manifest_out.wksp   = topo->workspaces[ topo->objs[ writer_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->manifest_out.chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( writer_link->dcache ), writer_link->dcache );
-  ctx->manifest_out.wmark  = fd_dcache_compact_wmark ( ctx->manifest_out.wksp, writer_link->dcache, writer_link->mtu );
+  ulong out_link_mani_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_manif", 0UL );
+  if( FD_UNLIKELY( out_link_mani_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
+  fd_topo_link_t * snapin_mani_link = &topo->links[ tile->out_link_id[ out_link_mani_idx ] ];
+  ctx->out_mani_idx = out_link_mani_idx;
+
+  ctx->manifest_out.wksp   = topo->workspaces[ topo->objs[ snapin_mani_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->manifest_out.chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( snapin_mani_link->dcache ), snapin_mani_link->dcache );
+  ctx->manifest_out.wmark  = fd_dcache_compact_wmark ( ctx->manifest_out.wksp, snapin_mani_link->dcache, snapin_mani_link->mtu );
   ctx->manifest_out.chunk  = ctx->manifest_out.chunk0;
-  ctx->manifest_out.mtu    = writer_link->mtu;
+  ctx->manifest_out.mtu    = snapin_mani_link->mtu;
 
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
@@ -730,6 +748,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in.pos                    = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
+
+  if( tile->snapin.use_vinyl ) {
+    fd_snapin_vinyl_unprivileged_init( ctx, topo, tile, _io_mm, _io_wd );
+  }
 }
 
 /* Control fragments can result in one extra publish to forward the

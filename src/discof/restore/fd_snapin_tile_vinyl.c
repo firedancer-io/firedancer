@@ -1,5 +1,16 @@
+#define _DEFAULT_SOURCE /* madvise */
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssparse.h"
+#include "utils/fd_ssctrl.h"
+#include "utils/fd_vinyl_io_wd.h"
+
+#include <errno.h>
+#include <fcntl.h>     /* open */
+#include <sys/mman.h>  /* mmap, madvise */
+#include <sys/stat.h>  /* fstat */
+#include <unistd.h>    /* close */
+
+#include "generated/fd_snapin_tile_vinyl_seccomp.h"
 
 /**********************************************************************\
 
@@ -15,22 +26,355 @@
   The snapshot loader must:
   - Load the most recent version of each account into bstream
   - Create a full vinyl_meta index of accounts
+  - Recover from load failures and retry
+
+  Note on I/O layers:
+  - io_mm is the slow/generic memory mapped I/O backend.
+  - io_wd is the fast/dumb O_DIRECT backend.  Can only append, thus used
+    for hot path account writing.
+  - io_mm and io_wd cannot be active at the same time -- snapin will
+    switch between them as necessary.
 
   Full snapshot logic:
-  - Writes accounts to bstream
-  - Synchronously populates the vinyl_meta index while writing
-  - Uses batching (process_account_batch)
-  - On load failure, destroys and recreates the bstream
+  - Write accounts to bstream (io_wd)
+  - Synchronously populate the vinyl_meta index while writing
+  - On load failure, destroy and recreate the bstream (io_mm)
 
   Incremental snapshot logic:
   - Phase 1: while reading the incremental snapshot
-    - Writes accounts to bstream without updating the index
-    - On load failure, undoes writes done to bstream
+    - Write accounts to bstream without updating the index (io_wd)
+    - On load failure, undo writes done to bstream (io_mm)
   - Phase 2: once read is done
-    - Replays all elements written to bstream
-    - Populates the vinyl_meta index while replaying
+    - Replay all elements written to bstream (io_mm)
+    - Populate the vinyl_meta index while replaying
 
 \**********************************************************************/
+
+void
+fd_snapin_vinyl_privileged_init( fd_snapin_tile_t * ctx,
+                                 fd_topo_t *        topo,
+                                 fd_topo_tile_t *   tile ) {
+  void * shmap = fd_topo_obj_laddr( topo, tile->snapin.vinyl_meta_map_obj_id  );
+  void * shele = fd_topo_obj_laddr( topo, tile->snapin.vinyl_meta_pool_obj_id );
+
+  FD_TEST( fd_vinyl_meta_join( ctx->vinyl.map, shmap, shele ) );
+
+  /* Set up io_mm dependencies */
+
+  char const * bstream_path = tile->snapin.vinyl_path;
+  int bstream_fd = open( bstream_path, O_RDWR|O_CLOEXEC, 0644 );
+  if( FD_UNLIKELY( bstream_fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC,0644) failed (%i-%s)",
+                 bstream_path, errno, fd_io_strerror( errno ) ));
+  }
+
+  struct stat st;
+  if( FD_UNLIKELY( fstat( bstream_fd, &st )!=0 ) ) {
+    FD_LOG_ERR(( "fstat(%s) failed (%i-%s)",
+                 bstream_path, errno, fd_io_strerror( errno ) ));
+  }
+  ulong bstream_sz = (ulong)st.st_size;
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( bstream_sz, FD_VINYL_BSTREAM_BLOCK_SZ ) ) ) {
+    FD_LOG_ERR(( "vinyl file %s has misaligned size (%lu bytes)", bstream_path, bstream_sz ));
+  }
+
+  void * bstream_mem = mmap( NULL, bstream_sz, PROT_READ|PROT_WRITE, MAP_SHARED, bstream_fd, 0 );
+  if( FD_UNLIKELY( bstream_mem==MAP_FAILED ) ) {
+    FD_LOG_ERR(( "mmap(sz=%lu,PROT_READ|PROT_WRITE,MAP_SHARED,path=%s,off=0) failed (%i-%s)",
+                 bstream_sz, bstream_path, errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( 0!=close( bstream_fd ) ) ) {  /* clean up unused fd */
+    FD_LOG_ERR(( "close(fd=%i) failed (%i-%s)",
+                 bstream_fd, errno, fd_io_strerror( errno ) ));
+  }
+
+  ctx->vinyl.bstream_mem = bstream_mem;
+  ctx->vinyl.bstream_sz  = bstream_sz;
+
+  FD_TEST( fd_rng_secure( &ctx->vinyl.io_seed, 8UL ) );
+}
+
+void
+fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
+                                   fd_topo_t *        topo,
+                                   fd_topo_tile_t *   tile,
+                                   void *             io_mm_mem,
+                                   void *             io_wd_mem ) {
+
+  /* Set up io_mm */
+
+  ctx->vinyl.io_mm =
+    fd_vinyl_io_mm_init( io_mm_mem,
+                         FD_SNAPIN_IO_SPAD_MAX,
+                         ctx->vinyl.bstream_mem,
+                         ctx->vinyl.bstream_sz,
+                         1,
+                         "accounts-v0", 12UL,
+                         ctx->vinyl.io_seed );
+  if( FD_UNLIKELY( !ctx->vinyl.io_mm ) ) {
+    FD_LOG_ERR(( "fd_vinyl_io_mm_init failed" ));
+  }
+
+  /* Set up io_wd dependencies */
+
+  ulong wr_link_id = fd_topo_find_tile_out_link( topo, tile, "snapin_wr", 0UL );
+  if( FD_UNLIKELY( wr_link_id==ULONG_MAX ) ) FD_LOG_CRIT(( "snapin_wr link not found" ));
+  fd_topo_link_t * wr_link = &topo->links[ tile->out_link_id[ wr_link_id ] ];
+
+  if( FD_UNLIKELY( tile->snapin.snapwr_depth != fd_mcache_depth( wr_link->mcache ) ) ) {
+    /* FIXME TOCTOU issue ... A malicious downstream tile could
+             theoretically corrupt mcache->depth and cause an OOB access
+             while snapin is still initializing.  Practically not an
+             issue because the system is not exposed to attacker-
+             controlled input at boot time. */
+    FD_LOG_CRIT(( "snapin_wr link mcache depth %lu does not match snapwr_depth %lu",
+                  fd_mcache_depth( wr_link->mcache ), tile->snapin.snapwr_depth ));
+  }
+
+  if( FD_UNLIKELY( fd_topo_link_reliable_consumer_cnt( topo, wr_link )!=1UL ) ) {
+    FD_LOG_CRIT(( "snapin_wr link must have exactly one reliable consumer" ));
+  }
+
+  ulong wr_tile_id = fd_topo_find_tile( topo, "snapwr", 0UL );
+  FD_TEST( wr_tile_id!=ULONG_MAX );
+  fd_topo_tile_t * wr_tile = &topo->tiles[ wr_tile_id ];
+  FD_TEST( wr_tile->in_cnt==1 );
+  FD_TEST( wr_tile->in_link_id[0] == wr_link->id );
+  FD_CRIT( 0==strcmp( topo->links[ wr_tile->in_link_id[ 0 ] ].name, "snapin_wr" ), "unexpected link found" );
+  ulong const * wr_fseq = wr_tile->in_link_fseq[ 0 ];
+  if( FD_UNLIKELY( !wr_fseq ) ) {
+    FD_LOG_CRIT(( "snapin_wr link reliable consumer fseq not found" ));
+  }
+
+  /* Set up io_wd */
+
+  ctx->vinyl.io_wd =
+    fd_vinyl_io_wd_init( io_wd_mem,
+                         ctx->vinyl.bstream_sz,
+                         ctx->vinyl.io_mm->seed,
+                         wr_link->mcache,
+                         wr_link->dcache,
+                         wr_fseq,
+                         wr_link->mtu );
+  if( FD_UNLIKELY( !ctx->vinyl.io_wd ) ) {
+    FD_LOG_ERR(( "fd_vinyl_io_wd_init failed" ));
+  }
+
+  /* Start by using io_mm */
+
+  ctx->vinyl.io = ctx->vinyl.io_mm;
+}
+
+ulong
+fd_snapin_vinyl_seccomp( ulong                out_cnt,
+                         struct sock_filter * out ) {
+  populate_sock_filter_policy_fd_snapin_tile_vinyl( out_cnt, out, (uint)fd_log_private_logfile_fd() );
+  return sock_filter_policy_fd_snapin_tile_vinyl_instr_cnt;
+}
+
+static void
+vinyl_mm_sync( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( 0!=msync( ctx->vinyl.bstream_mem, ctx->vinyl.bstream_sz, MS_SYNC ) ) ) {
+    FD_LOG_ERR(( "msync(addr=%p,sz=%lu,MS_SYNC) failed (%i-%s)",
+                 (void *)ctx->vinyl.bstream_mem, ctx->vinyl.bstream_sz,
+                 errno, fd_io_strerror( errno ) ));
+  }
+}
+
+/* Faster vinyl meta accesses *****************************************/
+
+static fd_vinyl_meta_ele_t *
+fd_vinyl_meta_prepare_nolock( fd_vinyl_meta_t *      join,
+                              fd_vinyl_key_t const * key,
+                              ulong                  memo ) {
+  fd_vinyl_meta_ele_t * ele0      = join->ele;
+  ulong                 ele_max   = join->ele_max;
+  ulong                 probe_max = join->probe_max;
+  void *                ctx       = join->ctx;
+
+  ulong start_idx = memo & (ele_max-1UL);
+
+  for(;;) {
+
+    ulong ele_idx = start_idx;
+
+    for( ulong probe_rem=probe_max; probe_rem; probe_rem-- ) {
+      fd_vinyl_meta_ele_t * ele = ele0 + ele_idx;
+
+      if( FD_LIKELY( fd_vinyl_meta_private_ele_is_free( ctx, ele ) ) || /* opt for low collision */
+          (
+            FD_LIKELY( ele->memo==memo                        ) &&
+            FD_LIKELY( fd_vinyl_key_eq( &ele->phdr.key, key ) ) /* opt for already in map */
+          ) ) {
+        return ele;
+      }
+
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+    }
+
+    return NULL;
+
+  }
+
+  /* never get here */
+}
+
+/* Transactional APIs *************************************************/
+
+void
+fd_snapin_vinyl_txn_begin( fd_snapin_tile_t * ctx ) {
+  FD_CRIT( !ctx->vinyl.txn_active, "txn_begin called while already in txn" );
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
+  fd_vinyl_io_t * io = ctx->vinyl.io_mm;
+
+  /* Finish any outstanding writes */
+  int commit_err = fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  ctx->vinyl.txn_seq    = io->seq_present;
+  ctx->vinyl.txn_active = 1;
+}
+
+void
+fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
+  FD_CRIT( ctx->vinyl.txn_active, "txn_commit called while not in txn" );
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
+  fd_vinyl_io_t * io = ctx->vinyl.io_mm;
+
+  long dt = -fd_log_wallclock();
+
+  /* Finish any outstanding writes */
+
+  int commit_err = fd_vinyl_io_commit( io, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  /* Hint to kernel to start prefetching to speed up reads */
+
+  ulong txn_seq0 = ctx->vinyl.txn_seq;
+  ulong txn_seq1 = ctx->vinyl.io_mm->seq_present;
+  FD_LOG_INFO(( "vinyl txn_commit starting for seq [%lu,%lu)", txn_seq0, txn_seq1 ));
+  ulong txn_sz   = txn_seq1-txn_seq0;
+  FD_CRIT( fd_vinyl_seq_le( txn_seq0, txn_seq1 ), "invalid txn seq range" );
+  FD_CRIT( txn_seq1 <= ctx->vinyl.bstream_sz,     "invalid txn seq range" );
+  if( FD_UNLIKELY( fd_vinyl_seq_eq( txn_seq0, txn_seq1 ) ) ) return;
+  if( FD_UNLIKELY( madvise( ctx->vinyl.bstream_mem+txn_seq0, txn_sz, MADV_SEQUENTIAL ) ) ) {
+    FD_LOG_ERR(( "madvise(addr=%p,sz=%lu,MADV_SEQUENTIAL) failed (%i-%s)",
+                 (void *)( ctx->vinyl.bstream_mem+txn_seq0 ), txn_sz,
+                 errno, fd_io_strerror( errno ) ));
+  }
+
+  /* Replay incremental account updates */
+
+  fd_vinyl_meta_t * meta_map = ctx->vinyl.map;
+  for( ulong seq=txn_seq0; fd_vinyl_seq_lt( seq, txn_seq1 ); ) {
+    fd_vinyl_bstream_block_t * block = (void *)( ctx->vinyl.bstream_mem + seq );
+
+    /* Speculatively read block info */
+    ulong                   ctl  = FD_VOLATILE_CONST( block->ctl  );
+    fd_vinyl_bstream_phdr_t phdr = FD_VOLATILE_CONST( block->phdr );
+
+    ulong val_esz    = fd_vinyl_bstream_ctl_sz  ( ctl );
+    int   block_type = fd_vinyl_bstream_ctl_type( ctl );
+    ulong block_sz   = fd_vinyl_bstream_pair_sz( val_esz );
+
+    if( FD_LIKELY( block_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR ) ) {
+      ulong                 memo = fd_vinyl_key_memo( meta_map->seed, &phdr.key );
+      fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( meta_map, &phdr.key, memo );
+      if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "fd_vinyl_meta_prepare failed (full)" ));
+
+      /* Erase value if existing is newer */
+      if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {  /* key exists */
+        ulong exist_slot = ele->phdr.info.ul[ 1 ];
+        ulong cur_slot   =      phdr.info.ul[ 1 ];
+        if( exist_slot > cur_slot ) {
+          fd_memset( block, 0, block_sz );
+          goto next;
+        }
+      }
+
+      /* Overwrite map entry */
+      ele->memo     = memo;
+      ele->phdr     = phdr;
+      ele->seq      = seq;
+      ele->line_idx = ULONG_MAX;
+    } else if( block_type==FD_VINYL_BSTREAM_CTL_TYPE_ZPAD ) {
+      block_sz = FD_VINYL_BSTREAM_BLOCK_SZ;
+    } else {
+      FD_LOG_CRIT(( "unexpected block type %d", block_type ));
+    }
+
+
+    if( FD_UNLIKELY( !block_sz ) ) {
+      FD_LOG_CRIT(( "Invalid block header at vinyl seq %lu, ctl=%016lx (zero block_sz)", seq, ctl ));
+    }
+    if( FD_UNLIKELY( block_sz > 64UL<<20 ) ) {
+      FD_LOG_CRIT(( "Invalid block header at vinyl seq %lu, ctl=%016lx, block_sz=%lu (unreasonably large block size)", seq, ctl, block_sz ));
+    }
+
+next:
+    seq += block_sz;
+  }
+
+  /* Persist above erases to disk */
+
+  vinyl_mm_sync( ctx );
+
+  dt += fd_log_wallclock();
+  FD_LOG_INFO(( "vinyl txn_commit took %g seconds", (double)dt/1e9 ));
+}
+
+void
+fd_snapin_vinyl_txn_cancel( fd_snapin_tile_t * ctx ) {
+  FD_CRIT( ctx->vinyl.txn_active, "txn_cancel called while not in txn" );
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
+
+  fd_vinyl_io_t * io = ctx->vinyl.io_mm;
+  fd_vinyl_io_rewind( io, ctx->vinyl.txn_seq );
+  fd_vinyl_io_sync  ( io, FD_VINYL_IO_FLAG_BLOCKING );
+}
+
+/* Fast writer ********************************************************/
+
+void
+fd_snapin_vinyl_wd_init( fd_snapin_tile_t * ctx ) {
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
+
+  int commit_err = fd_vinyl_io_commit( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit(io_mm) failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  /* Flush io_mm */
+
+  vinyl_mm_sync( ctx );
+
+  /* Synchronize sequence numbers */
+
+  ctx->vinyl.io_wd->seq_ancient = ctx->vinyl.io_mm->seq_ancient;
+  ctx->vinyl.io_wd->seq_past    = ctx->vinyl.io_mm->seq_past;
+  ctx->vinyl.io_wd->seq_present = ctx->vinyl.io_mm->seq_present;
+  ctx->vinyl.io_wd->seq_future  = ctx->vinyl.io_mm->seq_future;
+  ctx->vinyl.io_wd->spad_used   = 0UL;
+
+  ctx->vinyl.io = ctx->vinyl.io_wd;
+}
+
+void
+fd_snapin_vinyl_wd_fini( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->vinyl.io!=ctx->vinyl.io_wd ) ) return;
+
+  int commit_err = fd_vinyl_io_commit( ctx->vinyl.io_wd, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit(io_wd) failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  /* Synchronize sequence numbers */
+
+  ctx->vinyl.io_mm->seq_ancient = ctx->vinyl.io_wd->seq_ancient;
+  ctx->vinyl.io_mm->seq_past    = ctx->vinyl.io_wd->seq_past;
+  ctx->vinyl.io_mm->seq_present = ctx->vinyl.io_wd->seq_present;
+  ctx->vinyl.io_mm->seq_future  = ctx->vinyl.io_wd->seq_future;
+  ctx->vinyl.io_mm->spad_used   = 0UL;
+
+  ctx->vinyl.io = ctx->vinyl.io_mm;
+}
 
 /* bstream_push_account writes a single account out to bstream. */
 
@@ -58,6 +402,18 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
   ctx->metrics.accounts_inserted++;
 }
 
+/* bstream_alloc is a faster version of fd_vinyl_io_alloc.  Indirect
+   calls have significant overhead on Zen 5. */
+
+static uchar *
+bstream_alloc( fd_vinyl_io_t * io,
+               ulong           sz,
+               int             flags ) {
+  if( FD_LIKELY( io->impl==&fd_vinyl_io_wd_impl ) )
+    return fd_vinyl_io_wd_alloc( io, sz, flags );
+  return fd_vinyl_io_alloc( io, sz, flags );
+}
+
 /* fd_snapin_process_account_header_vinyl prepares a bstream write for
    one account (slow) */
 
@@ -74,7 +430,7 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
   ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-  uchar * pair    = (uchar *)fd_vinyl_io_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+  uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
 
   uchar * dst     = pair;
   ulong   dst_rem = pair_sz;
@@ -104,18 +460,15 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 
   FD_CRIT( dst_rem >= result->account_header.data_len, "corruption detected" );
   if( ctx->full ) {  /* update index immediately */
-    /* FIXME use publish_fast */
-    fd_vinyl_meta_query_t query[1];
-    int prep_err = fd_vinyl_meta_prepare( map, &phdr->key, NULL, query, FD_MAP_FLAG_BLOCKING );
-    if( FD_UNLIKELY( prep_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "Failed to update vinyl index (index full?) (%i-%s)", prep_err, fd_map_strerror( prep_err ) ));
-    fd_vinyl_meta_ele_t * ele = fd_vinyl_meta_query_ele( query );
-  //ele->memo      = already init
+    ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
+    fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
+    if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+    ele->memo      = memo;
     ele->phdr.ctl  = phdr->ctl;
-  //ele->phdr.key  = already init
+    ele->phdr.key  = phdr->key;
     ele->phdr.info = phdr->info;
     ele->seq       = ULONG_MAX; /* later init */
     ele->line_idx  = ULONG_MAX;
-    fd_vinyl_meta_publish( query );
     ctx->vinyl_op.meta_ele = ele;
   }
 
@@ -158,8 +511,6 @@ fd_snapin_process_account_data_vinyl( fd_snapin_tile_t *            ctx,
 void
 fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
-  FD_CRIT( ctx->full, "invariant violation" );
-
   fd_vinyl_meta_t *     const map  = ctx->vinyl.map;
   fd_vinyl_meta_ele_t * const ele0 = ctx->vinyl.map->ele;
 
@@ -190,11 +541,10 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     uchar const *  pubkey   = frame+0x10UL;
     fd_vinyl_key_t key[1]; fd_vinyl_key_init( key, pubkey, 32UL );
 
-    fd_vinyl_meta_query_t query = { .memo=memo[ i ] };
-    int prep_err = fd_vinyl_meta_prepare( map, key, NULL, &query, FD_MAP_FLAG_USE_HINT );
-    if( FD_UNLIKELY( prep_err!=FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "Failed to update vinyl index (index full?) (%i-%s)", prep_err, fd_map_strerror( prep_err ) ));
+    fd_vinyl_meta_ele_t * ele = fd_vinyl_meta_prepare_nolock( map, key, memo[ i ] );
+    if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+    batch_ele[ i ] = ele;
 
-    fd_vinyl_meta_ele_t * ele = batch_ele[ i ] = fd_vinyl_meta_query_ele( &query );
     if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {  /* key exists */
       /* Drop current value if existing is newer */
       ulong exist_slot = ele->phdr.info.ul[ 1 ];
@@ -213,14 +563,12 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     phdr->info.ul[0] = data_len;
     phdr->info.ul[1] = result->account_batch.slot;
 
-  //ele->memo      = already init
+    ele->memo      = memo[ i ];
     ele->phdr.ctl  = phdr->ctl;
-  //ele->phdr.key  = already init
+    ele->phdr.key  = *key;
     ele->phdr.info = phdr->info;
     ele->seq       = ULONG_MAX; /* later init */
     ele->line_idx  = ULONG_MAX;
-
-    fd_vinyl_meta_publish( &query );
   }
 
   /* Write out to bstream */
@@ -240,7 +588,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-    uchar * pair    = (uchar *)fd_vinyl_io_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
 
     uchar * dst     = pair;
     ulong   dst_rem = pair_sz;
@@ -270,9 +618,18 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     dst     += data_len;
     dst_rem -= data_len;
 
+    fd_vinyl_bstream_pair_hash( fd_vinyl_io_seed( io ), (fd_vinyl_bstream_block_t *)pair );
+
     ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
     ele->seq = seq_after;
 
     ctx->metrics.accounts_inserted++;
   }
+}
+
+void
+fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx ) {
+  (void)fd_vinyl_io_commit( ctx->vinyl.io, FD_VINYL_IO_FLAG_BLOCKING );
+
+  fd_vinyl_io_wd_ctrl( ctx->vinyl.io_wd, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL );
 }

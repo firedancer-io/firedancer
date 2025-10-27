@@ -89,7 +89,6 @@ fd_config_extract_podf( uchar *        pod,
   CFG_POP      ( ulong,  funk.max_database_transactions                      );
 
   CFG_POP      ( bool,   vinyl.enabled                                       );
-  CFG_POP      ( cstr,   vinyl.path                                          );
   CFG_POP      ( ulong,  vinyl.max_account_records                           );
   CFG_POP      ( ulong,  vinyl.file_size_gib                                 );
 
@@ -136,6 +135,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.vote_account                               );
     CFG_POP    ( cstr,   paths.snapshots                                  );
     CFG_POP    ( cstr,   paths.genesis                                    );
+    CFG_POP    ( cstr,   paths.accounts                                   );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
     CFG_POP1   ( cstr,   ledger.path,                 paths.ledger        );

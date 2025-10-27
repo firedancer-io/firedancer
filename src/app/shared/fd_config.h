@@ -104,7 +104,6 @@ struct fd_configf {
 
   struct {
     int   enabled;
-    char  path[ PATH_MAX ];
     ulong max_account_records;
     ulong file_size_gib;
   } vinyl;
@@ -219,6 +218,7 @@ struct fd_config {
     char vote_account[ PATH_MAX ];
     char snapshots[ PATH_MAX ];
     char genesis[ PATH_MAX ];
+    char accounts[ PATH_MAX ];
   } paths;
 
   struct {

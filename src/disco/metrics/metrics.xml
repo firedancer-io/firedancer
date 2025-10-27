@@ -1050,6 +1050,10 @@ metric introduced.
     <gauge name="AccountsInserted" summary="Number of accounts inserted during snapshot loading. Might decrease if snapshot load is aborted and restarted" />
 </tile>
 
+<tile name="snapwr">
+    <gauge name="VinylBytesWritten" summary="Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted" />
+</tile>
+
 <tile name="metric">
     <gauge name="BootTimestampNanos" summary="Timestamp when validator was started (nanoseconds since epoch)" />
 </tile>

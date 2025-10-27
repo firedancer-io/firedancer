@@ -537,10 +537,13 @@ struct fd_topo_tile {
       uint  use_vinyl : 1;
       ulong vinyl_meta_map_obj_id;
       ulong vinyl_meta_pool_obj_id;
-      ulong vinyl_bstream_sz;
-
+      ulong snapwr_depth;
       char  vinyl_path[ PATH_MAX ];
     } snapin;
+
+    struct {
+      char vinyl_path[ PATH_MAX ];
+    } snapwr;
 
     struct {
 

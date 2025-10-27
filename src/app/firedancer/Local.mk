@@ -38,6 +38,8 @@ $(call add-objs,callbacks callbacks_vinyl,fd_firedancer)
 
 # commands
 $(call add-objs,commands/shred_version,fd_firedancer)
+$(call add-objs,commands/configure/snapshots,fd_firedancer)
+$(call add-objs,commands/configure/vinyl,fd_firedancer)
 
 # version
 $(call make-lib,firedancer_version)
