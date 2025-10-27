@@ -510,15 +510,29 @@ int
 fd_snp_v1_validate_packet( fd_snp_conn_t * conn,
                            uchar *         packet,
                            ulong           packet_sz ) {
-  uchar hmac_out[ 32 ];
-  if( FD_LIKELY(
-       ( packet[packet_sz-19] == FD_SNP_FRAME_AUTH )
-    && ( packet[packet_sz-18] == 16 )
-    && ( packet[packet_sz-17] == 0 )
-    && fd_hmac_sha256( packet, packet_sz-16, fd_snp_conn_rx_key( conn ), 32, hmac_out )==hmac_out
-    && fd_memeq( hmac_out, packet+packet_sz-16, 16 )
-  ) ) {
-    return 0;
+  uchar * snp_load    = packet    + sizeof(snp_hdr_t);
+  ulong   snp_load_sz = packet_sz - sizeof(snp_hdr_t);
+  int hmac_status = -1; /* error status by default */
+  /* then iterate over all tlvs */
+  fd_snp_tlv_iter_t iter = fd_snp_tlv_iter_init( snp_load_sz );
+  for( ; !fd_snp_tlv_iter_done( iter, snp_load );
+       iter = fd_snp_tlv_iter_next( iter, snp_load ) ) {
+    /* not the proper type - continue */
+    if( fd_snp_tlv_iter_type( iter, snp_load )!=FD_SNP_FRAME_AUTH ) continue;
+    /* incorrect length */
+    if( fd_snp_tlv_iter_len(  iter, snp_load )!=16U ) return -1;
+    /* verify hmoc */
+    uchar hmac_out[ 32 ];
+    uchar const * ptr = fd_snp_tlv_iter_ptr( iter, snp_load );
+    if( FD_LIKELY( fd_hmac_sha256( packet, ((ulong)ptr)-((ulong)packet), fd_snp_conn_rx_key( conn ), 32, hmac_out )==hmac_out
+                   && fd_memeq( hmac_out, ptr, 16 ) ) ) {
+      hmac_status = 0;  /* hmac validation pass. */
+      continue;
+    }
+    return -1; /* hmac validation failed. */
   }
-  return -1;
+  if( FD_UNLIKELY( iter.rem!=0L ) ) {
+    return -1; /* tlv chain vs packet length mismatch */
+  }
+  return hmac_status;
 }

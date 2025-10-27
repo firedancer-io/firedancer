@@ -580,6 +580,56 @@ fd_snp_update_rx_metrics( fd_snp_t *               snp,
 }
 
 static inline int
+fd_snp_process_flow_tx_wmark_packet(
+  fd_snp_conn_t * conn,
+  uchar *         packet,
+  ulong           packet_sz
+) {
+  uchar * udp_load = packet + sizeof(fd_ip4_udp_hdrs_t);
+  uchar * snp_load = udp_load + sizeof(snp_hdr_t);
+  /* This assumes that every wmark update is sent in a separate packet. */
+  uchar type = fd_snp_tlv_extract_type( snp_load );
+  if( FD_UNLIKELY( type!=FD_SNP_FRAME_MAX_DATA ) ) {
+    return 1; /* positive value, this is not necessarily an error. */
+  }
+  ulong udp_load_sz = packet_sz - sizeof(fd_ip4_udp_hdrs_t);
+  ulong snp_load_sz = udp_load_sz - sizeof(snp_hdr_t);
+  /* first validate the packet */
+  int res = fd_snp_v1_validate_packet( conn, udp_load, udp_load_sz );
+  if( FD_UNLIKELY( res < 0 ) ) {
+    FD_SNP_LOG_DEBUG_W( "[snp-pkt] tlv type %u fd_snp_v1_validate_packet failed with res %d %s", type, res, FD_SNP_LOG_CONN( conn ) );
+    return -1;
+  }
+  /* then iterate over all tlvs */
+  for( fd_snp_tlv_iter_t iter = fd_snp_tlv_iter_init( snp_load_sz );
+        !fd_snp_tlv_iter_done( iter, snp_load );
+        iter = fd_snp_tlv_iter_next( iter, snp_load ) ) {
+    fd_snp_tlv_t tlv = fd_snp_tlv_iter_tlv( iter, snp_load );
+    if( tlv.type!=FD_SNP_FRAME_MAX_DATA ) continue;
+    if( tlv.len==8U ) {
+      long wmark = (long)fd_ulong_load_8( tlv.ptr + 0UL );
+      FD_SNP_LOG_TRACE( "[snp-pkt] tlv type %u wmark prev %ld new %ld %s", tlv.type, conn->flow_tx_wmark, wmark, FD_SNP_LOG_CONN( conn ) );
+      conn->flow_tx_wmark = wmark;
+      continue;
+    }
+    if( tlv.len==16U ) {
+      long wmark = (long)fd_ulong_load_8( tlv.ptr + 0UL );
+      long level = (long)fd_ulong_load_8( tlv.ptr + 8UL );
+      FD_SNP_LOG_TRACE( "[snp-pkt] tlv type %u wmark prev %ld new %ld level prev %ld new %ld %s", tlv.type, conn->flow_tx_wmark, wmark, conn->flow_tx_level, level, FD_SNP_LOG_CONN( conn ) );
+      conn->flow_tx_wmark = wmark;
+      /* This is not 100% accurate, since pkts may still be in flight when the
+          current level was sampled by the reciver, but this is acceptable. */
+      conn->flow_tx_level = level; /* It does its best to resync if pkts have been lost. */
+      continue;
+    }
+    FD_SNP_LOG_DEBUG_W( "[snp-pkt] tlv type %u len %u mismatch! %s", tlv.type, tlv.len, FD_SNP_LOG_CONN( conn ) );
+    return -1;
+  }
+  conn->last_recv_ts = fd_snp_timestamp_ms();
+  return 0;
+}
+
+static inline int
 fd_snp_verify_snp_and_invoke_rx_cb(
   fd_snp_t *      snp,
   fd_snp_conn_t * conn,
@@ -588,37 +638,12 @@ fd_snp_verify_snp_and_invoke_rx_cb(
   fd_snp_meta_t   meta
 ) {
   /* Process wmark updates first. */
-  tlv_meta_t tlv[1];
-  ulong off = sizeof(fd_ip4_udp_hdrs_t) + sizeof(snp_hdr_t);
-  off       = fd_snp_tlv_extract_fast( packet, off, tlv );
-  /* This assumes that every wmark update is sent in a separate packet. */
-  if( FD_UNLIKELY( tlv[0].type==FD_SNP_FRAME_MAX_DATA ) ) {
-    int res = fd_snp_v1_validate_packet( conn, packet+sizeof(fd_ip4_udp_hdrs_t), packet_sz-sizeof(fd_ip4_udp_hdrs_t) );
-    if( FD_UNLIKELY( res < 0 ) ) {
-      FD_SNP_LOG_DEBUG_W( "[snp-pkt] tlv type %u fd_snp_v1_validate_packet failed with res %d %s", tlv[0].type, res, FD_SNP_LOG_CONN( conn ) );
-      return -1;
-    }
-    do {
-      if( tlv[0].len==8U ) {
-        long wmark = (long)fd_ulong_load_8( tlv[0].ptr + 0UL );
-        FD_SNP_LOG_TRACE( "[snp-pkt] tlv type %u wmark prev %ld new %ld %s", tlv[0].type, conn->flow_tx_wmark, wmark, FD_SNP_LOG_CONN( conn ) );
-        conn->flow_tx_wmark = wmark;
-      } else if( tlv[0].len==16U ) {
-        long wmark = (long)fd_ulong_load_8( tlv[0].ptr + 0UL );
-        long level = (long)fd_ulong_load_8( tlv[0].ptr + 8UL );
-        FD_SNP_LOG_TRACE( "[snp-pkt] tlv type %u wmark prev %ld new %ld level prev %ld new %ld %s", tlv[0].type, conn->flow_tx_wmark, wmark, conn->flow_tx_level, level, FD_SNP_LOG_CONN( conn ) );
-        conn->flow_tx_wmark = wmark;
-        /* This is not 100% accurate, since pkts may still be in flight when the
-           current level was sampled by the reciver, but this is acceptable. */
-        conn->flow_tx_level = level; /* It does its best to resync if pkts have been lost. */
-      } else {
-        FD_SNP_LOG_DEBUG_W( "[snp-pkt] tlv type %u len %u mismatch! %s", tlv[0].type, tlv[0].len, FD_SNP_LOG_CONN( conn ) );
-        return -1;
-      }
-      off = fd_snp_tlv_extract_fast( packet, off, tlv );
-    } while( tlv[0].type==FD_SNP_FRAME_MAX_DATA );
-    conn->last_recv_ts = fd_snp_timestamp_ms();
+  int wmark_res = fd_snp_process_flow_tx_wmark_packet( conn, packet, packet_sz );
+  if( FD_UNLIKELY( wmark_res==0 ) ) { /* the packet was processed */
     return 0;
+  }
+  if( FD_UNLIKELY( wmark_res<0 ) ) { /* there was an error condition */
+    return -1;
   }
 
   /* Process any other packet. */

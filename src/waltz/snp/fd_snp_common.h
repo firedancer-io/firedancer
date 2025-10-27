@@ -52,18 +52,26 @@ typedef ulong fd_snp_peer_t;
 /* fd_snp_app_meta_t is a type to represent connection metadata. */
 typedef ulong fd_snp_meta_t;
 
-struct tlv_meta {
-  union {
-    uchar         u8;
-    ushort        u16;
-    uint          u32;
-    ulong         u64;
-    uchar const * ptr;
-  };
-  ushort          len;
-  uchar           type;
+/* fd_snp_tlv_t holds type and length of the TLV, as well as a pointer
+   to the begining of the memory location where the value is located.
+   IMPORTANT: do NOT cast a pointer to a buffer as (fd_snp_tlv_t *).
+   Instead, use either the extract or iterator methods to obtain type,
+   len and ptr. */
+struct fd_snp_tlv {
+  uchar const * ptr;
+  ushort        len;
+  uchar         type;
 };
-typedef struct tlv_meta tlv_meta_t;
+typedef struct fd_snp_tlv fd_snp_tlv_t;
+
+/* fd_snp_tlv_iter_t contains the iterator's metadata.  Off indicates
+   the offset inside the given buffer, whereas rem indicates the
+   remaining amount of bytes (signed, in order to simplify checks). */
+struct fd_snp_tlv_iter {
+  ulong         off;
+  long          rem;
+};
+typedef struct fd_snp_tlv_iter fd_snp_tlv_iter_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -117,47 +125,106 @@ fd_snp_ip_is_multicast( uchar const * packet ) {
   return 224 <= packet[FD_SNP_IP_DST_ADDR_OFF] && packet[FD_SNP_IP_DST_ADDR_OFF] <= 239;
 }
 
-/* fd_snp_tlv_extract() parses a tlv set pointed to by buf + offset,
-   it populates meta accordingly, and returns the offset of the next
-   tlv in the buffer.  If the length (l) is in {1,2,4,8}, then meta
-   will hold the corresponding value in {u8,u16,u32,u64} accordingly,
-   otherwise meta->ptr will be pointing to the begining of value (v)
-   inside the buffer. */
-static inline ulong
-fd_snp_tlv_extract( uchar const * buf,
-                    ulong         offset,
-                    tlv_meta_t *  meta ) {
-  uchar const * p = buf + offset;
-  meta->type = fd_uchar_load_1( p );
-  ushort l   = fd_ushort_load_2( p + 1UL );
-  meta->len  = l;
-  meta->ptr  = NULL; /* reset v */
-  if( FD_LIKELY( fd_ushort_popcnt( l & 0x000fU ) == 1 ) ) {
-    /* Optimized cases with l in {1U, 2U, 4U, 8U} */
-    fd_memcpy( &meta->u64, p + 3UL, l );
-  } else {
-    meta->ptr = p + 3UL;
-  }
-  return offset + 3UL + l;
+/* fd_snp_tlv_extract_{type/len/ptr/tlv} extracts the corresponding
+   values from a pointer to the beginning of a TLV set.  None of these
+   methods returns the value itself, but rather a pointer to the
+   beginning of the location in memory where the value is located. */
+FD_FN_CONST static inline uchar
+fd_snp_tlv_extract_type( uchar const * tlv_ptr ) {
+  return fd_uchar_load_1( tlv_ptr );
 }
 
-/* fd_snp_tlv_extract_fast() performs a fast parsing of the tlv set
-   pointed to by buf + offset, it populates meta partially, and
-   returns the offset of the next tlv in the buffer.  It does not
-   attempt to parse the value (v) depending on the length (l).
-   Instead, it only computes meta-ptr, pointing to the begining of
-   value (v) inside the buffer.  Useful when doing a fast scan of all
-   tlv(s) inside a buffer. */
-static inline ulong
-fd_snp_tlv_extract_fast( uchar const * buf,
-                         ulong         offset,
-                         tlv_meta_t *  meta ) {
-  uchar const * p = buf + offset;
-  meta->type = fd_uchar_load_1( p );
-  ushort l   = fd_ushort_load_2( p + 1UL );
-  meta->len  = l;
-  meta->ptr  = p + 3UL;
-  return offset + 3UL + l;
+FD_FN_CONST static inline ushort
+fd_snp_tlv_extract_len( uchar const * tlv_ptr ) {
+  return fd_ushort_load_2( tlv_ptr + 1UL );
+}
+
+FD_FN_CONST static inline uchar const *
+fd_snp_tlv_extract_ptr( uchar const * tlv_ptr ) {
+  return tlv_ptr + 3UL;
+}
+
+static inline fd_snp_tlv_t
+fd_snp_tlv_extract_tlv( uchar const * tlv_ptr ) {
+  fd_snp_tlv_t tlv;
+  tlv.type = fd_snp_tlv_extract_type( tlv_ptr );
+  tlv.len  = fd_snp_tlv_extract_len(  tlv_ptr );
+  tlv.ptr  = fd_snp_tlv_extract_ptr(  tlv_ptr );
+  return tlv;
+}
+
+/* fd_snp_tlv_iter_{init/done/next} are basic methods to iterate over
+   a given buffer containing a sequence of TLVs.
+   fd_snp_tlv_iter_{type/len/ptr/tlv} extract the corresponding TLV
+   parts at the current location of the iterator.  None of these
+   methods returns the value itself, which needs to be deduced using
+   ptr and len (and probably type as well).  The application needs to
+   verify that tlv.len holds a "reasonable" length value, since it can
+   theoretically be in the range [0, 1<<16).
+   Typical usage:
+
+   for( fd_snp_tlv_iter_t iter = fd_snp_tlv_iter_init( data_sz );
+        !fd_snp_tlv_iter_done( iter, data );
+        iter = fd_snp_tlv_iter_next( iter, data ) ) {
+      ...
+      uchar         type = fd_snp_tlv_iter_type( iter, data );
+      ushort        len  = fd_snp_tlv_iter_len(  iter, data );
+      uchar const * ptr  = fd_snp_tlv_iter_ptr(  iter, data );
+      fd_snp_tlv_t  tlv  = fd_snp_tlv_iter_tlv(  iter, data );
+      ...
+      uchar   u8 = fd_uchar_load_1(  tlv.ptr ); // if len==1
+      ushort u16 = fd_ushort_load_2( tlv.ptr ); // if len==2
+      uint   u32 = fd_uint_load_4(   tlv.ptr ); // if len==4
+      ulong  u64 = fd_ulong_load_8(  tlv.ptr ); // if len==8
+      fd_memcpy( value_buf, tlv.ptr, tlv.len ); // otherwise
+      ...
+    } */
+FD_FN_CONST static inline fd_snp_tlv_iter_t
+fd_snp_tlv_iter_init( ulong data_sz ) {
+  fd_snp_tlv_iter_t iter;
+  iter.off = 0UL;
+  iter.rem = fd_long_if( !!(data_sz>>63), 0UL/*overflow size*/, (long)data_sz );
+  return iter;
+}
+
+FD_FN_CONST static inline int
+fd_snp_tlv_iter_done( fd_snp_tlv_iter_t iter,
+                      uchar const *     data FD_PARAM_UNUSED ) {
+  /* TLV "header" part (i.e. TL is 3 bytes long). */
+  return iter.rem < 3L;
+}
+
+FD_FN_CONST static inline fd_snp_tlv_iter_t
+fd_snp_tlv_iter_next( fd_snp_tlv_iter_t iter,
+                      uchar const *     data ) {
+  ulong tlv_sz = fd_snp_tlv_extract_len( data + iter.off ) + 3UL;
+  iter.off += tlv_sz;
+  iter.rem -= (long)tlv_sz; /* tlv_sz in range [3, (1<<16)+3). */
+  return iter;
+}
+
+FD_FN_CONST static inline uchar
+fd_snp_tlv_iter_type( fd_snp_tlv_iter_t iter,
+                      uchar const *     data ) {
+  return fd_snp_tlv_extract_type( data + iter.off );
+}
+
+FD_FN_CONST static inline ushort
+fd_snp_tlv_iter_len( fd_snp_tlv_iter_t iter,
+                     uchar const *     data ) {
+  return fd_snp_tlv_extract_len( data + iter.off );
+}
+
+FD_FN_CONST static inline uchar const *
+fd_snp_tlv_iter_ptr( fd_snp_tlv_iter_t iter,
+                     uchar const *     data ) {
+  return fd_snp_tlv_extract_ptr( data + iter.off );
+}
+
+FD_FN_CONST static inline fd_snp_tlv_t
+fd_snp_tlv_iter_tlv( fd_snp_tlv_iter_t iter,
+                     uchar const *     data ) {
+  return fd_snp_tlv_extract_tlv( data + iter.off );
 }
 
 FD_PROTOTYPES_END
