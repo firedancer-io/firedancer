@@ -21,6 +21,8 @@ struct fd_exec_txn_exec_msg {
   ulong      bank_idx;
   ulong      txn_idx;
   fd_txn_p_t txn;
+
+  ulong      capture_txn_idx; /* Used currently by solcap to maintain ordering of messages */
 };
 typedef struct fd_exec_txn_exec_msg fd_exec_txn_exec_msg_t;
 

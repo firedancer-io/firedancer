@@ -9,7 +9,7 @@
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "../features/fd_features.h"
-#include "context/fd_capture_ctx.h"
+#include "../../discof/capture/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "info/fd_instr_info.h"
 #include "../../disco/pack/fd_microblock.h"

@@ -156,6 +156,10 @@ struct fd_configf {
   struct {
     ulong max_completed_shred_sets;
   } store;
+
+  struct {
+    char path[ PATH_MAX ];
+  } capctx;
 };
 
 typedef struct fd_configf fd_configf_t;

@@ -1,0 +1,33 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# solcap_fd: The file that the solcap capture will be written to
+unsigned int logfile_fd, uint solcap_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# The capture tile writes to the solcap file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd)
+           (eq (arg 0) solcap_fd))
+
+# fflush() requires fstat to check file state before flushing
+#
+# arg 0 is the file descriptor to fstat.
+fstat: (eq (arg 0) solcap_fd)
+
+# fflush() may use lseek to manage file position
+#
+# arg 0 is the file descriptor to lseek.
+lseek: (eq (arg 0) solcap_fd)
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.
+fsync: (eq (arg 0) logfile_fd)

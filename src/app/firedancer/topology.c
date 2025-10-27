@@ -20,6 +20,7 @@
 #include "../../util/tile/fd_tile_private.h"
 #include "../../discof/restore/utils/fd_ssctrl.h"
 #include "../../discof/restore/utils/fd_ssmsg.h"
+#include "../../flamenco/capture/fd_solcap_writer.h"
 #include "../../flamenco/progcache/fd_progcache_admin.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 
@@ -271,6 +272,8 @@ fd_topo_initialize( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   topo->gigantic_page_threshold = config->hugetlbfs.gigantic_page_threshold_mib << 20;
 
+  int solcap_enabled = strlen( config->capture.solcap_capture ) > 0;
+
   /*             topo, name */
   fd_topob_wksp( topo, "metric"       );
   fd_topob_wksp( topo, "genesi"       );
@@ -512,6 +515,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
   FOR(sign_tile_cnt)   fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
 
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    fd_topob_wksp( topo, "captur"      );
+    fd_topob_tile( topo, "captur", "captur", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+  }
+
   /*                                        topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   FOR(gossvf_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                       fd_topob_tile_in(     topo, "gossvf",  i,            "metric_in", "net_gossvf",   j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -731,6 +739,15 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_link(     topo, "exec_replay", "exec_replay", 16384UL, sizeof(fd_exec_task_done_msg_t), 1UL );
   FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec",      i,                               "exec_replay", i );
   FOR(exec_tile_cnt) fd_topob_tile_in(  topo, "replay",    0UL,    "metric_in", "exec_replay", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+
+  if( FD_UNLIKELY( solcap_enabled ) ) {
+    fd_topob_link( topo, "cap_repl", "captur", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
+    fd_topob_tile_out( topo, "replay", 0UL, "cap_repl", 0UL );
+    fd_topob_tile_in( topo, "captur", 0UL, "metric_in", "cap_repl", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(exec_tile_cnt) fd_topob_link( topo, "cap_exec", "captur", 32UL, SOLCAP_WRITE_ACCOUNT_DATA_MTU, 1UL );
+    FOR(exec_tile_cnt) fd_topob_tile_out( topo, "exec", i, "cap_exec", i );
+    FOR(exec_tile_cnt) fd_topob_tile_in( topo, "captur", 0UL, "metric_in", "cap_exec", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+  }
 
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt<topo->tile_cnt ) )
@@ -1251,6 +1268,11 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shredcap.write_buffer_size = config->tiles.shredcap.write_buffer_size;
     tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
     strncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "captur" ) ) ) {
+
+    tile->capctx.capture_start_slot = config->capture.capture_start_slot;
+    strncpy( tile->capctx.solcap_capture, config->capture.solcap_capture, sizeof(tile->capctx.solcap_capture) );
 
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));

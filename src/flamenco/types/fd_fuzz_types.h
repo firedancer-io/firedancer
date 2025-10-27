@@ -203,7 +203,6 @@ void *fd_solana_account_meta_generate( void *mem, void **alloc_mem, fd_rng_t * r
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_solana_account_meta_t);
   fd_solana_account_meta_new(mem);
   self->lamports = fd_rng_ulong( rng );
-  self->rent_epoch = fd_rng_ulong( rng );
   LLVMFuzzerMutate( &self->owner[0], sizeof(self->owner), sizeof(self->owner) );
   self->executable = fd_rng_uchar( rng );
   LLVMFuzzerMutate( self->padding, 3, 3 );

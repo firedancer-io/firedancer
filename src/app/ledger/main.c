@@ -1,6 +1,6 @@
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
-#include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../../discof/capture/fd_capture_ctx.h"
 #include <unistd.h>
 #include <sys/stat.h>
 

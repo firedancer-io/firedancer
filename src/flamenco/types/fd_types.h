@@ -176,10 +176,9 @@ struct __attribute__((packed)) fd_solana_account_stored_meta {
 typedef struct fd_solana_account_stored_meta fd_solana_account_stored_meta_t;
 #define FD_SOLANA_ACCOUNT_STORED_META_ALIGN (8UL)
 
-/* Encoded Size: Fixed (52 bytes) */
+/* Encoded Size: Fixed (44 bytes) */
 struct __attribute__((packed)) fd_solana_account_meta {
   ulong lamports;
-  ulong rent_epoch;
   uchar owner[32];
   uchar executable;
   uchar padding[3];
@@ -2071,7 +2070,7 @@ void * fd_solana_account_stored_meta_decode( void * mem, fd_bincode_decode_ctx_t
 void fd_solana_account_meta_new( fd_solana_account_meta_t * self );
 int fd_solana_account_meta_encode( fd_solana_account_meta_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_solana_account_meta_walk( void * w, fd_solana_account_meta_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_solana_account_meta_size( fd_solana_account_meta_t const * self ) { (void)self; return 52UL; }
+static inline ulong fd_solana_account_meta_size( fd_solana_account_meta_t const * self ) { (void)self; return 44UL; }
 static inline ulong fd_solana_account_meta_align( void ) { return FD_SOLANA_ACCOUNT_META_ALIGN; }
 int fd_solana_account_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_solana_account_meta_decode( void * mem, fd_bincode_decode_ctx_t * ctx );

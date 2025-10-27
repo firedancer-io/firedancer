@@ -325,8 +325,9 @@ struct fd_replay_tile {
   fd_block_id_map_t * block_id_map;
 
   /* Capture-related configs */
-  fd_capture_ctx_t * capture_ctx;
-  FILE *             capture_file;
+  fd_capture_ctx_t *     capture_ctx;
+  FILE *                 capture_file;
+  fd_capture_link_buf_t  cap_repl_out[1];
 
   /* Whether the runtime has been booted either from snapshot loading
      or from genesis. */
@@ -689,10 +690,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   /* Update any required runtime state and handle any potential epoch
      boundary change. */
 
-  if( ctx->capture_ctx ) {
-    fd_solcap_writer_set_slot( ctx->capture_ctx->capture, slot );
-  }
-
   fd_bank_shred_cnt_set( bank, 0UL );
   fd_bank_execution_fees_set( bank, 0UL );
   fd_bank_priority_fees_set( bank, 0UL );
@@ -797,10 +794,7 @@ static void
 replay_block_finalize( fd_replay_tile_t *  ctx,
                        fd_stem_context_t * stem,
                        fd_bank_t *         bank ) {
-
   bank->last_transaction_finished_nanos = fd_log_wallclock();
-
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 
   FD_TEST( !(bank->flags&FD_BANK_FLAGS_FROZEN) );
 
@@ -1166,8 +1160,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
   bank_hash_cmp->watermark = snapshot_slot;
 
   fd_bank_vote_states_end_locking_query( bank );
-
-  if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 }
 
 static inline int
@@ -1565,6 +1557,9 @@ dispatch_task( fd_replay_tile_t *  ctx,
       memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
+      if ( FD_UNLIKELY( ctx->capture_ctx ) ) {
+        exec_msg->capture_txn_idx = ctx->capture_ctx->current_txn_idx++;
+      }
       fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
@@ -1936,30 +1931,9 @@ before_frag( fd_replay_tile_t * ctx,
 }
 
 static void
-process_solcap_account_update( fd_replay_tile_t *                          ctx,
-                               fd_capture_ctx_account_update_msg_t const * msg ) {
-
-  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
-  if( FD_UNLIKELY( !bank ) ) {
-    FD_LOG_CRIT(( "invariant violation: bank is NULL for bank index %lu", msg->bank_idx ));
-  }
-
-  if( FD_UNLIKELY( !ctx->capture_ctx || !ctx->capture_ctx->capture ) ) return;
-  if( FD_UNLIKELY( fd_bank_slot_get( bank )<ctx->capture_ctx->solcap_start_slot ) ) return;
-
-  uchar const * account_data = (uchar const *)fd_type_pun_const( msg )+sizeof(fd_capture_ctx_account_update_msg_t);
-  fd_solcap_write_account( ctx->capture_ctx->capture, &msg->pubkey, &msg->info, account_data, msg->data_sz );
-}
-
-static void
 process_exec_task_done( fd_replay_tile_t *        ctx,
                         fd_exec_task_done_msg_t * msg,
                         ulong                     sig ) {
-  if( FD_UNLIKELY( sig==0UL ) ) {
-    // FIXME remove this branch with new solcap
-    process_solcap_account_update( ctx, fd_type_pun( msg ) );
-    return;
-  }
 
   ulong exec_tile_idx = sig&0xFFFFFFFFUL;
 
@@ -2405,16 +2379,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {
     ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
-  }
-
-  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
-    ctx->capture_ctx->checkpt_freq = ULONG_MAX;
-    ctx->capture_file = fopen( tile->replay.solcap_capture, "w+" );
-    if( FD_UNLIKELY( !ctx->capture_file ) ) FD_LOG_ERR(( "fopen(%s) failed (%d-%s)", tile->replay.solcap_capture, errno, fd_io_strerror( errno ) ));
-
-    ctx->capture_ctx->capture_txns = 0;
     ctx->capture_ctx->solcap_start_slot = tile->replay.capture_start_slot;
-    fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
 
   if( FD_UNLIKELY( strcmp( "", tile->replay.dump_proto_dir ) ) ) {
@@ -2517,6 +2482,40 @@ unprivileged_init( fd_topo_t *      topo,
   exec_out->chunk  = exec_out->chunk0;
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
+
+  if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) ) ) {
+    idx = fd_topo_find_tile_out_link( topo, tile, "cap_repl", 0UL );
+    FD_TEST( idx!=ULONG_MAX );
+    link = &topo->links[ tile->out_link_id[ idx ] ];
+
+
+    fd_capture_link_buf_t * cap_repl_out = ctx->cap_repl_out;
+    cap_repl_out->base.vt = &fd_capture_link_buf_vt;
+    cap_repl_out->idx     = idx;
+    cap_repl_out->mem     = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+    cap_repl_out->chunk0  = fd_dcache_compact_chunk0( cap_repl_out->mem, link->dcache );
+    cap_repl_out->wmark   = fd_dcache_compact_wmark( cap_repl_out->mem, link->dcache, link->mtu );
+    cap_repl_out->chunk   = cap_repl_out->chunk0;
+    cap_repl_out->mcache  = link->mcache;
+    cap_repl_out->depth   = fd_mcache_depth( link->mcache );
+    cap_repl_out->seq     = 0UL;
+
+    ctx->capture_ctx->capctx_buf.buf  = cap_repl_out;
+    ctx->capture_ctx->capture_link    = &cap_repl_out->base;
+    ctx->capture_ctx->current_txn_idx = 0UL;
+
+
+    ulong consumer_tile_idx = fd_topo_find_tile( topo, "captur", 0UL );
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ consumer_tile_idx ];
+    cap_repl_out->fseq = NULL;
+    for (ulong j = 0UL; j < consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]  == link->id ) ) {
+        cap_repl_out->fseq = fd_fseq_join( fd_topo_obj_laddr( topo, consumer_tile->in_link_fseq_obj_id[ j ] ) );
+        FD_TEST( cap_repl_out->fseq );
+        break;
+      }
+    }
+  }
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 
