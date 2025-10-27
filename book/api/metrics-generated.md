@@ -1092,3 +1092,14 @@
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
 
 </div>
+
+## Snapwr Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
+| <span class="metrics-name">snapwr_&#8203;vinyl_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted |
+
+</div>

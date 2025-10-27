@@ -89,6 +89,7 @@ struct fd_snapin_tile {
 
     /* Vinyl in either io_wd or io_mm mode */
     fd_vinyl_io_t * io;
+    fd_vinyl_io_t * io_wd;
     fd_vinyl_io_t * io_mm;
     ulong           io_seed;
 
@@ -150,7 +151,8 @@ void
 fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
                                    fd_topo_t *        topo,
                                    fd_topo_tile_t *   tile,
-                                   void *             io_mm_mem );
+                                   void *             io_mm_mem,
+                                   void *             io_wd_mem );
 
 /* fd_snapin_vinyl_seccomp returns a seccomp sandbox policy suitable
    for vinyl operation. */
@@ -187,6 +189,21 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx );
 
 void
 fd_snapin_vinyl_txn_cancel( fd_snapin_tile_t * ctx );
+
+/* fd_snapin_vinyl_wd_init transitions the vinyl backend from generic
+   vinyl accessor (io_mm) to fast dumb direct account insertion (io_wd).
+   This must be called before calling fd_snapin_process_account_*.
+   Starts the snapwr tile (waits for the snapwr tile to ack). */
+
+void
+fd_snapin_vinyl_wd_init( fd_snapin_tile_t * ctx );
+
+/* fd_snapin_vinyl_wd_fini transitions the vinyl backend from fast dumb
+   direct account insertion (io_wd) back to generic mode (io_mm).
+   Pauses the snapwr tile (waits for the snapwr to ack). */
+
+void
+fd_snapin_vinyl_wd_fini( fd_snapin_tile_t * ctx );
 
 /* fd_snapin_vinyl_shutdown instructs vinyl-related tiles of the loader
    to shut down.  Blocks until all affected tiles have acknowledged the
