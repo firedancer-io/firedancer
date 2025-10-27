@@ -43,7 +43,9 @@ $(call add-objs,commands/shred_version,fd_firedancer)
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
 
+ifdef FD_HAS_SSE
 $(call make-bin,firedancer,main,fd_firedancer fdctl_shared fdctl_platform fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_waltz fd_tango fd_ballet fd_util firedancer_version,$(SECP256K1_LIBS) $(OPENSSL_LIBS))
+endif
 
 else
 $(warning firedancer build disabled due to lack of zstd)
