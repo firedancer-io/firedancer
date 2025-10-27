@@ -44,7 +44,14 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
       activated, we could query the input_mem_region array for the
       original data len. */
    ulong              original_data_len;
-   fd_txn_account_t * acct; /* The transaction account corresponding to this account. */
+   /* The transaction account corresponding to this account. */
+   fd_txn_account_t * acct;
+   /* The expected virtual offsets of the serialized pubkey, lamports and owner
+      for the account corresponding to this region.
+      Used for CPI security checks. */
+   uint               expected_pubkey_offset;
+   uint               expected_lamports_offset;
+   uint               expected_owner_offset;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
