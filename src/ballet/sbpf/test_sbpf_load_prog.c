@@ -6,9 +6,11 @@
 #include "../../util/fd_util.h"
 
 #include <errno.h>
+#include <fcntl.h> /* open */
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <unistd.h> /* close */
 
 uint const _syscalls[] = {
   0xb6fc1a11, 0x686093bb, 0x207559bd, 0x5c2a3178, 0x52ba5096,
@@ -27,7 +29,8 @@ main( int     argc,
 
   /* Parse command line arguments */
 
-  char const * bin_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--bin", NULL, NULL );
+  char const * bin_path    = fd_env_strip_cmdline_cstr( &argc, &argv, "--bin",        NULL, NULL );
+  char const * rodata_path = fd_env_strip_cmdline_cstr( &argc, &argv, "--rodata-out", NULL, NULL );
 
   /* Validate command line arguments */
 
@@ -100,6 +103,17 @@ main( int     argc,
   int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, &config, scratch, bin_sz );
 
   FD_LOG_HEXDUMP_NOTICE(( "Output rodata segment", prog->rodata, prog->rodata_sz ));
+
+  if( rodata_path ) {
+    int out_fd = open( rodata_path, O_CREAT|O_WRONLY|O_TRUNC, 0644 );
+    if( FD_UNLIKELY( out_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_CREAT|O_WRONLY|O_TRUNC,0644) failed (%i-%s)", rodata_path, errno, fd_io_strerror( errno ) ));
+
+    ulong src_sz;
+    int write_err = fd_io_write( out_fd, prog->rodata, prog->rodata_sz, prog->rodata_sz, &src_sz );
+    if( FD_UNLIKELY( write_err!=0 ) ) FD_LOG_ERR(( "fd_io_write(%s) failed (%i-%s)", rodata_path, write_err, fd_io_strerror( write_err ) ));
+
+    if( FD_UNLIKELY( 0!=close( out_fd ) ) ) FD_LOG_ERR(( "close(%s) failed (%i-%s)", rodata_path, errno, fd_io_strerror( errno ) ));
+  }
 
   /* Clean up */
 
