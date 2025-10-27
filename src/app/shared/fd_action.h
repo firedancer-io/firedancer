@@ -109,16 +109,16 @@ union fdctl_args {
   } quic_trace;
 
   struct {
-    char tile_cpus[ 256UL ];
-  } snapshot_load;
-
-  struct {
     ushort listen_port;
   } udpecho;
 
   struct {
     char topo[ 64 ];
   } metrics;
+
+  struct {
+    char topo[ 64 ];
+  } mem;
 
   struct {
     char fxt_path[ PATH_MAX ];

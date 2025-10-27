@@ -333,6 +333,8 @@ backtest_cmd_topo( config_t * config ) {
   backtest_topo( config );
 }
 
+extern configure_stage_t fd_cfg_stage_vinyl;
+
 static args_t
 configure_args( void ) {
   args_t args = {
@@ -342,6 +344,7 @@ configure_args( void ) {
   ulong stage_idx = 0UL;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_hugetlbfs;
   args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_snapshots;
+  args.configure.stages[ stage_idx++ ] = &fd_cfg_stage_vinyl;
   args.configure.stages[ stage_idx++ ] = NULL;
 
   return args;

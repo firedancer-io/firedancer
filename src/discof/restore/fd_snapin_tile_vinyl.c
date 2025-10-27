@@ -2,6 +2,7 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssparse.h"
 #include "utils/fd_ssctrl.h"
+#include "utils/fd_vinyl_io_wd.h"
 
 #include <errno.h>
 #include <fcntl.h>     /* open */
@@ -27,17 +28,24 @@
   - Create a full vinyl_meta index of accounts
   - Recover from load failures and retry
 
+  Note on I/O layers:
+  - io_mm is the slow/generic memory mapped I/O backend.
+  - io_wd is the fast/dumb O_DIRECT backend.  Can only append, thus used
+    for hot path account writing.
+  - io_mm and io_wd cannot be active at the same time -- snapin will
+    switch between them as necessary.
+
   Full snapshot logic:
-  - Write accounts to bstream
+  - Write accounts to bstream (io_wd)
   - Synchronously populate the vinyl_meta index while writing
-  - On load failure, destroy and recreate the bstream
+  - On load failure, destroy and recreate the bstream (io_mm)
 
   Incremental snapshot logic:
   - Phase 1: while reading the incremental snapshot
-    - Write accounts to bstream without updating the index
-    - On load failure, undo writes done to bstream
+    - Write accounts to bstream without updating the index (io_wd)
+    - On load failure, undo writes done to bstream (io_mm)
   - Phase 2: once read is done
-    - Replay all elements written to bstream
+    - Replay all elements written to bstream (io_mm)
     - Populate the vinyl_meta index while replaying
 
 \**********************************************************************/
@@ -91,8 +99,8 @@ void
 fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
                                    fd_topo_t *        topo,
                                    fd_topo_tile_t *   tile,
-                                   void *             io_mm_mem ) {
-  (void)topo; (void)tile;
+                                   void *             io_mm_mem,
+                                   void *             io_wd_mem ) {
 
   /* Set up io_mm */
 
@@ -106,6 +114,51 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
                          ctx->vinyl.io_seed );
   if( FD_UNLIKELY( !ctx->vinyl.io_mm ) ) {
     FD_LOG_ERR(( "fd_vinyl_io_mm_init failed" ));
+  }
+
+  /* Set up io_wd dependencies */
+
+  ulong wr_link_id = fd_topo_find_tile_out_link( topo, tile, "snapin_wr", 0UL );
+  if( FD_UNLIKELY( wr_link_id==ULONG_MAX ) ) FD_LOG_CRIT(( "snapin_wr link not found" ));
+  fd_topo_link_t * wr_link = &topo->links[ tile->out_link_id[ wr_link_id ] ];
+
+  if( FD_UNLIKELY( tile->snapin.snapwr_depth != fd_mcache_depth( wr_link->mcache ) ) ) {
+    /* FIXME TOCTOU issue ... A malicious downstream tile could
+             theoretically corrupt mcache->depth and cause an OOB access
+             while snapin is still initializing.  Practically not an
+             issue because the system is not exposed to attacker-
+             controlled input at boot time. */
+    FD_LOG_CRIT(( "snapin_wr link mcache depth %lu does not match snapwr_depth %lu",
+                  fd_mcache_depth( wr_link->mcache ), tile->snapin.snapwr_depth ));
+  }
+
+  if( FD_UNLIKELY( fd_topo_link_reliable_consumer_cnt( topo, wr_link )!=1UL ) ) {
+    FD_LOG_CRIT(( "snapin_wr link must have exactly one reliable consumer" ));
+  }
+
+  ulong wr_tile_id = fd_topo_find_tile( topo, "snapwr", 0UL );
+  FD_TEST( wr_tile_id!=ULONG_MAX );
+  fd_topo_tile_t * wr_tile = &topo->tiles[ wr_tile_id ];
+  FD_TEST( wr_tile->in_cnt==1 );
+  FD_TEST( wr_tile->in_link_id[0] == wr_link->id );
+  FD_CRIT( 0==strcmp( topo->links[ wr_tile->in_link_id[ 0 ] ].name, "snapin_wr" ), "unexpected link found" );
+  ulong const * wr_fseq = wr_tile->in_link_fseq[ 0 ];
+  if( FD_UNLIKELY( !wr_fseq ) ) {
+    FD_LOG_CRIT(( "snapin_wr link reliable consumer fseq not found" ));
+  }
+
+  /* Set up io_wd */
+
+  ctx->vinyl.io_wd =
+    fd_vinyl_io_wd_init( io_wd_mem,
+                         ctx->vinyl.bstream_sz,
+                         ctx->vinyl.io_mm->seed,
+                         wr_link->mcache,
+                         wr_link->dcache,
+                         wr_fseq,
+                         wr_link->mtu );
+  if( FD_UNLIKELY( !ctx->vinyl.io_wd ) ) {
+    FD_LOG_ERR(( "fd_vinyl_io_wd_init failed" ));
   }
 
   /* Start by using io_mm */
@@ -286,6 +339,48 @@ fd_snapin_vinyl_txn_cancel( fd_snapin_tile_t * ctx ) {
   fd_vinyl_io_sync  ( io, FD_VINYL_IO_FLAG_BLOCKING );
 }
 
+/* Fast writer ********************************************************/
+
+void
+fd_snapin_vinyl_wd_init( fd_snapin_tile_t * ctx ) {
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_mm, "vinyl not in io_mm mode" );
+
+  int commit_err = fd_vinyl_io_commit( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit(io_mm) failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  /* Flush io_mm */
+
+  vinyl_mm_sync( ctx );
+
+  /* Synchronize sequence numbers */
+
+  ctx->vinyl.io_wd->seq_ancient = ctx->vinyl.io_mm->seq_ancient;
+  ctx->vinyl.io_wd->seq_past    = ctx->vinyl.io_mm->seq_past;
+  ctx->vinyl.io_wd->seq_present = ctx->vinyl.io_mm->seq_present;
+  ctx->vinyl.io_wd->seq_future  = ctx->vinyl.io_mm->seq_future;
+  ctx->vinyl.io_wd->spad_used   = 0UL;
+
+  ctx->vinyl.io = ctx->vinyl.io_wd;
+}
+
+void
+fd_snapin_vinyl_wd_fini( fd_snapin_tile_t * ctx ) {
+  if( FD_UNLIKELY( ctx->vinyl.io!=ctx->vinyl.io_wd ) ) return;
+
+  int commit_err = fd_vinyl_io_commit( ctx->vinyl.io_wd, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit(io_wd) failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+
+  /* Synchronize sequence numbers */
+
+  ctx->vinyl.io_mm->seq_ancient = ctx->vinyl.io_wd->seq_ancient;
+  ctx->vinyl.io_mm->seq_past    = ctx->vinyl.io_wd->seq_past;
+  ctx->vinyl.io_mm->seq_present = ctx->vinyl.io_wd->seq_present;
+  ctx->vinyl.io_mm->seq_future  = ctx->vinyl.io_wd->seq_future;
+  ctx->vinyl.io_mm->spad_used   = 0UL;
+
+  ctx->vinyl.io = ctx->vinyl.io_mm;
+}
+
 /* bstream_push_account writes a single account out to bstream. */
 
 static void
@@ -312,6 +407,18 @@ bstream_push_account( fd_snapin_tile_t * ctx ) {
   ctx->metrics.accounts_inserted++;
 }
 
+/* bstream_alloc is a faster version of fd_vinyl_io_alloc.  Indirect
+   calls have significant overhead on Zen 5. */
+
+static uchar *
+bstream_alloc( fd_vinyl_io_t * io,
+               ulong           sz,
+               int             flags ) {
+  if( FD_LIKELY( io->impl==&fd_vinyl_io_wd_impl ) )
+    return fd_vinyl_io_wd_alloc( io, sz, flags );
+  return fd_vinyl_io_alloc( io, sz, flags );
+}
+
 /* fd_snapin_process_account_header_vinyl prepares a bstream write for
    one account (slow) */
 
@@ -328,7 +435,7 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
   FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
   ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-  uchar * pair    = fd_vinyl_io_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+  uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
 
   uchar * dst     = pair;
   ulong   dst_rem = pair_sz;
@@ -486,7 +593,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-    uchar * pair    = fd_vinyl_io_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
 
     uchar * dst     = pair;
     ulong   dst_rem = pair_sz;
@@ -528,6 +635,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 void
 fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx ) {
   (void)fd_vinyl_io_commit( ctx->vinyl.io, FD_VINYL_IO_FLAG_BLOCKING );
+
+  fd_vinyl_io_wd_ctrl( ctx->vinyl.io_wd, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL );
 }
 
 void

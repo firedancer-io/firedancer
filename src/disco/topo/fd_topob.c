@@ -347,6 +347,7 @@ fd_topob_auto_layout( fd_topo_t * topo,
     "bencho",
     "genesi", /* FIREDANCER ONLY */
     "ipecho", /* FIREDANCER ONLY */
+    "snapwr", /* FIREDANCER ONLY */
   };
 
   char const * ORDERED[] = {

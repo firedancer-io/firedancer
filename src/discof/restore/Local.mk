@@ -8,6 +8,7 @@ endif
 ifdef FD_HAS_INT128
 $(call add-objs,fd_snapin_tile fd_snapin_tile_funk fd_snapin_tile_vinyl,fd_discof)
 endif
+$(call add-objs,fd_snapwr_tile,fd_discof)
 endif
 ifdef FD_HAS_INT128
 $(call add-objs,utils/fd_ssparse,fd_discof)
@@ -34,3 +35,4 @@ $(call add-objs,utils/fd_ssresolve,fd_discof)
 $(call add-objs,utils/fd_sshttp,fd_discof)
 $(call add-objs,utils/fd_ssarchive,fd_discof)
 $(call add-objs,utils/fd_sspeer_selector,fd_discof)
+$(call add-objs,utils/fd_vinyl_io_wd,fd_discof)
