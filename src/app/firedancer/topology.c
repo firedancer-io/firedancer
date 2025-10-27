@@ -817,6 +817,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ], store_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   }
 
+  fd_pod_insert_int( topo->props, "sandbox", config->development.sandbox ? 1 : 0 );
+
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) fd_topo_configure_tile( &topo->tiles[ i ], config );
 
   FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );

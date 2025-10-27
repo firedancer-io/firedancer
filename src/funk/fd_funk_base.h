@@ -192,9 +192,7 @@ fd_funk_rec_key_hash1( uchar const key[ 32 ],
 FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
-  /* tons of ILP */
-  return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
-         (fd_ulong_hash( seed ^ (1UL<<2) ^ k->ul[2] ) ^ fd_ulong_hash( seed ^ (1UL<<3) ^ k->ul[3] ) );
+  return fd_funk_rec_key_hash1( k->uc, 0UL, seed );
 }
 
 #else
