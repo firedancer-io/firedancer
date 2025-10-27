@@ -1,6 +1,8 @@
+#define _GNU_SOURCE /* O_DIRECT */
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssmsg.h"
+#include "utils/fd_vinyl_io_wd.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
@@ -32,7 +34,7 @@
 #define FD_SNAPIN_OUT_SNAPCT   0UL
 #define FD_SNAPIN_OUT_MANIFEST 1UL
 
-#define FD_SNAPIN_IO_SPAD_MAX (16UL<<20) /* 16 MiB of I/O scratch space */
+#define FD_SNAPIN_IO_SPAD_MAX (64UL<<20) /* 64 MiB of I/O scratch space */
 
 struct fd_blockhash_entry {
   fd_hash_t blockhash;
@@ -644,8 +646,8 @@ privileged_init( fd_topo_t *      topo,
 
     /* FIXME move this to a new configure stage */
 
-    int vinyl_fd = open( tile->snapin.vinyl_path, O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC, 0644 );
-    if( FD_UNLIKELY( vinyl_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_CREAT|O_TRUNC|O_CLOEXEC,0644) failed (%i-%s)", tile->snapin.vinyl_path, errno, strerror( errno ) ));
+    int vinyl_fd = open( tile->snapin.vinyl_path, O_RDWR|O_DIRECT|O_CREAT|O_TRUNC|O_CLOEXEC, 0644 );
+    if( FD_UNLIKELY( vinyl_fd<0 ) ) FD_LOG_ERR(( "open(%s,O_RDWR|O_DIRECT|O_CREAT|O_TRUNC|O_CLOEXEC,0644) failed (%i-%s)", tile->snapin.vinyl_path, errno, strerror( errno ) ));
 
     ulong bstream_sz = tile->snapin.vinyl_bstream_sz;
     FD_TEST( 0==ftruncate( vinyl_fd, (long)bstream_sz ) );
@@ -653,7 +655,7 @@ privileged_init( fd_topo_t *      topo,
     char const * info    = "accdb";
     ulong        info_sz = strlen( info ) + 1UL;
     ulong        io_seed = (ulong)fd_tickcount();
-    ctx->vinyl.io = fd_vinyl_io_bd_init( _vinyl_io, FD_SNAPIN_IO_SPAD_MAX, vinyl_fd, 1, info, info_sz, io_seed );
+    ctx->vinyl.io = fd_vinyl_io_wd_init( _vinyl_io, FD_SNAPIN_IO_SPAD_MAX, vinyl_fd, info, info_sz, io_seed );
     FD_TEST( ctx->vinyl.io );
   }
 }
