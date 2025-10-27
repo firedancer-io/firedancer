@@ -215,7 +215,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     /* FeesOnly transactions are transactions that failed to load
        before they even reach the VM stage. They have zero execution
        cost but do charge for the account data they are able to load.
-       FeesOnly votes are charged the fixed voe cost. */
+       FeesOnly votes are charged the fixed vote cost. */
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
     txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
@@ -243,6 +243,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        if that happens.  We cannot reject the transaction here as there
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
+
+    uchar * txn_sig = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
+    if( txn_ctx->exec_err ) {
+      FD_LOG_NOTICE(("TXN SIG %s", FD_BASE58_ENC_64_ALLOCA( txn_sig )));
+    }
+
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
 
     } FD_SPAD_FRAME_END;
