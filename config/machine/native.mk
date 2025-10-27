@@ -27,15 +27,13 @@ endif
 ifdef FD_USING_GCC
 include config/base.mk
 	CC:=gcc
-	CXX:=g++
-	LD:=g++
+	LD:=gcc
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __GNUC__ | awk '{print $$3}')
 include config/extra/with-gcc.mk
 else ifdef FD_USING_CLANG
 include config/base.mk
 	CC=clang
-	CXX=clang++
-	LD=clang++
+	LD=clang
   FD_COMPILER_MAJOR_VERSION:=$(shell echo | $(CC) -march=native -E -dM - | grep __clang_major__ |  awk '{print $$3}')
 include config/extra/with-clang.mk
 endif

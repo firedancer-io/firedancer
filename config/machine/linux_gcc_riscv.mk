@@ -12,8 +12,7 @@ endif
 
 ifeq ($(CROSS),1)
 CC:=riscv64-linux-gnu-gcc
-CXX:=riscv64-linux-gnu-g++
-LD:=riscv64-linux-gnu-g++
+LD:=riscv64-linux-gnu-gcc
 endif
 
 include config/extra/with-brutality.mk

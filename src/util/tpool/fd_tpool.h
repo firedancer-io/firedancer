@@ -577,8 +577,7 @@ struct fd_tpool_private {
   /* worker_max element fd_tpool_private_worker_t * array here, indexed
      [0,worker_cnt).  worker[0] points to worker0 above.  Note that we
      cannot use a flex array here because strict C++17 doesn't support
-     it and we use C++ in fd_tpool.cxx to handle people using C++
-     libraries that throw exceptions that are uncaught ... sigh. */
+     it. */
 
 };
 

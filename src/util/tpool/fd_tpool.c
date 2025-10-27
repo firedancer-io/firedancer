@@ -12,8 +12,8 @@ struct fd_tpool_private_worker_cfg {
 typedef struct fd_tpool_private_worker_cfg fd_tpool_private_worker_cfg_t;
 
 static int
-fd_tpool_private_worker( int     argc,
-                         char ** argv ) {
+fd_tpool_private_worker_( int     argc,
+                          char ** argv ) {
   ulong                           worker_idx = (ulong)(uint)argc;
   fd_tpool_private_worker_cfg_t * cfg        = (fd_tpool_private_worker_cfg_t *)argv;
 
@@ -76,32 +76,26 @@ fd_tpool_private_worker( int     argc,
 
     /* We are EXEC ... do the task and then transition to IDLE */
 
-    try {
+    if( _arg_cnt==UINT_MAX ) {
 
-      if( _arg_cnt==UINT_MAX ) {
+      fd_tpool_task_t task = (fd_tpool_task_t)_task;
 
-        fd_tpool_task_t task = (fd_tpool_task_t)_task;
+      void * task_tpool  = (void *)arg[ 0];
+      ulong  task_t0     =         arg[ 1]; ulong task_t1     = arg[ 2];
+      void * task_args   = (void *)arg[ 3];
+      void * task_reduce = (void *)arg[ 4]; ulong task_stride = arg[ 5];
+      ulong  task_l0     =         arg[ 6]; ulong task_l1     = arg[ 7];
+      ulong  task_m0     =         arg[ 8]; ulong task_m1     = arg[ 9];
+      ulong  task_n0     =         arg[10]; ulong task_n1     = arg[11];
 
-        void * task_tpool  = (void *)arg[ 0];
-        ulong  task_t0     =         arg[ 1]; ulong task_t1     = arg[ 2];
-        void * task_args   = (void *)arg[ 3];
-        void * task_reduce = (void *)arg[ 4]; ulong task_stride = arg[ 5];
-        ulong  task_l0     =         arg[ 6]; ulong task_l1     = arg[ 7];
-        ulong  task_m0     =         arg[ 8]; ulong task_m1     = arg[ 9];
-        ulong  task_n0     =         arg[10]; ulong task_n1     = arg[11];
+      task( task_tpool,task_t0,task_t1, task_args, task_reduce,task_stride, task_l0,task_l1, task_m0,task_m1, task_n0,task_n1 );
 
-        task( task_tpool,task_t0,task_t1, task_args, task_reduce,task_stride, task_l0,task_l1, task_m0,task_m1, task_n0,task_n1 );
+    } else {
 
-      } else {
+      fd_tpool_task_v2_t task = (fd_tpool_task_v2_t)_task;
 
-        fd_tpool_task_v2_t task = (fd_tpool_task_v2_t)_task;
+      task( tpool, worker_idx, (ulong)_arg_cnt, arg );
 
-        task( tpool, worker_idx, (ulong)_arg_cnt, arg );
-
-      }
-
-    } catch( ... ) {
-      FD_LOG_WARNING(( "uncaught exception; attempting to continue" ));
     }
 
     FD_COMPILER_MFENCE();
@@ -261,7 +255,7 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
   worker[ worker_cnt ] = NULL;
   FD_COMPILER_MFENCE();
 
-  if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, fd_tpool_private_worker, argc, argv ) ) ) {
+  if( FD_UNLIKELY( !fd_tile_exec_new( tile_idx, fd_tpool_private_worker_, argc, argv ) ) ) {
     FD_LOG_WARNING(( "fd_tile_exec_new failed (tile probably already in use)" ));
     return NULL;
   }

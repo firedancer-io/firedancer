@@ -7,8 +7,7 @@ include config/extra/with-optimization.mk
 
 # brew install llvm
 # CC:=/opt/homebrew/opt/llvm/bin/clang
-# CXX:=/opt/homebrew/opt/llvm/bin/clang++
-# LD:=/opt/homebrew/opt/llvm/bin/clang++
+# LD:=/opt/homebrew/opt/llvm/bin/clang
 
 CPPFLAGS+=-DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1
 

@@ -39,8 +39,6 @@ help:
 	# CPPFLAGS        = $(CPPFLAGS)
 	# CC              = $(CC)
 	# CFLAGS          = $(CFLAGS)
-	# CXX             = $(CXX)
-	# CXXFLAGS        = $(CXXFLAGS)
 	# LD              = $(LD)
 	# LDFLAGS         = $(LDFLAGS)
 	# AR              = $(AR)
@@ -311,28 +309,12 @@ $(CC) $(CPPFLAGS) $(CFLAGS) -M -MP $< -o $@.tmp && \
 $(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.d : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Generating dependencies for C++ source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -M -MP $< -o $@.tmp && \
-$(SED) 's,\($(notdir $*)\)\.o[ :]*,$(OBJDIR)/obj/$*.o $(OBJDIR)/obj/$*.S $(OBJDIR)/obj/$*.i $@ : ,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
-
 $(OBJDIR)/obj/%.o : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Compiling C source $< to $@
 	#######################################################################
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(OBJDIR)/obj/%.o : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Compiling C++ source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(OBJDIR)/obj/%.o : src/%.S $(OBJDIR)/info
 	#######################################################################
@@ -350,15 +332,6 @@ $(CC) $(patsubst -g,,$(CPPFLAGS) $(CFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
 $(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
 $(RM) $@.tmp
 
-$(OBJDIR)/obj/%.S : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Compiling C++ source $< to assembly $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(patsubst -g,,$(CPPFLAGS) $(CXXFLAGS)) -S -fverbose-asm $< -o $@.tmp && \
-$(SED) 's,^#,                                                                                               #,g' < $@.tmp > $@ && \
-$(RM) $@.tmp
-
 $(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
 	#######################################################################
 	# Preprocessing C source $< to $@
@@ -366,18 +339,8 @@ $(OBJDIR)/obj/%.i : src/%.c $(OBJDIR)/info
 	$(MKDIR) $(dir $@) && \
 $(CC) $(CPPFLAGS) $(CFLAGS) -E $< -o $@
 
-$(OBJDIR)/obj/%.i : src/%.cxx $(OBJDIR)/info
-	#######################################################################
-	# Preprocessing C++ source $< to $@
-	#######################################################################
-	$(MKDIR) $(dir $@) && \
-$(CXX) $(CPPFLAGS) $(CXXFLAGS) -E $< -o $@
-
 $(OBJDIR)/obj/%.check : src/%.c
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -fsyntax-only $<
-
-$(OBJDIR)/obj/%.check : src/%.cxx
-	@$(CXX) $(CPPFLAGS) $(CXXFLAGS) -fsyntax-only $<
 
 $(OBJDIR)/lib/%.a :
 	#######################################################################

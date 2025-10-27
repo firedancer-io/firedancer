@@ -341,7 +341,7 @@ fd_topo_print_log( int         stdout,
   PRINT( "\nSUMMARY\n" );
 
   /* The logic to compute number of stack pages is taken from
-     fd_tile_thread.cxx, in function fd_topo_tile_stack_join, and this
+     fd_tile_thread.c, in function fd_topo_tile_stack_join, and this
      should match that. */
   ulong stack_pages = topo->tile_cnt * FD_SHMEM_HUGE_PAGE_SZ * ((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
 

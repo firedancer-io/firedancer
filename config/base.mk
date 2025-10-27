@@ -6,9 +6,7 @@ CPPFLAGS:=-isystem ./$(OPT)/include
 RUSTFLAGS:=-C force-frame-pointers=yes
 CC:=gcc
 CFLAGS=-std=c17 -fwrapv
-CXX:=g++
-CXXFLAGS=-std=c++17
-LD:=g++
+LD:=gcc
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
 LDFLAGS_EXE:=
 LDFLAGS_SO:=-shared

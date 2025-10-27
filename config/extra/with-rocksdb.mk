@@ -3,7 +3,7 @@ ifneq (,$(wildcard $(OPT)/lib/libsnappy.a))
 ifneq (,$(wildcard $(OPT)/lib/libzstd.a))
 FD_HAS_ROCKSDB:=1
 CFLAGS+=-DFD_HAS_ROCKSDB=1 -DROCKSDB_LITE=1
-ROCKSDB_LIBS:=$(OPT)/lib/librocksdb.a $(OPT)/lib/libsnappy.a
+ROCKSDB_LIBS:=$(OPT)/lib/librocksdb.a $(OPT)/lib/libsnappy.a -lstdc++
 
 # RocksDB enables io_uring support opportunistically; only link liburing when
 # the static archive actually references its symbols (e.g. Arch Linux builds).

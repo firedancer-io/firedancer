@@ -12,8 +12,7 @@ endif
 
 ifeq ($(CROSS),1)
 CC:=powerpc64le-linux-gnu-gcc
-CXX:=powerpc64le-linux-gnu-g++
-LD:=powerpc64le-linux-gnu-g++
+LD:=powerpc64le-linux-gnu-gcc
 endif
 
 include config/extra/with-brutality.mk

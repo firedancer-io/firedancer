@@ -8,7 +8,6 @@ package main
 // #cgo LDFLAGS: -lfd_tango
 // #cgo LDFLAGS: -lfd_ballet
 // #cgo LDFLAGS: -lfd_util
-// #cgo LDFLAGS: -lstdc++
 // #include <stdlib.h>
 // #include <stdio.h>
 // #include <firedancer/waltz/quic/fd_quic.h>
