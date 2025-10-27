@@ -357,11 +357,11 @@ struct fd_replay_tile {
   long        next_leader_tickcount;
   ulong       highwater_leader_slot;
   ulong       reset_slot;
+  fd_bank_t * reset_bank;
   fd_hash_t   reset_block_id;
   long        reset_timestamp_nanos;
   double      slot_duration_nanos;
   double      slot_duration_ticks;
-  ulong       max_active_descendant;
   fd_bank_t * leader_bank; /* ==NULL if not currently the leader */
 
   ulong  resolv_tile_cnt;
@@ -1196,10 +1196,23 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
      seconds could be considered reasonable.  This is arbitrary and
      chosen due to intuition. */
   if( FD_UNLIKELY( now<ctx->next_leader_tickcount+(long)(3.0*ctx->slot_duration_ticks) ) ) {
+    FD_TEST( ctx->reset_bank );
+
+    /* TODO: Make the max_active_descendant calculation more efficient
+       by caching it in the bank structure and updating it as banks are
+       created and completed. */
+    ulong max_active_descendant = 0UL;
+    ulong child_idx = ctx->reset_bank->child_idx;
+    while( child_idx!=ULONG_MAX ) {
+      fd_bank_t const * child_bank = fd_banks_bank_query( ctx->banks, child_idx );
+      max_active_descendant = fd_ulong_max( max_active_descendant, fd_bank_slot_get( child_bank ) );
+      child_idx = child_bank->sibling_idx;
+    }
+
     /* If the max_active_descendant is >= next_leader_slot, we waited
        too long and a leader after us started publishing to try and skip
        us.  Just start our leader slot immediately, we might win ... */
-    if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot && ctx->max_active_descendant<ctx->next_leader_slot ) ) {
+    if( FD_LIKELY( max_active_descendant>=ctx->reset_slot && max_active_descendant<ctx->next_leader_slot ) ) {
       /* If one of the leaders between the reset slot and our leader
          slot is in the process of publishing (they have a descendant
          bank that is in progress of being replayed), then keep waiting.
@@ -1387,6 +1400,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   ctx->published_root_bank_idx = 0UL;
 
   ctx->reset_slot            = 0UL;
+  ctx->reset_bank            = bank;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
   if( FD_LIKELY( ctx->next_leader_slot ) ) {
@@ -1462,6 +1476,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->published_root_bank_idx = 0UL;
 
     ctx->reset_slot            = snapshot_slot;
+    ctx->reset_bank            = bank;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
     if( FD_LIKELY( ctx->next_leader_slot ) ) {
@@ -2015,7 +2030,6 @@ static void
 process_tower_update( fd_replay_tile_t *           ctx,
                       fd_stem_context_t *          stem,
                       fd_tower_slot_done_t const * msg ) {
-
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -2037,6 +2051,9 @@ process_tower_update( fd_replay_tile_t *           ctx,
   if( FD_UNLIKELY( !bank ) ) {
     FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", reset_bank_idx ));
   }
+
+  if( FD_LIKELY( msg->new_root ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
+  ctx->reset_bank = bank;
 
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
@@ -2446,6 +2463,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->is_leader             = 0;
   ctx->reset_slot            = 0UL;
+  ctx->reset_bank            = NULL;
   ctx->reset_block_id        = (fd_hash_t){ .ul[0] = FD_RUNTIME_INITIAL_BLOCK_ID };
   ctx->reset_timestamp_nanos = 0UL;
   ctx->next_leader_slot      = ULONG_MAX;
@@ -2453,7 +2471,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->highwater_leader_slot = ULONG_MAX;
   ctx->slot_duration_nanos   = 400L*1000L*1000L; /* TODO: Not fixed ... not always 400ms ... */
   ctx->slot_duration_ticks   = (double)ctx->slot_duration_nanos*fd_tempo_tick_per_ns( NULL );
-  ctx->max_active_descendant = 0UL; /* TODO: Update this properly ... */
   ctx->leader_bank           = NULL;
 
   /* TODO: We need a real seed here. */

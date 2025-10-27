@@ -309,6 +309,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       dst->root_slot      = msg->slot;
       dst->root_block_id  = msg->block_id;
       dst->reset_block_id = msg->block_id;
+      dst->reset_slot     = msg->slot;
 
       fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
