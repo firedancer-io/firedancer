@@ -82,8 +82,5 @@ $OBJDIR/bin/firedancer-dev configure init all --config $DUMP/$LEDGER/devnet-3987
 $OBJDIR/bin/firedancer-dev backtest --config $DUMP/$LEDGER/devnet-398736132_current.toml
 $OBJDIR/bin/firedancer-dev configure fini all --config $DUMP/$LEDGER/devnet-398736132_current.toml
 
-$OBJDIR/bin/fd_solcap_import $DUMP/$LEDGER/bank_hash_details/ $DUMP/$LEDGER/solana.solcap
-$OBJDIR/bin/fd_solcap_diff $DUMP/$LEDGER/solana.solcap $DUMP/$LEDGER/fd.solcap -v 4
-
 # check that the ledger is not corrupted after a run
 check_ledger_checksum

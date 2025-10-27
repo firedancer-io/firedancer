@@ -22,7 +22,9 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static fd_wksp_t *           wksp   = NULL;
 static fd_solfuzz_runner_t * runner = NULL;
@@ -37,16 +39,16 @@ sol_compat_setup_runner( fd_solfuzz_runner_options_t const * options ) {
 
   char const * solcap_path = getenv( "FD_SOLCAP" );
   if( solcap_path ) {
-    runner->solcap_file = fopen( solcap_path, "w" );
-    if( FD_UNLIKELY( !runner->solcap_file ) ) {
-      FD_LOG_ERR(( "fopen($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
+    int fd = open( solcap_path, O_WRONLY | O_CREAT | O_TRUNC, 0644 );
+    if( FD_UNLIKELY( fd == -1 ) ) {
+      FD_LOG_ERR(( "open($FD_SOLCAP=%s) failed (%i-%s)", solcap_path, errno, fd_io_strerror( errno ) ));
     }
+    runner->solcap_file = (void *)(ulong)fd;
     FD_LOG_NOTICE(( "Logging to solcap file %s", solcap_path ));
 
     void * solcap_mem = fd_wksp_alloc_laddr( runner->wksp, fd_solcap_writer_align(), fd_solcap_writer_footprint(), 1UL );
-    runner->solcap = fd_solcap_writer_new( solcap_mem );
+    runner->solcap = fd_solcap_writer_init( solcap_mem, fd );
     FD_TEST( runner->solcap );
-    FD_TEST( fd_solcap_writer_init( solcap_mem, runner->solcap_file ) );
   }
 
   return runner;
@@ -56,11 +58,12 @@ static void
 sol_compat_cleanup_runner( fd_solfuzz_runner_t * runner ) {
   /* Cleanup test runner */
   if( runner->solcap ) {
-    fd_solcap_writer_flush( runner->solcap );
-    fd_wksp_free_laddr( fd_solcap_writer_delete( runner->solcap ) );
+    fd_wksp_free_laddr( ( runner->solcap ) );
     runner->solcap = NULL;
-    fclose( runner->solcap_file );
-    runner->solcap_file = NULL;
+    if( runner->solcap_file ) {
+      close( (int)(ulong)runner->solcap_file );
+      runner->solcap_file = NULL;
+    }
   }
   fd_solfuzz_runner_delete( runner );
 }

@@ -2,7 +2,8 @@
 
 #include "fd_dump_pb.h"
 #include "fd_txn_harness.h"
-#include "../context/fd_capture_ctx.h"
+#include "../../../util/fd_util.h"
+#include "../../capture/fd_capture_ctx.h"
 #include "../fd_bank.h"
 #include "../fd_blockhashes.h"
 #include "../fd_system_ids.h"
