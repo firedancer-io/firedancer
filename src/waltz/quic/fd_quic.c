@@ -780,8 +780,6 @@ fd_quic_frame_error( fd_quic_frame_ctx_t const * ctx,
    or all 1's if nothing to tx */
 static uint
 fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
-  uint enc_level = ~0u;
-
   uint  app_pn_space   = fd_quic_enc_level_to_pn_space( fd_quic_enc_level_appdata_id );
   ulong app_pkt_number = conn->pkt_number[app_pn_space];
 
@@ -835,36 +833,33 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   fd_quic_ack_gen_t *   ack_gen    = conn->ack_gen;
   fd_quic_ack_t const * oldest_ack = fd_quic_ack_queue_ele( ack_gen, ack_gen->tail );
   uint ack_enc_level = oldest_ack->enc_level; /* speculative load (might be invalid) */
-  if( ack_gen->head != ack_gen->tail && acks ) {
+  if( (ack_gen->head != ack_gen->tail) & acks & fd_uint_extract_bit( conn->keys_avail, (int)ack_enc_level ) ) {
     return ack_enc_level;
   }
 
   /* Check for handshake data to send */
-  uint peer_enc_level = conn->peer_enc_level;
+  uint min_keyed_enc_level = (uint)fd_uint_find_lsb_w_default( conn->keys_avail, (int)~0u );
   if( FD_UNLIKELY( conn->tls_hs ) ) {
     fd_quic_tls_hs_data_t * hs_data   = NULL;
 
-    for( uint i = peer_enc_level; i < 4 && i < enc_level; ++i ) {
-      if( enc_level == ~0u || enc_level == i ) {
-        hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, i );
+    /* Starting at min_keyed_enc_level guarantees keys are avail if we return in this loop
+       - The discard order specified by RFC 9001 Section 4.9 prevents gaps in key availability
+       - get_hs_data returning non-null means keys were avail at some point for this enc_level */
+    for( uint i = min_keyed_enc_level; i < 4; ++i ) {
+      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, i );
+      if( hs_data ) {
+        /* offset within stream */
+        ulong offset = conn->hs_sent_bytes[i];
+        /* skip packets we've sent */
+        while( hs_data && hs_data->offset + hs_data->data_sz <= offset ) {
+          hs_data = fd_quic_tls_get_next_hs_data( conn->tls_hs, hs_data );
+        }
         if( hs_data ) {
-          /* offset within stream */
-          ulong offset = conn->hs_sent_bytes[i];
-          /* skip packets we've sent */
-          while( hs_data && hs_data->offset + hs_data->data_sz <= offset ) {
-            hs_data = fd_quic_tls_get_next_hs_data( conn->tls_hs, hs_data );
-          }
-          if( hs_data ) {
-            enc_level = i;
-            return enc_level;
-          }
+          return i;
         }
       }
     }
   }
-
-  /* if we have acks to send or handshake data, then use that enc_level */
-  if( enc_level != ~0u ) return enc_level;
 
   /* handshake done? */
   if( FD_UNLIKELY( conn->handshake_done_send ) ) return fd_quic_enc_level_appdata_id;
@@ -872,7 +867,7 @@ fd_quic_tx_enc_level( fd_quic_conn_t * conn, int acks ) {
   /* find stream data to send */
   fd_quic_stream_t * sentinel = conn->send_streams;
   fd_quic_stream_t * stream   = sentinel->next;
-  if( !stream->sentinel && stream->upd_pkt_number >= app_pkt_number ) {
+  if( (!stream->sentinel) & (stream->upd_pkt_number >= app_pkt_number) & fd_uint_extract_bit( conn->keys_avail, fd_quic_enc_level_appdata_id ) ) {
     return fd_quic_enc_level_appdata_id;
   }
 
@@ -1883,12 +1878,6 @@ fd_quic_handle_v1_handshake(
     return FD_QUIC_PARSE_FAIL;
   }
 
-  /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
-     > A server stops sending and processing Initial packets when it
-     > receives its first Handshake packet. */
-  if( FD_LIKELY( quic->config.role==FD_QUIC_ROLE_SERVER ) ) fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
-  conn->peer_enc_level = (uchar)fd_uchar_max( conn->peer_enc_level, fd_quic_enc_level_handshake_id );
-
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
   uchar const * frame_ptr   = cur_ptr + payload_off;
@@ -1915,6 +1904,14 @@ fd_quic_handle_v1_handshake(
     frame_ptr += rc;
     frame_sz  -= rc;
   }
+
+  /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
+    > A server stops sending and processing Initial packets when it
+    > receives its first Handshake packet.
+
+    RFC 9001 Section 4.9.1 Discarding Initial Keys
+    > a server MUST discard Initial keys when it first successfully processes a Handshake packet */
+  if( FD_LIKELY( quic->config.role==FD_QUIC_ROLE_SERVER ) ) fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
 
   /* update last activity */
   conn->last_activity = fd_quic_get_state( quic )->now;
@@ -2145,8 +2142,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
        packets get reordered past the current incoming packet) */
     fd_quic_key_update_complete( conn );
   }
-
-  conn->peer_enc_level = (uchar)fd_uchar_max( conn->peer_enc_level, fd_quic_enc_level_appdata_id );
 
   /* handle frames */
   ulong         payload_off = pn_offset + pkt_number_sz;
@@ -3584,7 +3579,10 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   while( enc_level != ~0u ) {
     /* RFC 9000 Section 17.2.2.1. Abandoning Initial Packets
        > A client stops both sending and processing Initial packets when
-       > it sends its first Handshake packet. */
+       > it sends its first Handshake packet.
+
+       RFC 9001 Section 4.9.1 Discarding Initial Keys
+       > a client MUST discard Initial keys when it first sends a Handshake packet */
     if( FD_UNLIKELY( (quic->config.role==FD_QUIC_ROLE_CLIENT) & (enc_level==fd_quic_enc_level_handshake_id) ) ) {
       fd_quic_abandon_enc_level( conn, fd_quic_enc_level_initial_id );
     }
@@ -4382,7 +4380,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
     uint  enc_level      = arg_enc_level;
-    uint  peer_enc_level = conn->peer_enc_level;
     long  expiry         = LONG_MAX;
     if( arg_enc_level == ~0u ) {
       for( uint j = 0u; j < 4u; ++j ) {
@@ -4404,7 +4401,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
             enc_level = j;
             expiry    = pkt_meta->expiry;
           }
-          if( enc_level < peer_enc_level ) break;
           pkt_meta = pkt_meta->next;
         }
         if( enc_level != ~0u ) break;
@@ -4439,12 +4435,6 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     };
 
     fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[enc_level], pool );
-
-    /* already moved to another enc_level */
-    if( enc_level < peer_enc_level ) {
-      cnt_freed += fd_quic_reclaim_pkt_meta_level( conn, enc_level );
-      continue;
-    }
 
     quic->metrics.pkt_retransmissions_cnt += !(pkt_meta->key.pkt_num == prev_retx_pkt_num[enc_level]);
     prev_retx_pkt_num[enc_level] = pkt_meta->key.pkt_num;
