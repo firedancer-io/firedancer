@@ -7,10 +7,10 @@
 #include <dirent.h> /* opendir */
 #include <fcntl.h>
 #include <sched.h> /* sched_yield */
+#include <stdio.h> /* fputs */
 #include <sys/types.h>
 #include <sys/stat.h> /* fstat */
 #include <unistd.h> /* close */
-#include "../fd_runtime.h"
 #include "../../../ballet/nanopb/pb_firedancer.h"
 #include "../../../tango/fd_tango.h"
 
@@ -394,6 +394,22 @@ run_multi_threaded( fd_solfuzz_runner_t ** runners,
 int
 main( int     argc,
       char ** argv ) {
+  if( FD_UNLIKELY( fd_env_strip_cmdline_contains( &argc, &argv, "--help" ) ) ) {
+    fputs(
+        "\nUsage: test_sol_compat [options] <file/directory...>\n"
+        "\n"
+        "Options:\n"
+        "\n"
+        "  --page-sz      {gigantic|huge|normal}    Page size\n"
+        "  --page-cnt     {count}                   Page count\n"
+        "  --wksp         [file path]               Reuse existing workspace\n"
+        "  --wksp-tag     1                         Workspace allocation tag\n"
+        "  --fail-fast    1                         Stop executing after first failure?\n"
+        "\n",
+        stderr );
+    return 0;
+  }
+
   fd_boot( &argc, &argv );
 
   char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL,   "normal" );
