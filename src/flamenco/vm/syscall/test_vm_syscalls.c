@@ -194,6 +194,25 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
+static void
+dump_syscall_table( void ) {
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ];
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
+  FD_TEST( syscalls );
+
+  FD_TEST( fd_vm_syscall_register_all( syscalls, 0 )==FD_VM_SUCCESS );
+
+  FD_LOG_NOTICE(( "Syscall table" ));
+  for( ulong slot=0UL; slot<(1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT); slot++ ) {
+    fd_sbpf_syscalls_t * entry = syscalls+slot;
+    if( entry->func ) {
+      FD_LOG_NOTICE(( "  %08x %s", (uint)entry->key, entry->name ));
+    }
+  }
+
+  fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -765,6 +784,8 @@ main( int     argc,
   fd_vm_delete    ( fd_vm_leave    ( vm  ) );
   fd_sha256_delete( fd_sha256_leave( sha ) );
   fd_rng_delete   ( fd_rng_leave   ( rng ) );
+
+  dump_syscall_table();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
