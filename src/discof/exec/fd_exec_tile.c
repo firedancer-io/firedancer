@@ -442,7 +442,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 /* Right now, depth of the replay_exec link and depth of the exec_replay
    links is 16K.  At 1M TPS, that's ~16ms to fill.  But we also want to
    be conservative here, so we use 1ms. */
