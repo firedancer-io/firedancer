@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Allow overriding proto version; default pinned
-PROTO_VERSION="${PROTO_VERSION:-v1.0.4}"
+PROTO_VERSION="${PROTO_VERSION:-v1.0.5}"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_NANOPB_TAG=$(cat ../../../ballet/nanopb/nanopb_tag.txt)
