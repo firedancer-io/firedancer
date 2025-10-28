@@ -510,6 +510,11 @@ fd_snp_finalize_udp_and_invoke_tx_cb(
     snp->metrics_all->tx_bytes_via_udp_cnt += packet_sz;
     snp->metrics_all->tx_pkts_via_udp_cnt  += 1UL;
   }
+  /* metrics multicast */
+  if( fd_snp_ip_is_multicast( packet ) ) {
+    snp->metrics_all->mcast_tx_pkts_cnt += 1UL;
+    snp->metrics_all->mcast_tx_bytes_cnt += packet_sz;
+  }
 
   return snp->cb.tx ? snp->cb.tx( snp->cb.ctx, packet, packet_sz, meta ) : (int)packet_sz;
 }
@@ -1021,6 +1026,12 @@ fd_snp_process_packet( fd_snp_t * snp,
   if( snp_enforced ) {
     snp->metrics_enf->rx_bytes_cnt += packet_sz;
     snp->metrics_enf->rx_pkts_cnt  += 1UL;
+  }
+
+  /* metrics multicast */
+  if( fd_snp_ip_is_multicast( packet ) ) {
+    snp->metrics_all->mcast_rx_pkts_cnt += 1UL;
+    snp->metrics_all->mcast_rx_bytes_cnt += packet_sz;
   }
 
   uchar snp_app_id;

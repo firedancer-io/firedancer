@@ -129,6 +129,11 @@ struct fd_snp_metrics {
   ulong   rx_pkts_via_udp_cnt;
   ulong   rx_pkts_via_snp_cnt;
   ulong   rx_pkts_dropped_no_credits_cnt;
+
+  ulong   mcast_tx_pkts_cnt;
+  ulong   mcast_tx_bytes_cnt;
+  ulong   mcast_rx_pkts_cnt;
+  ulong   mcast_rx_bytes_cnt;
 };
 typedef struct fd_snp_metrics fd_snp_metrics_t;
 

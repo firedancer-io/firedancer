@@ -680,6 +680,10 @@ metric introduced.
     <counter name="AllRxPktsViaUdpCnt" summary="The number of packets received via UDP (all connections)" />
     <counter name="AllRxPktsViaSnpCnt" summary="The number of packets received via SNP (all connections)" />
     <counter name="AllRxPktsDroppedNoCreditsCnt" summary="The number of packets that were received but dropped due to insufficient flow credits (all connections)" />
+    <counter name="AllMcastTxPktsCnt" summary="The number of packets sent to a multicast channel (all connections)" />
+    <counter name="AllMcastTxBytesCnt" summary="The number of bytes sent to a multicast channel (all connections)" />
+    <counter name="AllMcastRxPktsCnt" summary="The number of packets received from a multicast channel (all connections)" />
+    <counter name="AllMcastRxBytesCnt" summary="The number of bytes received from a multicast channel (all connections)" />
     <counter name="EnfDestMetaCnt" summary="The number of destinations from which we have metadata (SNP-enforced connections only)" />
     <counter name="EnfDestMetaSnpAvailableCnt" summary="The number of SNP-available destination (SNP-enforced connections only)" />
     <counter name="EnfDestMetaSnpEnabledCnt" summary="The number of SNP-enabled destinations (SNP-enforced connections only)" />
@@ -705,6 +709,10 @@ metric introduced.
     <counter name="EnfRxPktsViaUdpCnt" summary="The number of packets received via UDP (SNP-enforced connections only)" />
     <counter name="EnfRxPktsViaSnpCnt" summary="The number of packets received via SNP (SNP-enforced connections only)" />
     <counter name="EnfRxPktsDroppedNoCreditsCnt" summary="The number of packets that were received but dropped due to insufficient flow credits (SNP-enforced connections only)" />
+    <counter name="EnfMcastTxPktsCnt" summary="The number of packets sent to a multicast channel (SNP-enforced connections only)" />
+    <counter name="EnfMcastTxBytesCnt" summary="The number of bytes sent to a multicast channel (SNP-enforced connections only)" />
+    <counter name="EnfMcastRxPktsCnt" summary="The number of packets received from a multicast channel (SNP-enforced connections only)" />
+    <counter name="EnfMcastRxBytesCnt" summary="The number of bytes received from a multicast channel (SNP-enforced connections only)" />
 </tile>
 
 <tile name="store">

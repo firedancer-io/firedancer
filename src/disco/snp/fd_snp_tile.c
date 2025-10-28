@@ -247,6 +247,10 @@ metrics_write( fd_snp_tile_ctx_t * ctx ) {
   FD_MCNT_SET  ( SNP, ALL_RX_PKTS_VIA_UDP_CNT,                ctx->snp->metrics_all->rx_pkts_via_udp_cnt               );
   FD_MCNT_SET  ( SNP, ALL_RX_PKTS_VIA_SNP_CNT,                ctx->snp->metrics_all->rx_pkts_via_snp_cnt               );
   FD_MCNT_SET  ( SNP, ALL_RX_PKTS_DROPPED_NO_CREDITS_CNT,     ctx->snp->metrics_all->rx_pkts_dropped_no_credits_cnt    );
+  FD_MCNT_SET  ( SNP, ALL_MCAST_TX_PKTS_CNT,                  ctx->snp->metrics_all->mcast_tx_pkts_cnt                 );
+  FD_MCNT_SET  ( SNP, ALL_MCAST_TX_BYTES_CNT,                 ctx->snp->metrics_all->mcast_tx_bytes_cnt                );
+  FD_MCNT_SET  ( SNP, ALL_MCAST_RX_PKTS_CNT,                  ctx->snp->metrics_all->mcast_rx_pkts_cnt                 );
+  FD_MCNT_SET  ( SNP, ALL_MCAST_RX_BYTES_CNT,                 ctx->snp->metrics_all->mcast_rx_bytes_cnt                );
 
   /* Enforced */
   FD_MCNT_SET  ( SNP, ENF_DEST_META_CNT,                      ctx->snp->metrics_enf->dest_meta_cnt                     );
@@ -274,6 +278,10 @@ metrics_write( fd_snp_tile_ctx_t * ctx ) {
   FD_MCNT_SET  ( SNP, ENF_RX_PKTS_VIA_UDP_CNT,                ctx->snp->metrics_enf->rx_pkts_via_udp_cnt               );
   FD_MCNT_SET  ( SNP, ENF_RX_PKTS_VIA_SNP_CNT,                ctx->snp->metrics_enf->rx_pkts_via_snp_cnt               );
   FD_MCNT_SET  ( SNP, ENF_RX_PKTS_DROPPED_NO_CREDITS_CNT,     ctx->snp->metrics_enf->rx_pkts_dropped_no_credits_cnt    );
+  FD_MCNT_SET  ( SNP, ENF_MCAST_TX_PKTS_CNT,                  ctx->snp->metrics_enf->mcast_tx_pkts_cnt                 );
+  FD_MCNT_SET  ( SNP, ENF_MCAST_TX_BYTES_CNT,                 ctx->snp->metrics_enf->mcast_tx_bytes_cnt                );
+  FD_MCNT_SET  ( SNP, ENF_MCAST_RX_PKTS_CNT,                  ctx->snp->metrics_enf->mcast_rx_pkts_cnt                 );
+  FD_MCNT_SET  ( SNP, ENF_MCAST_RX_BYTES_CNT,                 ctx->snp->metrics_enf->mcast_rx_bytes_cnt                );
 }
 
 static inline int

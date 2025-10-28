@@ -906,6 +906,10 @@
 | <span class="metrics-name">snp_&#8203;all_&#8203;rx_&#8203;pkts_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The number of packets received via UDP (all connections) |
 | <span class="metrics-name">snp_&#8203;all_&#8203;rx_&#8203;pkts_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The number of packets received via SNP (all connections) |
 | <span class="metrics-name">snp_&#8203;all_&#8203;rx_&#8203;pkts_&#8203;dropped_&#8203;no_&#8203;credits_&#8203;cnt</span> | counter | The number of packets that were received but dropped due to insufficient flow credits (all connections) |
+| <span class="metrics-name">snp_&#8203;all_&#8203;mcast_&#8203;tx_&#8203;pkts_&#8203;cnt</span> | counter | The number of packets sent to a multicast channel (all connections) |
+| <span class="metrics-name">snp_&#8203;all_&#8203;mcast_&#8203;tx_&#8203;bytes_&#8203;cnt</span> | counter | The number of bytes sent to a multicast channel (all connections) |
+| <span class="metrics-name">snp_&#8203;all_&#8203;mcast_&#8203;rx_&#8203;pkts_&#8203;cnt</span> | counter | The number of packets received from a multicast channel (all connections) |
+| <span class="metrics-name">snp_&#8203;all_&#8203;mcast_&#8203;rx_&#8203;bytes_&#8203;cnt</span> | counter | The number of bytes received from a multicast channel (all connections) |
 | <span class="metrics-name">snp_&#8203;enf_&#8203;dest_&#8203;meta_&#8203;cnt</span> | counter | The number of destinations from which we have metadata (SNP-enforced connections only) |
 | <span class="metrics-name">snp_&#8203;enf_&#8203;dest_&#8203;meta_&#8203;snp_&#8203;available_&#8203;cnt</span> | counter | The number of SNP-available destination (SNP-enforced connections only) |
 | <span class="metrics-name">snp_&#8203;enf_&#8203;dest_&#8203;meta_&#8203;snp_&#8203;enabled_&#8203;cnt</span> | counter | The number of SNP-enabled destinations (SNP-enforced connections only) |
@@ -931,5 +935,9 @@
 | <span class="metrics-name">snp_&#8203;enf_&#8203;rx_&#8203;pkts_&#8203;via_&#8203;udp_&#8203;cnt</span> | counter | The number of packets received via UDP (SNP-enforced connections only) |
 | <span class="metrics-name">snp_&#8203;enf_&#8203;rx_&#8203;pkts_&#8203;via_&#8203;snp_&#8203;cnt</span> | counter | The number of packets received via SNP (SNP-enforced connections only) |
 | <span class="metrics-name">snp_&#8203;enf_&#8203;rx_&#8203;pkts_&#8203;dropped_&#8203;no_&#8203;credits_&#8203;cnt</span> | counter | The number of packets that were received but dropped due to insufficient flow credits (SNP-enforced connections only) |
+| <span class="metrics-name">snp_&#8203;enf_&#8203;mcast_&#8203;tx_&#8203;pkts_&#8203;cnt</span> | counter | The number of packets sent to a multicast channel (SNP-enforced connections only) |
+| <span class="metrics-name">snp_&#8203;enf_&#8203;mcast_&#8203;tx_&#8203;bytes_&#8203;cnt</span> | counter | The number of bytes sent to a multicast channel (SNP-enforced connections only) |
+| <span class="metrics-name">snp_&#8203;enf_&#8203;mcast_&#8203;rx_&#8203;pkts_&#8203;cnt</span> | counter | The number of packets received from a multicast channel (SNP-enforced connections only) |
+| <span class="metrics-name">snp_&#8203;enf_&#8203;mcast_&#8203;rx_&#8203;bytes_&#8203;cnt</span> | counter | The number of bytes received from a multicast channel (SNP-enforced connections only) |
 
 </div>
