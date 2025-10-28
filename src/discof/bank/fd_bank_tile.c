@@ -173,6 +173,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
 
+    int is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload );
+    if( FD_UNLIKELY( is_simple_vote ) ) {
+      txn->flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+    }
+
     txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
@@ -196,8 +201,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
 
-    int is_simple_vote = 0;
-    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
+    if( FD_UNLIKELY( is_simple_vote ) ) {
       /* Simple votes are charged fixed amounts of compute regardless of
          the real cost they incur.  Unclear what cost is returned by
          fd_execute txn, however, so we override it here. */
