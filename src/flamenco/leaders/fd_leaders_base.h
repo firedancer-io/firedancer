@@ -14,7 +14,6 @@ struct fd_stake_weight_msg_t {
   ulong             start_slot;     /* Start slot of the epoch */
   ulong             slot_cnt;       /* Number of slots in the epoch */
   ulong             excluded_stake; /* Total stake that is excluded from leader selection */
-  ulong             vote_keyed_lsched; /* 1=use vote-keyed leader schedule, 0=use old leader schedule */
   fd_vote_stake_weight_t weights[]; /* Stake weights for each staked node */
 };
 typedef struct fd_stake_weight_msg_t fd_stake_weight_msg_t;

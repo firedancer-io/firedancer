@@ -18,7 +18,6 @@ generate_stake_msg( uchar *      _buf,
   buf->slot_cnt       = SLOTS_PER_EPOCH;
   buf->staked_cnt     = strlen(stakers);
   buf->excluded_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
 
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
@@ -347,7 +346,6 @@ test_limits( void ) {
     buf->slot_cnt               = SLOTS_PER_EPOCH;
     buf->staked_cnt             = 0UL;
     buf->excluded_stake         = 0UL;
-    buf->vote_keyed_lsched      = 0UL;
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
@@ -424,12 +422,10 @@ test_staked_by_vote( void ) {
   fd_stake_weight_msg_t * msg;
 
   msg = generate_stake_msg( stake_msg, 0UL, "I"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "I",   "" );
 
   msg = generate_stake_msg( stake_msg, 0UL, "ABC"   );
-  msg->vote_keyed_lsched = 1;
   fd_stake_ci_stake_msg_init( info, msg );  fd_stake_ci_stake_msg_fini( info );
   check_destinations( info, 0UL, "ABC",   "I" );
 

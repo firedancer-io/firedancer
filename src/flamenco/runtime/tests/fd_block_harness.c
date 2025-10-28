@@ -657,7 +657,6 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
   ulong fp = fd_epoch_leaders_footprint( weight_cnt, slots_in_epoch );
   FD_TEST( fp!=0UL );
   void *mem = fd_spad_alloc( runner->spad, fd_epoch_leaders_align(), fp );
-  ulong vote_keyed = (ulong)fd_runtime_should_use_vote_keyed_leader_schedule( runner->bank );
   fd_epoch_leaders_t *effects_leaders = fd_epoch_leaders_join(
       fd_epoch_leaders_new( mem,
                             agave_epoch,
@@ -665,8 +664,7 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
                             slots_in_epoch,
                             weight_cnt,
                             weights,
-                            0UL,
-                            vote_keyed ) );
+                            0UL ) );
   FD_TEST( effects_leaders!=NULL );
 
   /* Fill out effects struct from the Agave epoch info */

@@ -28,15 +28,13 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
 }
 
 void *
-fd_epoch_leaders_new( void  *                  shmem,
-                      ulong                    epoch,
-                      ulong                    slot0,
-                      ulong                    slot_cnt,
-                      ulong                    pub_cnt,
-                      fd_vote_stake_weight_t * stakes,
-                      ulong                    excluded_stake,
-                      ulong                    vote_keyed_lsched ) {
-  (void)vote_keyed_lsched;
+fd_epoch_leaders_new( void  *                        shmem,
+                      ulong                          epoch,
+                      ulong                          slot0,
+                      ulong                          slot_cnt,
+                      ulong                          pub_cnt,
+                      fd_vote_stake_weight_t const * stakes,
+                      ulong                          excluded_stake ) {
   if( FD_UNLIKELY( !shmem ) ) {
     FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
@@ -46,33 +44,6 @@ fd_epoch_leaders_new( void  *                  shmem,
   if( FD_UNLIKELY( !fd_ulong_is_aligned( laddr, FD_EPOCH_LEADERS_ALIGN ) ) ) {
     FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
-  }
-
-  /* This code can be be removed when enable_vote_address_leader_schedule is
-     enabled and cleared.
-     And, as a consequence, stakes can be made const. */
-  if( FD_LIKELY( vote_keyed_lsched==0 ) ) {
-    /* Sort [(vote, id, stake)] by id, so we can dedup */
-    sort_vote_weights_by_id_inplace( stakes, pub_cnt );
-
-    /* Dedup entries, aggregating stake */
-    ulong j=0UL;
-    for( ulong i=1UL; i<pub_cnt; i++ ) {
-      fd_pubkey_t * pre = &stakes[ j ].id_key;
-      fd_pubkey_t * cur = &stakes[ i ].id_key;
-      if( 0==memcmp( pre, cur, sizeof(fd_pubkey_t) ) ) {
-        stakes[ j ].stake += stakes[ i ].stake;
-      } else {
-        ++j;
-        stakes[ j ].stake = stakes[ i ].stake;
-        memcpy( stakes[ j ].id_key.uc, stakes[ i ].id_key.uc, sizeof(fd_pubkey_t) );
-        /* vote doesn't matter */
-      }
-    }
-    pub_cnt = fd_ulong_min( pub_cnt, j+1 );
-
-    /* Sort [(vote, id, stake)] by stake then id, as expected */
-    sort_vote_weights_by_stake_id_inplace( stakes, pub_cnt );
   }
 
   /* The eventual layout that we want is:

@@ -1450,8 +1450,7 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                                                                leader_schedule->slot_cnt,
                                                                                leader_schedule->staked_cnt,
                                                                                gui->epoch.epochs[ idx ].stakes,
-                                                                               leader_schedule->excluded_stake,
-                                                                               leader_schedule->vote_keyed_lsched ) );
+                                                                               leader_schedule->excluded_stake ) );
 
   if( FD_UNLIKELY( leader_schedule->start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = now;
@@ -2509,7 +2508,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_LEADER_SCHEDULE: {
-      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==6*sizeof(ulong), "new fields breaks things" );
+      FD_STATIC_ASSERT( sizeof(fd_stake_weight_msg_t)==5*sizeof(ulong), "new fields breaks things" );
       fd_gui_handle_leader_schedule( gui, (fd_stake_weight_msg_t *)msg, now );
       break;
     }

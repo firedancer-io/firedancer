@@ -408,14 +408,6 @@ fd_runtime_read_genesis( fd_banks_t *                       banks,
                          fd_runtime_stack_t *               runtime_stack );
 
 
-/* Returns whether the specified epoch should use the new vote account
-   keyed leader schedule (returns 1) or the old validator identity keyed
-   leader schedule (returns 0). See SIMD-0180.
-   This is the analogous of Agave's Bank::should_use_vote_keyed_leader_schedule():
-   https://github.com/anza-xyz/agave/blob/v2.3.1/runtime/src/bank.rs#L6148 */
-int
-fd_runtime_should_use_vote_keyed_leader_schedule( fd_bank_t * bank );
-
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_h */

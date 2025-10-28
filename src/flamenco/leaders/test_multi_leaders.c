@@ -20,7 +20,6 @@ generate_stake_msg( uchar *      _buf,
   buf->slot_cnt       = SLOTS_PER_EPOCH;
   buf->staked_cnt     = strlen(stakers);
   buf->excluded_stake = 0UL;
-  buf->vote_keyed_lsched = 0UL;
 
   ulong i = 0UL;
   for(; *stakers; stakers++, i++ ) {
@@ -237,7 +236,6 @@ test_limits( void ) {
     buf->slot_cnt               = SLOTS_PER_EPOCH;
     buf->staked_cnt             = 0UL;
     buf->excluded_stake         = 0UL;
-    buf->vote_keyed_lsched      = 0UL;
 
     for( ulong i=0UL; i<stake_weight_cnt; i++ ) {
       ulong stake = 2000000000UL/(i+1UL);
