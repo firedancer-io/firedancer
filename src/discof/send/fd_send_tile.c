@@ -274,7 +274,8 @@ ensure_conn_for_slot( fd_send_tile_ctx_t * ctx,
     } else {
       /* Connection already exists */
       ctx->metrics.ensure_conn_result[i][FD_METRICS_ENUM_SEND_ENSURE_CONN_RESULT_V_CONNECTED_IDX]++;
-      fd_quic_conn_let_die( entry->conn[i], lifespan );
+      fd_quic_conn_let_die( entry->conn[i], lifespan, ctx->now );
+      fd_quic_service( ctx->quic, ctx->now );
     }
   }
 }
