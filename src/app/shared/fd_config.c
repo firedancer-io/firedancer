@@ -227,7 +227,7 @@ fd_config_fill_net( fd_config_t * config ) {
         if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
           FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
                       "transactions, but it is part of a private network and will not be routable "
-                      "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+                      "for other Solana network nodes.", FD_IP4_ADDR_FMT_ARGS( gossip_ip_addr ) ));
       } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
         FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
                     "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
@@ -315,8 +315,8 @@ fd_config_fill( fd_config_t * config,
   config->log.level_stderr1  = parse_log_level( config->log.level_stderr );
   config->log.level_flush1   = parse_log_level( config->log.level_flush );
   if( FD_UNLIKELY( -1==config->log.level_logfile1 ) ) FD_LOG_ERR(( "unrecognized [log.level_logfile] `%s`", config->log.level_logfile ));
-  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_logfile ));
-  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_logfile ));
+  if( FD_UNLIKELY( -1==config->log.level_stderr1 ) )  FD_LOG_ERR(( "unrecognized [log.level_stderr] `%s`", config->log.level_stderr ));
+  if( FD_UNLIKELY( -1==config->log.level_flush1 ) )   FD_LOG_ERR(( "unrecognized [log.level_flush] `%s`", config->log.level_flush ));
 
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
@@ -388,7 +388,7 @@ fd_config_fill( fd_config_t * config,
   else FD_LOG_ERR(( "[development.gui.release_channel] %s not recognized", config->development.gui.frontend_release_channel ));
 
   if( FD_LIKELY( config->is_live_cluster) ) {
-    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a a development only feature" ));
+    if( FD_UNLIKELY( !config->development.sandbox ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables the sandbox which is a development only feature" ));
     if( FD_UNLIKELY( config->development.no_clone ) )                            FD_LOG_ERR(( "trying to join a live cluster, but configuration disables multiprocess which is a development only feature" ));
     if( FD_UNLIKELY( config->development.netns.enabled ) )                       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.netns] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_max_cost_per_block ) )     FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
@@ -627,7 +627,10 @@ fd_config_to_memfd( fd_config_t const * config ) {
   }
 
   fd_memcpy( bytes, config, sizeof( config_t ) );
-  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( munmap( bytes, sizeof( config_t ) ) ) ) {
+    FD_LOG_WARNING(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
 
   return config_memfd;
 }
