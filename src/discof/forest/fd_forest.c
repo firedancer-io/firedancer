@@ -423,9 +423,15 @@ subtrees_orphaned_remove( fd_forest_t * forest, ulong slot ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
   fd_forest_blk_t * ele = NULL;
   ele = fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &slot, NULL, pool );
-  if( ele ) return ele;
+  if( ele ) {
+    requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, ele ) );
+    return ele;
+  }
   ele = fd_forest_subtrees_ele_remove( fd_forest_subtrees( forest ), &slot, NULL, pool );
-  if( ele ) forest->subtree_cnt--;
+  if( ele ) {
+    requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, ele ) );
+    forest->subtree_cnt--;
+  }
   return ele;
 }
 
@@ -638,6 +644,7 @@ fd_forest_blk_insert( fd_forest_t * forest, ulong slot, ulong parent_slot ) {
     }
     while( FD_LIKELY( child ) ) {
       fd_forest_orphaned_ele_remove( orphaned, &child->slot, NULL, pool );
+      requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, child ) );
       fd_forest_frontier_ele_insert( frontier, child,              pool );
       fd_forest_deque_push_tail( bfs, fd_forest_pool_idx( pool, child ) );
       child = fd_forest_pool_ele( pool, child->sibling );
@@ -1008,6 +1015,7 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
       iter->ele_idx = fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx;
       ele           = fd_forest_pool_ele_const( pool, iter->ele_idx );
       if( FD_UNLIKELY( !fd_forest_query( forest, ele->slot ) ) ) {
+        __asm__("int $3");
         FD_LOG_ERR(("slot %lu not found in forest", ele->slot));
       }
       next_shred_idx = ele->buffered_idx + 1;
