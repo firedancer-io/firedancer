@@ -2245,7 +2245,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_IPECHO: {
-      FD_TEST( ctx->ipecho_shred_version && ctx->ipecho_shred_version<=USHORT_MAX );
+      FD_TEST( sig && sig<=USHORT_MAX );
       ctx->ipecho_shred_version = (ushort)sig;
       maybe_verify_shred_version( ctx );
       break;
