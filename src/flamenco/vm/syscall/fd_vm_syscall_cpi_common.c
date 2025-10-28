@@ -420,11 +420,6 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       );
       #endif
 
-      /* Rust ABI: https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L222
-         C ABI:    https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L317 */
-      ulong * data_len = FD_VM_MEM_HADDR_ST( vm, data_len_vaddr, 1UL, sizeof(ulong) );
-      caller_account->ref_to_len_in_vm = data_len;
-
       /* Rust ABI: https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L226
          C ABI:    https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L324 */
       caller_account->vm_data_vaddr = data_vaddr;
@@ -468,6 +463,11 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       /* Rust ABI: https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L237
          C ABI:    https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L322 */
       caller_account->orig_data_len = acc_region_meta->original_data_len;
+
+      /* Rust ABI: https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L222
+         C ABI:    https://github.com/anza-xyz/agave/blob/v3.0.4/syscalls/src/cpi.rs#L317 */
+      ulong * data_len = FD_VM_MEM_HADDR_ST( vm, data_len_vaddr, 1UL, sizeof(ulong) );
+      caller_account->ref_to_len_in_vm = data_len;
 
       ////// END from_account_info
 
