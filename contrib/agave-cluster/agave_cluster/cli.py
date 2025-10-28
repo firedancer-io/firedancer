@@ -171,7 +171,7 @@ def start_cluster(ctx, config, bootstrap_validator_name):
 
         return genesis_hash, shred_version
 
-    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "256", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/stake_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "AddressLookupTab1e1111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/alut_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "Config1111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/config_elf.so", "11111111111111111111111111111111"], cwd=cluster_path, capture_output=True, text=True)
+    genesis_output = subprocess.run([solana_genesis, "--cluster-type", "mainnet-beta", "--ledger", node_path, "--bootstrap-validator", id_key, vote_key, stake_key, "--bootstrap-stake-authorized-pubkey", id_key, "--bootstrap-validator-lamports", "10000000000", "--bootstrap-validator-stake-lamports", "18000000000", "--faucet-pubkey", faucet_key, "--faucet-lamports", "500000000000000000", "--slots-per-epoch", "128", "--upgradeable-program", "Stake11111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/stake_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "AddressLookupTab1e1111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/alut_elf.so", "11111111111111111111111111111111", "--upgradeable-program", "Config1111111111111111111111111111111111111", "BPFLoaderUpgradeab1e11111111111111111111111", "/data/kbhargava/repos/firedancer/contrib/ledger-gen/bpf_migrated_programs/config_elf.so", "11111111111111111111111111111111"], cwd=cluster_path, capture_output=True, text=True)
     genesis_hash, shred_version = parse_genesis_output(genesis_output.stdout)
 
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -337,7 +337,6 @@ def add_node(ctx, validator_name):
 @click.option('--validator-name', '-n', type=str, help='Name of the node to add')
 @click.pass_context
 def create_unstaked_keys(ctx, validator_name):
-    import pdb; pdb.set_trace()
     """Create Unstaked keys."""
     cluster_path = str(get_ledger_directory())
     info_path = os.path.join(cluster_path, 'cluster-info.txt')
@@ -1005,21 +1004,25 @@ def validators(ctx):
                 stake_account_pubkey, output = future.result()
                 # Parse the output
                 if 'Stake account is undelegated' not in output:
-                    vote_account_line = next(line for line in output.splitlines() if line.startswith('Delegated Vote Account Address:'))
-                    vote_account = vote_account_line.split(':')[1].strip()
-                    if vote_account == vote_pubkey:
-                        balance_line = next(line for line in output.splitlines() if line.startswith('Balance:'))
-                        active_stake_line = next(line for line in output.splitlines() if line.startswith('Active Stake:'))
-                        delegated_stake_line = next(line for line in output.splitlines() if line.startswith('Delegated Stake:'))
-                        balance = balance_line.split(':')[1].strip()
-                        active_stake = active_stake_line.split(':')[1].strip()
-                        delegated_stake = delegated_stake_line.split(':')[1].strip()
+                    vote_account_line = next((line for line in output.splitlines() if line.startswith('Delegated Vote Account Address:')), None)
+                    if vote_account_line:
+                        vote_account = vote_account_line.split(':')[1].strip()
+                        if vote_account == vote_pubkey:
+                            balance_line = next((line for line in output.splitlines() if line.startswith('Balance:')), None)
+                            active_stake_line = next((line for line in output.splitlines() if line.startswith('Active Stake:')), None)
+                            delegated_stake_line = next((line for line in output.splitlines() if line.startswith('Delegated Stake:')), None)
 
-                        stake_account_details.append((stake_account_pubkey, balance, active_stake, delegated_stake))
+                            if balance_line and active_stake_line and delegated_stake_line:
+                                balance = balance_line.split(':')[1].strip()
+                                active_stake = active_stake_line.split(':')[1].strip()
+                                delegated_stake = delegated_stake_line.split(':')[1].strip()
+
+                                stake_account_details.append((stake_account_pubkey, balance, active_stake, delegated_stake))
                 else:
-                    balance_line = next(line for line in output.splitlines() if line.startswith('Balance:'))
-                    balance = balance_line.split(':')[1].strip()
-                    undelegated_stake_accounts.add((stake_account_pubkey, balance))
+                    balance_line = next((line for line in output.splitlines() if line.startswith('Balance:')), None)
+                    if balance_line:
+                        balance = balance_line.split(':')[1].strip()
+                        undelegated_stake_accounts.add((stake_account_pubkey, balance))
 
         # Sort stake accounts by pubkey
         stake_account_details.sort(key=lambda x: x[0])
