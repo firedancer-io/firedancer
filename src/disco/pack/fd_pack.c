@@ -1890,6 +1890,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, acct, NULL );
       if( FD_UNLIKELY( in_wcost_table && in_wcost_table->total_cost+cur->compute_est > max_write_cost_per_acct ) ) {
         /* Can't be scheduled until the next block */
+        FD_LOG_DEBUG(("WRITER COST CAP %s", FD_BASE58_ENC_32_ALLOCA(&acct)));
         conflicts = ULONG_MAX;
         break;
       }
@@ -2492,10 +2493,12 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   if( FD_UNLIKELY( (pack->microblock_cnt>=pack->lim->max_microblocks_per_block) ) ) {
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
+    FD_LOG_DEBUG(("MICROBLOCK_PER_BLOCK_LIMIT %lu", pack->microblock_cnt));
     return 0UL;
   }
   if( FD_UNLIKELY( pack->data_bytes_consumed+MICROBLOCK_DATA_OVERHEAD+FD_TXN_MIN_SERIALIZED_SZ>pack->lim->max_data_bytes_per_block) ) {
     FD_MCNT_INC( PACK, DATA_PER_BLOCK_LIMIT, 1UL );
+    FD_LOG_DEBUG(("DATA_PER_BLOCK_LIMIT %lu", pack->data_bytes_consumed));
     return 0UL;
   }
 
@@ -2521,7 +2524,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
     /* Add any remaining CUs/txns to the non-vote limits */
     txn_limit += vote_reserved_txns - status1.txns_scheduled;
     cu_limit  += vote_cus - status1.cus_scheduled;
-    FD_LOG_DEBUG(("BLOCK COST %lu", pack->cumulative_block_cost));
   }
 
   /* Bundle can't mix with votes, so only try to schedule a bundle if we
@@ -2544,7 +2546,6 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
     scheduled                   += status.txns_scheduled;
     pack->cumulative_block_cost += status.cus_scheduled;
     pack->data_bytes_consumed   += status.bytes_scheduled;
-    FD_LOG_DEBUG(("BLOCK COST %lu", pack->cumulative_block_cost));
   }
 
   ulong nonempty = (ulong)(scheduled>0UL);
@@ -2558,6 +2559,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
 
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
+
+  if( FD_UNLIKELY( scheduled>0UL ) ) {
+    FD_LOG_DEBUG(("BLOCK COST %lu %lu", pack->cumulative_block_cost, pack->data_bytes_consumed));
+  }
 
 #if FD_HAS_AVX512 && FD_PACK_USE_NON_TEMPORAL_MEMCPY
   _mm_sfence();
