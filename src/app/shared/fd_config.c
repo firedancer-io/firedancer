@@ -546,7 +546,7 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_POW2( tiles.repair.slot_max );
   }
 
-  if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 &&
+  if( FD_UNLIKELY( config->tiles.bundle.keepalive_interval_millis <    3000 ||
                    config->tiles.bundle.keepalive_interval_millis > 3600000 ) ) {
     FD_LOG_ERR(( "`tiles.bundle.keepalive_interval_millis` must be in range [3000, 3,600,000]" ));
   }
