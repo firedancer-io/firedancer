@@ -129,7 +129,7 @@ ulong
 fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
                            fd_pack_rebate_t     * out ) {
   if( FD_UNLIKELY( (s->ib_result==0) & (s->total_cost_rebate==0UL) & (s->writer_cnt==0U) ) ) {
-    FD_LOG_DEBUG(("skipping report %d %lu %d", s->ib_result, s->total_cost_rebate, s->writer_cnt));
+    FD_LOG_DEBUG(("skipping report %d %lu %u", s->ib_result, s->total_cost_rebate, s->writer_cnt));
     return 0UL;
   }
   if( s->total_cost_rebate ) {
