@@ -213,7 +213,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
     txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
-    FD_LOG_DEBUG(("ACCEPT %u", txn->bank_cu.rebated_cus));
     /* The account keys in the transaction context are laid out such
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
@@ -246,6 +245,10 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        would be no way to undo the partially applied changes to the bank
        in finalize anyway. */
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+
+    fd_cost_tracker_t * ct = fd_bank_cost_tracker_locking_query( bank );
+    FD_LOG_DEBUG(("ACCEPT %u BLOCK COST %lu", txn->bank_cu.rebated_cus, ct->block_cost));
+    fd_bank_cost_tracker_end_locking_query(bank);
 
     } FD_SPAD_FRAME_END;
 
