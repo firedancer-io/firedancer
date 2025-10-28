@@ -51,7 +51,9 @@ jobs:
             compiler-version: 12.4.0
             run-unit-tests: true
             run-integration-tests: true
-    runs-on: ${{ matrix.label }}
+    runs-on:
+      labels: ${{ matrix.label }}
+      group: fd-public-repo
     env:
       MACHINE: ${{ matrix.machine }}
       EXTRAS: ${{ matrix.extras || '' }}

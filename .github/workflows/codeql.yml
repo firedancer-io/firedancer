@@ -10,8 +10,8 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: 1T
-
+    runs-on:
+      group: fd-public-repo-codeql
     strategy:
       fail-fast: false
       matrix:

@@ -21,7 +21,9 @@ permissions:
 
 jobs:
   benchmark:
-    runs-on: [self-hosted, 512G]
+    runs-on:
+      labels: [self-hosted, 512G]
+      group: fd-public-repo
     timeout-minutes: 15
     env:
       CC: gcc
