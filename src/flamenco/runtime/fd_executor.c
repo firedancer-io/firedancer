@@ -300,7 +300,30 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
   fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
   int found = fd_txncache_query( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
-  if( FD_UNLIKELY( found ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
+  // FIXME remove once bug is identified
+  if( FD_UNLIKELY( found<0 ) ) {
+    fd_blockhashes_t const * blockhashes = fd_bank_block_hash_queue_query( txn_ctx->bank );
+    ulong const idx = fd_blockhash_map_idx_query_const( blockhashes->map, blockhash, ULONG_MAX, blockhashes->d.deque );
+    if( FD_UNLIKELY( idx==ULONG_MAX ) ) FD_LOG_CRIT(( "is_leader %d", txn_ctx->is_leader ));
+    ulong const max = fd_blockhash_deq_max( blockhashes->d.deque );
+    ulong const end = (blockhashes->d.end - 1) & (max-1);
+    ulong const start = (blockhashes->d.start) & (max-1);
+    ulong const age = end + fd_ulong_if( idx<=end, 0UL, max ) - idx;
+    for( ulong k=0; k<max; k++ ) {
+      fd_blockhash_info_t const * info = blockhashes->d.deque + k;
+      FD_BASE58_ENCODE_32_BYTES( info->hash.uc, hash_str );
+      FD_LOG_INFO(( "blockhash_queue[%lu] hash %s exists %d next %d", k, hash_str, info->exists, info->next ));
+    }
+    FD_LOG_CRIT(( "max %lu end %lu start %lu age %lu is_leader %d", max, end, start, age, txn_ctx->is_leader ));
+  }
+  if( FD_UNLIKELY( found>0 && !txn_ctx->is_leader ) ) {
+    uchar * sig = txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
+    FD_BASE58_ENCODE_64_BYTES( sig, sig_str );
+    FD_BASE58_ENCODE_32_BYTES( blockhash->uc, bh_str );
+    FD_LOG_INFO(( "replay transaction %s referencing blockhash %s is already processed", sig_str, bh_str ));
+    fd_txncache_query_verbose( txn_ctx->status_cache, txn_ctx->bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
+  }
+  if( FD_UNLIKELY( found>0 ) ) return FD_RUNTIME_TXN_ERR_ALREADY_PROCESSED;
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

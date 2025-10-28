@@ -48,6 +48,7 @@ struct fd_exec_txn_ctx {
   uint flags;
 
   fd_bank_t * bank;
+  int is_leader;
 
   fd_exec_stack_t * exec_stack;
 

@@ -996,6 +996,11 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
        entirely to simplify and improve performance of the txn cache. */
 
     fd_hash_t * blockhash = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->recent_blockhash_off);
+    FD_BASE58_ENCODE_32_BYTES( blockhash->uc, bhstr );
+    FD_BASE58_ENCODE_32_BYTES( txn_ctx->blake_txn_msg_hash.uc, mhstr );
+    uchar * txn_sig = txn_ctx->txn.payload+TXN( &txn_ctx->txn )->signature_off;
+    FD_BASE58_ENCODE_64_BYTES( txn_sig, tsigstr );
+    FD_LOG_INFO(( "inserting txncache bank idx %lu fork_id %u blockhash %s message hash %s signature %s", bank->idx, bank->txncache_fork_id.val, bhstr, mhstr, tsigstr ));
     fd_txncache_insert( txncache, bank->txncache_fork_id, blockhash->uc, txn_ctx->blake_txn_msg_hash.uc );
   }
 }

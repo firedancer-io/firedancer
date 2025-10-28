@@ -208,13 +208,16 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
     FD_COMPILER_MFENCE();
 
     ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
+    uint txn_gidx = (uint)(FD_TXNCACHE_TXNS_PER_PAGE*txnpage_idx+txn_idx);
     for(;;) {
       uint head = blockcache->heads[ txn_bucket ];
       txnpage->txns[ txn_idx ]->blockcache_next = head;
       FD_COMPILER_MFENCE();
-      if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->heads[ txn_bucket ], head, (uint)(FD_TXNCACHE_TXNS_PER_PAGE*txnpage_idx+txn_idx) )==head ) ) break;
+      if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->heads[ txn_bucket ], head, txn_gidx )==head ) ) break;
       FD_SPIN_PAUSE();
     }
+    FD_BASE58_ENCODE_32_BYTES( txnhash, txnhash_str );
+    FD_LOG_INFO(( "inserted txnhash %s txnhash_offset %lu idx %u fork_id %u into bucket %lu", txnhash_str, txnhash_offset, txn_gidx, fork_id.val, txn_bucket ));
 
     return 1;
   }
@@ -240,6 +243,8 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
 
     descends_set_null( fork->descends );
     root_slist_ele_push_tail( tc->shmem->root_ll, fork->shmem, tc->blockcache_shmem_pool );
+    // FIXME remove once bug is identified
+    FD_LOG_INFO(( "attached root fork_id %u", fork_id.val ));
   } else {
     blockcache_t * parent = &tc->blockcache_pool[ parent_fork_id.val ];
     FD_TEST( parent );
@@ -253,6 +258,8 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
 
     descends_set_copy( fork->descends, parent->descends );
     descends_set_insert( fork->descends, parent_fork_id.val );
+    // FIXME remove once bug is identified
+    FD_LOG_INFO(( "attached fork_id %u to parent fork_id %u", fork_id.val, parent_fork_id.val ));
   }
 
   fork->shmem->txnhash_offset = 0UL;
@@ -278,6 +285,8 @@ fd_txncache_attach_blockhash( fd_txncache_t *       tc,
   memcpy( fork->shmem->blockhash.uc, blockhash, 32UL );
 
   blockhash_map_ele_insert( tc->blockhash_map, fork->shmem, tc->blockcache_shmem_pool );
+  // FIXME remove once bug is identified
+  FD_LOG_INFO(( "attached blockhash %s to fork_id %u", FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ), fork_id.val ));
 
   fd_rwlock_unwrite( tc->shmem->lock );
 }
@@ -297,6 +306,8 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
 
   if( FD_LIKELY( !fork->shmem->frozen ) ) blockhash_map_ele_insert( tc->blockhash_map, fork->shmem, tc->blockcache_shmem_pool );
   fork->shmem->frozen = 2;
+  // FIXME remove once bug is identified
+  FD_LOG_INFO(( "finalized blockhash %s to fork_id %u", FD_BASE58_ENC_32_ALLOCA( fork->shmem->blockhash.uc ), fork_id.val ));
 
   fd_rwlock_unwrite( tc->shmem->lock );
 }
@@ -312,6 +323,9 @@ remove_blockcache( fd_txncache_t * tc,
 
   if( FD_LIKELY( blockcache->shmem->frozen ) ) blockhash_map_ele_remove_fast( tc->blockhash_map, blockcache->shmem, tc->blockcache_shmem_pool );
   blockcache_pool_ele_release( tc->blockcache_shmem_pool, blockcache->shmem );
+  FD_BASE58_ENCODE_32_BYTES( blockcache->shmem->blockhash.uc, bhash_str );
+  // FIXME remove once bug is identified
+  FD_LOG_INFO(( "removed fork_id %lu blockhash %s", idx, bhash_str ));
 }
 
 static inline void
@@ -380,12 +394,32 @@ blockhash_on_fork( fd_txncache_t *      tc,
                    blockcache_t const * fork,
                    uchar const *        blockhash ) {
   fd_txncache_blockcache_shmem_t const * candidate = blockhash_map_ele_query_const( tc->blockhash_map, fd_type_pun_const( blockhash ), NULL, tc->blockcache_shmem_pool );
+  // FIXME remove once bug is identified
+  ulong fork_idx = blockcache_pool_idx( tc->blockcache_shmem_pool, fork->shmem );
+  if( FD_UNLIKELY( !candidate ) ) FD_LOG_INFO(( "blockhash %s does not exist in map, fork_id %lu", FD_BASE58_ENC_32_ALLOCA( blockhash ), fork_idx ));
   if( FD_UNLIKELY( !candidate ) ) return NULL;
 
   while( candidate ) {
     ulong candidate_idx = blockcache_pool_idx( tc->blockcache_shmem_pool, candidate );
     if( FD_LIKELY( descends_set_test( fork->descends, candidate_idx ) ) ) return &tc->blockcache_pool[ candidate_idx ];
     candidate = blockhash_map_ele_next_const( candidate, NULL, tc->blockcache_shmem_pool );
+  }
+  // FIXME remove once bug is identified
+  candidate = blockhash_map_ele_query_const( tc->blockhash_map, fd_type_pun_const( blockhash ), NULL, tc->blockcache_shmem_pool );
+  while( candidate ) {
+    ulong candidate_idx = blockcache_pool_idx( tc->blockcache_shmem_pool, candidate );
+    FD_BASE58_ENCODE_32_BYTES( blockhash, bh_str );
+    FD_LOG_INFO(( "blockhash %s candidate_idx %lu fork_id %lu", bh_str, candidate_idx, fork_idx ));
+    candidate = blockhash_map_ele_next_const( candidate, NULL, tc->blockcache_shmem_pool );
+  }
+  ulong max = descends_set_max( fork->descends );
+  for( ulong idx=0UL; idx<max; idx++ ) {
+    if( descends_set_test( fork->descends, idx ) ) {
+      fd_txncache_blockcache_shmem_t * ancestor = blockcache_pool_ele( tc->blockcache_shmem_pool, idx );
+      FD_BASE58_ENCODE_32_BYTES( ancestor->blockhash.uc, abh_str );
+      FD_BASE58_ENCODE_32_BYTES( blockhash, bh_str );
+      FD_LOG_INFO(( "fork_id %lu blockhash %s descends %lu blockhash %s", fork_idx, bh_str, idx, abh_str ));
+    }
   }
   return NULL;
 }
@@ -432,7 +466,10 @@ fd_txncache_query( fd_txncache_t *       tc,
   /* TODO: We can't print the full txnhash here typically because we
      might only be able to see 20 bytes, but we need to print it for
      diagnostic purposes. Remove once bug is identified. */
-  if( FD_UNLIKELY( !blockcache ) ) FD_LOG_CRIT(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+  if( FD_UNLIKELY( !blockcache ) ) {
+    FD_LOG_INFO(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+    return -1;
+  }
 
   int found = 0;
 
@@ -443,6 +480,57 @@ fd_txncache_query( fd_txncache_t *       tc,
 
     int descends = txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val );
     if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
+      found = 1;
+      break;
+    }
+  }
+
+  fd_rwlock_unread( tc->shmem->lock );
+  return found;
+}
+
+int
+fd_txncache_query_verbose( fd_txncache_t *       tc,
+                           fd_txncache_fork_id_t fork_id,
+                           uchar const *         blockhash,
+                           uchar const *         txnhash ) {
+  fd_rwlock_read( tc->shmem->lock );
+
+  blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
+  blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
+
+  /* TODO: We can't print the full txnhash here typically because we
+     might only be able to see 20 bytes, but we need to print it for
+     diagnostic purposes. Remove once bug is identified. */
+  if( FD_UNLIKELY( !blockcache ) ) {
+    FD_LOG_INFO(( "transaction %s refers to blockhash %s which does not exist on fork", FD_BASE58_ENC_32_ALLOCA( txnhash ), FD_BASE58_ENC_32_ALLOCA( blockhash ) ));
+    return -1;
+  }
+
+  long blockcache_idx = blockcache-tc->blockcache_pool;
+  FD_BASE58_ENCODE_32_BYTES( blockhash, bhash_str );
+
+  int found = 0;
+
+  ulong txnhash_offset = blockcache->shmem->txnhash_offset;
+  ulong head_hash = FD_LOAD( ulong, txnhash+txnhash_offset ) % tc->shmem->txn_per_slot_max;
+  for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
+    fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
+    FD_LOG_INFO(( "visiting txn idx %u", head ));
+
+    int descends = txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val );
+    if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( txnhash, txnhash_str );
+      FD_LOG_INFO(( "txncache query hit blockhash %s fork_id %ld txnhash_offset %lu txnhash %s head_hash 0x%lx txn->fork_id %u fork_id %u", bhash_str, blockcache_idx, txnhash_offset, txnhash_str, head_hash, txn->fork_id.val, fork_id.val ));
+      ulong max = descends_set_max( fork->descends );
+      for( ulong idx=0UL; idx<max; idx++ ) {
+        if( descends_set_test( fork->descends, idx ) ) {
+          fd_txncache_blockcache_shmem_t * ancestor = blockcache_pool_ele( tc->blockcache_shmem_pool, idx );
+          FD_BASE58_ENCODE_32_BYTES( ancestor->blockhash.uc, abh_str );
+          FD_BASE58_ENCODE_32_BYTES( blockhash, bh_str );
+          FD_LOG_INFO(( "fork_id %u blockhash %s descends %lu blockhash %s", fork_id.val, bh_str, idx, abh_str ));
+        }
+      }
       found = 1;
       break;
     }

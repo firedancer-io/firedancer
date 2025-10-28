@@ -239,6 +239,11 @@ fd_txncache_query( fd_txncache_t *       tc,
                    fd_txncache_fork_id_t fork_id,
                    uchar const *         blockhash,
                    uchar const *         txnhash );
+int
+fd_txncache_query_verbose( fd_txncache_t *       tc,
+                           fd_txncache_fork_id_t fork_id,
+                           uchar const *         blockhash,
+                           uchar const *         txnhash );
 
 FD_PROTOTYPES_END
 

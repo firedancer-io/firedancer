@@ -124,6 +124,10 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
       case FD_EXEC_TT_TXN_EXEC: {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
+        uchar * txn_sig = msg->txn.payload+TXN(&(msg->txn))->signature_off;
+        FD_BASE58_ENCODE_64_BYTES( txn_sig, txn_sig_str );
+        FD_LOG_INFO(( "executing txn %lu bank %lu on exec %lu sig %s", msg->txn_idx, msg->bank_idx, ctx->tile_idx, txn_sig_str ));
+        ctx->txn_ctx->is_leader = 0; // FIXME remove once bug is identified
         ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks,
                                                                      msg->bank_idx,
                                                                      ctx->txn_ctx,
