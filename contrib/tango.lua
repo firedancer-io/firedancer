@@ -219,7 +219,7 @@ function tango.dissector (tvb, pinfo, tree)
   if link_name:match("^net_") or link_name:match("_net$") then
     local dissector = Dissector.get("eth_withoutfcs")
     dissector:call(dcache_contents, pinfo, dcache_tree)
-  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "send_txns" or link_name == "gossip_dedup" then
+  elseif link_name == "verify_dedup" or link_name == "dedup_pack" or link_name == "dedup_resolv" or link_name == "resolv_pack" or link_name == "bundle_verif" or link_name == "quic_verify" or link_name == "gossip_verif" or link_name == "send_out" or link_name == "gossip_dedup" then
     local dissector = Dissector.get("fd_txn_m_t")
     dissector:call(dcache_contents, pinfo, dcache_tree)
   elseif link_name == "poh_shred" then

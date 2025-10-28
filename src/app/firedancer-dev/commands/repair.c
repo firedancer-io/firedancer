@@ -123,7 +123,7 @@ repair_topo( config_t * config ) {
   fd_topob_wksp( topo, "repair_sign"  );
   fd_topob_wksp( topo, "sign_repair"  );
 
-  fd_topob_wksp( topo, "send_txns"    );
+  fd_topob_wksp( topo, "send_out"     );
 
   fd_topob_wksp( topo, "shred"        );
   fd_topob_wksp( topo, "repair"       );
@@ -156,7 +156,7 @@ repair_topo( config_t * config ) {
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
 
-  /**/                 fd_topob_link( topo, "send_txns",    "send_txns",    128UL,                                    FD_TXN_MTU,                    1UL );
+  /**/                 fd_topob_link( topo, "send_out",     "send_out",     128UL,                                    FD_TXN_MTU,                    1UL );
 
   /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t), 1UL );
 
@@ -217,7 +217,7 @@ repair_topo( config_t * config ) {
   for( ulong j=0UL; j<quic_tile_cnt; j++ )
                   {fd_topos_tile_in_net(  topo,                          "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );} /* No reliable consumers of networking fragments, may be dropped or overrun */
 
-  /**/            fd_topob_tile_in(      topo, "gossip",  0UL,         "metric_in", "send_txns",    0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  /**/            fd_topob_tile_in(      topo, "gossip",  0UL,         "metric_in", "send_out",      0UL,           FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
   /**/            fd_topos_tile_in_net(  topo,                          "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
@@ -282,7 +282,7 @@ repair_topo( config_t * config ) {
 
   FD_TEST( fd_link_permit_no_producers( topo, "quic_net"     ) == quic_tile_cnt );
   FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
-  FD_TEST( fd_link_permit_no_producers( topo, "send_txns"    ) == 1UL           );
+  FD_TEST( fd_link_permit_no_producers( topo, "send_out"     ) == 1UL           );
 
   FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == quic_tile_cnt );
 
