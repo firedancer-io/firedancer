@@ -913,6 +913,11 @@ after_credit( ctx_t *             ctx,
      If not, we can't send any requests and leave early. */
   out_ctx_t * sign_out = sign_avail_credits( ctx );
   if( FD_UNLIKELY( !sign_out ) ) {
+    ulong num_in_signs_map = fd_signs_map_key_cnt( ctx->signs_map );
+    ulong credits = ctx->repair_sign_out_ctx[0].credits;
+    FD_COMPILER_MFENCE();
+    FD_LOG_DEBUG(( "num in signs_map: %lu", num_in_signs_map ));
+    FD_LOG_DEBUG(( "credits: %lu", credits ));
     ctx->metrics->sign_tile_unavail++;
     return;
   }
@@ -934,9 +939,9 @@ after_credit( ctx_t *             ctx,
         /* No peers. But we CANNOT lose this request. */
         /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
         fd_hash_t hash = { .ul[0] = 0 };
-        fd_inflights_request_insert( ctx->inflight, nonce, &hash, slot, shred_idx );
+        fd_inflights_request_insert( ctx->inflight, ctx->policy->nonce++, &hash, slot, shred_idx );
       } else {
-        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), (uint)nonce, slot, shred_idx );
+        fd_repair_msg_t * msg = fd_repair_shred( ctx->protocol, peer, (ulong)((ulong)now / 1e6L), ctx->policy->nonce++, slot, shred_idx );
         fd_repair_send_sign_request( ctx, sign_out, msg, NULL );
         return;
       }

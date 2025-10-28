@@ -514,6 +514,7 @@ before_frag( fd_send_tile_ctx_t * ctx,
              ulong                in_idx,
              ulong                seq FD_PARAM_UNUSED,
              ulong                sig ) {
+  return 1;
   if( FD_UNLIKELY( ctx->in_links[in_idx].kind==IN_KIND_GOSSIP ) ) {
     return sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO &&
            sig!=FD_GOSSIP_UPDATE_TAG_CONTACT_INFO_REMOVE;
@@ -529,6 +530,7 @@ during_frag( fd_send_tile_ctx_t * ctx,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl ) {
+  return;
 
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];
   if( FD_UNLIKELY( chunk<in_link->chunk0 || chunk>in_link->wmark ) ) {
@@ -576,6 +578,7 @@ after_frag( fd_send_tile_ctx_t * ctx,
             ulong                tspub FD_PARAM_UNUSED,
             fd_stem_context_t *  stem ) {
 
+  return;
   ctx->stem = stem;
 
   fd_send_link_in_t * in_link = &ctx->in_links[ in_idx ];

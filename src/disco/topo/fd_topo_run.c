@@ -28,7 +28,7 @@ initialize_logging( char const * tile_name,
   fd_log_thread_set( thread_name );
   fd_log_private_stack_discover( FD_TILE_PRIVATE_STACK_SZ,
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
-  FD_LOG_INFO(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
+  FD_LOG_NOTICE(( "booting tile %s pid:%lu tid:%lu", thread_name, fd_log_group_id(), tid ));
 
   /* FD_LOG_* calls fd_log_wallclock_cstr, which calls localtime_r.  In
      glibc, this ends up calling a function called tzset_internal.  The

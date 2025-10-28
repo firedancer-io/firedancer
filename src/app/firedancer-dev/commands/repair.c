@@ -151,7 +151,7 @@ repair_topo( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "repair_shred", "shred_out",    pending_fec_shreds_depth,                 sizeof(fd_ed25519_sig_t),      1UL );
 
-  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  128UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
+  FOR(sign_tile_cnt-1) fd_topob_link( topo, "repair_sign",  "repair_sign",  256UL,                                    FD_REPAIR_MAX_PREIMAGE_SZ,     1UL );
   FOR(sign_tile_cnt-1) fd_topob_link( topo, "sign_repair",  "sign_repair",  128UL,                                    sizeof(fd_ed25519_sig_t),      1UL );
 
   /**/                 fd_topob_link( topo, "poh_shred",    "poh_shred",    16384UL,                                  USHORT_MAX,                    1UL );
@@ -284,7 +284,7 @@ repair_topo( config_t * config ) {
   FD_TEST( fd_link_permit_no_producers( topo, "poh_shred"    ) == 1UL           );
   FD_TEST( fd_link_permit_no_producers( topo, "send_txns"    ) == 1UL           );
 
-  FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == quic_tile_cnt );
+  FD_TEST( fd_link_permit_no_consumers( topo, "net_quic"     ) == net_tile_cnt );
 
   config->tiles.send.send_src_port = 0; /* disable send */
 
@@ -464,7 +464,7 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_
     if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
     iter = fd_peer_dlist_iter_fwd_next( iter, peers_dlist, peers_arr );
   }
-  FD_LOG_NOTICE(( "Fast peers cnt: %lu. Remainder is slow.", i ));
+  ulong fast_cnt = i;
   iter = fd_peer_dlist_iter_fwd_init( peers_wlist, peers_arr );
   while( !fd_peer_dlist_iter_done( iter, peers_wlist, peers_arr ) ) {
     fd_peer_t * peer = fd_peer_dlist_iter_ele( iter, peers_wlist, peers_arr );
@@ -473,6 +473,7 @@ sort_peers_by_latency( fd_policy_peer_t * active_table, fd_peer_dlist_t * peers_
     if( FD_UNLIKELY( i >= FD_ACTIVE_KEY_MAX ) ) break;
     iter = fd_peer_dlist_iter_fwd_next( iter, peers_wlist, peers_arr );
   }
+  FD_LOG_NOTICE(( "Fast peers cnt: %lu. Slow peers cnt: %lu.", fast_cnt, i - fast_cnt ));
 
   ulong peer_cnt = i;
   for( uint i = 0; i < peer_cnt - 1; i++ ) {
@@ -523,7 +524,7 @@ print_peer_location_latency( fd_wksp_t * repair_tile_wksp, ctx_t * tile_ctx ) {
       char * geolocation = info ? info->location : "Unknown";
       double peer_bps    = (double)(active->res_cnt * FD_SHRED_MIN_SZ) / ((double)(active->last_resp_ts - active->first_resp_ts) / 1e9);
       double req_bps     = (double)active->req_cnt * 202 / ((double)(active->last_req_ts - active->first_req_ts) / 1e9);
-      printf( "| %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", FD_BASE58_ENC_32_ALLOCA( &active->key ), active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, geolocation );
+      printf( "%-5u | %-46s | %-7lu | %-8.2f | %-8.2f | %-7.2f | %10.3fms | %s\n", i, FD_BASE58_ENC_32_ALLOCA( &active->key ), active->req_cnt, req_bps, peer_bps, (double)active->res_cnt / (double)active->req_cnt, ((double)active->total_lat / (double)active->res_cnt) / 1e6, geolocation );
     }
   }
   fflush( stdout );
