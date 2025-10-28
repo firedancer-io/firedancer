@@ -4175,12 +4175,12 @@ fd_quic_conn_create( fd_quic_t *               quic,
     return NULL;
   }
   if( FD_UNLIKELY( conn_idx >= quic->limits.conn_cnt ) ) {
-    FD_LOG_ERR(( "Conn free list corruption detected" ));
+    FD_LOG_CRIT(( "Conn free list corruption detected" ));
     return NULL;
   }
   fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, conn_idx );
   if( FD_UNLIKELY( conn->state != FD_QUIC_CONN_STATE_INVALID ) ) {
-    FD_LOG_ERR(( "conn %p not free, this is a bug", (void *)conn ));
+    FD_LOG_CRIT(( "conn %p not free, this is a bug", (void *)conn ));
     return NULL;
   }
 
@@ -4196,7 +4196,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   if( FD_UNLIKELY( insert_entry == NULL ) ) {
     /* FIXME This has ~1e-6 probability of happening with 10M conns
        Retry generating our_conn_id instead of logging a warning */
-    FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
+    FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID %lu with map size %lu", our_conn_id, fd_quic_conn_map_key_cnt( state->conn_map ) ));
     return NULL;
   }
 
