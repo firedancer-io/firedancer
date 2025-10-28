@@ -123,9 +123,6 @@ dump_account_state( fd_txn_account_t const *    txn_account,
 
     // Owner
     fd_memcpy(output_account->owner, fd_txn_account_get_owner( txn_account ), sizeof(fd_pubkey_t));
-
-    // Seed address (not present)
-    output_account->has_seed_addr = false;
 }
 
 static uchar
@@ -465,7 +462,6 @@ create_synthetic_vote_account_from_vote_state( fd_vote_state_ele_t const *   vot
   out_vote_account->vote_account.executable = false;
   out_vote_account->vote_account.lamports = 100000UL;
   fd_memcpy( out_vote_account->vote_account.owner, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) );
-  out_vote_account->vote_account.has_seed_addr = false;
   out_vote_account->stake = vote_state->stake;
 
   /* Construct the vote account data. Fill in missing fields with
