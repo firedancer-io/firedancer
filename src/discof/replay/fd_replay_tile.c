@@ -1990,6 +1990,7 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
         /* Every transaction in a valid block has to execute.
            Otherwise, we should mark the block as dead.  Also freeze the
            bank if possible. */
+        FD_LOG_WARNING(( "marking bank %lu, txn_exec %d dead due to txn exec error", bank->idx, msg->txn_exec->err ));
         fd_banks_mark_bank_dead( ctx->banks, bank );
         fd_sched_block_abandon( ctx->sched, bank->idx );
       }
