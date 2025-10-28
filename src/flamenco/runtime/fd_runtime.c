@@ -102,16 +102,6 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
 }
 
 void
-fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
-                                   ulong       slots_per_epoch ) {
-  if( FD_LIKELY( slots_per_epoch == fd_bank_slots_per_epoch_get( bank ) ) ) {
-    return;
-  }
-
-  fd_bank_slots_per_epoch_set( bank, slots_per_epoch );
-}
-
-void
 fd_runtime_update_leaders( fd_bank_t *          bank,
                            fd_runtime_stack_t * runtime_stack ) {
 

@@ -213,10 +213,6 @@ void
 fd_runtime_update_leaders( fd_bank_t *          bank,
                            fd_runtime_stack_t * runtime_stack );
 
-void
-fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
-                                   ulong       slots_per_epoch );
-
 /* Block Level Execution Prep/Finalize ****************************************/
 
 #define FD_BLOCK_OK                          (0UL)
