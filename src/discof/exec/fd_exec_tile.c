@@ -33,6 +33,7 @@ typedef struct fd_exec_tile_ctx {
   /* link-related data structures. */
   link_ctx_t            replay_in[ 1 ];
   link_ctx_t            exec_replay_out[ 1 ]; /* TODO: Remove with solcap v2 */
+  link_ctx_t            exec_sig_out[ 1 ];
 
   fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
@@ -128,6 +129,15 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
           fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
         }
 
+        if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
+          /* Copy the txn signature to the signature out link so the
+             dedup/pack tiles can drop already executed transactions. */
+          memcpy( fd_chunk_to_laddr( ctx->exec_sig_out->mem, ctx->exec_sig_out->chunk ),
+                  (uchar *)ctx->txn_ctx->txn.payload + TXN( &ctx->txn_ctx->txn )->signature_off,
+                  64UL );
+          ctx->exec_sig_out->chunk = fd_dcache_compact_next( ctx->exec_sig_out->chunk, 64UL, ctx->exec_sig_out->chunk0, ctx->exec_sig_out->wmark );
+        }
+
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
         ctx->pending_txn_finalized_msg = 1;
@@ -206,6 +216,15 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->exec_replay_out->chunk0 = fd_dcache_compact_chunk0( ctx->exec_replay_out->mem, exec_replay_link->dcache );
     ctx->exec_replay_out->wmark  = fd_dcache_compact_wmark( ctx->exec_replay_out->mem, exec_replay_link->dcache, exec_replay_link->mtu );
     ctx->exec_replay_out->chunk  = ctx->exec_replay_out->chunk0;
+  }
+
+  ctx->exec_sig_out->idx = fd_topo_find_tile_out_link( topo, tile, "exec_sig", ctx->tile_idx );
+  if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
+    fd_topo_link_t * exec_sig_link = &topo->links[ tile->out_link_id[ ctx->exec_sig_out->idx ] ];
+    ctx->exec_sig_out->mem    = topo->workspaces[ topo->objs[ exec_sig_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->exec_sig_out->chunk0 = fd_dcache_compact_chunk0( ctx->exec_sig_out->mem, exec_sig_link->dcache );
+    ctx->exec_sig_out->wmark  = fd_dcache_compact_wmark( ctx->exec_sig_out->mem, exec_sig_link->dcache, exec_sig_link->mtu );
+    ctx->exec_sig_out->chunk  = ctx->exec_sig_out->chunk0;
   }
 
   /********************************************************************/

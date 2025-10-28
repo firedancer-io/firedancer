@@ -264,6 +264,8 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_VERIFY;
     } else if( !strcmp( link->name, "executed_txn" ) ) {
       ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
+    } else if( !strcmp( link->name, "exec_sig" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_EXECUTED_TXN;
     } else {
       FD_LOG_ERR(( "unexpected link name %s", link->name ));
     }
