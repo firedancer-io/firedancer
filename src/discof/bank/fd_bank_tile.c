@@ -175,6 +175,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+      FD_LOG_NOTICE(("SKIP %u", txn->bank_cu.rebated_cus));
       fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->exec_err ) ]++;
       continue;
@@ -212,6 +213,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
     txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
 
+    FD_LOG_NOTICE(("ACCEPT %u", txn->bank_cu.rebated_cus));
     /* The account keys in the transaction context are laid out such
        that first the non-alt accounts are laid out, then the writable
        alt accounts, and finally the read-only alt accounts. */
