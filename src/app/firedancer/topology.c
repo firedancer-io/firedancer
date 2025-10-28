@@ -1149,19 +1149,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.websocket_compression     = 1;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
 
-  } else if( FD_UNLIKELY( !strcmp( tile->name, "rpcsrv" ) ) ) {
-
-    tile->rpcserv.funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
-    tile->rpcserv.store_obj_id = fd_pod_query_ulong( config->topo.props, "store", ULONG_MAX );
-    tile->rpcserv.rpc_port = config->rpc.port;
-    tile->rpcserv.tpu_port = config->tiles.quic.regular_transaction_listen_port;
-    tile->rpcserv.tpu_ip_addr = config->net.ip_addr;
-    tile->rpcserv.block_index_max = config->rpc.block_index_max;
-    tile->rpcserv.txn_index_max = config->rpc.txn_index_max;
-    tile->rpcserv.acct_index_max = config->rpc.acct_index_max;
-    strncpy( tile->rpcserv.history_file, config->rpc.history_file, sizeof(tile->rpcserv.history_file) );
-    strncpy( tile->rpcserv.identity_key_path, config->paths.identity_key, sizeof(tile->rpcserv.identity_key_path) );
-
   } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                           !strcmp( tile->name, "arch_w" ) ) ) {
 

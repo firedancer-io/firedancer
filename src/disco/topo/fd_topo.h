@@ -453,19 +453,6 @@ struct fd_topo_tile {
     } send;
 
     struct {
-      ulong   funk_obj_id;
-      ulong   store_obj_id;
-      ushort  rpc_port;
-      ushort  tpu_port;
-      uint    tpu_ip_addr;
-      char    identity_key_path[ PATH_MAX ];
-      uint    block_index_max;
-      uint    txn_index_max;
-      uint    acct_index_max;
-      char    history_file[ PATH_MAX ];
-    } rpcserv;
-
-    struct {
       uint fake_dst_ip;
     } pktgen;
 
