@@ -204,7 +204,7 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t *         ctx,
   return 0;
 }
 
-static int
+__attribute__((unused)) static int
 verify_slot_deltas_with_bank_slot( fd_snapin_tile_t * ctx,
                                    ulong              bank_slot ) {
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
@@ -221,7 +221,7 @@ transition_malformed( fd_snapin_tile_t * ctx,
   fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_MALFORMED, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
-static int
+__attribute__((unused)) static int
 populate_txncache( fd_snapin_tile_t *                     ctx,
                    fd_snapshot_manifest_blockhash_t const blockhashes[ static 301UL ],
                    ulong                                  blockhashes_len ) {
@@ -531,14 +531,14 @@ process_account_data( fd_snapin_tile_t *            ctx,
                       fd_ssparse_advance_result_t * result ) {
   if( FD_UNLIKELY( !ctx->acc_data ) ) {
     uchar * drop_account_data = fd_chunk_to_laddr( ctx->hash_out.wksp, ctx->hash_out.chunk );
-    fd_memcpy( drop_account_data, result->account_data.data, result->account_data.len );
-    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.len, 0UL, 0UL, 0UL );
-    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
+    fd_memcpy( drop_account_data, result->account_data.data, result->account_data.data_sz );
+    fd_stem_blocking_publish( ctx->stem, 2UL, FD_SNAPSHOT_HASH_MSG_SUB_DATA, ctx->hash_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, result->account_data.data_sz, ctx->hash_out.chunk0, ctx->hash_out.wmark );
     return;
   }
 
-  fd_memcpy( ctx->acc_data, result->account_data.data, result->account_data.len );
-  ctx->acc_data += result->account_data.len;
+  fd_memcpy( ctx->acc_data, result->account_data.data, result->account_data.data_sz );
+  ctx->acc_data += result->account_data.data_sz;
 }
 
 static int
@@ -607,20 +607,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
         bytes_remaining           -= sd_result->bytes_consumed;
         result->status_cache.data += sd_result->bytes_consumed;
-      }
-      break;
-    }
-    case FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE: {
-      if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, ctx->manifest_fields.bank_slot ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed" ));
-        transition_malformed( ctx, ctx->stem );
-        break;
-      }
-    
-      if( FD_UNLIKELY( populate_txncache( ctx, ctx->manifest_fields.blockhashes, ctx->manifest_fields.blockhashes_len ) ) ) {
-        FD_LOG_WARNING(( "populating txncache failed" ));
-        transition_malformed( ctx, ctx->stem );
-        break;
       }
       break;
     }
@@ -801,7 +787,6 @@ handle_hash_frag( fd_snapin_tile_t *  ctx,
                       FD_LTHASH_ENC_32_ALLOCA( &ctx->hash_info.expected_lthash ) ));
     }
     ctx->hash_info.received_lthashes = 0UL;
-    fd_lthash_zero( &ctx->hash_info.calculated_lthash );
     fd_stem_publish( stem, 1UL, FD_SNAPSHOT_MSG_CTRL_ACK, 0UL, 0UL, 0UL, 0UL, 0UL );
   }
 }

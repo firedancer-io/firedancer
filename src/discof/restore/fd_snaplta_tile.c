@@ -25,8 +25,8 @@ struct fd_snaplta_tile {
   ulong hash_tile_idx;
 
   fd_blake3_t b3[1];
-  // fd_lthash_adder_t adder[1];
-  // uchar       data[ FD_RUNTIME_ACC_SZ_MAX ];
+  fd_lthash_adder_t adder[1];
+  uchar       data[ FD_RUNTIME_ACC_SZ_MAX ];
   ulong       acc_data_sz;
 
   fd_ssparse_t *    ssparse;
@@ -37,7 +37,7 @@ struct fd_snaplta_tile {
     uchar pubkey[ FD_HASH_FOOTPRINT ];
     uchar owner[ FD_HASH_FOOTPRINT ];
     ulong data_len;
-    // ulong lamports;
+    ulong lamports;
     int   executable;
   } account_hdr;
 
@@ -112,6 +112,32 @@ should_hash_account( fd_snaplta_tile_t * ctx,
   return fd_hash( pubkey[ 4UL ], pubkey, sizeof(fd_pubkey_t) )%ctx->num_hash_tiles==ctx->hash_tile_idx;
 }
 
+static void
+streamlined_hash( fd_snaplta_tile_t * ctx,
+                    uchar const *      frame ) {
+  ulong data_len   = fd_ulong_load_8_fast( frame+0x08UL );
+  uchar pubkey[32];  memcpy( pubkey, frame+0x10UL, 32UL );
+  ulong lamports   = fd_ulong_load_8_fast( frame+0x30UL );
+  ulong rent_epoch = fd_ulong_load_8_fast( frame+0x38UL ); (void)rent_epoch;
+  uchar owner[32];   memcpy( owner, frame+0x40UL, 32UL );
+  _Bool executable = !!frame[ 0x60UL ];
+
+  if( FD_UNLIKELY( data_len > FD_RUNTIME_ACC_SZ_MAX ) ) FD_LOG_ERR(( "Found unusually large account (data_sz=%lu), aborting", data_len ));
+  if( FD_UNLIKELY( lamports==0UL ) ) return;
+
+  uchar executable_flag = executable & 0x1;
+
+  fd_lthash_adder_push_solana_account( ctx->adder,
+    &ctx->running_lthash,
+    pubkey,
+    frame+0x88UL,
+    data_len,
+    lamports,
+    executable_flag,
+    owner );
+}
+
+
 static int
 handle_data_frag( fd_snaplta_tile_t * ctx,
                   ulong               chunk,
@@ -142,7 +168,6 @@ handle_data_frag( fd_snaplta_tile_t * ctx,
       case FD_SSPARSE_ADVANCE_AGAIN:
         break;
       case FD_SSPARSE_ADVANCE_STATUS_CACHE:
-      case FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE:
         /* ignore */
         break;
       case FD_SSPARSE_ADVANCE_MANIFEST: {
@@ -161,22 +186,25 @@ handle_data_frag( fd_snaplta_tile_t * ctx,
         if( FD_LIKELY( should_hash_account( ctx, result->account_header.pubkey) && result->account_header.lamports!=0UL ) ) {
           FD_TEST( ctx->acc_data_sz==0UL );
           ctx->hash_account = 1;
-          fd_blake3_init( ctx->b3 );
-          fd_blake3_append( ctx->b3, &result->account_header.lamports, sizeof( ulong ) );
           fd_memcpy( ctx->account_hdr.pubkey, result->account_header.pubkey, FD_HASH_FOOTPRINT );
           fd_memcpy( ctx->account_hdr.owner,  result->account_header.owner,  FD_HASH_FOOTPRINT );
           ctx->account_hdr.data_len   = result->account_header.data_len;
           ctx->account_hdr.executable = result->account_header.executable;
-          // ctx->account_hdr.lamports   = result->account_header.lamports;
+          ctx->account_hdr.lamports   = result->account_header.lamports;
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
         if( FD_LIKELY( ctx->hash_account ) ) {
-          fd_blake3_append( ctx->b3, result->account_data.data, result->account_data.len );
-          // fd_memcpy( ctx->data + ctx->acc_data_sz, result->account_data.data, result->account_data.len );
-          ctx->acc_data_sz += result->account_data.len;
+          fd_memcpy( ctx->data + ctx->acc_data_sz, result->account_data.data, result->account_data.data_sz );
+          ctx->acc_data_sz += result->account_data.data_sz;
         }
         break;
+      case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH: {
+        for( ulong i=0UL; i<result->account_batch.batch_cnt; i++ ) {
+          streamlined_hash( ctx, result->account_batch.batch[ i ] );
+        }
+        break;
+      }
       case FD_SSPARSE_ADVANCE_DONE:
         ctx->state = FD_SNAPLTA_STATE_DONE;
         break;
@@ -187,24 +215,14 @@ handle_data_frag( fd_snaplta_tile_t * ctx,
 
     ctx->in.pos += result->bytes_consumed;
     if( FD_LIKELY( ctx->hash_account && ctx->acc_data_sz==ctx->account_hdr.data_len ) ) {
-      fd_lthash_value_t account_lthash[1];
-      fd_lthash_zero( account_lthash );
-
-      uchar executable_flag = ctx->account_hdr.executable & 0x1;
-      fd_blake3_append( ctx->b3, &executable_flag, sizeof(uchar) );
-      fd_blake3_append( ctx->b3, ctx->account_hdr.owner, FD_HASH_FOOTPRINT );
-      fd_blake3_append( ctx->b3, ctx->account_hdr.pubkey,  FD_HASH_FOOTPRINT );
-      fd_blake3_fini_2048( ctx->b3, account_lthash->bytes );
-
-      fd_lthash_add( &ctx->running_lthash, account_lthash );
-      // fd_lthash_adder_push_solana_account( ctx->adder,
-      //                                      &ctx->running_lthash,
-      //                                      ctx->account_hdr.pubkey,
-      //                                      ctx->data,
-      //                                      ctx->account_hdr.data_len,
-      //                                      ctx->account_hdr.lamports,
-      //                                      (uchar)ctx->account_hdr.executable,
-      //                                      ctx->account_hdr.owner );
+      fd_lthash_adder_push_solana_account( ctx->adder,
+                                           &ctx->running_lthash,
+                                           ctx->account_hdr.pubkey,
+                                           ctx->data,
+                                           ctx->account_hdr.data_len,
+                                           ctx->account_hdr.lamports,
+                                           (uchar)ctx->account_hdr.executable,
+                                           ctx->account_hdr.owner );
       ctx->acc_data_sz  = 0UL;
       ctx->hash_account = 0;
 
@@ -230,7 +248,7 @@ handle_control_frag( fd_snaplta_tile_t *  ctx,
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
-      // fd_lthash_adder_new( ctx->adder );
+      fd_lthash_adder_new( ctx->adder );
       ctx->metrics.full.accounts_hashed        = 0UL;
       ctx->metrics.incremental.accounts_hashed = 0UL;
       break;
@@ -240,11 +258,11 @@ handle_control_frag( fd_snaplta_tile_t *  ctx,
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
-      // fd_lthash_adder_new( ctx->adder );
+      fd_lthash_adder_new( ctx->adder );
       ctx->metrics.incremental.accounts_hashed = 0UL;
       break;
     case FD_SNAPSHOT_MSG_CTRL_EOF_FULL: {
-      // fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
+      fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
@@ -253,12 +271,12 @@ handle_control_frag( fd_snaplta_tile_t *  ctx,
       fd_lthash_zero( &ctx->running_lthash );
       fd_ssparse_reset( ctx->ssparse );
       fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
-      // fd_lthash_adder_new( ctx->adder );
+      fd_lthash_adder_new( ctx->adder );
       ctx->state = FD_SNAPLTA_STATE_HASHING;
       break;
     }
     case FD_SNAPSHOT_MSG_CTRL_DONE: {
-      // fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
+      fd_lthash_adder_flush( ctx->adder, &ctx->running_lthash );
       uchar * lthash_out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
       fd_memcpy( lthash_out, &ctx->running_lthash, sizeof(fd_lthash_value_t) );
       fd_stem_publish( stem, 0UL, FD_SNAPSHOT_HASH_MSG_RESULT_ADD, ctx->out.chunk, FD_LTHASH_LEN_BYTES, 0UL, 0UL, 0UL );
@@ -369,7 +387,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->manifest_parser = fd_ssmanifest_parser_join( fd_ssmanifest_parser_new( _manifest_parser ) );
   FD_TEST( ctx->manifest_parser );
 
-  // fd_lthash_adder_new( ctx->adder );
+  fd_ssparse_batch_enable( ctx->ssparse, 1 );
+
+  fd_lthash_adder_new( ctx->adder );
 
   fd_ssmanifest_parser_init( ctx->manifest_parser, ctx->manifest );
 

@@ -15,16 +15,17 @@
 #define FD_SSPARSE_STATE_ACCOUNT_PADDING        (6)
 #define FD_SSPARSE_STATE_STATUS_CACHE           (7)
 #define FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE (8)
+#define FD_SSPARSE_STATE_ACCOUNT_BATCH          (9)
 
 struct fd_ssparse_private {
   int state;
+  uint batch_enabled : 1;
 
   struct {
     int seen_zero_tar_frame;
     int seen_manifest;
     int seen_status_cache;
     int seen_version;
-    int manifest_and_status_cache_pending_result;
   } flags;
 
   uchar version[ 5UL ];
@@ -59,7 +60,7 @@ struct fd_ssparse_private {
 
 FD_FN_CONST ulong
 fd_ssparse_align( void ) {
-  return FD_SSPARSE_ALIGN;
+  return fd_ulong_max( alignof(fd_ssparse_t), fd_ulong_max( acc_vec_pool_align(), acc_vec_map_align() ) );
 }
 
 FD_FN_CONST ulong
@@ -107,6 +108,11 @@ fd_ssparse_new( void *  shmem,
   ssparse->tar.file_bytes_consumed   = 0UL;
   ssparse->tar.file_bytes            = 0UL;
 
+  ssparse->account.header_bytes_consumed = 0UL;
+  ssparse->account.data_bytes_consumed   = 0UL;
+  ssparse->account.data_len              = 0UL;
+  ssparse->acc_vec_bytes                 = 0UL;
+
   FD_COMPILER_MFENCE();
   ssparse->magic = FD_SSPARSE_MAGIC;
   FD_COMPILER_MFENCE();
@@ -141,16 +147,18 @@ fd_ssparse_reset( fd_ssparse_t * ssparse ) {
   ssparse->state = FD_SSPARSE_STATE_TAR_HEADER;
   fd_memset( &ssparse->flags, 0, sizeof(ssparse->flags) );
   ssparse->bytes_consumed                = 0UL;
+
+  ssparse->tar.header_bytes_consumed     = 0UL;
   ssparse->tar.file_bytes_consumed       = 0UL;
+  ssparse->tar.file_bytes                = 0UL;
+
   ssparse->account.header_bytes_consumed = 0UL;
+  ssparse->account.data_bytes_consumed   = 0UL;
+  ssparse->account.data_len              = 0UL;
+  ssparse->acc_vec_bytes                 = 0UL;
 
-  FD_SCRATCH_ALLOC_INIT( l, ssparse );
-                         FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_ssparse_t), sizeof(fd_ssparse_t)                            );
-  void * _acc_vec_pool = FD_SCRATCH_ALLOC_APPEND( l, acc_vec_pool_align(),  acc_vec_pool_footprint( ssparse->max_acc_vecs ) );
-  void * _acc_vec_map  = FD_SCRATCH_ALLOC_APPEND( l, acc_vec_map_align(),   acc_vec_map_footprint( ssparse->max_acc_vecs )  );
-
-  acc_vec_pool_new( _acc_vec_pool, ssparse->max_acc_vecs );
-  acc_vec_map_new( _acc_vec_map, ssparse->max_acc_vecs, ssparse->seed );
+  acc_vec_map_reset( ssparse->manifest.acc_vec_map );
+  acc_vec_pool_reset( ssparse->manifest.acc_vec_pool );
 }
 
 static int
@@ -262,7 +270,7 @@ advance_tar( fd_ssparse_t *                ssparse,
   switch( desired_state ) {
     case FD_SSPARSE_STATE_VERSION:
       if( FD_UNLIKELY( ssparse->flags.seen_version ) ) {
-        FD_LOG_WARNING(( "unexpected duplicate verison file" ));
+        FD_LOG_WARNING(( "unexpected duplicate version file" ));
         return FD_SSPARSE_ADVANCE_ERROR;
       }
 
@@ -353,7 +361,6 @@ advance_status_cache( fd_ssparse_t *                 ssparse,
   else { /* ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes */
     /* finished parsing status cache */
     ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    if( FD_LIKELY( ssparse->flags.seen_manifest ) ) ssparse->flags.manifest_and_status_cache_pending_result = 1;
     return FD_SSPARSE_ADVANCE_STATUS_CACHE;
   }
 }
@@ -381,7 +388,6 @@ advance_manifest( fd_ssparse_t *                ssparse,
   else { /* ssparse->tar.file_bytes_consumed==ssparse->tar.file_bytes */
     /* finished parsing manifest */
     ssparse->state = FD_SSPARSE_STATE_SCROLL_TAR_HEADER;
-    if( FD_LIKELY( ssparse->flags.seen_status_cache ) ) ssparse->flags.manifest_and_status_cache_pending_result = 1;
     return FD_SSPARSE_ADVANCE_MANIFEST;
   }
 }
@@ -403,11 +409,60 @@ advance_next_tar( fd_ssparse_t *               ssparse,
   bytes_remaining         -= pad_sz;
 
   if( FD_LIKELY( !bytes_remaining ) ) ssparse->state = FD_SSPARSE_STATE_TAR_HEADER;
-  if( FD_LIKELY( ssparse->flags.manifest_and_status_cache_pending_result ) ) {
-    ssparse->flags.manifest_and_status_cache_pending_result = 0;
-    return FD_SSPARSE_ADVANCE_MANIFEST_AND_STATUS_CACHE_DONE;
-  }
   return FD_SSPARSE_ADVANCE_AGAIN;
+}
+
+static int
+advance_account_batch( fd_ssparse_t *                ssparse,
+                       uchar const *                 data,
+                       ulong                         data_sz,
+                       fd_ssparse_advance_result_t * result ) {
+  /* Cannot create a batch unless the parser is aligned to an account. */
+  if( FD_UNLIKELY( ssparse->account.header_bytes_consumed ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+
+  /* Each account is at least 136 bytes large.  Don't attempt to create
+     a batch unless at least 4 accounts fit. */
+  ulong avail = fd_ulong_min( data_sz, ssparse->acc_vec_bytes - ssparse->tar.file_bytes_consumed );
+  if( FD_UNLIKELY( avail<(4*136UL) ) ) return FD_SSPARSE_ADVANCE_AGAIN;
+
+  /* Skip over accounts until we reached EOF or batch is full */
+  result->account_batch.batch_cnt = 0;
+  ulong off = 0UL;
+  for( ulong idx=0UL; idx<FD_SSPARSE_ACC_BATCH_MAX && off+136UL<=avail; idx++ ) {
+    uchar const * acc_hdr     = (uchar *)data+off;
+    ulong         acc_data_sz = fd_ulong_load_8_fast( acc_hdr+8 );
+    ulong         next_off    = off+136UL+acc_data_sz;
+    ulong         pad_sz      = fd_ulong_align_up( ssparse->tar.file_bytes_consumed+next_off, 8UL ) -
+                                                 ( ssparse->tar.file_bytes_consumed+next_off );
+    next_off += pad_sz;
+    if( FD_UNLIKELY( next_off>avail ) ) break; /* account is fragmented */
+    if( FD_UNLIKELY( acc_data_sz > (24UL<<20) ) ) {
+      FD_LOG_ERR(( "invalid account data size %lu", acc_data_sz ));
+    }
+    result->account_batch.batch_cnt        = idx+1UL;
+    result->account_batch.batch[ idx ]     = acc_hdr;
+    ssparse->account.header_bytes_consumed = 136UL;
+    ssparse->account.data_bytes_consumed   = acc_data_sz;
+    ssparse->account.data_len              = acc_data_sz;
+    off = next_off;
+  }
+
+  /* Not worth batching if current chunk contains too few accounts. */
+  if( FD_UNLIKELY( result->account_batch.batch_cnt!=FD_SSPARSE_ACC_BATCH_MAX ) ) {
+    return FD_SSPARSE_ADVANCE_AGAIN;
+  }
+
+  ssparse->tar.file_bytes_consumed += off;
+  ssparse->bytes_consumed          += off;
+  result->bytes_consumed            = off;
+
+  /* reset state */
+
+  ssparse->state = FD_SSPARSE_STATE_ACCOUNT_PADDING;
+
+  result->account_batch.slot = ssparse->slot;
+
+  return FD_SSPARSE_ADVANCE_ACCOUNT_BATCH;
 }
 
 static int
@@ -426,7 +481,14 @@ advance_account_header( fd_ssparse_t *                ssparse,
     }
   }
 
-  if( FD_UNLIKELY( consume<136UL ) ) fd_memcpy( ssparse->account.header+ssparse->account.header_bytes_consumed, data, consume );
+  if( FD_UNLIKELY( consume<136UL ) ) {
+    fd_memcpy( ssparse->account.header+ssparse->account.header_bytes_consumed, data, consume );
+  } else if( ssparse->batch_enabled ) {
+    /* fast path */
+    int res = advance_account_batch( ssparse, data, data_sz, result );
+    if( res==FD_SSPARSE_ADVANCE_ACCOUNT_BATCH ) return res;
+    /* fall through and continue processing account header */
+  }
 
   ssparse->account.header_bytes_consumed += consume;
   ssparse->tar.file_bytes_consumed       += consume;
@@ -489,8 +551,8 @@ advance_account_data( fd_ssparse_t *                ssparse,
   ssparse->account.data_bytes_consumed += consume;
   result->bytes_consumed                = consume;
 
-  result->account_data.len  = consume;
-  result->account_data.data = data;
+  result->account_data.data_sz  = consume;
+  result->account_data.data     = data;
 
   FD_TEST( ssparse->account.data_bytes_consumed<=ssparse->account.data_len );
   if( FD_LIKELY( ssparse->account.data_bytes_consumed==ssparse->account.data_len ) ) {
@@ -570,6 +632,12 @@ fd_ssparse_advance( fd_ssparse_t *                ssparse,
     case FD_SSPARSE_STATE_SCROLL_ACCOUNT_GARBAGE: return advance_account_garbage( ssparse, data, data_sz, result );
     default: FD_LOG_ERR(( "invalid state %d", ssparse->state ));
   }
+}
+
+void
+fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
+                         int            enabled ) {
+  ssparse->batch_enabled = !!enabled;
 }
 
 int
