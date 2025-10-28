@@ -135,6 +135,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
           memcpy( fd_chunk_to_laddr( ctx->exec_sig_out->mem, ctx->exec_sig_out->chunk ),
                   (uchar *)ctx->txn_ctx->txn.payload + TXN( &ctx->txn_ctx->txn )->signature_off,
                   64UL );
+          fd_stem_publish( stem, ctx->exec_sig_out->idx, 0UL, ctx->exec_sig_out->chunk, 64UL, 0UL, 0UL, 0UL );
           ctx->exec_sig_out->chunk = fd_dcache_compact_next( ctx->exec_sig_out->chunk, 64UL, ctx->exec_sig_out->chunk0, ctx->exec_sig_out->wmark );
         }
 
