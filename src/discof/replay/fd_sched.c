@@ -580,14 +580,14 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   block->fec_buf_soff = 0;
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
-  if( FD_UNLIKELY( block->fec_buf_sz-block->fec_buf_soff+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
+  if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
     /* In a conformant block, there shouldn't be more than a
        transaction's worth of residual data left over from the previous
        FEC set within the same batch.  So if this condition doesn't
        hold, it's a bad block.  Instead of crashing, we should refuse to
        replay down the fork. */
-    FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec_buf_soff %u, fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
-                  block->fec_buf_sz, block->fec_buf_soff, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
+    FD_LOG_INFO(( "bad block: fec_buf_sz %u, fec->data_sz %lu, fec->mr %s, slot %lu, parent slot %lu",
+                  block->fec_buf_sz, fec->fec->data_sz, FD_BASE58_ENC_32_ALLOCA( fec->fec->key.mr.hash ), fec->slot, fec->parent_slot ));
     print_block( block );
     subtree_abandon( sched, block );
     sched->metrics->bytes_dropped_cnt += fec->fec->data_sz;
