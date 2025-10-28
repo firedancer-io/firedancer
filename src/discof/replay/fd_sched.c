@@ -1475,6 +1475,11 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
                    !block->staged    || /* parent is in the dispatcher and staged but this block is unstaged */
                    block->staging_lane!=parent->staging_lane; /* this block is on a different staging lane than its parent */
 
+    if( FD_UNLIKELY( in_order && block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] ) ) {
+      FD_TEST( block_pool_ele( sched, sched->active_bank_idx )==block );
+      sched->active_bank_idx = ULONG_MAX;
+    }
+
     /* We inform the dispatcher of an abandon only when there are no
        more in-flight transactions.  Otherwise, if the dispatcher
        recycles the same txn_id that was just abandoned, and we receive
@@ -1504,12 +1509,6 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
         sched->staged_bitset = fd_ulong_clear_bit( sched->staged_bitset, (int)block->staging_lane );
         sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
       }
-    }
-
-    if( FD_UNLIKELY( in_order && block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] ) ) {
-      FD_TEST( block_pool_ele( sched, sched->active_bank_idx )==block );
-      /* Dying blocks should not be active. */
-      sched->active_bank_idx = ULONG_MAX;
     }
   }
 
