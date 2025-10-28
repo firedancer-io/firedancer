@@ -4206,7 +4206,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
   if( FD_UNLIKELY( insert_entry == NULL ) ) {
     /* FIXME This has ~1e-6 probability of happening with 10M conns
        Retry generating our_conn_id instead of logging a warning */
-    FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID %lu with map size %lu", our_conn_id, fd_quic_conn_map_key_cnt( state->conn_map ) ));
+    fd_quic_conn_map_t * entry = fd_quic_conn_query1( state->conn_map, our_conn_id, NULL );
+    FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID %lu with map size %lu, existing entry %p with conn state %u",
+                      our_conn_id, fd_quic_conn_map_key_cnt( state->conn_map ), (void*)entry,
+                      entry && entry->conn ? entry->conn->state : UINT_MAX ));
     return NULL;
   }
 
