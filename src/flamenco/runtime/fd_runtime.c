@@ -968,11 +968,11 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       ulong * nonvote_failed_txn_count = fd_bank_nonvote_failed_txn_count_modify( bank );
       FD_ATOMIC_FETCH_AND_ADD( nonvote_failed_txn_count, 1 );
     }
-  } else {
-    if( FD_UNLIKELY( txn_ctx->exec_err ) ){
-      ulong * failed_txn_count = fd_bank_failed_txn_count_modify( bank );
-      FD_ATOMIC_FETCH_AND_ADD( failed_txn_count, 1 );
-    }
+  }
+
+  if( FD_UNLIKELY( txn_ctx->exec_err ) ){
+    ulong * failed_txn_count = fd_bank_failed_txn_count_modify( bank );
+    FD_ATOMIC_FETCH_AND_ADD( failed_txn_count, 1 );
   }
 
   ulong * total_compute_units_used = fd_bank_total_compute_units_used_modify( bank );
