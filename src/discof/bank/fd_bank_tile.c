@@ -246,7 +246,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        in finalize anyway. */
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
 
-    fd_cost_tracker_t * ct = fd_bank_cost_tracker_locking_query( bank );
+    fd_cost_tracker_t const * ct = fd_bank_cost_tracker_locking_query( bank );
     FD_LOG_DEBUG(("ACCEPT %u BLOCK COST %lu", txn->bank_cu.rebated_cus, ct->block_cost));
     fd_bank_cost_tracker_end_locking_query(bank);
 
