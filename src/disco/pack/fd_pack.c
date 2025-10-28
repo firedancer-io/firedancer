@@ -2521,6 +2521,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
     /* Add any remaining CUs/txns to the non-vote limits */
     txn_limit += vote_reserved_txns - status1.txns_scheduled;
     cu_limit  += vote_cus - status1.cus_scheduled;
+    FD_LOG_DEBUG(("BLOCK COST %lu", pack->cumulative_block_cost));
   }
 
   /* Bundle can't mix with votes, so only try to schedule a bundle if we
@@ -2540,10 +2541,10 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   /* Fill any remaining space with non-vote transactions */
   if( FD_LIKELY( schedule_flags & FD_PACK_SCHEDULE_TXN ) ) {
     status = fd_pack_schedule_impl( pack, pack->pending,       cu_limit, txn_limit,          byte_limit, bank_tile, pack->pending_smallest,       use_by_bank_txn, out+scheduled );
-
     scheduled                   += status.txns_scheduled;
     pack->cumulative_block_cost += status.cus_scheduled;
     pack->data_bytes_consumed   += status.bytes_scheduled;
+    FD_LOG_DEBUG(("BLOCK COST %lu", pack->cumulative_block_cost));
   }
 
   ulong nonempty = (ulong)(scheduled>0UL);
@@ -2593,6 +2594,7 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
+  FD_LOG_DEBUG(("REBATE %lu", pack->cumulative_block_cost));
   /* For now, we want to ignore the microblock count rebate.  There are
      3 places the microblock count is kept (here, in the pack tile, and
      in the PoH tile), and they all need to count microblocks that end

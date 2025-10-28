@@ -129,11 +129,11 @@ ulong
 fd_pack_rebate_sum_report( fd_pack_rebate_sum_t * s,
                            fd_pack_rebate_t     * out ) {
   if( FD_UNLIKELY( (s->ib_result==0) & (s->total_cost_rebate==0UL) & (s->writer_cnt==0U) ) ) {
-    FD_LOG_NOTICE(("skipping report %d %lu %d", s->ib_result, s->total_cost_rebate, s->writer_cnt));
+    FD_LOG_DEBUG(("skipping report %d %lu %d", s->ib_result, s->total_cost_rebate, s->writer_cnt));
     return 0UL;
   }
   if( s->total_cost_rebate ) {
-    FD_LOG_NOTICE(("total_cost_rebate %lu vote_cost_rebate %lu data_bytes_rebate %lu microblock_cnt_rebate %lu ib_result %d", s->total_cost_rebate, s->vote_cost_rebate, s->data_bytes_rebate, s->microblock_cnt_rebate, s->ib_result));
+    FD_LOG_DEBUG(("total_cost_rebate %lu vote_cost_rebate %lu data_bytes_rebate %lu microblock_cnt_rebate %lu ib_result %d", s->total_cost_rebate, s->vote_cost_rebate, s->data_bytes_rebate, s->microblock_cnt_rebate, s->ib_result));
   }
   out->total_cost_rebate       = s->total_cost_rebate;          s->total_cost_rebate       = 0UL;
   out->vote_cost_rebate        = s->vote_cost_rebate;           s->vote_cost_rebate        = 0UL;
