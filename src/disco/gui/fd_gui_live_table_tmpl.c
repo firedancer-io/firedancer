@@ -573,7 +573,7 @@ LIVE_TABLE_(new)( void * shmem, ulong max_rows ) {
   for( ulong i=0; i<LIVE_TABLE_MAX_SORT_KEY_CNT; i++ ) _table->treaps_is_active[ i ] = 0;
 
   LIVE_TABLE_(private_column_t) cols[ LIVE_TABLE_COLUMN_CNT ] = LIVE_TABLE_COLUMNS;
-  FD_TEST( LIVE_TABLE_COLUMN_CNT == sizeof(cols)/sizeof(LIVE_TABLE_(private_column_t)) );
+  FD_STATIC_ASSERT( LIVE_TABLE_COLUMN_CNT == sizeof(cols)/sizeof(LIVE_TABLE_(private_column_t)), column count is wrong  );
 
   /* live_table_treap_new( ... ) not called since all treaps start as inactive */
 
