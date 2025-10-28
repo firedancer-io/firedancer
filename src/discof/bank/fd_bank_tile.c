@@ -193,6 +193,34 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->exec_err ) ]++;
 
+    /* Commit must succeed so no failure path.  Once commit is called,
+       the transactions MUST be mixed into the PoH otherwise we will
+       fork and diverge, so the link from here til PoH mixin must be
+       completely reliable with nothing dropped.
+
+       fd_runtime_finalize_txn checks if the transaction fits into the
+       block with the cost tracker.  If it doesn't fit, flags is set to
+       zero.  A key invariant of the leader pipeline is that pack
+       ensures all transactions must fit already, so it is a fatal error
+       if that happens.  We cannot reject the transaction here as there
+       would be no way to undo the partially applied changes to the bank
+       in finalize anyway. */
+    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+
+    if( FD_UNLIKELY( !txn_ctx->flags ) ) {
+      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+      uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
+      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+      FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
+                    "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
+                    "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
+                    FD_BASE58_ENC_64_ALLOCA( signature ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                    cost_tracker->allocated_accounts_data_size,
+                    cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
+                    cost_tracker->account_cost_limit ));
+    }
+
     uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
     uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
 
@@ -231,37 +259,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    txn_ctx->exec_err ));
     }
 
-    /* Commit must succeed so no failure path.  Once commit is called,
-       the transactions MUST be mixed into the PoH otherwise we will
-       fork and diverge, so the link from here til PoH mixin must be
-       completely reliable with nothing dropped.
-
-       fd_runtime_finalize_txn checks if the transaction fits into the
-       block with the cost tracker.  If it doesn't fit, flags is set to
-       zero.  A key invariant of the leader pipeline is that pack
-       ensures all transactions must fit already, so it is a fatal error
-       if that happens.  We cannot reject the transaction here as there
-       would be no way to undo the partially applied changes to the bank
-       in finalize anyway. */
-    fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
-
     } FD_SPAD_FRAME_END;
-
-    if( FD_UNLIKELY( !txn_ctx->flags ) ) {
-      fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-      fd_hash_t * signature = (fd_hash_t *)((uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off);
-      int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
-      FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-      FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
-                    "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
-                    "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
-                    FD_BASE58_ENC_32_ALLOCA( signature->uc ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
-                    cost_tracker->allocated_accounts_data_size,
-                    cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
-                    cost_tracker->account_cost_limit ));
-    }
-
-    FD_TEST( txn_ctx->flags );
   }
 
   /* Indicate to pack tile we are done processing the transactions so
