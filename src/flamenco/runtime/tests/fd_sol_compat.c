@@ -15,6 +15,9 @@
 #include "generated/txn.pb.h"
 #include "generated/type.pb.h"
 
+#include "flatbuffers/generated/elf_reader.h"
+#include "flatbuffers/generated/flatbuffers_common_reader.h"
+
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
@@ -286,4 +289,41 @@ sol_compat_shred_parse_v1( uchar *       out,
     output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
     pb_release( &fd_exec_test_shred_binary_t_msg, input );
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
+}
+
+/*
+ * execute_v2
+   Unlike sol_compat_execute_v1 APIs, v2 APIs use flatbuffers for
+   zero-copy decoding. Returns SOL_COMPAT_V2_SUCCESS on success and
+   SOL_COMPAT_V2_FAILURE on failure.
+
+   out: output buffer
+   out_sz: output buffer size
+   in: input buffer
+   in_sz: input buffer size (unused)
+
+   Since flatbuffers utilizes zero-copy decoding, the v2 API does not
+   require an input buffer size. Therefore, it is the caller's
+   responsibility to ensure the input buffer is well-formed (preferably
+   using a call to _verify_as_root) to avoid any OOB reads.
+
+   TODO: Make sol_compat_v2 APIs infallible???
+ */
+
+int
+sol_compat_elf_loader_v2( uchar *            out,
+                          ulong *            out_sz,
+                          uchar const *      in,
+                          ulong FD_FN_UNUSED in_sz ) {
+  SOL_COMPAT_NS(ELFLoaderCtx_table_t) input = SOL_COMPAT_NS(ELFLoaderCtx_as_root( in ));
+  if( FD_UNLIKELY( !input ) ) return 0;
+
+  int err = fd_solfuzz_fb_execute_wrapper( runner, input, fd_solfuzz_fb_elf_loader_run );
+  if( FD_UNLIKELY( err==SOL_COMPAT_V2_FAILURE ) ) return err;
+
+  ulong buffer_sz = flatcc_builder_get_buffer_size( runner->fb_builder );
+  flatcc_builder_copy_buffer( runner->fb_builder, out, buffer_sz );
+  *out_sz = buffer_sz;
+
+  return SOL_COMPAT_V2_SUCCESS;
 }

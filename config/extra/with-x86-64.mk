@@ -20,5 +20,6 @@ include config/extra/with-bzip2.mk
 include config/extra/with-lz4.mk
 include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
+include config/extra/with-flatcc.mk
 
 FD_ARCH_SUPPORTS_SANDBOX:=1

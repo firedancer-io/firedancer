@@ -15,6 +15,7 @@
 #include "../../accdb/fd_accdb_user.h"
 #include "../../progcache/fd_progcache_admin.h"
 #include "../../progcache/fd_progcache_user.h"
+#include "flatcc/flatcc_builder.h"
 
 /* A fd_solfuzz_runner_t object processes solfuzz inputs.  Can be reused
    for different inputs, even of different types.  Single-thread per
@@ -41,6 +42,8 @@ struct fd_solfuzz_runner {
   fd_exec_stack_t *    exec_stack;
   fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;
+
+  flatcc_builder_t     fb_builder[1]; /* Persistent flatbuffers builder */
 
   int enable_vm_tracing;
 };
@@ -172,6 +175,10 @@ fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
                               void **               output_,
                               void *                output_buf,
                               ulong                 output_bufsz );
+
+int
+fd_solfuzz_fb_elf_loader_run( fd_solfuzz_runner_t * runner,
+                              void const *          input_ );
 
 int
 fd_solfuzz_pb_elf_loader_fixture( fd_solfuzz_runner_t * runner,
