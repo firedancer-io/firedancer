@@ -91,7 +91,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build_gcc:
-    runs-on: rocky8
+    runs-on:
+      labels: rocky8
+      group: fd-public-repo
     if: ${{ inputs.gcc != 'none' }}
     steps:
       - uses: actions/checkout@v5
@@ -144,7 +146,9 @@ jobs:
           contrib/build.sh --no-rust --no-clang ${{ env.BUILD_ARGS }}
 
   build_clang:
-    runs-on: rocky9
+    runs-on:
+      labels: rocky9
+      group: fd-public-repo
     if: ${{ inputs.clang != 'none' }}
     steps:
       - uses: actions/checkout@v5
@@ -197,7 +201,9 @@ jobs:
           contrib/build.sh --no-rust --no-gcc ${{ env.BUILD_ARGS }}
 
   build_arm:
-    runs-on: ARM64
+    runs-on:
+      labels: ARM64
+      group: fd-public-repo
     if: ${{ inputs.build_arm }}
     strategy:
       matrix:
