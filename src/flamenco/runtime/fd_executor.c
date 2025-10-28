@@ -425,7 +425,6 @@ static ulong
 load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
                           fd_txn_account_t *  acct,
                           uchar               is_writable,
-                          ulong               epoch,
                           uchar               unknown_acc ) {
 
   /* Handling the sysvar instructions account explictly.
@@ -454,12 +453,6 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L828-L835 */
     if( is_writable ) {
-      fd_epoch_schedule_t const epoch_schedule = fd_bank_epoch_schedule_get( txn_ctx->bank );
-      fd_rent_t           const rent           = fd_bank_rent_get( txn_ctx->bank );
-      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account(
-          &epoch_schedule, &rent,
-          fd_bank_slots_per_year_get( txn_ctx->bank ),
-          acct, epoch );
       acct->starting_lamports = fd_txn_account_get_lamports( acct ); /* TODO: why do we do this everywhere? */
     }
     return fd_ulong_sat_add( base_account_size, fd_txn_account_get_data_len( acct ) );
@@ -488,8 +481,6 @@ static int
 fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong requested_loaded_accounts_data_size = txn_ctx->compute_budget_details.loaded_accounts_data_size_limit;
 
-  ulong const epoch = fd_bank_epoch_get( txn_ctx->bank );
-
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acct = &txn_ctx->accounts[i];
@@ -517,7 +508,7 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     /* https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L733-L740 */
-    ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, epoch, unknown_acc );
+    ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, unknown_acc );
     int err = accumulate_and_check_loaded_account_data_size( loaded_acc_size,
                                                              requested_loaded_accounts_data_size,
                                                              &txn_ctx->loaded_accounts_data_size );
@@ -733,10 +724,6 @@ fd_collect_loaded_account( fd_exec_txn_ctx_t *      txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L550-L689 */
 static int
 fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_epoch_schedule_t schedule[1] = { fd_sysvar_cache_epoch_schedule_read_nofail( fd_bank_sysvar_cache_query( txn_ctx->bank ) ) };
-
-  ulong epoch = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
-
   /* Programdata accounts that are loaded by this transaction.
      We keep track of these to ensure they are not counted twice.
      https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L559 */
@@ -785,7 +772,7 @@ fd_executor_load_transaction_accounts_simd_186( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* Load and collect any remaining accounts
        https://github.com/anza-xyz/agave/blob/v2.3.1/svm/src/account_loader.rs#L652-L659 */
-    ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, epoch, unknown_acc );
+    ulong loaded_acc_size = load_transaction_account( txn_ctx, acct, is_writable, unknown_acc );
     int err = fd_collect_loaded_account(
       txn_ctx,
       acct,
@@ -979,16 +966,6 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 
-  fd_epoch_schedule_t const * epoch_schedule = fd_bank_epoch_schedule_query( txn_ctx->bank );
-  fd_rent_t           const * rent           = fd_bank_rent_query( txn_ctx->bank );
-
-  /* Collect rent from the fee payer
-     https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L583-L589 */
-  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account(
-      epoch_schedule, rent,
-      fd_bank_slots_per_year_get( txn_ctx->bank ),
-      fee_payer_rec,
-      fd_slot_to_epoch( epoch_schedule, txn_ctx->slot, NULL ) );
 
   /* Calculate transaction fees
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L597-L606 */
@@ -1003,7 +980,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L609-L616 */
-  err = fd_validate_fee_payer( fee_payer_rec, rent, total_fee, txn_ctx->spad );
+  err = fd_validate_fee_payer( fee_payer_rec, fd_bank_rent_query( txn_ctx->bank ), total_fee, txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

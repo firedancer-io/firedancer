@@ -213,15 +213,6 @@ void
 fd_runtime_update_leaders( fd_bank_t *          bank,
                            fd_runtime_stack_t * runtime_stack );
 
-/* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
-   and will be torn out entirely very soon. */
-ulong
-fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
-                                      fd_rent_t const *           rent,
-                                      double                      slots_per_year,
-                                      fd_txn_account_t *          acc,
-                                      ulong                       epoch );
-
 void
 fd_runtime_update_slots_per_epoch( fd_bank_t * bank,
                                    ulong       slots_per_epoch );
