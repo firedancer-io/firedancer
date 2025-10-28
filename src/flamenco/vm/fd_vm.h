@@ -28,7 +28,6 @@ struct __attribute__((aligned(8UL))) fd_vm_input_region {
    uint  region_sz;              /* Size of the memory region. */
    ulong address_space_reserved; /* The amount of address space reserved for the region. */
    uchar is_writable;            /* If the region can be written to or is read-only */
-   ulong padding;                /* Empty padding at the start of the region.*/
    ulong acc_region_meta_idx;    /* Index of the acc_region_meta_t struct for the account corresponding to this region. */
 };
 typedef struct fd_vm_input_region fd_vm_input_region_t;
@@ -47,7 +46,8 @@ struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
    /* The transaction account corresponding to this account. */
    fd_txn_account_t * acct;
    /* The expected virtual offsets of the serialized pubkey, lamports and owner
-      for the account corresponding to this region.
+      for the account corresponding to this region. Relative to the start of the
+      account's input region vaddr.
       Used for CPI security checks. */
    uint               expected_pubkey_offset;
    uint               expected_lamports_offset;
