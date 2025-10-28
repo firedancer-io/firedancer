@@ -45,7 +45,7 @@ fd_quic_limits_t quic_limits = {
   .inflight_frame_cnt          = 16UL * MAX_STAKED_LEADERS,
   .min_inflight_frame_cnt_conn = 4UL,
   .stream_id_cnt               = 64UL,
-  .tx_buf_sz                   = 1UL<<11,
+  .tx_buf_sz                   = FD_TXN_MTU,
   .stream_pool_cnt             = 1UL<<13
 };
 

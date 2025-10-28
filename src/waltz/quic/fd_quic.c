@@ -300,8 +300,8 @@ static void
 fd_quic_stream_init( fd_quic_stream_t * stream ) {
   stream->context            = NULL;
 
+  stream->unacked_low        = 0;
   stream->tx_buf.head        = 0;
-  stream->tx_buf.tail        = 0;
   stream->tx_sent            = 0;
 
   stream->stream_flags       = 0;
@@ -1137,12 +1137,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
-  /* store data from data into tx_buf
-      this stores, but does not move the head offset */
+  /* store data from data into tx_buf */
   fd_quic_buffer_store( tx_buf, data, data_sz );
-
-  /* advance head */
-  tx_buf->head += data_sz;
 
   /* adjust flow control limits on stream and connection */
   stream->tx_tot_data += data_sz;
@@ -4449,26 +4445,23 @@ fd_quic_pkt_meta_retry( fd_quic_t      *  quic,
             stream = stream_entry->stream;
 
             /* do not try sending data that has been acked */
-            ulong offset = fd_ulong_max( pkt_meta->val.range.offset_lo, stream->tx_buf.tail );
+            ulong offset = fd_ulong_max( pkt_meta->val.range.offset_lo, stream->unacked_low );
 
             /* any data left to retry? */
             stream->tx_sent = fd_ulong_min( stream->tx_sent, offset );
 
-            /* do we have anything to send? */
-            /* TODO may need to send fin, also */
-            if( FD_LIKELY( stream->tx_sent < stream->tx_buf.head ) ) {
-
-              /* insert into send list */
-              FD_QUIC_STREAM_LIST_REMOVE( stream );
-              FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
-
-              /* set the data to go out on the next packet */
-              stream->stream_flags   |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
-              stream->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
-            } else {
-              /* fd_quic_tx_stream_free also notifies the user */
-              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
+            /* We must have something to send if the stream was found */
+            if( !( (stream->tx_sent < stream->tx_buf.head) | (stream->state & FD_QUIC_STREAM_STATE_TX_FIN) ) ) {
+              FD_LOG_CRIT(( "unexpected retry for completed stream %lu", stream_id ));
             }
+
+            /* insert into send list */
+            FD_QUIC_STREAM_LIST_REMOVE( stream );
+            FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
+
+            /* set the data to go out on the next packet */
+            stream->stream_flags   |= FD_QUIC_STREAM_FLAGS_UNSENT; /* we have unsent data */
+            stream->upd_pkt_number  = FD_QUIC_PKT_NUM_PENDING;
           }
         } while(0);
         break;
@@ -4639,13 +4632,11 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
               ( stream_entry->stream->stream_flags & FD_QUIC_STREAM_FLAGS_DEAD ) == 0 ) ) {
           stream = stream_entry->stream;
 
-          /* do not try sending data that has been acked */
-
-          ulong tx_tail = stream->tx_buf.tail;
+          ulong tx_tail = stream->unacked_low;
           ulong tx_sent = stream->tx_sent;
 
           /* ignore bytes which were already acked */
-          if( range.offset_lo < tx_tail ) range.offset_lo = tx_tail;
+          range.offset_lo = fd_ulong_max( range.offset_lo, tx_tail );
 
           /* verify offset_hi */
           if( FD_UNLIKELY( range.offset_hi > stream->tx_buf.head ) ) {
@@ -4654,104 +4645,53 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
             /* stream */
             fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_INTERNAL_ERROR, __LINE__ );
             return;
-          } else {
-            /* did they ack the first byte in the range? */
-            if( FD_LIKELY( range.offset_lo == tx_tail ) ) {
+          }
 
-              /* then simply move the tail up */
-              tx_tail = range.offset_hi;
-
-              /* need to clear the acks */
-              ulong   tx_mask  = stream->tx_buf.cap - 1ul;
-              uchar * tx_ack   = stream->tx_ack;
-              for( ulong j = range.offset_lo; j < range.offset_hi; ) {
-                ulong k = j & tx_mask;
-                if( ( k & 7ul ) == 0ul && j + 8ul <= range.offset_hi ) {
-                  /* process 8 bits */
-                  tx_ack[k>>3ul] = 0;
-                  j+=8;
-                } else {
-                  /* process 1 bit */
-                  tx_ack[k>>3ul] &= (uchar)(0xff ^ ( 1ul << ( k & 7ul ) ) );
-                  j++;
-                }
-              }
-            } else {
-              /* set appropriate bits in tx_ack */
-              /* TODO optimize this */
-              ulong   tx_mask  = stream->tx_buf.cap - 1ul;
-              ulong   cnt      = range.offset_hi - range.offset_lo;
-              uchar * tx_ack   = stream->tx_ack;
-              for( ulong j = 0ul; j < cnt; ) {
-                ulong k = ( j + range.offset_lo ) & tx_mask;
-                if( ( k & 7ul ) == 0ul && j + 8ul <= cnt ) {
-                  /* set whole byte */
-                  tx_ack[k>>3ul] = 0xffu;
-
-                  j += 8ul;
-                } else {
-                  /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
-                  tx_ack[k>>3ul] |= (uchar)( 1ul << ( k & 7ul ) );
-                  j++;
-                }
-              }
-
-              /* determine whether tx_tail may be moved up */
-              for( ulong j = tx_tail; j < tx_sent; ) {
-                ulong k = j & tx_mask;
-
-                /* can we skip a whole byte? */
-                if( ( k & 7ul ) == 0ul && j + 8ul <= tx_sent && tx_ack[k>>3ul] == 0xffu ) {
-                  tx_ack[k>>3ul] = 0u;
-                  tx_tail       += 8ul;
-
-                  j += 8ul;
-                } else {
-                  if( tx_ack[k>>3ul] & ( 1u << ( k & 7u ) ) ) {
-                    tx_ack[k>>3ul] = (uchar)( tx_ack[k>>3ul] & ~( 1u << ( k & 7u ) ) );
-                    tx_tail++;
-                    j++;
-                  } else {
-                    break;
-                  }
-                }
-              }
-            }
-
-            /* For convenience */
-            uint fin_state_mask = FD_QUIC_STREAM_STATE_TX_FIN | FD_QUIC_STREAM_STATE_RX_FIN;
-
-            /* move up tail, and adjust to maintain circular queue invariants, and send
-                max_data and max_stream_data, if necessary */
-            if( tx_tail > stream->tx_buf.tail ) {
-              stream->tx_buf.tail = tx_tail;
-
-              /* if we have data to send, reschedule */
-              if( fd_quic_buffer_used( &stream->tx_buf ) ) {
-                stream->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;
-                if( !FD_QUIC_STREAM_ACTION( stream ) ) {
-                  /* going from 0 to nonzero, so insert into action list */
-                  FD_QUIC_STREAM_LIST_REMOVE( stream );
-                  FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, stream );
-                }
-
-                stream->stream_flags |= FD_QUIC_STREAM_FLAGS_UNSENT;
-
-                fd_quic_svc_prep_schedule_now( conn );
+          uchar * tx_ack = stream->tx_ack;
+          /* did they ack the first unacked byte? */
+          if( FD_LIKELY( range.offset_lo == tx_tail ) ) {
+            /* move tail to first unacked byte */
+            tx_tail = range.offset_hi;
+            while( tx_tail < tx_sent ) {
+              /* TODO - optimize this for larger strides */
+              /* can we skip a whole byte? */
+              if( ( tx_tail & 7ul ) == 0ul && tx_tail + 8ul <= tx_sent && tx_ack[tx_tail>>3ul] == 0xffu ) {
+                tx_tail += 8ul;
               } else {
-                /* if no data to send, check whether fin bits are set */
-                if( ( stream->state & fin_state_mask ) == fin_state_mask ) {
-                  /* fd_quic_tx_stream_free also notifies the user */
-                  fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
+                if( tx_ack[tx_tail>>3ul] & ( 1u << ( tx_tail & 7u ) ) ) {
+                  tx_tail++;
+                } else {
+                  break;
                 }
               }
-            } else if( tx_tail == stream->tx_buf.tail &&
-                ( stream->state & fin_state_mask ) == fin_state_mask ) {
-              /* fd_quic_tx_stream_free also notifies the user */
-              fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
             }
+            stream->unacked_low = tx_tail;
+          } else {
+            /* mark this range as acked in tx_ack, so we can skip it later */
+            /* TODO optimize this for larger strides */
+            for( ulong k = range.offset_lo; k < range.offset_hi; ) {
+              if( ( k & 7ul ) == 0ul && k + 8ul <= range.offset_hi ) {
+                /* set whole byte */
+                tx_ack[k>>3ul] = 0xffu;
+                k += 8ul;
+              } else {
+                /* compiler is not smart enough to know ( 1u << ( k & 7u ) ) fits in a uchar */
+                tx_ack[k>>3ul] |= (uchar)( 1ul << ( k & 7ul ) );
+                k++;
+              }
+            }
+          }
 
-            /* we could retransmit (timeout) the bytes which have not been acked (by implication) */
+          /* For convenience */
+          uint fin_state_mask = FD_QUIC_STREAM_STATE_TX_FIN | FD_QUIC_STREAM_STATE_RX_FIN;
+
+          /* Free stream if it's done:
+              1. peer has acked every data byte user has tried to send
+              2. peer has acked the fin --> user has fin'd */
+          if( tx_tail == stream->tx_buf.head &&
+              ( stream->state & fin_state_mask ) == fin_state_mask ) {
+            /* fd_quic_tx_stream_free also notifies the user */
+            fd_quic_tx_stream_free( conn->quic, conn, stream, FD_QUIC_STREAM_NOTIFY_END );
           }
         }
       } while(0);
@@ -5009,9 +4949,9 @@ fd_quic_tx_stream_free( fd_quic_t *        quic,
                         int                code ) {
 
   /* TODO rename FD_QUIC_NOTIFY_END to FD_QUIC_STREAM_NOTIFY_END et al */
-  if( FD_LIKELY( stream->state != FD_QUIC_STREAM_STATE_UNUSED ) ) {
+  if( FD_LIKELY( stream->state != FD_QUIC_STREAM_STATE_DEAD ) ) {
     fd_quic_cb_stream_notify( quic, stream, stream->context, code );
-    stream->state = FD_QUIC_STREAM_STATE_UNUSED;
+    stream->state = FD_QUIC_STREAM_STATE_DEAD;
   }
 
   ulong stream_id = stream->stream_id;
