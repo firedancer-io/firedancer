@@ -70,8 +70,6 @@ FD_STATIC_ASSERT( FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_SLOT==321280UL, "Incorrec
 
 #define FD_COST_TRACKER_ALIGN (128UL)
 
-#define FD_COST_TRACKER_MAGIC (0xF17EDA2CE7C05170UL) /* FIREDANCER COST V0 */
-
 struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong block_cost;
   ulong vote_cost;
