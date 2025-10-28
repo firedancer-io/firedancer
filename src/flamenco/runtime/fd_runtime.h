@@ -215,16 +215,6 @@ fd_runtime_update_leaders( fd_bank_t *          bank,
 
 /* Block Level Execution Prep/Finalize ****************************************/
 
-#define FD_BLOCK_OK                          (0UL)
-#define FD_BLOCK_ERR_INCOMPLETE              (1UL)
-#define FD_BLOCK_ERR_INVALID_ENTRY_HASH      (2UL)
-#define FD_BLOCK_ERR_INVALID_LAST_TICK       (3UL)
-#define FD_BLOCK_ERR_TOO_FEW_TICKS           (4UL)
-#define FD_BLOCK_ERR_TOO_MANY_TICKS          (5UL)
-#define FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT (6UL)
-#define FD_BLOCK_ERR_TRAILING_ENTRY          (7UL)
-#define FD_BLOCK_ERR_DUPLICATE_BLOCK         (8UL)
-
 /* Load the accounts in the address lookup tables of txn into out_accts_alt */
 int
 fd_runtime_load_txn_address_lookup_tables(
