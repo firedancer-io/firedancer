@@ -60,6 +60,7 @@ fd_topo_run_tile_t dummy_tile_sign   = { .name = "sign"   };
 fd_topo_run_tile_t dummy_tile_metric = { .name = "metric" };
 fd_topo_run_tile_t dummy_tile_cswtch = { .name = "cswtch" };
 fd_topo_run_tile_t dummy_tile_gui    = { .name = "gui"    };
+fd_topo_run_tile_t dummy_tile_rpc    = { .name = "rpc"    };
 fd_topo_run_tile_t dummy_tile_plugin = { .name = "plugin" };
 fd_topo_run_tile_t dummy_tile_bencho = { .name = "bencho" };
 fd_topo_run_tile_t dummy_tile_benchg = { .name = "benchg" };
@@ -76,7 +77,6 @@ fd_topo_run_tile_t dummy_tile_send   = { .name = "send"   };
 fd_topo_run_tile_t dummy_tile_replay = { .name = "replay" };
 fd_topo_run_tile_t dummy_tile_exec   = { .name = "exec"   };
 fd_topo_run_tile_t dummy_tile_tower  = { .name = "tower"  };
-fd_topo_run_tile_t dummy_tile_rpcsrv = { .name = "rpcsrv" };
 fd_topo_run_tile_t dummy_tile_snapct = { .name = "snapct" };
 fd_topo_run_tile_t dummy_tile_snapld = { .name = "snapld" };
 fd_topo_run_tile_t dummy_tile_snapdc = { .name = "snapdc" };
@@ -102,6 +102,7 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_metric,
   &dummy_tile_cswtch,
   &dummy_tile_gui,
+  &dummy_tile_rpc,
   &dummy_tile_plugin,
   &dummy_tile_bencho,
   &dummy_tile_benchg,
@@ -118,7 +119,6 @@ fd_topo_run_tile_t * TILES[] = {
   &dummy_tile_replay,
   &dummy_tile_exec,
   &dummy_tile_tower,
-  &dummy_tile_rpcsrv,
   &dummy_tile_snapct,
   &dummy_tile_snapld,
   &dummy_tile_snapdc,

@@ -1,13 +1,11 @@
 #define _GNU_SOURCE
 #include "../../shared/commands/run/run.h"
 
-#include "../../../util/net/fd_ip4.h"
 #include "../../../util/tile/fd_tile_private.h"
 
-#include <sched.h>
-#include <stdlib.h> /* setenv */
-#include <errno.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sys/wait.h>
 
@@ -135,13 +133,13 @@ agave_boot( config_t const * config ) {
   }
 
   /* rpc */
-  if( config->rpc.port ) ADDH( "--rpc-port", config->rpc.port );
+  if( config->frankendancer.rpc.port ) ADDH( "--rpc-port", config->frankendancer.rpc.port );
   if( config->frankendancer.rpc.full_api ) ADD1( "--full-rpc-api" );
   if( config->frankendancer.rpc.private ) ADD1( "--private-rpc" );
   if( strcmp( config->frankendancer.rpc.public_address, "" ) ) ADD( "--public-rpc-address", config->frankendancer.rpc.public_address );
   if( strcmp( config->frankendancer.rpc.bind_address, "" ) ) ADD( "--rpc-bind-address", config->frankendancer.rpc.bind_address );
   if( config->frankendancer.rpc.transaction_history ) ADD1( "--enable-rpc-transaction-history" );
-  if( config->rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
+  if( config->frankendancer.rpc.extended_tx_metadata_storage ) ADD1( "--enable-extended-tx-metadata-storage" );
   if( config->frankendancer.rpc.only_known ) ADD1( "--only-known-rpc" );
   if( config->frankendancer.rpc.pubsub_enable_block_subscription ) ADD1( "--rpc-pubsub-enable-block-subscription" );
   if( config->frankendancer.rpc.pubsub_enable_vote_subscription ) ADD1( "--rpc-pubsub-enable-vote-subscription" );

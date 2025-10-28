@@ -677,12 +677,11 @@ fd_topo_initialize( config_t * config ) {
     /* No default fd_topob_tile_in connection to stake_out */
   }
 
-  int rpc_enabled = config->rpc.port;
+  int rpc_enabled = config->tiles.rpc.enabled;
   if( FD_UNLIKELY( rpc_enabled ) ) {
-    fd_topob_wksp( topo, "rpcsrv" );
-    fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_out",   0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in( topo, "rpcsrv", 0UL, "metric_in", "replay_stake", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    fd_topob_wksp( topo, "rpc" );
+    fd_topob_tile( topo, "rpc",  "rpc",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
+    fd_topob_tile_in( topo, "rpc",  0UL, "metric_in", "replay_out",  0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
 
   fd_topob_wksp( topo, "exec_replay" );
@@ -976,10 +975,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
     tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
 
-    /* specified by [tiles.replay] */
-
-    tile->replay.tx_metadata_storage = config->rpc.extended_tx_metadata_storage;
-
     tile->replay.txncache_obj_id  = fd_pod_query_ulong( config->topo.props, "txncache",  ULONG_MAX ); FD_TEST( tile->replay.txncache_obj_id !=ULONG_MAX );
     tile->replay.funk_obj_id      = fd_pod_query_ulong( config->topo.props, "funk",      ULONG_MAX ); FD_TEST( tile->replay.funk_obj_id     !=ULONG_MAX );
     tile->replay.progcache_obj_id = fd_pod_query_ulong( config->topo.props, "progcache", ULONG_MAX ); FD_TEST( tile->replay.progcache_obj_id!=ULONG_MAX );
@@ -1148,6 +1143,15 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->gui.schedule_strategy         = config->tiles.pack.schedule_strategy_enum;
     tile->gui.websocket_compression     = 1;
     tile->gui.frontend_release_channel  = config->development.gui.frontend_release_channel_enum;
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "rpc" ) ) ) {
+
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.rpc.rpc_listen_address, &tile->rpc.listen_addr ) ) )
+      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
+    tile->rpc.listen_port = config->tiles.rpc.rpc_listen_port;
+    tile->rpc.max_http_connections      = config->tiles.rpc.max_http_connections;
+    tile->rpc.max_http_request_length   = config->tiles.rpc.max_http_request_length;
+    tile->rpc.send_buffer_size_mb       = config->tiles.rpc.send_buffer_size_mb;
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ||
                           !strcmp( tile->name, "arch_w" ) ) ) {

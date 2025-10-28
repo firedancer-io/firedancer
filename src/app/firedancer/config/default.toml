@@ -429,15 +429,6 @@ user = ""
             # URL.
             url = "http://example.com:1234"
 
-[rpc]
-    # If nonzero, enable JSON RPC on this port, and use the next port
-    # for the RPC websocket.  If zero, disable JSON RPC.
-    port = 0
-
-    # If enabled, include CPI inner instructions, logs, and return data
-    # in the historical transaction info stored.
-    extended_tx_metadata_storage = false
-
 [consensus]
     # The shred version is a small hash of the genesis block and any
     # subsequent hard forks.  The validator client uses it to filter
@@ -1439,6 +1430,43 @@ user = ""
         # dropped.  Larger values make the GUI server more tolerant to
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
+
+    [tiles.rpc]
+        # If the RPC server is enabled.
+        enabled = true
+
+        # The address to listen on.  By default, if enabled, the RPC
+        # server  will only be accessible from the local machine.  If
+        # you wish to expose it to the network, you can change the
+        # listen address.
+        #
+        # The Firedancer team makes a best effort to secure the RPC
+        # endpoint but exposing it to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.  It also allows arbitrary peers to
+        # connect to your validator and waste resources on expensive RPC
+        # queries.
+        rpc_listen_address = "127.0.0.1"
+
+        # The port to listen on.
+        rpc_listen_port = 8899
+
+        # The maximum number of concurrent RPC requests to allow.  If
+        # too many connections are active, the oldest connection will be
+        # evicted to make room for new ones as they arrive.  Increasing
+        # this value can improve RPC performance but will increase
+        # memory usage.
+        max_http_connections = 1024
+
+        # Maximum length of an HTTP request including headers.
+        max_http_request_length = 8192
+
+        # All RPC connections share buffer space for outgoing RPC
+        # response data.  If this buffer runs out, the connections with
+        # the slowest recipients are dropped.  Larger values make the
+        # RPC server more tolerant to slow clients but also increase
+        # memory usage.
+        send_buffer_size_mb = 1024
 
     [tiles.archiver]
         enabled = false
