@@ -90,7 +90,7 @@ struct fd_send_tile_ctx {
   #define FD_SEND_MAX_IN_LINK_CNT 32UL
   fd_stem_context_t *  stem;
   fd_send_link_in_t    in_links[ FD_SEND_MAX_IN_LINK_CNT ];
-  fd_net_rx_bounds_t   net_in_bounds;
+  fd_net_rx_bounds_t   net_in_bounds[ FD_SEND_MAX_IN_LINK_CNT ];
   fd_send_link_out_t   gossip_verify_out[ 1 ];
   fd_send_link_out_t   net_out          [ 1 ];
 

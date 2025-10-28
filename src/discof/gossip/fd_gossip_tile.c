@@ -334,7 +334,7 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( FD_UNLIKELY( !strcmp( link->name, "sign_gossip" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SIGN;
       sign_in_tile_idx = i;
-    } else if( FD_UNLIKELY( !strcmp( link->name, "send_txns" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( link->name, "send_out" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_SEND;
     } else if( FD_UNLIKELY( !strcmp( link->name, "replay_stake" ) ) ) {
       ctx->in[ i ].kind = IN_KIND_STAKE;
