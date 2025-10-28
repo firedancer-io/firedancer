@@ -136,9 +136,6 @@ fd_block_id_ele_get_idx( fd_block_id_ele_t * ele_arr, fd_block_id_ele_t * ele ) 
 struct fd_replay_tile {
   fd_wksp_t * wksp;
 
-  /* tx_metadata_storage enables the log collector if enabled */
-  int tx_metadata_storage;
-
   fd_accdb_admin_t     accdb_admin[1];
   fd_accdb_user_t      accdb[1];
   fd_progcache_admin_t progcache_admin[1];
@@ -713,7 +710,6 @@ replay_block_start( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ticks_per_slot, slot, max_tick_height ) ) ) {
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
   }
-  bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
@@ -939,8 +935,6 @@ prepare_leader_bank( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ticks_per_slot, slot, max_tick_height ) ) ) {
     FD_LOG_CRIT(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", slot, ticks_per_slot ));
   }
-
-  ctx->leader_bank->flags |= fd_ulong_if( ctx->tx_metadata_storage, FD_BANK_FLAGS_EXEC_RECORDING, 0UL );
 
   int is_epoch_boundary = 0;
   fd_runtime_block_pre_execute_process_new_epoch(
@@ -2407,8 +2401,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( txncache_shmem );
   ctx->txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( ctx->txncache );
-
-  ctx->tx_metadata_storage = tile->replay.tx_metadata_storage;
 
   ctx->capture_ctx = NULL;
   if( FD_UNLIKELY( strcmp( "", tile->replay.solcap_capture ) || strcmp( "", tile->replay.dump_proto_dir ) ) ) {

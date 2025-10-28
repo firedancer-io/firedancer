@@ -1,15 +1,12 @@
 #define _GNU_SOURCE
-#include "../dev.h"
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
-#include "../../../../util/shmem/fd_shmem_private.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
 #include <unistd.h>
-#include <stdio.h>
 #include <sched.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -130,9 +127,18 @@ bench_cmd_fn( args_t *   args,
                                    config->tiles.quic.regular_transaction_listen_port,
                                    config->tiles.quic.quic_transaction_listen_port );
 
-  config->rpc.port     = fd_ushort_if( config->rpc.port, config->rpc.port, 8899 );
+  ushort rpc_port;
+  uint rpc_ip_addr;
   if( FD_UNLIKELY( !config->is_firedancer ) ) {
+    config->frankendancer.rpc.port     = fd_ushort_if( config->frankendancer.rpc.port, config->frankendancer.rpc.port, 8899 );
     config->frankendancer.rpc.full_api = 1;
+    rpc_port = config->frankendancer.rpc.port;
+    rpc_ip_addr = config->net.ip_addr;
+  } else {
+    if( FD_UNLIKELY( !config->tiles.rpc.enabled ) ) FD_LOG_ERR(( "RPC tile must be enabled to run bench" ));
+    rpc_port = config->tiles.rpc.rpc_listen_port;
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.rpc.rpc_listen_address, &rpc_ip_addr ) ) )
+      FD_LOG_ERR(( "failed to parse rpc listen address `%s`", config->tiles.rpc.rpc_listen_address ));
   }
 
   int is_auto_affinity = !strcmp( config->layout.affinity, "auto" );
@@ -158,8 +164,8 @@ bench_cmd_fn( args_t *   args,
                   config->layout.quic_tile_count,
                   dest_port,
                   config->net.ip_addr,
-                  config->rpc.port,
-                  config->net.ip_addr,
+                  rpc_port,
+                  rpc_ip_addr,
                   args->load.no_quic,
                   !config->is_firedancer );
 
