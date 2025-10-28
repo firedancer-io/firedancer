@@ -2661,7 +2661,8 @@ fd_rpc_replay_after_frag(fd_rpc_ctx_t * ctx, ulong sig ) {
 void
 fd_rpc_stake_during_frag( fd_rpc_ctx_t * ctx, void const * msg, ulong sz ) {
   (void)sz;
-  fd_multi_epoch_leaders_stake_msg_init( ctx->global->leaders, msg );
+  const fd_stake_weight_msg_t * stake_msg = msg;
+  fd_multi_epoch_leaders_stake_msg_init( ctx->global->leaders, msg, stake_msg->staked_cnt );
 }
 
 void
