@@ -387,6 +387,9 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   msg->bank_idx          = ctx->txn_ctx->bank_idx;
   msg->txn_exec->txn_idx = ctx->txn_idx;
   msg->txn_exec->err     = !(ctx->txn_ctx->flags&FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
+  if( FD_UNLIKELY( msg->txn_exec->err ) ) {
+    FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_ctx->exec_err ));
+  }
 
   fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, 0UL, 0UL );
 
