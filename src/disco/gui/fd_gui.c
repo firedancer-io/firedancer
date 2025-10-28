@@ -1866,7 +1866,10 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
   slot->transaction_fee        = transaction_fee;
   slot->priority_fee           = priority_fee;
   slot->tips                   = tips;
-  slot->compute_units          = compute_units;
+
+  /* In Frankendancer, CUs come from our own leader pipeline (the field
+     sent from the Agave codepath is zero'd out) */
+  slot->compute_units          = fd_uint_if( !gui->summary.is_full_client && slot->mine, slot->compute_units, compute_units );
 
   if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
     gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
