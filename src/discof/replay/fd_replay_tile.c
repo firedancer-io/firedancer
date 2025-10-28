@@ -2075,11 +2075,13 @@ process_tower_update( fd_replay_tile_t *           ctx,
     ulong ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
     if( FD_UNLIKELY( reset->hashcnt_per_tick==1UL ) ) {
       /* Low power producer, maximum of one microblock per tick in the slot */
+      FD_LOG_INFO(("LOW POWER PRODUCER"));
       reset->max_microblocks_in_slot = ticks_per_slot;
     } else {
       /* See the long comment in after_credit for this limit */
       reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
     }
+    FD_LOG_INFO(("MAX MICROBLOCK IN SLOT %lu", reset->max_microblocks_in_slot));
     reset->next_leader_slot = ctx->next_leader_slot;
 
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
