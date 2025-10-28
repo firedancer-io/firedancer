@@ -540,7 +540,7 @@ during_frag( fd_send_tile_ctx_t * ctx,
   ulong         kind         = in_link->kind;
 
   if( FD_UNLIKELY( kind==IN_KIND_NET ) ) {
-    void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
+    void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds[ in_idx ], chunk, ctl, sz );
     fd_memcpy( ctx->quic_buf, src, sz );
   }
 
@@ -624,9 +624,7 @@ setup_input_link( fd_send_tile_ctx_t * ctx,
                   fd_topo_t          * topo,
                   fd_topo_tile_t     * tile,
                   ulong                kind,
-                  const char         * name ) {
-  ulong in_idx = fd_topo_find_tile_in_link( topo, tile, name, 0 );
-  FD_TEST( in_idx!=ULONG_MAX );
+                  ulong                in_idx) {
   fd_topo_link_t    * in_link      = &topo->links[ tile->in_link_id[ in_idx ] ];
   fd_send_link_in_t * in_link_desc = &ctx->in_links[ in_idx ];
 
@@ -704,14 +702,22 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->src_port    = tile->send.send_src_port;
   fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->src_ip_addr, ctx->src_port );
 
-  setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, "gossip_out"   );
-  setup_input_link( ctx, topo, tile, IN_KIND_STAKE,  "replay_stake" );
-  setup_input_link( ctx, topo, tile, IN_KIND_TOWER,  "tower_out"    );
+  /* Initialize input links */
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( 0==strcmp( link->name, "net_send" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_NET, i );
+      fd_net_rx_bounds_init( &ctx->net_in_bounds[ i ], link->dcache );
+    } else if( 0==strcmp( link->name, "gossip_out" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_GOSSIP, i );
+    } else if( 0==strcmp( link->name, "replay_stake" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_STAKE, i );
+    } else if( 0==strcmp( link->name, "tower_out" ) ) {
+      setup_input_link( ctx, topo, tile, IN_KIND_TOWER, i );
+    }
+  }
 
-  fd_send_link_in_t * net_in = setup_input_link( ctx, topo, tile, IN_KIND_NET, "net_send" );
-  fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );
-
-  setup_output_link( ctx->gossip_verify_out, topo, tile, "send_txns" );
+  setup_output_link( ctx->gossip_verify_out, topo, tile, "send_out"  );
   setup_output_link( ctx->net_out,           topo, tile, "send_net"  );
 
   /* Set up keyguard(s) */
