@@ -338,22 +338,6 @@ fd_runtime_freeze( fd_bank_t *               bank,
 
 }
 
-/* fd_runtime_collect_rent_from_account performs rent collection duties.
-   Although the Solana runtime prevents the creation of new accounts
-   that are subject to rent, some older accounts are still undergo the
-   rent collection process.  Updates the account's 'rent_epoch' if
-   needed. Returns the amount of rent collected. */
-/* https://github.com/anza-xyz/agave/blob/v2.0.10/svm/src/account_loader.rs#L71-96 */
-ulong
-fd_runtime_collect_rent_from_account( fd_epoch_schedule_t const * schedule,
-                                      fd_rent_t const *           rent,
-                                      double                      slots_per_year,
-                                      fd_txn_account_t *          acc,
-                                      ulong                       epoch ) {
-  (void)schedule; (void)rent; (void)slots_per_year; (void)acc; (void)epoch;
-  return 0UL;
-}
-
 /******************************************************************************/
 /* Block-Level Execution Preparation/Finalization                             */
 /******************************************************************************/

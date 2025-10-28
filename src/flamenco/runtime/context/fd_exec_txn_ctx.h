@@ -118,7 +118,6 @@ struct fd_exec_txn_ctx {
   fd_hash_t                       blake_txn_msg_hash;                          /* Hash of raw transaction message used by the status cache */
   ulong                           execution_fee;                               /* Execution fee paid by the fee payer in the transaction */
   ulong                           priority_fee;                                /* Priority fee paid by the fee payer in the transaction */
-  ulong                           collected_rent;                              /* Rent collected from accounts in this transaction */
 
   fd_capture_ctx_t * capture_ctx;
 

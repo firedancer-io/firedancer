@@ -458,8 +458,8 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     txn_result->executed_units                 = txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter;
 
 
-    /* Rent is only collected on successfully loaded transactions */
-    txn_result->rent                           = txn_ctx->collected_rent;
+    /* Rent is no longer collected */
+    txn_result->rent                           = 0UL;
 
     if( txn_ctx->return_data.len > 0 ) {
       txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
