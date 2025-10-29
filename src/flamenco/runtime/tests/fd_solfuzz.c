@@ -3,7 +3,8 @@
 #define _GNU_SOURCE
 #include "fd_solfuzz.h"
 #include "../fd_bank.h"
-#include "../fd_runtime.h"
+#include "../fd_exec_stack.h"
+#include "../fd_runtime_stack.h"
 #include <errno.h>
 #include <sys/mman.h>
 #include "../../../util/shmem/fd_shmem_private.h"
@@ -77,9 +78,9 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
                        fd_solfuzz_runner_options_t const * options ) {
 
   /* Allocate objects */
-  ulong const txn_max  =   16UL;
+  ulong const txn_max  = 16UL;
   ulong const rec_max  = 1024UL;
-  ulong const spad_max = FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ;
+  ulong const spad_max = 1000000000UL;
   ulong const bank_max = 1UL;
   ulong const fork_max = 1UL;
   fd_solfuzz_runner_t * runner     = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),              wksp_tag );
@@ -108,6 +109,11 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   if( FD_UNLIKELY( !fd_accdb_user_join ( runner->accdb,       funk_mem ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_join( runner->progcache, pcache_mem, scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT ) ) ) goto bail2;
   if( FD_UNLIKELY( !fd_progcache_admin_join( runner->progcache_admin, pcache_mem ) ) ) goto bail2;
+
+  runner->exec_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_exec_stack_t), sizeof(fd_exec_stack_t), wksp_tag );
+  if( FD_UNLIKELY( !runner->exec_stack ) ) goto bail2;
+  runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
+  if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
 
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, spad_max ) );
   if( FD_UNLIKELY( !runner->spad ) ) goto bail2;

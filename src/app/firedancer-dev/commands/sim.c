@@ -110,7 +110,6 @@ sim_topo( config_t * config ) {
   for( ulong i=0; i<config->firedancer.layout.exec_tile_count; i++ ) {
     fd_topob_tile_in( topo, "exec", i, "metric_in", "replay_exec", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
   }
-  fd_topo_tile_t * exec_tile   = &topo->tiles[ fd_topo_find_tile( topo, "exec", 0UL ) ];
 
   /**********************************************************************/
   /* Setup the shared objs used by storei, replay and exec tiles        */
@@ -121,7 +120,6 @@ sim_topo( config_t * config ) {
   fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "poh_slot"    );
   fd_topob_wksp( topo, "bank_busy"   );
-  fd_topob_wksp( topo, "exec_spad"   );
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
   fd_topo_obj_t * txncache_obj = setup_topo_txncache( topo, "txncache",
@@ -147,12 +145,6 @@ sim_topo( config_t * config ) {
 
     fd_topob_tile_uses( topo, replay_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
-  }
-
-  for( ulong i=0UL; i<config->firedancer.layout.exec_tile_count; i++ ) {
-    fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topob_tile_uses( topo, exec_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
   }
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

@@ -41,7 +41,7 @@ fd_rent_exempt_minimum_balance( fd_rent_t const * rent,
 fd_rent_t const *
 fd_sysvar_rent_read( fd_funk_t *               funk,
                      fd_funk_txn_xid_t const * xid,
-                     fd_spad_t *               spad );
+                     fd_rent_t *               rent );
 
 FD_PROTOTYPES_END
 

@@ -7,10 +7,6 @@
 
 /* FIXME These constants should be header defines */
 
-#define FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE (131097UL)
-
-#define FD_SLOT_HISTORY_DECODED_SIZE (sizeof(fd_slot_history_global_t) + ((sizeof(ulong) * FD_SLOT_HISTORY_BLOCKS_LEN)) )
-
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
 #define FD_SLOT_HISTORY_MAX_ENTRIES (1024UL * 1024UL)
 
@@ -47,14 +43,14 @@ fd_sysvar_slot_history_write_history( fd_bank_t *                bank,
                                       fd_funk_txn_xid_t const *  xid,
                                       fd_capture_ctx_t *         capture_ctx,
                                       fd_slot_history_global_t * history ) {
-  uchar __attribute__((aligned(FD_SLOT_HISTORY_GLOBAL_ALIGN))) slot_history_mem[ FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE ] = {0};
+  uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ] = {0};
   fd_bincode_encode_ctx_t ctx = {
     .data    = slot_history_mem,
-    .dataend = slot_history_mem + FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE
+    .dataend = slot_history_mem + FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ
   };
   int err = fd_slot_history_encode_global( history, &ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "fd_slot_history_encode_global failed" ));
-  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_history_id, slot_history_mem, FD_SLOT_HISTORY_MIN_ACCOUNT_SIZE );
+  fd_sysvar_account_update( bank, accdb, xid, capture_ctx, &fd_sysvar_slot_history_id, slot_history_mem, FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
@@ -67,7 +63,7 @@ fd_sysvar_slot_history_init( fd_bank_t *               bank,
   /* Create a new slot history instance */
 
   /* We need to construct the gaddr-aware slot history object */
-  uchar __attribute__((aligned(FD_SLOT_HISTORY_GLOBAL_ALIGN))) slot_history_mem[ FD_SLOT_HISTORY_DECODED_SIZE ] = {0};
+  uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] = {0};
   fd_slot_history_global_t * history = (fd_slot_history_global_t *)slot_history_mem;
   ulong *                    blocks  = (ulong *)fd_ulong_align_up( (ulong)((uchar*)history + sizeof(fd_slot_history_global_t)), alignof(ulong) );
 
@@ -100,7 +96,7 @@ fd_sysvar_slot_history_update( fd_bank_t *               bank,
     .dataend = fd_txn_account_get_data( rec ) + fd_txn_account_get_data_len( rec )
   };
 
-  uchar __attribute__((aligned(FD_SLOT_HISTORY_GLOBAL_ALIGN))) slot_history_mem[ FD_SLOT_HISTORY_DECODED_SIZE ] = {0};
+  uchar __attribute__((aligned(FD_SYSVAR_SLOT_HISTORY_ALIGN))) slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ] = {0};
   fd_slot_history_global_t * history = fd_slot_history_decode_global( slot_history_mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */

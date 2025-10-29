@@ -268,14 +268,6 @@ backtest_topo( config_t * config ) {
   FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
 
-  /* exec_spad_obj used by exec tiles */
-  fd_topob_wksp( topo, "exec_spad" );
-  for( ulong i=0UL; i<exec_tile_cnt; i++ ) {
-    fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
-    fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec", i ) ], exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
-  }
-
   /* txncache_obj, busy_obj and poh_slot_obj only by replay tile */
   fd_topob_wksp( topo, "txncache"    );
   fd_topob_wksp( topo, "bank_busy"   );

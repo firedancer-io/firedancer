@@ -176,29 +176,4 @@ fd_topo_obj_callbacks_t fd_obj_cb_txncache = {
   .new       = txncache_new,
 };
 
-static ulong
-exec_spad_footprint( fd_topo_t const *     topo FD_FN_UNUSED,
-                     fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_footprint( FD_EXEC_TXN_CTX_FOOTPRINT + FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-}
-
-static ulong
-exec_spad_align( fd_topo_t const *     topo FD_FN_UNUSED,
-                 fd_topo_obj_t const * obj  FD_FN_UNUSED ) {
-  return fd_spad_align();
-}
-
-static void
-exec_spad_new( fd_topo_t const *     topo,
-               fd_topo_obj_t const * obj ) {
-  FD_TEST( fd_spad_new( fd_topo_obj_laddr( topo, obj->id ), FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_exec_spad = {
-  .name      = "exec_spad",
-  .footprint = exec_spad_footprint,
-  .align     = exec_spad_align,
-  .new       = exec_spad_new,
-};
-
 #undef VAL

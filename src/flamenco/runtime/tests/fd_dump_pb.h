@@ -158,7 +158,7 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                            ushort              instruction_idx );
 
 void
-fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
+fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx );
 
 /* Block dumping is a little bit different than the other harnesses due
    to the architecture of our system.  Unlike the other dumping

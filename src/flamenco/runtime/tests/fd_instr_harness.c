@@ -4,6 +4,7 @@
 #include "fd_solfuzz_private.h"
 #include "fd_instr_harness.h"
 #include "../fd_executor.h"
+#include "../fd_runtime_stack.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../sysvar/fd_sysvar.h"
@@ -36,10 +37,12 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_progcache_txn_attach_child( runner->progcache_admin, &parent_xid, xid );
 
   /* Allocate contexts */
-  uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
-  fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
+  uchar *             txn_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
 
   ctx->txn_ctx = txn_ctx;
+
+  ctx->txn_ctx->exec_stack = runner->exec_stack;
 
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank );
@@ -91,7 +94,6 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->txn                                       = *txn;
   txn_ctx->compute_budget_details.compute_unit_limit = test_ctx->cu_avail;
   txn_ctx->compute_budget_details.compute_meter      = test_ctx->cu_avail;
-  txn_ctx->spad                                      = runner->spad;
   txn_ctx->instr_info_cnt                            = 1UL;
   txn_ctx->fuzz_config.enable_vm_tracing             = runner->enable_vm_tracing;
 
@@ -133,11 +135,11 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     fd_txn_account_t * acc = &accts[j];
     if( fd_txn_account_get_meta( acc ) ) {
-      uchar *             data     = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      uchar *             data     = fd_spad_alloc( runner->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong               dlen     = fd_txn_account_get_data_len( acc );
       fd_account_meta_t * meta     = (fd_account_meta_t *)data;
       fd_memcpy( data, fd_txn_account_get_meta( acc ), sizeof(fd_account_meta_t)+dlen );
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, 0 ), txn_ctx->spad_wksp ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, 0 ) ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
     }
@@ -159,14 +161,14 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t *      program_key = &txn_ctx->account_keys[ txn_ctx->accounts_cnt ];
     memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
 
-    fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
+    fd_account_meta_t * meta = fd_spad_alloc( runner->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) );
     fd_account_meta_init( meta );
 
     if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
           program_acc,
           program_key,
           meta,
-          1 ), txn_ctx->spad_wksp ) ) ) {
+          1 ) ) ) ) {
       FD_LOG_CRIT(( "Failed to join and new a txn account" ));
     }
 
@@ -185,21 +187,19 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
     fd_account_meta_t const * meta = fd_txn_account_get_meta( acc );
     if( meta == NULL ) {
-      uchar * mem = fd_spad_alloc( txn_ctx->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
+      uchar * mem = fd_spad_alloc( runner->spad, FD_TXN_ACCOUNT_ALIGN, sizeof(fd_account_meta_t) );
       fd_account_meta_t * meta = (fd_account_meta_t *)mem;
       memset( meta, 0, sizeof(fd_account_meta_t) );
-      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, 0 ), txn_ctx->spad_wksp ) ) ) {
+      if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new( acc, acc_key, meta, 0 ) ) ) ) {
         FD_LOG_CRIT(( "Failed to join and new a txn account" ));
       }
       continue;
     }
 
-    if( FD_UNLIKELY( !memcmp(meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
-      fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_loader_program_get_state( acc,
-                                                                                                  txn_ctx->spad,
-                                                                                                  NULL );
-
-      if( FD_UNLIKELY( !program_loader_state ) ) {
+    if( FD_UNLIKELY( !memcmp( meta->owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      fd_bpf_upgradeable_loader_state_t program_loader_state[1];
+      int err = fd_bpf_loader_program_get_state( acc, program_loader_state );
+      if( FD_UNLIKELY( err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
         continue;
       }
 
@@ -233,12 +233,13 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
   /* Override epoch bank rent setting */
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, xid, runner->spad );
-  FD_TEST( rent );
+  fd_rent_t rent[1];
+  FD_TEST( fd_sysvar_rent_read( funk, xid, rent ) );
   fd_bank_rent_set( runner->bank, *rent );
 
   /* Override most recent blockhash if given */
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, runner->spad );
+  uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, rbh_mem );
   FD_TEST( rbh );
   if( !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
@@ -352,7 +353,7 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
   fd_instr_info_t * instr = (fd_instr_info_t *) ctx->instr;
 
   /* Execute the test */
-  int exec_result = fd_execute_instr(ctx->txn_ctx, instr);
+  int exec_result = fd_execute_instr( ctx->txn_ctx, instr );
 
   /* Allocate space to capture outputs */
 

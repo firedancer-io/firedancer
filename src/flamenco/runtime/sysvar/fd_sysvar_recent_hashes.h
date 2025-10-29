@@ -7,6 +7,7 @@
 #include "../../types/fd_types.h"
 #include "../../fd_flamenco_base.h"
 #include "../../accdb/fd_accdb_user.h"
+#include "fd_sysvar_base.h"
 
 /* FD_SYSVAR_RECENT_HASHES_CAP is the max number of block hash entries
    the recent blockhashes sysvar will include.
@@ -42,7 +43,7 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
 fd_recent_block_hashes_t *
 fd_sysvar_recent_hashes_read( fd_funk_t *               funk,
                               fd_funk_txn_xid_t const * xid,
-                              fd_spad_t *               spad );
+                              uchar                     rbh_mem[ static FD_SYSVAR_RECENT_HASHES_FOOTPRINT ] );
 
 FD_PROTOTYPES_END
 

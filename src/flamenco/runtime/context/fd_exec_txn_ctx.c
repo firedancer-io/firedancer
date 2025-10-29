@@ -27,9 +27,7 @@ fd_exec_txn_ctx_new( void * mem ) {
 }
 
 fd_exec_txn_ctx_t *
-fd_exec_txn_ctx_join( void *      mem,
-                      fd_spad_t * spad,
-                      fd_wksp_t * spad_wksp ) {
+fd_exec_txn_ctx_join( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL block" ));
     return NULL;
@@ -41,10 +39,6 @@ fd_exec_txn_ctx_join( void *      mem,
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
-
-  /* Rejoin the wksp */
-  ctx->spad      = spad;
-  ctx->spad_wksp = spad_wksp;
 
   return ctx;
 }

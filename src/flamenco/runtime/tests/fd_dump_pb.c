@@ -887,18 +887,19 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 static void
 create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * instr_context,
                                                  fd_exec_txn_ctx_t const *      txn_ctx,
-                                                 fd_instr_info_t const *        instr ) {
+                                                 fd_instr_info_t const *        instr,
+                                                 fd_spad_t *                    spad ) {
   /* Program ID */
   fd_memcpy( instr_context->program_id, txn_ctx->account_keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
-  instr_context->accounts = fd_spad_alloc( txn_ctx->spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
+  instr_context->accounts = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     // Copy account information over
     fd_txn_account_t const *    txn_account    = &txn_ctx->accounts[i];
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    dump_account_state( txn_account, output_account, txn_ctx->spad );
+    dump_account_state( txn_account, output_account, spad );
   }
 
   /* Add sysvar cache variables */
@@ -920,7 +921,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if (!account_exists) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( txn_account, output_account, txn_ctx->spad );
+      dump_account_state( txn_account, output_account, spad );
     }
   }
 
@@ -942,13 +943,13 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if( !account_exists ) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( txn_account, output_account, txn_ctx->spad );
+      dump_account_state( txn_account, output_account, spad );
     }
   }
 
   /* Instruction Accounts */
   instr_context->instr_accounts_count = (pb_size_t) instr->acct_cnt;
-  instr_context->instr_accounts = fd_spad_alloc( txn_ctx->spad, alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t) );
+  instr_context->instr_accounts = fd_spad_alloc( spad, alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t) );
   for( ushort i = 0; i < instr->acct_cnt; i++ ) {
     fd_exec_test_instr_acct_t * output_instr_account = &instr_context->instr_accounts[i];
 
@@ -958,7 +959,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   }
 
   /* Data */
-  instr_context->data = fd_spad_alloc( txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr->data_sz ) );
+  instr_context->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr->data_sz ) );
   instr_context->data->size = (pb_size_t) instr->data_sz;
   fd_memcpy( instr_context->data->bytes, instr->data, instr->data_sz );
 
@@ -971,7 +972,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Epoch Context */
   instr_context->has_epoch_context = true;
   instr_context->epoch_context.has_features = true;
-  dump_sorted_features( &txn_ctx->features, &instr_context->epoch_context.features, txn_ctx->spad );
+  dump_sorted_features( &txn_ctx->features, &instr_context->epoch_context.features, spad );
 }
 
 /***** PUBLIC APIs *****/
@@ -980,7 +981,9 @@ void
 fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx ) {
-  FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->dumping_mem, 1UL<<28UL ) );
+
+  FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
@@ -998,11 +1001,11 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     fd_exec_test_instr_context_t instr_context = FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT;
-    create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr );
+    create_instr_context_protobuf_from_instructions( &instr_context, txn_ctx, instr, spad );
 
     /* Output to file */
     ulong        out_buf_size = 100 * 1024 * 1024;
-    uint8_t *    out          = fd_spad_alloc( txn_ctx->spad, alignof(uchar) , out_buf_size );
+    uint8_t *    out          = fd_spad_alloc( spad, alignof(uchar) , out_buf_size );
     pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[ PATH_MAX ];
@@ -1017,7 +1020,9 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
 }
 
 void
-fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
+fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx ) {
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->dumping_mem, 1UL<<28UL ) );
+
   FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( TXN( &txn_ctx->txn ), txn_ctx->txn.payload );
@@ -1038,7 +1043,7 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
 
     /* Output to file */
     ulong        out_buf_size = 100UL<<20UL; // 100 MB
-    uint8_t *    out          = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
+    uchar *      out          = fd_spad_alloc( spad, alignof(uchar), out_buf_size );
     pb_ostream_t stream       = pb_ostream_from_buffer( out, out_buf_size );
     if( pb_encode( &stream, FD_EXEC_TEST_TXN_CONTEXT_FIELDS, &txn_context_msg ) ) {
       char output_filepath[ PATH_MAX ];
@@ -1101,7 +1106,10 @@ FD_SPAD_FRAME_BEGIN( dump_ctx->spad ) {
 void
 fd_dump_vm_syscall_to_protobuf( fd_vm_t const * vm,
                                 char const *    fn_name ) {
-FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
+
+  fd_spad_t * spad = fd_spad_join( fd_spad_new( vm->instr_ctx->txn_ctx->dumping_mem, 1UL<<28UL ) );
+
+FD_SPAD_FRAME_BEGIN( spad ) {
 
   fd_ed25519_sig_t signature;
   memcpy( signature, (uchar const *)vm->instr_ctx->txn_ctx->txn.payload + TXN( &vm->instr_ctx->txn_ctx->txn )->signature_off, sizeof(fd_ed25519_sig_t) );
@@ -1133,7 +1141,7 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
   sys_ctx.vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
 
   /* SyscallContext -> vm_ctx -> rodata */
-  sys_ctx.vm_ctx.rodata = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->rodata_sz ) );
+  sys_ctx.vm_ctx.rodata = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->rodata_sz ) );
   sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
   fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
 
@@ -1164,12 +1172,12 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
   sys_ctx.vm_ctx.has_return_data = 1;
 
   /* SyscallContext -> vm_ctx -> return_data -> data */
-  sys_ctx.vm_ctx.return_data.data = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->instr_ctx->txn_ctx->return_data.len ) );
+  sys_ctx.vm_ctx.return_data.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( vm->instr_ctx->txn_ctx->return_data.len ) );
   sys_ctx.vm_ctx.return_data.data->size = (pb_size_t)vm->instr_ctx->txn_ctx->return_data.len;
   fd_memcpy( sys_ctx.vm_ctx.return_data.data->bytes, vm->instr_ctx->txn_ctx->return_data.data, vm->instr_ctx->txn_ctx->return_data.len );
 
   /* SyscallContext -> vm_ctx -> return_data -> program_id */
-  sys_ctx.vm_ctx.return_data.program_id = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(pb_bytes_array_t), sizeof(fd_pubkey_t) );
+  sys_ctx.vm_ctx.return_data.program_id = fd_spad_alloc( spad, alignof(pb_bytes_array_t), sizeof(fd_pubkey_t) );
   sys_ctx.vm_ctx.return_data.program_id->size = sizeof(fd_pubkey_t);
   fd_memcpy( sys_ctx.vm_ctx.return_data.program_id->bytes, vm->instr_ctx->txn_ctx->return_data.program_id.key, sizeof(fd_pubkey_t) );
 
@@ -1179,8 +1187,9 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
   /* SyscallContext -> instr_ctx */
   sys_ctx.has_instr_ctx = 1;
   create_instr_context_protobuf_from_instructions( &sys_ctx.instr_ctx,
-                                                    vm->instr_ctx->txn_ctx,
-                                                    vm->instr_ctx->instr );
+                                                   vm->instr_ctx->txn_ctx,
+                                                   vm->instr_ctx->instr,
+                                                   spad );
 
   /* SyscallContext -> syscall_invocation */
   sys_ctx.has_syscall_invocation = 1;
@@ -1192,19 +1201,19 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
              sys_ctx.syscall_invocation.function_name.size );
 
   /* SyscallContext -> syscall_invocation -> heap_prefix */
-  sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
+  sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
   sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->compute_budget_details.heap_size;
   fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->compute_budget_details.heap_size );
 
   /* SyscallContext -> syscall_invocation -> stack_prefix */
   pb_size_t stack_sz = (pb_size_t)FD_VM_STACK_MAX;
-  sys_ctx.syscall_invocation.stack_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( stack_sz ) );
+  sys_ctx.syscall_invocation.stack_prefix = fd_spad_alloc( spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( stack_sz ) );
   sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
   fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
 
   /* Output to file */
   ulong out_buf_size = 1UL<<29UL; /* 128 MB */
-  uint8_t * out = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, alignof(uint8_t), out_buf_size );
+  uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
   pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
   if( pb_encode( &stream, FD_EXEC_TEST_SYSCALL_CONTEXT_FIELDS, &sys_ctx ) ) {
     FILE * file = fopen(filename, "wb");
@@ -1219,7 +1228,9 @@ FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
 void
 fd_dump_elf_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                          fd_txn_account_t *  program_acc ) {
-FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+fd_spad_t * spad = fd_spad_join( fd_spad_new( txn_ctx->dumping_mem, 1UL<<28UL ) );
+
+FD_SPAD_FRAME_BEGIN( spad ) {
 
   /* Get the programdata for the account */
   ulong         program_data_len = 0UL;
@@ -1253,13 +1264,13 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* ElfLoaderCtx -> elf */
   elf_ctx.has_elf = true;
-  elf_ctx.elf.data = fd_spad_alloc( txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( program_data_len ) );
+  elf_ctx.elf.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( program_data_len ) );
   elf_ctx.elf.data->size = (pb_size_t)program_data_len;
   fd_memcpy( elf_ctx.elf.data->bytes, program_data, program_data_len );
 
   /* ElfLoaderCtx -> features */
   elf_ctx.has_features = true;
-  dump_sorted_features( &txn_ctx->features, &elf_ctx.features, txn_ctx->spad );
+  dump_sorted_features( &txn_ctx->features, &elf_ctx.features, spad );
 
   /* ElfLoaderCtx -> deploy_checks
      We hardcode this to true and rely the fuzzer to toggle this as it pleases */
@@ -1267,7 +1278,7 @@ FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   /* Output to file */
   ulong out_buf_size = 1UL<<29UL; /* 128 MB */
-  uint8_t * out = fd_spad_alloc( txn_ctx->spad, alignof(uint8_t), out_buf_size );
+  uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
   pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
   if( pb_encode( &stream, FD_EXEC_TEST_ELF_LOADER_CTX_FIELDS, &elf_ctx ) ) {
     FILE * file = fopen(filename, "wb");

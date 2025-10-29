@@ -9,7 +9,7 @@
 
 static void
 encode_rbh_from_blockhash_queue( fd_bank_t * bank,
-                                 uchar       out_mem[ FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
+                                 uchar       out_mem[ static FD_SYSVAR_RECENT_HASHES_BINCODE_SZ ] ) {
   fd_blockhashes_t const * bhq = fd_bank_block_hash_queue_query( bank );
 
   ulong queue_sz = fd_blockhash_deq_cnt( bhq->d.deque );
@@ -75,7 +75,9 @@ fd_sysvar_recent_hashes_update( fd_bank_t *               bank,
 }
 
 fd_recent_block_hashes_t *
-fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_xid_t const * xid, fd_spad_t * spad ) {
+fd_sysvar_recent_hashes_read( fd_funk_t *               funk,
+                              fd_funk_txn_xid_t const * xid,
+                              uchar                     rbh_mem[ static FD_SYSVAR_RECENT_HASHES_FOOTPRINT ] ) {
   fd_txn_account_t acc[1];
   int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_recent_block_hashes_id, funk, xid );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
@@ -100,16 +102,11 @@ fd_sysvar_recent_hashes_read( fd_funk_t * funk, fd_funk_txn_xid_t const * xid, f
     return NULL;
   }
 
-  uchar * mem = fd_spad_alloc( spad, fd_recent_block_hashes_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_CRIT(( "fd_spad_alloc failed" ));
-  }
-
   /* This would never happen in a real cluster, this is a workaround
      for fuzz-generated cases where sysvar accounts are not funded. */
   if( FD_UNLIKELY( fd_txn_account_get_lamports( acc ) == 0 ) ) {
     return NULL;
   }
 
-  return fd_recent_block_hashes_decode( mem, &ctx );
+  return fd_recent_block_hashes_decode( rbh_mem, &ctx );
 }

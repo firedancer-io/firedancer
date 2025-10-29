@@ -218,8 +218,7 @@ static void
 register_vote_account_from_funk( fd_funk_t *               funk,
                                  fd_funk_txn_xid_t const * xid,
                                  fd_vote_states_t *        vote_states,
-                                 fd_pubkey_t *             pubkey,
-                                 fd_spad_t *               spad ) {
+                                 fd_pubkey_t *             pubkey ) {
   fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
@@ -237,13 +236,6 @@ register_vote_account_from_funk( fd_funk_t *               funk,
 
   /* Account must be initialized correctly */
   if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
-    return;
-  }
-
-  /* Get the vote state from the account data */
-  fd_vote_state_versioned_t * vsv = NULL;
-  int err = fd_vote_get_state( acc, spad, &vsv );
-  if( FD_UNLIKELY( err ) ) {
     return;
   }
 
@@ -496,7 +488,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     fd_memcpy( &pubkey, input_ctx.acct_states[i].address, sizeof(fd_pubkey_t) );
 
     /* Register vote account in current epoch */
-    register_vote_account_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, vote_states_current, &pubkey, test_ctx->spad );
+    register_vote_account_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, vote_states_current, &pubkey );
 
     /* Register stake delegation */
     register_stake_delegation_from_funk( test_ctx->accdb->funk, &test_ctx->parent_xid, stake_delegations, &pubkey );

@@ -18,8 +18,8 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_RUNTIME_SLOTS_PER_EPOCH    (432000UL)  /* 432k slots per epoch */
 
-/* Maximum amount of writable accounts per transaction */
-
+/* Maximum amount of writable accounts per transaction
+   https://github.com/anza-xyz/agave/blob/v3.0.8/runtime/src/bank.rs#L2946 */
 #define FD_RUNTIME_MAX_WRITABLE_ACCOUNTS_PER_TRANSACTION (64UL)
 
 /* The initial block id hash is a dummy value for the initial block id
@@ -44,6 +44,11 @@ FD_PROTOTYPES_BEGIN
    Solana account. */
 
 #define FD_RUNTIME_ACC_SZ_MAX (10UL<<20) /* 10MiB */
+
+/* FD_RUNTIME_WRITABLE_ACCOUNTS_MAX is the protocol level hardcoded
+   limit of writable accounts per transaction. */
+
+#define FD_RUNTIME_WRITABLE_ACCOUNTS_MAX (64UL)
 
 FD_PROTOTYPES_END
 
