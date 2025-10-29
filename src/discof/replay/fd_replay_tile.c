@@ -1243,6 +1243,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
+  //msg->bundle  = 1;
 
   if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */

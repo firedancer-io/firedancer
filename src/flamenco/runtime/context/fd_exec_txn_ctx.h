@@ -10,6 +10,7 @@
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
+#include "../../../disco/pack/fd_pack.h"
 
 /* Return data for syscalls */
 
@@ -151,6 +152,12 @@ struct fd_exec_txn_ctx {
 
    /* The current instruction index being executed */
   int current_instr_idx;
+
+  struct {
+    int                 is_bundle;
+    fd_exec_txn_ctx_t * prev_txn_ctxs[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+    ulong               prev_txn_ctxs_cnt;
+  } bundle;
 
   /* fuzzing options */
   struct {

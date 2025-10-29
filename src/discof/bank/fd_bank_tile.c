@@ -49,9 +49,13 @@ typedef struct {
   fd_funk_t      funk[1];
   fd_progcache_t progcache[1];
 
+  /* Used for microblock execution. */
   fd_exec_txn_ctx_t txn_ctx[1];
+  fd_exec_stack_t   exec_stack;
 
-  fd_exec_stack_t exec_stack;
+  /* Used for bundle execution. */
+  fd_exec_txn_ctx_t txn_ctx_bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_exec_stack_t   exec_stack_bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
 
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
@@ -315,113 +319,98 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               sz,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
+
+  FD_LOG_WARNING(( "handle_bundle" ));
+
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
-  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->_bank_idx );
+  FD_TEST( bank );
+  ulong bank_slot = fd_bank_slot_get( bank );
+  FD_TEST( bank_slot==slot );
+
+  fd_acct_addr_t const * writable_alt  [   MAX_TXN_PER_MICROBLOCK ] = { NULL };
+  ulong                  out_timestamps[ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  ulong                  tips          [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   int execution_success = 1;
   int transaction_err[ MAX_TXN_PER_MICROBLOCK ];
-  for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = 40; /* Pack interprets this as BUNDLE_PEER due to Frankendancer*/
-
-  uint actual_execution_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  uint actual_acct_data_cus [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  ulong out_timestamps      [ 4*MAX_TXN_PER_MICROBLOCK ] = { 0U };
-  ulong tips                [   MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = txns+i;
+    fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
-    fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... bank manager ?
-    txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, &ctx->exec_stack, NULL ); /* TODO ... */
+    /* Setup bundle execution context. */
+    fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];
+    txn_ctx->bundle.is_bundle = 1;
+    txn_ctx->bundle.prev_txn_ctxs_cnt = i;
+    for( ulong j=0UL; j<i; j++ ) {
+      txn_ctx->bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx_bundle[ j ];
+    }
 
-    transaction_err[ i ] = err;
-    if( FD_UNLIKELY( err ) ) {
+    txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+    txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+
+    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack_bundle[ i ], NULL );
+    if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) || txn_ctx->exec_err ) ) {
       execution_success = 0;
       break;
     }
 
-    /* The account keys in the transaction context are laid out such
-       that first the non-alt accounts are laid out, then the writable
-       alt accounts, and finally the read-only alt accounts. */
-    fd_txn_t * txn_descriptor = TXN( &txn_ctx->txn );
-    for( ushort i=txn_descriptor->acct_addr_cnt; i<txn_descriptor->acct_addr_cnt+txn_descriptor->addr_table_adtl_writable_cnt; i++ ) {
-      writable_alt[ i ] = fd_type_pun_const( &txn_ctx->account_keys[ i ] );
-    }
-
-    txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-    actual_execution_cus[ i ] = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
-    actual_acct_data_cus[ i ] = (uint)(txn_ctx->loaded_accounts_data_size);
-    (void)tips; // TODO: GUI, report tips
-    (void)out_timestamps; // TODO: GUI, report timestamps
+    writable_alt[i] = fd_type_pun_const( txn_ctx->account_keys+TXN( &txn_ctx->txn )->acct_addr_cnt );
   }
-
-  for( ulong i=0UL; i<txn_cnt; i++ ) ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( transaction_err[ i ] ) ]++;
 
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
+      fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];
+      fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+      if( FD_UNLIKELY( !txn_ctx->flags ) ) {
+        fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
+        uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
+        int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
+        FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
+        FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
+                      "(res=%d) [block_cost=%lu, vote_cost=%lu, allocated_accounts_data_size=%lu, "
+                      "block_cost_limit=%lu, vote_cost_limit=%lu, account_cost_limit=%lu]",
+                      FD_BASE58_ENC_64_ALLOCA( signature ), res, cost_tracker->block_cost, cost_tracker->vote_cost,
+                      cost_tracker->allocated_accounts_data_size,
+                      cost_tracker->block_cost_limit, cost_tracker->vote_cost_limit,
+                      cost_tracker->account_cost_limit ));
+      }
+
+      uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
+      uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
+      if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
+        actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+        actual_acct_data_cus = 0U;
+      }
+
+      txns[ i ].bank_cu.rebated_cus         = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
+      txns[ i ].bank_cu.actual_consumed_cus = txns[ i ].pack_cu.non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     }
   } else {
-    /* If any transaction fails in a bundle ... they all fail */
+    /* If any transaction fails in a bundle, then they all fail and
+       every transaction needs to be exlcuded. */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = txns+i;
 
       if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
       txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-transaction_err[ i ])<<24);
+
+      txn->bank_cu.actual_consumed_cus = 0U;
+      txn->bank_cu.rebated_cus         = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus + txns[ i ].pack_cu.non_execution_cus;
     }
   }
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
-
-  uint consumed_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
-
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = txns+i;
-
-    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
-    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
-
-    if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
-      /* Although bundles dont typically contain simple votes, we want
-        to charge them correctly anyways. */
-      consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-    } else {
-      /* Note that some transactions will have 0 consumed cus because
-         they were never actually executed, due to an earlier
-         transaction failing. */
-      consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
-    }
-
-    /* Assume failure, set below if success.  If it doesn't land in the
-       block, rebate the non-execution CUs too. */
-    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
-
-    /* We want to include consumed CUs for failed bundles for
-       monitoring, even though they aren't included in the block.  This
-       is safe because the poh tile first checks if a txn is included in
-       the block before counting its "actual_consumed_cus" towards the
-       block tally. */
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-
-    if( FD_LIKELY( execution_success ) ) {
-      if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
-        FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
-        FD_LOG_ERR(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
-      }
-
-      txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-      txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
-    }
-  }
 
   fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
@@ -464,6 +453,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   }
 
   metrics_write( ctx );
+
 }
 
 static inline void

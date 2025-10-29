@@ -1377,6 +1377,105 @@ fd_exec_txn_ctx_setup( fd_bank_t *               bank,
 }
 
 fd_txn_account_t *
+fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
+                                      ushort                idx,
+                                      fd_exec_txn_ctx_t * * prev_txn_ctxs,
+                                      ulong                 prev_txn_ctxs_cnt ) {
+  /* We need to setup accounts slightly differently if we are in a
+     bundle.  If an account that is referenced in a previous
+     transaction, then we must use and lookup that account from the
+     previous transaction as opposed to doing a query to the accounts
+     database.  We will assume that the prev_txn_ctxs are in
+     chronological  execution order. */
+
+  fd_pubkey_t * acc = &txn_ctx->account_keys[ idx ];
+
+  /* Look for the latest writable version of the account.
+     TODO: This can be greatly optimized by creating a lookup of the
+     last version of each of the writable accounts. */
+  fd_account_meta_t const * meta = NULL;
+  for( ulong i=prev_txn_ctxs_cnt; i>0; i-- ) {
+    fd_exec_txn_ctx_t * prev_txn_ctx = prev_txn_ctxs[ i-1 ];
+    for( ushort j=0UL; j<prev_txn_ctx->accounts_cnt; j++ ) {
+      if( !memcmp( &prev_txn_ctx->account_keys[ j ], acc, sizeof(fd_pubkey_t) ) &&
+          fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+        /* Found the account in a previous transaction */
+        meta = prev_txn_ctx->accounts[ j ].meta;
+        break;
+      }
+    }
+  }
+  int err = FD_ACC_MGR_SUCCESS;
+  if( !meta ) {
+    /* If the account is not found in a previous transaction, then we
+       need to lookup the account from the accounts database. */
+    meta = fd_funk_get_acc_meta_readonly(
+        txn_ctx->funk,
+        txn_ctx->xid,
+        acc,
+        NULL,
+        &err,
+        NULL );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+      FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
+    }
+  }
+
+  fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
+
+  /* If there is an error with a read from the accounts database, it is
+     unexpected unless the account does not exist. */
+
+  int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
+  fd_account_meta_t * account_meta = NULL;
+
+  if( is_writable ) {
+    /* If the account is writable or a fee payer, then we need to create
+       staging regions for the account. If the account exists, we need to
+       copy the account data into the staging area; otherwise, we need to
+       initialize a new metadata. */
+
+    uchar * new_raw_data = txn_ctx->exec_stack->accounts.accounts_mem[idx];
+    ulong   dlen         = !!meta ? meta->dlen : 0UL;
+
+    if( FD_LIKELY( meta ) ) {
+      /* Account exists, copy the data into the staging area */
+      fd_memcpy( new_raw_data, (uchar *)meta, sizeof(fd_account_meta_t)+dlen );
+    } else {
+      /* Account did not exist, set up metadata */
+      fd_account_meta_init( (fd_account_meta_t *)new_raw_data );
+    }
+
+    account_meta = (fd_account_meta_t *)new_raw_data;
+
+  } else {
+    /* If the account is not writable, then we can simply initialize
+       the txn account with the read-only accountsdb record. However,
+       if the account does not exist, we need to initialize a new
+       metadata. */
+
+    if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+      account_meta = (fd_account_meta_t *)meta;
+    } else {
+      uchar * mem = txn_ctx->exec_stack->accounts.accounts_mem[idx];
+      account_meta = (fd_account_meta_t *)mem;
+      fd_account_meta_init( account_meta );
+    }
+  }
+
+  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+      txn_account,
+      acc,
+      account_meta,
+      is_writable ) ) ) ) {
+    FD_LOG_CRIT(( "Failed to join txn account" ));
+  }
+
+  return txn_account;
+
+}
+
+fd_txn_account_t *
 fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
                                ushort              idx ) {
 
@@ -1483,8 +1582,12 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
 
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
-
-    fd_txn_account_t * txn_account = fd_executor_setup_txn_account( txn_ctx, i );
+    fd_txn_account_t * txn_account = NULL;
+    if( FD_UNLIKELY( txn_ctx->bundle.is_bundle ) ) {
+      txn_account = fd_executor_setup_txn_account_bundle( txn_ctx, i, txn_ctx->bundle.prev_txn_ctxs, txn_ctx->bundle.prev_txn_ctxs_cnt );
+    } else {
+      txn_account = fd_executor_setup_txn_account( txn_ctx, i );
+    }
 
     if( FD_UNLIKELY( txn_account &&
                      memcmp( fd_txn_account_get_owner( txn_account ), fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {

@@ -1030,6 +1030,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->limits.slot_max_cost );
 
     if( FD_UNLIKELY( ctx->crank->enabled ) ) {
+      FD_LOG_WARNING(( "crank enabled" ));
       /* If we get overrun, we'll just never use these values, but the
          old values aren't really useful either. */
       ctx->crank->epoch = ctx->_became_leader->epoch;
