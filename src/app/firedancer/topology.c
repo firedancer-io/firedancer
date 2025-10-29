@@ -1004,6 +1004,16 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
+    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+
+      tile->replay.bundle.enabled = 1;
+      strncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
+      fd_base58_decode_32( config->tiles.bundle.tip_distribution_program_addr, tile->replay.bundle.tip_distribution_program_addr );
+      fd_base58_decode_32( config->tiles.bundle.tip_payment_program_addr, tile->replay.bundle.tip_payment_program_addr );
+    } else {
+      fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
+    }
+
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
     tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
     tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;

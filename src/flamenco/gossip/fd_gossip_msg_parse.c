@@ -26,7 +26,7 @@ typedef struct slot_hash_pair slot_hash_pair_t;
 
 #define CHECK( cond ) do {              \
   if( FD_UNLIKELY( !(cond) ) ) {        \
-    FD_LOG_WARNING(( "Gossip message parse error at offset %lu, size %lu: %s", _i, _payload_sz, #cond )); \
+    FD_LOG_DEBUG(( "Gossip message parse error at offset %lu, size %lu: %s", _i, _payload_sz, #cond )); \
     return 0;                           \
   }                                     \
 } while( 0 )

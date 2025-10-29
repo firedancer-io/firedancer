@@ -379,6 +379,14 @@ struct fd_replay_tile {
   /* For dumping blocks to protobuf. For backtest only. */
   fd_block_dump_ctx_t * block_dump_ctx;
 
+  /* We need a few pieces of information to compute the right addresses
+     for bundle crank information that we need to send to pack. */
+  struct {
+    int enabled;
+    fd_pubkey_t vote_account;
+    fd_bundle_crank_gen_t gen[1];
+  } bundle;
+
   struct {
     fd_histf_t store_read_wait[ 1 ];
     fd_histf_t store_read_work[ 1 ];
@@ -1234,6 +1242,31 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   /* Acquires bank, sets up initial state, and refcnts it. */
   fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id, stem );
 
+  /* BUNDLE STUFF */
+
+  fd_bundle_crank_tip_payment_config_t config[1]             = { 0 };
+  fd_acct_addr_t                       tip_receiver_owner[1] = { 0 };
+
+
+  fd_funk_txn_xid_t xid        = { .ul = { ctx->next_leader_slot, ctx->leader_bank->idx } };
+
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
+    fd_acct_addr_t tip_payment_config[1];
+    fd_acct_addr_t tip_receiver[1];
+    fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ) - 2UL, tip_payment_config, tip_receiver );
+
+    //FD_LOG_WARNING(("TIP RECVR %s", FD_BASE58_ENC_32_ALLOCA(tip_receiver->b)));
+
+    fd_txn_account_t tip_recvr[1];
+    int err = fd_txn_account_init_from_funk_readonly( tip_recvr,
+                                                      (fd_hash_t *)tip_receiver->b,
+                                                      ctx->accdb->funk,
+                                                      &xid );
+    //FD_TEST( !err );
+    (void)err;
+  }
+
+
   fd_became_leader_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   msg->slot = ctx->next_leader_slot;
   msg->slot_start_ns = now_nanos;
@@ -1243,7 +1276,10 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   msg->ticks_per_slot = fd_bank_ticks_per_slot_get( bank );
   msg->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
   msg->tick_duration_ns = (ulong)(ctx->slot_duration_nanos/(double)msg->ticks_per_slot);
-  //msg->bundle  = 1;
+  msg->bundle->config[0]       = config[0];
+  memcpy( msg->bundle->last_blockhash,     (fd_hash_t *)fd_bank_poh_query( bank )->hash, 32UL );
+  memcpy( msg->bundle->tip_receiver_owner, tip_receiver_owner,                           32UL );
+
 
   if( FD_UNLIKELY( msg->hashcnt_per_tick==1UL ) ) {
     /* Low power producer, maximum of one microblock per tick in the slot */
@@ -2325,6 +2361,16 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !strcmp( tile->replay.identity_key_path, "" ) ) ) FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, /* pubkey only: */ 1 ) );
+
+  if( FD_UNLIKELY( !tile->replay.bundle.vote_account_path[0] ) ) {
+    tile->replay.bundle.enabled = 0;
+  }
+  if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->replay.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( tile->replay.bundle.vote_account_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
+    }
+  }
 }
 
 static void
@@ -2377,6 +2423,19 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ipecho_shred_version = 0;
   ctx->has_genesis_hash = 0;
   ctx->hard_forks_cnt = ULONG_MAX;
+
+  if( FD_UNLIKELY( tile->replay.bundle.enabled ) ) {
+    ctx->bundle.enabled = 1;
+    if( FD_UNLIKELY( !fd_bundle_crank_gen_init( ctx->bundle.gen,
+             (fd_acct_addr_t const *)tile->replay.bundle.tip_distribution_program_addr,
+             (fd_acct_addr_t const *)tile->replay.bundle.tip_payment_program_addr,
+             (fd_acct_addr_t const *)ctx->bundle.vote_account.uc,
+             (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, "NAN", 0UL ) ) ) {
+      FD_LOG_ERR(( "failed to initialize bundle crank gen" ));
+    }
+  } else {
+    ctx->bundle.enabled = 0;
+  }
 
   /* Set some initial values for the bank:  hardcoded features and the
      cluster version. */

@@ -1037,6 +1037,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       *(ctx->crank->prev_config) = *(ctx->_became_leader->bundle->config);
       memcpy( ctx->crank->recent_blockhash,   ctx->_became_leader->bundle->last_blockhash,     32UL );
       memcpy( ctx->crank->tip_receiver_owner, ctx->_became_leader->bundle->tip_receiver_owner, 32UL );
+      ctx->crank->prev_config->discriminator = 0x82ccfa1ee0aa0c9bUL;
     }
 
     FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, ctx->_became_leader->slot_end_ns ));
@@ -1243,6 +1244,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->crank->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
     FD_TEST( ctx->crank->keyswitch );
   } else {
+    FD_LOG_CRIT(("BUNDLE NOT ENABLED"));
     memset( ctx->crank, '\0', sizeof(ctx->crank) );
   }
 
