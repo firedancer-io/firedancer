@@ -1945,6 +1945,23 @@ explicitly mentioned, skipped slots are not included.
             },
             // ... many more ...
         ],
+        "scheduler_counts": [
+            {
+                "timestamp_nanos": "1739657041688242791",
+                "regular": 123,
+                "votes": 123,
+                "conflicting": 123,
+                "bundles": 123
+            },
+            {
+                "timestamp_nanos": "1739657041688342791",
+                "regular": 124,
+                "votes": 120,
+                "conflicting": 123,
+                "bundles": 123
+            }
+            // ... many more ...
+        ]
     }
 }
 ```
@@ -2027,6 +2044,7 @@ explicitly mentioned, skipped slots are not included.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
+| scheduler_counts    | `SchedulerCounts[]\|null` | If the slot is not `mine`, will be `null`. Otherwise, an array of `SchedulerCounts` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that  |
 
 **`SlotTransactionsResponse`**
 | Field               | Type                      | Description |
@@ -2078,6 +2096,15 @@ explicitly mentioned, skipped slots are not included.
 | bank_invalid      | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
 | block_success     | `number` | Transactions made it into a block, and execution succeeded |
 | block_failure     | `number` | Transactions made it into a block, but execution failed |
+
+**`SchedulerCounts`**
+| Field           | Type     | Description |
+|-----------------|----------|-------------|
+| timestamp_nanos | `string` | A UNIX nanosecond timestamp representing the time when these counts were sampled by the gui tile. |
+| regular         | `number` | The number of transactions stored in the "regular" treap (i.e. the primary buffer) at `timestamp_nanos` |
+| votes           | `number` | The number of transactions stored in the "votes" treap (i.e. the buffer dedicated for vote transactions) at `timestamp_nanos` |
+| conflicting     | `number` | The number of transactions stored in the "conflicting" treap (i.e. the buffer for transations with percieved account write conflicts, which recieve slightly less priority) at `timestamp_nanos` |
+| bundles         | `number` | The number of transactions stored in the "bundles" treap (i.e. the buffer dedicated for bundle transactions) at `timestamp_nanos` |
 
 **`TsTileTimers`**
 | Field             | Type          | Description |
