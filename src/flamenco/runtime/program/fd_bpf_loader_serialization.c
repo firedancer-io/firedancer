@@ -1,5 +1,6 @@
 #include "fd_bpf_loader_serialization.h"
 #include "../fd_borrowed_account.h"
+#include "../fd_exec_stack.h"
 #include "../fd_runtime.h"
 
 /* This file is responsible for serializing and deserializing
@@ -265,59 +266,13 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        int                       direct_mapping ) {
   fd_pubkey_t * txn_accs = ctx->txn_ctx->account_keys;
 
-  uchar acc_idx_seen[256] = {0};
-  ushort dup_acc_idx[256] = {0};
-
-  /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L482-L511 */
-  ulong serialized_size = 0UL;
-  serialized_size += sizeof(ulong); // acct_cnt
-  /* First pass is to calculate size of buffer to allocate */
-  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    uchar acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
-
-    serialized_size++; // dup byte
-    if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      serialized_size += 7UL; // pad to 64-bit alignment
-    } else {
-      acc_idx_seen[acc_idx] = 1;
-      dup_acc_idx[acc_idx]  = i;
-
-      /* Borrow the account without checking the error, as it is guaranteed to exist
-         https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L244-L257 */
-      fd_guarded_borrowed_account_t view_acc = {0};
-      fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
-
-      ulong acc_data_len = fd_borrowed_account_get_data_len( &view_acc );
-
-      serialized_size += sizeof(uchar)               // is_signer
-                       + sizeof(uchar)               // is_writable
-                       + sizeof(uchar)               // executable
-                       + sizeof(uint)                // original_data_len
-                       + sizeof(fd_pubkey_t)         // key
-                       + sizeof(fd_pubkey_t)         // owner
-                       + sizeof(ulong)               // lamports
-                       + sizeof(ulong)               // data len
-                       + sizeof(ulong);              // rent_epoch
-      /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L499-L505 */
-      if( !(stricter_abi_and_runtime_constraints && direct_mapping) ) {
-        serialized_size += MAX_PERMITTED_DATA_INCREASE + fd_ulong_align_up( acc_data_len, FD_BPF_ALIGN_OF_U128 );
-      } else {
-        serialized_size += FD_BPF_ALIGN_OF_U128;
-      }
-    }
-  }
-
-  serialized_size += sizeof(ulong)        // data len
-                  +  ctx->instr->data_sz
-                  +  sizeof(fd_pubkey_t); // program id
+  uchar  acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
+  ushort dup_acc_idx[ FD_INSTR_ACCT_MAX ]  = {0};
 
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L60
    */
-  uchar * serialized_params            = fd_spad_alloc(
-    ctx->txn_ctx->spad,
-    FD_RUNTIME_EBPF_HOST_ALIGN,
-    fd_ulong_align_up( serialized_size, FD_RUNTIME_EBPF_HOST_ALIGN ) );
+  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr_stack_sz-1UL ];
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -325,7 +280,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   FD_STORE( ulong, serialized_params, ctx->instr->acct_cnt );
   serialized_params += sizeof(ulong);
 
-  /* Second pass over the account is to serialize into the buffer.
+  /* Iterate over accounts in the instruction to populate input region.
      https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L523-L557 */
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     uchar         acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
@@ -340,6 +295,9 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(ulong);
     } else {
+      acc_idx_seen[acc_idx] = 1;
+      dup_acc_idx[acc_idx]  = i;
+
       /* https://github.com/anza-xyz/agave/blob/v3.0.0/program-runtime/src/serialization.rs#L526 */
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
@@ -438,7 +396,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   new_input_mem_region( input_mem_regions, input_mem_regions_cnt, curr_serialized_params_start,
                         region_sz, region_sz, 1U, ULONG_MAX );
 
-  *sz = serialized_size;
+  *sz = (ulong)(serialized_params - serialized_params_start);
 
   return serialized_params_start;
 }
@@ -582,54 +540,15 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       stricter_abi_and_runtime_constraints,
                                          int                       direct_mapping ) {
-  ulong               serialized_size = 0UL;
-  fd_pubkey_t const * txn_accs        = ctx->txn_ctx->account_keys;
+  fd_pubkey_t const * txn_accs = ctx->txn_ctx->account_keys;
 
-  uchar acc_idx_seen[256] = {0};
-  ushort dup_acc_idx[256] = {0};
-
-  serialized_size += sizeof(ulong);
-  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    uchar acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
-
-    serialized_size++; // dup
-    if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
-      continue;
-    }
-
-    acc_idx_seen[acc_idx] = 1;
-    dup_acc_idx[acc_idx]  = i;
-
-    /* Borrow the account without checking the error, as it is guaranteed to exist
-         https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
-    fd_guarded_borrowed_account_t view_acc = {0};
-    fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
-
-    ulong acc_data_len = fd_borrowed_account_get_data_len( &view_acc );
-
-    pre_lens[i] = acc_data_len;
-
-    serialized_size += sizeof(uchar)        // is_signer
-                      + sizeof(uchar)       // is_writable
-                      + sizeof(fd_pubkey_t) // key
-                      + sizeof(ulong)       // lamports
-                      + sizeof(ulong)       // data_len
-                      + sizeof(fd_pubkey_t) // owner
-                      + sizeof(uchar)       // executable
-                      + sizeof(ulong);      // rent_epoch
-    if( !(stricter_abi_and_runtime_constraints && direct_mapping) ) {
-      serialized_size += acc_data_len;
-    }
-  }
-
-  serialized_size += sizeof(ulong)        // instruction data len
-                   + ctx->instr->data_sz  // instruction data
-                   + sizeof(fd_pubkey_t); // program id
+  uchar  acc_idx_seen[FD_INSTR_ACCT_MAX] = {0};
+  ushort dup_acc_idx[FD_INSTR_ACCT_MAX]  = {0};
 
   /* 16-byte aligned buffer:
      https://github.com/anza-xyz/agave/blob/v2.2.13/programs/bpf_loader/src/serialization.rs#L32
    */
-  uchar * serialized_params            = fd_spad_alloc( ctx->txn_ctx->spad, FD_RUNTIME_EBPF_HOST_ALIGN, serialized_size );
+  uchar * serialized_params            = ctx->txn_ctx->exec_stack->bpf_loader_serialization.serialization_mem[ ctx->txn_ctx->instr_stack_sz-1UL ];
   uchar * serialized_params_start      = serialized_params;
   uchar * curr_serialized_params_start = serialized_params;
 
@@ -645,6 +564,9 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
       FD_STORE( uchar, serialized_params, (uchar)dup_acc_idx[acc_idx] );
       serialized_params += sizeof(uchar);
     } else {
+      acc_idx_seen[acc_idx] = 1;
+      dup_acc_idx[acc_idx]  = i;
+
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
@@ -654,6 +576,8 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
       fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &view_acc );
+
+      pre_lens[i] = metadata->dlen;
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx->instr, (uchar)i, NULL );
       FD_STORE( uchar, serialized_params, is_signer );
@@ -707,8 +631,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
   FD_STORE( fd_pubkey_t, serialized_params, txn_accs[ctx->instr->program_id] );
   serialized_params += sizeof(fd_pubkey_t);
 
-  FD_TEST( serialized_params == serialized_params_start + serialized_size );
-  *sz = serialized_size;
+  *sz = (ulong)(serialized_params - serialized_params_start);
 
   ulong region_sz = (ulong)(serialized_params - curr_serialized_params_start);
   new_input_mem_region( input_mem_regions, input_mem_regions_cnt, curr_serialized_params_start,

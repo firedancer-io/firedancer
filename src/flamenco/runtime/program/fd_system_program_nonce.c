@@ -2,6 +2,7 @@
 #include "../fd_borrowed_account.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
+#include "../fd_exec_stack.h"
 #include "../context/fd_exec_txn_ctx.h"
 #include "../sysvar/fd_sysvar_rent.h"
 #include "../sysvar/fd_sysvar_recent_hashes.h"
@@ -141,13 +142,14 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L34 */
 
-  int err;
-  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-      nonce_state_versions, ctx->txn_ctx->spad,
+  fd_nonce_state_versions_t versions[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
       fd_borrowed_account_get_data_len( account ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      NULL ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L35 */
 
@@ -310,12 +312,14 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L93 */
 
-  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-      nonce_state_versions, ctx->txn_ctx->spad,
+  fd_nonce_state_versions_t versions[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      nonce_state_versions, versions,
       fd_borrowed_account_get_data( &from ),
       fd_borrowed_account_get_data_len( &from ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      NULL ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L94 */
 
@@ -509,13 +513,14 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L168 */
 
-  int err;
-  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-      nonce_state_versions, ctx->txn_ctx->spad,
+  fd_nonce_state_versions_t versions[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
       fd_borrowed_account_get_data_len( account ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      NULL ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   fd_nonce_state_t * state = NULL;
   switch( versions->discriminant ) {
@@ -679,13 +684,14 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L214-L215 */
 
-  int err;
-  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-      nonce_state_versions, ctx->txn_ctx->spad,
+  fd_nonce_state_versions_t versions[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      nonce_state_versions, versions,
       fd_borrowed_account_get_data( account ),
       fd_borrowed_account_get_data_len( account ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      NULL ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* Inlining solana_program::nonce::state::Versions::authorize
      https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L76-L102 */
@@ -825,12 +831,14 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L498 */
 
-  fd_nonce_state_versions_t * versions = fd_bincode_decode_spad(
-      nonce_state_versions, ctx->txn_ctx->spad,
+  fd_nonce_state_versions_t versions[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      nonce_state_versions, versions,
       fd_borrowed_account_get_data( &account ),
       fd_borrowed_account_get_data_len( &account ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+      NULL ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
 
   /* Inlining solana_program::nonce::state::Versions::upgrade
      https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L55-L73 */
@@ -952,12 +960,14 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
-  fd_nonce_state_versions_t * state = fd_bincode_decode_spad(
-      nonce_state_versions, txn_ctx->spad,
+  fd_nonce_state_versions_t state[1];
+  if( FD_UNLIKELY( !fd_bincode_decode_static(
+      nonce_state_versions, state,
       fd_txn_account_get_data( durable_nonce_rec ),
       fd_txn_account_get_data_len( durable_nonce_rec ),
-      &err );
-  if( FD_UNLIKELY( err ) ) return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+      NULL ) ) ) {
+    return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. Thjis checks that the decoded nonce record is
@@ -1020,8 +1030,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
         /* make_modifiable uses the old length for the data copy */
-        ulong old_tot_len = sizeof(fd_account_meta_t)+acc_data_len;
-        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
+        void * borrowed_account_data = txn_ctx->exec_stack->accounts.rollback_nonce_account_mem;
         if( FD_UNLIKELY( !borrowed_account_data ) ) {
           FD_LOG_CRIT(( "Failed to allocate memory for nonce account" ));
         }
@@ -1034,7 +1043,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
               txn_ctx->rollback_nonce_account,
               &txn_ctx->account_keys[ instr_accts[ 0UL ] ],
               (fd_account_meta_t *)borrowed_account_data,
-              1 ), txn_ctx->spad_wksp ) ) ) {
+              1 ) ) ) ) {
           FD_LOG_CRIT(( "Failed to join txn account" ));
         }
 

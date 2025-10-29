@@ -38,6 +38,9 @@ struct fd_solfuzz_runner {
   fd_solcap_writer_t * solcap;
   void *               solcap_file; /* FILE * */
 
+  fd_exec_stack_t *    exec_stack;
+  fd_runtime_stack_t * runtime_stack;
+
   int enable_vm_tracing;
 };
 

@@ -50,8 +50,8 @@ $(call run-unit-test,test_bank,)
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_ballet fd_util)
 
 ifdef FD_HAS_ATOMIC
-$(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h)
-$(call add-objs,fd_runtime fd_runtime_init ,fd_flamenco)
+$(call add-hdrs,fd_runtime.h fd_runtime_init.h fd_runtime_err.h fd_runtime_const.h fd_runtime_stack.h fd_exec_stack.h)
+$(call add-objs,fd_runtime fd_runtime_init,fd_flamenco)
 endif
 
 endif

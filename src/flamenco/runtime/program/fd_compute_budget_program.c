@@ -134,12 +134,13 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     /* Deserialize the ComputeBudgetInstruction enum */
     uchar * data = (uchar *)ctx->txn.payload + instr->data_off;
 
-    int ret;
-    fd_compute_budget_program_instruction_t * instruction =
-      fd_bincode_decode_spad(
-        compute_budget_program_instruction, ctx->spad,
-        data, instr->data_sz, &ret );
-    if( FD_UNLIKELY( ret ) ) {
+    fd_compute_budget_program_instruction_t instruction[1];
+    if( FD_UNLIKELY( !fd_bincode_decode_static(
+        compute_budget_program_instruction,
+        instruction,
+        data,
+        instr->data_sz,
+        NULL ) ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }

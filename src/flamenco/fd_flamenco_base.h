@@ -102,6 +102,9 @@ typedef struct fd_progcache fd_progcache_t;
 union fd_runtime_stack;
 typedef union fd_runtime_stack fd_runtime_stack_t;
 
+struct fd_exec_stack;
+typedef struct fd_exec_stack fd_exec_stack_t;
+
 struct fd_account_meta {
   uchar owner[32];
   ulong lamports;

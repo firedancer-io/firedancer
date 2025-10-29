@@ -603,7 +603,7 @@ fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
                        txn_ctx->slot >= txn_ctx->capture_ctx->dump_proto_start_slot &&
                        txn_ctx->capture_ctx->dump_txn_to_pb );
   if( FD_UNLIKELY( dump_txn ) ) {
-    fd_dump_txn_to_protobuf( txn_ctx, txn_ctx->spad );
+    fd_dump_txn_to_protobuf( txn_ctx );
   }
 
   /* Verify the transaction. For now, this step only involves processing
@@ -833,11 +833,9 @@ fd_runtime_save_account( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
                          fd_txn_account_t *        account,
                          fd_bank_t *               bank,
-                         fd_wksp_t *               acc_data_wksp,
                          fd_capture_ctx_t *        capture_ctx ) {
-
   /* Join the transaction account */
-  if( FD_UNLIKELY( !fd_txn_account_join( account, acc_data_wksp ) ) ) {
+  if( FD_UNLIKELY( !fd_txn_account_join( account ) ) ) {
     FD_LOG_CRIT(( "fd_runtime_save_account: failed to join account" ));
   }
 
@@ -912,12 +910,12 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 
        We should always rollback the nonce account first. Note that the nonce account may be the fee payer (case 2). */
     if( txn_ctx->nonce_account_idx_in_txn!=ULONG_MAX ) {
-      fd_runtime_save_account( funk, xid, txn_ctx->rollback_nonce_account, bank, txn_ctx->spad_wksp, capture_ctx );
+      fd_runtime_save_account( funk, xid, txn_ctx->rollback_nonce_account, bank, capture_ctx );
     }
 
     /* Now, we must only save the fee payer if the nonce account was not the fee payer (because that was already saved above) */
     if( FD_LIKELY( txn_ctx->nonce_account_idx_in_txn!=FD_FEE_PAYER_TXN_IDX ) ) {
-      fd_runtime_save_account( funk, xid, txn_ctx->rollback_fee_payer_account, bank, txn_ctx->spad_wksp, capture_ctx );
+      fd_runtime_save_account( funk, xid, txn_ctx->rollback_fee_payer_account, bank, capture_ctx );
     }
   } else {
 
@@ -928,7 +926,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
         continue;
       }
 
-      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts[i], txn_ctx->spad_wksp );
+      fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts[i] );
       if( FD_UNLIKELY( !acc_rec ) ) {
         FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
       }
@@ -945,7 +943,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
          cache updates have been applied. */
       fd_executor_reclaim_account( txn_ctx, &txn_ctx->accounts[i] );
 
-      fd_runtime_save_account( funk, xid, &txn_ctx->accounts[i], bank, txn_ctx->spad_wksp, capture_ctx );
+      fd_runtime_save_account( funk, xid, &txn_ctx->accounts[i], bank, capture_ctx );
     }
 
     /* We need to queue any existing program accounts that may have
@@ -1005,7 +1003,9 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
-                                    fd_capture_ctx_t *  capture_ctx ) {
+                                    fd_capture_ctx_t *  capture_ctx,
+                                    fd_exec_stack_t *   exec_stack,
+                                    uchar *             dumping_mem ) {
   int exec_res = 0;
 
   fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
@@ -1024,6 +1024,8 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, bank_idx } };
   txn_ctx->capture_ctx           = capture_ctx;
   txn_ctx->txn                   = *txn;
+  txn_ctx->exec_stack            = exec_stack;
+  txn_ctx->dumping_mem           = dumping_mem;
 
   txn_ctx->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   fd_exec_txn_ctx_setup_basic( txn_ctx );

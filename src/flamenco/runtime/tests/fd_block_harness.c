@@ -78,8 +78,7 @@ static void
 fd_runtime_fuzz_block_register_vote_account( fd_funk_t  *              funk,
                                              fd_funk_txn_xid_t const * xid,
                                              fd_vote_states_t *        vote_states,
-                                             fd_pubkey_t *             pubkey,
-                                             fd_spad_t *               spad ) {
+                                             fd_pubkey_t *             pubkey ) {
   fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
@@ -97,13 +96,6 @@ fd_runtime_fuzz_block_register_vote_account( fd_funk_t  *              funk,
 
   /* Account must be initialized correctly */
   if( FD_UNLIKELY( !fd_vote_state_versions_is_correct_and_initialized( acc ) ) ) {
-    return;
-  }
-
-  /* Get the vote state from the account data */
-  fd_vote_state_versioned_t * vsv = NULL;
-  int err = fd_vote_get_state( acc, spad, &vsv );
-  if( FD_UNLIKELY( err ) ) {
     return;
   }
 
@@ -201,13 +193,14 @@ fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
    Returns block_info on success and NULL on failure. */
 static fd_txn_p_t *
 fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
-                                  fd_runtime_stack_t *                 runtime_stack,
                                   fd_exec_test_block_context_t const * test_ctx,
                                   ulong *                              out_txn_cnt ) {
   fd_accdb_user_t * accdb = runner->accdb;
   fd_funk_t *       funk  = runner->accdb->funk;
   fd_bank_t *       bank  = runner->bank;
   fd_banks_t *      banks = runner->banks;
+
+  fd_runtime_stack_t * runtime_stack = runner->runtime_stack;
 
   fd_banks_clear_bank( banks, bank );
 
@@ -310,8 +303,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
         funk,
         xid,
         vote_states,
-        &pubkey,
-        runner->spad );
+        &pubkey );
 
     /* Update the stake delegations cache for epoch T */
     fd_runtime_fuzz_block_register_stake_delegation( funk,
@@ -329,8 +321,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( bank, *epoch_schedule );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, xid, runner->spad );
-  FD_TEST( rent );
+  fd_rent_t rent[1];
+  FD_TEST( fd_sysvar_rent_read( funk, xid, rent ) );
   fd_bank_rent_set( bank, *rent );
 
   /* Current epoch gets updated in process_new_epoch, so use the epoch
@@ -375,7 +367,8 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_memset( genesis_hash->hash, 0, sizeof(fd_hash_t) );
 
   // Use the latest lamports per signature
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, runner->spad );
+  uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_recent_hashes_read( funk, xid, rbh_mem );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
@@ -438,7 +431,6 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
    Returns the execution result. */
 static int
 fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
-                                fd_runtime_stack_t *      runtime_stack,
                                 fd_funk_txn_xid_t const * xid,
                                 fd_txn_p_t *              txn_ptrs,
                                 ulong                     txn_cnt ) {
@@ -458,14 +450,14 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
       fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
     }
 
-    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, xid, runtime_stack, capture_ctx );
+    fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, xid, runner->runtime_stack, capture_ctx );
 
     /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
        cleared (if it was allocated) before executing the block. */
     int is_epoch_boundary = 0;
-    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, xid, capture_ctx, runtime_stack, &is_epoch_boundary );
+    fd_runtime_block_pre_execute_process_new_epoch( runner->banks, runner->bank, runner->accdb, xid, capture_ctx, runner->runtime_stack, &is_epoch_boundary );
 
-    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, runtime_stack, capture_ctx );
+    res = fd_runtime_block_execute_prepare( runner->bank, runner->accdb, xid, runner->runtime_stack, capture_ctx );
     if( FD_UNLIKELY( res ) ) {
       return res;
     }
@@ -629,7 +621,7 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
       fd_runtime_fuzz_load_account( acc, runner->accdb->funk, xid, &test_ctx->acct_states[i], 1 );
       fd_pubkey_t pubkey;
       memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_runtime_fuzz_block_register_vote_account( runner->accdb->funk, xid, tmp_vs, &pubkey, runner->spad );
+      fd_runtime_fuzz_block_register_vote_account( runner->accdb->funk, xid, tmp_vs, &pubkey );
     }
     fd_stake_delegations_t * stake_delegations =
         fd_stake_delegations_join(
@@ -692,9 +684,8 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Set up the block execution context */
-    fd_runtime_stack_t * runtime_stack = fd_spad_alloc( runner->spad, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t) );
     ulong txn_cnt;
-    fd_txn_p_t * txn_ptrs = fd_runtime_fuzz_block_ctx_create( runner, runtime_stack, input, &txn_cnt );
+    fd_txn_p_t * txn_ptrs = fd_runtime_fuzz_block_ctx_create( runner, input, &txn_cnt );
     if( txn_ptrs==NULL ) {
       fd_runtime_fuzz_block_ctx_destroy( runner );
       return 0;
@@ -703,7 +694,7 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_runtime_fuzz_block_ctx_exec( runner, runtime_stack, &xid, txn_ptrs, txn_cnt );
+    int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );

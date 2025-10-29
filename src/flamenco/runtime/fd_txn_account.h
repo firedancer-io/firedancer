@@ -73,7 +73,7 @@ fd_txn_account_new( void *              mem,
    removed in favor of using offsets into other data structures. */
 
 fd_txn_account_t *
-fd_txn_account_join( void * mem, fd_wksp_t * data_wksp );
+fd_txn_account_join( void * mem );
 
 /* fd_txn_account_leave leaves a current local join and returns a
    pointer to the underlying shared memory region. The fd_txn_account_t

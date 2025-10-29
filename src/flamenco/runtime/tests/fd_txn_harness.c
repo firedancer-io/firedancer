@@ -3,6 +3,7 @@
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
+#include "../fd_runtime_stack.h"
 #include "../fd_txn_account.h"
 #include "../program/fd_builtin_programs.h"
 #include "../sysvar/fd_sysvar_clock.h"
@@ -108,8 +109,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   FD_TEST( epoch_schedule );
   fd_bank_epoch_schedule_set( runner->bank, *epoch_schedule );
 
-  fd_rent_t const * rent = fd_sysvar_rent_read( funk, &xid, runner->spad );
-  FD_TEST( rent );
+  fd_rent_t rent[1];
+  FD_TEST( fd_sysvar_rent_read( funk, &xid, rent ) );
   fd_bank_rent_set( runner->bank, *rent );
 
   uchar __attribute__((aligned(FD_SLOT_HASHES_GLOBAL_ALIGN))) slot_hashes_mem[ FD_SYSVAR_SLOT_HASHES_FOOTPRINT ];
@@ -162,7 +163,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   fd_blockhashes_t * blockhashes = fd_blockhashes_init( fd_bank_block_hash_queue_modify( runner->bank ), blockhash_seed );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, &xid, runner->spad );
+  uchar __attribute__((aligned(FD_SYSVAR_RECENT_HASHES_ALIGN))) rbh_mem[FD_SYSVAR_RECENT_HASHES_FOOTPRINT];
+  fd_recent_block_hashes_t const * rbh_sysvar = fd_sysvar_recent_hashes_read( funk, &xid, rbh_mem );
   fd_recent_block_hashes_t rbh[1];
   if( rbh_sysvar ) {
     rbh->hashes = rbh_sysvar->hashes;
@@ -339,9 +341,9 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
                               int *                     exec_res ) {
 
   /* Setup the spad for account allocation */
-  uchar *             txn_ctx_mem        = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-  fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), runner->spad, fd_wksp_containing( runner->spad ) );
-  txn_ctx->flags                         = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
+  fd_exec_txn_ctx_t * txn_ctx     = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ) );
+  txn_ctx->flags                  = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   if( FD_UNLIKELY( !fd_funk_join( txn_ctx->funk, runner->accdb->funk->shmem ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join failed" ));
   }
@@ -359,6 +361,8 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
       0UL,
       txn_ctx,
       txn,
+      NULL,
+      runner->exec_stack,
       NULL );
 
   return txn_ctx;

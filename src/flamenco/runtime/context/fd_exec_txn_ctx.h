@@ -49,6 +49,8 @@ struct fd_exec_txn_ctx {
 
   fd_bank_t * bank;
 
+  fd_exec_stack_t * exec_stack;
+
   /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                        features;
   fd_txncache_t *                      status_cache;
@@ -61,9 +63,6 @@ struct fd_exec_txn_ctx {
   ulong                                slot;
   ulong                                bank_idx;
   fd_txn_p_t                           txn;
-
-  fd_spad_t *                          spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
-  fd_wksp_t *                          spad_wksp;                                   /* Workspace for the spad. */
 
   fd_compute_budget_details_t          compute_budget_details;                      /* Compute budget details */
 
@@ -157,6 +156,10 @@ struct fd_exec_txn_ctx {
   struct {
     int enable_vm_tracing;
   } fuzz_config;
+
+  /* Pointer to buffer used for dumping instructions and transactions
+     into protobuf files. */
+  uchar * dumping_mem;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
@@ -199,7 +202,7 @@ void *
 fd_exec_txn_ctx_new( void * mem );
 
 fd_exec_txn_ctx_t *
-fd_exec_txn_ctx_join( void * mem, fd_spad_t * spad, fd_wksp_t * spad_wksp );
+fd_exec_txn_ctx_join( void * mem );
 
 void *
 fd_exec_txn_ctx_leave( fd_exec_txn_ctx_t * ctx );

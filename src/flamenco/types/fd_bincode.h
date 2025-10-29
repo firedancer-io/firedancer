@@ -610,4 +610,7 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
     res;                                                               \
   })
 
+#define fd_bincode_decode_static_limited_deserialize( type, out, buf, buf_sz, limit, perr ) \
+  fd_bincode_decode_static( type, out, buf, buf_sz>limit ? limit : buf_sz, perr )
+
 #endif /* HEADER_fd_src_flamenco_types_fd_bincode_h */

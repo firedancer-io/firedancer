@@ -61,17 +61,15 @@ FD_PROTOTYPES_BEGIN
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 
-fd_bpf_upgradeable_loader_state_t *
-fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
-                                 fd_spad_t *              spad,
-                                 int *                    opt_err );
+int
+fd_bpf_loader_program_get_state( fd_txn_account_t const *            acct,
+                                 fd_bpf_upgradeable_loader_state_t * state );
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    fd_pubkey_t const *   program_key,
                    uchar const *         programdata,
-                   ulong                 programdata_size,
-                   fd_spad_t *           spad );
+                   ulong                 programdata_size );
 
 int
 fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,

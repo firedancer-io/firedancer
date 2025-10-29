@@ -13,6 +13,7 @@
 #include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_exec_stack.h"
 
 typedef struct {
   ulong kind_id;
@@ -44,12 +45,13 @@ typedef struct {
   fd_pack_rebate_sum_t rebater[ 1 ];
 
   fd_banks_t * banks;
-  fd_spad_t *  exec_spad;
 
   fd_funk_t      funk[1];
   fd_progcache_t progcache[1];
 
   fd_exec_txn_ctx_t txn_ctx[1];
+
+  fd_exec_stack_t exec_stack;
 
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
@@ -68,7 +70,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
   l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  l = FD_LAYOUT_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
   l = FD_LAYOUT_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
   l = FD_LAYOUT_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   return FD_LAYOUT_FINI( l, scratch_align() );
@@ -171,9 +172,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
-
-    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL );
+    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack, NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->exec_err ) ]++;
@@ -259,7 +258,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                    txn_ctx->exec_err ));
     }
 
-    } FD_SPAD_FRAME_END;
   }
 
   /* Indicate to pack tile we are done processing the transactions so
@@ -339,7 +337,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_exec_txn_ctx_t txn_ctx[ 1 ]; // TODO ... bank manager ?
     txn->flags &= ~(FD_TXN_P_FLAGS_SANITIZE_SUCCESS | FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL ); /* TODO ... */
+    int err = fd_runtime_prepare_and_execute_txn( NULL, ULONG_MAX, txn_ctx, txn, NULL, &ctx->exec_stack, NULL ); /* TODO ... */
 
     transaction_err[ i ] = err;
     if( FD_UNLIKELY( err ) ) {
@@ -509,7 +507,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_bank_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_bank_ctx_t ),   sizeof( fd_bank_ctx_t ) );
   void * blake3       = FD_SCRATCH_ALLOC_APPEND( l, FD_BLAKE3_ALIGN,            FD_BLAKE3_FOOTPRINT );
   void * bmtree       = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN,     FD_BMTREE_COMMIT_FOOTPRINT(0) );
-  void * exec_spad    = FD_SCRATCH_ALLOC_APPEND( l, FD_SPAD_ALIGN,              FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) );
   void * _txncache    = FD_SCRATCH_ALLOC_APPEND( l, fd_txncache_align(),        fd_txncache_footprint( tile->bank.max_live_slots ) );
   void * pc_scratch   = FD_SCRATCH_ALLOC_APPEND( l, FD_PROGCACHE_SCRATCH_ALIGN, FD_PROGCACHE_SCRATCH_FOOTPRINT );
 
@@ -521,7 +518,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->kind_id   = tile->kind_id;
   ctx->blake3    = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
   ctx->bmtree    = NONNULL( bmtree );
-  ctx->exec_spad = NONNULL( fd_spad_join( fd_spad_new( exec_spad, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT ) ) );
 
   NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
   ctx->rebates_for_slot  = 0UL;
@@ -536,10 +532,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   FD_TEST( progcache );
 
-  NONNULL( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ), ctx->exec_spad, fd_wksp_containing( exec_spad ) ) );
   ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
-  ctx->txn_ctx->spad          = ctx->exec_spad;
-  ctx->txn_ctx->spad_wksp     = fd_wksp_containing( exec_spad );
   *(ctx->txn_ctx->funk)       = *funk;
   *(ctx->txn_ctx->_progcache) = *progcache;
   ctx->txn_ctx->progcache     = ctx->txn_ctx->_progcache;

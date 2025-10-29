@@ -49,7 +49,7 @@ fd_txn_account_new( void *              mem,
 }
 
 fd_txn_account_t *
-fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
+fd_txn_account_join( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -57,11 +57,6 @@ fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, alignof(fd_txn_account_t) ) ) ) {
     FD_LOG_WARNING(( "misaligned mem" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !data_wksp ) ) {
-    FD_LOG_WARNING(( "NULL data_wksp" ));
     return NULL;
   }
 
@@ -75,9 +70,6 @@ fd_txn_account_join( void * mem, fd_wksp_t * data_wksp ) {
   if( FD_UNLIKELY( txn_account->meta_soff==0UL ) ) {
     FD_LOG_CRIT(( "invalid meta_soff" ));
   }
-
-  txn_account->meta = (void *)( (ulong)mem + (ulong)txn_account->meta_soff );
-  txn_account->data = (void *)( (ulong)txn_account->meta + sizeof(fd_account_meta_t) );
 
   return txn_account;
 }
@@ -146,11 +138,11 @@ fd_txn_account_init_from_funk_readonly( fd_txn_account_t *        acct,
     return err;
   }
 
-  if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+  if( FD_UNLIKELY( !fd_txn_account_new(
         acct,
         pubkey,
         (fd_account_meta_t *)meta,
-        0 ), fd_funk_wksp( funk ) ) ) ) {
+        0 ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 
@@ -175,8 +167,8 @@ fd_txn_account_init_from_funk_mutable( fd_txn_account_t *        acct,
   if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
         acct,
         pubkey,
-        rw->meta,
-        1 ), fd_funk_wksp( accdb->funk ) ) ) ) {
+        (fd_account_meta_t *)rw->meta,
+        1 ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
 

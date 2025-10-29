@@ -828,7 +828,7 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
   /**********************************************************************/
 
-  fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( bank );
+  fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
   FD_TEST( bank_hash );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;

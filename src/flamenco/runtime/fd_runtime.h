@@ -16,6 +16,8 @@
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../vm/fd_vm_base.h"
 
+#include "program/fd_bpf_loader_program.h"
+
 /* Various constant values used by the runtime. */
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
@@ -89,46 +91,74 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    execution of a single transaction. */
 #define FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT (MAX_TX_ACCOUNT_LOCKS * FD_ULONG_ALIGN_UP( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ))
 
-/* The tight-ish upper bound on input region footprint over the
-   execution of a single transaction. See input serialization code for
-   reference: fd_bpf_loader_serialization.c
+/* The bpf loader's serialization footprint is bounded in the worst case
+   by 64 unique writable accounts which are each 10MiB in size (bounded
+   by the amount of transaction accounts).  We can also have up to
+   FD_INSTR_ACCT_MAX (256) referenced accounts in an instruction.
 
-   This bound is based off of the transaction MTU. We consider the
-   question of what kind of transaction one would construct to
-   maximally bloat the input region.
-   The worst case scenario is when every nested instruction references
-   all unique accounts in the transaction. A transaction can lock a max
-   of MAX_TX_ACCOUNT_LOCKS accounts. Then all remaining input account
-   references are going to be duplicates, which cost 1 byte to specify
-   offset in payload, and which cost 8 bytes during serialization. Then
-   there would be 0 bytes of instruction data, because they exist byte
-   for byte in the raw payload, which is not a worthwhile bloat factor.
+   - 8 bytes for the account count
+   For each account:
+     If duplicated:
+       - 8 bytes for each duplicated account
+    If not duplicated:
+     - header for each unique account (96 bytes)
+       - 1 account idx byte
+       - 1 is_signer byte
+       - 1 is_writable byte
+       - 1 executable byte
+       - 4 bytes for the original data length
+       - 32 bytes for the key
+       - 32 bytes for the owner
+       - 8 bytes for the lamports
+       - 8 bytes for the data length
+       - 8 bytes for the rent epoch
+     - 10MiB for the data (10485760 bytes)
+     - 10240 bytes for resizing the data
+     - 0 padding bytes because this is already 8 byte aligned
+   - 8 bytes for instruction data length
+   - 1232 bytes for the instruction data (TXN_MTU)
+   - 32 bytes for the program id
+
+  So the total footprint is:
+  8 header bytes +
+  192 duplicate accounts (256 instr accounts - 64 unique accounts) * 8 bytes     = 1536      duplicate account bytes +
+  64 unique accounts * (96 header bytes + 10485760 bytes + 10240 resizing bytes) = 671750144 unique account bytes +
+  8 + 1232 + 32                                                                  = 1272 bytes trailer bytes + program id = 671751416 bytes
+  Total footprint: 671752960 bytes
+
+  This is a reasonably tight-ish upper bound on the input region
+  footprint for a single instruction at a single stack depth.  In
+  reality the footprint would be slightly smaller because the
+  instruction data can't be equal to the transaction MTU.
  */
-#define FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
-                                                        (1UL                         /* dup byte          */                                                        + \
-                                                         sizeof(uchar)               /* is_signer         */                                                        + \
-                                                         sizeof(uchar)               /* is_writable       */                                                        + \
-                                                         sizeof(uchar)               /* executable        */                                                        + \
-                                                         sizeof(uint)                /* original_data_len */                                                        + \
-                                                         sizeof(fd_pubkey_t)         /* key               */                                                        + \
-                                                         sizeof(fd_pubkey_t)         /* owner             */                                                        + \
-                                                         sizeof(ulong)               /* lamports          */                                                        + \
-                                                         sizeof(ulong)               /* data len          */                                                        + \
-                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
-                                                         MAX_PERMITTED_DATA_INCREASE                                                                                + \
-                                                         sizeof(ulong))              /* rent_epoch        */
+#define FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)                                                                                              \
+                                              (1UL                         /* dup byte          */                                                        + \
+                                               sizeof(uchar)               /* is_signer         */                                                        + \
+                                               sizeof(uchar)               /* is_writable       */                                                        + \
+                                               sizeof(uchar)               /* executable        */                                                        + \
+                                               sizeof(uint)                /* original_data_len */                                                        + \
+                                               sizeof(fd_pubkey_t)         /* key               */                                                        + \
+                                               sizeof(fd_pubkey_t)         /* owner             */                                                        + \
+                                               sizeof(ulong)               /* lamports          */                                                        + \
+                                               sizeof(ulong)               /* data len          */                                                        + \
+                                               (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_RUNTIME_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
+                                               MAX_PERMITTED_DATA_INCREASE                                                                                + \
+                                               sizeof(ulong))              /* rent_epoch        */
+#define FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT (8UL) /* 1 dup byte + 7 bytes for padding */
 
-#define FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                       \
-                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                          + \
-                                                                   account_lock_limit*FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping) + \
-                                                                   sizeof(ulong)         /* instr data len */                                          + \
-                                                                                         /* No instr data  */                                            \
-                                                                   sizeof(fd_pubkey_t)), /* program id     */                                            \
-                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ) + FD_BPF_ALIGN_OF_U128)
+#define FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(account_lock_limit, direct_mapping)                                                                      \
+                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                       + \
+                                                                   account_lock_limit*FD_BPF_LOADER_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping)        + \
+                                                                   (FD_INSTR_ACCT_MAX-account_lock_limit)*FD_BPF_LOADER_DUPLICATE_ACCOUNT_FOOTPRINT + \
+                                                                   sizeof(ulong)         /* instr data len */                                       + \
+                                                                   FD_TXN_MTU            /* No instr data  */                                       + \
+                                                                   sizeof(fd_pubkey_t)), /* program id     */                                          \
+                                                                   FD_RUNTIME_EBPF_HOST_ALIGN ))
 
-#define FD_RUNTIME_INPUT_REGION_TXN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                           \
-                                             ((FD_MAX_INSTRUCTION_STACK_DEPTH*FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)) + \
-                                              ((FD_TXN_MTU-FD_TXN_MIN_SERIALIZED_SZ-account_lock_limit)*8UL)) /* We can have roughly this much duplicate offsets */
+
+
+#define BPF_LOADER_SERIALIZATION_FOOTPRINT (671752960UL)
+FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION_FOOTPRINT(64UL, 0), bpf_loader_serialization_footprint );
 
 /* Bincode alloc footprint over the execution of a single transaction.
    As well as other footprint specific to each native program type.
@@ -265,7 +295,9 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     ulong               bank_idx,
                                     fd_exec_txn_ctx_t * txn_ctx,
                                     fd_txn_p_t *        txn,
-                                    fd_capture_ctx_t *  capture_ctx );
+                                    fd_capture_ctx_t *  capture_ctx,
+                                    fd_exec_stack_t *   exec_stack,
+                                    uchar *             dumping_mem );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,

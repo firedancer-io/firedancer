@@ -5,6 +5,7 @@
 #include "../../discof/replay/fd_exec.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/fd_bank.h"
+#include "../../flamenco/runtime/fd_exec_stack.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../disco/metrics/fd_metrics.h"
 
@@ -40,16 +41,13 @@ typedef struct fd_exec_tile_ctx {
 
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
-  fd_spad_t *           exec_spad;
-  fd_wksp_t *           exec_spad_wksp;
-
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
      from the dispatch/replay tile.  The fd_exec_txn_ctx_t * is a valid
      local join that lives in the top-most frame of the spad that is
      setup when the exec tile is booted; its members are refreshed on
      the slot/epoch boundary. */
-  fd_exec_txn_ctx_t *   txn_ctx;
+  fd_exec_txn_ctx_t     txn_ctx[1];
 
   /* Capture context for debugging runtime execution. */
   fd_capture_ctx_t *    capture_ctx;
@@ -69,6 +67,13 @@ typedef struct fd_exec_tile_ctx {
      before this message. */
   int                   pending_txn_finalized_msg;
   ulong                 txn_idx;
+
+  fd_exec_stack_t       exec_stack;
+
+  /* This buffer is used for staging memory to dump instructions and
+     transactions into protobuf files.
+     TODO: This should not be compiled in prod. */
+  uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
 } fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -117,10 +122,15 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
     }
     switch( sig>>32 ) {
       case FD_EXEC_TT_TXN_EXEC: {
-        FD_SPAD_FRAME_BEGIN( ctx->exec_spad ) {
         /* Execute. */
         fd_exec_txn_exec_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in->mem, chunk );
-        ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, msg->bank_idx, ctx->txn_ctx, &msg->txn, ctx->capture_ctx );
+        ctx->txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks,
+                                                                     msg->bank_idx,
+                                                                     ctx->txn_ctx,
+                                                                     &msg->txn,
+                                                                     ctx->capture_ctx,
+                                                                     &ctx->exec_stack,
+                                                                     ctx->dumping_mem );
 
         /* Commit. */
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
@@ -143,7 +153,6 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         ctx->txn_idx = msg->txn_idx;
         ctx->pending_txn_finalized_msg = 1;
 
-        } FD_SPAD_FRAME_END;
         break;
       }
       case FD_EXEC_TT_TXN_SIGVERIFY: {
@@ -243,21 +252,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /********************************************************************/
-  /* spad allocator                                                   */
-  /********************************************************************/
-
-  ulong exec_spad_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_spad.%lu", ctx->tile_idx );
-  if( FD_UNLIKELY( exec_spad_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for exec spad" ));
-  }
-
-  ctx->exec_spad = fd_spad_join( fd_topo_obj_laddr( topo, exec_spad_obj_id ) );
-  if( FD_UNLIKELY( !ctx->exec_spad ) ) {
-    FD_LOG_ERR(( "Failed to join exec spad" ));
-  }
-  ctx->exec_spad_wksp = fd_wksp_containing( ctx->exec_spad );
-
-  /********************************************************************/
   /* bank hash cmp                                                    */
   /********************************************************************/
 
@@ -290,9 +284,8 @@ unprivileged_init( fd_topo_t *      topo,
   /* setup txn ctx                                                    */
   /********************************************************************/
 
-  fd_spad_push( ctx->exec_spad );
-  uchar * txn_ctx_mem         = fd_spad_alloc_check( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
-  ctx->txn_ctx                = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
+  FD_TEST( fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( ctx->txn_ctx ) ) );
+
   if( FD_UNLIKELY( !fd_funk_join( ctx->txn_ctx->funk, shfunk ) ) ) {
     FD_LOG_CRIT(( "fd_funk_join(accdb) failed" ));
   }
@@ -302,8 +295,6 @@ unprivileged_init( fd_topo_t *      topo,
   }
   ctx->txn_ctx->status_cache  = ctx->txncache;
   ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
-  ctx->txn_ctx->spad          = ctx->exec_spad;
-  ctx->txn_ctx->spad_wksp     = ctx->exec_spad_wksp;
 
   /********************************************************************/
   /* Capture context                                                 */
