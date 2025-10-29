@@ -913,6 +913,7 @@ fd_sched_task_done( fd_sched_t * sched, ulong task_type, ulong txn_idx, ulong ex
       FD_LOG_CRIT(( "invariant violation: active block shouldn't be dying, bank_idx %lu, slot %lu, parent slot %lu",
                     bank_idx, block->slot, block->parent_slot ));
     }
+    FD_LOG_DEBUG(( "dying block %lu drained", block->slot ));
     subtree_abandon( sched, block );
     return;
   }
@@ -948,6 +949,7 @@ fd_sched_block_abandon( fd_sched_t * sched, ulong bank_idx ) {
   subtree_abandon( sched, block );
 
   /* Reset the active block. */
+  FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
   sched->active_bank_idx = ULONG_MAX;
   sched->metrics->deactivate_abandoned_cnt++;
   FD_LOG_INFO(( "block %lu abandoned", block->slot ));
@@ -1115,6 +1117,7 @@ fd_sched_root_notify( fd_sched_t * sched, ulong root_idx ) {
         rooted_child_block = child;
       } else {
         /* This is a minority fork. */
+        FD_LOG_DEBUG(( "abandoning minority fork on block %lu", child->slot ));
         subtree_abandon( sched, child );
       }
       child_idx = child->sibling_idx;
@@ -1475,8 +1478,9 @@ subtree_abandon( fd_sched_t * sched, fd_sched_block_t * block ) {
                    !block->staged    || /* parent is in the dispatcher and staged but this block is unstaged */
                    block->staging_lane!=parent->staging_lane; /* this block is on a different staging lane than its parent */
 
-    if( FD_UNLIKELY( in_order && block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] ) ) {
+    if( FD_UNLIKELY( in_order && block->staged && sched->active_bank_idx==sched->staged_head_bank_idx[ block->staging_lane ] && sched->active_bank_idx!=ULONG_MAX ) ) {
       FD_TEST( block_pool_ele( sched, sched->active_bank_idx )==block );
+      FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
       sched->active_bank_idx = ULONG_MAX;
     }
 
@@ -1544,6 +1548,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
           if( FD_UNLIKELY( !block_is_activatable( child ) ) ) {
             /* ... but the child is not activatable, likely because
                there are no transactions available yet. */
+            FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
             sched->active_bank_idx = ULONG_MAX;
             sched->metrics->deactivate_no_txn_cnt++;
             try_activate_block( sched );
@@ -1562,6 +1567,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
         } else {
           /* ... but the child block is considered dead, likely because
              the parser considers it invalid. */
+          FD_LOG_INFO(( "child block %lu is already dead", child->slot ));
           subtree_abandon( sched, child );
           break;
         }
@@ -1574,6 +1580,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
     sched->staged_head_bank_idx[ block->staging_lane ] = ULONG_MAX;
 
     /* Reset the active block. */
+    FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
     sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_child_cnt++;
     try_activate_block( sched );
@@ -1582,6 +1589,7 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
        are just not getting FEC sets for it fast enough.  This could
        happen when the network path is congested, or when the leader
        simply went down.  Reset the active block. */
+    FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
     sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
