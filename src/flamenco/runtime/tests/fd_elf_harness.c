@@ -1,5 +1,5 @@
 #include "fd_solfuzz.h"
-#include "fd_solfuzz_private.h"
+#include "fd_harness_common.h"
 #include "generated/elf.pb.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../program/fd_bpf_loader_program.h"

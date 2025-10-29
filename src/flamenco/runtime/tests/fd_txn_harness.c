@@ -1,5 +1,5 @@
 #include "fd_solfuzz.h"
-#include "fd_solfuzz_private.h"
+#include "fd_harness_common.h"
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"

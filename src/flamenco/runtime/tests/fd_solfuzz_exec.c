@@ -1,6 +1,7 @@
 /* fd_solfuzz_exec.c contains internal executors */
 
 #include "fd_solfuzz_private.h"
+#include "fd_solfuzz_codec.h"
 #include "generated/block.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"

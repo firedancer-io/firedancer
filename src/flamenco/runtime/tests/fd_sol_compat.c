@@ -1,11 +1,13 @@
 #include "fd_solfuzz.h"
 #include "fd_solfuzz_private.h"
+#include "fd_solfuzz_codec.h"
 #define _GNU_SOURCE
 #include "fd_sol_compat.h"
 
 #include "../fd_executor_err.h"
 #include "../../capture/fd_solcap_writer.h"
 #include "../../../ballet/shred/fd_shred.h"
+#include "../../features/fd_features.h"
 
 #include "generated/block.pb.h"
 #include "generated/elf.pb.h"

@@ -1,4 +1,4 @@
-#include "fd_solfuzz_private.h"
+#include "fd_harness_common.h"
 #include "../fd_cost_tracker.h"
 #include "fd_txn_harness.h"
 #include "../fd_runtime.h"

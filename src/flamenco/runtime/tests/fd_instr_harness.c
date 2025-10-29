@@ -1,7 +1,7 @@
 #undef FD_SPAD_USE_HANDHOLDING
 #define FD_SPAD_USE_HANDHOLDING 1
 
-#include "fd_solfuzz_private.h"
+#include "fd_harness_common.h"
 #include "fd_instr_harness.h"
 #include "../fd_executor.h"
 #include "../fd_runtime_stack.h"
