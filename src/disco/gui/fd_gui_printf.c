@@ -1280,7 +1280,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "failed_vote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui->http, "max_compute_units" );
-        else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
@@ -1408,7 +1408,7 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "failed_vote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui->http, "max_compute_units" );
-        else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
@@ -1474,7 +1474,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "failed_vote_transaction_cnt" );
         else                                                           jsonp_ulong( gui->http, "failed_vote_transaction_cnt", slot->failed_txn_cnt - slot->nonvote_failed_txn_cnt );
         if( FD_UNLIKELY( slot->max_compute_units==UINT_MAX ) ) jsonp_null( gui->http, "max_compute_units" );
-        else                                                       jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
+        else                                                   jsonp_ulong( gui->http, "max_compute_units", slot->max_compute_units );
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui->http, "compute_units" );
         else                                               jsonp_ulong( gui->http, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->shred_cnt==UINT_MAX ) ) jsonp_null( gui->http, "shreds" );
@@ -1707,6 +1707,26 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         } else {
           /* Our tile timers were overwritten. */
           jsonp_null( gui->http, "tile_timers" );
+        }
+
+        if( FD_LIKELY( lslot ) ) {
+          jsonp_open_array( gui->http, "scheduler_counts" );
+            /* Unlike tile timers (which are counters), scheduler counts
+               are a gauge and we don't take a diff. */
+            for( ulong i=0UL; i<lslot->scheduler_counts_sample_cnt; i++ ) {
+              fd_gui_scheduler_counts_t const * cur = lslot->scheduler_counts[ i ];
+              jsonp_open_object( gui->http, NULL );
+                jsonp_long_as_str( gui->http, "timestamp_nanos", cur->sample_time_ns );
+                jsonp_ulong      ( gui->http, "regular",         cur->regular        );
+                jsonp_ulong      ( gui->http, "votes",           cur->votes          );
+                jsonp_ulong      ( gui->http, "conflicting",     cur->conflicting    );
+                jsonp_ulong      ( gui->http, "bundles",         cur->bundles        );
+              jsonp_close_object( gui->http );
+            }
+          jsonp_close_array( gui->http );
+        } else {
+          /* Our scheduler counts were overwritten. */
+          jsonp_null( gui->http, "scheduler_counts" );
         }
 
         fd_gui_printf_tile_stats( gui, slot->tile_stats_begin, slot->tile_stats_end );

@@ -96,9 +96,11 @@ struct fd_gui_validator_info {
 #define FD_GUI_TPS_HISTORY_WINDOW_DURATION_SECONDS (10L)
 #define FD_GUI_TPS_HISTORY_SAMPLE_CNT              (150UL)
 
-#define FD_GUI_TILE_TIMER_SNAP_CNT                 (512UL)
-#define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT    (50UL)    /* 500ms / 10ms */
-#define FD_GUI_TILE_TIMER_TILE_CNT                 (128UL)
+#define FD_GUI_TILE_TIMER_SNAP_CNT                   (512UL)
+#define FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT      (50UL)  /* 500ms / 10ms */
+#define FD_GUI_SCHEDULER_COUNT_SNAP_CNT              (512UL)
+#define FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT (50UL)  /* 500ms / 10ms */
+#define FD_GUI_TILE_TIMER_TILE_CNT                   (128UL)
 
 #define FD_GUI_VOTE_STATE_NON_VOTING (0)
 #define FD_GUI_VOTE_STATE_VOTING     (1)
@@ -289,6 +291,16 @@ struct fd_gui_tile_timers {
 
 typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 
+struct fd_gui_scheduler_counts {
+  long sample_time_ns;
+  ulong regular;
+  ulong votes;
+  ulong conflicting;
+  ulong bundles;
+};
+
+typedef struct fd_gui_scheduler_counts fd_gui_scheduler_counts_t;
+
 struct fd_gui_leader_slot {
   ulong slot;
   long  leader_start_time; /* UNIX timestamp of when we first became leader in this slot */
@@ -316,6 +328,9 @@ struct fd_gui_leader_slot {
      FD_GUI_TILE_TIMER_TILE_CNT is the maximum number of tiles supported. */
   fd_gui_tile_timers_t tile_timers[ FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
   ulong                tile_timers_sample_cnt;
+
+  fd_gui_scheduler_counts_t scheduler_counts[ FD_GUI_SCHEDULER_COUNT_LEADER_DOWNSAMPLE_CNT ][ 1 ];
+  ulong                     scheduler_counts_sample_cnt;
 
   struct {
     uint microblocks_upper_bound; /* An upper bound on the number of microblocks in the slot.  If the number of
@@ -546,7 +561,7 @@ struct fd_gui {
   long next_sample_100millis;
   long next_sample_10millis;
 
-  ulong debug_in_leader_slot;
+  ulong leader_slot;
 
   struct {
     fd_pubkey_t identity_key[ 1 ];
@@ -667,6 +682,11 @@ struct fd_gui {
     ulong                tile_timers_snap_idx_slot_start;
     /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
     fd_gui_tile_timers_t tile_timers_snap[ FD_GUI_TILE_TIMER_SNAP_CNT ][ FD_GUI_TILE_TIMER_TILE_CNT ];
+
+    ulong                     scheduler_counts_snap_idx;
+    ulong                     scheduler_counts_snap_idx_slot_start;
+    /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
+    fd_gui_scheduler_counts_t scheduler_counts_snap[ FD_GUI_SCHEDULER_COUNT_SNAP_CNT ][ 1 ];
   } summary;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
@@ -802,7 +822,8 @@ fd_gui_became_leader( fd_gui_t * gui,
 void
 fd_gui_unbecame_leader( fd_gui_t * gui,
                         ulong      slot,
-                        ulong      microblocks_in_slot );
+                        ulong      microblocks_in_slot,
+                        long       now );
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,
