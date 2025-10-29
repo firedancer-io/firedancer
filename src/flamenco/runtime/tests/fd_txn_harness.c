@@ -34,18 +34,16 @@
 })
 
 static void
-fd_runtime_fuzz_xid_cancel( fd_solfuzz_runner_t * runner,
-                            fd_funk_txn_xid_t *   xid ) {
-  if( FD_UNLIKELY( !xid ) ) return; // This shouldn't be false either
-  fd_accdb_cancel( runner->accdb_admin, xid );
+fd_solfuzz_txn_ctx_destroy( fd_solfuzz_runner_t * runner ) {
+  fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
 }
 
-/* Creates transaction execution context for a single test case. Returns a
-   a parsed txn descriptor on success and NULL on failure. */
+/* Creates transaction execution context for a single test case.
+   Returns a parsed txn descriptor on success and NULL on failure. */
 static fd_txn_p_t *
-fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
-                                fd_exec_test_txn_context_t const * test_ctx ) {
+fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
+                              fd_exec_test_txn_context_t const * test_ctx ) {
   fd_accdb_user_t * accdb = runner->accdb;
   fd_funk_t *       funk  = runner->accdb->funk;
 
@@ -64,11 +62,12 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   /* Restore feature flags */
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_ctx.features;
   fd_features_t * features_bm = fd_bank_features_modify( runner->bank );
-  if( !fd_runtime_fuzz_restore_features( features_bm, feature_set ) ) {
+  if( !fd_solfuzz_pb_restore_features( features_bm, feature_set ) ) {
     return NULL;
   }
 
-  /* Set bank variables (defaults obtained from GenesisConfig::default() in Agave) */
+  /* Set bank variables (defaults obtained from GenesisConfig::default
+     in Agave) */
 
   fd_bank_slot_set( runner->bank, slot );
   fd_bank_parent_slot_set( runner->bank, fd_bank_slot_get( runner->bank ) - 1UL );
@@ -83,7 +82,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
     fd_txn_account_t acc[1];
-    fd_runtime_fuzz_load_account( acc, funk, &xid, &test_ctx->account_shared_data[i], 1 );
+    fd_solfuzz_pb_load_account( acc, funk, &xid, &test_ctx->account_shared_data[i], 1 );
   }
 
   /* Setup Bank manager */
@@ -208,7 +207,7 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   fd_txn_p_t * txn    = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
-  ulong        msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->tx );
+  ulong        msg_sz = fd_solfuzz_pb_txn_serialize( txn->payload, &test_ctx->tx );
   if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
     return NULL;
   }
@@ -224,8 +223,8 @@ fd_runtime_fuzz_txn_ctx_create( fd_solfuzz_runner_t *              runner,
 }
 
 ulong
-fd_runtime_fuzz_serialize_txn( uchar *                                      txn_raw_begin,
-                               fd_exec_test_sanitized_transaction_t const * tx ) {
+fd_solfuzz_pb_txn_serialize( uchar *                                      txn_raw_begin,
+                             fd_exec_test_sanitized_transaction_t const * tx ) {
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
@@ -335,10 +334,10 @@ fd_runtime_fuzz_serialize_txn( uchar *                                      txn_
 }
 
 fd_exec_txn_ctx_t *
-fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
-                              fd_funk_txn_xid_t const * xid,
-                              fd_txn_p_t *              txn,
-                              int *                     exec_res ) {
+fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
+                         fd_funk_txn_xid_t const * xid,
+                         fd_txn_p_t *              txn,
+                         int *                     exec_res ) {
 
   /* Setup the spad for account allocation */
   uchar *             txn_ctx_mem = fd_spad_alloc_check( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
@@ -369,28 +368,28 @@ fd_runtime_fuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
 }
 
 ulong
-fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
-                    void const *          input_,
-                    void **               output_,
-                    void *                output_buf,
-                    ulong                 output_bufsz ) {
+fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
+                       void const *          input_,
+                       void **               output_,
+                       void *                output_buf,
+                       ulong                 output_bufsz ) {
   fd_exec_test_txn_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_txn_result_t **       output = fd_type_pun( output_ );
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
 
     /* Setup the transaction context */
-    fd_txn_p_t * txn = fd_runtime_fuzz_txn_ctx_create( runner, input );
+    fd_txn_p_t * txn = fd_solfuzz_pb_txn_ctx_create( runner, input );
 
     fd_funk_txn_xid_t xid = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
     if( FD_UNLIKELY( txn==NULL ) ) {
-      fd_runtime_fuzz_xid_cancel( runner, &xid );
+      fd_solfuzz_txn_ctx_destroy( runner );
       return 0;
     }
 
     /* Execute the transaction against the runtime */
     int exec_res = 0;
-    fd_exec_txn_ctx_t * txn_ctx = fd_runtime_fuzz_txn_ctx_exec( runner, &xid, txn, &exec_res );
+    fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, &xid, txn, &exec_res );
 
     /* Start saving txn exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -434,7 +433,7 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
       }
 
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-      fd_runtime_fuzz_xid_cancel( runner, &xid );
+      fd_solfuzz_txn_ctx_destroy( runner );
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
@@ -539,7 +538,7 @@ fd_solfuzz_txn_run( fd_solfuzz_runner_t * runner,
     }
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    fd_runtime_fuzz_xid_cancel( runner, &xid );
+    fd_solfuzz_txn_ctx_destroy( runner );
 
     *output = txn_result;
     return actual_end - (ulong)output_buf;

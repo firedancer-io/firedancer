@@ -30,13 +30,14 @@ typedef struct {
 /* Fixed leader schedule hash seed (consistent with solfuzz-agave) */
 #define LEADER_SCHEDULE_HASH_SEED 0xDEADFACEUL
 
-/* Stripped down version of `fd_refresh_vote_accounts()` that simply refreshes the stake delegation amount
-   for each of the vote accounts using the stake delegations cache. */
+/* Stripped down version of fd_refresh_vote_accounts that simply
+   refreshes the stake delegation amount for each of the vote accounts
+   using the stake delegations cache. */
 static void
-fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
-                                             fd_vote_states_t *       vote_states_prev_prev,
-                                             fd_stake_delegations_t * stake_delegations,
-                                             ulong                    epoch ) {
+fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
+                                        fd_vote_states_t *       vote_states_prev_prev,
+                                        fd_stake_delegations_t * stake_delegations,
+                                        ulong                    epoch ) {
   fd_stake_delegations_iter_t iter_[1];
   for( fd_stake_delegations_iter_t * iter = fd_stake_delegations_iter_init( iter_, stake_delegations );
        !fd_stake_delegations_iter_done( iter );
@@ -71,14 +72,14 @@ fd_runtime_fuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_state
   }
 }
 
-/* Registers a single vote account into the current votes cache. The entry is derived
-   from the current present account state. This function also registers a vote timestamp
-   for the vote account */
+/* Registers a single vote account into the current votes cache.  The
+   entry is derived from the current present account state.  This
+   function also registers a vote timestamp for the vote account. */
 static void
-fd_runtime_fuzz_block_register_vote_account( fd_funk_t  *              funk,
-                                             fd_funk_txn_xid_t const * xid,
-                                             fd_vote_states_t *        vote_states,
-                                             fd_pubkey_t *             pubkey ) {
+fd_solfuzz_block_register_vote_account( fd_funk_t  *              funk,
+                                        fd_funk_txn_xid_t const * xid,
+                                        fd_vote_states_t *        vote_states,
+                                        fd_pubkey_t *             pubkey ) {
   fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
@@ -106,13 +107,14 @@ fd_runtime_fuzz_block_register_vote_account( fd_funk_t  *              funk,
       fd_txn_account_get_data_len( acc ) );
 }
 
-/* Stores an entry in the stake delegations cache for the given vote account. Deserializes and uses the present
-   account state to derive delegation information. */
+/* Stores an entry in the stake delegations cache for the given vote
+   account.  Deserializes and uses the present account state to derive
+   delegation information. */
 static void
-fd_runtime_fuzz_block_register_stake_delegation( fd_funk_t *               funk,
-                                                 fd_funk_txn_xid_t const * xid,
-                                                 fd_stake_delegations_t *  stake_delegations,
-                                                 fd_pubkey_t *             pubkey ) {
+fd_solfuzz_block_register_stake_delegation( fd_funk_t *               funk,
+                                            fd_funk_txn_xid_t const * xid,
+                                            fd_stake_delegations_t *  stake_delegations,
+                                            fd_pubkey_t *             pubkey ) {
  fd_txn_account_t acc[1];
   if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( acc, pubkey, funk, xid ) ) ) {
     return;
@@ -153,10 +155,10 @@ fd_runtime_fuzz_block_register_stake_delegation( fd_funk_t *               funk,
 
 /* Common helper method for populating a previous epoch's vote cache. */
 static void
-fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *            vote_states,
-                                                     fd_exec_test_vote_account_t * vote_accounts,
-                                                     pb_size_t                     vote_accounts_cnt,
-                                                     fd_spad_t *                   spad ) {
+fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *            vote_states,
+                                                   fd_exec_test_vote_account_t * vote_accounts,
+                                                   pb_size_t                     vote_accounts_cnt,
+                                                   fd_spad_t *                   spad ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     for( uint i=0U; i<vote_accounts_cnt; i++ ) {
       fd_exec_test_acct_state_t * vote_account  = &vote_accounts[i].vote_account;
@@ -184,17 +186,18 @@ fd_runtime_fuzz_block_update_prev_epoch_votes_cache( fd_vote_states_t *         
 }
 
 static void
-fd_runtime_fuzz_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
+fd_solfuzz_pb_block_ctx_destroy( fd_solfuzz_runner_t * runner ) {
   fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
 }
 
-/* Sets up block execution context from an input test case to execute against the runtime.
-   Returns block_info on success and NULL on failure. */
+/* Sets up block execution context from an input test case to execute
+   against the runtime.  Returns block_info on success and NULL on
+   failure. */
 static fd_txn_p_t *
-fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
-                                  fd_exec_test_block_context_t const * test_ctx,
-                                  ulong *                              out_txn_cnt ) {
+fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
+                                fd_exec_test_block_context_t const * test_ctx,
+                                ulong *                              out_txn_cnt ) {
   fd_accdb_user_t * accdb = runner->accdb;
   fd_funk_t *       funk  = runner->accdb->funk;
   fd_bank_t *       bank  = runner->bank;
@@ -214,7 +217,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Restore feature flags */
   fd_features_t features = {0};
-  if( !fd_runtime_fuzz_restore_features( &features, &test_ctx->epoch_ctx.features ) ) {
+  if( !fd_solfuzz_pb_restore_features( &features, &test_ctx->epoch_ctx.features ) ) {
     return NULL;
   }
   fd_bank_features_set( bank, features );
@@ -294,22 +297,19 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   vote_states = fd_bank_vote_states_locking_modify( bank );
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     fd_txn_account_t acc[1];
-    fd_runtime_fuzz_load_account( acc, funk, xid, &test_ctx->acct_states[i], 1 );
+    fd_solfuzz_pb_load_account( acc, funk, xid, &test_ctx->acct_states[i], 1 );
 
     /* Update vote accounts cache for epoch T */
     fd_pubkey_t pubkey;
     memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-    fd_runtime_fuzz_block_register_vote_account(
+    fd_solfuzz_block_register_vote_account(
         funk,
         xid,
         vote_states,
         &pubkey );
 
     /* Update the stake delegations cache for epoch T */
-    fd_runtime_fuzz_block_register_stake_delegation( funk,
-                                                     xid,
-                                                     stake_delegations,
-                                                     &pubkey );
+    fd_solfuzz_block_register_stake_delegation( funk, xid, stake_delegations, &pubkey );
   }
 
   /* Zero out vote stakes to avoid leakage across tests */
@@ -331,21 +331,23 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   /* Update vote cache for epoch T-1 */
   vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
-  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_states_prev,
-                                                       test_ctx->epoch_ctx.vote_accounts_t_1,
-                                                       test_ctx->epoch_ctx.vote_accounts_t_1_count,
-                                                       runner->spad );
+  fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
+      vote_states_prev,
+      test_ctx->epoch_ctx.vote_accounts_t_1,
+      test_ctx->epoch_ctx.vote_accounts_t_1_count,
+      runner->spad );
   fd_bank_vote_states_prev_end_locking_modify( bank );
 
   /* Update vote cache for epoch T-2 */
   vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
-  fd_runtime_fuzz_block_update_prev_epoch_votes_cache( vote_states_prev_prev,
-                                                       test_ctx->epoch_ctx.vote_accounts_t_2,
-                                                       test_ctx->epoch_ctx.vote_accounts_t_2_count,
-                                                       runner->spad );
+  fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
+      vote_states_prev_prev,
+      test_ctx->epoch_ctx.vote_accounts_t_2,
+      test_ctx->epoch_ctx.vote_accounts_t_2_count,
+      runner->spad );
 
   /* Refresh vote accounts to calculate stake delegations */
-  fd_runtime_fuzz_block_refresh_vote_accounts( vote_states, vote_states_prev_prev, stake_delegations, fd_bank_epoch_get( bank ) );
+  fd_solfuzz_block_refresh_vote_accounts( vote_states, vote_states_prev_prev, stake_delegations, fd_bank_epoch_get( bank ) );
   fd_bank_vote_states_end_locking_modify( bank );
 
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
@@ -408,7 +410,7 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
   fd_txn_p_t * txn_ptrs = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn    = &txn_ptrs[i];
-    ulong        msg_sz = fd_runtime_fuzz_serialize_txn( txn->payload, &test_ctx->txns[i] );
+    ulong        msg_sz = fd_solfuzz_pb_txn_serialize( txn->payload, &test_ctx->txns[i] );
 
     // Reject any transactions over 1232 bytes
     if( FD_UNLIKELY( msg_sz==ULONG_MAX ) ) {
@@ -430,10 +432,10 @@ fd_runtime_fuzz_block_ctx_create( fd_solfuzz_runner_t *                runner,
    fd_runtime_fuzz_block_ctx_create and executes it against the runtime.
    Returns the execution result. */
 static int
-fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
-                                fd_funk_txn_xid_t const * xid,
-                                fd_txn_p_t *              txn_ptrs,
-                                ulong                     txn_cnt ) {
+fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
+                           fd_funk_txn_xid_t const * xid,
+                           fd_txn_p_t *              txn_ptrs,
+                           ulong                     txn_cnt ) {
   int res = 0;
 
   // Prepare. Execute. Finalize.
@@ -468,7 +470,7 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
 
       /* Execute the transaction against the runtime */
       res = FD_RUNTIME_EXECUTE_SUCCESS;
-      fd_exec_txn_ctx_t * txn_ctx = fd_runtime_fuzz_txn_ctx_exec( runner, xid, txn, &res );
+      fd_exec_txn_ctx_t * txn_ctx = fd_solfuzz_txn_ctx_exec( runner, xid, txn, &res );
       txn_ctx->exec_err           = res;
 
       if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
@@ -503,10 +505,10 @@ fd_runtime_fuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
    Unique pubkeys referenced by sched, sorted deterministically
    Per-rotation indices mapped into sorted-uniq array */
 ulong
-fd_hash_epoch_leaders( fd_solfuzz_runner_t *      runner,
-                       fd_epoch_leaders_t const * leaders,
-                       ulong                      seed,
-                       uchar                      out[16] ) {
+fd_solfuzz_block_hash_epoch_leaders( fd_solfuzz_runner_t *      runner,
+                                     fd_epoch_leaders_t const * leaders,
+                                     ulong                      seed,
+                                     uchar                      out[16] ) {
   /* Single contiguous spad allocation for uniq[] and sched_mapped[] */
   void *buf = fd_spad_alloc(
     runner->spad,
@@ -572,10 +574,10 @@ fd_hash_epoch_leaders( fd_solfuzz_runner_t *      runner,
 }
 
 static void
-fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *                runner,
-                                               fd_funk_txn_xid_t const *            xid,
-                                               fd_exec_test_block_effects_t *       effects,
-                                               fd_exec_test_block_context_t const * test_ctx ) {
+fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *                runner,
+                                             fd_funk_txn_xid_t const *            xid,
+                                             fd_exec_test_block_effects_t *       effects,
+                                             fd_exec_test_block_context_t const * test_ctx ) {
   /* Read epoch schedule sysvar */
   fd_epoch_schedule_t es_;
   fd_epoch_schedule_t *sched = fd_sysvar_epoch_schedule_read( runner->accdb->funk, xid, &es_ );
@@ -598,18 +600,19 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
           999UL /* stake_delegations_max */ ) );
 
   /* Select stake source based on the Agave-consistent epoch */
-  /* Agave code pointers: see stake source selection in execute_block() at
-     solfuzz-agave/src/block.rs (build_*_stake_delegations and epoch_stakes inserts) */
+  /* Agave code pointers: see stake source selection in execute_block at
+     solfuzz-agave/src/block.rs (build_*_stake_delegations and
+     epoch_stakes inserts) */
   if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot ) ) {
     /* Same as parent epoch, so use vote_accounts_t_1 */
-    fd_runtime_fuzz_block_update_prev_epoch_votes_cache(
+    fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
         tmp_vs,
         test_ctx->epoch_ctx.vote_accounts_t_1,
         test_ctx->epoch_ctx.vote_accounts_t_1_count,
         runner->spad );
   } else if ( agave_epoch==fd_slot_to_leader_schedule_epoch( sched, parent_slot )-1UL ) {
     /* One before parent epoch, so use vote_accounts_t_2 */
-    fd_runtime_fuzz_block_update_prev_epoch_votes_cache(
+    fd_solfuzz_pb_block_update_prev_epoch_votes_cache(
         tmp_vs,
         test_ctx->epoch_ctx.vote_accounts_t_2,
         test_ctx->epoch_ctx.vote_accounts_t_2_count,
@@ -618,10 +621,10 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
     /* One ahead of parent epoch, so use current acct_states */
     for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
       fd_txn_account_t acc[1];
-      fd_runtime_fuzz_load_account( acc, runner->accdb->funk, xid, &test_ctx->acct_states[i], 1 );
+      fd_solfuzz_pb_load_account( acc, runner->accdb->funk, xid, &test_ctx->acct_states[i], 1 );
       fd_pubkey_t pubkey;
       memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_runtime_fuzz_block_register_vote_account( runner->accdb->funk, xid, tmp_vs, &pubkey );
+      fd_solfuzz_block_register_vote_account( runner->accdb->funk, xid, tmp_vs, &pubkey );
     }
     fd_stake_delegations_t * stake_delegations =
         fd_stake_delegations_join(
@@ -633,9 +636,9 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
     for ( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
       fd_pubkey_t pubkey;
       memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
-      fd_runtime_fuzz_block_register_stake_delegation( runner->accdb->funk, xid, stake_delegations, &pubkey );
+      fd_solfuzz_block_register_stake_delegation( runner->accdb->funk, xid, stake_delegations, &pubkey );
     }
-    fd_runtime_fuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
+    fd_solfuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
   }
 
   /* Build weights from the selected stake source */
@@ -667,34 +670,35 @@ fd_runtime_fuzz_build_leader_schedule_effects( fd_solfuzz_runner_t *            
   effects->leader_schedule.leaders_slot0     = agave_slot0;
   effects->leader_schedule.leaders_slot_cnt  = slots_in_epoch;
   effects->leader_schedule.leaders_sched_cnt = slots_in_epoch;
-  effects->leader_schedule.leader_pub_cnt    =
-      fd_hash_epoch_leaders( runner, effects_leaders,
-                             LEADER_SCHEDULE_HASH_SEED,
-                             effects->leader_schedule.leader_schedule_hash );
+  effects->leader_schedule.leader_pub_cnt    = fd_solfuzz_block_hash_epoch_leaders(
+      runner, effects_leaders,
+      LEADER_SCHEDULE_HASH_SEED,
+      effects->leader_schedule.leader_schedule_hash
+  );
 }
 
 ulong
-fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
-                      void const *          input_,
-                      void **               output_,
-                      void *                output_buf,
-                      ulong                 output_bufsz ) {
+fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
+                          void const *         input_,
+                          void **              output_,
+                          void *               output_buf,
+                          ulong                output_bufsz ) {
   fd_exec_test_block_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_block_effects_t **      output = fd_type_pun( output_ );
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     /* Set up the block execution context */
     ulong txn_cnt;
-    fd_txn_p_t * txn_ptrs = fd_runtime_fuzz_block_ctx_create( runner, input, &txn_cnt );
+    fd_txn_p_t * txn_ptrs = fd_solfuzz_pb_block_ctx_create( runner, input, &txn_cnt );
     if( txn_ptrs==NULL ) {
-      fd_runtime_fuzz_block_ctx_destroy( runner );
+      fd_solfuzz_pb_block_ctx_destroy( runner );
       return 0;
     }
 
     fd_funk_txn_xid_t xid  = { .ul = { fd_bank_slot_get( runner->bank ), 0UL } };
 
     /* Execute the constructed block against the runtime. */
-    int res = fd_runtime_fuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
+    int res = fd_solfuzz_block_ctx_exec( runner, &xid, txn_ptrs, txn_cnt );
 
     /* Start saving block exec results */
     FD_SCRATCH_ALLOC_INIT( l, output_buf );
@@ -728,10 +732,10 @@ fd_solfuzz_block_run( fd_solfuzz_runner_t * runner,
     fd_bank_cost_tracker_end_locking_query( runner->bank );
 
     /* Effects: build T-epoch (bank epoch), T-stakes ephemeral leaders and report */
-    fd_runtime_fuzz_build_leader_schedule_effects( runner, &xid, effects, input );
+    fd_solfuzz_pb_build_leader_schedule_effects( runner, &xid, effects, input );
 
     ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-    fd_runtime_fuzz_block_ctx_destroy( runner );
+    fd_solfuzz_pb_block_ctx_destroy( runner );
 
     *output = effects;
     return actual_end - (ulong)output_buf;

@@ -17,10 +17,10 @@
 #include <assert.h>
 
 int
-fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
-                                  fd_exec_instr_ctx_t *                ctx,
-                                  fd_exec_test_instr_context_t const * test_ctx,
-                                  bool                                 is_syscall ) {
+fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
+                                fd_exec_instr_ctx_t *                ctx,
+                                fd_exec_test_instr_context_t const * test_ctx,
+                                bool                                 is_syscall ) {
 
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
@@ -49,7 +49,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_features_t * features = fd_bank_features_modify( runner->bank );
   fd_exec_test_feature_set_t const * feature_set = &test_ctx->epoch_context.features;
-  if( !fd_runtime_fuzz_restore_features( features, feature_set ) ) {
+  if( !fd_solfuzz_pb_restore_features( features, feature_set ) ) {
     return 0;
   }
 
@@ -129,7 +129,7 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
     fd_pubkey_t * acc_key = (fd_pubkey_t *)test_ctx->accounts[j].address;
 
     memcpy(  &(txn_ctx->account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !fd_runtime_fuzz_load_account( &accts[j], funk, xid, &test_ctx->accounts[j], 0 ) ) {
+    if( !fd_solfuzz_pb_load_account( &accts[j], funk, xid, &test_ctx->accounts[j], 0 ) ) {
       return 0;
     }
 
@@ -327,26 +327,26 @@ fd_runtime_fuzz_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 }
 
 void
-fd_runtime_fuzz_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
-                                   fd_exec_instr_ctx_t * ctx ) {
+fd_solfuzz_pb_instr_ctx_destroy( fd_solfuzz_runner_t * runner,
+                                 fd_exec_instr_ctx_t * ctx ) {
   if( !ctx ) return;
   fd_accdb_clear( runner->accdb_admin );
   fd_progcache_clear( runner->progcache_admin );
 }
 
 ulong
-fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
-                      void const *          input_,
-                      void **               output_,
-                      void *                output_buf,
-                      ulong                 output_bufsz ) {
+fd_solfuzz_pb_instr_run( fd_solfuzz_runner_t * runner,
+                         void const *          input_,
+                         void **               output_,
+                         void *                output_buf,
+                         ulong                 output_bufsz ) {
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
-  if( !fd_runtime_fuzz_instr_ctx_create( runner, ctx, input, false ) ) {
-    fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+  if( !fd_solfuzz_pb_instr_ctx_create( runner, ctx, input, false ) ) {
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     return 0UL;
   }
 
@@ -364,7 +364,7 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_instr_effects_t),
                                 sizeof (fd_exec_test_instr_effects_t) );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     return 0UL;
   }
   fd_memset( effects, 0, sizeof(fd_exec_test_instr_effects_t) );
@@ -390,7 +390,7 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_acct_state_t),
                                 sizeof (fd_exec_test_acct_state_t) * modified_acct_cnt );
   if( FD_UNLIKELY( _l > output_end ) ) {
-    fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+    fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
     return 0;
   }
   effects->modified_accounts       = modified_accts;
@@ -418,7 +418,7 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
         FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
                                     PB_BYTES_ARRAY_T_ALLOCSIZE( fd_txn_account_get_data_len( acc ) ) );
       if( FD_UNLIKELY( _l > output_end ) ) {
-        fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+        fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
         return 0UL;
       }
       out_acct->data->size = (pb_size_t)fd_txn_account_get_data_len( acc );
@@ -437,7 +437,7 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
     effects->return_data = FD_SCRATCH_ALLOC_APPEND(l, alignof(pb_bytes_array_t),
                                 PB_BYTES_ARRAY_T_ALLOCSIZE( return_data->len ) );
     if( FD_UNLIKELY( _l > output_end ) ) {
-      fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+      fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
       return 0UL;
     }
     effects->return_data->size = (pb_size_t)return_data->len;
@@ -445,9 +445,8 @@ fd_solfuzz_instr_run( fd_solfuzz_runner_t * runner,
   }
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  fd_runtime_fuzz_instr_ctx_destroy( runner, ctx );
+  fd_solfuzz_pb_instr_ctx_destroy( runner, ctx );
 
   *output = effects;
   return actual_end - (ulong)output_buf;
-
 }
