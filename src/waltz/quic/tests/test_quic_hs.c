@@ -73,66 +73,14 @@ validate_quic_hs_tls_cache( fd_quic_t * quic ) {
   FD_TEST( cache_cnt == fd_quic_tls_hs_pool_used( pool ) );
 }
 
-
 /* global "clock" */
 long now = 123;
 
-int
-main( int argc, char ** argv ) {
-  fd_boot          ( &argc, &argv );
-  fd_quic_test_boot( &argc, &argv );
+static void
+test_quic_hs( fd_quic_t * server_quic,
+              fd_quic_t * client_quic ) {
+  FD_LOG_NOTICE(( "Testing QUIC handshake" ));
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
-
-  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
-  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-
-  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
-  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
-  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
-
-  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
-  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
-
-  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
-  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-  FD_TEST( wksp );
-
-  fd_quic_limits_t const quic_limits = {
-    .conn_cnt           = 10,
-    .conn_id_cnt        = 10,
-    .handshake_cnt      = 10,
-    .stream_id_cnt      = 10,
-    .stream_pool_cnt    = 400,
-    .inflight_frame_cnt = 1024 * 10,
-    .tx_buf_sz          = 1<<14
-  };
-
-  ulong quic_footprint = fd_quic_footprint( &quic_limits );
-  FD_TEST( quic_footprint );
-  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
-
-  FD_LOG_NOTICE(( "Creating server QUIC" ));
-  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
-  FD_TEST( server_quic );
-
-  FD_LOG_NOTICE(( "Creating client QUIC" ));
-  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
-  FD_TEST( client_quic );
-
-  server_quic->cb.conn_new         = my_connection_new;
-  server_quic->cb.stream_rx        = my_stream_rx_cb;
-
-  client_quic->cb.conn_hs_complete = my_handshake_complete;
-
-  server_quic->config.initial_rx_max_stream_data = 1<<16;
-  client_quic->config.initial_rx_max_stream_data = 1<<16;
-
-  FD_LOG_NOTICE(( "Creating virtual pair" ));
-  fd_quic_virtual_pair_t vp;
-  fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
-
-  FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
   fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = now;
@@ -220,15 +168,10 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Validated idle_timeout and keep_alive" ));
 
-
-  FD_LOG_NOTICE(( "Closing connections" ));
-
   fd_quic_state_validate( server_quic );
   fd_quic_state_validate( client_quic );
   fd_quic_conn_close( client_conn, 0 );
   fd_quic_conn_close( server_conn, 0 );
-
-  FD_LOG_NOTICE(( "Waiting for ACKs" ));
 
   for( uint j=0; j<10U; ++j ) {
     FD_LOG_INFO(( "running services" ));
@@ -273,11 +216,202 @@ main( int argc, char ** argv ) {
   validate_quic_hs_tls_cache( client_quic );
   FD_TEST( client_quic->metrics.hs_evicted_cnt == prev_evicted+1 );
 
+  fd_quic_fini( client_quic );
+  fd_quic_fini( server_quic );
+}
+
+/* Test function to verify server can send application data during handshake */
+static void
+test_quic_hs_with_server_appdata( fd_quic_t * server_quic,
+                                  fd_quic_t * client_quic ) {
+  FD_LOG_NOTICE(( "Testing server application data during handshake" ));
+
+  /* Initialize QUICs */
+  FD_TEST( fd_quic_init( server_quic ) );
+  FD_TEST( fd_quic_init( client_quic ) );
+
+  long test_now = 1000;
+  fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = test_now;
+
+  /* Store initial retransmission counts */
+  ulong server_retx_before = server_quic->metrics.pkt_retransmissions_cnt;
+  ulong client_retx_before = client_quic->metrics.pkt_retransmissions_cnt;
+
+  /* Client initiates connection */
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, test_now );
+  FD_TEST( client_conn );
+  fd_quic_service( client_quic, test_now );
+
+  /* Artificially set the ping flag on server */
+  FD_TEST( server_quic->metrics.conn_alloc_cnt == 1 );
+  fd_quic_conn_t * srv_conn = (fd_quic_conn_t *)fd_quic_get_state( server_quic )->conn_base;
+  FD_TEST( srv_conn->state != FD_QUIC_CONN_STATE_INVALID );
+  srv_conn->flags |= FD_QUIC_CONN_FLAGS_PING;
+
+  /* Service the server, asserting client successfully processed a 1-RTT packet */
+  ulong exp_1rtt_prev = client_conn->exp_pkt_number[2];
+  fd_quic_service( server_quic, test_now );
+  FD_TEST( client_conn->exp_pkt_number[2] == exp_1rtt_prev+1 );
+
+  /* Complete the handshake */
+  for( ulong j = 0; j < 20; j++ ) {
+    fd_quic_service( client_quic, test_now );
+    fd_quic_service( server_quic, test_now );
+
+    if( server_complete && client_complete ) {
+      FD_LOG_INFO(( "Handshake complete" ));
+      break;
+    }
+  }
+
+  /* Verify handshake completed */
+  FD_TEST( server_complete && client_complete );
+  FD_TEST( client_conn->handshake_complete );
+  FD_TEST( server_conn->handshake_complete );
+
+  /* Verify no retransmissions occurred */
+  ulong server_retx_after = server_quic->metrics.pkt_retransmissions_cnt;
+  ulong client_retx_after = client_quic->metrics.pkt_retransmissions_cnt;
+
+  FD_TEST( server_retx_after == server_retx_before );
+  FD_TEST( client_retx_after == client_retx_before );
+
+  /* Clean up */
+  fd_quic_fini( server_quic );
+  fd_quic_fini( client_quic );
+
+  FD_LOG_NOTICE(( "test_quic_hs_with_server_appdata: pass" ));
+}
+
+/* Test function to verify server can send application data during handshake */
+static void
+test_quic_hs_with_client_appdata( fd_quic_t * server_quic,
+                                  fd_quic_t * client_quic ) {
+  FD_LOG_NOTICE(( "Testing client application data during handshake" ));
+
+  /* Initialize QUICs */
+  FD_TEST( fd_quic_init( server_quic ) );
+  FD_TEST( fd_quic_init( client_quic ) );
+
+  long test_now = 1000;
+  fd_quic_get_state( server_quic )->now = fd_quic_get_state( client_quic )->now = test_now;
+
+  /* Store initial retransmission counts */
+  ulong server_retx_before = server_quic->metrics.pkt_retransmissions_cnt;
+  ulong client_retx_before = client_quic->metrics.pkt_retransmissions_cnt;
+
+  /* Client initiates connection */
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0, test_now );
+  FD_TEST( client_conn );
+  fd_quic_service( client_quic, test_now );
+
+  /* Service the server */
+  fd_quic_service( server_quic, test_now );
+
+  /* Grab server connection */
+  FD_TEST( server_quic->metrics.conn_alloc_cnt == 1 );
+  fd_quic_conn_t * srv_conn = (fd_quic_conn_t *)fd_quic_get_state( server_quic )->conn_base;
+  FD_TEST( srv_conn->state != FD_QUIC_CONN_STATE_INVALID );
+
+  /* Force ping 1rtt during client's turn. Assert server received it */
+  ulong exp_1rtt_prev = srv_conn->exp_pkt_number[2];
+  client_conn->flags |= FD_QUIC_CONN_FLAGS_PING;
+  fd_quic_service( client_quic, test_now );
+  FD_TEST( srv_conn->exp_pkt_number[2] == exp_1rtt_prev+1 );
+
+  /* Complete the handshake */
+  for( ulong j = 0; j < 20; j++ ) {
+    fd_quic_service( client_quic, test_now );
+    fd_quic_service( server_quic, test_now );
+
+    if( server_complete && client_complete ) {
+      FD_LOG_INFO(( "Handshake complete" ));
+      break;
+    }
+  }
+
+  /* Verify handshake completed */
+  FD_TEST( server_complete && client_complete );
+  FD_TEST( client_conn->handshake_complete );
+  FD_TEST( server_conn->handshake_complete );
+
+  /* Verify no retransmissions occurred */
+  ulong server_retx_after = server_quic->metrics.pkt_retransmissions_cnt;
+  ulong client_retx_after = client_quic->metrics.pkt_retransmissions_cnt;
+
+  FD_TEST( server_retx_after == server_retx_before );
+  FD_TEST( client_retx_after == client_retx_before );
+
+  /* Clean up */
+  fd_quic_fini( server_quic );
+  fd_quic_fini( client_quic );
+
+  FD_LOG_NOTICE(( "test_quic_hs_with_server_appdata: pass" ));
+}
+
+int
+main( int argc, char ** argv ) {
+  fd_boot          ( &argc, &argv );
+  fd_quic_test_boot( &argc, &argv );
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+
+  ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
+  if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
+
+  char const * _page_sz  = fd_env_strip_cmdline_cstr ( &argc, &argv, "--page-sz",   NULL, "gigantic"                   );
+  ulong        page_cnt  = fd_env_strip_cmdline_ulong( &argc, &argv, "--page-cnt",  NULL, 2UL                          );
+  ulong        numa_idx  = fd_env_strip_cmdline_ulong( &argc, &argv, "--numa-idx",  NULL, fd_shmem_numa_idx( cpu_idx ) );
+
+  ulong page_sz = fd_cstr_to_shmem_page_sz( _page_sz );
+  if( FD_UNLIKELY( !page_sz ) ) FD_LOG_ERR(( "unsupported --page-sz" ));
+
+  FD_LOG_NOTICE(( "Creating workspace (--page-cnt %lu, --page-sz %s, --numa-idx %lu)", page_cnt, _page_sz, numa_idx ));
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( page_sz, page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
+
+  fd_quic_limits_t const quic_limits = {
+    .conn_cnt           = 10,
+    .conn_id_cnt        = 10,
+    .handshake_cnt      = 10,
+    .stream_id_cnt      = 10,
+    .stream_pool_cnt    = 400,
+    .inflight_frame_cnt = 1024 * 10,
+    .tx_buf_sz          = 1<<14
+  };
+
+  ulong quic_footprint = fd_quic_footprint( &quic_limits );
+  FD_TEST( quic_footprint );
+  FD_LOG_NOTICE(( "QUIC footprint: %lu bytes", quic_footprint ));
+
+  fd_quic_t * server_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_SERVER, rng );
+  FD_TEST( server_quic );
+
+  fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
+  FD_TEST( client_quic );
+
+  server_quic->cb.conn_new         = my_connection_new;
+  server_quic->cb.stream_rx        = my_stream_rx_cb;
+
+  client_quic->cb.conn_hs_complete = my_handshake_complete;
+
+  server_quic->config.initial_rx_max_stream_data = 1<<16;
+  client_quic->config.initial_rx_max_stream_data = 1<<16;
+
+  FD_LOG_NOTICE(( "Creating virtual pair" ));
+  fd_quic_virtual_pair_t vp;
+  fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
+
+  test_quic_hs( server_quic, client_quic );
+
+  test_quic_hs_with_server_appdata( server_quic, client_quic );
+
+  test_quic_hs_with_client_appdata( server_quic, client_quic );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
-  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
+  fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
   fd_wksp_delete_anonymous( wksp );
   fd_rng_delete( fd_rng_leave( rng ) );
 
