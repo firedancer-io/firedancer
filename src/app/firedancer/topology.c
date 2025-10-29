@@ -336,7 +336,7 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapct_ld"   );
     fd_topob_wksp( topo, "snapld_dc"   );
     fd_topob_wksp( topo, "snapdc_in"   );
-    fd_topob_wksp( topo, "snapin_rd"   );
+    fd_topob_wksp( topo, "snapin_ct"   );
 
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui"  );
     fd_topob_wksp( topo, "snapin_manif" );
@@ -360,7 +360,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "snapct_ld",    "snapct_ld",    128UL,                                    sizeof(fd_ssctrl_init_t),      1UL );
   /**/                 fd_topob_link( topo, "snapld_dc",    "snapld_dc",    16384UL,                                  USHORT_MAX,                    1UL );
   /**/                 fd_topob_link( topo, "snapdc_in",    "snapdc_in",    16384UL,                                  USHORT_MAX,                    1UL );
-  /**/                 fd_topob_link( topo, "snapin_rd",    "snapin_rd",    128UL,                                    0UL,                           1UL );
+  /**/                 fd_topob_link( topo, "snapin_ct",    "snapin_ct",    128UL,                                    0UL,                           1UL );
 
   /**/                 fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,                                      sizeof(fd_snapshot_manifest_t),1UL );
   /**/                 fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
@@ -509,9 +509,12 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(    topo, "gossip", 0UL,           "metric_in", "send_out",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   /**/                 fd_topob_tile_out(   topo, "gossip", 0UL,                        "gossip_gossv", 0UL                                                );
 
+  int snapshots_gossip_enabled = config->firedancer.snapshots.sources.gossip.allow_any || config->firedancer.snapshots.sources.gossip.allow_list_cnt>0UL;
   if( FD_LIKELY( snapshots_enabled ) ) {
+    if( FD_LIKELY( snapshots_gossip_enabled ) ) {
                       fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "gossip_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapin_rd",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    }
+                      fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapin_ct",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                       fd_topob_tile_in (    topo, "snapct",  0UL,          "metric_in", "snapld_dc",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
                       fd_topob_tile_out(    topo, "snapct",  0UL,                       "snapct_ld",    0UL                                                );
                       fd_topob_tile_out(    topo, "snapct",  0UL,                       "snapct_repr",  0UL                                                );
@@ -526,7 +529,7 @@ fd_topo_initialize( config_t * config ) {
                       fd_topob_tile_out(    topo, "snapdc",  0UL,                       "snapdc_in",    0UL                                                );
 
                       fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snapdc_in",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-                      fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_rd",    0UL                                                );
+                      fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_ct",    0UL                                                );
                       fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_manif", 0UL                                                );
   }
 
@@ -910,30 +913,31 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapct" ) ) ) {
 
     fd_memcpy( tile->snapct.snapshots_path, config->paths.snapshots, PATH_MAX );
-    tile->snapct.incremental_snapshot_fetch        = config->firedancer.snapshots.incremental_snapshots;
-    tile->snapct.do_download                       = config->firedancer.snapshots.download;
-    tile->snapct.maximum_local_snapshot_age        = config->firedancer.snapshots.maximum_local_snapshot_age;
-    tile->snapct.minimum_download_speed_mib        = config->firedancer.snapshots.minimum_download_speed_mib;
-    tile->snapct.maximum_download_retry_abort      = config->firedancer.snapshots.maximum_download_retry_abort;
-    tile->snapct.max_full_snapshots_to_keep        = config->firedancer.snapshots.max_full_snapshots_to_keep;
-    tile->snapct.max_incremental_snapshots_to_keep = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
-    tile->snapct.gossip_peers_enabled              = config->firedancer.snapshots.sources.gossip.enabled;
-
-    ulong peers_cnt          = config->firedancer.snapshots.sources.http.peers_cnt;
-    ulong resolved_peers_cnt = 0UL;
-
-    for( ulong j=0UL; j<peers_cnt; j++ ) {
-      if( FD_UNLIKELY( !config->firedancer.snapshots.sources.http.peers[ j ].enabled ) ) continue;
-
-      if( FD_UNLIKELY( 0==resolve_peer( config->firedancer.snapshots.sources.http.peers[ j ].url, &tile->snapct.http.peers[ resolved_peers_cnt ] ) ) ) {
-        FD_LOG_ERR(( "failed to resolve address of [snapshots.sources.http.peers] entry \"%s\"", config->firedancer.snapshots.sources.http.peers[ j ].url ));
-      } else {
-        resolved_peers_cnt++;
+    tile->snapct.sources.max_local_full_effective_age = config->firedancer.snapshots.sources.max_local_full_effective_age;
+    tile->snapct.sources.max_local_incremental_age    = config->firedancer.snapshots.sources.max_local_incremental_age;
+    tile->snapct.incremental_snapshots                = config->firedancer.snapshots.incremental_snapshots;
+    tile->snapct.max_full_snapshots_to_keep           = config->firedancer.snapshots.max_full_snapshots_to_keep;
+    tile->snapct.max_incremental_snapshots_to_keep    = config->firedancer.snapshots.max_incremental_snapshots_to_keep;
+    tile->snapct.full_effective_age_cancel_threshold  = config->firedancer.snapshots.full_effective_age_cancel_threshold;
+    tile->snapct.sources.gossip.allow_any             = config->firedancer.snapshots.sources.gossip.allow_any;
+    tile->snapct.sources.gossip.allow_list_cnt        = config->firedancer.snapshots.sources.gossip.allow_list_cnt;
+    tile->snapct.sources.gossip.block_list_cnt        = config->firedancer.snapshots.sources.gossip.block_list_cnt;
+    tile->snapct.sources.servers_cnt                  = config->firedancer.snapshots.sources.servers_cnt;
+    for( ulong i=0UL; i<tile->snapct.sources.gossip.allow_list_cnt; i++ ) {
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.snapshots.sources.gossip.allow_list[ i ], tile->snapct.sources.gossip.allow_list[ i ].uc ) ) ) {
+        FD_LOG_ERR(( "[snapshots.sources.gossip.allow_list[%lu] invalid (%s)", i, config->firedancer.snapshots.sources.gossip.allow_list[ i ] ));
       }
     }
-
-    tile->snapct.http.peers_cnt = resolved_peers_cnt;
-    /* TODO: set up known validators and known validators cnt */
+    for( ulong i=0UL; i<tile->snapct.sources.gossip.block_list_cnt; i++ ) {
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->firedancer.snapshots.sources.gossip.block_list[ i ], tile->snapct.sources.gossip.block_list[ i ].uc ) ) ) {
+        FD_LOG_ERR(( "[snapshots.sources.gossip.block_list[%lu] invalid (%s)", i, config->firedancer.snapshots.sources.gossip.block_list[ i ] ));
+      }
+    }
+    for( ulong i=0UL; i<tile->snapct.sources.servers_cnt; i++ ) {
+      if( FD_UNLIKELY( !resolve_peer( config->firedancer.snapshots.sources.servers[ i ], &tile->snapct.sources.servers[ i ] ) ) ) {
+        FD_LOG_ERR(( "[snapshots.sources.servers[%lu] invalid (%s)", i, config->firedancer.snapshots.sources.servers[ i ] ));
+      }
+    }
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "snapld" ) ) ) {
 

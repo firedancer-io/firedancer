@@ -210,7 +210,7 @@ create_socket( fd_http_resolver_t *  resolver,
 
   struct sockaddr_in addr = {
     .sin_family = AF_INET,
-    .sin_port   = fd_ushort_bswap( peer->addr.port ),
+    .sin_port   = peer->addr.port,
     .sin_addr   = { .s_addr = peer->addr.addr }
   };
 
@@ -388,7 +388,7 @@ fd_http_resolver_advance( fd_http_resolver_t *   resolver,
   while( !deadline_list_is_empty( resolver->unresolved, resolver->pool ) )  {
     fd_ssresolve_peer_t * peer = deadline_list_ele_pop_head( resolver->unresolved, resolver->pool );
 
-    FD_LOG_INFO(( "resolving " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port ));
+    FD_LOG_INFO(( "resolving " FD_IP4_ADDR_FMT ":%hu", FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ) ));
     int result = peer_connect( resolver, peer );
     if( FD_UNLIKELY( -1==result ) ) {
       peer->state          = PEER_STATE_INVALID;

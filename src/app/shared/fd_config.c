@@ -461,6 +461,22 @@ fd_config_validatef( fd_configf_t const * config ) {
   if( FD_UNLIKELY( config->layout.sign_tile_count < 2 ) ) {
     FD_LOG_ERR(( "layout.sign_tile_count must be >= 2" ));
   }
+
+  if( FD_UNLIKELY( config->snapshots.sources.gossip.allow_any && config->snapshots.sources.gossip.allow_list_cnt>0UL ) ) {
+    FD_LOG_ERR(( "`snapshots.sources.gossip` has an explicit list of %lu allowed peer(s) in `allow_list` "
+                 "but also allows any peer with `allow_any=true`. `allow_list` has no effect and may "
+                 "give a false sense of security. Please modify one of the two options and restart.",
+                 config->snapshots.sources.gossip.allow_list_cnt ));
+  }
+  for( ulong i=0UL; i<config->snapshots.sources.gossip.allow_list_cnt; i++ ) {
+    for( ulong j=0UL; j<config->snapshots.sources.gossip.block_list_cnt; j++ ) {
+      if( FD_UNLIKELY( 0==strcmp( config->snapshots.sources.gossip.allow_list[ i ], config->snapshots.sources.gossip.block_list[ j ] ) ) ) {
+        FD_LOG_ERR(( "`snapshots.sources.gossip` has repeated public key `%s` in both allow[%lu] and block[%lu] lists.  "
+                     "Please modify one of the two options and restart.", config->snapshots.sources.gossip.allow_list[ i ], i, j ));
+
+      }
+    }
+  }
 }
 
 static void

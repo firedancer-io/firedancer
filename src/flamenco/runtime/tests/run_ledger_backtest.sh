@@ -215,10 +215,11 @@ fi
 echo "
 [snapshots]
     incremental_snapshots = $HAS_INCREMENTAL
-    download = false
-    minimum_download_speed_mib = 0
-    maximum_local_snapshot_age = 0
-    maximum_download_retry_abort = 0
+    [snapshots.sources]
+        servers = []
+        [snapshots.sources.gossip]
+            allow_any = false
+            allow_list = []
 [layout]
     shred_tile_count = 4
 [tiles]

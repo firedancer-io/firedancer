@@ -11,7 +11,6 @@
 #define AFFINITY_SZ                      (256UL)
 #define CONFIGURE_STAGE_COUNT            ( 12UL)
 #define GOSSIP_TILE_ENTRYPOINTS_MAX      ( 16UL)
-#define SNAPSHOT_TILE_HTTP_PEERS_MAX     ( 16UL)
 #define IP4_PORT_STR_MAX                 ( 22UL)
 
 struct fd_configh {
@@ -125,33 +124,27 @@ struct fd_configf {
   } gossip;
 
   struct {
-
     struct {
+      uint max_local_full_effective_age;
+      uint max_local_incremental_age;
 
       struct {
-        int enabled;
+        int   allow_any;
+        ulong allow_list_cnt;
+        char  allow_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
+        ulong block_list_cnt;
+        char  block_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ][ FD_BASE58_ENCODED_32_SZ ];
       } gossip;
 
-      struct {
-        ulong            peers_cnt;
-        struct {
-          int  enabled;
-          char url[ PATH_MAX ];
-        } peers[ SNAPSHOT_TILE_HTTP_PEERS_MAX ];
-      } http;
-
+      ulong servers_cnt;
+      char  servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ][ 128 ];
     } sources;
 
-    int   incremental_snapshots;
-    uint  maximum_local_snapshot_age;
-    int   genesis_download;
-    int   download;
-    ulong known_validators_cnt;
-    char  known_validators[ 16 ][ 256 ];
-    uint  minimum_download_speed_mib;
-    uint  maximum_download_retry_abort;
-    uint  max_full_snapshots_to_keep;
-    uint  max_incremental_snapshots_to_keep;
+    int  incremental_snapshots;
+    int  genesis_download;
+    uint max_full_snapshots_to_keep;
+    uint max_incremental_snapshots_to_keep;
+    uint full_effective_age_cancel_threshold;
   } snapshots;
 
   struct {

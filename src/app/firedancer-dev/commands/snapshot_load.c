@@ -77,18 +77,18 @@ snapshot_load_topo( config_t *     config,
   fd_topob_wksp( topo, "snapct_ld"    );
   fd_topob_wksp( topo, "snapld_dc"    );
   fd_topob_wksp( topo, "snapdc_in"    );
-  fd_topob_wksp( topo, "snapin_rd"    );
+  fd_topob_wksp( topo, "snapin_ct"    );
   fd_topob_wksp( topo, "snapin_manif" );
   fd_topob_wksp( topo, "snapct_repr"  );
 
   fd_topob_link( topo, "snapct_ld",   "snapct_ld",     128UL,   sizeof(fd_ssctrl_init_t),       1UL );
   fd_topob_link( topo, "snapld_dc",   "snapld_dc",     16384UL, USHORT_MAX,                     1UL );
   fd_topob_link( topo, "snapdc_in",   "snapdc_in",     16384UL, USHORT_MAX,                     1UL );
-  fd_topob_link( topo, "snapin_rd",   "snapin_rd",     128UL,   0UL,                            1UL );
+  fd_topob_link( topo, "snapin_ct",   "snapin_ct",     128UL,   0UL,                            1UL );
   fd_topob_link( topo, "snapin_manif", "snapin_manif", 2UL,     sizeof(fd_snapshot_manifest_t), 1UL )->permit_no_consumers = 1;
   fd_topob_link( topo, "snapct_repr", "snapct_repr",   128UL,   0UL,                            1UL )->permit_no_consumers = 1;
 
-  fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_rd",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+  fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapin_ct",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_in ( topo, "snapct",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_ld",    0UL                                       );
   fd_topob_tile_out( topo, "snapct",  0UL,              "snapct_repr",  0UL                                       );
@@ -97,7 +97,7 @@ snapshot_load_topo( config_t *     config,
   fd_topob_tile_in ( topo, "snapdc",  0UL, "metric_in", "snapld_dc",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   fd_topob_tile_out( topo, "snapdc",  0UL,              "snapdc_in",    0UL                                       );
   fd_topob_tile_in ( topo, "snapin",  0UL, "metric_in", "snapdc_in",    0UL, FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
-  fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_rd",    0UL                                       );
+  fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_ct",    0UL                                       );
   fd_topob_tile_out( topo, "snapin",  0UL,              "snapin_manif", 0UL                                       );
 
   /* snapin funk / txncache access */
@@ -137,7 +137,7 @@ extern int * fd_log_private_shared_lock;
 static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
-  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.enabled ) ) {
+  if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.allow_any || 0UL!=config->firedancer.snapshots.sources.gossip.allow_list_cnt ) ) {
     FD_LOG_ERR(( "snapshot-load command is incompatible with gossip snapshot sources" ));
   }
   snapshot_load_topo( config, args );
