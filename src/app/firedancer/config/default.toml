@@ -1283,6 +1283,9 @@ user = ""
         #   use, the faster the scheduler can fill blocks during the
         #   short working window at the end of each slot.
         #
+        #   WARNING: The revenue scheduler is deprecated and will be
+        #   removed in a future version.
+        #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
         # revert to the "perf" strategy.
