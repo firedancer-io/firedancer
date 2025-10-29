@@ -95,7 +95,7 @@ test_cb_snp_tx( void const *  _ctx,
   dest_addr.sin_addr.s_addr = ip;
 
   *((uint *)(packet + 14 + 12)) = ip;
-  ssize_t sent = sendto( ctx->sock_fd, packet, packet_sz, 0, (void*)&dest_addr, sizeof(dest_addr) );
+  ssize_t sent = sendto( ctx->sock_fd, packet+14, packet_sz-14, 0, (void*)&dest_addr, sizeof(dest_addr) );
   if (sent < 0) {
     FD_LOG_WARNING(( "sendto failed: %x dport=%hx session_id=%016lx", packet[45], port, *((ulong *)(packet+46)) ));
   }
@@ -228,12 +228,12 @@ int main(int argc, char *argv[]) {
     if (fds[1].revents & POLLIN) {
       struct sockaddr_in src_addr;
       socklen_t src_len = sizeof(src_addr);
-      long recv_len = recvfrom(sock_fd, recv_buffer, BUFFER_SIZE, 0, (void*)&src_addr, &src_len);
+      long recv_len = recvfrom(sock_fd, recv_buffer+14, BUFFER_SIZE-14, 0, (void*)&src_addr, &src_len);
       if (recv_len > 46) {
         /* drop 30% packets */
         if( (double)rand() / (double)RAND_MAX > -0.1 || recv_buffer[45]==0x1F ) {
           FD_LOG_NOTICE(( "received packet %x dport=%hx session_id=%016lx...", recv_buffer[45], src_addr.sin_port, *((ulong *)(recv_buffer+46)) ));
-          fd_snp_process_packet( snp, recv_buffer, (ulong)recv_len );
+          fd_snp_process_packet( snp, recv_buffer, (ulong)recv_len+14 );
         } else {
           FD_LOG_NOTICE(( "dropped packet %x dport=%hx session_id=%016lx...", recv_buffer[45], src_addr.sin_port, *((ulong *)(recv_buffer+46)) ));
         }
