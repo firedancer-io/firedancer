@@ -2227,6 +2227,12 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
   treap_rev_iter_t _cur  = treap_rev_iter_init( bundles, pool );
   ulong bundle_idx = ULONG_MAX;
 
+  /* Skip any that we've marked as won't fit in this block */
+  while( FD_UNLIKELY( !treap_rev_iter_done( _cur ) && treap_rev_iter_ele( _cur, pool )->skip==pack->compressed_slot_number ) ) {
+    _cur = treap_rev_iter_next( _cur, pool );
+    FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP,  1UL );
+  }
+
   if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return TRY_BUNDLE_NO_READY_BUNDLES;
 
   treap_rev_iter_t   _txn0 = _cur;
@@ -2383,6 +2389,20 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
       acct_uses_remove( pack->bundle_temp_map, bundle_temp_inserted[ bundle_temp_inserted_cnt-i-1UL ] );
     }
     FD_TEST( acct_uses_key_cnt( pack->bundle_temp_map )==0UL );
+
+    if( FD_UNLIKELY( retval==TRY_BUNDLE_DOES_NOT_FIT ) ) {
+      /* Decrement the skip count for the bundle we just tried. */
+
+      for( _cur=_txn0; !treap_rev_iter_done( _cur ); _cur=treap_rev_iter_next( _cur, pool ) ) {
+        fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
+        ulong this_bundle_idx = RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est );
+        if( FD_UNLIKELY( this_bundle_idx!=bundle_idx ) ) break;
+
+        /* See fd_pack_schedule_impl for this line */
+        cur->skip = (ushort)(1+fd_ushort_min( (ushort)(pack->compressed_slot_number-1),
+              (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );
+      }
+    }
     return retval;
   }
 
