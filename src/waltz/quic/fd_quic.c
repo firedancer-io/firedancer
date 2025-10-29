@@ -4140,7 +4140,9 @@ fd_quic_connect( fd_quic_t * quic,
       now );
   if( FD_UNLIKELY( tls_hs->alert ) ) {
     FD_LOG_WARNING(( "fd_quic_tls_hs_client_new failed" ));
-    /* shut down tls_hs */
+    /* free hs and the conn */
+    fd_quic_tls_hs_delete( tls_hs );
+    fd_quic_tls_hs_pool_ele_release( state->hs_pool, tls_hs );
     fd_quic_conn_free( quic, conn );
     return NULL;
   }
