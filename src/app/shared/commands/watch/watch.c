@@ -401,6 +401,7 @@ write_summary( config_t const * config,
   (void)cur_tile;
 
   if( FD_UNLIKELY( !ended_on_newline ) ) PRINT( "\n" );
+  PRINT( "\033[?7l" ); /* disable autowrap mode */
   PRINT( "───────────────\033[K\n" );
 
   ulong snapct_idx = fd_topo_find_tile( &config->topo, "snapct", 0UL );
@@ -429,6 +430,8 @@ write_summary( config_t const * config,
   lines_printed += write_gossip( config, cur_tile, prev_tile, cur_link, prev_link );
   lines_printed += write_repair( config, cur_tile, cur_link, prev_link );
   lines_printed += write_replay( config, cur_tile );
+
+  PRINT( "\033[?7h" ); /* enable autowrap mode */
 }
 
 static void
