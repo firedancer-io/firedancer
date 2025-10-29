@@ -525,7 +525,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     FD_TEST( txn_p );
 
     /* Serialize the protobuf transaction to raw txn format */
-    ulong msg_sz = fd_runtime_fuzz_serialize_txn( txn_p->payload, txn );
+    ulong msg_sz = fd_solfuzz_pb_txn_serialize( txn_p->payload, txn );
     FD_TEST( msg_sz!=ULONG_MAX );
 
     txn_p->payload_sz = msg_sz;

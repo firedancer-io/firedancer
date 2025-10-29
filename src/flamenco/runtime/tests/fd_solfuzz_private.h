@@ -13,20 +13,20 @@
 FD_PROTOTYPES_BEGIN
 
 /* Creates / overwrites an account in funk given an input account state.
-   On success, loads the account into `acc`. Optionally, reject any zero-lamport
-   accounts from being loaded in. */
+   On success, loads the account into acc.  Optionally, reject any
+   zero-lamport accounts from being loaded in. */
 int
-fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
-                              fd_funk_t *                       funk,
-                              fd_funk_txn_xid_t const *         xid,
-                              fd_exec_test_acct_state_t const * state,
-                              uchar                             reject_zero_lamports );
+fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
+                            fd_funk_t *                       funk,
+                            fd_funk_txn_xid_t const *         xid,
+                            fd_exec_test_acct_state_t const * state,
+                            uchar                             reject_zero_lamports );
 
-/* Activates features in the runtime given an input feature set. Fails if a passed-in feature
-   is unknown / not supported. */
+/* Activates features in the runtime given an input feature set.  Fails
+   if a passed-in feature is unknown / not supported. */
 int
-fd_runtime_fuzz_restore_features( fd_features_t *                    features,
-                                  fd_exec_test_feature_set_t const * feature_set );
+fd_solfuzz_pb_restore_features( fd_features_t *                    features,
+                                fd_exec_test_feature_set_t const * feature_set );
 
 typedef ulong( exec_test_run_fn_t )( fd_solfuzz_runner_t *,
                                      void const *,
@@ -35,10 +35,10 @@ typedef ulong( exec_test_run_fn_t )( fd_solfuzz_runner_t *,
                                      ulong );
 
 static inline void
-fd_solfuzz_execute_wrapper( fd_solfuzz_runner_t * runner,
-                            void * input,
-                            void ** output,
-                            exec_test_run_fn_t * exec_test_run_fn ) {
+fd_solfuzz_pb_execute_wrapper( fd_solfuzz_runner_t * runner,
+                               void *                input,
+                               void **               output,
+                               exec_test_run_fn_t *  exec_test_run_fn ) {
 
   ulong out_bufsz = 100000000;  /* 100 MB */
   void * out0 = fd_spad_alloc( runner->spad, 1UL, out_bufsz );
