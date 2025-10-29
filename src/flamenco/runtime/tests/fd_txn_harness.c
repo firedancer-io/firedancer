@@ -403,6 +403,13 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     }
     fd_memset( txn_result, 0, sizeof(fd_exec_test_txn_result_t) );
 
+    /* Map the nonce errors into the agave expected ones. */
+    if( FD_UNLIKELY( exec_res==FD_RUNTIME_TXN_ERR_BLOCKHASH_NONCE_ALREADY_ADVANCED ||
+                     exec_res==FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR ||
+                     exec_res==FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_WRONG_NONCE )) {
+      exec_res = FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
+    }
+
     /* Capture basic results fields */
     txn_result->executed                          = txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     txn_result->sanitization_error                = !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS);

@@ -659,25 +659,28 @@ metric introduced.
     <int value="13" name="MaxLoadedAccountsDataSizeExceeded" label="The total account data size of the loaded accounts exceeds the consensus limit" />
     <int value="14" name="DuplicateInstruction" label="A compute budget program instruction was invoked more than once" />
     <int value="15" name="InvalidLoadedAccountsDataSizeLimit" label="The compute budget program was invoked and set the loaded accounts data size to zero" />
+    <int value="16" name="NonceAlreadyAdvanced" label="The transaction references a nonce account that is already advanced" />
+    <int value="17" name="NonceAdvanceFailed" label="The transaction is a nonce transaction but the advance instruction was not valid or failed" />
+    <int value="18" name="NonceWrongBlockhash" label="The transaction is a nonce transaction but the blockhash is not the correct one" />
 
     <!-- Preflight errors during replay. These are errors in validation
          before we begin executing the transaction, which can only
          occur during replay, as such transactions do not make it to
          execution when we are leader. -->
-    <int value="16" name="AccountInUse" label="The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" />
-    <int value="17" name="AccountLoadedTwice" label="The transaction references the same account twice" />
-    <int value="18" name="SignatureFailure" label="The transaction had an invalid signature" />
-    <int value="19" name="TooManyAccountLocks" label="The transaction references too many accounts. TODO: No longer possible with smart dispatcher" />
+    <int value="19" name="AccountInUse" label="The transaction conflicts with another transaction in the microblock. TODO: No longer possible with smart dispatcher" />
+    <int value="20" name="AccountLoadedTwice" label="The transaction references the same account twice" />
+    <int value="21" name="SignatureFailure" label="The transaction had an invalid signature" />
+    <int value="22" name="TooManyAccountLocks" label="The transaction references too many accounts. TODO: No longer possible with smart dispatcher" />
 
     <!-- Execution errors. These are errors which occur during actual
          execution of the transaction, after it has been validated. -->
-    <int value="20" name="InsufficientFundsForRent" label="The transaction would leave an account with a lower balance than the rent-exempt minimum" />
-    <int value="21" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
+    <int value="23" name="InsufficientFundsForRent" label="The transaction would leave an account with a lower balance than the rent-exempt minimum" />
+    <int value="24" name="UnbalancedTransaction" label="The total referenced account lamports before and after the transaction was unbalanced" />
 
     <!-- Errors that aren't returned by the runtime execution itself,
          but are used by bank as an additional reason transactions
          might fail. -->
-    <int value="22" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
+    <int value="25" name="BundlePeer" label="The transaction was part of a bundle and an earlier transaction in the bundle failed" />
 </enum>
 
 <tile name="bankf">
