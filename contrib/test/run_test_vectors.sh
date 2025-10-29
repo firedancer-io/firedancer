@@ -29,7 +29,7 @@ REPO_URL="https://github.com/firedancer-io/test-vectors.git"
 echo $GIT_REF
 
 # Prepare local repo and enter it
-if [ ! -f dump/test-vectors/README.md ]; then
+if [ ! -d dump/test-vectors ]; then
   cd dump
   git clone -q --no-tags --depth=1 "$REPO_URL" test-vectors
   cd test-vectors
