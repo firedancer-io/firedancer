@@ -896,6 +896,69 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
   *ret_priority_fee  = fd_get_prioritization_fee( &txn_ctx->compute_budget_details );
 }
 
+static void
+fd_executor_create_rollback_fee_payer_account_bundle( fd_exec_txn_ctx_t * txn_ctx,
+                                                      ulong               total_fee ) {
+
+  fd_pubkey_t *      fee_payer_key = &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX];
+  fd_txn_account_t * rollback_fee_payer_acc;
+
+  if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
+    rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
+  } else {
+    fd_account_meta_t const * meta = NULL;
+    fd_pubkey_t * acc = &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX];
+    for( ulong i=txn_ctx->bundle.prev_txn_ctxs_cnt; i>0; i-- ) {
+
+      fd_exec_txn_ctx_t * prev_txn_ctx = txn_ctx->bundle.prev_txn_ctxs[ i-1 ];
+
+      for( ushort j=0UL; j<prev_txn_ctx->accounts_cnt; j++ ) {
+        if( !memcmp( &prev_txn_ctx->account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+          /* Found the account in a previous transaction */
+          meta = prev_txn_ctx->accounts[ j ].meta;
+          goto break_loop;
+        }
+      }
+    }
+    int err = FD_ACC_MGR_SUCCESS;
+    if( !meta ) {
+      /* If the account is not found in a previous transaction, then we
+        need to lookup the account from the accounts database. */
+      meta = fd_funk_get_acc_meta_readonly(
+          txn_ctx->funk,
+          txn_ctx->xid,
+          acc,
+          NULL,
+          &err,
+          NULL );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+        FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
+      }
+    }
+
+    break_loop:
+    FD_TEST( true );
+
+    ulong   data_len       = meta ? meta->dlen : 0UL;
+    uchar * fee_payer_data = txn_ctx->exec_stack->accounts.rollback_fee_payer_mem;
+    fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + data_len );
+    if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
+          txn_ctx->rollback_fee_payer_account,
+          fee_payer_key,
+          (fd_account_meta_t *)fee_payer_data,
+          1 ) ) ) ) {
+      FD_LOG_CRIT(( "Failed to join txn account" ));
+    }
+
+    rollback_fee_payer_acc = txn_ctx->rollback_fee_payer_account;
+  }
+
+  /* Deduct the transaction fees from the rollback account. Because of prior checks, this should never fail. */
+  if( FD_UNLIKELY( fd_txn_account_checked_sub_lamports( rollback_fee_payer_acc, total_fee ) ) ) {
+    FD_LOG_ERR(( "fd_executor_create_rollback_fee_payer_account(): failed to deduct fees from rollback account" ));
+  }
+}
+
 /* This function creates a rollback account for just the fee payer. Although Agave
    also sets up rollback accounts for both the fee payer and nonce account here,
    we already set up the rollback nonce account in earlier sanitization checks. Here
@@ -988,7 +1051,11 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Create the rollback fee payer account
      https://github.com/anza-xyz/agave/blob/v2.2.13/svm/src/transaction_processor.rs#L620-L626 */
-  fd_executor_create_rollback_fee_payer_account( txn_ctx, total_fee );
+  if( FD_UNLIKELY( txn_ctx->bundle.is_bundle ) ) {
+    fd_executor_create_rollback_fee_payer_account_bundle( txn_ctx, total_fee );
+  } else {
+    fd_executor_create_rollback_fee_payer_account( txn_ctx, total_fee );
+  }
 
   /* Set the starting lamports (to avoid unbalanced lamports issues in instruction execution) */
   fee_payer_rec->starting_lamports = fd_txn_account_get_lamports( fee_payer_rec ); /* TODO: why do we do this everywhere? */
