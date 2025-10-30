@@ -166,6 +166,11 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
 
+    if( txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ) {
+      FD_LOG_NOTICE(("IB TXN %lu", i));
+    }
+
+
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
@@ -312,15 +317,13 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
-static inline void
+static inline void FD_FN_UNUSED
 handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               seq,
                ulong               sig,
                ulong               sz,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
-
-  FD_LOG_WARNING(( "handle_bundle" ));
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
@@ -365,13 +368,15 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
+
       fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];
-      fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
+      uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
+
+      txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+      txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
+      fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
       if( FD_UNLIKELY( !txn_ctx->flags ) ) {
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
-        uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
         int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
         FD_LOG_HEXDUMP_WARNING(( "txn", txns[ i ].payload, txns[ i ].payload_sz ));
         FD_LOG_CRIT(( "transaction %s failed to fit into block despite pack guaranteeing it would "
@@ -395,24 +400,24 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     }
   } else {
     /* If any transaction fails in a bundle, then they all fail and
-       every transaction needs to be exlcuded. */
+       every transaction needs to be excluded. */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      fd_txn_p_t * txn = txns+i;
+      fd_txn_p_t * txn = &txns[ i ];
+
+      txn->bank_cu.actual_consumed_cus = 0U;
+      txn->bank_cu.rebated_cus         = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus + txns[ i ].pack_cu.non_execution_cus;
 
       if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
       txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
       txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-transaction_err[ i ])<<24);
-
-      txn->bank_cu.actual_consumed_cus = 0U;
-      txn->bank_cu.rebated_cus         = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus + txns[ i ].pack_cu.non_execution_cus;
     }
   }
+
+  fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
-
-  fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
 
   /* We need to publish each transaction separately into its own
      microblock, so make a temporary copy on the stack so we can move
@@ -429,7 +434,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
     trailer->pack_txn_idx = ctx->_txn_idx + i;
-    trailer->tips = tips[ i ];
+    trailer->tips         = tips[ i ];
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_pack_idx+i );
 
@@ -522,10 +527,18 @@ unprivileged_init( fd_topo_t *      topo,
   fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   FD_TEST( progcache );
 
-  ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
-  *(ctx->txn_ctx->funk)       = *funk;
-  *(ctx->txn_ctx->_progcache) = *progcache;
-  ctx->txn_ctx->progcache     = ctx->txn_ctx->_progcache;
+  ctx->txn_ctx->bank_hash_cmp    = NULL; /* TODO - do we need this? */
+  *(ctx->txn_ctx->funk)          = *funk;
+  *(ctx->txn_ctx->_progcache)    = *progcache;
+  ctx->txn_ctx->progcache        = ctx->txn_ctx->_progcache;
+  ctx->txn_ctx->bundle.is_bundle = 0;
+
+  for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
+    ctx->txn_ctx_bundle[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
+    *(ctx->txn_ctx_bundle[ i ].funk)       = *funk;
+    *(ctx->txn_ctx_bundle[ i ]._progcache) = *progcache;
+    ctx->txn_ctx_bundle[ i ].progcache     = ctx->txn_ctx_bundle[ i ]._progcache;
+  }
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );

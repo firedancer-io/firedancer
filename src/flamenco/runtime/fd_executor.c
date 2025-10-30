@@ -1395,13 +1395,14 @@ fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
      last version of each of the writable accounts. */
   fd_account_meta_t const * meta = NULL;
   for( ulong i=prev_txn_ctxs_cnt; i>0; i-- ) {
+
     fd_exec_txn_ctx_t * prev_txn_ctx = prev_txn_ctxs[ i-1 ];
+
     for( ushort j=0UL; j<prev_txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( &prev_txn_ctx->account_keys[ j ], acc, sizeof(fd_pubkey_t) ) &&
-          fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+      if( !memcmp( &prev_txn_ctx->account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
         /* Found the account in a previous transaction */
         meta = prev_txn_ctx->accounts[ j ].meta;
-        break;
+        goto break_loop;
       }
     }
   }
@@ -1420,6 +1421,9 @@ fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
       FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
     }
   }
+
+  break_loop:
+  FD_TEST( true );
 
   fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
 
@@ -1649,6 +1653,7 @@ fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     if( FD_UNLIKELY( instr_exec_result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
       if ( txn_ctx->instr_err_idx==INT_MAX ) {
         txn_ctx->instr_err_idx = i;
+        txn_ctx->custom_err = (uint)instr_exec_result;
       }
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }

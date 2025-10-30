@@ -1253,17 +1253,23 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     fd_acct_addr_t tip_payment_config[1];
     fd_acct_addr_t tip_receiver[1];
-    fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ) - 2UL, tip_payment_config, tip_receiver );
+    fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ), tip_payment_config, tip_receiver );
 
-    //FD_LOG_WARNING(("TIP RECVR %s", FD_BASE58_ENC_32_ALLOCA(tip_receiver->b)));
-
-    fd_txn_account_t tip_recvr[1];
-    int err = fd_txn_account_init_from_funk_readonly( tip_recvr,
-                                                      (fd_hash_t *)tip_receiver->b,
+    fd_txn_account_t tip_config[1];
+    int err = fd_txn_account_init_from_funk_readonly( tip_config,
+                                                      (fd_hash_t *)tip_payment_config->b,
                                                       ctx->accdb->funk,
                                                       &xid );
-    //FD_TEST( !err );
-    (void)err;
+    FD_TEST( !err );
+    memcpy( config, fd_txn_account_get_data( tip_config ), sizeof(fd_bundle_crank_tip_payment_config_t) );
+
+    fd_txn_account_t tip_receiver_acc[1];
+    err = fd_txn_account_init_from_funk_readonly( tip_receiver_acc,
+                                                  (fd_hash_t *)tip_receiver->b,
+                                                  ctx->accdb->funk,
+                                                  &xid );
+    FD_TEST( !err );
+    memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
   }
 
 
@@ -1291,7 +1297,6 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   msg->total_skipped_ticks = msg->ticks_per_slot*(ctx->next_leader_slot-ctx->reset_slot);
   msg->epoch = fd_slot_to_epoch( fd_bank_epoch_schedule_query( bank ), ctx->next_leader_slot, NULL );
-  fd_memset( msg->bundle, 0, sizeof(msg->bundle) );
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
 
