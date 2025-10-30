@@ -11,7 +11,7 @@
 /* fd_dcache_private_hdr specifies the detailed layout of the shared
    memory region. */
 
-struct __attribute__((aligned(FD_DCACHE_ALIGN))) fd_dcache_private_hdr {
+struct __attribute__((aligned(128UL))) fd_dcache_private_hdr {
 
   /* This point is FD_DCACHE_ALIGN aligned */
 
@@ -20,9 +20,9 @@ struct __attribute__((aligned(FD_DCACHE_ALIGN))) fd_dcache_private_hdr {
   ulong app_sz;  /* Size of the application region in bytes */
   ulong app_off; /* Location of the application region relative to first byte of the header */
 
-  /* Padding to FD_DCACHE_ALIGN here */
+  /* Padding to 128 byte align here */
 
-  uchar __attribute__((aligned(FD_DCACHE_ALIGN))) guard[ FD_DCACHE_GUARD_FOOTPRINT ];
+  uchar __attribute__((aligned(128))) guard[ FD_DCACHE_GUARD_FOOTPRINT ];
 
   /* Padding to FD_DCACHE_ALIGN here (probably zero) */
 
