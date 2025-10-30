@@ -2,8 +2,8 @@
 #include "../runtime/fd_runtime_const.h"
 #include "../../ballet/lthash/fd_lthash_adder.h"
 
-#define VINYL_KEY_FMT             "%016lx%016lx%016lx%016lx%016lx"
-#define VINYL_KEY_FMT_ARGS( key ) fd_ulong_bswap( (key).ul[0] ), fd_ulong_bswap( (key).ul[1] ), fd_ulong_bswap( (key).ul[2] ), fd_ulong_bswap( (key).ul[3] ), fd_ulong_bswap( (key).ul[4] )
+#define VINYL_KEY_FMT             "%016lx%016lx%016lx%016lx"
+#define VINYL_KEY_FMT_ARGS( key ) fd_ulong_bswap( (key).ul[0] ), fd_ulong_bswap( (key).ul[1] ), fd_ulong_bswap( (key).ul[2] ), fd_ulong_bswap( (key).ul[3] )
 
 /* meta_query_fast is a simplified version of fd_vinyl_meta_prepare */
 
@@ -280,13 +280,12 @@ next:
     if( FD_LIKELY( fd_vinyl_meta_private_ele_is_free( meta->ctx, ele ) ) ) continue;
     if( FD_UNLIKELY( ele->line_idx==ULONG_MAX ) ) {
       FD_LOG_WARNING(( "fd_accdb_fsck_vinyl: unvisited meta entry detected"
-                       " key=%016lx:%016lx:%016lx:%016lx:%016lx"
+                       " key=%016lx:%016lx:%016lx:%016lx"
                        " memo=%016lx"
                        " meta_idx=%lu"
                        " seq=%lu",
                        fd_ulong_bswap( ele->phdr.key.ul[0] ), fd_ulong_bswap( ele->phdr.key.ul[1] ),
                        fd_ulong_bswap( ele->phdr.key.ul[2] ), fd_ulong_bswap( ele->phdr.key.ul[3] ),
-                       fd_ulong_bswap( ele->phdr.key.ul[4] ),
                        ele->memo, i, ele->seq ));
       if( FD_UNLIKELY( ++err_cnt>=err_max ) ) {
         FD_LOG_WARNING(( "fd_accdb_fsck_vinyl: too many errors, stopping" ));
