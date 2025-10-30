@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #endif
 
-#define TEST_FOOTPRINT (512UL*1024UL*1024UL)
+#define TEST_FOOTPRINT (512UL*1024UL*2048UL)
 uchar footprint[ TEST_FOOTPRINT ] __attribute__((aligned(128)));
 uint  verify_scratch[ 512UL ];
 
