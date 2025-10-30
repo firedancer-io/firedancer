@@ -209,9 +209,6 @@ struct fd_quic_conn {
        and update this value */
   ulong                upd_pkt_number;
 
-  /* highest peer encryption level */
-  uchar                peer_enc_level;
-
   /* idle timeout arguments */
   long                 idle_timeout_ns;
   long                 last_activity;
