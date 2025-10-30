@@ -938,6 +938,17 @@ publish_update_msg( fd_crds_t *                         crds,
       msg->tag = FD_GOSSIP_UPDATE_TAG_VOTE;
       /* TODO: dynamic sizing */
       sz = FD_GOSSIP_UPDATE_SZ_VOTE;
+      fd_crds_key_t lookup_ci;
+      lookup_ci.tag = FD_GOSSIP_VALUE_CONTACT_INFO;
+      fd_memcpy( &lookup_ci.pubkey, entry->key.pubkey, sizeof(fd_pubkey_t) );
+      fd_crds_entry_t * ci = lookup_map_ele_query( crds->lookup_map, &lookup_ci, NULL, crds->pool );
+
+      if( FD_LIKELY( ci && ci->key.tag == FD_GOSSIP_VALUE_CONTACT_INFO ) ) {
+        msg->vote.socket = ci->contact_info.ci->contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ];
+      } else {
+        msg->vote.socket = (fd_ip4_port_t){ 0 };
+      }
+
       msg->vote.vote_tower_index = entry->key.vote_index;
       msg->vote.txn_sz = entry_view->vote->txn_sz;
       fd_memcpy( msg->vote.txn, payload+entry_view->vote->txn_off, entry_view->vote->txn_sz );
