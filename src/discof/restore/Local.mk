@@ -19,6 +19,7 @@ $(call add-objs,utils/fd_slot_delta_parser,fd_discof)
 $(call make-unit-test,test_ssmanifest_parser,utils/test_ssmanifest_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_slot_delta_parser,utils/test_slot_delta_parser,fd_discof fd_flamenco fd_ballet fd_util)
 $(call make-unit-test,test_sspeer_selector,utils/test_sspeer_selector,fd_discof fd_flamenco fd_ballet fd_util)
+$(call make-unit-test,test_zstd_pipeline,utils/test_zstd_pipeline,fd_ballet fd_util fd_tango)
 $(call run-unit-test,test_slot_delta_parser)
 $(call run-unit-test,test_sspeer_selector)
 

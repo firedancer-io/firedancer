@@ -19,6 +19,7 @@
 struct fd_snapdc_tile {
   int full;
   int state;
+  int first;
 
   ZSTD_DCtx * zstd;
 
@@ -100,6 +101,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->in.frag_pos = 0UL;
       ctx->metrics.full.compressed_bytes_read   = 0UL;
       ctx->metrics.full.decompressed_bytes_read = 0UL;
+      ctx->first = 1;
       break;
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_IDLE );
@@ -108,6 +110,7 @@ handle_control_frag( fd_snapdc_tile_t *  ctx,
       ctx->in.frag_pos = 0UL;
       ctx->metrics.incremental.compressed_bytes_read   = 0UL;
       ctx->metrics.incremental.decompressed_bytes_read = 0UL;
+      ctx->first = 1;
       break;
     case FD_SNAPSHOT_MSG_CTRL_FAIL:
       FD_TEST( ctx->state==FD_SNAPSHOT_STATE_PROCESSING ||
@@ -171,6 +174,18 @@ handle_data_frag( fd_snapdc_tile_t *  ctx,
   uchar const * data = fd_chunk_to_laddr_const( ctx->in.wksp, chunk );
   uchar const * in  = data+ctx->in.frag_pos;
   uchar * out = fd_chunk_to_laddr( ctx->out.wksp, ctx->out.chunk );
+
+  if( FD_UNLIKELY( ctx->first ) ) {
+    FD_TEST( ctx->in.frag_pos==0UL && sz>=ZSTD_FRAMEHEADERSIZE_MAX );
+
+    ZSTD_FrameHeader hdr;
+    ulong rc = ZSTD_getFrameHeader( &hdr, in, sz );
+    FD_TEST( rc==0UL );
+  }
+  ctx->first = 0;
+
+
+
   ulong in_consumed = 0UL, out_produced = 0UL;
   ulong error = ZSTD_decompressStream_simpleArgs( ctx->zstd,
                                                   out,
