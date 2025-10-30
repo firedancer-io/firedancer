@@ -541,19 +541,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->progcache        = ctx->txn_ctx->_progcache;
   ctx->txn_ctx->bundle.is_bundle = 0;
 
-  for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
-    ctx->txn_ctx_bundle[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
-    *(ctx->txn_ctx_bundle[ i ].funk)       = *funk;
-    *(ctx->txn_ctx_bundle[ i ]._progcache) = *progcache;
-    ctx->txn_ctx_bundle[ i ].progcache     = ctx->txn_ctx_bundle[ i ]._progcache;
-  }
-
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
   fd_txncache_t * txncache = fd_txncache_join( fd_txncache_new( _txncache, txncache_shmem ) );
   FD_TEST( txncache );
   ctx->txn_ctx->status_cache = txncache;
+
+  for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
+    ctx->txn_ctx_bundle[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
+    *(ctx->txn_ctx_bundle[ i ].funk)       = *funk;
+    *(ctx->txn_ctx_bundle[ i ]._progcache) = *progcache;
+    ctx->txn_ctx_bundle[ i ].progcache     = ctx->txn_ctx_bundle[ i ]._progcache;
+    ctx->txn_ctx_bundle[ i ].status_cache  = txncache;
+  }
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
   FD_TEST( banks_obj_id!=ULONG_MAX );
