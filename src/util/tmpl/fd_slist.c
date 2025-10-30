@@ -222,9 +222,7 @@
 #define SLIST_IMPL_STYLE 0
 #endif
 
-#if FD_TMPL_USE_HANDHOLDING
 #include "../log/fd_log.h"
-#endif
 
 /* Implementation *****************************************************/
 
