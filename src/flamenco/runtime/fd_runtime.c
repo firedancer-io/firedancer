@@ -465,6 +465,8 @@ fd_runtime_load_txn_address_lookup_tables(
     if( FD_UNLIKELY( err ) ) return err;
   }
 
+  fd_alut_interp_delete( interp );
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 

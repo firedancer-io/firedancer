@@ -4,11 +4,11 @@
 #include <assert.h>
 
 int
-fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
-                              fd_accdb_user_t *                 accdb,
-                              fd_funk_txn_xid_t const *         xid,
-                              fd_exec_test_acct_state_t const * state,
-                              uchar                             reject_zero_lamports ) {
+fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
+                            fd_accdb_user_t *                 accdb,
+                            fd_funk_txn_xid_t const *         xid,
+                            fd_exec_test_acct_state_t const * state,
+                            uchar                             reject_zero_lamports ) {
   if( reject_zero_lamports && state->lamports==0UL ) {
     return 0;
   }
@@ -53,8 +53,8 @@ fd_runtime_fuzz_load_account( fd_txn_account_t *                acc,
 }
 
 int
-fd_runtime_fuzz_restore_features( fd_features_t *                    features,
-                                  fd_exec_test_feature_set_t const * feature_set ) {
+fd_solfuzz_pb_restore_features( fd_features_t *                    features,
+                                fd_exec_test_feature_set_t const * feature_set ) {
   fd_features_disable_all( features );
   for( ulong j=0UL; j < feature_set->features_count; j++ ) {
     ulong                   prefix = feature_set->features[j];

@@ -148,7 +148,7 @@ sol_compat_instr_execute_v1( uchar *       out,
   int ok = 0;
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_instr_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_instr_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_instr_effects_t_msg );
   }
@@ -170,7 +170,7 @@ sol_compat_txn_execute_v1( uchar *       out,
   int ok = 0;
   fd_spad_push( runner->spad );
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_txn_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_txn_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_txn_result_t_msg );
   }
@@ -192,7 +192,7 @@ sol_compat_block_execute_v1( uchar *       out,
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_block_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_block_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_block_effects_t_msg );
   }
@@ -214,7 +214,7 @@ sol_compat_elf_loader_v1( uchar *       out,
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_elf_loader_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_elf_loader_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_elf_loader_effects_t_msg );
   }
@@ -236,7 +236,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_syscall_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_syscall_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
   }
@@ -258,7 +258,7 @@ sol_compat_vm_interp_v1( uchar *       out,
   fd_spad_push( runner->spad );
   int ok = 0;
   void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_vm_interp_run );
+  fd_solfuzz_pb_execute_wrapper( runner, input, &output, fd_solfuzz_pb_vm_interp_run );
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_syscall_effects_t_msg );
   }
@@ -286,28 +286,4 @@ sol_compat_shred_parse_v1( uchar *       out,
     output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
     pb_release( &fd_exec_test_shred_binary_t_msg, input );
     return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
-}
-
-int
-sol_compat_type_execute_v1( uchar *       out,
-                            ulong *       out_sz,
-                            uchar const * in,
-                            ulong         in_sz ) {
-  // Setup
-  // Decode context
-  fd_exec_test_type_context_t input[1] = {0};
-  void * res = sol_compat_decode_lenient( &input, in, in_sz, &fd_exec_test_type_context_t_msg );
-  if( FD_UNLIKELY( !res ) ) return 0;
-
-  fd_spad_push( runner->spad );
-  int ok = 0;
-  void * output = NULL;
-  fd_solfuzz_execute_wrapper( runner, input, &output, fd_solfuzz_type_run );
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_type_effects_t_msg );
-  }
-  fd_spad_pop( runner->spad );
-
-  pb_release( &fd_exec_test_type_context_t_msg, input );
-  return ok;
 }

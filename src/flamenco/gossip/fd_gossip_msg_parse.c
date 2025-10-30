@@ -26,7 +26,6 @@ typedef struct slot_hash_pair slot_hash_pair_t;
 
 #define CHECK( cond ) do {              \
   if( FD_UNLIKELY( !(cond) ) ) {        \
-    FD_LOG_DEBUG(( "Gossip message parse error at offset %lu, size %lu: %s", _i, _payload_sz, #cond )); \
     return 0;                           \
   }                                     \
 } while( 0 )
@@ -600,7 +599,6 @@ fd_gossip_msg_crds_data_parse( fd_gossip_view_crds_value_t * crds_val,
     case FD_GOSSIP_VALUE_RESTART_HEAVIEST_FORK:
       return fd_gossip_msg_crds_restart_heaviest_fork_parse( crds_val, payload, payload_sz, start_offset );
     default:
-      FD_LOG_WARNING(( "Unknown CRDS value tag %d", crds_val->tag ));
       return 0;
   }
 }
@@ -746,7 +744,6 @@ fd_gossip_msg_parse( fd_gossip_view_t * view,
       INC( fd_gossip_msg_ping_pong_parse( view, payload, payload_sz, CUR_OFFSET ) );
       break;
     default:
-      FD_LOG_WARNING(( "Unknown Gossip message type %d", view->tag ));
       return 0;
   }
   CHECK( payload_sz==CUR_OFFSET );

@@ -53,17 +53,17 @@ run_test1( fd_solfuzz_runner_t * runner,
   FD_LOG_DEBUG(( "Running test %s", path ));
 
   if( strstr( path, "/instr/" ) != NULL ) {
-    ok = fd_solfuzz_instr_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_pb_instr_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/txn/" ) != NULL ) {
-    ok = fd_solfuzz_txn_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_pb_txn_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/elf_loader/" ) != NULL ) {
-    ok = fd_solfuzz_elf_loader_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_pb_elf_loader_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/syscall/" ) != NULL ) {
-    ok = fd_solfuzz_syscall_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_pb_syscall_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/vm_interp/" ) != NULL ){
-    ok = fd_solfuzz_vm_interp_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_pb_vm_interp_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/block/" ) != NULL ){
-    ok = fd_solfuzz_block_fixture( runner, buf, file_sz );
+    ok = fd_solfuzz_pb_block_fixture( runner, buf, file_sz );
   } else {
     FD_LOG_WARNING(( "Unknown test type: %s", path ));
   }

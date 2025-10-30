@@ -97,19 +97,17 @@ fd_config_extract_podf( uchar *        pod,
 
   CFG_POP      ( ulong,  store.max_completed_shred_sets                      );
 
+  CFG_POP      ( uint,   snapshots.sources.max_local_full_effective_age      );
+  CFG_POP      ( uint,   snapshots.sources.max_local_incremental_age         );
+  CFG_POP      ( bool,   snapshots.sources.gossip.allow_any                  );
+  CFG_POP_ARRAY( cstr,   snapshots.sources.gossip.allow_list                 );
+  CFG_POP_ARRAY( cstr,   snapshots.sources.gossip.block_list                 );
+  CFG_POP_ARRAY( cstr,   snapshots.sources.servers                           );
   CFG_POP      ( bool,   snapshots.incremental_snapshots                     );
-  CFG_POP      ( uint,   snapshots.maximum_local_snapshot_age                );
-  CFG_POP      ( bool,   snapshots.genesis_download                         );
-  CFG_POP      ( bool,   snapshots.download                                  );
-  CFG_POP_ARRAY( cstr,   snapshots.known_validators                          );
-  CFG_POP      ( uint,   snapshots.minimum_download_speed_mib                );
-  CFG_POP      ( uint,   snapshots.maximum_download_retry_abort              );
+  CFG_POP      ( bool,   snapshots.genesis_download                          );
   CFG_POP      ( uint,   snapshots.max_full_snapshots_to_keep                );
   CFG_POP      ( uint,   snapshots.max_incremental_snapshots_to_keep         );
-  CFG_POP      ( bool,   snapshots.sources.gossip.enabled                    );
-  CFG_POP_TABLE( bool,   snapshots.sources.http, snapshots.sources.http.peers, enabled, 0 );
-  CFG_POP_TABLE( cstr,   snapshots.sources.http, snapshots.sources.http.peers, url,     1 );
-  CFG_POP_TABLE_FINI( snapshots.sources.http );
+  CFG_POP      ( uint,   snapshots.full_effective_age_cancel_threshold       );
 
   return config;
 }

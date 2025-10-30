@@ -5,7 +5,7 @@ $(call add-hdrs,fd_solfuzz.h)
 $(call add-objs,fd_solfuzz fd_solfuzz_exec,fd_flamenco_test)
 
 $(call add-hdrs,fd_instr_harness.h fd_txn_harness.h)
-$(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_block_harness fd_harness_common fd_vm_harness fd_types_harness,fd_flamenco_test)
+$(call add-objs,fd_elf_harness fd_instr_harness fd_txn_harness fd_block_harness fd_harness_common fd_vm_harness,fd_flamenco_test)
 $(call add-objs,fd_sol_compat,fd_flamenco_test)
 
 $(call add-hdrs,generated/context.pb.h,generated/elf.pb.h,generated/invoke.pb.h,generated/txn.pb.h,generated/block.pb.h,generated/vm.pb.h,generated/type.pb.h,generated/shred.pb.h generated/metadata.pb.h)

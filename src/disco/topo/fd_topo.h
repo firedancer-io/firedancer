@@ -504,22 +504,32 @@ struct fd_topo_tile {
       int slices_fd;
     } shredcap;
 
-    struct {
-      char snapshots_path[ PATH_MAX ];
-      int  incremental_snapshot_fetch;
-      int  do_download;
-      uint maximum_local_snapshot_age;
-      uint minimum_download_speed_mib;
-      uint maximum_download_retry_abort;
-      uint max_full_snapshots_to_keep;
-      uint max_incremental_snapshots_to_keep;
+#define FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX (32UL)
+#define FD_TOPO_SNAPSHOTS_SERVERS_MAX     (16UL)
 
-      int gossip_peers_enabled;
+    struct fd_topo_tile_snapct {
+      char snapshots_path[ PATH_MAX ];
 
       struct {
-        ulong         peers_cnt;
-        fd_ip4_port_t peers[ 16UL ];
-      } http;
+        uint max_local_full_effective_age;
+        uint max_local_incremental_age;
+
+        struct {
+          int         allow_any;
+          ulong       allow_list_cnt;
+          fd_pubkey_t allow_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ];
+          ulong       block_list_cnt;
+          fd_pubkey_t block_list[ FD_TOPO_SNAPSHOTS_GOSSIP_LIST_MAX ];
+        } gossip;
+
+        ulong         servers_cnt;
+        fd_ip4_port_t servers[ FD_TOPO_SNAPSHOTS_SERVERS_MAX ];
+      } sources;
+
+      int  incremental_snapshots;
+      uint max_full_snapshots_to_keep;
+      uint max_incremental_snapshots_to_keep;
+      uint full_effective_age_cancel_threshold;
     } snapct;
 
     struct {

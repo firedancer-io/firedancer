@@ -985,12 +985,28 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
     curr         = fd_banks_pool_ele( bank_pool, curr->parent_idx );
   }
 
-  ulong advance_candidate_idx = prev->idx;
-
   /* If we didn't reach the old root or there is no parent, target is
      not a descendant. */
   if( FD_UNLIKELY( !curr || prev->parent_idx!=root->idx ) ) {
     FD_LOG_CRIT(( "invariant violation: target bank_idx %lu is not a direct descendant of root bank_idx %lu %lu %lu", target_bank_idx, root->idx, prev->idx, prev->parent_idx ));
+  }
+
+  curr = root;
+  while( curr && (curr->flags&FD_BANK_FLAGS_ROOTED) && curr!=target_bank ) { /* curr!=target_bank to avoid abandoning good forks. */
+    fd_bank_t * rooted_child = NULL;
+    ulong       child_idx    = curr->child_idx;
+    while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
+      fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
+      if( child_bank->flags&FD_BANK_FLAGS_ROOTED ) {
+        rooted_child = child_bank;
+      } else {
+        /* This is a minority fork. */
+        FD_LOG_DEBUG(( "abandoning minority fork on bank idx %lu", child_bank->idx ));
+        fd_banks_subtree_mark_dead( bank_pool, child_bank );
+      }
+      child_idx = child_bank->sibling_idx;
+    }
+    curr = rooted_child;
   }
 
   /* We should mark the old root bank as dead. */
@@ -1001,11 +1017,11 @@ fd_banks_advance_root_prepare( fd_banks_t * banks,
      potential new root are eligible for pruning.  Each of the sibling
      subtrees can be pruned if the subtrees have no active references on
      their bank. */
+  ulong advance_candidate_idx = prev->idx;
   ulong child_idx = root->child_idx;
   while( child_idx!=fd_banks_pool_idx_null( bank_pool ) ) {
     fd_bank_t * child_bank = fd_banks_pool_ele( bank_pool, child_idx );
     if( child_idx!=advance_candidate_idx ) {
-      fd_banks_subtree_mark_dead( bank_pool, child_bank );
       if( !fd_banks_subtree_can_be_pruned( bank_pool, child_bank ) ) {
         fd_rwlock_unread( &banks->rwlock );
         return 0;

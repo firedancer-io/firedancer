@@ -53,7 +53,7 @@ extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
 #define FD_LOG_ERR_NOEXIT(a) do { long _fd_log_msg_now = fd_log_wallclock(); fd_log_private_1( 4, _fd_log_msg_now, __FILE__, __LINE__, __func__, fd_log_private_0 a ); } while(0)
 
-int fd_sighandler_actual_stderr = -1;
+extern int fd_log_private_restore_stderr;
 extern int * fd_log_private_shared_lock;
 
 static void
@@ -65,8 +65,8 @@ parent_signal( int sig ) {
   int lock = 0;
   fd_log_private_shared_lock = &lock;
 
-  if( FD_LIKELY( -1!=fd_sighandler_actual_stderr ) ) {
-    if( FD_UNLIKELY( -1==dup2( fd_sighandler_actual_stderr, STDERR_FILENO ) ) ) FD_LOG_STDOUT(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( -1!=fd_log_private_restore_stderr ) ) {
+    if( FD_UNLIKELY( -1==dup2( fd_log_private_restore_stderr, STDERR_FILENO ) ) ) FD_LOG_STDOUT(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
@@ -249,8 +249,8 @@ dev_cmd_fn( args_t *   args,
 
       args_t watch_args;
       watch_args.watch.drain_output_fd = pipefd[0];
-      fd_sighandler_actual_stderr = dup( STDERR_FILENO );
-      if( FD_UNLIKELY( fd_sighandler_actual_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      fd_log_private_restore_stderr = dup( STDERR_FILENO );
+      if( FD_UNLIKELY( fd_log_private_restore_stderr==-1 ) ) FD_LOG_ERR(( "dup() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
       run_firedancer_threaded( config, 0, agave_main );

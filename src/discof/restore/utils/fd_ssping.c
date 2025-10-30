@@ -106,7 +106,7 @@ struct fd_ssping_private {
    IP address and UDP port.  The ICMP echo protocol has no concept
    of UDP port which is why we must do this manually. */
 
-struct ssping_pkt {
+struct __attribute__((packed)) ssping_pkt {
   struct icmphdr icmp;
   ushort         port;
 };
@@ -321,7 +321,7 @@ recv_pings( fd_ssping_t * ssping,
     deadline_list_ele_push_tail( ssping->valid, peer, ssping->pool );
 
     FD_LOG_INFO(( "pinged " FD_IP4_ADDR_FMT ":%hu in %lu nanos",
-                  FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), peer->addr.port, peer->latency_nanos ));
+                  FD_IP4_ADDR_FMT_ARGS( peer->addr.addr ), fd_ushort_bswap( peer->addr.port ), peer->latency_nanos ));
     ssping->on_ping_cb( ssping->cb_arg, peer->addr, peer->latency_nanos );
   }
 }

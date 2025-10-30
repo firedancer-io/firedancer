@@ -12,11 +12,11 @@
 #include "../../../util/tmpl/fd_sort.c"
 
 ulong
-fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
-                           void const *          input_,
-                           void **               output_,
-                           void *                output_buf,
-                           ulong                 output_bufsz ) {
+fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
+                              void const *          input_,
+                              void **               output_,
+                              void *                output_buf,
+                              ulong                 output_bufsz ) {
   fd_exec_test_elf_loader_ctx_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
 
@@ -53,7 +53,7 @@ fd_solfuzz_elf_loader_run( fd_solfuzz_runner_t * runner,
   int err = FD_SBPF_ELF_SUCCESS;
   do{
     fd_features_t feature_set = {0};
-    fd_runtime_fuzz_restore_features( &feature_set, &input->features );
+    fd_solfuzz_pb_restore_features( &feature_set, &input->features );
 
     fd_sbpf_loader_config_t config = {
       .elf_deploy_checks = input->deploy_checks,
