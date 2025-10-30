@@ -1390,6 +1390,8 @@ fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
 
   fd_pubkey_t * acc = &txn_ctx->account_keys[ idx ];
 
+  int is_found = 0;
+
   /* Look for the latest writable version of the account.
      TODO: This can be greatly optimized by creating a lookup of the
      last version of each of the writable accounts. */
@@ -1402,6 +1404,7 @@ fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
       if( !memcmp( &prev_txn_ctx->account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
         /* Found the account in a previous transaction */
         meta = prev_txn_ctx->accounts[ j ].meta;
+        is_found = 1;
         goto break_loop;
       }
     }
@@ -1424,6 +1427,8 @@ fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
 
   break_loop:
   FD_TEST( true );
+
+  if( FD_UNLIKELY( is_found ) ) FD_LOG_DEBUG(("IS FOUND %d", is_found));
 
   fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
 
@@ -1474,6 +1479,8 @@ fd_executor_setup_txn_account_bundle( fd_exec_txn_ctx_t *   txn_ctx,
       is_writable ) ) ) ) {
     FD_LOG_CRIT(( "Failed to join txn account" ));
   }
+
+  if( FD_UNLIKELY( is_found ) ) FD_LOG_DEBUG(("IS FOUND DONE %d", is_found));
 
   return txn_account;
 
