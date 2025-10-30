@@ -61,9 +61,10 @@ fd_snp_v1_noise_mix_hash( fd_snp_conn_t * conn,
 
 static inline void
 fd_snp_v1_noise_init( fd_snp_conn_t * conn ) {
+  // sha256( SNPv1=Noise_XXsig_25519_Ed25519_AESGCM_SHA256 )
   uchar init[32] = {
-    0x5c, 0x25, 0xcd, 0x45, 0x0f, 0x2b, 0x6c, 0x94, 0xbe, 0x23, 0xd8, 0xb2, 0x8a, 0xca, 0x9d, 0x16,
-    0x9b, 0xbd, 0xce, 0xb5, 0x5a, 0x4b, 0x3d, 0x47, 0x3f, 0x8e, 0x58, 0x00, 0xb7, 0xab, 0x3c, 0xcd,
+    0x3e, 0xa8, 0xf4, 0xa8, 0xf9, 0xf6, 0x58, 0x04, 0x5c, 0xe9, 0x43, 0x3e, 0x39, 0xf9, 0xf0, 0x44,
+    0x83, 0xec, 0x19, 0x92, 0xd5, 0x57, 0x1f, 0x77, 0x89, 0x31, 0x84, 0x71, 0xee, 0xb9, 0x12, 0xfc,
   };
   uchar * hash = fd_snp_conn_noise_hash( conn );
   memcpy( hash, init, 32 );
@@ -110,13 +111,13 @@ fd_snp_v1_noise_enc_and_hash( fd_snp_conn_t * conn,
                               ulong           data_sz,
                               uchar *         out ) {
   fd_aes_gcm_t aes[1];
-  uchar iv[16] = { 0 };
+  uchar iv[12] = { 0 };
   uchar * hash = fd_snp_conn_noise_hash( conn );
 
   iv[0] = nonce;
   fd_aes_128_gcm_init( aes, fd_snp_conn_noise_cipher_key( conn ), iv );
   fd_aes_gcm_encrypt( aes, out, data, data_sz, hash, 32, out+data_sz );
-  fd_snp_v1_noise_mix_key( conn, out, data_sz+16 );
+  fd_snp_v1_noise_mix_hash( conn, out, data_sz+16 );
 }
 
 int FD_FN_SENSITIVE
@@ -126,13 +127,13 @@ fd_snp_v1_noise_dec_and_hash( fd_snp_conn_t * conn,
                               ulong           data_sz,
                               uchar *         out ) {
   fd_aes_gcm_t aes[1];
-  uchar iv[16] = { 0 };
+  uchar iv[12] = { 0 };
   uchar * hash = fd_snp_conn_noise_hash( conn );
 
   iv[0] = nonce;
   fd_aes_128_gcm_init( aes, fd_snp_conn_noise_cipher_key( conn ), iv );
   if( FD_LIKELY( fd_aes_gcm_decrypt( aes, data, out, data_sz-16, hash, 32, data+data_sz-16 )==1 ) ) {
-    fd_snp_v1_noise_mix_key( conn, data, data_sz );
+    fd_snp_v1_noise_mix_hash( conn, data, data_sz );
     return 0;
   }
   return -1;
@@ -140,11 +141,35 @@ fd_snp_v1_noise_dec_and_hash( fd_snp_conn_t * conn,
 
 int
 fd_snp_v1_noise_sig_verify( fd_snp_conn_t * conn,
-                            uchar           pubkey[32],
-                            uchar           sig[64] ) {
+                            uchar const     pubkey[32],
+                            uchar const     sig[64] ) {
   fd_sha512_t sha[1];
   uchar const * msg = fd_snp_conn_noise_hash( conn );
   if( FD_LIKELY( fd_ed25519_verify( msg, 32, sig, pubkey, sha )==FD_ED25519_SUCCESS ) ) {
+    return 0;
+  }
+  return -1;
+}
+
+int FD_FN_SENSITIVE
+fd_snp_v1_noise_dec_sig_verify_and_hash( fd_snp_conn_t * conn,
+                                         uchar           nonce,
+                                         uchar const *   data,
+                                         ulong           data_sz,
+                                         uchar const     pubkey[32] ) {
+  fd_aes_gcm_t aes[1];
+  uchar iv[12] = { 0 };
+  uchar * hash = fd_snp_conn_noise_hash( conn );
+
+  uchar out_signature[64];
+
+  iv[0] = nonce;
+  fd_aes_128_gcm_init( aes, fd_snp_conn_noise_cipher_key( conn ), iv );
+  if( FD_LIKELY(
+    fd_aes_gcm_decrypt( aes, data, out_signature, data_sz-16, hash, 32, data+data_sz-16 )==1
+    && fd_snp_v1_noise_sig_verify( conn, pubkey, out_signature )==0
+  ) ) {
+    fd_snp_v1_noise_mix_hash( conn, data, data_sz );
     return 0;
   }
   return -1;
@@ -390,14 +415,10 @@ fd_snp_v1_client_fini( fd_snp_config_t const * client FD_PARAM_UNUSED,
   fd_snp_v1_noise_mix_key( conn, shared_secret_ee, 32 );
 
   uchar server_pubkey[ 32 ];
-  uchar server_sig   [ 64 ];
   if( FD_UNLIKELY( fd_snp_v1_noise_dec_and_hash( conn, 0, enc_server_pubkey, 32+16, server_pubkey )<0 ) ) {
     return -1;
   }
-  if( FD_UNLIKELY( fd_snp_v1_noise_dec_and_hash( conn, 1, enc_server_sig, 64+16, server_sig )<0 ) ) {
-    return -1;
-  }
-  if( FD_UNLIKELY( fd_snp_v1_noise_sig_verify( conn, server_pubkey, server_sig )<0 ) ) {
+  if( FD_UNLIKELY( fd_snp_v1_noise_dec_sig_verify_and_hash( conn, 1, enc_server_sig, 64+16, server_pubkey )<0 ) ) {
     return -1;
   }
 
@@ -446,14 +467,10 @@ fd_snp_v1_server_acpt( fd_snp_config_t const * server FD_PARAM_UNUSED,
   uchar const * enc_client_pubkey = pkt_in + FD_SNP_PKT_CLIENT_ENC_PUBKEY_OFF;
   uchar const * enc_client_sig = pkt_in + FD_SNP_PKT_CLIENT_ENC_SIG_OFF;
   uchar client_pubkey[ 32 ];
-  uchar client_sig   [ 64 ];
   if( FD_UNLIKELY( fd_snp_v1_noise_dec_and_hash( conn, 2, enc_client_pubkey, 32+16, client_pubkey )<0 ) ) {
     return -1;
   }
-  if( FD_UNLIKELY( fd_snp_v1_noise_dec_and_hash( conn, 3, enc_client_sig, 64+16, client_sig )<0 ) ) {
-    return -1;
-  }
-  if( FD_UNLIKELY( fd_snp_v1_noise_sig_verify( conn, client_pubkey, client_sig )<0 ) ) {
+  if( FD_UNLIKELY( fd_snp_v1_noise_dec_sig_verify_and_hash( conn, 3, enc_client_sig, 64+16, client_pubkey )<0 ) ) {
     return -1;
   }
 
@@ -525,11 +542,11 @@ fd_snp_v1_validate_packet( fd_snp_conn_t * conn,
     hmac_ptr = fd_snp_tlv_iter_ptr( iter, snp_load );
   }
   if( FD_UNLIKELY( iter.rem!=0L ) ) {
-    return -2; /* tlv chain vs packet length mismatch */
+    return -1; /* tlv chain vs packet length mismatch */
   }
   /* verify hmac */
   if( FD_UNLIKELY( hmac_ptr==NULL ) ) {
-    return -1;
+    return -2;
   }
   uchar hmac_out[ 32 ];
   if( FD_LIKELY( fd_hmac_sha256( packet, ((ulong)hmac_ptr)-((ulong)packet), fd_snp_conn_rx_key( conn ), 32, hmac_out )==hmac_out

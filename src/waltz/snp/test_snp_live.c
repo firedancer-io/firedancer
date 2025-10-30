@@ -142,7 +142,9 @@ test_cb_app_rx( void const *  _ctx,
                 fd_snp_meta_t meta ) {
   (void)peer;
   test_cb_ctx_t * ctx = (test_cb_ctx_t *)_ctx;
-  printf("Received from %016lx: %s\n", meta, data);
+  uchar buf[ FD_SNP_MTU ] = { 0 };
+  memcpy( buf, data, data_sz );
+  printf( "Received from %016lx: %s\n", meta, buf );
   if( strncmp( (char *)data, "ACK", fd_min( data_sz, 4 ) )==0 ) {
     // ctx->done = 1;
   } else {
