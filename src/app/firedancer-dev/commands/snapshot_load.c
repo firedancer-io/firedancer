@@ -141,6 +141,13 @@ snapshot_load_topo( config_t * config ) {
 extern int * fd_log_private_shared_lock;
 
 static void
+snapshot_load_args( int *    pargc,
+                    char *** pargv,
+                    args_t * args ) {
+  (void)pargc; (void)pargv; (void)args;
+}
+
+static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
   (void)args;
@@ -291,6 +298,7 @@ snapshot_load_cmd_fn( args_t *   args,
 
 action_t fd_action_snapshot_load = {
   .name = NAME,
+  .args = snapshot_load_args,
   .topo = snapshot_load_topo,
   .perm = dev_cmd_perm,
   .fn   = snapshot_load_cmd_fn
