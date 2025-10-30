@@ -150,7 +150,7 @@ FD_PROTOTYPES_END
    user.) */
 
 #define FD_VINYL_KEY_ALIGN     (8UL)
-#define FD_VINYL_KEY_FOOTPRINT (40UL)
+#define FD_VINYL_KEY_FOOTPRINT (32UL)
 
 union __attribute__((aligned(FD_VINYL_KEY_ALIGN))) fd_vinyl_key {
   char  c [ FD_VINYL_KEY_FOOTPRINT ];
@@ -193,10 +193,9 @@ fd_vinyl_key_init_ulong( void * mem,
                          ulong  k0,
                          ulong  k1,
                          ulong  k2,
-                         ulong  k3,
-                         ulong  k4 ) {
+                         ulong  k3 ) {
   fd_vinyl_key_t * k = (fd_vinyl_key_t *)mem;
-  k->ul[0] = k0; k->ul[1] = k1; k->ul[2] = k2; k->ul[3] = k3; k->ul[4] = k4;
+  k->ul[0] = k0; k->ul[1] = k1; k->ul[2] = k2; k->ul[3] = k3;
   return k;
 }
 
@@ -210,7 +209,7 @@ fd_vinyl_key_eq( fd_vinyl_key_t const * ka,
                  fd_vinyl_key_t const * kb ) {
   ulong const * a = ka->ul;
   ulong const * b = kb->ul;
-  return !((a[0]^b[0]) | (a[1]^b[1]) | (a[2]^b[2]) | (a[3]^b[3]) | (a[4]^b[4])); /* tons of ILP and vectorizable */
+  return !((a[0]^b[0]) | (a[1]^b[1]) | (a[2]^b[2]) | (a[3]^b[3])); /* tons of ILP and vectorizable */
 }
 
 /* fd_vinyl_key_memo hashes the arbitrary 64-bit integer seed and the
@@ -225,8 +224,8 @@ fd_vinyl_key_memo( ulong                  seed,
                    fd_vinyl_key_t const * k ) {
   ulong const * a = k->ul;
   return fd_ulong_hash( a[0] ^   seed                         ) ^ fd_ulong_hash( a[1] ^ ( seed ^ 0x5555555555555555UL) ) ^
-         fd_ulong_hash( a[2] ^ ( seed ^ 0xaaaaaaaaaaaaaaaaUL) ) ^ fd_ulong_hash( a[3] ^ ( seed ^ 0x5a5a5a5a5a5a5a5aUL) ) ^
-         fd_ulong_hash( a[4] ^ (~seed)                        ); /* tons of ILP and vectorizable */
+         fd_ulong_hash( a[2] ^ ( seed ^ 0xaaaaaaaaaaaaaaaaUL) ) ^ fd_ulong_hash( a[3] ^ ( seed ^ 0x5a5a5a5a5a5a5a5aUL) );
+  /* tons of ILP and vectorizable */
 }
 
 FD_PROTOTYPES_END
@@ -258,7 +257,7 @@ typedef union fd_vinyl_info fd_vinyl_info_t;
    value below is:
 
      10MiB + block_sz - sizeof(ctl) - sizeof(key) - sizeof(info) - sizeof(ftr)
-               512           8            40            16             16
+               512           8            32            24             16
 
    where the adjustment make it possible create a vinyl_data sizeclass
    whose val_max is exactly FD_VINYL_VAL_MAX. */
