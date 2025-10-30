@@ -219,6 +219,42 @@ fd_vinyl_key_eq( fd_vinyl_key_t const * ka,
    space to a valid key for the duration of the call.  Retains no
    interest in k.  Returns the hash (arbitrary). */
 
+#if FD_HAS_INT128
+
+/* If the target supports uint128, fd_vinyl_key_memo is seeded
+   xxHash3 with 64-bit output size. (open source BSD licensed) */
+
+static inline ulong
+fd_xxh3_mul128_fold64_( ulong lhs, ulong rhs ) {
+  uint128 product = (uint128)lhs * (uint128)rhs;
+  return (ulong)product ^ (ulong)( product>>64 );
+}
+
+static inline ulong
+fd_xxh3_mix16b_( ulong i0, ulong i1,
+             ulong s0, ulong s1,
+             ulong seed ) {
+  return fd_xxh3_mul128_fold64_( i0 ^ (s0 + seed), i1 ^ (s1 - seed) );
+}
+
+FD_FN_PURE static inline ulong
+fd_vinyl_key_memo( ulong                  seed,
+                   fd_vinyl_key_t const * k ) {
+  ulong k0 = k->ul[0];
+  ulong k1 = k->ul[1];
+  ulong k2 = k->ul[2];
+  ulong k3 = k->ul[3];
+  ulong acc = 32 * 0x9E3779B185EBCA87ULL;
+  acc += fd_xxh3_mix16b_( k0, k1, 0xbe4ba423396cfeb8UL, 0x1cad21f72c81017cUL, seed );
+  acc += fd_xxh3_mix16b_( k2, k3, 0xdb979083e96dd4deUL, 0x1f67b3b7a4a44072UL, seed );
+  acc = acc ^ (acc >> 37);
+  acc *= 0x165667919E3779F9ULL;
+  acc = acc ^ (acc >> 32);
+  return acc;
+}
+
+#else /* Portable variant */
+
 FD_FN_PURE static inline ulong
 fd_vinyl_key_memo( ulong                  seed,
                    fd_vinyl_key_t const * k ) {
@@ -227,6 +263,8 @@ fd_vinyl_key_memo( ulong                  seed,
          fd_ulong_hash( a[2] ^ ( seed ^ 0xaaaaaaaaaaaaaaaaUL) ) ^ fd_ulong_hash( a[3] ^ ( seed ^ 0x5a5a5a5a5a5a5a5aUL) );
   /* tons of ILP and vectorizable */
 }
+
+#endif
 
 FD_PROTOTYPES_END
 
