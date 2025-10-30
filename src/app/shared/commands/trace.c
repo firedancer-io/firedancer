@@ -215,6 +215,7 @@ trace_fn( args_t *   args,
     in->base   = fd_metrics_fxt_dcache_const( metrics ); FD_TEST( in->base   );
     in->seq    = 0UL;
     in->depth  = fd_mcache_depth( in->mcache );
+    FD_LOG_NOTICE(( "Joined tile `%s`", tile->name ));
   }
 
   /* Set up a new FXT file */

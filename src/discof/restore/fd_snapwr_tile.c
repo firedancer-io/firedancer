@@ -54,6 +54,7 @@
 #include "utils/fd_ssctrl.h"
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/trace/generated/fd_trace_snapwr.h"
 #include "../../vinyl/bstream/fd_vinyl_bstream.h"
 #include "generated/fd_snapwr_tile_seccomp.h"
 
@@ -215,7 +216,9 @@ handle_data_frag( fd_snapwr_t * ctx,
   }
 
   /* Do a synchronous write(2) */
+  fd_trace_sys_pwrite_enter( (uint)src_sz );
   ssize_t write_sz = pwrite( ctx->dev_fd, src, src_sz, (off_t)dev_off );
+  fd_trace_sys_pwrite_exit();
   if( FD_UNLIKELY( write_sz<0 ) ) {
     FD_LOG_ERR(( "pwrite(off=%lu,sz=%lu) failed (%i-%s)", dev_off, src_sz, errno, strerror( errno ) ));
   }
