@@ -380,7 +380,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
-      FD_LOG_DEBUG(("FINALIZE TXN IDX %lu", i));
+      FD_LOG_DEBUG(("FINALIZE TXN IDX %s", FD_BASE58_ENC_64_ALLOCA( signature )));
       fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
       FD_LOG_DEBUG(("FINALIZE TXN IDX %lu DONE", i));
       if( FD_UNLIKELY( !txn_ctx->flags ) ) {
