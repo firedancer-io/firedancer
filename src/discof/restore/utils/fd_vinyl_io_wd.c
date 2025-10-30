@@ -1,5 +1,6 @@
 #include "fd_vinyl_io_wd.h"
 #include "fd_ssctrl.h"
+#include "../../../disco/trace/generated/fd_trace_snapwr.h"
 
 /* fd_vinyl_io_wd manages a pool of DMA-friendly buffers.
 
@@ -133,6 +134,8 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
   if( wd->buf_iowait_tail  ) wd->buf_iowait_tail->next = buf;
   if( !wd->buf_iowait_head ) wd->buf_iowait_head       = buf;
   wd->buf_iowait_tail = buf;
+
+  fd_trace_vinyl_io_wd_dispatch();
 }
 
 static void
@@ -332,10 +335,16 @@ fd_vinyl_io_wd_alloc( fd_vinyl_io_t * io,
                       ulong           sz,
                       int             flags ) {
   if( FD_UNLIKELY( !sz ) ) return NULL;
+  _Bool poll = 0;
   for(;;) {
     void * p = fd_vinyl_io_wd_alloc1( io, sz );
     if( FD_LIKELY( p || !(flags & FD_VINYL_IO_FLAG_BLOCKING) ) ) {
+      if( FD_UNLIKELY( poll ) ) fd_trace_vinyl_io_wd_blocked_exit();
       return p;
+    }
+    if( FD_UNLIKELY( !poll ) ) {
+      fd_trace_vinyl_io_wd_blocked_enter();
+      poll = 1;
     }
     wd_poll_write( io );
     FD_SPIN_PAUSE();

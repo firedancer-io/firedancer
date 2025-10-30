@@ -13,5 +13,10 @@ char const * fd_trace_strtab[] = {
   "exec_commit",
   "exec_instr",
   "vm_interp",
+  "snapwr",
+  "vinyl_io_wd_dispatch",
+  "vinyl_io_wd_blocked",
+  "sys_pwrite",
+  "size",
   NULL
 };

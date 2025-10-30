@@ -24,4 +24,16 @@
 
 </category>
 
+<category name="snapwr">
+
+    <event name="vinyl_io_wd_dispatch" type="INSTANT" />
+
+    <event name="vinyl_io_wd_blocked" type="DURATION" />
+
+    <event name="sys_pwrite" type="DURATION">
+        <arg type="U32" name="size" />
+    </event>
+
+</category>
+
 </traces>
