@@ -1268,8 +1268,9 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
                                                   (fd_hash_t *)tip_receiver->b,
                                                   ctx->accdb->funk,
                                                   &xid );
-    FD_TEST( !err );
-    memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
+    if( FD_LIKELY( !err ) ) {
+      memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
+    }
   }
 
 
