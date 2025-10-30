@@ -124,9 +124,13 @@ typedef struct fd_contact_info fd_contact_info_t;
 
    The transaction is not validated or parsed in any way yet, and in
    particular the signatures have not been verified.   Transaction data
-   is arbitrary and could be empty or corrupt or malicious. */
+   is arbitrary and could be empty or corrupt or malicious.
+
+   The source peer socket is included for use by downstream monitoring
+   tools. */
 
 struct fd_gossip_vote {
+  fd_ip4_port_t socket;
   uchar vote_tower_index;
   ulong txn_sz;
   uchar txn[ 1232UL ];
