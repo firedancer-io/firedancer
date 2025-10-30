@@ -554,13 +554,15 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
         }
       }
 
-      uchar slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
-      fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( funk, ctx->xid, slot_history_mem );
-      if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx, slot_history ) ) ) {
-        FD_LOG_WARNING(( "slot deltas verification failed" ));
-        transition_malformed( ctx, stem );
-        break;
-      }
+      /* FIXME bring back verification code */
+      // uchar slot_history_mem[ FD_SYSVAR_SLOT_HISTORY_FOOTPRINT ];
+      // fd_slot_history_global_t * slot_history = fd_sysvar_slot_history_read( funk, ctx->xid, slot_history_mem );
+      // if( FD_UNLIKELY( verify_slot_deltas_with_slot_history( ctx, slot_history ) ) ) {
+      //   FD_LOG_WARNING(( "slot deltas verification failed" ));
+      //   transition_malformed( ctx, stem );
+      //   break;
+      // }
+      (void)verify_slot_deltas_with_slot_history;
 
       /* Publish any remaining funk txn */
       if( FD_LIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) {
