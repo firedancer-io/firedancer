@@ -1269,6 +1269,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
                                                   ctx->accdb->funk,
                                                   &xid );
     if( FD_LIKELY( !err ) ) {
+      FD_LOG_DEBUG(("TIP RECEIVER %s", FD_BASE58_ENC_32_ALLOCA(tip_receiver->b)));
       memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
     }
   }
