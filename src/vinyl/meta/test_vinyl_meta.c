@@ -113,7 +113,7 @@ tile_main( int     argc,
     }
 
     case 1: { /* good insert (i.e. key not already in meta) */
-      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key, 0UL );
+      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key );
       ulong          memo = fd_vinyl_key_memo( seed, key );
       ulong          mod  = 0UL;
 
@@ -152,7 +152,7 @@ tile_main( int     argc,
     }
 
     case 2: { /* bad remove (i.e. key not already in meta) */
-      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key, 0UL );
+      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key );
       ulong           memo = fd_vinyl_key_memo( seed, key );
 
       if( use_hint ) {
@@ -195,7 +195,7 @@ tile_main( int     argc,
     }
 
     case 4: { /* bad modify (i.e. key not already in meta) */
-      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key, 0UL );
+      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key );
       ulong           memo = fd_vinyl_key_memo( seed, key );
 
       if( use_hint ) {
@@ -263,7 +263,7 @@ tile_main( int     argc,
     }
 
     case 6: { /* bad query (i.e. key not already in meta) */
-      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key, 0UL );
+      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key );
       ulong           memo = fd_vinyl_key_memo( seed, key );
 
       if( use_hint ) {
@@ -533,7 +533,7 @@ writer_main( int     argc,
     }
 
     case 1: { /* single writer bad query (i.e. key not in meta) */
-      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key, 0UL );
+      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key );
       ulong          memo = fd_vinyl_key_memo( seed, key );
 
       ulong ele_idx;
@@ -549,7 +549,7 @@ writer_main( int     argc,
 
     case 2: { /* single writer insert (i.e. room and key not already in meta) */
       if( FD_UNLIKELY( _meta_cnt>=(ele_max-1UL) ) ) break;
-      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key, 0UL );
+      fd_vinyl_key_t key[1]; fd_vinyl_key_init_ulong( key, global_prefix, tile_cnt, tile_idx, local_key );
       ulong          memo = fd_vinyl_key_memo( seed, key );
       ulong          mod  = 0UL;
 
@@ -748,7 +748,7 @@ reader_main( int     argc,
 
     /* And try to query for a key we know isn't in the map */
 
-    key->ul[4] = 1UL;
+    key->ul[3] = 1UL;
     FD_TEST( fd_vinyl_meta_query( meta, key, info )==FD_VINYL_ERR_KEY );
 
   }

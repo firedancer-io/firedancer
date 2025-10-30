@@ -9,7 +9,7 @@ FD_STATIC_ASSERT( FD_VINYL_ERR_FULL   ==-5, unit_test );
 FD_STATIC_ASSERT( FD_VINYL_ERR_KEY    ==-6, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_KEY_ALIGN    == 8UL, unit_test );
-FD_STATIC_ASSERT( FD_VINYL_KEY_FOOTPRINT==40UL, unit_test );
+FD_STATIC_ASSERT( FD_VINYL_KEY_FOOTPRINT==32UL, unit_test );
 
 FD_STATIC_ASSERT( FD_VINYL_KEY_ALIGN    ==alignof(fd_vinyl_key_t), unit_test );
 FD_STATIC_ASSERT( FD_VINYL_KEY_FOOTPRINT==sizeof (fd_vinyl_key_t), unit_test );
@@ -40,16 +40,16 @@ main( int     argc,
 
   for( ulong rem=1000000UL; rem; rem-- ) {
     ulong seed = fd_rng_ulong( rng );
-    ulong limb[10]; for( ulong idx=0UL; idx<10UL; idx++ ) limb[idx] = fd_rng_ulong( rng );
+    ulong limb[8]; for( ulong idx=0UL; idx<8UL; idx++ ) limb[idx] = fd_rng_ulong( rng );
 
-    fd_vinyl_key_t ka[1]; FD_TEST( fd_vinyl_key_init_ulong( ka, limb[0], limb[1], limb[2], limb[3], limb[4] )==ka );
-    fd_vinyl_key_t kb[1]; FD_TEST( fd_vinyl_key_init_ulong( kb, limb[5], limb[6], limb[7], limb[8], limb[9] )==kb );
+    fd_vinyl_key_t ka[1]; FD_TEST( fd_vinyl_key_init_ulong( ka, limb[0], limb[1], limb[2], limb[3] )==ka );
+    fd_vinyl_key_t kb[1]; FD_TEST( fd_vinyl_key_init_ulong( kb, limb[4], limb[5], limb[6], limb[7] )==kb );
 
-    FD_TEST( ka->ul[0]==limb[0] && ka->ul[1]==limb[1] && ka->ul[2]==limb[2] && ka->ul[3]==limb[3] && ka->ul[4]==limb[4] &&
-             kb->ul[0]==limb[5] && kb->ul[1]==limb[6] && kb->ul[2]==limb[7] && kb->ul[3]==limb[8] && kb->ul[4]==limb[9] );
+    FD_TEST( ka->ul[0]==limb[0] && ka->ul[1]==limb[1] && ka->ul[2]==limb[2] && ka->ul[3]==limb[3] &&
+             kb->ul[0]==limb[4] && kb->ul[1]==limb[5] && kb->ul[2]==limb[6] && kb->ul[3]==limb[7] );
 
     int eq = (ka->ul[0]==kb->ul[0]) && (ka->ul[1]==kb->ul[1]) &&
-             (ka->ul[2]==kb->ul[2]) && (ka->ul[3]==kb->ul[3]) && (ka->ul[4]==kb->ul[4]);
+             (ka->ul[2]==kb->ul[2]) && (ka->ul[3]==kb->ul[3]);
 
     ulong ma = fd_vinyl_key_memo( seed, ka );
     ulong mb = fd_vinyl_key_memo( seed, kb );
@@ -66,7 +66,7 @@ main( int     argc,
     FD_TEST( fd_vinyl_key_init( kb, ka, csz )==kb );
 
     eq = (ka->ul[0]==kb->ul[0]) && (ka->ul[1]==kb->ul[1]) &&
-         (ka->ul[2]==kb->ul[2]) && (ka->ul[3]==kb->ul[3]) && (ka->ul[4]==kb->ul[4]);
+         (ka->ul[2]==kb->ul[2]) && (ka->ul[3]==kb->ul[3]);
 
     mb = fd_vinyl_key_memo( seed, kb );
 
