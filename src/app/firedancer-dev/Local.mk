@@ -15,6 +15,7 @@ $(call add-objs,commands/sim,fd_firedancer_dev)
 $(call add-objs,commands/backtest,fd_firedancer_dev)
 $(call add-objs,commands/snapshot_load,fd_firedancer_dev)
 $(call add-objs,commands/repair,fd_firedancer_dev)
+$(call add-objs,commands/repair_stress,fd_firedancer_dev)
 $(call add-objs,commands/ipecho_server,fd_firedancer_dev)
 $(call add-objs,commands/gossip_dump,fd_firedancer_dev)
 

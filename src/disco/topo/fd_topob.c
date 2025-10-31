@@ -568,7 +568,10 @@ initialize_numa_assignments( fd_topo_t * topo ) {
       }
     }
 
-    if( FD_UNLIKELY( !found_lazy ) ) FD_LOG_ERR(( "no tile uses object %s for workspace %s", topo->objs[ max_obj ].name, topo->workspaces[ i ].name ));
+    if( FD_UNLIKELY( !found_lazy ) ) {
+      __asm__("int $3"); /* break here */
+      FD_LOG_ERR(( "no tile uses object %s for workspace %s", topo->objs[ max_obj ].name, topo->workspaces[ i ].name ));
+    }
   }
 }
 

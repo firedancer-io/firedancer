@@ -116,6 +116,12 @@ union fdctl_args {
     char topo[ 64 ];
   } metrics;
 
+  struct {
+    ulong  rate;      /* packets per second */
+    uint   dst_ip;    /* destination IP address */
+    ushort dst_port;  /* destination port */
+  } repair_stress;
+
 };
 
 typedef union fdctl_args args_t;
