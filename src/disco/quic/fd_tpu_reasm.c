@@ -199,7 +199,6 @@ fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
   ulong sz0      = slot->k.sz;
 
   if( FD_UNLIKELY( data_off>sz0 ) ) {
-    fd_tpu_reasm_cancel( reasm, slot );
     return FD_TPU_REASM_ERR_SKIP;
   }
 
