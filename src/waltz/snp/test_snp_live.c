@@ -87,6 +87,8 @@ test_cb_snp_tx( void const *  _ctx,
 
   if( meta & FD_SNP_META_OPT_HANDSHAKE ) {
     FD_LOG_NOTICE(( "sending handshake %x dport=%hx session_id=%016lx...", packet[45], port, *((ulong *)(packet+46)) ));
+  } else {
+    FD_LOG_NOTICE(( "sending data %x dport=%hx session_id=%016lx...", packet[45], port, *((ulong *)(packet+46)) ));    
   }
 
   struct sockaddr_in dest_addr;
@@ -95,7 +97,7 @@ test_cb_snp_tx( void const *  _ctx,
   dest_addr.sin_addr.s_addr = ip;
 
   *((uint *)(packet + 14 + 12)) = ip;
-  ssize_t sent = sendto( ctx->sock_fd, packet+14, packet_sz-14, 0, (void*)&dest_addr, sizeof(dest_addr) );
+  ssize_t sent = sendto( ctx->sock_fd, packet+14+28, packet_sz-14-28, 0, (void*)&dest_addr, sizeof(dest_addr) );
   if (sent < 0) {
     FD_LOG_WARNING(( "sendto failed: %x dport=%hx session_id=%016lx", packet[45], port, *((ulong *)(packet+46)) ));
   }
@@ -230,12 +232,41 @@ int main(int argc, char *argv[]) {
     if (fds[1].revents & POLLIN) {
       struct sockaddr_in src_addr;
       socklen_t src_len = sizeof(src_addr);
-      long recv_len = recvfrom(sock_fd, recv_buffer+14, BUFFER_SIZE-14, 0, (void*)&src_addr, &src_len);
-      if (recv_len > 46) {
+      long recv_len = recvfrom(sock_fd, recv_buffer+14+28, BUFFER_SIZE-14-28, 0, (void*)&src_addr, &src_len);
+      if (recv_len > 0) {
+        // Get local socket address
+        struct sockaddr_in local_addr;
+        socklen_t local_len = sizeof(local_addr);
+        getsockname(sock_fd, (void*)&local_addr, &local_len);
+
+        // Fill Ethernet header (14 bytes) - keep as zeros
+        memset(recv_buffer, 0, 14);
+
+        // Fill IP header (20 bytes)
+        recv_buffer[14+0] = 0x45;  // Version (4) + IHL (5)
+        recv_buffer[14+1] = 0x00;  // DSCP + ECN
+        ushort total_len = (ushort)(20 + 8 + recv_len);  // IP + UDP + payload
+        recv_buffer[14+2] = (uchar)(total_len >> 8);
+        recv_buffer[14+3] = (uchar)(total_len & 0xFF);
+        memset(recv_buffer+14+4, 0, 4);  // ID + Flags + Fragment offset
+        recv_buffer[14+8] = 64;  // TTL
+        recv_buffer[14+9] = 17;  // Protocol (UDP)
+        memset(recv_buffer+14+10, 0, 2);  // Checksum (set to 0)
+        memcpy(recv_buffer+14+12, &src_addr.sin_addr.s_addr, 4);  // Source IP
+        memcpy(recv_buffer+14+16, &local_addr.sin_addr.s_addr, 4);  // Dest IP
+
+        // Fill UDP header (8 bytes)
+        memcpy(recv_buffer+14+20, &src_addr.sin_port, 2);  // Source port
+        memcpy(recv_buffer+14+22, &local_addr.sin_port, 2);  // Dest port
+        ushort udp_len = (ushort)(8 + recv_len);  // UDP header + payload
+        recv_buffer[14+24] = (uchar)(udp_len >> 8);
+        recv_buffer[14+25] = (uchar)(udp_len & 0xFF);
+        memset(recv_buffer+14+26, 0, 2);  // Checksum (set to 0)
+
         /* drop 30% packets */
+        FD_LOG_NOTICE(( "received packet %x dport=%hx session_id=%016lx...", recv_buffer[45], src_addr.sin_port, *((ulong *)(recv_buffer+46)) ));
         if( (double)rand() / (double)RAND_MAX > -0.1 || recv_buffer[45]==0x1F ) {
-          FD_LOG_NOTICE(( "received packet %x dport=%hx session_id=%016lx...", recv_buffer[45], src_addr.sin_port, *((ulong *)(recv_buffer+46)) ));
-          fd_snp_process_packet( snp, recv_buffer, (ulong)recv_len+14 );
+          fd_snp_process_packet( snp, recv_buffer, (ulong)recv_len+14+28 );
         } else {
           FD_LOG_NOTICE(( "dropped packet %x dport=%hx session_id=%016lx...", recv_buffer[45], src_addr.sin_port, *((ulong *)(recv_buffer+46)) ));
         }
