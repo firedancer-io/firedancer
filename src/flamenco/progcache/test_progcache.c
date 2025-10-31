@@ -634,9 +634,9 @@ test_publish_gc( fd_wksp_t * wksp ) {
   FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==rec_a );
 
   test_env_txn_publish( env, &fork_b );
-  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL   );
-  FD_TEST( query_rec_exact( env, &fork_b, &key )==NULL   );
-  FD_TEST( query_rec_exact( env, &root,   &key )==frec_b );
+  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
+  FD_TEST( query_rec_exact( env, &fork_b, &key )==NULL );
+  FD_TEST( query_rec_exact( env, &root,   &key )==NULL );  /* invalidation rooted */
 
   test_env_txn_publish( env, &fork_c );
   FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL   );
@@ -646,6 +646,90 @@ test_publish_gc( fd_wksp_t * wksp ) {
 
   /* Verify that only frec_c exists in funk rec map */
   ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, &frec_c->pair );
+  ulong chain_cnt = 0UL;
+  for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
+       !fd_funk_rec_map_iter_done( iter );
+       iter = fd_funk_rec_map_iter_next( iter ) ) {
+    chain_cnt++;
+  }
+  FD_TEST( chain_cnt==1UL );
+
+  test_env_destroy( env );
+}
+
+static void
+test_publish_gc2( fd_wksp_t * wksp ) {
+  test_env_t * env = test_env_create( wksp );
+  fd_funk_txn_xid_t fork_a = { .ul = { 1UL, 1UL } };
+  test_env_txn_prepare( env, NULL, &fork_a );
+
+  fd_funk_rec_key_t key = test_key( 1UL );
+  create_test_account( env, &fork_a, &key,
+                       &fd_solana_bpf_loader_program_id,
+                       valid_program_data,
+                       valid_program_data_sz,
+                       1 );
+
+  fd_prog_load_env_t load_env = {
+    .features    = env->features,
+    .slot        = 1UL,
+    .epoch       = 0UL,
+    .epoch_slot0 = 0UL
+  };
+
+  fd_progcache_rec_t const * rec_a = fd_progcache_invalidate( env->progcache, &fork_a, &key, fork_a.ul[0] );
+  FD_TEST( rec_a );
+
+  fd_funk_rec_t const * frec_a = query_rec_exact( env, &fork_a, &key ); FD_TEST( frec_a );
+  fd_funk_txn_xid_t root; fd_funk_txn_xid_set_root( &root );
+  test_env_txn_publish( env, &fork_a );
+  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
+  FD_TEST( query_rec_exact( env, &root,   &key )==NULL );
+  FD_TEST( fd_progcache_peek( env->progcache, &fork_a, &key, 0UL )==NULL );
+
+  fd_funk_txn_xid_t fork_b = { .ul = { 2UL, 1UL } };
+  test_env_txn_prepare( env, &fork_a, &fork_b );
+  load_env.slot = 2;
+  test_env_txn_publish( env, &fork_b );
+  FD_TEST( query_rec_exact( env, &fork_a, &key )==NULL );
+  FD_TEST( query_rec_exact( env, &fork_b, &key )==NULL );
+  FD_TEST( query_rec_exact( env, &root,   &key )==NULL );
+
+  fd_funk_txn_xid_t fork_c = { .ul = { 3UL, 1UL } };
+  test_env_txn_prepare( env, &fork_b, &fork_c );
+  load_env.slot = 3UL;
+  fd_progcache_rec_t const * rec_c = fd_progcache_pull( env->progcache, env->accdb->funk, &fork_c, &key, &load_env );
+  FD_TEST( rec_c );
+  FD_TEST( rec_c->executable );
+  test_env_txn_publish( env, &fork_c );
+  FD_TEST( fd_progcache_peek( env->progcache, &fork_c, &key, 0UL )==rec_c );
+
+  fd_funk_txn_xid_t fork_d = { .ul = { 4UL, 1UL } };
+  test_env_txn_prepare( env, &fork_c, &fork_d );
+  load_env.slot = 4UL;
+  fd_progcache_rec_t const * rec_d = fd_progcache_pull( env->progcache, env->accdb->funk, &fork_d, &key, &load_env );
+  FD_TEST( rec_d );
+  FD_TEST( rec_d->executable );
+  test_env_txn_publish( env, &fork_d );
+
+  fd_funk_txn_xid_t fork_e = { .ul = { 5UL, 1UL } };
+  test_env_txn_prepare( env, &fork_d, &fork_e );
+  load_env.slot = 5UL;
+  fd_progcache_rec_t const * rec_e = fd_progcache_invalidate( env->progcache, &fork_e, &key, fork_e.ul[0] );
+  FD_TEST( rec_e );
+  test_env_txn_publish( env, &fork_e );
+
+  fd_funk_txn_xid_t fork_f = { .ul = { 6UL, 1UL } };
+  test_env_txn_prepare( env, &fork_e, &fork_f );
+  load_env.slot = 6UL;
+  fd_progcache_rec_t const * rec_f = fd_progcache_pull( env->progcache, env->accdb->funk, &fork_f, &key, &load_env );
+  FD_TEST( rec_f );
+  test_env_txn_publish( env, &fork_f );
+
+  /* Verify that only one record remains */
+  fd_funk_xid_key_pair_t pair[1];
+  fd_funk_xid_key_pair_init( pair, &root, &key );
+  ulong chain_idx = fd_funk_rec_map_iter_chain_idx( env->progcache->funk->rec_map, pair );
   ulong chain_cnt = 0UL;
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter( env->progcache->funk->rec_map, chain_idx );
        !fd_funk_rec_map_iter_done( iter );
@@ -778,6 +862,7 @@ main( int     argc,
     TEST( test_invalidate_dup ),
     TEST( test_invalidate_epoch_boundary ),
     TEST( test_publish_gc ),
+    TEST( test_publish_gc2 ),
     TEST( test_publish_trivial ),
     TEST( test_root_nonroot_prio ),
     {0}

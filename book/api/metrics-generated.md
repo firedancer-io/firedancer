@@ -179,7 +179,10 @@
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;oversz</span> | counter | Number of QUIC packets dropped due to being too large. |
 | <span class="metrics-name">quic_&#8203;pkt_&#8203;verneg</span> | counter | Number of QUIC version negotiation packets received. |
 | <span class="metrics-name">quic_&#8203;retry_&#8203;sent</span> | counter | Number of QUIC Retry packets sent. |
-| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span> | counter | Number of QUIC packets that retransmitted. |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Number of QUIC packets that retransmitted. (initial) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Number of QUIC packets that retransmitted. (early data) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Number of QUIC packets that retransmitted. (handshake) |
+| <span class="metrics-name">quic_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Number of QUIC packets that retransmitted. (app data) |
 
 </div>
 
@@ -754,11 +757,13 @@
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;vote</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">new_&#8203;connection</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC Vote port (Initiated connection) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;vote</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">conn_&#8203;failed</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC Vote port (Connection failed) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;vote</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">connected</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC Vote port (Connection exists) |
+| <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;vote</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">cooldown</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC Vote port (Connection cooldown) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;tpu</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">no_&#8203;leader</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC TPU port (No QUIC connection) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;tpu</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">no_&#8203;ci</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC TPU port (No contact info) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;tpu</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">new_&#8203;connection</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC TPU port (Initiated connection) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;tpu</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">conn_&#8203;failed</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC TPU port (Connection failed) |
 | <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;tpu</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">connected</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC TPU port (Connection exists) |
+| <span class="metrics-name">send_&#8203;ensure_&#8203;conn_&#8203;result_&#8203;quic_&#8203;tpu</span><br/>{send_&#8203;ensure_&#8203;conn_&#8203;result="<span class="metrics-enum">cooldown</span>"} | counter | Total count of results from trying to ensure a connection for a leader for QUIC TPU port (Connection cooldown) |
 | <span class="metrics-name">send_&#8203;handshake_&#8203;complete</span><br/>{send_&#8203;quic_&#8203;ports="<span class="metrics-enum">quic_&#8203;vote</span>"} | counter | Total number of times we completed a handshake (QUIC Vote port) |
 | <span class="metrics-name">send_&#8203;handshake_&#8203;complete</span><br/>{send_&#8203;quic_&#8203;ports="<span class="metrics-enum">quic_&#8203;tpu</span>"} | counter | Total number of times we completed a handshake (QUIC TPU port) |
 | <span class="metrics-name">send_&#8203;quic_&#8203;conn_&#8203;final</span><br/>{send_&#8203;quic_&#8203;ports="<span class="metrics-enum">quic_&#8203;vote</span>"} | counter | Total number of times QUIC connection closed (QUIC Vote port) |
@@ -804,7 +809,10 @@
 | <span class="metrics-name">send_&#8203;pkt_&#8203;undersz</span> | counter | Total count of undersized packets |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;oversz</span> | counter | Total count of oversized packets |
 | <span class="metrics-name">send_&#8203;pkt_&#8203;verneg</span> | counter | Total count of version negotiation packets |
-| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span> | counter | Total count of packet retransmissions |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">initial</span>"} | counter | Total count of QUIC packet retransmissions. (initial) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">early</span>"} | counter | Total count of QUIC packet retransmissions. (early data) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">handshake</span>"} | counter | Total count of QUIC packet retransmissions. (handshake) |
+| <span class="metrics-name">send_&#8203;pkt_&#8203;retransmissions</span><br/>{quic_&#8203;enc_&#8203;level="<span class="metrics-enum">app</span>"} | counter | Total count of QUIC packet retransmissions. (app data) |
 | <span class="metrics-name">send_&#8203;handshakes_&#8203;created</span> | counter | Total count of QUIC handshakes created |
 | <span class="metrics-name">send_&#8203;handshake_&#8203;error_&#8203;alloc_&#8203;fail</span> | counter | Total count of handshake allocation failures |
 | <span class="metrics-name">send_&#8203;handshake_&#8203;evicted</span> | counter | Total count of handshakes evicted |

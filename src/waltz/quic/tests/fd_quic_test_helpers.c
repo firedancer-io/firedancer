@@ -399,13 +399,29 @@ fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock ) {
 fd_quic_netem_t *
 fd_quic_netem_init( fd_quic_netem_t * netem,
                     float             thres_drop,
-                    float             thres_reorder ) {
+                    float             thres_reorder,
+                    long            * now_ptr ) {
   *netem = (fd_quic_netem_t) {
-    .thresh_drop    = thres_drop,
-    .thresh_reorder = thres_reorder,
+    .thresh_drop     = thres_drop,
+    .thresh_reorder  = thres_reorder,
+    .now_ptr         = now_ptr,
+    .one_way_latency = 0,
+    .drop_sequence   = 0,
   };
   fd_aio_new( &netem->local, netem, fd_quic_netem_send );
   return netem;
+}
+
+void
+fd_quic_netem_set_drop( fd_quic_netem_t * netem,
+                        ulong             drop_sequence ) {
+  netem->drop_sequence = drop_sequence;
+}
+
+void
+fd_quic_netem_set_one_way_latency( fd_quic_netem_t * netem,
+                                   long              one_way_latency ) {
+  netem->one_way_latency = one_way_latency;
 }
 
 int
@@ -415,16 +431,29 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
                     ulong *                   opt_batch_idx FD_PARAM_UNUSED,
                     int                       flush ) {
   fd_quic_netem_t * mitm_ctx = ctx;
+  ulong drop_sequence = mitm_ctx->drop_sequence;
+
+  long now                 = *(mitm_ctx->now_ptr) + mitm_ctx->one_way_latency;
+  /**/ *mitm_ctx->now_ptr  = now;
+
+  /* Horrible hack to update dst state now, bc aio send/rcv don't support directly */
+  {
+    fd_quic_t       * dst_quic       = fd_type_pun( mitm_ctx->dst->ctx );
+    fd_quic_state_t * dst_state      = fd_quic_get_state( dst_quic );
+    /* ****** */      dst_state->now = now;
+  }
 
   /* go packet by packet */
   for( ulong j = 0UL; j < batch_cnt; ++j ) {
+    int drop_bit = drop_sequence & 1UL;
+    drop_sequence >>= 1UL;
     /* generate a random number and compare with threshold, and either pass thru or drop */
     static FD_TL uint seed = 0; /* FIXME use fd_log_tid */
     ulong l = fd_rng_private_expand( seed++ );
     float rnd_num = (float)l * (float)0x1p-64;
     int weighted_tail = (int)((l&0x7)==0x7); /* 12.5% chance of being 1, else head */
 
-    if( rnd_num < mitm_ctx->thresh_drop ) {
+    if( drop_bit | (rnd_num < mitm_ctx->thresh_drop) ) {
       /* dropping behaves as-if the send was successful */
       continue;
     }
@@ -471,6 +500,9 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
       mitm_ctx->reorder_mru = send ^ 0x1; /* toggle mru */
     }
   }
+
+  /* write-back the drop sequence */
+  mitm_ctx->drop_sequence = drop_sequence;
 
   return FD_AIO_SUCCESS;
 }

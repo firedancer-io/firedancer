@@ -254,7 +254,7 @@ metric introduced.
     <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large." />
     <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
     <counter name="RetrySent" summary="Number of QUIC Retry packets sent." />
-    <counter name="PktRetransmissions" summary="Number of QUIC packets that retransmitted." />
+    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
 <enum name="NewContactOutcome">
@@ -282,6 +282,7 @@ metric introduced.
     <int value="2" name="NewConnection" label="Initiated connection" />
     <int value="3" name="ConnFailed" label="Connection failed" />
     <int value="4" name="Connected" label="Connection exists" />
+    <int value="5" name="Cooldown" label="Connection cooldown" />
 </enum>
 
 <tile name="send">
@@ -339,7 +340,7 @@ metric introduced.
     <counter name="PktUndersz" summary="Total count of undersized packets" />
     <counter name="PktOversz" summary="Total count of oversized packets" />
     <counter name="PktVerneg" summary="Total count of version negotiation packets" />
-    <counter name="PktRetransmissions" summary="Total count of packet retransmissions" />
+    <counter name="PktRetransmissions" enum="QuicEncLevel" summary="Total count of QUIC packet retransmissions." />
 
     <!-- QUIC handshake metrics -->
     <counter name="HandshakesCreated" summary="Total count of QUIC handshakes created" />

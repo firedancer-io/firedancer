@@ -504,12 +504,10 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
 
           fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
-          fd_gui_peers_bandwidth_tracking_idx_remove( peers->bw_tracking,   update->contact_info.idx, peers->contact_info_table );
 
           fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
           peer->update_time_nanos = now;
 
-          fd_gui_peers_bandwidth_tracking_idx_insert( peers->bw_tracking,   update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_live_table_idx_insert        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
 
@@ -529,6 +527,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->gossip_tx_sum, 0, sizeof(peer->gossip_tx_sum) );
           peer->has_val_info = 0;
           peer->has_vote_info = 0;
+          peer->stake = ULONG_MAX;
           peer->valid = 1;
           peer->update_time_nanos = now;
           fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
@@ -676,17 +675,20 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
 
     if( FD_LIKELY( vote_eq ) ) continue; /* nop */
 
-    /* todo .. when we include any of these stats in the peer metrics
-       table, we need to properly handle table updates */
     peer->has_vote_info = 1;
     peer->vote_account        = votes_sorted[ i ].vote_account;
-    peer->stake               = votes_sorted[ i ].stake;
     peer->last_vote_slot      = votes_sorted[ i ].last_vote_slot;
     peer->last_vote_timestamp = votes_sorted[ i ].last_vote_timestamp;
     peer->epoch_credits       = votes_sorted[ i ].epoch_credits;
     peer->commission          = votes_sorted[ i ].commission;
     peer->epoch               = votes_sorted[ i ].epoch;
     peer->delinquent          = is_delinquent;
+
+    if( FD_UNLIKELY( peer->stake!=votes_sorted[ i ].stake ) ) {
+      fd_gui_peers_live_table_idx_remove( peers->live_table, peer_idx, peers->contact_info_table );
+      peer->stake = votes_sorted[ i ].stake;
+      fd_gui_peers_live_table_idx_insert( peers->live_table, peer_idx, peers->contact_info_table );
+    }
 
     actions[ count ] = FD_GUI_PEERS_NODE_UPDATE;
     idxs   [ count ] = peer_idx;

@@ -649,6 +649,11 @@ fd_progcache_invalidate( fd_progcache_t *          cache,
 
   if( FD_UNLIKELY( !cache || !funk->shmem ) ) FD_LOG_CRIT(( "NULL progcache" ));
 
+  /* Select a fork node to create invalidate record in
+     Do not create invalidation records at the funk root */
+
+  if( fd_funk_txn_xid_eq( xid, cache->funk->shmem->last_publish ) ) return NULL;
+
   fd_funk_txn_t * txn = fd_funk_txn_query( xid, funk->txn_map );
   if( FD_UNLIKELY( !fd_progcache_txn_try_lock( txn ) ) ) {
     FD_LOG_CRIT(( "fd_progcache_invalidate(xid=%lu,...) failed: txn is write-locked", xid->ul[0] ));
