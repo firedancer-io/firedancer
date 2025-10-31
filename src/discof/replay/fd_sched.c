@@ -1268,9 +1268,10 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
       FD_TEST( block->fec_buf_soff==0U );
       block->mblks_rem     = FD_LOAD( ulong, block->fec_buf );
       block->fec_buf_soff += (uint)sizeof(ulong);
-      /* FIXME what happens if someone sends us mblks_rem==0UL here? */
-
-      block->fec_sob = 0;
+      /* Treat a zero-count as an empty batch. This mirrors Agave's
+         behavior which allows empty batches (e.g. when no entries are
+         emitted). Do not leave the parser in mid-batch state. */
+      block->fec_sob = !block->mblks_rem;
       continue;
     }
     if( block->txns_rem==0UL && block->mblks_rem==0UL ) {
