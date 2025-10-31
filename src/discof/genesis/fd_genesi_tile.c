@@ -16,6 +16,7 @@
 #include <sys/poll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/fs.h>
@@ -428,16 +429,16 @@ privileged_init( fd_topo_t *      topo,
             are still done as root. */
           gid_t gid = getgid();
           uid_t uid = getuid();
-          if( FD_LIKELY( !gid && setegid( tile->genesi.target_gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_LIKELY( !uid && seteuid( tile->genesi.target_uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_LIKELY( !gid && -1==syscall( __NR_setresgid, -1, tile->genesi.target_gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_LIKELY( !uid && -1==syscall( __NR_setresuid, -1, tile->genesi.target_uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
           char partialname[ PATH_MAX ];
           FD_TEST( fd_cstr_printf_check( partialname, PATH_MAX, NULL, "%s.partial", tile->genesi.genesis_path ) );
           ctx->out_fd = openat( ctx->out_dir_fd, "genesis.bin.partial", O_CREAT|O_WRONLY|O_CLOEXEC|O_TRUNC, S_IRUSR|S_IWUSR );
           if( FD_UNLIKELY( -1==ctx->out_fd ) ) FD_LOG_ERR(( "openat() failed for genesis file `%s` (%i-%s)", partialname, errno, fd_io_strerror( errno ) ));
 
-          if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-          if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==syscall( __NR_setresuid, -1, uid, -1 ) ) ) FD_LOG_ERR(( "setresuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+          if( FD_UNLIKELY( -1==syscall( __NR_setresgid, -1, gid, -1 ) ) ) FD_LOG_ERR(( "setresgid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
           ctx->local_genesis = 0;
           ctx->client = fd_genesis_client_join( fd_genesis_client_new( _client ) );
