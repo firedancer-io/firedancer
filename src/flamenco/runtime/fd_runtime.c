@@ -1041,6 +1041,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   /* Pre-execution checks */
   exec_res = fd_runtime_pre_execute_check( txn_ctx );
   if( FD_UNLIKELY( !( txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+    if( FD_UNLIKELY( !exec_res ) ) FD_LOG_WARNING(( "returning 0 A" ));
     return exec_res;
   }
 
@@ -1050,6 +1051,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   if( FD_LIKELY( !( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) ) {
     exec_res = fd_execute_txn( txn_ctx );
   }
+  if( FD_UNLIKELY( !(txn_ctx->flags&FD_TXN_P_FLAGS_EXECUTE_SUCCESS) && !exec_res ) ) FD_LOG_WARNING(( "returning 0 but no execute success" ));
 
   return exec_res;
 }

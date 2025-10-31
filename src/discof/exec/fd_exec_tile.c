@@ -137,6 +137,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
           fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
+          if( FD_UNLIKELY( !(ctx->txn_ctx->flags&FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) FD_LOG_WARNING(( "finalize zeroed out flags" ));
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
