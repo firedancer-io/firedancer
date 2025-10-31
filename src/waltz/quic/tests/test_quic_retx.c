@@ -19,6 +19,12 @@ fd_quic_netem_t _netem[2];
 fd_quic_netem_t * client_netem;
 fd_quic_netem_t * server_netem;
 
+/* Global buffers and flag for stream retx test */
+uchar exp_stream [4000];
+uchar rcvd_stream[4000];
+int fin_complete = 0;
+ulong rcvd_stream_sz = 0;
+
 static void
 set_1_way_latency( long latency ) {
   fd_quic_netem_set_one_way_latency( client_netem, latency );
@@ -65,6 +71,35 @@ void my_handshake_complete( fd_quic_conn_t * conn,
   FD_LOG_INFO(( "client handshake complete" ));
 
   client_complete = 1;
+}
+
+int server_stream_rx_cb( fd_quic_conn_t * conn,
+                         ulong            stream_id,
+                         ulong            offset,
+                         uchar const *    data,
+                         ulong            data_sz,
+                         int              fin ) {
+  (void)conn;
+  (void)stream_id;
+
+  /* if first four bytes are all 0, consider this new data */
+  if( FD_LOAD( uint, rcvd_stream+offset ) == 0 )
+    rcvd_stream_sz += data_sz;
+
+  /* Copy received data to buffer at offset */
+  fd_memcpy( rcvd_stream + offset, data, data_sz );
+
+  /* If fin is set and we have all the data, compare and set completion flag */
+  if( fin && rcvd_stream_sz == sizeof(exp_stream) ) {
+    if( 0 == memcmp( exp_stream, rcvd_stream, sizeof(exp_stream) ) ) {
+      fin_complete = 1;
+      FD_LOG_INFO(( "Stream completed successfully - all data matches" ));
+    } else {
+      FD_LOG_ERR(( "Stream data mismatch!" ));
+    }
+  }
+
+  return FD_QUIC_SUCCESS;
 }
 
 static void
@@ -280,6 +315,46 @@ test_loss_skip_threshold( fd_quic_conn_t * client_conn, fd_quic_t * server_quic 
   }
 }
 
+/* tests stream retx logic when some middle stream frag drops */
+static void
+test_stream_retx_multi_packet( fd_quic_conn_t * client_conn, fd_quic_t * server_quic ) {
+
+  server_quic->cb.stream_rx  = server_stream_rx_cb; /* just for this test */
+
+  fd_quic_t * client_quic = client_conn->quic;
+
+  /* 1. Fill buffer with random bytes */
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
+  for( ulong i=0; i<sizeof(exp_stream); i++ ) {
+    exp_stream[i] = fd_rng_uchar( rng );
+  }
+  fd_memset( rcvd_stream, 0, sizeof(rcvd_stream) );
+  rcvd_stream_sz = 0;
+  fin_complete = 0;
+
+  /* 2. Drop second client packet */
+  fd_quic_netem_set_drop( client_netem, 2UL ); /* 0b10 */
+
+  /* 3. Send whole buffer with fin bit */
+  fd_quic_stream_t * stream = fd_quic_conn_new_stream( client_conn );
+  FD_TEST( stream );
+  FD_TEST( !fd_quic_stream_send( stream, exp_stream, sizeof(exp_stream), 1 ) );
+  fd_quic_service( client_quic, now );
+
+  /* 4. Service server and verify fin not complete yet (second packet was dropped) */
+  now += server_quic->config.ack_delay;
+  fd_quic_service( server_quic, now );
+  FD_TEST( !fin_complete );
+
+  /* 5. Jump to retx time and retx */
+  now = fd_quic_get_next_wakeup( client_quic );
+  fd_quic_service( client_quic, now );
+  FD_TEST( fin_complete );
+
+  /* cleanup */
+  FD_LOG_NOTICE(( "test_stream_retx_multi_packet: pass" ));
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -321,7 +396,7 @@ main( int     argc,
     .stream_id_cnt      = 5,
     .stream_pool_cnt    = 5,
     .inflight_frame_cnt = 5*16,
-    .tx_buf_sz          = 1024
+    .tx_buf_sz          = 4000
   };
 
   FD_LOG_NOTICE(( "Creating client QUIC (%lu bytes)", fd_quic_footprint( &client_limits ) ));
@@ -336,6 +411,9 @@ main( int     argc,
 
   server_quic->cb.conn_final = conn_final;
   client_quic->cb.conn_final = conn_final;
+
+  server_quic->config.initial_rx_max_stream_data = 1<<15;
+  client_quic->config.initial_rx_max_stream_data = 1<<15;
 
   FD_LOG_NOTICE(( "Creating virtual pair" ));
   fd_quic_virtual_pair_t vp;
@@ -376,5 +454,6 @@ main( int     argc,
   test_retx_pto(            client_conn, server_quic );
   test_loss_time_threshold( client_conn, server_quic );
   test_loss_skip_threshold( client_conn, server_quic );
+  test_stream_retx_multi_packet( client_conn, server_quic );
 }
 

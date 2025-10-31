@@ -10,16 +10,13 @@ typedef struct fd_quic_conn       fd_quic_conn_t;
 typedef struct fd_quic_stream     fd_quic_stream_t;
 typedef struct fd_quic_stream_map fd_quic_stream_map_t;
 
-/* fd_quic_buffer_t is a circular buffer */
-
+/* fd_quic_buffer_t is a flat buffer */
 struct fd_quic_buffer {
   uchar * buf;
-  ulong   cap;  /* capacity of buffer; assert fd_ulong_is_pow2 */
+  ulong   cap;  /* capacity of buffer */
 
-  /* offsets to beginning of stream
-     should be masked before being used to access buf data */
+  /* offsets to beginning of stream */
   ulong   head; /* first unused byte of stream */
-  ulong   tail; /* first byte of used range    */
 };
 typedef struct fd_quic_buffer fd_quic_buffer_t;
 
@@ -27,7 +24,7 @@ typedef struct fd_quic_buffer fd_quic_buffer_t;
 /* buffer helper functions
    fd_quic_buffer_used  returns bytes used in buffer
    fd_quic_buffer_avail returns bytes available in buffer */
-#define fd_quic_buffer_used(  buf ) ( (buf)->head - (buf)->tail )
+#define fd_quic_buffer_used(  buf ) ( (buf)->head )
 #define fd_quic_buffer_avail( buf ) ( (buf)->cap - fd_quic_buffer_used(buf) )
 
 struct fd_quic_stream {
@@ -36,9 +33,10 @@ struct fd_quic_stream {
   ulong            stream_id;  /* all 1's indicates an unused stream object */
   void *           context;    /* user context for callbacks */
 
-  fd_quic_buffer_t tx_buf;     /* transmit buffer */
-  uchar *          tx_ack;     /* ack - 1 bit per byte of tx_buf */
-  ulong            tx_sent;    /* stream offset of first unsent byte of tx_buf */
+  fd_quic_buffer_t tx_buf;      /* transmit buffer */
+  ulong            unacked_low; /* smallest unacked stream offset */
+  uchar *          tx_ack;      /* ack - 1 bit per byte of tx_buf */
+  ulong            tx_sent;     /* stream offset of first unsent byte of tx_buf */
 
   uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
@@ -57,16 +55,17 @@ struct fd_quic_stream {
 
   /* stream state
      mask made up of the following:
-       FD_QUIC_STREAM_STATE_UNUSED      Stream is not yet used
+       FD_QUIC_STREAM_STATE_UNUSED       not yet used
        FD_QUIC_STREAM_STATE_TX_FIN      TX is finished
        FD_QUIC_STREAM_STATE_RX_FIN      Size known
        FD_QUIC_STREAM_STATE_DEAD        stream is dead and waiting to be
-	                                reclaimed, or is in stream_pool */
+	                                      reclaimed, or is in stream_pool */
   uint state;
 # define FD_QUIC_STREAM_STATE_DEAD   0u
 # define FD_QUIC_STREAM_STATE_TX_FIN (1u<<0u)
 # define FD_QUIC_STREAM_STATE_RX_FIN (1u<<1u)
 # define FD_QUIC_STREAM_STATE_UNUSED (1u<<2u)
+/* AMANTODO - finish fixing this broken stream state machine */
 
 # define FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA 1280  // IPv6 minimum MTU
 
@@ -159,7 +158,7 @@ struct fd_quic_stream_map {
 FD_PROTOTYPES_BEGIN
 
 /* fd_quic_buffer_store
-   store data into circular buffer */
+   store data into circular buffer, advancing head */
 void
 fd_quic_buffer_store( fd_quic_buffer_t * buf,
                       uchar const *      data,
