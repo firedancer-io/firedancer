@@ -385,11 +385,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
       uint actual_execution_cus = (uint)(txn_ctx->compute_budget_details.compute_unit_limit - txn_ctx->compute_budget_details.compute_meter);
       uint actual_acct_data_cus = (uint)(txn_ctx->loaded_accounts_data_size_cost);
-      if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
+      if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN( &txns[ i ] ), txns[ i ].payload ) ) ) {
         actual_execution_cus = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
         actual_acct_data_cus = 0U;
       }
-
       txns[ i ].bank_cu.rebated_cus         = txns[ i ].pack_cu.requested_exec_plus_acct_data_cus - (actual_execution_cus + actual_acct_data_cus);
       txns[ i ].bank_cu.actual_consumed_cus = txns[ i ].pack_cu.non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     }
