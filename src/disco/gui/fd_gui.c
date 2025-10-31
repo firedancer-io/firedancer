@@ -554,7 +554,20 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTION_FAILED ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_CREATION_FAILED ) ];
 
-  cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
+  if( FD_UNLIKELY( gui->summary.is_full_client ) ) {
+    cur->in.gossip = 0UL;
+    for( ulong i=0UL; i<gui->summary.verify_tile_cnt; i++ ) {
+      fd_topo_tile_t const * verify = &topo->tiles[ fd_topo_find_tile( topo, "verify", i ) ];
+      volatile ulong const * verify_metrics = fd_metrics_tile( verify->metrics );
+      cur->in.gossip += verify_metrics[ MIDX( COUNTER, VERIFY, GOSSIPED_VOTES_RECEIVED ) ];
+    }
+
+    fd_topo_tile_t const * send = &topo->tiles[ fd_topo_find_tile( topo, "send", 0UL ) ];
+    cur->in.gossip += fd_metrics_link_out( send->metrics, 0UL )[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ];
+  } else {
+    cur->in.gossip = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
+  }
+
   cur->in.quic     = cur->out.tpu_quic_invalid +
                      cur->out.quic_overrun +
                      cur->out.quic_frag_drop +
