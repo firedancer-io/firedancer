@@ -320,8 +320,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               begin_tspub,
                fd_stem_context_t * stem ) {
 
-  uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  fd_txn_p_t * txns = (fd_txn_p_t *)dst;
+  fd_txn_p_t * txns = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
@@ -340,7 +339,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
 
-    fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
+    fd_txn_p_t * txn = &txns[ i ];
 
     /* Setup bundle execution context. */
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];

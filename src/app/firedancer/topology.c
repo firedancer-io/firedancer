@@ -1000,14 +1000,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
-    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
 #define PARSE_PUBKEY( _tile, f ) \
       if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
         FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
-      tile->poh.bundle.enabled = 1;
+      tile->replay.bundle.enabled = 1;
       PARSE_PUBKEY( replay, tip_distribution_program_addr );
       PARSE_PUBKEY( replay, tip_payment_program_addr      );
-      strncpy( tile->poh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->poh.bundle.vote_account_path) );
+      strncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
     }
