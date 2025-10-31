@@ -32,6 +32,7 @@
     snapshots = "{ledger}"
 [snapshots]
     incremental_snapshots = false
+    max_full_snapshots_to_keep = 5
     [snapshots.sources]
         servers = []
         [snapshots.sources.gossip]
