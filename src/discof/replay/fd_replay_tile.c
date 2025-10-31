@@ -382,8 +382,8 @@ struct fd_replay_tile {
   /* We need a few pieces of information to compute the right addresses
      for bundle crank information that we need to send to pack. */
   struct {
-    int enabled;
-    fd_pubkey_t vote_account;
+    int                   enabled;
+    fd_pubkey_t           vote_account;
     fd_bundle_crank_gen_t gen[1];
   } bundle;
 
@@ -1240,36 +1240,35 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
   FD_LOG_INFO(( "becoming leader for slot %lu, parent slot is %lu", ctx->next_leader_slot, ctx->reset_slot ));
 
   /* Acquires bank, sets up initial state, and refcnts it. */
-  fd_bank_t * bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id, stem );
-
-  /* BUNDLE STUFF */
+  fd_bank_t *       bank = prepare_leader_bank( ctx, ctx->next_leader_slot, now_nanos, &ctx->reset_block_id, stem );
+  fd_funk_txn_xid_t xid  = { .ul = { ctx->next_leader_slot, ctx->leader_bank->idx } };
 
   fd_bundle_crank_tip_payment_config_t config[1]             = { 0 };
   fd_acct_addr_t                       tip_receiver_owner[1] = { 0 };
-
-
-  fd_funk_txn_xid_t xid        = { .ul = { ctx->next_leader_slot, ctx->leader_bank->idx } };
 
   if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
     fd_acct_addr_t tip_payment_config[1];
     fd_acct_addr_t tip_receiver[1];
     fd_bundle_crank_get_addresses( ctx->bundle.gen, fd_bank_epoch_get( bank ), tip_payment_config, tip_receiver );
 
-    fd_txn_account_t tip_config[1];
-    int err = fd_txn_account_init_from_funk_readonly( tip_config,
+    fd_txn_account_t tip_config_acc[1];
+    int err = fd_txn_account_init_from_funk_readonly( tip_config_acc,
                                                       (fd_hash_t *)tip_payment_config->b,
                                                       ctx->accdb->funk,
                                                       &xid );
-    FD_TEST( !err );
-    memcpy( config, fd_txn_account_get_data( tip_config ), sizeof(fd_bundle_crank_tip_payment_config_t) );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_CRIT(( "failed to initialize tip payment config account: err=%d", err ));
+    }
+    memcpy( config, fd_txn_account_get_data( tip_config_acc ), sizeof(fd_bundle_crank_tip_payment_config_t) );
 
+    /* It is possible that the tip receiver account does not exist yet
+       if it is the first time in an epoch. */
     fd_txn_account_t tip_receiver_acc[1];
     err = fd_txn_account_init_from_funk_readonly( tip_receiver_acc,
                                                   (fd_hash_t *)tip_receiver->b,
                                                   ctx->accdb->funk,
                                                   &xid );
     if( FD_LIKELY( !err ) ) {
-      FD_LOG_DEBUG(("TIP RECEIVER %s", FD_BASE58_ENC_32_ALLOCA(tip_receiver->b)));
       memcpy( tip_receiver_owner, tip_receiver_acc->meta->owner, sizeof(fd_acct_addr_t) );
     }
   }

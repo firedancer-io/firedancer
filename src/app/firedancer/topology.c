@@ -644,7 +644,6 @@ fd_topo_initialize( config_t * config ) {
     /* TODO: bundle gui support needs to be integrated here */
   }
 
-
   /* Sign links don't need to be reliable because they are synchronous,
      so there's at most one fragment in flight at a time anyway.  The
      sign links are also not polled by fd_stem, instead the tiles will
