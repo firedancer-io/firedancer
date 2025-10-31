@@ -1712,15 +1712,11 @@ fd_pack_peek_bundle_meta( fd_pack_t const * pack ) {
   if( FD_UNLIKELY( (ib_state==FD_PACK_IB_STATE_PENDING) | (ib_state==FD_PACK_IB_STATE_FAILED) ) ) return NULL;
 
   treap_rev_iter_t _cur=treap_rev_iter_init( pack->pending_bundles, pack->pool );
-  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) {
-    return NULL; /* empty */
-  }
+  if( FD_UNLIKELY( treap_rev_iter_done( _cur ) ) ) return NULL; /* empty */
 
   fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pack->pool );
   int is_ib = !!(cur->txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
-  if( FD_UNLIKELY( is_ib ) ) {
-    return NULL;
-  }
+  if( FD_UNLIKELY( is_ib ) ) return NULL;
 
   return (void const *)((uchar const *)pack->bundle_meta + (ulong)_cur * pack->bundle_meta_sz);
 }

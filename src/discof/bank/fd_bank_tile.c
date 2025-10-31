@@ -166,11 +166,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
     fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
 
-    if( txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE ) {
-      FD_LOG_NOTICE(("IB TXN %lu", i));
-    }
-
-
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
@@ -317,7 +312,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
 }
 
-static inline void FD_FN_UNUSED
+static inline void
 handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               seq,
                ulong               sig,
@@ -327,8 +322,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
-
-  FD_LOG_DEBUG(("BUNDLE TXN CNT %lu", sz));
 
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
@@ -362,15 +355,12 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack_bundle[ i ], NULL );
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) || txn_ctx->exec_err ) ) {
-      FD_LOG_DEBUG(("BUNDLE EXECUTION FAILED IDX %lu ERR %d", i, txn_ctx->exec_err));
       execution_success = 0;
       break;
     }
 
     writable_alt[i] = fd_type_pun_const( txn_ctx->account_keys+TXN( &txn_ctx->txn )->acct_addr_cnt );
   }
-
-  FD_LOG_DEBUG(("BUNDLE EXECUTION SUCCESS STATE %d", execution_success));
 
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -380,9 +370,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
       txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
-      FD_LOG_DEBUG(("FINALIZE TXN IDX %s", FD_BASE58_ENC_64_ALLOCA( signature )));
       fd_runtime_finalize_txn( txn_ctx->funk, txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
-      FD_LOG_DEBUG(("FINALIZE TXN IDX %lu DONE", i));
       if( FD_UNLIKELY( !txn_ctx->flags ) ) {
         fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
         int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
@@ -466,7 +454,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   }
 
   metrics_write( ctx );
-  FD_LOG_DEBUG(("HANLDE BUNDLE END %d", execution_success));
 }
 
 static inline void

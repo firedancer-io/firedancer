@@ -641,14 +641,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "sign_pack",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
 
-    // if( plugins_enabled ) {
-    //   fd_topob_wksp( topo, "bundle_plugi" );
-    //   /* bundle_plugi must be kind of deep, to prevent exhausting shared
-    //      flow control credits when publishing many packets at once. */
-    //   fd_topob_link( topo, "bundle_plugi", "bundle_plugi", 65536UL, sizeof(fd_plugin_msg_block_engine_update_t), 1UL );
-    //   fd_topob_tile_in( topo, "plugin", 0UL, "metric_in", "bundle_plugi", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    //   fd_topob_tile_out( topo, "bundle", 0UL, "bundle_plugi", 0UL );
-    // }
+    /* TODO: bundle gui support needs to be integrated here */
   }
 
 
@@ -1009,11 +1002,13 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-
-      tile->replay.bundle.enabled = 1;
-      strncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
-      fd_base58_decode_32( config->tiles.bundle.tip_distribution_program_addr, tile->replay.bundle.tip_distribution_program_addr );
-      fd_base58_decode_32( config->tiles.bundle.tip_payment_program_addr, tile->replay.bundle.tip_payment_program_addr );
+#define PARSE_PUBKEY( _tile, f ) \
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
+        FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
+      tile->poh.bundle.enabled = 1;
+      PARSE_PUBKEY( replay, tip_distribution_program_addr );
+      PARSE_PUBKEY( replay, tip_payment_program_addr      );
+      strncpy( tile->poh.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->poh.bundle.vote_account_path) );
     } else {
       fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
     }
@@ -1108,9 +1103,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-#define PARSE_PUBKEY( _tile, f ) \
-      if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
-        FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
+
       tile->pack.bundle.enabled = 1;
       PARSE_PUBKEY( pack, tip_distribution_program_addr );
       PARSE_PUBKEY( pack, tip_payment_program_addr      );
