@@ -1669,7 +1669,8 @@ fd_gui_handle_shred( fd_gui_t * gui,
     if( FD_UNLIKELY( gui->summary.slot_caught_up==ULONG_MAX ) ) fd_gui_try_insert_catch_up_slot( gui->summary.catch_up_turbine, &gui->summary.catch_up_turbine_sz, slot );
   }
 
-  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail++ ];
+  fd_gui_slot_staged_shred_event_t * recv_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+  gui->shreds.staged_tail++;
   recv_event->timestamp = tsorig;
   recv_event->shred_idx = (ushort)shred_idx;
   recv_event->fec_idx   = (ushort)fec_idx;
@@ -2340,47 +2341,42 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
   }
 
   /* archive root shred events.  We want to avoid n^2 iteration here
-     since it can significantly slow things down. Instead, we copy
+     since it can significantly slow things down.  Instead, we copy
      over all rooted shreds to a scratch space, stable sort by slot,
      copy the sorted arrays to the shred history. */
-  ulong evicted_cnt = 0UL; /* the total number evicted, including ignored */
-  ulong archive_cnt = 0UL; /* the total number evicted, NOT including ignored */
+  ulong archive_cnt          = 0UL;
+  ulong kept_cnt             = 0UL;
+  ulong kept_before_next_cnt = 0UL;
+
   for( ulong i=gui->shreds.staged_head; i<gui->shreds.staged_tail; i++ ) {
-    /* ignore new shred events that came in after their slot was rooted */
-    if( FD_UNLIKELY( gui->shreds.history_slot!=ULONG_MAX && gui->shreds.staged[ i ].slot<=gui->shreds.history_slot ) ) {
-      gui->shreds.staged[ i ].slot = ULONG_MAX;
-      evicted_cnt++;
+    fd_gui_slot_staged_shred_event_t const * src = &gui->shreds.staged[ i % FD_GUI_SHREDS_STAGING_SZ ];
+
+    if( FD_UNLIKELY( gui->shreds.history_slot!=ULONG_MAX && src->slot<=gui->shreds.history_slot ) ) continue;
+
+    if( FD_UNLIKELY( src->slot<=root_slot ) ) {
+      gui->shreds._staged_scratch[ archive_cnt++ ] = *src;
+      continue;
     }
 
-    if( FD_UNLIKELY( gui->shreds.staged[ i ].slot<=root_slot ) ) {
-      /* move to scratch */
-      fd_memcpy( gui->shreds._staged_scratch, &gui->shreds.staged[ i ], sizeof(fd_gui_slot_staged_shred_event_t) );
-      archive_cnt++;
+    /* The entries from the staging area are evicted by setting their
+    slot field to ULONG MAX, then sorting the staging area.
 
-      /* evict from staged */
-      gui->shreds.staged[ i ].slot = ULONG_MAX;
-      evicted_cnt++;
-    }
+    IMPORTANT: this sort needs to be stable since we always keep
+    valid un-broadcast events at the end of the ring buffer */
+    if( FD_UNLIKELY( i<gui->shreds.staged_next_broadcast ) ) kept_before_next_cnt++;
+    gui->shreds._staged_scratch2[ kept_cnt++ ] = *src;
   }
 
-  /* The entries from the staging area are evicted by setting their
-      slot field to ULONG MAX, then sorting the staging area.
+  /* copy shred events to archive */
+  for( ulong j=0UL; j<kept_cnt; j++ ) gui->shreds.staged[ (gui->shreds.staged_head + j) % FD_GUI_SHREDS_STAGING_SZ ] = gui->shreds._staged_scratch2[ j ];
+  gui->shreds.staged_tail = gui->shreds.staged_head + kept_cnt;
+  /* Remap next_broadcast to preserve continuity after compaction */
+  gui->shreds.staged_next_broadcast = gui->shreds.staged_head + kept_before_next_cnt;
 
-      IMPORTANT: this sort needs to be stable since we always keep
-      valid un-broadcast events at the end of the ring buffer */
-  if( FD_LIKELY( evicted_cnt ) ) {
-    fd_gui_slot_staged_shred_event_evict_sort_stable( &gui->shreds.staged[ gui->shreds.staged_head ], gui->shreds.staged_tail-gui->shreds.staged_head, gui->shreds._staged_scratch2 );
-    gui->shreds.staged_head += evicted_cnt;
-
-    /* In the rare case that we are archiving any shred events that have
-      not yet been broadcast, we'll increment
-      gui->shreds.staged_next_broadcast to keep it in bounds. */
-    gui->shreds.staged_next_broadcast = fd_ulong_max( gui->shreds.staged_head, gui->shreds.staged_next_broadcast );
-
-    /* sort scratch by slot increasing */
+  /* sort scratch by slot increasing */
+  if( FD_LIKELY( archive_cnt ) ) {
     fd_gui_slot_staged_shred_event_slot_sort_stable( gui->shreds._staged_scratch, archive_cnt, gui->shreds._staged_scratch2 );
 
-    /* copy shred events to archive */
     for( ulong i=0UL; i<archive_cnt; i++ ) {
       if( FD_UNLIKELY( gui->shreds._staged_scratch[ i ].slot!=gui->shreds.history_slot ) ) {
         fd_gui_slot_t * prev_slot = fd_gui_get_slot( gui, gui->shreds.history_slot );
@@ -2392,9 +2388,9 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
         if( FD_LIKELY( next_slot ) ) next_slot->shreds.start_offset = gui->shreds.history_tail;
       }
 
-      gui->shreds.history[ gui->shreds.history_tail ].timestamp = gui->shreds._staged_scratch[ i ].timestamp;
-      gui->shreds.history[ gui->shreds.history_tail ].shred_idx = gui->shreds._staged_scratch[ i ].shred_idx;
-      gui->shreds.history[ gui->shreds.history_tail ].event     = gui->shreds._staged_scratch[ i ].event;
+      gui->shreds.history[ gui->shreds.history_tail % FD_GUI_SHREDS_HISTORY_SZ ].timestamp = gui->shreds._staged_scratch[ i ].timestamp;
+      gui->shreds.history[ gui->shreds.history_tail % FD_GUI_SHREDS_HISTORY_SZ ].shred_idx = gui->shreds._staged_scratch[ i ].shred_idx;
+      gui->shreds.history[ gui->shreds.history_tail % FD_GUI_SHREDS_HISTORY_SZ ].event     = gui->shreds._staged_scratch[ i ].event;
 
       gui->shreds.history_tail++;
     }
@@ -2516,7 +2512,8 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
 
   /* Add a "slot complete" event for all of the shreds in this slot */
   if( FD_UNLIKELY( slot->shred_cnt > FD_GUI_MAX_SHREDS_PER_BLOCK ) ) FD_LOG_ERR(( "unexpected shred_cnt=%lu", (ulong)slot->shred_cnt ));
-  fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail++ ];
+  fd_gui_slot_staged_shred_event_t * slot_complete_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+  gui->shreds.staged_tail++;
   slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
   slot_complete_event->timestamp = slot_completed->completed_time;
   slot_complete_event->shred_idx = USHORT_MAX;
