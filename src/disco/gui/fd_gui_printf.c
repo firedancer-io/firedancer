@@ -1819,6 +1819,16 @@ fd_gui_printf_peers_viewport_update( fd_gui_peers_ctx_t *  peers,
 
           /* This code should be kept in sync with updates to
              fd_gui_peers_live_table */
+          if( FD_UNLIKELY( cur->stake!=ref->stake ) ) {
+            jsonp_open_object( peers->http, NULL );
+              jsonp_ulong ( peers->http, "row_index", j );
+              jsonp_string( peers->http, "column_name", "Stake" );
+
+              if( FD_UNLIKELY( cur->stake==ULONG_MAX ) ) jsonp_long ( peers->http, "new_value", -1 );
+              else                                       jsonp_ulong( peers->http, "new_value", cur->stake );
+            jsonp_close_object( peers->http );
+          }
+
           if( FD_UNLIKELY( memcmp( cur->contact_info.pubkey.uc, ref->contact_info.pubkey.uc, 32UL ) ) ) {
             jsonp_open_object( peers->http, NULL );
               jsonp_ulong ( peers->http, "row_index", j );
@@ -1910,6 +1920,8 @@ fd_gui_printf_peers_viewport_request( fd_gui_peers_ctx_t *  peers,
         jsonp_open_object( peers->http, row_index_cstr );
           /* This code should be kept in sync with updates to
             fd_gui_peers_live_table */
+          if( FD_UNLIKELY( cur->stake==ULONG_MAX ) ) jsonp_long ( peers->http, "Stake", -1 );
+          else                                       jsonp_ulong( peers->http, "Stake", cur->stake );
 
           char pubkey_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( cur->contact_info.pubkey.uc, NULL, pubkey_base58 );
