@@ -5,6 +5,8 @@
 #include "../shared/fd_action.h"
 #include "../shared/commands/configure/configure.h"
 
+#include <stdlib.h> /* getenv */
+
 char const * FD_APP_NAME    = "Firedancer";
 char const * FD_BINARY_NAME = "firedancer-dev";
 
@@ -225,6 +227,11 @@ action_t * ACTIONS[] = {
   NULL,
 };
 
+extern void backtest_topo_initialize( config_t * config );
+extern void backtest_set_ledger_name( char const * ledger_name );
+extern void backtest_create_custom_config_from_args( int argc, char ** argv );
+extern void backtest_set_user_config_path( char const * config_path );
+
 int
 main( int     argc,
       char ** argv ) {
@@ -241,5 +248,49 @@ main( int     argc,
     NULL
   };
 
-  return fd_dev_main( argc, argv, 1, configs, fd_topo_initialize );
+  /* Use backtest_topo_initialize if the backtest command is being used */
+  void (* topo_init)( config_t * config ) = fd_topo_initialize;
+  if( argc > 1 && !strcmp( argv[1], "backtest" ) ) {
+    /* Check for --ci flag early - if present, use backtest_topo_initialize but skip config parsing */
+    /* backtest_topo_initialize sets minimal config (archiver.ingest_mode) needed for topology init */
+    int ci_mode = 0;
+    for( int i = 2; i < argc; i++ ) {
+      if( strcmp( argv[i], "--ci" ) == 0 ) {
+        ci_mode = 1;
+        break;
+      }
+    }
+
+    /* Always use backtest_topo_initialize for backtest command to set minimal config */
+    topo_init = backtest_topo_initialize;
+
+    /* Parse --config flag early to capture user config path */
+    /* This allows backtest_topo_initialize to reload TOML after applying ledger config */
+    const char * user_config_path = NULL;
+    for( int i = 2; i < argc - 1; i++ ) {
+      if( strcmp( argv[i], "--config" ) == 0 ) {
+        user_config_path = argv[i + 1];
+        break;
+      }
+    }
+    /* Also check environment variable */
+    if( !user_config_path ) {
+      char * env_config = getenv( "FIREDANCER_CONFIG_TOML" );
+      if( env_config ) {
+        user_config_path = env_config;
+      }
+    }
+    backtest_set_user_config_path( user_config_path );
+
+    if( !ci_mode ) {
+      /* Only parse config early if not in CI mode */
+      /* In CI mode, backtest_cmd_fn will handle spawning child processes */
+      /* Parse ledger name and custom config flags early (before fd_dev_main) */
+      /* This ensures custom config is available when backtest_topo_initialize is called */
+      backtest_create_custom_config_from_args( argc, argv );
+    }
+    /* If ci_mode is set, skip early config parsing and let backtest_cmd_fn handle CI mode */
+  }
+
+  return fd_dev_main( argc, argv, 1, configs, topo_init );
 }
