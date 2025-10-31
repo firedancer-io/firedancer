@@ -88,7 +88,7 @@ quic_hs_complete( fd_quic_conn_t * conn,
   for( ulong i=0; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) { ctx->metrics.quic_hs_complete[i]++; break; }
   }
-  FD_LOG_DEBUG(("QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key )));
+  FD_DEBUG( FD_LOG_DEBUG(("QUIC handshake complete for leader %s", FD_BASE58_ENC_32_ALLOCA( entry->pubkey.key ))); )
 }
 
 inline static int
@@ -110,9 +110,9 @@ quic_conn_final( fd_quic_conn_t * conn,
   for( ulong i=0UL; i<FD_SEND_PORT_QUIC_CNT; i++ ) {
     if( entry->conn[i] == conn ) {
       entry->conn[i] = NULL;
-      FD_LOG_DEBUG(("Quic final for conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
-                    (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], (void*)entry,
-                    FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key)));
+      FD_DEBUG( FD_LOG_DEBUG(("Quic final for conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                              (void*)conn, FD_IP4_ADDR_FMT_ARGS(entry->ip4s[i]), entry->ports[i], (void*)entry,
+                              FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key))); )
       ctx->metrics.quic_conn_final[i]++;
       if( i==FD_SEND_PORT_QUIC_VOTE_IDX ) entry->last_quic_vote_close = ctx->now;
       return;
@@ -232,9 +232,9 @@ quic_connect( fd_send_tile_ctx_t   * ctx,
     return NULL;
   }
 
-  FD_LOG_DEBUG(("Quic created conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
-                (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, (void*)entry,
-                FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key)));
+  FD_DEBUG( FD_LOG_DEBUG(("Quic created conn: %p to peer " FD_IP4_ADDR_FMT ":%u in entry %p to pubkey %s",
+                          (void*)conn, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port, (void*)entry,
+                          FD_BASE58_ENC_32_ALLOCA(entry->pubkey.key))); )
 
   entry->conn[conn_idx] = conn;
   fd_quic_conn_set_context( conn, entry );
