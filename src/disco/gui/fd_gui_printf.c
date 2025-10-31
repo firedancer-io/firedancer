@@ -1257,9 +1257,16 @@ fd_gui_printf_slot( fd_gui_t * gui,
 
   jsonp_open_envelope( gui->http, "slot", "update" );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
@@ -1384,10 +1391,17 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "slot", "query" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
 
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
@@ -1450,10 +1464,17 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "slot", "query" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
 
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
@@ -1487,7 +1508,6 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
 
-      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
       int overwritten               = lslot && (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
       int processed_all_microblocks = lslot &&
                                       lslot->txs.start_offset!=ULONG_MAX &&
@@ -1654,10 +1674,17 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
   jsonp_open_envelope( gui->http, "slot", "query" );
     jsonp_ulong( gui->http, "id", id );
     jsonp_open_object( gui->http, "value" );
+      fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
 
       jsonp_open_object( gui->http, "publish" );
         jsonp_ulong( gui->http, "slot", _slot );
         jsonp_bool( gui->http, "mine", slot->mine );
+
+        if( FD_UNLIKELY( lslot && lslot->leader_start_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time  );
+        else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
+        if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
+        else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
+
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );

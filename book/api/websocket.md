@@ -1548,6 +1548,8 @@ initially replay one but the cluster votes on the other one.
 |------------------------------|----------------|-------------|
 | slot                         | `number`       | Identity of the slot, counting up from zero for the first slot in the chain |
 | mine                         | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
+| start_timestamp_nanos        | `string`       | A UNIX timestamp, in nanoseconds, representing the time that the validator is first aware that it is leader. At this point the poh tile will signal the pack tile to begin filling the block for this slot with transactions |
+| target_end_timestamp_nanos   | `string`       | A UNIX timestamp, in nanoseconds, representing the target time in nanoeconds that the pack tile should stop scheduling transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline. In rare cases, transactions may also appear to begin after this timestamp due to slight clock drift between execution cores |
 | skipped                      | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos               | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos         | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
@@ -1799,6 +1801,8 @@ explicitly mentioned, skipped slots are not included.
         "publish": {
             "slot": 289245044,
             "mine": true,
+            "start_timestamp_nanos": null,
+            "target_end_timestamp_nanos": null,
             "skipped": false,
             "level": "rooted",
             "transactions": 6821,
@@ -1845,6 +1849,8 @@ explicitly mentioned, skipped slots are not included.
         "publish": {
             "slot": 289245044,
             "mine": true,
+            "start_timestamp_nanos": null,
+            "target_end_timestamp_nanos": null,
             "skipped": false,
             "level": "rooted",
             "transactions": 6821,
@@ -1998,6 +2004,8 @@ explicitly mentioned, skipped slots are not included.
         "publish": {
             "slot": 289245044,
             "mine": true,
+            "start_timestamp_nanos": "1739657041688346791",
+            "target_end_timestamp_nanos": "1739657042088346880",
             "skipped": false,
             "level": "rooted",
             "transactions": 6821,
