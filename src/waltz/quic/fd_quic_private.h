@@ -149,24 +149,6 @@ fd_quic_get_state_const( fd_quic_t const * quic ) {
   return (fd_quic_state_t const *)( (ulong)quic + FD_QUIC_STATE_OFF );
 }
 
-static inline fd_quic_conn_map_t *
-fd_quic_conn_query1( fd_quic_conn_map_t * map,
-                     ulong                conn_id,
-                     fd_quic_conn_map_t * sentinel ) {
-  if( !conn_id ) return sentinel;
-  return fd_quic_conn_map_query( map, conn_id, sentinel );
-}
-
-static inline fd_quic_conn_t *
-fd_quic_conn_query( fd_quic_conn_map_t * map,
-                    ulong                conn_id ) {
-  fd_quic_conn_map_t sentinel = {0};
-  if( !conn_id ) return NULL;
-  fd_quic_conn_map_t * entry = fd_quic_conn_map_query( map, conn_id, &sentinel );
-  if( entry->conn && entry->conn->state==FD_QUIC_CONN_STATE_INVALID ) return NULL;
-  return entry->conn;
-}
-
 /* fd_quic_conn_service is called periodically to perform pending
    operations and time based operations.
 
@@ -192,9 +174,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      ushort                    self_udp_port,
                      int                       server );
 
-/* fd_quic_conn_free frees up most resources related to the connection
-   and returns it to the connection free list.  The dead conn remains in
-   the conn_id_map to catch inflight packets by the peer. */
+/* fd_quic_conn_free frees up resources related to the connection and
+   returns it to the connection free list. */
 void
 fd_quic_conn_free( fd_quic_t *      quic,
                    fd_quic_conn_t * conn );
@@ -336,14 +317,13 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                            fd_quic_conn_id_t const * scid,
                            uchar *                   cur_ptr,
                            ulong                     cur_sz );
+
 ulong
-fd_quic_handle_v1_handshake(
-    fd_quic_t *      quic,
-    fd_quic_conn_t * conn,
-    fd_quic_pkt_t *  pkt,
-    uchar *          cur_ptr,
-    ulong            cur_sz
-);
+fd_quic_handle_v1_handshake( fd_quic_t *      quic,
+                             fd_quic_conn_t * conn,
+                             fd_quic_pkt_t *  pkt,
+                             uchar *          cur_ptr,
+                             ulong            cur_sz );
 
 ulong
 fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
