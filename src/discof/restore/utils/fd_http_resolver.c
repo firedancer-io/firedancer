@@ -20,6 +20,9 @@
 #define PEER_DEADLINE_NANOS_RESOLVE (1L*1000L*1000L*1000L) /* 1 second */
 #define PEER_DEADLINE_NANOS_INVALID (5L*1000L*1000L*1000L) /* 5 seconds */
 
+/* FIXME: The fds/fds_len/idx logic is fragile, replace with something
+   that duplicates less state / etc. */
+
 struct fd_ssresolve_peer {
   fd_ip4_port_t addr;
   fd_ssinfo_t   ssinfo;
@@ -263,9 +266,9 @@ remove_peer( fd_http_resolver_t * resolver,
              ulong                idx ) {
   FD_TEST( idx<resolver->fds_len );
 
-  /* FIXME... */
+  /* FIXME: These sockets should be closed at the correct location */
   close( resolver->fds[ idx ].fd );
-  close( resolver->fds[ idx+1UL ].fd );
+  if( FD_LIKELY( -1!=resolver->fds[ idx+1UL ].fd ) ) close( resolver->fds[ idx+1UL ].fd );
 
   if( FD_UNLIKELY( resolver->fds_len==2UL ) ) {
     resolver->fds_len = 0UL;
