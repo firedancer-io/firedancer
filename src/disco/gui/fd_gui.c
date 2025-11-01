@@ -2178,11 +2178,13 @@ fd_gui_handle_snapshot_update( fd_gui_t *                 gui,
 
   if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_INCREMENTAL) {
       ulong slot1, slot2;
-      if ( FD_LIKELY( sscanf( filename, "incremental-snapshot-%lu-%lu-", &slot1, &slot2 ) ) ) gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot2;
+      if ( FD_LIKELY( sscanf( filename, "incremental-snapshot-%lu-%lu-", &slot1, &slot2 )==2 ) )
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot2;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   } else if (msg->type == FD_SNAPCT_SNAPSHOT_TYPE_FULL) {
       ulong slot1;
-      if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot1 ) ) ) gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot1;
+      if ( FD_LIKELY( sscanf( filename, "snapshot-%lu-", &slot1 )==1 ) )
+        gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].slot = slot1;
       else FD_LOG_ERR(("failed to scan filename: %s parsed from %s", filename, msg->read_path ));
   }
   fd_cstr_printf_check( gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path, sizeof(gui->summary.boot_progress.loading_snapshot[ snapshot_idx ].read_path), NULL, "%s", msg->read_path );
