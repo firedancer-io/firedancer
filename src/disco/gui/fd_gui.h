@@ -34,11 +34,6 @@
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
 /* frankendancer only */
-#define FD_GUI_SLOT_LEADER_UNSTARTED (0UL)
-#define FD_GUI_SLOT_LEADER_STARTED   (1UL)
-#define FD_GUI_SLOT_LEADER_ENDED     (2UL)
-
-/* frankendancer only */
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -234,47 +229,6 @@ struct fd_gui_validator_info {
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
 #define FD_GUI_SLOT_RANKING_TYPE_DESC (1)
-
-/* FD_GUI_SHREDS_STAGING_SZ is number of shred events we'll retain in
-   in a small staging area.  The lifecycle of a shred looks something
-   like the following
-
-   states] turbine -> repairing (optional) ->  processing                   -> waiting_for_siblings -> slot_complete
-   events]         ^-repair_requested      ^-shred_received/shred_repaired  ^-shred_replayed        ^-max(shred_replayed)
-
-   We're interested in recording timestamps for state transitions (which
-   these docs call "shred events").  Unfortunately, due to forking,
-   duplicate packets, etc we can't make any guarantees about ordering or
-   uniqueness for these event timestamps.  Instead the GUI just records
-   timestamps for all events as they occur and put them into an array.
-   Newly recorded event timestamps are also broadcast live to WebSocket
-   consumers.
-
-   The amount of shred events for non-finalized blocks can't really be
-   bounded, so we use generous estimates here to set a memory bound. */
-#define FD_GUI_MAX_SHREDS_PER_BLOCK  (32UL*1024UL)
-#define FD_GUI_MAX_EVENTS_PER_SHRED  (       32UL)
-#define FD_GUI_SHREDS_STAGING_SZ     (32UL * FD_GUI_MAX_SHREDS_PER_BLOCK * FD_GUI_MAX_EVENTS_PER_SHRED)
-
-/* FD_GUI_SHREDS_HISTORY_SZ the number of shred events in our historical
-   shred store.  Shred events here belong to finalized slots which means
-   we won't record any additional shred updates for these slots.
-
-   All shred events for a given slot will be places in a contiguous
-   chunk in the array, and the bounding indicies are stored in the
-   fd_gui_slot_t slot history.  Within a slot chunk, shred events are
-   ordered in the ordered they were recorded by the gui tile.
-
-   Ideally, we have enough space to store an epoch's worth of events,
-   but we are limited by realistic memory consumption.  Instead, we pick
-   bound heuristically. */
-#define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
-
-#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (1UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (2UL)
-#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (3UL)
-#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (4UL)
 
 struct fd_gui_tile_timers {
   ulong caughtup_housekeeping_ticks;
