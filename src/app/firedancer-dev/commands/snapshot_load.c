@@ -15,6 +15,10 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include "../../../vinyl/meta/fd_vinyl_meta.h"
+#include "../../../discof/restore/fd_snapin_tile_private.h"
+#include "../../../flamenco/runtime/fd_hashes.h"
+
 #define NAME "snapshot-load"
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
@@ -293,6 +297,107 @@ snapshot_load_cmd_fn( args_t *   args,
     acc_cnt_old      = acc_cnt;
 
     next+=1000L*1000L*1000L;
+  }
+  puts( "snapshot load done" );
+
+  /* verification (work-in-progress) */
+  if( 1 ) {
+    void * scratch = fd_topo_obj_laddr( topo, snapin_tile->tile_obj_id );
+    FD_SCRATCH_ALLOC_INIT( l, scratch );
+    fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+
+    fd_lthash_value_t lthash_sum[1];
+    fd_lthash_zero( lthash_sum );
+
+    ulong cnt=0UL;
+    ulong pairs_cnt = 0UL;
+
+    if( ctx->use_vinyl ) {
+      /* vinyl version */
+      FD_LOG_NOTICE(( "VINYL" ));
+      ulong vinyl_map_ele_max   = fd_vinyl_meta_ele_max  ( ctx->vinyl.map );
+
+      for( ulong ele_i=0; ele_i < vinyl_map_ele_max; ele_i++ ) {
+        fd_vinyl_meta_ele_t const * ele = ctx->vinyl.map->ele + ele_i;
+
+        if( FD_UNLIKELY( fd_vinyl_meta_private_ele_is_free( ctx->vinyl.map->ctx, ele ) ) ) continue;
+
+        cnt++;
+
+        fd_vinyl_bstream_phdr_t _phdr      = ele->phdr;
+        ulong                   _seq       = ele->seq;
+        FD_TEST( !!_phdr.ctl );
+
+        fd_vinyl_bstream_block_t * block = (void *)( ctx->vinyl.bstream_mem + _seq );
+        ulong                   ctl  = FD_VOLATILE_CONST( block->ctl  );
+        fd_vinyl_bstream_phdr_t phdr = FD_VOLATILE_CONST( block->phdr );
+        int   block_type = fd_vinyl_bstream_ctl_type( ctl );
+
+        if( FD_LIKELY( block_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR ) ) {
+
+          uchar * pair = (uchar*)block;
+          pair += sizeof(fd_vinyl_bstream_phdr_t);
+          fd_account_meta_t * meta = (fd_account_meta_t *)pair;
+          pair += sizeof(fd_account_meta_t);
+          uchar * data = pair;
+
+          fd_lthash_value_t new_hash[1];
+          fd_pubkey_t * account_pubkey = (fd_pubkey_t*)phdr.key.c;
+          fd_hashes_account_lthash( account_pubkey, meta, data, new_hash );
+          fd_lthash_add( lthash_sum, new_hash );
+          // FD_LOG_NOTICE(( "account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum ) ));
+
+          pairs_cnt++;
+        }
+      }
+    }
+    else {
+      /* funk version */
+      FD_LOG_NOTICE(( "FUNK" ));
+
+      fd_funk_t * funk = ctx->accdb->funk;
+      fd_funk_rec_map_t  const * rec_map = funk->rec_map;
+      fd_funk_rec_t const * ele = rec_map->ele;
+
+      fd_funk_rec_map_shmem_private_chain_t const * chain = fd_funk_rec_map_shmem_private_chain_const( rec_map->map, 0UL );
+      ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+      for( ulong chain_i=0UL; chain_i < chain_cnt; chain_i++ ) {
+
+        ulong ver_cnt = chain[ chain_i ].ver_cnt;
+        ulong ele_cnt = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
+
+        ulong head_i = fd_funk_rec_map_private_idx( chain[ chain_i ].head_cidx );
+        ulong ele_i = head_i;
+
+        for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) {
+          cnt++;
+
+          fd_funk_xid_key_pair_t const * pair = &ele[ ele_i ].pair;
+          fd_pubkey_t * account_pubkey = (fd_pubkey_t*)pair->key->uc;
+
+          fd_funk_rec_query_t query[1];
+          fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, pair->xid, pair->key, query );
+          FD_TEST( !!rec );
+
+          fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
+          FD_TEST( !!meta );
+
+          uchar * data = ((uchar*)meta) + sizeof(fd_account_meta_t);
+
+          fd_lthash_value_t new_hash[1];
+          fd_hashes_account_lthash( account_pubkey, meta, data, new_hash );
+          fd_lthash_add( lthash_sum, new_hash );
+          // FD_LOG_NOTICE(( "account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum ) ));
+
+          pairs_cnt++;
+        }
+      }
+    }
+
+    /* summary stats */
+    FD_LOG_NOTICE(( "... cnt %lu", cnt ));
+    FD_LOG_NOTICE(( "... pairs_cnt %lu", pairs_cnt ));
+    FD_LOG_NOTICE(( "... lthash_sum %32s", FD_LTHASH_ENC_32_ALLOCA( lthash_sum ) ));
   }
 }
 
