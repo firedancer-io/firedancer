@@ -149,6 +149,7 @@ snapshot_load_args( int *    pargc,
                     char *** pargv,
                     args_t * args ) {
   (void)pargc; (void)pargv; (void)args;
+  args->snapshot_load.accounts_max = fd_env_strip_cmdline_ulong( pargc, pargv, "--accounts-max",  NULL, ULONG_MAX );
 }
 
 static void
@@ -300,21 +301,28 @@ snapshot_load_cmd_fn( args_t *   args,
   }
   puts( "snapshot load done" );
 
+  FD_COMPILER_MFENCE();
+
   /* verification (work-in-progress) */
   if( 1 ) {
     void * scratch = fd_topo_obj_laddr( topo, snapin_tile->tile_obj_id );
     FD_SCRATCH_ALLOC_INIT( l, scratch );
     fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
 
-    fd_lthash_value_t lthash_sum[1];
-    fd_lthash_zero( lthash_sum );
+    fd_lthash_value_t lthash_sum_vinyl[1];
+    fd_lthash_value_t lthash_sum_funk[1];
+    fd_lthash_zero( lthash_sum_vinyl );
+    fd_lthash_zero( lthash_sum_funk );
 
-    ulong cnt=0UL;
-    ulong pairs_cnt = 0UL;
+    ulong cnt_vinyl=0UL;
+    ulong cnt_funk=0UL;
+    ulong pairs_cnt_vinyl = 0UL;
+    ulong pairs_cnt_funk = 0UL;
 
     if( ctx->use_vinyl ) {
       /* vinyl version */
       FD_LOG_NOTICE(( "VINYL" ));
+
       ulong vinyl_map_ele_max   = fd_vinyl_meta_ele_max  ( ctx->vinyl.map );
 
       for( ulong ele_i=0; ele_i < vinyl_map_ele_max; ele_i++ ) {
@@ -322,7 +330,7 @@ snapshot_load_cmd_fn( args_t *   args,
 
         if( FD_UNLIKELY( fd_vinyl_meta_private_ele_is_free( ctx->vinyl.map->ctx, ele ) ) ) continue;
 
-        cnt++;
+        cnt_vinyl++;
 
         fd_vinyl_bstream_phdr_t _phdr      = ele->phdr;
         ulong                   _seq       = ele->seq;
@@ -344,12 +352,16 @@ snapshot_load_cmd_fn( args_t *   args,
           fd_lthash_value_t new_hash[1];
           fd_pubkey_t * account_pubkey = (fd_pubkey_t*)phdr.key.c;
           fd_hashes_account_lthash( account_pubkey, meta, data, new_hash );
-          fd_lthash_add( lthash_sum, new_hash );
-          // FD_LOG_NOTICE(( "account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum ) ));
+          fd_lthash_add( lthash_sum_vinyl, new_hash );
+          // FD_LOG_NOTICE(( "vinyl account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum_vinyl ) ));
 
-          pairs_cnt++;
+          pairs_cnt_vinyl++;
         }
       }
+      /* summary stats */
+      FD_LOG_NOTICE(( "... cnt %lu", cnt_vinyl ));
+      FD_LOG_NOTICE(( "... pairs_cnt %lu", pairs_cnt_vinyl ));
+      FD_LOG_NOTICE(( "... lthash_sum %32s", FD_LTHASH_ENC_32_ALLOCA( lthash_sum_vinyl ) ));
     }
     else {
       /* funk version */
@@ -370,7 +382,7 @@ snapshot_load_cmd_fn( args_t *   args,
         ulong ele_i = head_i;
 
         for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) {
-          cnt++;
+          cnt_funk++;
 
           fd_funk_xid_key_pair_t const * pair = &ele[ ele_i ].pair;
           fd_pubkey_t * account_pubkey = (fd_pubkey_t*)pair->key->uc;
@@ -386,18 +398,19 @@ snapshot_load_cmd_fn( args_t *   args,
 
           fd_lthash_value_t new_hash[1];
           fd_hashes_account_lthash( account_pubkey, meta, data, new_hash );
-          fd_lthash_add( lthash_sum, new_hash );
-          // FD_LOG_NOTICE(( "account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum ) ));
+          fd_lthash_add( lthash_sum_funk, new_hash );
+          // FD_LOG_NOTICE(( "funk  account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum_funk ) ));
 
-          pairs_cnt++;
+          ele_i = fd_funk_rec_map_private_idx( ele[ ele_i ].map_next );
+
+          pairs_cnt_funk++;
         }
       }
+      /* summary stats */
+      FD_LOG_NOTICE(( "... cnt %lu", cnt_funk ));
+      FD_LOG_NOTICE(( "... pairs_cnt %lu", pairs_cnt_funk ));
+      FD_LOG_NOTICE(( "... lthash_sum %32s", FD_LTHASH_ENC_32_ALLOCA( lthash_sum_funk ) ));
     }
-
-    /* summary stats */
-    FD_LOG_NOTICE(( "... cnt %lu", cnt ));
-    FD_LOG_NOTICE(( "... pairs_cnt %lu", pairs_cnt ));
-    FD_LOG_NOTICE(( "... lthash_sum %32s", FD_LTHASH_ENC_32_ALLOCA( lthash_sum ) ));
   }
 }
 
