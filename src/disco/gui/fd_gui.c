@@ -2155,9 +2155,18 @@ fd_gui_handle_block_engine_update( fd_gui_t *    gui,
   fd_plugin_msg_block_engine_update_t const * update = (fd_plugin_msg_block_engine_update_t const *)msg;
 
   gui->block_engine.has_block_engine = 1;
-  memcpy( gui->block_engine.name,    update->name,    sizeof(gui->block_engine.name   )-1 );
-  memcpy( gui->block_engine.url,     update->url,     sizeof(gui->block_engine.url    )-1 );
-  memcpy( gui->block_engine.ip_cstr, update->ip_cstr, sizeof(gui->block_engine.ip_cstr)-1 );
+
+  /* copy strings and ensure null termination within bounds */
+  FD_TEST( fd_cstr_nlen( update->name,    sizeof(gui->block_engine.name   ) ) < sizeof(gui->block_engine.name   ) );
+  FD_TEST( fd_cstr_nlen( update->url,     sizeof(gui->block_engine.url    ) ) < sizeof(gui->block_engine.url    ) );
+  FD_TEST( fd_cstr_nlen( update->ip_cstr, sizeof(gui->block_engine.ip_cstr) ) < sizeof(gui->block_engine.ip_cstr) );
+  ulong name_len    = fd_cstr_nlen( update->name,    sizeof(gui->block_engine.name   ) );
+  ulong url_len     = fd_cstr_nlen( update->url,     sizeof(gui->block_engine.url    ) );
+  ulong ip_cstr_len = fd_cstr_nlen( update->ip_cstr, sizeof(gui->block_engine.ip_cstr) );
+  fd_memcpy( gui->block_engine.name,    update->name,    name_len+1UL );
+  fd_memcpy( gui->block_engine.url,     update->url,     url_len+1UL );
+  fd_memcpy( gui->block_engine.ip_cstr, update->ip_cstr, ip_cstr_len+1UL );
+
   gui->block_engine.status = update->status;
 
   fd_gui_printf_block_engine( gui );
