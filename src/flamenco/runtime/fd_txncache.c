@@ -203,16 +203,39 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
 
     ulong txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
     ulong txnhash_offset = blockcache->shmem->txnhash_offset;
-    memcpy( txnpage->txns[ txn_idx ]->txnhash, txnhash+txnhash_offset, 20UL );
-    txnpage->txns[ txn_idx ]->fork_id = fork_id;
+    ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
+    FD_TEST( txn_bucket<UINT_MAX );
+    fd_txncache_single_txn_t * txn = txnpage->txns[ txn_idx ];
+    memcpy( txn->txnhash, txnhash+txnhash_offset, 20UL );
+    txn->owner_fork_id.val = (ushort)blockcache_pool_idx( tc->blockcache_shmem_pool, blockcache->shmem );
+    txn->fork_id = fork_id;
+    txn->blockcache_prev_is_head = 1;
+    txn->blockcache_prev = (uint)txn_bucket;
+    if( FD_UNLIKELY( txn->owner_fork_id.val==txn->fork_id.val ) ) FD_LOG_CRIT(( "self-referencing txn fork_id %u", txn->fork_id.val ));
     FD_COMPILER_MFENCE();
 
-    ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
+    uint txn_gidx = (uint)(FD_TXNCACHE_TXNS_PER_PAGE*txnpage_idx+txn_idx);
     for(;;) {
       uint head = blockcache->heads[ txn_bucket ];
       txnpage->txns[ txn_idx ]->blockcache_next = head;
       FD_COMPILER_MFENCE();
-      if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->heads[ txn_bucket ], head, (uint)(FD_TXNCACHE_TXNS_PER_PAGE*txnpage_idx+txn_idx) )==head ) ) break;
+      if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->heads[ txn_bucket ], head, txn_gidx )==head ) ) {
+        if( FD_UNLIKELY( head!=UINT_MAX ) ) {
+          fd_txncache_single_txn_t * old_head_txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
+          FD_TEST( old_head_txn->blockcache_prev_is_head );
+          old_head_txn->blockcache_prev_is_head = 0;
+          old_head_txn->blockcache_prev = txn_gidx;
+        }
+        break;
+      }
+      FD_SPIN_PAUSE();
+    }
+    for(;;) {
+      fd_txncache_blockcache_shmem_t * fork_shmem = tc->blockcache_pool[ fork_id.val ].shmem;
+      uint head = fork_shmem->txn_head;
+      txnpage->txns[ txn_idx ]->fork_next = head;
+      FD_COMPILER_MFENCE();
+      if( FD_LIKELY( FD_ATOMIC_CAS( &(fork_shmem->txn_head), head, txn_gidx )==head ) ) break;
       FD_SPIN_PAUSE();
     }
 
@@ -240,6 +263,7 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
 
     descends_set_null( fork->descends );
     root_slist_ele_push_tail( tc->shmem->root_ll, fork->shmem, tc->blockcache_shmem_pool );
+    FD_LOG_DEBUG(( "attached root fork_id %u", fork_id.val ));
   } else {
     blockcache_t * parent = &tc->blockcache_pool[ parent_fork_id.val ];
     FD_TEST( parent );
@@ -253,11 +277,13 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
 
     descends_set_copy( fork->descends, parent->descends );
     descends_set_insert( fork->descends, parent_fork_id.val );
+    FD_LOG_DEBUG(( "attached fork_id %u to parent fork_id %u", fork_id.val, parent_fork_id.val ));
   }
 
   fork->shmem->txnhash_offset = 0UL;
   fork->shmem->frozen = 0;
   memset( fork->heads, 0xFF, tc->shmem->txn_per_slot_max*sizeof(uint) );
+  fork->shmem->txn_head = UINT_MAX;
   fork->shmem->pages_cnt = 0;
   memset( fork->pages, 0xFF, tc->shmem->txnpages_per_blockhash_max*sizeof(fork->pages[ 0 ]) );
 
@@ -303,12 +329,237 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
 
 static inline void
 remove_blockcache( fd_txncache_t * tc,
-                   blockcache_t *  blockcache ) {
+                   blockcache_t *  blockcache,
+                   int             is_minority ) {
+  fd_txncache_fork_id_t fork_id = (fd_txncache_fork_id_t){ .val = (ushort)blockcache_pool_idx( tc->blockcache_shmem_pool, blockcache->shmem ) };
+  FD_LOG_DEBUG(( "removing fork_id %u is_minority %d", fork_id.val, is_minority ));
+
+  if( FD_UNLIKELY( is_minority ) ) {
+    long start_tick = fd_tickcount();
+    /* If this fork is a minority fork, we need to remove all of its
+       transactions from whatever blockcache these transactions are
+       residing in.  We do this so in the event that this
+       soon-to-be-removed fork_id is reused in the near future, these
+       transactions don't show up in queries.  This operation is
+       somewhat expensive.  Fortunately, forks are rare. */
+    ulong cnt1 = 0UL;
+    ulong move_cnt = 0UL;
+    uint * headp = &(blockcache->shmem->txn_head);
+    for( uint head=blockcache->shmem->txn_head; head!=UINT_MAX; headp=&(tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->fork_next), head=*headp ) {
+      cnt1++;
+      fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
+      blockcache_t * owner_blockcache = tc->blockcache_pool+txn->owner_fork_id.val;
+
+      if( FD_UNLIKELY( txn->fork_id.val!=fork_id.val ) ) {
+        #define PRINT_TXN_GIDX(_gidx) FD_LOG_INFO(( "gidx %u txnpage %lu offset %lu", _gidx, _gidx/FD_TXNCACHE_TXNS_PER_PAGE, _gidx%FD_TXNCACHE_TXNS_PER_PAGE ));
+        //FIXME remove debug log
+        PRINT_TXN_GIDX( head );
+        FD_LOG_INFO(( "fork_next %u fork_id %u owner_fork_id %u blockcache_prev %u (is_head %d) blockcache_next %u", txn->fork_next, txn->fork_id.val, txn->owner_fork_id.val, txn->blockcache_prev, txn->blockcache_prev_is_head, txn->blockcache_next ));
+        fd_txncache_single_txn_t * txnp = txn;
+        while( txnp->fork_next!=UINT_MAX ) {
+          PRINT_TXN_GIDX( txnp->fork_next );
+          txnp = tc->txnpages[ txn->fork_next/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ txn->fork_next%FD_TXNCACHE_TXNS_PER_PAGE ];
+          FD_LOG_INFO(( "fork_next %u fork_id %u owner_fork_id %u blockcache_prev %u (is_head %d) blockcache_next %u", txnp->fork_next, txnp->fork_id.val, txnp->owner_fork_id.val, txnp->blockcache_prev, txnp->blockcache_prev_is_head, txnp->blockcache_next ));
+        }
+        FD_LOG_CRIT(( "txn->fork_id %u != fork_id %u cnt1 %lu", txn->fork_id.val, fork_id.val, cnt1 ));
+      }
+
+      /* Remove from hash chain. */
+      if( txn->blockcache_next!=UINT_MAX ) {
+        fd_txncache_single_txn_t * next_txn = tc->txnpages[ txn->blockcache_next/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ txn->blockcache_next%FD_TXNCACHE_TXNS_PER_PAGE ];
+        FD_TEST( !next_txn->blockcache_prev_is_head );
+        FD_TEST( next_txn->blockcache_prev==head );
+        next_txn->blockcache_prev = txn->blockcache_prev;
+        next_txn->blockcache_prev_is_head = txn->blockcache_prev_is_head;
+      }
+      FD_TEST( txn->blockcache_prev!=UINT_MAX );
+      if( txn->blockcache_prev_is_head ) {
+        FD_TEST( owner_blockcache->heads[ txn->blockcache_prev ]==head );
+        owner_blockcache->heads[ txn->blockcache_prev ] = txn->blockcache_next;
+      } else {
+        fd_txncache_single_txn_t * prev_txn = tc->txnpages[ txn->blockcache_prev/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ txn->blockcache_prev%FD_TXNCACHE_TXNS_PER_PAGE ];
+        FD_TEST( prev_txn->blockcache_next==head );
+        prev_txn->blockcache_next = txn->blockcache_next;
+      }
+
+      /* Remove from txnpages.
+
+         This frees up txnpages such that sizing invariants aren't
+         violated.  The most obvious violation is on the max number of
+         txnpages per blockcache.  Allowing pruned transactions to
+         linger around could potentially cause a blockcache to grab more
+         txnpages than expected.  While this is easy to overcome by just
+         expanding the size of the per blockcache txnpages array,
+         failing to remove pruned transactions could still degrade the
+         txncache's capacity to handle future forks.  This is likely the
+         most expensive part of this whole exercise, and fortunately,
+         forks are rare.
+
+         The property we want for removal from txnpages is that all the
+         unremoved transactions are tightly packed at the front of the
+         txnpages array within each blockcache.  In other words, we're
+         compacting txnpages.  Any fully free txnpages resulting from
+         this exercise will be returned to the free txnpages pool.
+
+         The way we do this in O(n) memcpy is as follows:
+
+         Suppose every txnpage holds 4 transactions.  C is the current
+         transaction we would like to prune.  P stands for transactions
+         that are already pruned or about to be pruned, i.e. other nodes
+         in the linked list we are iterating over.  U stands for
+         unremoved transactions that should be packed tightly.
+
+         UUUU UCUU
+                 ^ move this into C's spot
+
+         We start scanning from the tail end (right hand side).  The
+         first U transaction is swapped with C.  So the end result for
+         the above is
+
+         UUUU UUUC
+               ^ ^ these were swapped
+
+         If there is a P in the scan, it's skipped over.  So for example
+
+         UUUC UUPP
+                ^^ these stay put
+               ^ this moves
+
+         becomes
+
+         UUUU UCPP
+                ^^ these stayed put
+            ^  ^ these were swapped
+
+         If there is no U to the right hand side of C, then nothing
+         moves.  For example
+
+         UUUU CPPP  nothing moves here
+
+         The intended invariant here is that at the end of every
+         iteration, there will be nothing but P to the right of C.
+         Which implies that by the end of the whole loop, all the pruned
+         transactions will be at the end of txnpages, while all the
+         unremoved transactions will be compacted at the front. */
+
+      /* First step is finding an unremoved transaction to bubble up
+         from the tail end of txnpages. */
+      fd_txncache_single_txn_t * move_txn = NULL;
+      uint move_txn_gidx = UINT_MAX;
+      int done = 0;
+      for( ulong j=0UL; j<owner_blockcache->shmem->pages_cnt; j++ ) {
+        ushort curr_txnpage_gidx = owner_blockcache->pages[ owner_blockcache->shmem->pages_cnt-j-1UL ];
+        ulong curr_txn_cnt = FD_TXNCACHE_TXNS_PER_PAGE-tc->txnpages[ curr_txnpage_gidx ].free;
+        for( ulong k=0UL; k<curr_txn_cnt; k++ ) {
+          fd_txncache_single_txn_t * curr_txn = tc->txnpages[ curr_txnpage_gidx ].txns[ curr_txn_cnt-k-1UL ];
+          if( curr_txn==txn ) {
+            /* We've reached the pruned transaction.  There's nothing to
+               move.  Yay. */
+            done = 1;
+            break;
+          }
+          if( curr_txn->fork_id.val==fork_id.val ) continue; /* No point in moving another pruned transaction. */
+
+          /* This unremoved transaction needs to move into the pruned
+             transaction's spot. */
+          done = 1;
+          move_txn = curr_txn;
+          move_txn_gidx = (uint)(FD_TXNCACHE_TXNS_PER_PAGE*curr_txnpage_gidx+curr_txn_cnt-k-1UL);
+          break;
+        }
+        if( done ) break;
+      }
+
+      /* Bubble up the unremoved transaction. */
+      if( move_txn ) {
+        FD_TEST( txn->owner_fork_id.val==move_txn->owner_fork_id.val );
+        move_cnt++;
+        uint saved_fork_next = txn->fork_next;
+        fd_txncache_fork_id_t saved_fork_id = txn->fork_id;
+        *txn = *move_txn;
+
+        /* Stitch up the hash chain for the unremoved transaction. */
+        if( txn->blockcache_next!=UINT_MAX ) {
+          fd_txncache_single_txn_t * next_txn = tc->txnpages[ txn->blockcache_next/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ txn->blockcache_next%FD_TXNCACHE_TXNS_PER_PAGE ];
+          FD_TEST( !next_txn->blockcache_prev_is_head );
+          FD_TEST( next_txn->blockcache_prev==move_txn_gidx );
+          next_txn->blockcache_prev = head;
+        }
+        FD_TEST( txn->blockcache_prev!=UINT_MAX );
+        if( txn->blockcache_prev_is_head ) {
+          FD_TEST( owner_blockcache->heads[ txn->blockcache_prev ]==move_txn_gidx );
+          owner_blockcache->heads[ txn->blockcache_prev ] = head;
+        } else {
+          fd_txncache_single_txn_t * prev_txn = tc->txnpages[ txn->blockcache_prev/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ txn->blockcache_prev%FD_TXNCACHE_TXNS_PER_PAGE ];
+          FD_TEST( prev_txn->blockcache_next==move_txn_gidx );
+          prev_txn->blockcache_next = head;
+        }
+
+        /* Stitch up the linked list we are iterating over. */
+        *headp = move_txn_gidx;
+        move_txn->fork_next = saved_fork_next;
+        head = move_txn_gidx;
+
+        /* We need to swap this field, lest a future scan visits this
+           transaction again and decides to move it once again. */
+        move_txn->fork_id = saved_fork_id;
+
+        /* No need to swap owner fork_id because they are the same. */
+      }
+
+      /* We couldn't decrement the txnpage free count right here.  The
+         order in which transactions are inserted into the singly linked
+         list in the blockcache in which they land, and the order in
+         which transactions appear in the txnpages in the blockcache in
+         which they reside, might not be the same.  This is because
+         txnpage acquisition and list insertion are not an atomic group
+         of operations.  So if we were to decrement the free count here,
+         we could break invariants in how we visit and bubble up
+         transactions. */
+    }
+
+    /* Now a second iteration to update all the txnpage free counts.
+       This is the final step in txnpage compaction.  At this point,
+       only the singly linked list pointer and the owner fork_id are
+       valid fields to read.  Any other field within a transaction may
+       have been overwritten when we moved unremoved transactions. */
+    ulong cnt2 = 0UL;
+    for( uint head=blockcache->shmem->txn_head; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->fork_next ) {
+      cnt2++;
+      fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
+      blockcache_t * owner_blockcache = tc->blockcache_pool+txn->owner_fork_id.val;
+      ushort curr_txnpage_gidx = owner_blockcache->pages[ owner_blockcache->shmem->pages_cnt-1UL ];
+      ulong last_txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-tc->txnpages[ curr_txnpage_gidx ].free-1UL;
+      fd_txncache_single_txn_t * last_txn = tc->txnpages[ curr_txnpage_gidx ].txns[ last_txn_idx ];
+
+      /* Invariant: all pruned transactions should be at the tail end of
+         txnpages after compaction.  The specific tail transaction we
+         are looking at here may not be the same transaction that we are
+         visiting over the linked list, but this at least checks that
+         the number of pruned transactions at the tail end matches our
+         expectation. */
+      FD_TEST( last_txn->fork_id.val==fork_id.val );
+
+      tc->txnpages[ curr_txnpage_gidx ].free++;
+      if( FD_UNLIKELY( tc->txnpages[ curr_txnpage_gidx ].free==FD_TXNCACHE_TXNS_PER_PAGE ) ) {
+        owner_blockcache->shmem->pages_cnt--;
+        tc->txnpages_free[ tc->shmem->txnpages_free_cnt ] = curr_txnpage_gidx;
+        tc->shmem->txnpages_free_cnt++;
+        FD_LOG_DEBUG(( "compacted away txnpage %u", curr_txnpage_gidx ));
+      }
+    }
+    FD_TEST( cnt1==cnt2 );
+    long end_tick = fd_tickcount();
+    FD_LOG_DEBUG(( "pruned %lu minority fork (fork_id %u) transactions in %ld ticks with %lu moves", cnt1, fork_id.val, end_tick-start_tick, move_cnt ));
+  }
+
+  for( ushort i=0; i<blockcache->shmem->pages_cnt; i++ ) {
+    FD_LOG_DEBUG(( "freeing txnpage %u", blockcache->pages[ i ] )); //FIXME remove debug log
+  }
   memcpy( tc->txnpages_free+tc->shmem->txnpages_free_cnt, blockcache->pages, blockcache->shmem->pages_cnt*sizeof(tc->txnpages_free[ 0 ]) );
   tc->shmem->txnpages_free_cnt = (ushort)(tc->shmem->txnpages_free_cnt+blockcache->shmem->pages_cnt);
 
-  ulong idx = blockcache_pool_idx( tc->blockcache_shmem_pool, blockcache->shmem );
-  for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) descends_set_remove( tc->blockcache_pool[ i ].descends, idx );
+  for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) descends_set_remove( tc->blockcache_pool[ i ].descends, fork_id.val );
 
   if( FD_LIKELY( blockcache->shmem->frozen ) ) blockhash_map_ele_remove_fast( tc->blockhash_map, blockcache->shmem, tc->blockcache_shmem_pool );
   blockcache_pool_ele_release( tc->blockcache_shmem_pool, blockcache->shmem );
@@ -324,10 +575,10 @@ remove_children( fd_txncache_t *      tc,
     FD_TEST( sibling );
 
     sibling_idx = sibling->shmem->sibling_id;
-    if( FD_UNLIKELY( sibling==except ) ) continue;
+    if( FD_LIKELY( sibling==except ) ) continue; /* Optimize for no forking. */
 
     remove_children( tc, sibling, except );
-    remove_blockcache( tc, sibling );
+    remove_blockcache( tc, sibling, 1 );
   }
 }
 
@@ -368,7 +619,7 @@ fd_txncache_advance_root( fd_txncache_t *       tc,
 
     root_slist_ele_peek_head( tc->shmem->root_ll, tc->blockcache_shmem_pool )->parent_id.val = USHORT_MAX;
 
-    remove_blockcache( tc, old_root );
+    remove_blockcache( tc, old_root, 0 );
     tc->shmem->root_cnt--;
   }
 

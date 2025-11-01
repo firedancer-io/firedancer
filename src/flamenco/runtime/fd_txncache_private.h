@@ -19,8 +19,15 @@
 #define FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE (151UL)
 
 struct fd_txncache_single_txn {
-  uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
+  uint  fork_next; /* Pointer to the next element on the same fork. */
 
+  uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
+  uint  blockcache_prev; /* Doubly linked so transactions belonging to minority forks can be pruned. */
+
+  uchar blockcache_prev_is_head;
+
+  fd_txncache_fork_id_t owner_fork_id; /* Fork corresponding to the blockhash that this transaction refers to.
+                                          The txnpages where this transaction resides belong to this fork. */
   fd_txncache_fork_id_t fork_id; /* Fork that the transaction was executed on.  A transaction might be in the cache
                                     multiple times if it was executed on multiple forks. */
   uchar txnhash[ 20UL ]; /* The transaction message hash, truncated to 20 bytes.  The hash is not always the first 20
@@ -58,6 +65,14 @@ struct fd_txncache_blockcache_shmem {
                             insert into the cache ourselves, we do just always use a key_offset of zero, so this is
                             only nonzero when constructed form a peer snapshot. */
 
+  uint txn_head;         /* Pointer to the head of a singly linked list of transactions that landed on this fork.
+                            As we add transactions to the list, the head pointer is updated to the new item, and the new
+                            item is pointed to the previous head.  This list exists so transactions from a minority fork
+                            can be precisely pruned from the txncache.  Note that none of these transactions actually
+                            reside in the txnpages belonging to this blockcache.  The transactions that landed on this
+                            fork would necessarily have to refer to some blockhash in this fork's ancestory, and hence
+                            reside in one of the ancestor blockcaches. */
+
   ushort pages_cnt;      /* The number of txnpages currently in use to store the transactions in this blockcache. */
 
   struct {
@@ -72,11 +87,6 @@ struct fd_txncache_blockcache_shmem {
     ulong next;
     ulong prev;
   } blockhash_map;
-
-  struct {
-    ulong next;
-    ulong prev;
-  } fork_map;
 };
 
 typedef struct fd_txncache_blockcache_shmem fd_txncache_blockcache_shmem_t;
