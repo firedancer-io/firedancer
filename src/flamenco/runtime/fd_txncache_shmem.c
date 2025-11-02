@@ -38,7 +38,7 @@ fd_txncache_max_txnpages_per_blockhash( ulong max_active_slots,
      the same blockhash. */
 
   ulong result = 1UL+(max_txn_per_slot*max_active_slots)/FD_TXNCACHE_TXNS_PER_PAGE;
-  if( FD_UNLIKELY( result>USHORT_MAX ) ) return 0;
+  if( FD_UNLIKELY( result>USHORT_MAX-2UL ) ) return 0; /* MAX is the invalid flag, MAX-1 is the xbusy flag. */
   return (ushort)result;
 }
 
@@ -62,7 +62,7 @@ fd_txncache_max_txnpages( ulong max_active_slots,
      pages, and the other blockhashes need 1 page each. */
 
   ulong result = max_active_slots-1UL+max_active_slots*(1UL+(max_txn_per_slot-1UL)/FD_TXNCACHE_TXNS_PER_PAGE);
-  if( FD_UNLIKELY( result>USHORT_MAX ) ) return 0;
+  if( FD_UNLIKELY( result>USHORT_MAX-2UL ) ) return 0; /* MAX is the invalid flag, MAX-1 is the xbusy flag. */
   return (ushort)result;
 }
 
@@ -93,14 +93,14 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
 
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,        sizeof(fd_txncache_shmem_t)                               );
-  l = FD_LAYOUT_APPEND( l, blockhash_map_align(),          blockhash_map_footprint( blockhash_map_chains )           );
-  l = FD_LAYOUT_APPEND( l, blockcache_pool_align(),        blockcache_pool_footprint( max_active_slots )             );
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*_max_txnpages_per_blockhash*sizeof(uint) ); /* blockcache->pages */
-  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*max_txn_per_slot*sizeof(uint)            ); /* blockcache->heads */
-  l = FD_LAYOUT_APPEND( l, descends_set_align(),           max_active_slots*_descends_footprint                      ); /* blockcache->descends */
-  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages*sizeof(ushort)                              ); /* txnpages_free */
-  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _max_txnpages*sizeof(fd_txncache_txnpage_t)               ); /* txnpages */
+  l = FD_LAYOUT_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,        sizeof(fd_txncache_shmem_t)                                 );
+  l = FD_LAYOUT_APPEND( l, blockhash_map_align(),          blockhash_map_footprint( blockhash_map_chains )             );
+  l = FD_LAYOUT_APPEND( l, blockcache_pool_align(),        blockcache_pool_footprint( max_active_slots )               );
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),                max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) ); /* blockcache->pages */
+  l = FD_LAYOUT_APPEND( l, alignof(uint),                  max_active_slots*max_txn_per_slot*sizeof(uint)              ); /* blockcache->heads */
+  l = FD_LAYOUT_APPEND( l, descends_set_align(),           max_active_slots*_descends_footprint                        ); /* blockcache->descends */
+  l = FD_LAYOUT_APPEND( l, alignof(ushort),                _max_txnpages*sizeof(ushort)                                ); /* txnpages_free */
+  l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_txnpage_t), _max_txnpages*sizeof(fd_txncache_txnpage_t)                 ); /* txnpages */
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_SHMEM_ALIGN );
 }
 
@@ -134,14 +134,14 @@ fd_txncache_shmem_new( void * shmem,
   if( FD_UNLIKELY( !_descends_footprint ) ) return NULL;
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_txncache_shmem_t * tc    = FD_SCRATCH_ALLOC_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,         sizeof(fd_txncache_shmem_t)                               );
-  void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),           blockhash_map_footprint( blockhash_map_chains )           );
-  void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),         blockcache_pool_footprint( max_active_slots )             );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*_max_txnpages_per_blockhash*sizeof(uint) );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*max_txn_per_slot*sizeof(uint)            );
-  void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                      );
-  void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                              );
-                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)               );
+  fd_txncache_shmem_t * tc    = FD_SCRATCH_ALLOC_APPEND( l, FD_TXNCACHE_SHMEM_ALIGN,         sizeof(fd_txncache_shmem_t)                                 );
+  void * _blockhash_map       = FD_SCRATCH_ALLOC_APPEND( l, blockhash_map_align(),           blockhash_map_footprint( blockhash_map_chains )             );
+  void * _blockcache_pool     = FD_SCRATCH_ALLOC_APPEND( l, blockcache_pool_align(),         blockcache_pool_footprint( max_active_slots )               );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 max_active_slots*_max_txnpages_per_blockhash*sizeof(ushort) );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                   max_active_slots*max_txn_per_slot*sizeof(uint)              );
+  void * _blockcache_descends = FD_SCRATCH_ALLOC_APPEND( l, descends_set_align(),            max_active_slots*_descends_footprint                        );
+  void * _txnpages_free       = FD_SCRATCH_ALLOC_APPEND( l, alignof(ushort),                 _max_txnpages*sizeof(ushort)                                );
+                                FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_txnpage_t),  _max_txnpages*sizeof(fd_txncache_txnpage_t)                 );
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
   FD_TEST( blockcache_pool );
