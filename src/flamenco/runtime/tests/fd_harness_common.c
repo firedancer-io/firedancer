@@ -1,3 +1,4 @@
+#include "fd_solfuzz_private.h"
 #include "generated/context.pb.h"
 #include "../fd_acc_mgr.h"
 #include "../../features/fd_features.h"
@@ -26,12 +27,12 @@ fd_solfuzz_pb_load_account( fd_txn_account_t *                acc,
   fd_funk_rec_prepare_t prepare = {0};
 
   int ok = !!fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
-                                                   /* pubkey      */ pubkey,
-                                                   /* funk        */ accdb,
-                                                   /* xid         */ xid,
-                                                   /* do_create   */ 1,
-                                                   /* min_data_sz */ size,
-                                                   /* prepare     */ &prepare );
+                                                    /* pubkey      */ pubkey,
+                                                    /* funk        */ accdb,
+                                                    /* xid         */ xid,
+                                                    /* do_create   */ 1,
+                                                    /* min_data_sz */ size,
+                                                    /* prepare     */ &prepare );
   assert( ok );
 
   if( state->data ) {
