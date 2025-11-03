@@ -169,6 +169,7 @@ fd_gui_new( void *                shmem,
         gui->summary.boot_progress.loading_snapshot[ i ].read_path[ 0 ] = '\0';
         gui->summary.boot_progress.loading_snapshot[ i ].insert_path[ 0 ] = '\0';
       }
+      gui->summary.boot_progress.catching_up_time_nanos        = 0L;
       gui->summary.boot_progress.catching_up_first_replay_slot = ULONG_MAX;
     } else {
       fd_memset( &gui->summary.boot_progress, 0, sizeof(gui->summary.boot_progress) );
