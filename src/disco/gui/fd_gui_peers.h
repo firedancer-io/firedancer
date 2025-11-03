@@ -23,6 +23,8 @@
 #include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
 
+#include <math.h>
+
 #define FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ     ( 64UL)
 #define FD_GUI_PEERS_VALIDATOR_INFO_WEBSITE_SZ  (128UL)
 #define FD_GUI_PEERS_VALIDATOR_INFO_DETAILS_SZ  (256UL)
@@ -46,9 +48,33 @@
 struct fd_gui_peers_metric_rate {
   ulong cur;
   ulong ref;
-  long rate; /* units per sec. live_table treaps use this field to sort table entries */
+  long rate_ema; /* units per sec. live_table treaps use this field to sort table entries */
+  long update_timestamp_ns; /* time when cur was last copied over to ref */
 };
 typedef struct fd_gui_peers_metric_rate fd_gui_peers_metric_rate_t;
+
+#define FD_GUI_PEERS_EMA_HALF_LIFE_NS (3000000000UL)
+
+static inline long
+fd_gui_peers_adaptive_ema( long last_update_time,
+                           long current_time,
+                           long current_value,
+                           long value_at_last_update ) {
+    if( FD_UNLIKELY( last_update_time==0) ) return current_value;
+
+    long elapsed_time = current_time - last_update_time;
+    if( FD_UNLIKELY( elapsed_time<=0 ) ) return value_at_last_update;
+
+    // Calculate alpha using half-life formula
+    // alpha = 1 - exp(-ln(2) * elapsed_time / half_life)
+    double decay_factor = 0.69314718055994 * ((double)elapsed_time / (double)FD_GUI_PEERS_EMA_HALF_LIFE_NS);
+    double alpha = 1.0 - exp(-decay_factor);
+
+    if( FD_UNLIKELY( alpha>1.0 ) ) alpha = 1.0;
+    if( FD_UNLIKELY( alpha<0.0 ) ) alpha = 0.0;
+
+    return (long)(alpha * (double)current_value + (1.0 - alpha) * (double)value_at_last_update);
+}
 
 struct fd_gui_peers_vote {
   fd_pubkey_t node_account;
@@ -215,13 +241,13 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT FD_GUI_PEERS_CI_TABLE_SORT_KEY_CNT
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate, live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Push",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate,          live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Pull",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate, live_table_col_long_lt   ), \
-  LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                live_table_col_stake_lt  ), \
-  LIVE_TABLE_COL_ENTRY( "Pubkey",       contact_info.pubkey,                                                  live_table_col_pubkey_lt ), \
-  LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr,           live_table_col_ipv4_lt   )  )
+  LIVE_TABLE_COL_ENTRY( "Stake",        stake,                                                                    live_table_col_stake_lt  ), \
+  LIVE_TABLE_COL_ENTRY( "Pubkey",       contact_info.pubkey,                                                      live_table_col_pubkey_lt ), \
+  LIVE_TABLE_COL_ENTRY( "IP Addr",      contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr,               live_table_col_ipv4_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Push", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Ingress Pull", gossvf_rx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Push",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ].rate_ema,          live_table_col_long_lt   ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Pull",  gossip_tx[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ].rate_ema, live_table_col_long_lt   ), )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY ((fd_gui_peers_live_table_sort_key_t){ .col = { 0, 1, 2, 3, 4, 5, 6 }, .dir = { -1, -1, -1, -1, -1, -1, -1 } })
@@ -234,8 +260,8 @@ static int live_table_col_stake_lt ( void const * a, void const * b ) { return f
 #define LIVE_TABLE_MAX_SORT_KEY_CNT (2UL)
 #define LIVE_TABLE_ROW_T fd_gui_peers_node_t
 #define LIVE_TABLE_COLUMNS LIVE_TABLE_COL_ARRAY( \
-  LIVE_TABLE_COL_ENTRY( "Ingress Total", gossvf_rx_sum.rate, live_table_col_long_lt ), \
-  LIVE_TABLE_COL_ENTRY( "Egress Total",  gossip_tx_sum.rate, live_table_col_long_lt )  )
+  LIVE_TABLE_COL_ENTRY( "Ingress Total", gossvf_rx_sum.rate_ema, live_table_col_long_lt ), \
+  LIVE_TABLE_COL_ENTRY( "Egress Total",  gossip_tx_sum.rate_ema, live_table_col_long_lt )  )
 #include "fd_gui_live_table_tmpl.c"
 
 #define FD_GUI_PEERS_BW_TRACKING_INGRESS_SORT_KEY ((fd_gui_peers_bandwidth_tracking_sort_key_t){ .col = { 0, 1 }, .dir = { -1, 0 } })

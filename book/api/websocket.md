@@ -1250,13 +1250,13 @@ the client's new view.
 When a client first connects, the start with the following sort key by
 default, until an update is made.
 
+- ("Stake", desc)
+- ("Pubkey", desc)
+- ("IP Addr", desc)
 - ("Ingress Push", desc)
 - ("Ingress Pull", desc)
 - ("Egress Push", desc)
 - ("Egress Pull", desc)
-- ("Stake", desc)
-- ("Pubkey", desc)
-- ("IP Addr", desc)
 
 The provided sort key is a list of column names and a corresponding list
 of column directions. Directions are provided as signed integers with
