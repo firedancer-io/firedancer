@@ -1543,6 +1543,26 @@ it does not typically change, although can in extremely rare cases where
 a leader publishes two different blocks for their leader slot, and we
 initially replay one but the cluster votes on the other one.
 
+**`WriteAcctCost`**
+| Field   | Type     | Description |
+|---------|----------|-------------|
+| account | `string` | The pubkey for this writeable account |
+| cost    | `string` | The total compute units for all transactions that list `account` as a writeable account |
+
+**`SlotLimits`**
+| Field                        | Type              | Description |
+|------------------------------|-------------------|-------------|
+| used_total_block_cost        | `number`          | The total block cost in compute units |
+| used_total_vote_cost         | `number`          | The compute units from vote transactions consumed for this block |
+| used_account_write_costs     | `WriteAcctCost[]` | The top 5 writeable account costs for this block |
+| used_total_bytes             | `number`          | The number of bytes from transaciton payloads and microbloack headers consumed in total for this block |
+| used_total_microblocks       | `number`          | The total number of microblocks included in this block |
+| max_total_block_cost         | `number`          | The maximum possible value for `used_total_block_cost` |
+| max_total_vote_cost          | `number`          | The maximum possible value for `used_total_vote_cost` |
+| max_account_write_cost       | `number`          | The maximum possible value for `used_account_write_cost` |
+| max_total_bytes              | `number`          | The maximum possible value for `used_total_bytes` |
+| max_total_microblocks        | `number`          | The maximum possible value for `used_total_microblocks` |
+
 **`SlotPublish`**
 | Field                        | Type           | Description |
 |------------------------------|----------------|-------------|
@@ -1564,11 +1584,12 @@ initially replay one but the cluster votes on the other one.
 | transaction_fee              | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee                 | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
 | tips                         | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| limits                       | `SlotLimits` | The various protocol-derived resource limits and their corresponding utilization for this block. If `mine` is false, then this value is `null` |
 
 #### `slot.skipped_history`
-| frequency      | type       | example |
-|----------------|------------|---------|
- *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+| frequency       | type       | example |
+|-----------------|------------|---------|
+| *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
 A list of all of the recent leader slots of the validator which were
 skipped. Only two epochs of leader slots are tracked, and skips prior

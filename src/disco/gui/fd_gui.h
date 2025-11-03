@@ -302,6 +302,9 @@ struct fd_gui_leader_slot {
     ulong   end_offset;   /* The largest pack transaction index for this slot, plus 1. The last transaction for this
                              slot will be written to gui->txs[ (start_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
   } txs;
+
+  fd_pack_limits_t       limits      [ 1 ];
+  fd_pack_limits_usage_t limits_usage[ 1 ];
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;
@@ -774,10 +777,10 @@ fd_gui_became_leader( fd_gui_t * gui,
                       ulong      max_microblocks );
 
 void
-fd_gui_unbecame_leader( fd_gui_t * gui,
-                        ulong      slot,
-                        ulong      microblocks_in_slot,
-                        long       now );
+fd_gui_unbecame_leader( fd_gui_t *                gui,
+                        ulong                     _slot,
+                        fd_done_packing_t const * done_packing,
+                        long                      now );
 
 void
 fd_gui_microblock_execution_begin( fd_gui_t *   gui,

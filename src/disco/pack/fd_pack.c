@@ -158,6 +158,7 @@ struct fd_pack_private_addr_use_record {
 };
 typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
 
+FD_STATIC_ASSERT( sizeof(fd_acct_addr_t)==sizeof(fd_pubkey_t), "" );
 
 /* fd_pack_expq_t: An element of an fd_prq to sort the transactions by
    timeout.  This structure has several invariants for entries
@@ -576,6 +577,10 @@ struct fd_pack_private {
      on the max write cost per account per block. */
   fd_pack_addr_use_t   * writer_costs;
 
+  /* top_writers: A simple max heap of the top 5 writers in the slot,
+     used by downstream consumers for monitoring purposes. */
+  fd_pack_writer_cost_t  top_writers[ FD_PACK_TOP_WRITERS_CNT+1UL ];
+
   /* At the end of every slot, we have to clear out writer_costs.  The
      map is large, but typically very sparsely populated.  As an
      optimization, we keep track of the elements of the map that we've
@@ -916,6 +921,8 @@ fd_pack_join( void * mem ) {
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 64UL,               (pack_depth+extra_depth)*pack->bundle_meta_sz      );
 
   FD_MGAUGE_SET( PACK, PENDING_TRANSACTIONS_HEAP_SIZE, pack->pack_depth );
+  memset( pack->top_writers, 0, sizeof(pack->top_writers) );
+
   return pack;
 }
 
@@ -2583,6 +2590,18 @@ fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits ) {
 }
 
 void
+fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits ) {
+  if( FD_LIKELY( opt_limits_usage ) ) {
+    opt_limits_usage->block_cost          = pack->cumulative_block_cost;
+    opt_limits_usage->vote_cost           = pack->cumulative_vote_cost;
+    opt_limits_usage->block_data_bytes    = pack->data_bytes_consumed;
+    opt_limits_usage->microblocks         = pack->microblock_cnt;
+    fd_memcpy( opt_limits_usage->top_write_acct_costs, pack->top_writers, sizeof(fd_pack_writer_cost_t)*FD_PACK_TOP_WRITERS_CNT );
+  }
+  if( FD_LIKELY( opt_limits ) ) fd_memcpy( opt_limits, pack->lim, sizeof(fd_pack_limits_t) );
+}
+
+void
 fd_pack_rebate_cus( fd_pack_t              * pack,
                     fd_pack_rebate_t const * rebate ) {
   if( FD_UNLIKELY( (rebate->ib_result!=0) & (pack->initializer_bundle_state==FD_PACK_IB_STATE_PENDING ) ) ) {
@@ -2613,6 +2632,25 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
     in_wcost_table->total_cost -= rebate->writer_rebates[i].rebate_cus;
     /* Important: Even if this is 0, don't delete it from the table so
        that the insert order doesn't get messed up. */
+
+    /* Update the write account heap. */
+    if( FD_UNLIKELY( !FD_PACK_TOP_WRITERS_SORT_BEFORE( pack->top_writers[ FD_PACK_TOP_WRITERS_CNT ], ((fd_pack_writer_cost_t){ .writer = { .uc = { 1 } }, .cost = in_wcost_table->total_cost }) ) ) ) {
+      int in_heap = 0;
+      for( ulong i = 0UL; i < FD_PACK_TOP_WRITERS_CNT; i++ ) {
+        if( !memcmp( &pack->top_writers[ i ].writer.uc, in_wcost_table->key.b, sizeof(fd_pubkey_t) ) ) {
+          pack->top_writers[ i ].cost = in_wcost_table->total_cost;
+          in_heap = 1;
+          break;
+        }
+      }
+
+      if( FD_LIKELY( !in_heap ) ) {
+        fd_memcpy( &pack->top_writers[ FD_PACK_TOP_WRITERS_CNT ].writer.uc, in_wcost_table->key.b, sizeof(fd_pubkey_t) );
+        pack->top_writers[ FD_PACK_TOP_WRITERS_CNT ].cost = in_wcost_table->total_cost;
+      }
+
+      fd_pack_writer_cost_sort_insert( pack->top_writers, FD_PACK_TOP_WRITERS_CNT+1UL );
+    }
   }
 }
 
@@ -2686,6 +2724,8 @@ fd_pack_end_block( fd_pack_t * pack ) {
     acct_uses_clear( pack->writer_costs );
   }
   pack->written_list_cnt = 0UL;
+
+  memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
   /* compressed_slot_number is > FD_PACK_SKIP_CNT, which means +1 is the
      max unless it overflows. */
