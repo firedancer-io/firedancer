@@ -2634,15 +2634,17 @@ fd_gui_became_leader( fd_gui_t * gui,
 }
 
 void
-fd_gui_unbecame_leader( fd_gui_t * gui,
-                        ulong      _slot,
-                        ulong      microblocks_in_slot,
-                        long       now ) {
+fd_gui_unbecame_leader( fd_gui_t *                gui,
+                        ulong                     _slot,
+                        fd_done_packing_t const * done_packing,
+                        long                      now ) {
   fd_gui_slot_t * slot = fd_gui_get_slot( gui, _slot );
   if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, ULONG_MAX );
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_LIKELY( !lslot ) ) return;
-  lslot->txs.microblocks_upper_bound = (ushort)microblocks_in_slot;
+  lslot->txs.microblocks_upper_bound = (ushort)done_packing->microblocks_in_slot;
+  fd_memcpy( lslot->limits, done_packing->limits, sizeof(fd_pack_limits_t) );
+  fd_memcpy( lslot->limits_usage, done_packing->limits_usage, sizeof(fd_pack_limits_usage_t) );
 
   /* fd_gui_handle_slot_end may have already been called in response to
      a "became_leader" message for a subseqeunt slot. */

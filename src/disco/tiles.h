@@ -150,6 +150,9 @@ typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
 struct fd_done_packing {
    ulong microblocks_in_slot;
+
+   fd_pack_limits_usage_t limits_usage[ 1 ];
+   fd_pack_limits_t limits[ 1 ];
 };
 typedef struct fd_done_packing fd_done_packing_t;
 

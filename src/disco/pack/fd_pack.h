@@ -47,6 +47,20 @@
 /* The percentage of the transaction fees that are burned */
 #define FD_PACK_TXN_FEE_BURN_PCT        50UL
 
+struct fd_pack_writer_cost {
+  fd_pubkey_t writer;
+  ulong       cost;
+};
+
+typedef struct fd_pack_writer_cost fd_pack_writer_cost_t;
+
+#define FD_PACK_TOP_WRITERS_CNT (5UL)
+#define FD_PACK_TOP_WRITERS_SORT_BEFORE(a,b) ( (memcmp( (a).writer.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) && (a).cost>(b).cost) || !memcmp( (b).writer.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ))
+
+#define SORT_NAME fd_pack_writer_cost_sort
+#define SORT_KEY_T fd_pack_writer_cost_t
+#define SORT_BEFORE(a,b) (FD_PACK_TOP_WRITERS_SORT_BEFORE(a,b))
+#include "../../util/tmpl/fd_sort.c"
 
 /* The Solana network and Firedancer implementation details impose
    several limits on what pack can produce.  These limits are grouped in
@@ -95,6 +109,23 @@ struct fd_pack_limits {
 
 };
 typedef struct fd_pack_limits fd_pack_limits_t;
+
+/* fd_pack_limit_usage_t is used to store the actual per-slot resource
+   utilization.  Each utilization field has a corresponding limit field
+   in fd_pack_limits_t which is greater than or equal to the utilization
+   field. */
+struct fd_pack_limits_usage {
+  ulong block_cost;
+  ulong vote_cost;
+
+  /* Contains the top 5 writers in the block. If there are less than 5
+     writeable accounts, unused slots will have their pubkey zeroed out. */
+  fd_pack_writer_cost_t top_write_acct_costs[ FD_PACK_TOP_WRITERS_CNT ];
+  ulong block_data_bytes;
+  ulong microblocks;
+};
+
+typedef struct fd_pack_limits_usage fd_pack_limits_usage_t;
 
 
 /* Forward declare opaque handle */
@@ -204,6 +235,15 @@ FD_FN_PURE ulong fd_pack_bank_tile_cnt( fd_pack_t const * pack );
    the limits, all the remaining microblocks in the block will be empty,
    but the call is valid. */
 void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits );
+
+/* fd_pack_get_block_limits: Copies the currently active pack limits
+   into opt_limits, if opt_limits is not NULL.  Copies the current limit
+   utilization in opt_limits_usage, if opt_limits_usage is not NULL.
+
+   Limit utilization is updated both when each transactions is scheduled
+   and when any used resources are rebated.  The exception is the writer
+   cost usage, which is only updated at rebate time. */
+void fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits );
 
 /* Return values for fd_pack_insert_txn_fini:  Non-negative values
    indicate the transaction was accepted and may be returned in a future

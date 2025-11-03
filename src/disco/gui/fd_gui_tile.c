@@ -462,7 +462,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       break;
     }
     case IN_KIND_PACK_POH: {
-      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot, fd_clock_now( ctx->clock ) );
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_bank_sig_slot( sig ), (fd_done_packing_t const *)ctx->buf, fd_clock_now( ctx->clock ) );
       break;
     }
     case IN_KIND_PACK_BANK: {
