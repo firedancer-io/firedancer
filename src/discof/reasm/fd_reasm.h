@@ -143,6 +143,7 @@ struct __attribute__((aligned(128UL))) fd_reasm_fec {
   uint   fec_set_idx;   /* The index of first shred in the FEC set */
   ushort parent_off;    /* The offset for the parent slot of the FEC set */
   ushort data_cnt;      /* The number of data shreds in the FEC set */
+  int    free;          /* Whether the FEC set is a valid pool member */
   int    data_complete; /* Whether the FEC set completes an entry batch */
   int    slot_complete; /* Whether the FEC set completes the slot */
   int    leader;        /* Whether the FEC set corresponds to FECs produced during a leader slot */
