@@ -60,25 +60,37 @@ repair_stress_topo( config_t * config ) {
 
   /* Workspaces */
   fd_topob_wksp( topo, "net_repair" );
+  fd_topob_wksp( topo, "net_shred"  );
+  fd_topob_wksp( topo, "net_quic"   );
 
   /* Links - repair_net is an input link to net tiles */
   fd_topob_link( topo, "repair_net", "net_repair", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_net_rx_link( topo, "net_repair", i, config->net.ingress_buffer_size );
   for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_tile_in_net(  topo, "metric_in", "repair_net",   i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  //for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
+  fd_topob_link( topo, "shred_net", "net_shred", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_net_rx_link( topo, "net_shred",  i, config->net.ingress_buffer_size );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_tile_in_net(  topo, "metric_in", "shred_net",  i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+
+  fd_topob_link( topo, "quic_net", "net_quic", config->net.ingress_buffer_size, FD_NET_MTU, 1UL );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_net_rx_link( topo, "net_quic",  i, config->net.ingress_buffer_size );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_tile_in_net(  topo, "metric_in", "quic_net",  i,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   /* No repair tile needed - we'll inject directly */
 
   FD_TEST( fd_link_permit_no_producers( topo, "repair_net" ) == 1UL );
   FD_TEST( fd_link_permit_no_consumers( topo, "net_repair" ) == net_tile_cnt );
 
-  config->tiles.send.send_src_port = 0; /* disable send */
-  config->tiles.shred.shred_listen_port = 0; /* disable shred listen */
-  config->tiles.quic.quic_transaction_listen_port = 0; /* disable quic listen */
+  FD_TEST( fd_link_permit_no_producers( topo, "shred_net" ) == 1 );
+  FD_TEST( fd_link_permit_no_consumers( topo, "net_shred" ) == net_tile_cnt );
+
+  FD_TEST( fd_link_permit_no_producers( topo, "quic_net" ) == 1 );
+  FD_TEST( fd_link_permit_no_consumers( topo, "net_quic" ) == net_tile_cnt );
+
+  config->tiles.send.send_src_port = 0;                   /* disable send */
   config->tiles.quic.regular_transaction_listen_port = 0; /* disable regular listen */
-  config->gossip.port = 0; /* disable gossip */
-  config->tiles.repair.repair_serve_listen_port = 0; /* disable repair intake listen */
+  config->gossip.port = 0;                                /* disable gossip */
+  config->tiles.repair.repair_serve_listen_port = 0;      /* disable repair intake listen */
 
   for( ulong i=0UL; i<net_tile_cnt; i++ ) fd_topos_net_tile_finish( topo, i );
 

@@ -994,7 +994,7 @@ user = ""
         # "auto" (default)
         #   Attempts to run in "dedicated" mode but automatically falls
         #   back to "simple" mode if necessary.
-        rss_queue_mode = "auto"
+        rss_queue_mode = "simple"
 
     [net.socket]
         # Sets the socket receive buffer size via SO_RCVBUF.

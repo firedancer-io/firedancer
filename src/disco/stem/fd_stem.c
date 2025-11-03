@@ -613,6 +613,7 @@ STEM_(run1)( ulong                        in_cnt,
         finish_regime = &metric_regime_ticks[7];
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
+        FD_LOG_WARNING(( "Overrun polling fragment %lu from in %u, diff is %ld", seq_found, this_in->idx, diff ));
 
 #ifdef STEM_CALLBACK_AFTER_POLL_OVERRUN
         STEM_CALLBACK_AFTER_POLL_OVERRUN( ctx );
