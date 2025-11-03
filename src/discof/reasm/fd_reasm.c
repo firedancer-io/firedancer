@@ -255,6 +255,7 @@ fd_reasm_insert( fd_reasm_t *      reasm,
   fec->parent_off      = parent_off;
   fec->fec_set_idx     = fec_set_idx;
   fec->data_cnt        = data_cnt;
+  fec->free            = 0;
   fec->data_complete   = data_complete;
   fec->slot_complete   = slot_complete;
   fec->leader          = leader;
@@ -431,8 +432,17 @@ fd_reasm_publish( fd_reasm_t * reasm, fd_hash_t const * merkle_root ) {
 
     fd_reasm_fec_t * next = pool_ele( pool, head->next ); /* pophead */
     pool_ele_release( pool, head );                       /* release */
+    head->free = 1;
     head = next;                                          /* advance */
   }
+
+  /* Clear out any stale, pruned entries from the out queue. */
+  ulong deq_cnt = out_cnt( reasm->out );
+  for( ulong i=0UL; i<deq_cnt; i++ ) {
+    ulong idx = out_pop_head( reasm->out );
+    if( FD_LIKELY( pool_ele( pool, idx )->free==0 ) ) out_push_tail( reasm->out, idx );
+  }
+
   newr->parent = null;                   /* unlink old root */
   reasm->root  = pool_idx( pool, newr ); /* replace with new root */
   return newr;
