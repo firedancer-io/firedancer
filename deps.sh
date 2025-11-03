@@ -266,13 +266,13 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
+  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf coreutils )
 
   echo "[~] Checking for required brew formulae"
 
   local MISSING_FORMULAE=( )
   for formula in "${REQUIRED_FORMULAE[@]}"; do
-    if [[ ! -d "/usr/local/Cellar/$formula" ]]; then
+    if ! brew ls --versions "$formula" >/dev/null 2>&1; then
       MISSING_FORMULAE+=( "$formula" )
     fi
   done
