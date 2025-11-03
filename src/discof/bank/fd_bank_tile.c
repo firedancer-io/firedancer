@@ -337,17 +337,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   int execution_success = 1;
   int transaction_err[ MAX_TXN_PER_MICROBLOCK ];
 
+  /* Every transaction in the bundle should be executed in order against
+     different transaciton contexts. */
   for( ulong i=0UL; i<txn_cnt; i++ ) {
 
     fd_txn_p_t * txn = &txns[ i ];
 
-    /* Setup bundle execution context. */
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];
-    txn_ctx->bundle.is_bundle = 1;
-    txn_ctx->bundle.prev_txn_ctxs_cnt = i;
-    for( ulong j=0UL; j<i; j++ ) {
-      txn_ctx->bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx_bundle[ j ];
-    }
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -361,6 +357,11 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     writable_alt[i] = fd_type_pun_const( txn_ctx->account_keys+TXN( &txn_ctx->txn )->acct_addr_cnt );
   }
 
+  /* If all of the transactions in the bundle executed successfully, we
+     can commit the transactions in order.  At this point, we cann also
+     accumulate unused CUs to the rebate.  Otherwise, if any transaction
+     fails, we need to exclude all the bundle transcations and rebate
+     all of the CUs. . */
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
@@ -393,8 +394,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       txns[ i ].bank_cu.actual_consumed_cus = txns[ i ].pack_cu.non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     }
   } else {
-    /* If any transaction fails in a bundle, then they all fail and
-       every transaction needs to be excluded. */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = &txns[ i ];
 
@@ -534,11 +533,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->status_cache = txncache;
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
-    ctx->txn_ctx_bundle[ i ].bank_hash_cmp = NULL; /* TODO - do we need this? */
-    *(ctx->txn_ctx_bundle[ i ].funk)       = *funk;
-    *(ctx->txn_ctx_bundle[ i ]._progcache) = *progcache;
-    ctx->txn_ctx_bundle[ i ].progcache     = ctx->txn_ctx_bundle[ i ]._progcache;
-    ctx->txn_ctx_bundle[ i ].status_cache  = txncache;
+    ctx->txn_ctx_bundle[ i ].bundle.is_bundle         = 1;
+    ctx->txn_ctx_bundle[ i ].bundle.prev_txn_ctxs_cnt = i;
+    for( ulong j=0UL; j<i; j++ ) {
+      ctx->txn_ctx_bundle[ i ].bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx_bundle[ j ];
+    }
+
+    ctx->txn_ctx_bundle[ i ].bank_hash_cmp    = NULL; /* TODO - do we need this? */
+    ctx->txn_ctx_bundle[ i ].progcache        = ctx->txn_ctx_bundle[ i ]._progcache;
+    ctx->txn_ctx_bundle[ i ].status_cache     = txncache;
+    *(ctx->txn_ctx_bundle[ i ].funk)          = *funk;
+    *(ctx->txn_ctx_bundle[ i ]._progcache)    = *progcache;
   }
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
