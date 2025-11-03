@@ -1024,13 +1024,12 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->features              = fd_bank_features_get( bank );
   txn_ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
   txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, bank_idx } };
-  txn_ctx->capture_ctx           = capture_ctx;
   txn_ctx->txn                   = *txn;
   txn_ctx->exec_stack            = exec_stack;
   txn_ctx->dumping_mem           = dumping_mem;
-
-  txn_ctx->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  txn_ctx->flags                 = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   fd_exec_txn_ctx_setup_basic( txn_ctx );
+  txn_ctx->capture_ctx           = capture_ctx;
 
   /* Set up the core account keys. These are the account keys directly
      passed in via the serialized transaction, represented as an array.
