@@ -518,8 +518,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &bank->cost_tracker_lock );
 
-  bank->flags |= FD_BANK_FLAGS_INIT;
-  bank->flags |= FD_BANK_FLAGS_FROZEN;
+  bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
   bank->first_fec_set_received_nanos      = fd_log_wallclock();
