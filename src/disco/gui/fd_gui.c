@@ -1284,7 +1284,7 @@ fd_gui_request_slot_shreds( fd_gui_t *    gui,
 
   fd_gui_slot_t const * slot = fd_gui_get_slot( gui, _slot );
   if( FD_UNLIKELY( !slot || gui->shreds.history_tail > slot->shreds.end_offset + FD_GUI_SHREDS_HISTORY_SZ ) ) {
-    fd_gui_printf_null_query_response( gui->http, "slot", "query_rankings", request_id );
+    fd_gui_printf_null_query_response( gui->http, "slot", "query_shreds", request_id );
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
     return 0;
   }
