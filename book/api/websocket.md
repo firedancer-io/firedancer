@@ -324,9 +324,11 @@ Frankendancer client will always publish `null` for this message
 | *Once*    | `CatchUpHistory` | see below |
 
 This validator records a history of all slots that were received from
-turbine as well as slots for which a repair request was made while it is
+turbine or repair responses, as well as shred events that occurred while
 catching up.  After catching up, slots are no longer recorded in this
-history.
+history. For repair and turbine slots, the history is available for the
+lifetime of the validator.  Shred events are only available if the
+validator is in the catching up phase.
 
 ::: details Example
 
@@ -336,12 +338,28 @@ history.
 	"key": "catch_up_history",
 	"value": {
         "repair": [11, 12, 13, ...],
-        "turbine": [21, 22, 23, ...]
+        "turbine": [21, 22, 23, ...],
+        "shreds": {
+            "reference_slot": 289245044,
+            "reference_ts": "1739657041588242791",
+            "slot_delta": [0, 0],
+            "shred_idx": [1234, null],
+            "event": [0, 1],
+            "event_ts_delta": ["1000000", "2000000"]
+        }
 	}
 }
 ```
 
 :::
+
+**`CatchUpHistory`**
+| Field      | Type          | Description |
+|------------|---------------|-------------|
+| repair     | `number[]`    | A list of all slots for which a repair shred was received that are older than `summary.caught_up_slot` |
+| turbine    | `number[]`    | A list of all slots for which a turbine shred was received that are older than `summary.caught_up_slot` |
+| shreds     | `SlotShreds`  | A list of shred events which have occurred for this validator in the past 15 seconds. If the validator has already caught up, or has not yet started catching up, then `null` |
+
 
 #### `summary.startup_time_nanos`
 | frequency | type     | example             |
@@ -1805,7 +1823,7 @@ rooted.
 #### `slot.live_shreds`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *10ms*      | `SlotShred[]` | below   |
+| *10ms*      | `SlotShreds` | below   |
 
 The validator sends a continous stream of update messages with detailed
 information about the time and duration of different shred state
@@ -1831,7 +1849,7 @@ and is broadcast to all WebSocket clients.
 
 :::
 
-**`SlotShred`**
+**`SlotShreds`**
 | Field           | Type               | Description |
 |-----------------|--------------------|-------------|
 | reference_slot  | `number`           | The smallest slot number across all the shreds in a given message |
@@ -1844,7 +1862,7 @@ and is broadcast to all WebSocket clients.
 #### `slot.query_shreds`
 | frequency   | type          | example |
 |-------------|---------------|---------|
-| *Request*   | `SlotShred[]\null` | below   |
+| *Request*   | `SlotShreds\|null` | below   |
 
 | param | type     | description |
 |-------|----------|-------------|
