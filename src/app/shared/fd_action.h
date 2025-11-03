@@ -108,10 +108,6 @@ union fdctl_args {
   } quic_trace;
 
   struct {
-    char tile_cpus[ 256UL ];
-  } snapshot_load;
-
-  struct {
     ushort listen_port;
   } udpecho;
 

@@ -30,6 +30,7 @@ metrics_write( fd_verify_ctx_t * ctx ) {
   FD_MCNT_SET( VERIFY, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_fail_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_PARSE_FAILURE,       ctx->metrics.parse_fail_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt );
+  FD_MCNT_SET( VERIFY, GOSSIPED_VOTES_RECEIVED,         ctx->metrics.gossiped_votes_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_VERIFY_FAILURE,      ctx->metrics.verify_fail_cnt );
 }
 
@@ -150,6 +151,8 @@ after_frag( fd_verify_ctx_t *   ctx,
 
     return;
   }
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) ctx->metrics.gossiped_votes_cnt++;
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );

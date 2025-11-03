@@ -1286,6 +1286,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
                          ulong        expires_at,
                          ulong      * delete_cnt ) {
+  *delete_cnt = 0UL;
 
   fd_pack_ord_txn_t * ord = (fd_pack_ord_txn_t *)txne;
 
@@ -1320,7 +1321,6 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
 
   int replaces = 0;
-  *delete_cnt = 0UL;
   /* If it's a durable nonce and we already have one, delete one or the
      other. */
   if( FD_UNLIKELY( is_durable_nonce ) ) {

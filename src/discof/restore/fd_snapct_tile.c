@@ -27,6 +27,7 @@
 /* FIXME: Implement max_retry_abort and retry logic in general */
 /* FIXME: Add more timeout config options and have consistent behavior */
 /* FIXME: Do a finishing pass over the default.toml config options / comments */
+/* FIXME: Improve behavior when using incremental_snapshots = false */
 
 #define GOSSIP_PEERS_MAX (FD_CONTACT_INFO_TABLE_SIZE)
 #define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX)
@@ -333,11 +334,18 @@ rename_snapshots( fd_snapct_tile_t * ctx ) {
 static ulong
 rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
                  fd_topo_tile_t const * tile ) {
-  return 1UL +                                 /* stderr */
-         1UL +                                 /* logfile */
-         3UL +                                 /* dirfd + 2 snapshot file fds in the worst case */
-         !!download_enabled( tile ) +          /* ssping socket */
-         2UL*tile->snapct.sources.servers_cnt; /* http resolver peer sockets (full + incr) */
+  ulong cnt = 1UL +                             /* stderr */
+              1UL;                              /* logfile */
+  if( download_enabled( tile ) ) {
+    cnt +=    1UL +                             /* ssping socket */
+              2UL +                             /* dirfd + full snapshot download temp fd */
+              tile->snapct.sources.servers_cnt; /* http resolver peer full sockets */
+    if( tile->snapct.incremental_snapshots ) {
+      cnt +=  1UL +                             /* incr snapshot download temp fd */
+              tile->snapct.sources.servers_cnt; /* http resolver peer incr sockets */
+    }
+  }
+  return cnt;
 }
 
 static ulong
@@ -1110,31 +1118,20 @@ privileged_init( fd_topo_t *      topo,
     }
   }
 
-  /* FIXME: Do not create the temporary files if downloading is not
-     enabled by the configuration.  Account for this in rlimit. */
-
   ctx->local_out.dir_fd                  = -1;
   ctx->local_out.full_snapshot_fd        = -1;
   ctx->local_out.incremental_snapshot_fd = -1;
+  if( FD_LIKELY( download_enabled( tile ) ) ) {
+    ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_DIRECTORY|O_CLOEXEC );
+    if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open(%s) failed (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
 
-  /* Set up download descriptors because even if we have local
-     snapshots, we may need to download new snapshots if the local
-     snapshots are too old. */
-  ctx->local_out.dir_fd = open( tile->snapct.snapshots_path, O_DIRECTORY|O_CLOEXEC );
-  if( FD_UNLIKELY( -1==ctx->local_out.dir_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", tile->snapct.snapshots_path, errno, fd_io_strerror( errno ) ));
+    ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_FULL_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+    if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_FULL_SNAP_NAME, errno, fd_io_strerror( errno ) ));
 
-  char full_snapshot_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( full_snapshot_path, PATH_MAX, NULL, "%s/" TEMP_FULL_SNAP_NAME, tile->snapct.snapshots_path ) );
-  ctx->local_out.full_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_FULL_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-  if( FD_UNLIKELY( -1==ctx->local_out.full_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", full_snapshot_path, errno, fd_io_strerror( errno ) ));
-
-  if( FD_LIKELY( tile->snapct.incremental_snapshots ) ) {
-    char incremental_snapshot_path[ PATH_MAX ];
-    FD_TEST( fd_cstr_printf_check( incremental_snapshot_path, PATH_MAX, NULL, "%s/" TEMP_INCR_SNAP_NAME, tile->snapct.snapshots_path ) );
-    ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
-    if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open() failed `%s` (%i-%s)", incremental_snapshot_path, errno, fd_io_strerror( errno ) ));
-  } else {
-    ctx->local_out.incremental_snapshot_fd = -1;
+    if( FD_LIKELY( tile->snapct.incremental_snapshots ) ) {
+      ctx->local_out.incremental_snapshot_fd = openat( ctx->local_out.dir_fd, TEMP_INCR_SNAP_NAME, O_WRONLY|O_CREAT|O_TRUNC|O_NONBLOCK, S_IRUSR|S_IWUSR );
+      if( FD_UNLIKELY( -1==ctx->local_out.incremental_snapshot_fd ) ) FD_LOG_ERR(( "open(%s/%s) failed (%i-%s)", tile->snapct.snapshots_path, TEMP_INCR_SNAP_NAME, errno, fd_io_strerror( errno ) ));
+    }
   }
 }
 

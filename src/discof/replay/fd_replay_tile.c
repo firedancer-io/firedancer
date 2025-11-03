@@ -2244,7 +2244,7 @@ maybe_verify_shred_version( fd_replay_tile_t * ctx ) {
     xor = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
 
     if( FD_UNLIKELY( expected_shred_version!=xor ) ) {
-      FD_LOG_ERR(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, FD_BASE58_ENC_32_ALLOCA( &ctx->genesis_hash ) ));
+      FD_LOG_WARNING(( "shred version mismatch: expected %u but got %u from genesis hash %s and hard forks", expected_shred_version, xor, FD_BASE58_ENC_32_ALLOCA( &ctx->genesis_hash ) ));
     }
   }
 }

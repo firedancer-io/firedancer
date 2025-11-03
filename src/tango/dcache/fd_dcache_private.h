@@ -20,9 +20,9 @@ struct __attribute__((aligned(FD_DCACHE_ALIGN))) fd_dcache_private_hdr {
   ulong app_sz;  /* Size of the application region in bytes */
   ulong app_off; /* Location of the application region relative to first byte of the header */
 
-  /* Padding to FD_DCACHE_ALIGN here */
+  /* Padding to FD_DCACHE_SLOT_ALIGN here */
 
-  uchar __attribute__((aligned(FD_DCACHE_ALIGN))) guard[ FD_DCACHE_GUARD_FOOTPRINT ];
+  uchar __attribute__((aligned(FD_DCACHE_SLOT_ALIGN))) guard[ FD_DCACHE_GUARD_FOOTPRINT ];
 
   /* Padding to FD_DCACHE_ALIGN here (probably zero) */
 

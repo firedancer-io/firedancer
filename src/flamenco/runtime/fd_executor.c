@@ -1030,7 +1030,7 @@ fd_executor_setup_txn_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
 
 /* Resolves any address lookup tables referenced in the transaction and adds
    them to the transaction's account keys. Returns 0 on success or if the transaction
-   is a legacy transaction, and 1 on failure. */
+   is a legacy transaction, and an FD_RUNTIME_TXN_ERR_* on failure. */
 int
 fd_executor_setup_txn_alut_account_keys( fd_exec_txn_ctx_t * txn_ctx ) {
   if( TXN( &txn_ctx->txn )->transaction_version == FD_TXN_V0 ) {

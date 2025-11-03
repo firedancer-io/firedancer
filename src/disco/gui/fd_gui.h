@@ -749,12 +749,12 @@ struct fd_gui {
   struct {
     ulong staged_next_broadcast; /* staged[ staged_next_broadcast % FD_GUI_SHREDS_STAGING_SZ ] is the first shred event
                                     that hasn't yet been broadcast to WebSocket clients */
-    ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the valid event in staged */
-    ulong staged_tail;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the last valid event in staged */
+    ulong staged_head;            /* staged_head % FD_GUI_SHREDS_STAGING_SZ is the first valid event in staged */
+    ulong staged_tail;            /* staged_tail % FD_GUI_SHREDS_STAGING_SZ is one past the last valid event in staged */
     fd_gui_slot_staged_shred_event_t  staged [ FD_GUI_SHREDS_STAGING_SZ ];
 
     ulong history_slot;          /* the largest slot store in history */
-    ulong history_tail;          /* history_tail % FD_GUI_SHREDS_STAGING_SZ is the last valid event in history +1 */
+    ulong history_tail;          /* history_tail % FD_GUI_SHREDS_HISTORY_SZ is one past the last valid event in history */
     fd_gui_slot_history_shred_event_t history[ FD_GUI_SHREDS_HISTORY_SZ ];
 
     /* scratch space for stable sorts */

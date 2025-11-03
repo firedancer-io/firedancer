@@ -222,6 +222,7 @@
 | <span class="metrics-name">verify_&#8203;transaction_&#8203;parse_&#8203;failure</span> | counter | Count of transactions that failed to parse |
 | <span class="metrics-name">verify_&#8203;transaction_&#8203;dedup_&#8203;failure</span> | counter | Count of transactions that failed to deduplicate in the verify stage |
 | <span class="metrics-name">verify_&#8203;transaction_&#8203;verify_&#8203;failure</span> | counter | Count of transactions that failed to deduplicate in the verify stage |
+| <span class="metrics-name">verify_&#8203;gossiped_&#8203;votes_&#8203;received</span> | counter | Count of simple vote transactions received over gossip instead of via the normal TPU path |
 
 </div>
 
@@ -1090,5 +1091,16 @@
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;fill_&#8203;fails</span> | counter | Number of program cache load fails (tombstones inserted) |
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;dup_&#8203;inserts</span> | counter | Number of time two tiles raced to insert the same cache entry |
 | <span class="metrics-name">exec_&#8203;progcache_&#8203;invalidations</span> | counter | Number of program cache invalidations |
+
+</div>
+
+## Snapwr Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwr_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
+| <span class="metrics-name">snapwr_&#8203;vinyl_&#8203;bytes_&#8203;written</span> | gauge | Number of bytes written so far to the vinyl snapshot file. Might decrease if snapshot creation is aborted and restarted |
 
 </div>
