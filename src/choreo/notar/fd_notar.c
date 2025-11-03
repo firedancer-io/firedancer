@@ -39,7 +39,7 @@ fd_notar_new( void * shmem, ulong blk_max ) {
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_notar_align() ) == (ulong)shmem + footprint );
 
   notar->blks = fd_notar_blk_new( blks, lg_blk_max );
-  notar->vtrs = fd_notar_blk_new( vtrs, lg_blk_max );
+  notar->vtrs = fd_notar_vtr_new( vtrs, lg_blk_max );
 
   return shmem;
 }

@@ -518,7 +518,7 @@ fd_banks_init_bank( fd_banks_t * banks ) {
   bank->cost_tracker_pool_idx = fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) );
   fd_rwlock_unwrite( &bank->cost_tracker_lock );
 
-  bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_FROZEN | FD_BANK_FLAGS_REPLAYABLE;
+  bank->flags |= FD_BANK_FLAGS_INIT | FD_BANK_FLAGS_REPLAYABLE | FD_BANK_FLAGS_FROZEN;
   bank->refcnt = 0UL;
 
   bank->first_fec_set_received_nanos      = fd_log_wallclock();
@@ -796,12 +796,12 @@ fd_banks_advance_root( fd_banks_t * banks,
     /* Decide if we need to free any CoW fields. We free a CoW member
        from its pool if the dirty flag is set unless it is the same
        pool that the new root uses. */
-    #define HAS_COW_1(name)                                                          \
-      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx ) { \
-        fd_rwlock_write( &banks->name##_pool_lock );                                 \
-        fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );      \
-        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );     \
-        fd_rwlock_unwrite( &banks->name##_pool_lock );                               \
+    #define HAS_COW_1(name)                                                                                                  \
+      if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) { \
+        fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
+        fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                              \
+        fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
+        fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
       }
     /* Do nothing for these. */
     #define HAS_COW_0(name)
