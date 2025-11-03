@@ -222,13 +222,17 @@ fd_bn254_g1_scalar_mul_syscall( uchar       out[64],
 int
 fd_bn254_pairing_is_one_syscall( uchar       out[32],
                                  uchar const in[],
-                                 ulong       in_sz ) {
+                                 ulong       in_sz,
+                                 int         check_correct_sz ) {
   /* https://github.com/anza-xyz/agave/blob/v1.18.6/sdk/program/src/alt_bn128/mod.rs#L244
      Note: this check doesn't do anything because
      192usize.checked_rem(192) = Some(0)
      i.e., this is NOT checking that in_sz % 192 == 0.
      i.e., this is NOT needed:
-     if( FD_UNLIKELY( (in_sz%192UL)!=0 ) ) return -1; */
+     if( FD_UNLIKELY( (in_sz%192UL)!=0 ) ) return -1;
+     Update: https://github.com/anza-xyz/solana-sdk/blob/6fde5263/bn254/src/pairing.rs#L66-L83 */
+  if( FD_UNLIKELY( check_correct_sz && (in_sz%192UL)!=0 ) ) return -1;
+
   ulong elements_len = in_sz / 192UL;
   fd_bn254_g1_t p[FD_BN254_PAIRING_BATCH_MAX];
   fd_bn254_g2_t q[FD_BN254_PAIRING_BATCH_MAX];

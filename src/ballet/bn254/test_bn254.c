@@ -339,7 +339,8 @@ int main( int     argc,
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
         FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
-      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 0 )==0 );
+      FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 32 );
       if( !fd_memeq( res, exp, 32 ) ) {
@@ -389,7 +390,7 @@ int main( int     argc,
       ulong iter = 100UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_pairing_is_one_syscall( res, in, in_sz );
+        fd_bn254_pairing_is_one_syscall( res, in, in_sz, 1 );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_pairing_is_one_syscall", iter, dt );
