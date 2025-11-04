@@ -854,6 +854,7 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
 
   #define HAS_COW_1(type, name, footprint)                                                                                  \
     fd_bank_##name##_t * name##_pool = fd_bank_get_##name##_pool( bank );                                                   \
+    fd_rwlock_write( fd_bank_get_##name##_pool_lock( bank ) );                                                              \
     if( bank->name##_dirty ) {                                                                                              \
       /* If the dirty flag is set, then we have a pool allocated for */                                                     \
       /* this specific bank. We need to release the pool index and   */                                                     \
@@ -861,7 +862,8 @@ fd_banks_clear_bank( fd_banks_t * banks, fd_bank_t * bank ) {
       fd_bank_##name##_pool_idx_release( name##_pool, bank->name##_pool_idx );                                              \
       bank->name##_dirty    = 0;                                                                                            \
       bank->name##_pool_idx = parent_bank ? parent_bank->name##_pool_idx : fd_bank_##name##_pool_idx_null( name##_pool );   \
-    }
+    }                                                                                                                       \
+    fd_rwlock_unwrite( fd_bank_get_##name##_pool_lock( bank ) );
 
   #define HAS_COW_0(type, name, footprint)
 
