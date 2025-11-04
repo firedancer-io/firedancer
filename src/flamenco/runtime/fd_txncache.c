@@ -293,6 +293,7 @@ fd_txncache_finalize_fork( fd_txncache_t *       tc,
 
   blockcache_t * fork = &tc->blockcache_pool[ fork_id.val ];
   FD_TEST( fork->shmem->frozen<=1 );
+  FD_TEST( fork->shmem->frozen>=0 );
   fork->shmem->txnhash_offset = txnhash_offset;
 
   memcpy( fork->shmem->blockhash.uc, blockhash, 32UL );
@@ -313,6 +314,7 @@ remove_blockcache( fd_txncache_t * tc,
   for( ulong i=0UL; i<tc->shmem->active_slots_max; i++ ) descends_set_remove( tc->blockcache_pool[ i ].descends, idx );
 
   if( FD_LIKELY( blockcache->shmem->frozen ) ) blockhash_map_ele_remove_fast( tc->blockhash_map, blockcache->shmem, tc->blockcache_shmem_pool );
+  blockcache->shmem->frozen = -1;
   blockcache_pool_ele_release( tc->blockcache_shmem_pool, blockcache->shmem );
 }
 
@@ -408,6 +410,7 @@ fd_txncache_insert( fd_txncache_t *       tc,
 
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
   FD_TEST( fork->shmem->frozen<=1 );
+  FD_TEST( fork->shmem->frozen>=0 );
   blockcache_t * blockcache = blockhash_on_fork( tc, fork, blockhash );
 
   /* TODO: We can't print the full txnhash here typically because we
@@ -444,6 +447,8 @@ fd_txncache_query( fd_txncache_t *       tc,
 
   blockcache_t const * fork = &tc->blockcache_pool[ fork_id.val ];
   blockcache_t const * blockcache = blockhash_on_fork( tc, fork, blockhash );
+  FD_TEST( fork->shmem->frozen>=0 );
+  FD_TEST( blockcache->shmem->frozen==2 );
 
   /* TODO: We can't print the full txnhash here typically because we
      might only be able to see 20 bytes, but we need to print it for
@@ -457,7 +462,8 @@ fd_txncache_query( fd_txncache_t *       tc,
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
     fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
 
-    int descends = (txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val )) && fork->shmem->generation==txn->generation;
+    blockcache_t const * txn_fork = &tc->blockcache_pool[ txn->fork_id.val ];
+    int descends = (txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val )) && txn_fork->shmem->frozen>=0 && txn_fork->shmem->generation==txn->generation;
     if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
       found = 1;
       break;
