@@ -5,7 +5,6 @@
 #include "../../shared_dev/commands/dev.h"
 #include "../../../disco/metrics/fd_metrics.h"
 #include "../../../disco/topo/fd_topob.h"
-#include "../../../disco/pack/fd_pack.h"
 #include "../../../disco/pack/fd_pack_cost.h"
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
@@ -16,7 +15,20 @@
 #include <unistd.h>
 #include <stdio.h>
 
+#include "../../../flamenco/accdb/fd_accdb_user.h"
+#include "../../../vinyl/meta/fd_vinyl_meta.h"
+#include "../../../discof/restore/fd_snapin_tile_private.h"
+#include "../../../flamenco/runtime/fd_hashes.h"
+
 #define NAME "snapshot-load"
+
+#define LTHASH_CSV_DUMP_ENABLED (0)
+#if LTHASH_CSV_DUMP_ENABLED
+#define LTHASH_CSV_DUMP(...) __VA_ARGS__
+#else
+#define LTHASH_CSV_DUMP(...)
+#endif
+
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
 
@@ -288,6 +300,154 @@ snapshot_load_cmd_fn( args_t *   args,
 
     next+=1000L*1000L*1000L;
   }
+  puts( "snapshot load done" );
+
+  FD_COMPILER_MFENCE();
+
+#if LTHASH_CSV_DUMP_ENABLED
+  /* prepare csv file */
+  FILE *csv_file_ptr;
+  csv_file_ptr = fopen("lthash.csv", "w");
+  if (csv_file_ptr == NULL) { printf("Error opening file!\n"); return; }
+  // /* Preallocate 1GB of space */
+  // off_t preallocate_size = 1024 * 1024 * 1024; // 1GB
+  // if (ftruncate(fileno(csv_file_ptr), preallocate_size) != 0) {
+  //     perror("Error preallocating file space");
+  //     fclose(csv_file_ptr);
+  //     return;
+  // }
+  fprintf( csv_file_ptr, "db,pubkey,lthash,lthash_sum\n" );
+#endif
+
+  /* verification */
+  if( 1 ) {
+    void * scratch = fd_topo_obj_laddr( topo, snapin_tile->tile_obj_id );
+    FD_SCRATCH_ALLOC_INIT( l, scratch );
+    fd_snapin_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapin_tile_t), sizeof(fd_snapin_tile_t) );
+
+    fd_lthash_value_t lthash_sum_vinyl[1];
+    fd_lthash_value_t lthash_sum_funk[1];
+    fd_lthash_zero( lthash_sum_vinyl );
+    fd_lthash_zero( lthash_sum_funk );
+
+    ulong cnt_vinyl=0UL;
+    ulong cnt_funk=0UL;
+    ulong pairs_cnt_vinyl = 0UL;
+    ulong pairs_cnt_funk = 0UL;
+
+    LTHASH_CSV_DUMP( char * base58_enc32_out0 = fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ ) );
+    LTHASH_CSV_DUMP( char * base58_enc32_out1 = fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ ) );
+    LTHASH_CSV_DUMP( char * base58_enc32_out2 = fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ ) );
+
+    if( ctx->use_vinyl ) {
+      /* vinyl version */
+      FD_LOG_NOTICE(( "VINYL" ));
+
+      ulong vinyl_map_ele_max   = fd_vinyl_meta_ele_max  ( ctx->vinyl.map );
+
+      for( ulong ele_i=0; ele_i < vinyl_map_ele_max; ele_i++ ) {
+        fd_vinyl_meta_ele_t const * ele = ctx->vinyl.map->ele + ele_i;
+
+        if( FD_UNLIKELY( fd_vinyl_meta_private_ele_is_free( ctx->vinyl.map->ctx, ele ) ) ) continue;
+
+        fd_vinyl_bstream_phdr_t _phdr      = ele->phdr;
+        ulong                   _seq       = ele->seq;
+        FD_TEST( !!_phdr.ctl );
+
+        cnt_vinyl++;
+
+        fd_vinyl_bstream_block_t * block = (void *)( ctx->vinyl.bstream_mem + _seq );
+        ulong                   ctl  = FD_VOLATILE_CONST( block->ctl  );
+        fd_vinyl_bstream_phdr_t phdr = FD_VOLATILE_CONST( block->phdr );
+        int   block_type = fd_vinyl_bstream_ctl_type( ctl );
+
+        if( FD_LIKELY( block_type==FD_VINYL_BSTREAM_CTL_TYPE_PAIR ) ) {
+
+          uchar * pair = (uchar*)block;
+          pair += sizeof(fd_vinyl_bstream_phdr_t);
+          fd_account_meta_t * meta = (fd_account_meta_t *)pair;
+          pair += sizeof(fd_account_meta_t);
+          uchar * data = pair;
+
+          fd_lthash_value_t new_hash[1];
+          fd_pubkey_t * account_pubkey = (fd_pubkey_t*)(phdr.key.c);
+          fd_hashes_account_lthash( account_pubkey, meta, data, new_hash );
+          fd_lthash_add( lthash_sum_vinyl, new_hash );
+          // FD_LOG_NOTICE(( "vinyl account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum_vinyl ) ));
+          LTHASH_CSV_DUMP( fd_base58_enc_32_fmt( base58_enc32_out0, (uchar const *)(account_pubkey) ) );
+          LTHASH_CSV_DUMP( FD_LTHASH_ENC_32_BUF( (uchar const *)(new_hash->bytes), base58_enc32_out1 ) );
+          LTHASH_CSV_DUMP( FD_LTHASH_ENC_32_BUF( (uchar const *)(lthash_sum_vinyl), base58_enc32_out2 ) );
+          LTHASH_CSV_DUMP( fprintf( csv_file_ptr, "vinyl,%32s,%32s,%32s\n", base58_enc32_out0, base58_enc32_out1, base58_enc32_out2 ) );
+
+          pairs_cnt_vinyl++;
+        }
+      }
+      /* summary stats */
+      FD_LOG_NOTICE(( "... cnt %lu", cnt_vinyl ));
+      FD_LOG_NOTICE(( "... pairs_cnt %lu", pairs_cnt_vinyl ));
+      FD_LOG_NOTICE(( "... lthash_sum %32s", FD_LTHASH_ENC_32_ALLOCA( lthash_sum_vinyl ) ));
+    }
+    else {
+      /* funk version */
+      FD_LOG_NOTICE(( "FUNK" ));
+
+      fd_accdb_user_t accdb_[1];
+      fd_accdb_user_t * accdb = fd_accdb_user_join( fd_accdb_user_new( accdb_ ), ctx->accdb_admin->funk->shmem );
+      FD_TEST( accdb );
+
+      fd_funk_t * funk = accdb->funk;
+      fd_funk_rec_map_t  const * rec_map = funk->rec_map;
+      fd_funk_rec_t const * ele = rec_map->ele;
+
+      fd_funk_rec_map_shmem_private_chain_t const * chain = fd_funk_rec_map_shmem_private_chain_const( rec_map->map, 0UL );
+      ulong chain_cnt = fd_funk_rec_map_chain_cnt( rec_map );
+      FD_LOG_WARNING(( "chain_cnt %lu", chain_cnt ));
+      for( ulong chain_i=0UL; chain_i < chain_cnt; chain_i++ ) {
+
+        ulong ver_cnt = chain[ chain_i ].ver_cnt;
+        ulong ele_cnt = fd_funk_rec_map_private_vcnt_cnt( ver_cnt );
+
+        ulong head_i = fd_funk_rec_map_private_idx( chain[ chain_i ].head_cidx );
+        ulong ele_i = head_i;
+
+        for( ulong ele_rem=ele_cnt; ele_rem; ele_rem-- ) {
+          cnt_funk++;
+
+          fd_funk_xid_key_pair_t const * pair = &ele[ ele_i ].pair;
+          fd_pubkey_t * account_pubkey = (fd_pubkey_t*)pair->key->uc;
+
+          fd_funk_rec_query_t query[1];
+          fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, pair->xid, pair->key, query );
+          FD_TEST( !!rec );
+
+          fd_account_meta_t * meta = fd_funk_val( rec, funk->wksp );
+          FD_TEST( !!meta );
+
+          uchar * data = ((uchar*)meta) + sizeof(fd_account_meta_t);
+
+          fd_lthash_value_t new_hash[1];
+          fd_hashes_account_lthash( account_pubkey, meta, data, new_hash );
+          fd_lthash_add( lthash_sum_funk, new_hash );
+          // FD_LOG_NOTICE(( "funk  account_pubkey %32s  lthash %32s  lthash_sum %32s", FD_BASE58_ENC_32_ALLOCA( account_pubkey ), FD_LTHASH_ENC_32_ALLOCA( new_hash->bytes ), FD_LTHASH_ENC_32_ALLOCA( lthash_sum_funk ) ));
+          LTHASH_CSV_DUMP( fd_base58_enc_32_fmt( base58_enc32_out0, (uchar const *)(account_pubkey) ) );
+          LTHASH_CSV_DUMP( FD_LTHASH_ENC_32_BUF( (uchar const *)(new_hash->bytes), base58_enc32_out1 ) );
+          LTHASH_CSV_DUMP( FD_LTHASH_ENC_32_BUF( (uchar const *)(lthash_sum_funk), base58_enc32_out2 ) );
+          LTHASH_CSV_DUMP( fprintf( csv_file_ptr, "funk,%32s,%32s,%32s\n", base58_enc32_out0, base58_enc32_out1, base58_enc32_out2 ) );
+
+          ele_i = fd_funk_rec_map_private_idx( ele[ ele_i ].map_next );
+
+          pairs_cnt_funk++;
+        }
+      }
+      fd_accdb_user_delete( fd_accdb_user_leave( accdb, NULL ) );
+      /* summary stats */
+      FD_LOG_NOTICE(( "... cnt %lu", cnt_funk ));
+      FD_LOG_NOTICE(( "... pairs_cnt %lu", pairs_cnt_funk ));
+      FD_LOG_NOTICE(( "... lthash_sum %32s", FD_LTHASH_ENC_32_ALLOCA( lthash_sum_funk ) ));
+    }
+  }
+  /* Close csv file */
+  LTHASH_CSV_DUMP( fclose(csv_file_ptr) );
 }
 
 action_t fd_action_snapshot_load = {
