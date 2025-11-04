@@ -145,6 +145,7 @@ fd_txncache_shmem_new( void * shmem,
 
   fd_txncache_blockcache_shmem_t * blockcache_pool = blockcache_pool_join( blockcache_pool_new( _blockcache_pool, max_active_slots ) );
   FD_TEST( blockcache_pool );
+  for( ulong i=0UL; i<max_active_slots; i++ ) blockcache_pool[ i ].frozen = -1;
 
   blockhash_map_t * blockhash_map = blockhash_map_join( blockhash_map_new( _blockhash_map, blockhash_map_chains, 0UL /* seed not used */ ) );
   FD_TEST( blockhash_map );

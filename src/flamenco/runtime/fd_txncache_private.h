@@ -45,8 +45,11 @@ struct fd_txncache_blockcache_shmem {
   fd_txncache_fork_id_t child_id;
   fd_txncache_fork_id_t sibling_id;
 
-  int frozen;            /* If non-zero, the blockcache is frozen and should not be modified.  This is used to enforce
-                            invariants on the caller of the txncache. */
+  int frozen;            /* This is used to enforce invariants on the caller of the txncache.
+                            -1: invalid
+                             0: active
+                             1: semi frozen, only happens during snapshot load
+                             2: frozen, should not be modified */
 
   uint generation;
 
