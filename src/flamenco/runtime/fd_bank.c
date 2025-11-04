@@ -67,6 +67,7 @@ fd_bank_footprint( void ) {
     }                                                                                                              \
     bank->name##_pool_idx = child_idx;                                                                             \
     bank->name##_dirty    = 1;                                                                                     \
+    FD_LOG_INFO(( "ACQUIRED " #name " USED: %lu POOL IDX %lu BANK IDX %lu", fd_bank_##name##_pool_used( name##_pool ), child_idx, bank->name##_pool_idx )); \
     return (type *)child_##name->data;                                                                             \
   }                                                                                                                \
   void                                                                                                             \
@@ -801,6 +802,7 @@ fd_banks_advance_root( fd_banks_t * banks,
         fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
         fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                              \
         fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
+        FD_LOG_INFO(( "RELEASED " #name " USED: %lu POOL IDX %lu BANK IDX %lu", fd_bank_##name##_pool_used( name##_pool ), head->name##_pool_idx, head->idx )); \
         fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
       }
     /* Do nothing for these. */
@@ -815,6 +817,7 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );
+    FD_LOG_INFO(( "RELEASED BANK USED %lu IDX %lu", fd_banks_pool_used( bank_pool ), head->idx ));
     head = next;
   }
 
@@ -1110,6 +1113,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   child_bank->first_fec_set_received_nanos = now;
   child_bank->first_transaction_scheduled_nanos = 0L;
   child_bank->last_transaction_finished_nanos = 0L;
+
+  FD_LOG_INFO(( "ACQUIRED BANK USED %lu IDX %lu", fd_banks_pool_used( bank_pool ), child_bank_idx ));
 
   fd_rwlock_unwrite( &banks->rwlock );
   return child_bank;
