@@ -1407,7 +1407,7 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
-        else                                                jsonp_long( gui->http, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
                          || slot->vote_txn_cnt==UINT_MAX
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
@@ -1480,7 +1480,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
-        else                                                jsonp_long( gui->http, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
                          || slot->vote_txn_cnt==UINT_MAX
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
@@ -1521,7 +1521,7 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
 
         jsonp_open_object( gui->http, "transactions" );
           jsonp_long_as_str( gui->http, "start_timestamp_nanos", lslot->leader_start_time );
-          jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_start_time );
+          jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time );
           jsonp_open_array( gui->http, "txn_mb_start_timestamps_nanos" );
             for( ulong i=0UL; i<txn_cnt; i++) jsonp_long_as_str( gui->http, NULL, lslot->leader_start_time + (long)gui->txs[ (lslot->txs.start_offset + i)%FD_GUI_TXN_HISTORY_SZ ]->timestamp_delta_start_nanos );
           jsonp_close_array( gui->http );
@@ -1690,7 +1690,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui->http, "completed_time_nanos" );
-        else                                                jsonp_long( gui->http, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui->http, "completed_time_nanos", slot->completed_time );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX
                          || slot->vote_txn_cnt==UINT_MAX
                          || slot->nonvote_failed_txn_cnt==UINT_MAX ) ) jsonp_null( gui->http, "success_nonvote_transaction_cnt" );
