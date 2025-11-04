@@ -1772,7 +1772,6 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
-                     ulong      fec_idx,
                      int        is_turbine,
                      long       tsorig ) {
   int was_sent = fd_gui_ephemeral_slots_contains( gui->summary.slots_max_turbine, FD_GUI_TURBINE_SLOT_HISTORY_SZ, slot );
@@ -1791,9 +1790,38 @@ fd_gui_handle_shred( fd_gui_t * gui,
   gui->shreds.staged_tail++;
   recv_event->timestamp = tsorig;
   recv_event->shred_idx = (ushort)shred_idx;
-  recv_event->fec_idx   = (ushort)fec_idx;
   recv_event->slot      = slot;
   recv_event->event     = fd_uchar_if( is_turbine, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE, FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR );
+}
+
+void
+fd_gui_handle_exec_txn_done( fd_gui_t * gui,
+                             ulong      slot,
+                             ulong      start_shred_idx,
+                             ulong      end_shred_idx,
+                             long       tsorig_ns FD_PARAM_UNUSED,
+                             long       tspub_ns ) {
+  for( ulong i = start_shred_idx; i<end_shred_idx; i++ ) {
+    /*
+      We're leaving this state transition out due to its proximity to
+      FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE, but if we ever wanted
+      to send this data to the frontend we could.
+
+      fd_gui_slot_staged_shred_event_t * exec_start_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+      gui->shreds.staged_tail++;
+      exec_start_event->timestamp = tsorig_ns;
+      exec_start_event->shred_idx = (ushort)i;
+      exec_start_event->slot      = slot;
+      exec_start_event->event     = FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START;
+    */
+
+    fd_gui_slot_staged_shred_event_t * exec_end_event = &gui->shreds.staged[ gui->shreds.staged_tail % FD_GUI_SHREDS_STAGING_SZ ];
+    gui->shreds.staged_tail++;
+    exec_end_event->timestamp = tspub_ns;
+    exec_end_event->shred_idx = (ushort)i;
+    exec_end_event->slot      = slot;
+    exec_end_event->event     = FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE;
+  }
 }
 
 void
@@ -2646,7 +2674,6 @@ fd_gui_handle_replay_update( fd_gui_t *                gui,
   slot_complete_event->event     = FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE;
   slot_complete_event->timestamp = slot_completed->completed_time;
   slot_complete_event->shred_idx = USHORT_MAX;
-  slot_complete_event->fec_idx   = USHORT_MAX;
   slot_complete_event->slot      = slot->slot;
 }
 

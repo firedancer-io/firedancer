@@ -45,6 +45,11 @@ typedef union fd_exec_task_msg fd_exec_task_msg_t;
 struct fd_exec_txn_exec_done_msg {
   ulong txn_idx;
   int   err;
+
+  /* used by monitoring tools */
+  ulong slot;
+  ushort start_shred_idx;
+  ushort end_shred_idx;
 };
 typedef struct fd_exec_txn_exec_done_msg fd_exec_txn_exec_done_msg_t;
 

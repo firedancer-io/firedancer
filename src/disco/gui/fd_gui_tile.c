@@ -24,6 +24,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
 #include "../../disco/plugin/fd_plugin.h"
+#include "../../discof/replay/fd_exec.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
 #include "../../ballet/json/cJSON_alloc.h"
@@ -51,6 +52,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
 #define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
 #define IN_KIND_SNAPIN       (15UL) /* firedancer only */
+#define IN_KIND_EXEC_REPLAY  (16UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -105,6 +107,7 @@ typedef struct {
      here to handle those cases until fd_clock is more widely adopted. */
   long ref_wallclock;
   long ref_tickcount;
+  const double tick_per_ns;
 
   fd_clock_t clock[1];
   long       recal_next; /* next recalibration time (ns) */
@@ -187,7 +190,7 @@ before_credit( fd_gui_ctx_t *      ctx,
   long now = fd_tickcount();
   if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
     charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
-    ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL ) * 128L * 1000L);
+    ctx->next_poll_deadline = fd_tickcount() + (long)(ctx->tick_per_ns * 128L * 1000L);
   }
 
   int charge_poll = 0;
@@ -280,6 +283,19 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_PLUGIN: {
       FD_TEST( !ctx->is_full_client );
       fd_gui_plugin_message( ctx->gui, sig, ctx->buf, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_EXEC_REPLAY: {
+      FD_TEST( ctx->is_full_client );
+      if( FD_LIKELY( sig>>32==FD_EXEC_TT_TXN_EXEC ) ) {
+        fd_exec_task_done_msg_t * msg = (fd_exec_task_done_msg_t *)ctx->buf;
+
+        long tickcount = fd_tickcount();
+        long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        long tspub_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, tickcount ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        fd_gui_handle_exec_txn_done( ctx->gui, msg->txn_exec->slot, msg->txn_exec->start_shred_idx, msg->txn_exec->end_shred_idx, tsorig_ns, tspub_ns );
+      }
+
       break;
     }
     case IN_KIND_REPLAY_OUT: {
@@ -396,10 +412,9 @@ after_frag( fd_gui_ctx_t *      ctx,
         ulong slot = fd_disco_shred_out_shred_sig_slot( sig );
         int is_turbine = fd_disco_shred_out_shred_sig_is_turbine( sig );
         ulong shred_idx  = fd_disco_shred_out_shred_sig_shred_idx( sig );
-        ulong fec_idx  = fd_disco_shred_out_shred_sig_fec_set_idx( sig );
         /* tsorig is the timestamp when the shred was received by the shred tile */
-        long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
-        fd_gui_handle_shred( ctx->gui, slot, shred_idx, fec_idx, is_turbine, tsorig_nanos );
+        long tsorig_nanos = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
+        fd_gui_handle_shred( ctx->gui, slot, shred_idx, is_turbine, tsorig_nanos );
       }
       break;
     }
@@ -414,7 +429,7 @@ after_frag( fd_gui_ctx_t *      ctx,
       ulong payload_sz;
       if( FD_LIKELY( fd_ip4_udp_hdr_strip( ctx->buf, sz, &payload, &payload_sz, NULL, NULL, NULL ) ) ) {
         fd_repair_msg_t const * msg = (fd_repair_msg_t const *)payload;
-        long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+        long tsorig_ns = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tsorig, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         switch ( msg->kind ) {
           case FD_REPAIR_KIND_PING:
           case FD_REPAIR_KIND_PONG:
@@ -472,7 +487,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_PACK_BANK: {
       if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
         fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
-        long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+        long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
         fd_gui_microblock_execution_begin( ctx->gui,
                                           now,
                                           fd_disco_poh_sig_slot( sig ),
@@ -487,7 +502,7 @@ after_frag( fd_gui_ctx_t *      ctx,
     }
     case IN_KIND_BANK_POH: {
       fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
-      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / fd_tempo_tick_per_ns( NULL ));
+      long now = ctx->ref_wallclock + (long)((double)(fd_frag_meta_ts_decomp( tspub, fd_tickcount() ) - ctx->ref_tickcount) / ctx->tick_per_ns);
       fd_gui_microblock_execution_end( ctx->gui,
                                       now,
                                       ctx->in_bank_idx[ in_idx ],
@@ -704,6 +719,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->ref_wallclock = fd_log_wallclock();
   ctx->ref_tickcount = fd_tickcount();
+  *(double *)&ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
   FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
@@ -748,6 +764,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "exec_replay"  ) ) ) ctx->in_kind[ i ] = IN_KIND_EXEC_REPLAY;  /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {

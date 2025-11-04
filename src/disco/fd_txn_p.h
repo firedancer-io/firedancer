@@ -20,6 +20,10 @@ struct __attribute__((aligned(64))) fd_txn_p {
   /* The time that the transaction arrived to the pack tile in ticks. Set by pack and intended to be read from a transaction on a pack->bank link. */
   long scheduler_arrival_time_nanos;
 
+  /* set by replay scheduler for use by monitoring tools */
+  ushort start_shred_idx; /* the shred index of the shred containing the first byte of this transaction */
+  ushort end_shred_idx; /* the shred index of the shred containing the byte after the last byte of this transaction, capped at the maximum shred index for this block */
+
   /* Source ipv4 address and tpu pipeline for this transaction. TPU is one of FD_TXN_M_TPU_SOURCE_* */
   uchar source_tpu;
   uint  source_ipv4;

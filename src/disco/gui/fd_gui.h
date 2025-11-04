@@ -221,11 +221,12 @@ struct fd_gui_validator_info {
    bound heuristically. */
 #define FD_GUI_SHREDS_HISTORY_SZ     (432000UL*2000UL*4UL / 6UL)
 
-#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST         (0UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE (1UL)
-#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR  (2UL)
-#define FD_GUI_SLOT_SHRED_SHRED_REPLAYED         (3UL)
-#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE    (4UL)
+#define FD_GUI_SLOT_SHRED_REPAIR_REQUEST          (0UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_TURBINE  (1UL)
+#define FD_GUI_SLOT_SHRED_SHRED_RECEIVED_REPAIR   (2UL)
+/* #define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_START (3UL) // UNUSED */
+#define FD_GUI_SLOT_SHRED_SHRED_REPLAY_EXEC_DONE  (3UL)
+#define FD_GUI_SLOT_SHRED_SHRED_SLOT_COMPLETE     (4UL)
 
 #define FD_GUI_SLOT_RANKINGS_SZ (100UL)
 #define FD_GUI_SLOT_RANKING_TYPE_ASC  (0)
@@ -331,7 +332,6 @@ struct fd_gui_slot_staged_shred_event {
   long   timestamp;
   ulong  slot;
   ushort shred_idx;
-  ushort fec_idx;
   uchar  event;
 };
 
@@ -821,9 +821,16 @@ void
 fd_gui_handle_shred( fd_gui_t * gui,
                      ulong      slot,
                      ulong      shred_idx,
-                     ulong      fec_idx,
                      int        is_turbine,
                      long       tsorig );
+
+void
+fd_gui_handle_exec_txn_done( fd_gui_t * gui,
+                             ulong      slot,
+                             ulong      start_shred_idx,
+                             ulong      end_shred_idx,
+                             long       tsorig_ns,
+                             long       tspub_ns );
 
 void
 fd_gui_handle_repair_slot( fd_gui_t * gui, ulong slot, long now );

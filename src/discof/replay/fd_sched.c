@@ -1,4 +1,5 @@
 #include "fd_sched.h"
+#include "../../util/math/fd_stat.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../disco/fd_disco_base.h" /* for FD_MAX_TXN_PER_SLOT */
 #include "../../flamenco/runtime/fd_runtime.h" /* for fd_runtime_load_txn_address_lookup_tables */
 
@@ -64,6 +65,7 @@ struct fd_sched_block {
   fd_acct_addr_t      aluts[ 256 ]; /* Resolve ALUT accounts into this buffer for more parallelism. */
   uint                fec_buf_sz;   /* Size of the fec_buf in bytes. */
   uint                fec_buf_soff; /* Starting offset into fec_buf for unparsed transactions. */
+  uint                fec_buf_boff; /* Byte offset into raw block data of the first byte currently in fec_buf */
   uint                fec_eob:1;    /* FEC end-of-batch: set if the last FEC set in the batch is being
                                        ingested. */
   uint                fec_sob:1;    /* FEC start-of-batch: set if the parser expects to be receiving a new
@@ -89,6 +91,7 @@ struct fd_sched_block {
                                                              stageable unstaged descendants are counted. */
   uchar               fec_buf[ FD_SCHED_MAX_FEC_BUF_SZ ]; /* The previous FEC set could have some residual data that only becomes
                                                              parseable after the next FEC set is ingested. */
+  uint                shred_blk_offs[ FD_SHRED_BLK_MAX ]; /* The byte offsets into block data of ingested shreds */
 };
 typedef struct fd_sched_block fd_sched_block_t;
 
@@ -276,8 +279,8 @@ block_should_deactivate( fd_sched_block_t * block ) {
 
 FD_FN_UNUSED static void
 print_block( fd_sched_block_t * block ) {
-  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_soff %u, fec_eob %d, fec_sob %d",
-                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_soff, block->fec_eob, block->fec_sob ));
+  FD_LOG_INFO(( "block slot %lu, parent_slot %lu, staged %d (lane %lu), dying %d, in_rdisp %d, fec_eos %d, rooted %d, block_start_signaled %d, block_end_signaled %d, block_start_done %d, block_end_done %d, txn_parsed_cnt %u, txn_exec_in_flight_cnt %u, txn_exec_done_cnt %u, txn_sigverify_in_flight_cnt %u, txn_sigverify_done_cnt %u, txn_done_cnt %u, shred_cnt %u, mblks_rem %lu, txns_rem %lu, fec_buf_sz %u, fec_buf_boff %u, fec_buf_soff %u, fec_eob %d, fec_sob %d",
+                block->slot, block->parent_slot, block->staged, block->staging_lane, block->dying, block->in_rdisp, block->fec_eos, block->rooted, block->block_start_signaled, block->block_end_signaled, block->block_start_done, block->block_end_done, block->txn_parsed_cnt, block->txn_exec_in_flight_cnt, block->txn_exec_done_cnt, block->txn_sigverify_in_flight_cnt, block->txn_sigverify_done_cnt, block->txn_done_cnt, block->shred_cnt, block->mblks_rem, block->txns_rem, block->fec_buf_sz, block->fec_buf_boff, block->fec_buf_soff, block->fec_eob, block->fec_sob ));
 }
 
 FD_FN_UNUSED static void
@@ -576,8 +579,9 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
        the new FEC set. */
     memmove( block->fec_buf, block->fec_buf+block->fec_buf_soff, block->fec_buf_sz-block->fec_buf_soff );
   }
-  block->fec_buf_sz  -= block->fec_buf_soff;
-  block->fec_buf_soff = 0;
+  block->fec_buf_boff += block->fec_buf_soff;
+  block->fec_buf_sz   -= block->fec_buf_soff;
+  block->fec_buf_soff  = 0;
   /* Addition is safe and won't overflow because we checked the FEC
      set size above. */
   if( FD_UNLIKELY( block->fec_buf_sz+fec->fec->data_sz>FD_SCHED_MAX_FEC_BUF_SZ ) ) {
@@ -596,9 +600,6 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
     return 0;
   }
 
-  block->shred_cnt += fec->shred_cnt;
-  sched->metrics->fec_cnt++;
-
   /* Append the new FEC set to the end of the buffer. */
   fd_memcpy( block->fec_buf+block->fec_buf_sz, fec->fec->data, fec->fec->data_sz );
   block->fec_buf_sz += (uint)fec->fec->data_sz;
@@ -607,7 +608,25 @@ fd_sched_fec_ingest( fd_sched_t * sched, fd_sched_fec_t * fec ) {
   block->fec_eob = fec->is_last_in_batch;
   block->fec_eos = fec->is_last_in_block;
 
+  ulong block_sz = block->shred_cnt>0 ? block->shred_blk_offs[ block->shred_cnt-1 ] : 0UL;
+  for( ulong i=0; i<fec->shred_cnt; i++ ) {
+    if( FD_LIKELY( i<32UL ) ) {
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ i ];
+    } else if( FD_UNLIKELY( i!=fec->shred_cnt-1UL ) ) {
+      /* We don't track shred boundaries after 32 shreds, assume they're
+         sized uniformly */
+      ulong num_overflow_shreds = fec->shred_cnt-32UL;
+      ulong overflow_idx        = i-32UL;
+      ulong overflow_data_sz    = fec->fec->data_sz-fec->fec->block_offs[ 31 ];
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + fec->fec->block_offs[ 31 ] + (uint)(overflow_data_sz / num_overflow_shreds * (overflow_idx + 1UL));
+    } else {
+      block->shred_blk_offs[ block->shred_cnt++ ] = (uint)block_sz + (uint)fec->fec->data_sz;
+    }
+  }
+  sched->metrics->fec_cnt++;
+
   int err = fd_sched_parse( sched, block, fec->alut_ctx );
+
   if( FD_UNLIKELY( err==FD_SCHED_PARSER_BAD_BLOCK ) ) {
     FD_LOG_INFO(( "bad block" ));
     print_block( block );
@@ -1181,6 +1200,7 @@ add_block( fd_sched_t * sched,
   block->mblks_rem    = 0UL;
   block->txns_rem     = 0UL;
   block->fec_buf_sz   = 0U;
+  block->fec_buf_boff = 0U;
   block->fec_buf_soff = 0U;
   block->fec_eob      = 0;
   block->fec_sob      = 1;
@@ -1280,6 +1300,7 @@ fd_sched_parse( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_ctx_
   if( block->fec_eob ) {
     /* Ignore trailing bytes at the end of a batch. */
     sched->metrics->bytes_ingested_unparsed_cnt += block->fec_buf_sz-block->fec_buf_soff;
+    block->fec_buf_boff += block->fec_buf_sz;
     block->fec_buf_soff = 0U;
     block->fec_buf_sz   = 0U;
     block->fec_sob      = 1;
@@ -1333,6 +1354,11 @@ fd_sched_parse_txn( fd_sched_t * sched, fd_sched_block_t * block, fd_sched_alut_
   sched->txn_pool_free_cnt--;
   fd_txn_p_t * txn_p = sched->txn_pool + txn_idx;
   txn_p->payload_sz  = pay_sz;
+
+  txn_p->start_shred_idx = (ushort)fd_sort_up_uint_search_geq( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff );
+  txn_p->start_shred_idx = fd_ushort_if( txn_p->start_shred_idx>0U, (ushort)(txn_p->start_shred_idx-1U), txn_p->start_shred_idx );
+  txn_p->end_shred_idx = (ushort)fd_sort_up_uint_search_geq( block->shred_blk_offs, block->shred_cnt, block->fec_buf_boff+block->fec_buf_soff+(uint)pay_sz );
+
   fd_memcpy( txn_p->payload, block->fec_buf+block->fec_buf_soff, pay_sz );
   fd_memcpy( TXN(txn_p),     txn,                                txn_sz );
   sched->txn_to_bank_idx[ txn_idx ] = bank_idx;

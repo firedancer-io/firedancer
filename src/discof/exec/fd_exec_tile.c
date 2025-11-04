@@ -67,6 +67,8 @@ typedef struct fd_exec_tile_ctx {
      before this message. */
   int                   pending_txn_finalized_msg;
   ulong                 txn_idx;
+  ulong                 slot;
+  ulong                 dispatch_time_comp;
 
   fd_exec_stack_t       exec_stack;
   fd_exec_accounts_t    exec_accounts;
@@ -115,7 +117,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
                  ulong                sz,
                  ulong                ctl FD_PARAM_UNUSED,
                  ulong                tsorig FD_PARAM_UNUSED,
-                 ulong                tspub FD_PARAM_UNUSED,
+                 ulong                tspub,
                  fd_stem_context_t *  stem ) {
 
   if( (sig&0xFFFFFFFFUL)!=ctx->tile_idx ) return 0;
@@ -157,6 +159,8 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
 
         /* Notify replay. */
         ctx->txn_idx = msg->txn_idx;
+        ctx->dispatch_time_comp = tspub;
+        ctx->slot = fd_bank_slot_get( bank );
         ctx->pending_txn_finalized_msg = 1;
 
         break;
@@ -386,11 +390,14 @@ publish_txn_finalized_msg( fd_exec_tile_ctx_t * ctx,
   msg->bank_idx          = ctx->txn_ctx->bank_idx;
   msg->txn_exec->txn_idx = ctx->txn_idx;
   msg->txn_exec->err     = !(ctx->txn_ctx->flags&FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
+  msg->txn_exec->slot    = ctx->slot;
+  msg->txn_exec->start_shred_idx  = ctx->txn_ctx->txn.start_shred_idx;
+  msg->txn_exec->end_shred_idx    = ctx->txn_ctx->txn.end_shred_idx;
   if( FD_UNLIKELY( msg->txn_exec->err ) ) {
     FD_LOG_WARNING(( "txn failed to execute, bad block detected err=%d", ctx->txn_ctx->exec_err ));
   }
 
-  fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->exec_replay_out->idx, (FD_EXEC_TT_TXN_EXEC<<32)|ctx->tile_idx, ctx->exec_replay_out->chunk, sizeof(*msg), 0UL, ctx->dispatch_time_comp, fd_frag_meta_ts_comp( fd_tickcount() ) );
 
   ctx->exec_replay_out->chunk = fd_dcache_compact_next( ctx->exec_replay_out->chunk, sizeof(*msg), ctx->exec_replay_out->chunk0, ctx->exec_replay_out->wmark );
 
