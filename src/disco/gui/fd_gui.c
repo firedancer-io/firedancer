@@ -2737,6 +2737,8 @@ fd_gui_microblock_execution_end( fd_gui_t *   gui,
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;
 
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, now, lslot->leader_start_time );
+
   if( FD_UNLIKELY( lslot->txs.end_offset==ULONG_MAX ) ) lslot->txs.end_offset = pack_txn_idx + txn_cnt;
   else                                                  lslot->txs.end_offset = fd_ulong_max( lslot->txs.end_offset, pack_txn_idx+txn_cnt );
 
