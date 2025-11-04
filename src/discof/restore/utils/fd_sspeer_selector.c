@@ -275,7 +275,6 @@ fd_sspeer_selector_add( fd_sspeer_selector_t * selector,
     if( FD_UNLIKELY( !peer_pool_free( selector->pool ) ) ) return ULONG_MAX;
 
     peer = peer_pool_ele_acquire( selector->pool );
-    FD_TEST( peer );
     if( FD_LIKELY( ssinfo ) ) {
       peer->ssinfo  = *ssinfo;
     } else {

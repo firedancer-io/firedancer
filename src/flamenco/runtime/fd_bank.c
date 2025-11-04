@@ -53,9 +53,6 @@ fd_bank_footprint( void ) {
       FD_LOG_CRIT(( "Failed to acquire " #name " pool element: pool is full" ));                                   \
     }                                                                                                              \
     fd_bank_##name##_t * child_##name = fd_bank_##name##_pool_ele_acquire( name##_pool );                          \
-    if( FD_UNLIKELY( !child_##name ) ) {                                                                           \
-      FD_LOG_CRIT(( "Failed to acquire " #name " pool element" ));                                                 \
-    }                                                                                                              \
     fd_rwlock_unwrite( fd_bank_get_##name##_pool_lock( bank ) );                                                   \
     /* If the dirty flag has not been set yet, we need to allocated a */                                           \
     /* new pool element and copy over the data from the parent idx.   */                                           \
