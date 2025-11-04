@@ -173,6 +173,10 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
     txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack, NULL );
+
+    /* Stash the result in the flags value so that pack can inspect it. */
+    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
+
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       fd_pack_rebate_sum_add_txn( ctx->rebater, txn, NULL, 1UL );
       ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->exec_err ) ]++;
@@ -184,11 +188,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        transactions. */
     FD_TEST( txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS );
     txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-
-    /* Stash the result in the flags value so that pack can inspect it. */
-    /* TODO: Need to translate the err to a hacky Frankendancer style err
-             that pack and GUI expect ... */
-    txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
 
     ctx->metrics.txn_result[ fd_bank_err_from_runtime_err( txn_ctx->exec_err ) ]++;
 
@@ -207,6 +206,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_runtime_finalize_txn( ctx->txn_ctx->funk, ctx->txn_ctx->progcache, txn_ctx->status_cache, txn_ctx->xid, txn_ctx, bank, NULL );
 
     if( FD_UNLIKELY( !txn_ctx->flags ) ) {
+      /* If the transaction failed to fit into the block, we need to
+         updated the transaction flag with the error code. */
+      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
       fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
       int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );

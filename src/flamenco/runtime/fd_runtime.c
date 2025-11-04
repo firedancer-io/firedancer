@@ -982,7 +982,8 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
-    txn_ctx->flags = 0U;
+    txn_ctx->exec_err = fd_cost_tracker_err_to_runtime_err( res );
+    txn_ctx->flags    = 0U;
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 
