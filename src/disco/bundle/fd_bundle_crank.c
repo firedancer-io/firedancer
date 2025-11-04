@@ -349,7 +349,7 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
      locks to the system program get demoted. */
   fd_bundle_crank_gen_pidx_t * identity_pidx = pidx_map_insert( gen->map, *(fd_acct_addr_t *)identity );
   if( FD_UNLIKELY( !identity_pidx ) ) {
-    FD_LOG_WARNING(( "Indentity was already in map.  Refusing to crank bundles." ));
+    FD_LOG_WARNING(( "Identity was already in map.  Refusing to crank bundles." ));
     return ULONG_MAX;
   }
   identity_pidx->idx = 0UL;
@@ -357,7 +357,7 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
   fd_bundle_crank_gen_pidx_t * new_tr_pidx = pidx_map_insert( gen->map, *(fd_acct_addr_t *)gen->crank3->new_tip_receiver );
   if( FD_UNLIKELY( !new_tr_pidx ) ) {
     pidx_map_remove( gen->map, identity_pidx );
-    FD_LOG_WARNING(( "New block builder was already in map.  Refusing to crank bundles." ));
+    FD_LOG_WARNING(( "New tip receiver was already in map.  Refusing to crank bundles." ));
     return ULONG_MAX;
   }
   new_tr_pidx->idx = 13UL;
