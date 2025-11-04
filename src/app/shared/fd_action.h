@@ -115,6 +115,11 @@ union fdctl_args {
     char topo[ 64 ];
   } metrics;
 
+  struct {
+    uint fsck;
+    char snapshot_path[ PATH_MAX ];
+  } snapshot_load;
+
 };
 
 typedef union fdctl_args args_t;

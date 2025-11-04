@@ -418,10 +418,10 @@ fd_vinyl_bstream_pair_hash( ulong                      seed,
    point to the same location if the pair fits into a single block. */
 
 char const *
-fd_vinyl_bstream_pair_test( ulong                      seed,
-                            ulong                      seq,
-                            fd_vinyl_bstream_block_t * buf,
-                            ulong                      buf_sz );
+fd_vinyl_bstream_pair_test( ulong                            seed,
+                            ulong                            seq,
+                            fd_vinyl_bstream_block_t const * buf,
+                            ulong                            buf_sz );
 
 char const *
 fd_vinyl_bstream_pair_test_fast( ulong                            seed,
@@ -446,9 +446,9 @@ fd_vinyl_bstream_part_test( ulong                      seed,
                             fd_vinyl_bstream_block_t * block );
 
 char const *
-fd_vinyl_bstream_zpad_test( ulong                      seed,
-                            ulong                      seq,
-                            fd_vinyl_bstream_block_t * block );
+fd_vinyl_bstream_zpad_test( ulong                            seed,
+                            ulong                            seq,
+                            fd_vinyl_bstream_block_t const * block );
 
 /* fd_vinyl_bstream_ctl_style_cstr returns an infinite lifetime human
    readable cstr for the given style.  Return value is always non-NULL

@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 #define HEADER_fd_src_flamenco_runtime_fd_runtime_const_h
 
-#include "../types/fd_types.h"
 #include "../leaders/fd_leaders.h"
 
 FD_PROTOTYPES_BEGIN

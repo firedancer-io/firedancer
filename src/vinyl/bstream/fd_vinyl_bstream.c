@@ -24,10 +24,10 @@ fd_vinyl_bstream_pair_hash( ulong                      seed,
 }
 
 char const *
-fd_vinyl_bstream_pair_test( ulong                      seed,
-                            ulong                      seq,
-                            fd_vinyl_bstream_block_t * hdr,
-                            ulong                      buf_sz ) {
+fd_vinyl_bstream_pair_test( ulong                            seed,
+                            ulong                            seq,
+                            fd_vinyl_bstream_block_t const * hdr,
+                            ulong                            buf_sz ) {
   (void)seq;
 
   if( FD_UNLIKELY( !hdr                             ) ) return "NULL buf";
@@ -226,9 +226,9 @@ fd_vinyl_bstream_part_test( ulong                      seed,
 }
 
 char const *
-fd_vinyl_bstream_zpad_test( ulong                      seed,
-                            ulong                      seq,
-                            fd_vinyl_bstream_block_t * block ) {
+fd_vinyl_bstream_zpad_test( ulong                            seed,
+                            ulong                            seq,
+                            fd_vinyl_bstream_block_t const * block ) {
   (void)seed; (void)seq;
 
   if( FD_UNLIKELY( !block ) ) return "NULL block";
