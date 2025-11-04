@@ -273,17 +273,19 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
 
   /* Hint to kernel to start prefetching to speed up reads */
 
+  uchar * mmio      = fd_vinyl_mmio   ( io ); FD_TEST( mmio );
+  ulong   mmio_sz   = fd_vinyl_mmio_sz( io );
+
   ulong txn_seq0 = ctx->vinyl.txn_seq;
   ulong txn_seq1 = ctx->vinyl.io_mm->seq_present;
   FD_LOG_INFO(( "vinyl txn_commit starting for seq [%lu,%lu)", txn_seq0, txn_seq1 ));
   ulong txn_sz   = txn_seq1-txn_seq0;
   FD_CRIT( fd_vinyl_seq_le( txn_seq0, txn_seq1 ), "invalid txn seq range" );
-  FD_CRIT( txn_seq1 <= ctx->vinyl.bstream_sz,     "invalid txn seq range" );
+  FD_CRIT( txn_seq1 <= mmio_sz,                   "invalid txn seq range" );
   if( FD_UNLIKELY( fd_vinyl_seq_eq( txn_seq0, txn_seq1 ) ) ) return;
 
-  void * dev_base  = ctx->vinyl.bstream_mem;
-  void * madv_base = (void *)fd_ulong_align_dn( (ulong)dev_base+txn_seq0, FD_SHMEM_NORMAL_PAGE_SZ );
-  ulong  madv_sz   = /*    */fd_ulong_align_up(                 txn_sz,   FD_SHMEM_NORMAL_PAGE_SZ );
+  void *  madv_base = (void *)fd_ulong_align_dn( (ulong)mmio+txn_seq0, FD_SHMEM_NORMAL_PAGE_SZ );
+  ulong   madv_sz   = /*    */fd_ulong_align_up(             txn_sz,   FD_SHMEM_NORMAL_PAGE_SZ );
   if( FD_UNLIKELY( madvise( madv_base, madv_sz, MADV_SEQUENTIAL ) ) ) {
     FD_LOG_WARNING(( "madvise(addr=%p,sz=%lu,MADV_SEQUENTIAL) failed (%i-%s)",
                      madv_base, madv_sz,
@@ -294,7 +296,7 @@ fd_snapin_vinyl_txn_commit( fd_snapin_tile_t * ctx ) {
 
   fd_vinyl_meta_t * meta_map = ctx->vinyl.map;
   for( ulong seq=txn_seq0; fd_vinyl_seq_lt( seq, txn_seq1 ); ) {
-    fd_vinyl_bstream_block_t * block = (void *)( ctx->vinyl.bstream_mem + seq );
+    fd_vinyl_bstream_block_t * block = (void *)( mmio+seq );
 
     /* Speculatively read block info */
     ulong                   ctl  = FD_VOLATILE_CONST( block->ctl  );
@@ -345,6 +347,8 @@ next:
 
   /* Persist above erases to disk */
 
+  int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
   vinyl_mm_sync( ctx );
 
   dt += fd_log_wallclock();
@@ -372,6 +376,8 @@ fd_snapin_vinyl_wd_init( fd_snapin_tile_t * ctx ) {
 
   /* Flush io_mm */
 
+  int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
   vinyl_mm_sync( ctx );
 
   /* Synchronize sequence numbers */
@@ -656,7 +662,11 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
 
 void
 fd_snapin_vinyl_shutdown( fd_snapin_tile_t * ctx ) {
-  (void)fd_vinyl_io_commit( ctx->vinyl.io, FD_VINYL_IO_FLAG_BLOCKING );
+  int commit_err = fd_vinyl_io_commit( ctx->vinyl.io, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( commit_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_commit(io) failed (%i-%s)", commit_err, fd_vinyl_strerror( commit_err ) ));
+  int sync_err = fd_vinyl_io_sync( ctx->vinyl.io_mm, FD_VINYL_IO_FLAG_BLOCKING );
+  if( FD_UNLIKELY( sync_err ) ) FD_LOG_CRIT(( "fd_vinyl_io_sync(io_mm) failed (%i-%s)", sync_err, fd_vinyl_strerror( sync_err ) ));
+  vinyl_mm_sync( ctx );
 
   fd_vinyl_io_wd_ctrl( ctx->vinyl.io_wd, FD_SNAPSHOT_MSG_CTRL_SHUTDOWN, 0UL );
 }
@@ -683,6 +693,9 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
     /* account not found */
     return;
   }
+
+  uchar * mmio    = fd_vinyl_mmio   ( ctx->vinyl.io_mm );
+  ulong   mmio_sz = fd_vinyl_mmio_sz( ctx->vinyl.io_mm );
 
   /* Validate index record */
 
@@ -711,10 +724,9 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
      In the snapshot loader, it is safe to assume that bstream reads
      do not wrap around. */
 
-  ulong const dev_sz = ctx->vinyl.bstream_sz;
-  if( FD_UNLIKELY( seq1>dev_sz ) ) {
-    FD_LOG_CRIT(( "corrupt bstream record in index: seq[%lu,%lu) exceeds device size %lu",
-                  seq0, seq1, dev_sz ));
+  if( FD_UNLIKELY( seq1>mmio_sz ) ) {
+    FD_LOG_CRIT(( "corrupt bstream record in index: seq[%lu,%lu) exceeds bstream addressable range [0,%lu)",
+                  seq0, seq1, mmio_sz ));
   }
 
   /* Read from bstream */
@@ -722,8 +734,7 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
   ulong seq_meta = seq0     + sizeof(fd_vinyl_bstream_phdr_t);
   ulong seq_data = seq_meta + sizeof(fd_account_meta_t);
 
-  uchar const * dev = ctx->vinyl.bstream_mem;
-  memcpy( meta, dev+seq_meta, sizeof(fd_account_meta_t) );
+  memcpy( meta, mmio+seq_meta, sizeof(fd_account_meta_t) );
   if( FD_UNLIKELY( sizeof(fd_account_meta_t)+(ulong)meta->dlen > val_esz ) ) {
     FD_LOG_CRIT(( "corrupt bstream record: seq0=%lu val_esz=%lu dlen=%u", seq0, val_esz, meta->dlen ));
   }
@@ -732,5 +743,5 @@ fd_snapin_read_account_vinyl( fd_snapin_tile_t *  ctx,
     FD_LOG_WARNING(( "failed to read account %s: account data size (%lu bytes) exceeds buffer size (%lu bytes)",
                      acct_addr_b58, (ulong)meta->dlen, data_max ));
   }
-  memcpy( data, dev+seq_data, meta->dlen );
+  memcpy( data, mmio+seq_data, meta->dlen );
 }

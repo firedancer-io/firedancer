@@ -10,10 +10,13 @@
 #include "../../../util/pod/fd_pod_format.h"
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
+#include "../../../flamenco/accdb/fd_accdb_fsck.h"
 
+#include <errno.h>
+#include <fcntl.h> /* open */
 #include <sys/resource.h>
 #include <linux/capability.h>
-#include <unistd.h>
+#include <unistd.h> /* close, sleep */
 #include <stdio.h>
 
 #define NAME "snapshot-load"
@@ -142,13 +145,75 @@ snapshot_load_topo( config_t * config ) {
 extern int * fd_log_private_shared_lock;
 
 static void
+snapshot_load_args( int *    pargc,
+                    char *** pargv,
+                    args_t * args ) {
+  args->snapshot_load.fsck = !!fd_env_strip_cmdline_contains( pargc, pargv, "--fsck" );
+  char const * snap_path = fd_env_strip_cmdline_cstr( pargc, pargv, "--snapshot-dir", NULL, NULL );
+  if( snap_path ) {
+    ulong snap_path_len = strlen( snap_path ); FD_TEST( snap_path_len<sizeof(args->snapshot_load.snapshot_path) );
+    memcpy( args->snapshot_load.snapshot_path, snap_path, snap_path_len+1UL );
+  }
+}
+
+static uint
+fsck_vinyl( config_t * config ) {
+  /* Join meta index */
+
+  fd_topo_t * topo = &config->topo;
+  ulong meta_map_id  = fd_pod_query_ulong( topo->props, "vinyl.meta_map",  ULONG_MAX );
+  ulong meta_pool_id = fd_pod_query_ulong( topo->props, "vinyl.meta_pool", ULONG_MAX );
+  FD_TEST( meta_map_id!=ULONG_MAX && meta_pool_id!=ULONG_MAX );
+  void * shmap = fd_topo_obj_laddr( topo, meta_map_id  );
+  void * shele = fd_topo_obj_laddr( topo, meta_pool_id );
+  fd_vinyl_meta_t meta[1];
+  FD_TEST( fd_vinyl_meta_join( meta, shmap, shele ) );
+
+  /* Join bstream */
+
+  int dev_fd = open( config->paths.accounts, O_RDWR|O_CLOEXEC );
+  if( FD_UNLIKELY( dev_fd<0 ) ) {
+    FD_LOG_ERR(( "open(%s,O_RDWR|O_CLOEXEC) failed (%i-%s)",
+                 config->paths.accounts, errno, fd_io_strerror( errno ) ));
+  }
+  void * mmio    = NULL;
+  ulong  mmio_sz = 0UL;
+  int map_err = fd_io_mmio_init( dev_fd, FD_IO_MMIO_MODE_READ_WRITE, &mmio, &mmio_sz );
+  if( FD_UNLIKELY( map_err ) ) {
+    FD_LOG_ERR(( "fd_io_mmio_init(%s,rw) failed (%i-%s)",
+                 config->paths.accounts, map_err, fd_io_strerror( map_err ) ));
+  }
+  FD_TEST( 0==close( dev_fd ) );
+  ulong  io_spad_max = 1UL<<20;
+  void * io_mm       = aligned_alloc( fd_vinyl_io_mm_align(), fd_vinyl_io_mm_footprint( io_spad_max ) );
+  FD_TEST( io_mm );
+  fd_vinyl_io_t * io = fd_vinyl_io_mm_init( io_mm, io_spad_max, mmio, mmio_sz, 0, NULL, 0UL, 0UL );
+  FD_TEST( io );
+
+  /* Run verifier */
+
+  uint fsck_err = fd_accdb_fsck_vinyl( io, meta );
+
+  /* Clean up */
+
+  FD_TEST( fd_vinyl_io_fini( io ) );
+  free( io_mm );
+  fd_io_mmio_fini( mmio, mmio_sz );
+  fd_vinyl_meta_leave( meta );
+  return fsck_err;
+}
+
+static void
 snapshot_load_cmd_fn( args_t *   args,
                       config_t * config ) {
-  (void)args;
   if( FD_UNLIKELY( config->firedancer.snapshots.sources.gossip.allow_any || 0UL!=config->firedancer.snapshots.sources.gossip.allow_list_cnt ) ) {
     FD_LOG_ERR(( "snapshot-load command is incompatible with gossip snapshot sources" ));
   }
   fd_topo_t * topo = &config->topo;
+
+  if( args->snapshot_load.snapshot_path[0] ) {
+    strcpy( config->paths.snapshots, args->snapshot_load.snapshot_path );
+  }
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
@@ -164,18 +229,23 @@ snapshot_load_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_fill( topo );
 
-  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  double ns_per_tick = 1.0/tick_per_ns;
-
-  long start = fd_log_wallclock();
-  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
-
   fd_topo_tile_t * snapct_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapct", 0UL ) ];
   fd_topo_tile_t * snapld_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapld", 0UL ) ];
   fd_topo_tile_t * snapdc_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapdc", 0UL ) ];
   fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
   ulong            snapwr_idx  =               fd_topo_find_tile( topo, "snapwr", 0UL );
   fd_topo_tile_t * snapwr_tile = snapwr_idx!=ULONG_MAX ? &topo->tiles[ snapwr_idx ] : NULL;
+  if( args->snapshot_load.fsck && !snapwr_tile ) FD_LOG_ERR(( "Sorry, --fsck is not supported for in-memory database mode" ));
+  if( args->snapshot_load.snapshot_path[0] ) {
+    strcpy( snapct_tile->snapct.snapshots_path, args->snapshot_load.snapshot_path );
+    strcpy( snapld_tile->snapld.snapshots_path, args->snapshot_load.snapshot_path );
+  }
+
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  double ns_per_tick = 1.0/tick_per_ns;
+
+  long start = fd_log_wallclock();
+  fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run );
 
   ulong volatile * const snapct_metrics = fd_metrics_tile( snapct_tile->metrics );
   ulong volatile * const snapld_metrics = fd_metrics_tile( snapld_tile->metrics );
@@ -288,11 +358,22 @@ snapshot_load_cmd_fn( args_t *   args,
 
     next+=1000L*1000L*1000L;
   }
+
+  if( args->snapshot_load.fsck ) {
+    FD_LOG_NOTICE(( "FSCK: starting" ));
+    uint fsck_err = fsck_vinyl( config );
+    if( !fsck_err ) {
+      FD_LOG_NOTICE(( "FSCK: passed" ));
+    } else {
+      FD_LOG_ERR(( "FSCK: errors detected" ));
+    }
+  }
 }
 
 action_t fd_action_snapshot_load = {
   .name = NAME,
   .topo = snapshot_load_topo,
   .perm = dev_cmd_perm,
+  .args = snapshot_load_args,
   .fn   = snapshot_load_cmd_fn
 };

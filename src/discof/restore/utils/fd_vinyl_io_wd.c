@@ -215,8 +215,9 @@ wd_poll_write( fd_vinyl_io_t * io ) {
     FD_CRIT( buf->state==WD_BUF_IOWAIT, "corrupt wd_buf" );
 
     ulong comp_seq  = buf->io_seq;
-    ulong found_seq = FD_VOLATILE_CONST( wd->wr_fseq[0] );
-    if( fd_seq_lt( found_seq, comp_seq ) ) break;
+    ulong found_seq = fd_fseq_query( wd->wr_fseq );
+    /* each seq in [0,found_seq) is consumed (non-inclusive) */
+    if( fd_seq_ge( comp_seq, found_seq ) ) break;
     FD_CRIT( fd_seq_le( found_seq, wd->wr_seq ), "got completion for a sequence number not yet submitted" );
     FD_CRIT( fd_vinyl_seq_eq( comp_seq, wd->wr_seqack ), "out-of-order ACK polling" );
 
