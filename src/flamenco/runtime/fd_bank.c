@@ -795,14 +795,22 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     /* Decide if we need to free any CoW fields. We free a CoW member
        from its pool if the dirty flag is set unless it is the same
-       pool that the new root uses. */
+       pool that the new root uses.
+
+       If the new root did not have the dirty bit set, that means the node
+       didn't own the pool index. Change the ownership to the new root. */
     #define HAS_COW_1(name)                                                                                                  \
+      fd_rwlock_write( &new_root->name##_lock );                                                                             \
+      fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                                \
       if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) { \
         fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
-        fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );                                              \
         fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
         fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
-      }
+      } else if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                \
+        new_root->name##_dirty = 1;                                                                                          \
+      }                                                                                                                      \
+      fd_rwlock_unwrite( &new_root->name##_lock );
+
     /* Do nothing for these. */
     #define HAS_COW_0(name)
 
@@ -817,23 +825,6 @@ fd_banks_advance_root( fd_banks_t * banks,
     fd_banks_pool_ele_release( bank_pool, head );
     head = next;
   }
-
-  /* If the new root did not have the dirty bit set, that means the node
-     didn't own the pool index. Change the ownership to the new root. */
-  #define HAS_COW_1(name)                                                            \
-    fd_bank_##name##_t * name##_pool = fd_banks_get_##name##_pool( banks );          \
-    if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) { \
-      new_root->name##_dirty = 1;                                                    \
-    }
-  /* Do nothing if not CoW. */
-  #define HAS_COW_0(name)
-
-  #define X(type, name, footprint, align, cow, limit_fork_width, has_lock) \
-    HAS_COW_##cow(name)
-  FD_BANKS_ITER(X)
-  #undef X
-  #undef HAS_COW_0
-  #undef HAS_COW_1
 
   new_root->parent_idx = null_idx;
   banks->root_idx      = new_root->idx;
