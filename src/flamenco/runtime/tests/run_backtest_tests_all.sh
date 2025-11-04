@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-v2.3.0 -y 3 -m 2000000 -e 255312007 -c 2.3.0
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-v2.3.0 -y 3 -m 2000000 -e 257066038 -c 2.3.0
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-519-v2.3.0 -y 3 -m 2000000 -e 255312007 -c 2.3.0 -lt
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066033-v2.3.0 -y 3 -m 2000000 -e 257066038 -c 2.3.0 -lt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257066844-v2.3.0 -y 3 -m 2000000 -e 257066849 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257067457-v2.3.0 -y 3 -m 2000000 -e 257067461 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-257068890-v2.3.0 -y 3 -m 2000000 -e 257068895 -c 2.3.0
