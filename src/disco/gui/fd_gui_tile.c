@@ -531,9 +531,11 @@ gui_http_request( fd_http_server_request_t const * request ) {
   }
 
   int is_vite_page = !strcmp( request->path, "/" ) ||
+                     !strcmp( request->path, "/slotDetails" ) ||
                      !strcmp( request->path, "/leaderSchedule" ) ||
                      !strcmp( request->path, "/gossip") ||
                      !strncmp( request->path, "/?", strlen("/?") ) ||
+                     !strncmp( request->path, "/slotDetails?", strlen("/slotDetails?") ) ||
                      !strncmp( request->path, "/leaderSchedule?", strlen("/leaderSchedule?") ) ||
                      !strncmp( request->path, "/gossip?", strlen("/gossip?") );
 
