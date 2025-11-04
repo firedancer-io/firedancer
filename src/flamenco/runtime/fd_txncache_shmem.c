@@ -76,7 +76,6 @@ fd_txncache_shmem_footprint( ulong max_live_slots,
                              ulong max_txn_per_slot ) {
   if( FD_UNLIKELY( max_live_slots<1UL ) ) return 0UL;
   if( FD_UNLIKELY( max_txn_per_slot<1UL ) ) return 0UL;
-  if( FD_UNLIKELY( max_txn_per_slot>UINT_MAX ) ) return 0UL; /* Index into the head table needs to fit within the blockcache prev pointer. */
 
   ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
@@ -121,7 +120,6 @@ fd_txncache_shmem_new( void * shmem,
 
   if( FD_UNLIKELY( !max_live_slots ) ) return NULL;
   if( FD_UNLIKELY( !max_txn_per_slot ) ) return NULL;
-  if( FD_UNLIKELY( max_txn_per_slot>UINT_MAX ) ) return NULL;
 
   ulong max_active_slots = FD_TXNCACHE_MAX_BLOCKHASH_DISTANCE+max_live_slots;
   ulong blockhash_map_chains = fd_ulong_pow2_up( 2UL*max_active_slots );
