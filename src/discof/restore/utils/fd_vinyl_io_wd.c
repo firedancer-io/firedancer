@@ -37,6 +37,7 @@ struct wd_buf {
 
 struct fd_vinyl_io_wd {
   fd_vinyl_io_t base[1];
+  ulong         dev_base;
   ulong         dev_sz;        /* Block store byte size (BLOCK_SZ multiple) */
 
   /* Buffer linked lists by state */
@@ -109,12 +110,12 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
 
   /* Map the bstream sequence range to the device */
 
-  ulong dev_off = buf->bstream_seq;
-  FD_CRIT( dev_off+block_sz==wd->base->seq_future, "corrupt bstream io state" );
+  FD_CRIT( buf->bstream_seq+block_sz==wd->base->seq_future, "corrupt bstream io state" );
   if( FD_UNLIKELY( wd->base->seq_future > wd->dev_sz ) ) {
     /* FIXME log vinyl instance name */
     FD_LOG_ERR(( "vinyl database is out of space (dev_sz=%lu)", wd->dev_sz ));
   }
+  ulong dev_off = wd->dev_base + buf->bstream_seq;
 
   ulong seq   = wd->wr_seq;
   ulong sig   = dev_off;
@@ -489,7 +490,8 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->base->spad_used = 0UL;
   wd->base->impl      = &fd_vinyl_io_wd_impl;
 
-  wd->dev_sz = dev_sz;
+  wd->dev_base = FD_VINYL_BSTREAM_BLOCK_SZ;
+  wd->dev_sz   = dev_sz - FD_VINYL_BSTREAM_BLOCK_SZ;
 
   wd->buf_idle        = NULL;
   wd->buf_append      = NULL;

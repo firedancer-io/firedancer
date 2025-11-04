@@ -95,6 +95,23 @@ fd_snapin_vinyl_privileged_init( fd_snapin_tile_t * ctx,
   FD_TEST( fd_rng_secure( &ctx->vinyl.io_seed, 8UL ) );
 }
 
+static void
+io_mm_align_4k( fd_snapin_tile_t * ctx ) {
+  fd_vinyl_io_t * io_mm = ctx->vinyl.io_mm;
+  if( FD_UNLIKELY( io_mm->seq_future!=0UL ) ) {
+    FD_LOG_CRIT(( "unexpected io_mm state (seq_future=%lu)", io_mm->seq_future ));
+  }
+  uchar * mmio    = fd_vinyl_mmio   ( io_mm );
+  ulong   mmio_sz = fd_vinyl_mmio_sz( io_mm );
+
+  ulong bstream_preamble = fd_ulong_align_up( FD_VINYL_BSTREAM_BLOCK_SZ, 4096UL ) - FD_VINYL_BSTREAM_BLOCK_SZ;
+  FD_CRIT( bstream_preamble<=mmio_sz, "bstream too small for 4k alignment" );
+
+  fd_memset( mmio, 0, bstream_preamble );
+  io_mm->seq_present += bstream_preamble;
+  io_mm->seq_future  += bstream_preamble;
+}
+
 void
 fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
                                    fd_topo_t *        topo,
@@ -115,6 +132,11 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
   if( FD_UNLIKELY( !ctx->vinyl.io_mm ) ) {
     FD_LOG_ERR(( "fd_vinyl_io_mm_init failed" ));
   }
+
+  /* Write out zero blocks to align the bstream by 4096 bytes
+     (Assuming a 512 byte sync block) */
+
+  io_mm_align_4k( ctx );
 
   /* Set up io_wd dependencies */
 
