@@ -20,6 +20,9 @@
 
 struct fd_txncache_single_txn {
   uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
+  uint  generation;      /* The generation of the fork when this transaction was inserted.  Used to
+                            determine if the transaction is still valid for a fork that might have
+                            advanced since insertion. */
 
   fd_txncache_fork_id_t fork_id; /* Fork that the transaction was executed on.  A transaction might be in the cache
                                     multiple times if it was executed on multiple forks. */
@@ -44,6 +47,8 @@ struct fd_txncache_blockcache_shmem {
 
   int frozen;            /* If non-zero, the blockcache is frozen and should not be modified.  This is used to enforce
                             invariants on the caller of the txncache. */
+
+  uint generation;
 
   fd_hash_t blockhash;   /* The blockhash that this entry is for. */
   ulong txnhash_offset;  /* To save memory, the Agave validator decided to truncate the hash of transactions stored in
@@ -125,6 +130,7 @@ struct __attribute__((aligned(FD_TXNCACHE_SHMEM_ALIGN))) fd_txncache_shmem_priva
   ushort txnpages_per_blockhash_max;
   ushort max_txnpages;
 
+  uint blockcache_generation; /* Incremented for every blockcache. */
   ushort txnpages_free_cnt; /* The number of pages in the txnpages that are not currently in use. */
 
   ulong root_cnt;
