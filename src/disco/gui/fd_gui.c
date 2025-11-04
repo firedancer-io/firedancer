@@ -2626,7 +2626,7 @@ fd_gui_became_leader( fd_gui_t * gui,
   if( FD_UNLIKELY( !lslot ) ) return;
 
   slot->max_compute_units = (uint)max_compute_units;
-  lslot->leader_start_time = start_time_nanos;
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, start_time_nanos, lslot->leader_start_time );
   lslot->leader_end_time   = end_time_nanos;
   if( FD_LIKELY( lslot->txs.microblocks_upper_bound==USHORT_MAX ) ) lslot->txs.microblocks_upper_bound = (ushort)max_microblocks;
 
@@ -2662,6 +2662,8 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
 
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_UNLIKELY( !lslot ) ) return;
+
+  lslot->leader_start_time = fd_long_if( lslot->leader_start_time==LONG_MAX, now, lslot->leader_start_time );
 
   if( FD_UNLIKELY( lslot->txs.start_offset==ULONG_MAX ) ) lslot->txs.start_offset = pack_txn_idx;
   else                                                    lslot->txs.start_offset = fd_ulong_min( lslot->txs.start_offset, pack_txn_idx );
