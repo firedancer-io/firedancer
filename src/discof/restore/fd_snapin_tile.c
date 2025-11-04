@@ -160,7 +160,7 @@ static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static int
@@ -407,6 +407,19 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
 
+  if( FD_LIKELY( !ctx->lthash_disabled ) ) {
+    if( FD_UNLIKELY( !manifest->has_accounts_lthash ) ) {
+      FD_LOG_WARNING(( "snapshot manifest missing accounts lthash field" ));
+      transition_malformed( ctx, ctx->stem );
+      return;
+    }
+
+    fd_lthash_value_t * expected_lthash = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
+    fd_memcpy( expected_lthash, manifest->accounts_lthash, sizeof(fd_lthash_value_t) );
+    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_EXPECTED, ctx->hash_out.chunk, sizeof(fd_lthash_value_t), 0UL, 0UL, 0UL );
+    ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_lthash_value_t), ctx->hash_out.chunk0, ctx->hash_out.wmark );
+  }
+
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
   fd_stem_publish( ctx->stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
@@ -434,11 +447,17 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
 
+  if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
+    fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
+    return 1;
+  }
+
   for(;;) {
     if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
 
     uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
 
+    int early_exit = 0;
     fd_ssparse_advance_result_t result[1];
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
@@ -492,10 +511,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
-        fd_snapin_process_account_header( ctx, result );
+        early_exit = fd_snapin_process_account_header( ctx, result );
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-        fd_snapin_process_account_data( ctx, result );
+        early_exit = fd_snapin_process_account_data( ctx, result );
 
         /* We exepect ConfigKeys Vec to be length 2 */
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX && !memcmp( result->account_data.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) && result->account_data.data_sz && *(uchar *)result->account_data.data==2UL ) ) {
@@ -506,7 +525,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
-        fd_snapin_process_account_batch( ctx, result );
+        early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
         break;
       case FD_SSPARSE_ADVANCE_DONE:
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
@@ -524,6 +543,8 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     ctx->in.pos += result->bytes_consumed;
     if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
     else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
+
+    if( FD_UNLIKELY( early_exit ) ) break;
   }
 
   int reprocess_frag = ctx->in.pos<sz;
@@ -664,7 +685,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int
@@ -725,6 +746,11 @@ privileged_init( fd_topo_t *      topo,
   memset( ctx, 0, sizeof(fd_snapin_tile_t) );
   FD_TEST( fd_rng_secure( &ctx->seed, 8UL ) );
 
+  if( tile->snapin.use_vinyl && !tile->snapin.lthash_disabled ) {
+    FD_LOG_WARNING(( "lthash verficiation for vinyl not yet implemented" ));
+    tile->snapin.lthash_disabled = 1;
+  }
+
   if( tile->snapin.use_vinyl ) {
     ctx->use_vinyl = 1;
     fd_snapin_vinyl_privileged_init( ctx, topo, tile );
@@ -770,10 +796,12 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->full = 1;
   ctx->state = FD_SNAPSHOT_STATE_IDLE;
+  ctx->lthash_disabled = tile->snapin.lthash_disabled;
 
   ctx->boot_timestamp = fd_log_wallclock();
 
   FD_TEST( fd_accdb_admin_join( ctx->accdb_admin, fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
+  FD_TEST( fd_accdb_user_join ( ctx->accdb,       fd_topo_obj_laddr( topo, tile->snapin.funk_obj_id ) ) );
   fd_funk_txn_xid_copy( ctx->xid, fd_funk_root( ctx->accdb_admin->funk ) );
 
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->snapin.txncache_obj_id );
@@ -799,24 +827,36 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
 
-  ctx->ct_out       = out1( topo, tile, "snapin_ct"    );
   ctx->manifest_out = out1( topo, tile, "snapin_manif" );
   ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
+  ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
+  if( out_link_ct_idx==ULONG_MAX ) out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ls", 0UL );
+  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
+  fd_topo_link_t * snapin_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
+  ctx->out_ct_idx = out_link_ct_idx;
 
-  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct`"    ));
+  if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
+
+  if( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) {
+    ctx->hash_out = out1( topo, tile, "snapin_ls" );
+  }
 
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];
+  FD_TEST( 0==strcmp( in_link->name, "snapdc_in" ) );
   fd_topo_wksp_t const * in_wksp = &topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ];
   ctx->in.wksp                   = in_wksp->wksp;
   ctx->in.chunk0                 = fd_dcache_compact_chunk0( ctx->in.wksp, in_link->dcache );
   ctx->in.wmark                  = fd_dcache_compact_wmark( ctx->in.wksp, in_link->dcache, in_link->mtu );
   ctx->in.mtu                    = in_link->mtu;
   ctx->in.pos                    = 0UL;
+
+  ctx->buffered_batch.batch_cnt     = 0UL;
+  ctx->buffered_batch.remaining_idx = 0UL;
 
   fd_memset( &ctx->flags, 0, sizeof(ctx->flags) );
 
@@ -827,8 +867,8 @@ unprivileged_init( fd_topo_t *      topo,
 
 /* Control fragments can result in one extra publish to forward the
    message down the pipeline, in addition to the result / malformed
-   message / etc. */
-#define STEM_BURST 2UL
+   message. Can send one duplicate account message as well. */
+#define STEM_BURST 4UL
 
 #define STEM_LAZY  1000L
 

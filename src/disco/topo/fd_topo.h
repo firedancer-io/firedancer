@@ -547,6 +547,7 @@ struct fd_topo_tile {
       ulong funk_obj_id;
       ulong txncache_obj_id;
 
+      uint  lthash_disabled : 1;
       uint  use_vinyl : 1;
       ulong vinyl_meta_map_obj_id;
       ulong vinyl_meta_pool_obj_id;

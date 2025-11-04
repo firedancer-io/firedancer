@@ -56,6 +56,29 @@ fd_hashes_account_lthash( fd_pubkey_t const       * pubkey,
                           uchar const             * data,
                           fd_lthash_value_t *       lthash_out );
 
+/* fd_hashes_account_lthash_simple is functionally the same as
+   fd_hashes_account_lthash, but with simpler arguments that detail
+   the exact parameters that go into the lthash.
+
+   pubkey points to the account's public key (32 bytes).  owner points
+   to the account's owner (32 bytes).  lamports is the account's
+   lamports.  executable is the account's executable flag.  data points
+   to the account data.  data_len is the length of the account data.
+   lthash_out points to where the computed lthash value will be written
+   (2048 bytes).
+
+   On return, lthash_out contains the computed lthash.  This function
+   assumes all pointers are valid and properly aligned.  The account
+   data pointer must be readable for data_len bytes. */
+void
+fd_hashes_account_lthash_simple( uchar const         pubkey[ static FD_HASH_FOOTPRINT ],
+                                 uchar const         owner[ static FD_HASH_FOOTPRINT ],
+                                 ulong               lamports,
+                                 uchar               executable,
+                                 uchar const *       data,
+                                 ulong               data_len,
+                                 fd_lthash_value_t * lthash_out );
+
 /* fd_hashes_update_lthash updates the bank's incremental lthash when an
    account is modified during transaction execution.  The bank lthash is
    maintained incrementally by subtracting the old account hash and

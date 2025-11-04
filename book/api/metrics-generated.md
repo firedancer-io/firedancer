@@ -1118,3 +1118,27 @@
 | <span class="metrics-name">benchs_&#8203;transactions_&#8203;sent</span> | counter | Number of benchmark packets sent |
 
 </div>
+
+## Snapla Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapla_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapla_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapla_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>
+
+## Snapls Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapls_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 2=FINISHING, 3=ERROR, 4=SHUTDOWN |
+| <span class="metrics-name">snapls_&#8203;full_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the full snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+| <span class="metrics-name">snapls_&#8203;incremental_&#8203;accounts_&#8203;hashed</span> | gauge | Number of accounts hashed for the incremental snapshot during snapshot loading. Might decrease if snapshot load is aborted and restarted |
+
+</div>

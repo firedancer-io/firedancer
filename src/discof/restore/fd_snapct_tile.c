@@ -35,7 +35,7 @@
 #define SERVER_PEERS_MAX (FD_TOPO_SNAPSHOTS_SERVERS_MAX)
 #define TOTAL_PEERS_MAX  (GOSSIP_PEERS_MAX + SERVER_PEERS_MAX)
 
-#define IN_KIND_SNAPIN   (0)
+#define IN_KIND_ACK   (0)
 #define IN_KIND_SNAPLD   (1)
 #define IN_KIND_GOSSIP   (2)
 #define MAX_IN_LINKS     (3)
@@ -170,7 +170,7 @@ scratch_align( void ) {
          fd_ulong_max( alignof(gossip_ci_entry_t),
          fd_ulong_max( gossip_ci_map_align(),
          fd_ulong_max( fd_http_resolver_align(),
-                       fd_sspeer_selector_align() ) ) ) ) );
+                          fd_sspeer_selector_align() ) ) ) ) );
 }
 
 static ulong
@@ -499,6 +499,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
+        if( !ctx->flush_ack ) break;
         break;
       }
 
@@ -568,6 +569,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->predicted_incremental.full_slot = ctx->local_in.full_snapshot_slot;
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_FILE;
         init_load( ctx, stem, 1, 1 );
+        if( !ctx->flush_ack ) break;
       } else {
         if( FD_UNLIKELY( !ctx->config.incremental_snapshots ) ) send_expected_slot( ctx, stem, best.ssinfo.full.slot );
 
@@ -581,6 +583,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         ctx->state                           = FD_SNAPCT_STATE_READING_FULL_HTTP;
         ctx->predicted_incremental.full_slot = best.ssinfo.full.slot;
         init_load( ctx, stem, 1, 0 );
+        if( !ctx->flush_ack ) break;
         log_download( ctx, 1, best.addr, best.ssinfo.full.slot );
       }
       break;
@@ -601,6 +604,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
+      if( !ctx->flush_ack ) break;
       log_download( ctx, 0, best.addr, best.ssinfo.incremental.slot );
       break;
     }
@@ -672,6 +676,7 @@ after_credit( fd_snapct_tile_t *  ctx,
         FD_LOG_NOTICE(( "reading incremental snapshot at slot %lu from local file `%s`", ctx->local_in.incremental_snapshot_slot, ctx->local_in.incremental_snapshot_path ));
         ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_FILE;
         init_load( ctx, stem, 0, 1 );
+        if( !ctx->flush_ack ) break;
       }
       break;
 
@@ -718,6 +723,7 @@ after_credit( fd_snapct_tile_t *  ctx,
       ctx->addr = best.addr;
       ctx->state = FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP;
       init_load( ctx, stem, 0, 0 );
+      if( !ctx->flush_ack ) break;
       log_download( ctx, 0, best.addr, best.ssinfo.incremental.slot );
       break;
 
@@ -1131,7 +1137,7 @@ returnable_frag( fd_snapct_tile_t *  ctx,
     gossip_frag( ctx, sig, sz, chunk );
   } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPLD ) {
     snapld_frag( ctx, sig, sz, chunk, stem );
-  } else if( ctx->in_kind[ in_idx ]==IN_KIND_SNAPIN ) {
+  } else if( ctx->in_kind[ in_idx ]==IN_KIND_ACK ) {
     snapin_frag( ctx, sig );
   } else FD_LOG_ERR(( "invalid in_kind %lu %u", in_idx, (uint)ctx->in_kind[ in_idx ] ));
   return 0;
@@ -1279,7 +1285,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_memset( ctx->http_incr_snapshot_name, 0, PATH_MAX );
 
   ctx->gossip_in_mem = NULL;
-  int has_snapld_dc = 0, has_snapin_ct = 0;
+  int has_snapld_dc = 0, has_ack_loopback = 0;
   FD_TEST( tile->in_cnt<=MAX_IN_LINKS );
   for( ulong i=0UL; i<(tile->in_cnt); i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
@@ -1291,13 +1297,13 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->snapld_in_mem = topo->workspaces[ topo->objs[ in_link->dcache_obj_id ].wksp_id ].wksp;
       FD_TEST( !has_snapld_dc );
       has_snapld_dc = 1;
-    } else if( 0==strcmp( in_link->name, "snapin_ct" ) ) {
-      ctx->in_kind[ i ] = IN_KIND_SNAPIN;
-      FD_TEST( !has_snapin_ct );
-      has_snapin_ct = 1;
+    } else if( 0==strcmp( in_link->name, "snapin_ct" ) || 0==strcmp( in_link->name, "snapls_ct" ) ) {
+      ctx->in_kind[ i ] = IN_KIND_ACK;
+      FD_TEST( !has_ack_loopback );
+      has_ack_loopback = 1;
     }
   }
-  FD_TEST( has_snapld_dc && has_snapin_ct );
+  FD_TEST( has_snapld_dc && has_ack_loopback );
   FD_TEST( ctx->gossip_enabled==(ctx->gossip_in_mem!=NULL) );
 
   ctx->predicted_incremental.full_slot = ULONG_MAX;

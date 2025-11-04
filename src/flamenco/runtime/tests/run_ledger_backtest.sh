@@ -26,6 +26,7 @@ SKIP_CHECKSUM=1
 DEBUG=( )
 WATCH=( )
 LOG_LEVEL_STDERR=NOTICE
+DISABLE_LTHASH_VERIFICATION="false"
 
 if [[ -n "$CI" ]]; then
   SKIP_CHECKSUM=0
@@ -121,6 +122,10 @@ while [[ $# -gt 0 ]]; do
     --log)
         LOG="$2"
         shift
+        shift
+        ;;
+    -nlt|--no-lthash-verification)
+        DISABLE_LTHASH_VERIFICATION="true"
         shift
         ;;
     -*|--*)
@@ -251,7 +256,10 @@ echo "
     snapshots = \"$DUMP/$LEDGER\"
 [hugetlbfs]
     mount_path = \"$HUGE_TLBFS_MOUNT_PATH\"
-    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE" > $DUMP_DIR/${LEDGER}_backtest.toml
+    allow_hugepage_increase = $HUGE_TLBFS_ALLOW_HUGEPAGE_INCREASE
+[development]
+    [development.snapshots]
+        disable_lthash_verification = $DISABLE_LTHASH_VERIFICATION" > $DUMP_DIR/${LEDGER}_backtest.toml
 
 if [[ -z "$GENESIS" ]]; then
   echo "[gossip]

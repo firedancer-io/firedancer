@@ -75,10 +75,10 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-372721907-v2.3.0 -y 
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-331691646-v2.3.0 -y 4 -m 2000000 -e 331691647 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-378683870-v2.3.0 -y 3 -m 2000000 -e 378683872 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-380592002-v2.3.0 -y 3 -m 2000000 -e 380592006 -c 2.3.0
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v2.3.0 -y 5 -m 2000000 -e 336218683 -c 2.3.0
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v2.3.0 -y 5 -m 2000000 -e 340269872 -c 2.3.0
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-336218682-v2.3.0 -y 5 -m 2000000 -e 336218683 -c 2.3.0 -nlt
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340269866-v2.3.0 -y 5 -m 2000000 -e 340269872 -c 2.3.0 -nlt
 # src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-340272018-v2.3.0 -y 5 -m 2000000 -e 340272024 -c 2.3.0
-src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v2.3.0 -y 10 -m 2000000 -e 390056406 -c 2.3.0
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-390056400-v2.3.0 -y 10 -m 2000000 -e 390056406 -c 2.3.0 -nlt
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346556000 -y 3 -m 2000000 -e 346556337 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-346179946 -y 30 -m 90000000 -e 346179950 -c 2.3.0
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l multi-bpf-loader-v2.3.0 -y 1 -m 1000 -e 108 -c 2.3.0
