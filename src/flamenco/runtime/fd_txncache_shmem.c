@@ -164,6 +164,7 @@ fd_txncache_shmem_new( void * shmem,
   tc->txnpages_per_blockhash_max = _max_txnpages_per_blockhash;
   tc->max_txnpages               = _max_txnpages;
 
+  tc->blockcache_generation = 0U;
   tc->txnpages_free_cnt = _max_txnpages;
   ushort * txnpages_free = (ushort *)_txnpages_free;
   for( ushort i=0; i<_max_txnpages; i++ ) txnpages_free[ i ] = i;

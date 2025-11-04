@@ -205,6 +205,7 @@ fd_txncache_insert_txn( fd_txncache_t *         tc,
     ulong txnhash_offset = blockcache->shmem->txnhash_offset;
     memcpy( txnpage->txns[ txn_idx ]->txnhash, txnhash+txnhash_offset, 20UL );
     txnpage->txns[ txn_idx ]->fork_id = fork_id;
+    txnpage->txns[ txn_idx ]->generation = tc->blockcache_pool[ fork_id.val ].shmem->generation;
     FD_COMPILER_MFENCE();
 
     ulong txn_bucket = FD_LOAD( ulong, txnhash+txnhash_offset )%tc->shmem->txn_per_slot_max;
@@ -231,6 +232,7 @@ fd_txncache_attach_child( fd_txncache_t *       tc,
   blockcache_t * fork = &tc->blockcache_pool[ idx ];
   fd_txncache_fork_id_t fork_id = { .val = (ushort)idx };
 
+  fork->shmem->generation = tc->shmem->blockcache_generation++;
   fork->shmem->child_id = (fd_txncache_fork_id_t){ .val = USHORT_MAX };
 
   if( FD_LIKELY( parent_fork_id.val==USHORT_MAX ) ) {
@@ -390,6 +392,13 @@ blockhash_on_fork( fd_txncache_t *      tc,
   return NULL;
 }
 
+static void
+fd_txncache_purge_stale( fd_txncache_t * tc ) {
+  (void)tc;
+  FD_LOG_ERR(( "txncache full, purging stale transactions" ));
+  // TODO: Implement eviction of any txn with generation!=fork->generation
+}
+
 void
 fd_txncache_insert( fd_txncache_t *       tc,
                     fd_txncache_fork_id_t fork_id,
@@ -408,7 +417,14 @@ fd_txncache_insert( fd_txncache_t *       tc,
 
   for(;;) {
     fd_txncache_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
-    FD_TEST( txnpage );
+    if( FD_UNLIKELY( !txnpage ) ) {
+      /* Because of sizing invariants when creating the structure, it is
+         not typically possible to fill it, unless there are stale
+         transactions from minority forks that were purged floating
+         around, in which case we can purge them here and try again. */
+      fd_txncache_purge_stale( tc );
+      continue;
+    }
 
     int success = fd_txncache_insert_txn( tc, blockcache, txnpage, fork_id, txnhash );
     if( FD_LIKELY( success ) ) break;
@@ -441,7 +457,7 @@ fd_txncache_query( fd_txncache_t *       tc,
   for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
     fd_txncache_single_txn_t * txn = tc->txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
 
-    int descends = txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val );
+    int descends = (txn->fork_id.val==fork_id.val || descends_set_test( fork->descends, txn->fork_id.val )) && fork->shmem->generation==txn->generation;
     if( FD_LIKELY( descends && !memcmp( txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
       found = 1;
       break;
