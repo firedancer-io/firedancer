@@ -246,9 +246,6 @@ fd_stake_delegations_update( fd_stake_delegations_t * stake_delegations,
   }
 
   fd_stake_delegation_t * stake_delegation = fd_stake_delegation_pool_ele_acquire( stake_delegation_pool );
-  if( FD_UNLIKELY( !stake_delegation ) ) {
-    FD_LOG_CRIT(( "unable to acquire stake delegation" ));
-  }
 
   stake_delegation->stake_account        = *stake_account;
   stake_delegation->vote_account         = *vote_account;

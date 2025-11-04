@@ -175,7 +175,6 @@ fd_forest_init( fd_forest_t * forest, ulong root_slot ) {
 
   /* Sanity checks. */
 
-  FD_TEST( root_ele );
   FD_TEST( root_ele == fd_forest_frontier_ele_query( frontier, &root_slot, NULL, pool ));
   FD_TEST( root_ele->slot == root_slot );
 

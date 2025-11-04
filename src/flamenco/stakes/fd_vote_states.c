@@ -193,9 +193,6 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
   }
 
   fd_vote_state_ele_t * vote_state = fd_vote_state_pool_ele_acquire( vote_state_pool );
-  if( FD_UNLIKELY( !vote_state ) ) {
-    FD_LOG_CRIT(( "unable to acquire vote state" ));
-  }
 
   vote_state->vote_account = *vote_account;
   vote_state->stake        = 0UL;
