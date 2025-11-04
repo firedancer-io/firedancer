@@ -1631,7 +1631,7 @@ and is broadcast to all WebSocket clients.
 | reference_ts    | `number`           | The smallest UNIX nanosecond event timestamp number across all the events in a given message |
 | slot_delta      | `number[]`         | `reference_slot + slot_delta[i]` is the slot to which shred event `i` belongs |
 | shred_idxs      | `(number\|null)[]` | `shred_idxs[i]` is the slot shred index of the shred for shred event `i`.  If null, then shred event `i` applies to all shreds in the slot (i.e. this is used for `slot_complete`) |
-| events          | `string[]`         | `events[i]` is the name of shred event `i`. Possible values are `repair_request`, `shred_received`, `shred_replayed`, and `slot_complete` |
+| events          | `number[]`         | `events[i]` is the enum value for shred event `i`. Possible values are `repair_request` (0), `shred_received_turbine` (1), `shred_received_repair` (2), `shred_replay_exec_done` (3), `shred_replay_exec_start` (4), and `slot_complete` (5) |
 | events_ts_delta | `string[]`         | `reference_ts + events_ts_delta[i]` is the UNIX nanosecond timestamp when shred event `i` occured |
 
 #### `slot.query_shreds`
@@ -2103,6 +2103,8 @@ explicitly mentioned, skipped slots are not included.
 |---------------------|---------------------------|-------------|
 | publish             | `SlotPublish`             | General information about the slot.  Contains several nullable fields in case a future slot is queried and he information is not known yet |
 | transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each scheduled transaction that was packed in this slot, and are ordered in the same order the transactions appear in the block. Note that not all scheduled transactions will land in the produced block (e.g. failed bundles are ignored), but these arrays nonetheless include metrics for excluded transactions |
+| limits              | `SlotLimits`              | The various protocol-derived resource limits and their corresponding utilization for this block. If `mine` is false, then this value is `null` |
+| scheduler_stats     | `SlotScheduleStats`       | Various metrics tracked by the transaction scheduler and collected at the end of a leader slot. If `mine` is false, then this value is `null` |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -2169,7 +2171,7 @@ explicitly mentioned, skipped slots are not included.
 | Field   | Type     | Description |
 |---------|----------|-------------|
 | account | `string` | The pubkey for this writeable account |
-| cost    | `string` | The total compute units for all transactions that list `account` as a writeable account |
+| cost    | `number` | The total compute units for all transactions that list `account` as a writeable account |
 
 **`SlotLimits`**
 | Field                        | Type              | Description |
@@ -2222,8 +2224,6 @@ explicitly mentioned, skipped slots are not included.
 | txn_signature                     | `string[]`          | `txn_signature[i]` is the base58 signature of the `i`-th transaction in the slot |
 | txn_source_ipv4                   | `string[]`          | `txn_source_ipv4[i]` is the source ipv4 address for the `i`-th transaction in the slot |
 | txn_source_tpu                    | `string[]`          | `txn_source_tpu[i]` is the transaction processing unit (TPU) which handled the `i`-th transaction in the slot |
-| limits                            | `SlotLimits`        | The various protocol-derived resource limits and their corresponding utilization for this block. If `mine` is false, then this value is `null` |
-| scheduler_stats                   | `SlotScheduleStats` | Various metrics tracked by the transaction scheduler and collected at the end of a leader slot. If `mine` is false, then this value is `null` |
 
 The source tpu for a transaction can be one of the following
 

@@ -922,6 +922,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_poh",     0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "pack_bank",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bank_poh",       i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    FOR(exec_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "exec_replay",    i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     if( FD_LIKELY( snapshots_enabled ) ) {
     /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapct_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );

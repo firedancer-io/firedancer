@@ -1664,7 +1664,7 @@ dispatch_task( fd_replay_tile_t *  ctx,
       memcpy( &exec_msg->txn, txn_p, sizeof(fd_txn_p_t) );
       exec_msg->bank_idx = task->txn_exec->bank_idx;
       exec_msg->txn_idx  = task->txn_exec->txn_idx;
-      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, exec_out->idx, (FD_EXEC_TT_TXN_EXEC<<32) | task->txn_exec->exec_idx, exec_out->chunk, sizeof(*exec_msg), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(*exec_msg), exec_out->chunk0, exec_out->wmark );
       break;
     }
