@@ -23,4 +23,3 @@ run-runtime-backtest: $(OBJDIR)/bin/fd_ledger $(OBJDIR)/bin/firedancer-dev
 
 endif
 endif
-
