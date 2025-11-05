@@ -385,6 +385,13 @@ struct fd_topo_tile {
       char  dump_proto_dir[ PATH_MAX ];
       int   dump_block_to_pb;
 
+      struct {
+        int   enabled;
+        uchar tip_payment_program_addr[ 32 ];
+        uchar tip_distribution_program_addr[ 32 ];
+        char  vote_account_path[ PATH_MAX ];
+      } bundle;
+
     } replay;
 
     struct {
