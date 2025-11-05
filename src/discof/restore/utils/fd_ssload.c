@@ -1,5 +1,6 @@
 #include "fd_ssload.h"
 
+#include "../../../disco/genesis/fd_genesis_cluster.h"
 #include "../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "fd_ssmsg.h"
 
@@ -140,6 +141,22 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
   fd_bank_block_height_set( bank, manifest->block_height );
   fd_bank_execution_fees_set( bank, manifest->collector_fees );
   fd_bank_priority_fees_set( bank, 0UL );
+
+  /* Set the cluster type based on the genesis creation time.  This is
+     later cross referenced against the genesis hash. */
+  switch( fd_bank_genesis_creation_time_get( bank ) ) {
+    case FD_RUNTIME_GENESIS_CREATION_TIME_TESTNET:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_TESTNET );
+      break;
+    case FD_RUNTIME_GENESIS_CREATION_TIME_MAINNET:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_MAINNET_BETA );
+      break;
+    case FD_RUNTIME_GENESIS_CREATION_TIME_DEVNET:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_DEVNET );
+      break;
+    default:
+      fd_bank_cluster_type_set( bank, FD_CLUSTER_UNKNOWN );
+  }
 
   /* Update last restart slot
      https://github.com/solana-labs/solana/blob/30531d7a5b74f914dde53bfbb0bc2144f2ac92bb/runtime/src/bank.rs#L2152

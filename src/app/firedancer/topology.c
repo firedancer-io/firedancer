@@ -650,6 +650,38 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt)   fd_topob_tile_in (   topo, "pack",    0UL,          "metric_in", "exec_sig",     i,            FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   FOR(exec_tile_cnt)   fd_topob_tile_out(   topo, "exec",    i,                         "exec_sig",     i                                                  );
 
+  if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+    fd_topob_wksp( topo, "bundle_verif" );
+    fd_topob_wksp( topo, "bundle_sign"  );
+    fd_topob_wksp( topo, "sign_bundle"  );
+    fd_topob_wksp( topo, "pack_sign"    );
+    fd_topob_wksp( topo, "sign_pack"    );
+    fd_topob_wksp( topo, "bundle"       );
+
+    /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
+    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
+    /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  128UL,                                    64UL,                      1UL );
+    /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    65536UL,                                  1232UL,                    1UL );
+    /**/                 fd_topob_link( topo, "sign_pack",    "sign_pack",    128UL,                                    64UL,                      1UL );
+
+    /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
+
+    /**/                 fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );
+    FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify", i,             "metric_in", "bundle_verif",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
+
+    /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "bundle_sign",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_sign",    0UL                                                );
+    /**/                 fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "sign_bundle",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_bundle",    0UL                                                );
+
+    /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "pack_sign",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "pack",   0UL,                        "pack_sign",      0UL                                                );
+    /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "sign_pack",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
+
+    /* TODO: bundle gui support needs to be integrated here */
+  }
+
   /* Sign links don't need to be reliable because they are synchronous,
      so there's at most one fragment in flight at a time anyway.  The
      sign links are also not polled by fd_stem, instead the tiles will
@@ -1025,6 +1057,18 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
+    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+#define PARSE_PUBKEY( _tile, f ) \
+      if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
+        FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
+      tile->replay.bundle.enabled = 1;
+      PARSE_PUBKEY( replay, tip_distribution_program_addr );
+      PARSE_PUBKEY( replay, tip_payment_program_addr      );
+      strncpy( tile->replay.bundle.vote_account_path, config->paths.vote_account, sizeof(tile->replay.bundle.vote_account_path) );
+    } else {
+      fd_memset( &tile->replay.bundle, '\0', sizeof(tile->replay.bundle) );
+    }
+
     tile->replay.max_live_slots = config->firedancer.runtime.max_live_slots;
     tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
     tile->replay.max_vote_accounts = config->firedancer.runtime.max_vote_accounts;
@@ -1115,9 +1159,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->pack.schedule_strategy             = config->tiles.pack.schedule_strategy_enum;
 
     if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
-#define PARSE_PUBKEY( _tile, f ) \
-      if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
-        FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
+
       tile->pack.bundle.enabled = 1;
       PARSE_PUBKEY( pack, tip_distribution_program_addr );
       PARSE_PUBKEY( pack, tip_payment_program_addr      );
@@ -1247,6 +1289,17 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     tile->shredcap.enable_publish_stake_weights = 0; /* this is not part of the config */
     strncpy( tile->shredcap.manifest_path, "", PATH_MAX ); /* this is not part of the config */
 
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "bundle" ) ) ) {
+    strncpy( tile->bundle.url, config->tiles.bundle.url, sizeof(tile->bundle.url) );
+    tile->bundle.url_len = strnlen( tile->bundle.url, 255 );
+    strncpy( tile->bundle.sni, config->tiles.bundle.tls_domain_name, 256 );
+    tile->bundle.sni_len = strnlen( tile->bundle.sni, 255 );
+    strncpy( tile->bundle.identity_key_path, config->paths.identity_key, sizeof(tile->bundle.identity_key_path) );
+    strncpy( tile->bundle.key_log_path, config->development.bundle.ssl_key_log_file, sizeof(tile->bundle.key_log_path) );
+    tile->bundle.buf_sz = config->development.bundle.buffer_size_kib<<10;
+    tile->bundle.ssl_heap_sz = config->development.bundle.ssl_heap_size_mib<<20;
+    tile->bundle.keepalive_interval_nanos = config->tiles.bundle.keepalive_interval_millis * (ulong)1e6;
+    tile->bundle.tls_cert_verify = !!config->tiles.bundle.tls_cert_verify;
   } else {
     FD_LOG_ERR(( "unknown tile name `%s`", tile->name ));
   }

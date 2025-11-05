@@ -43,6 +43,7 @@
 #define FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION                    -37
 #define FD_RUNTIME_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT               -38
 #define FD_RUNTIME_TXN_ERR_COMMIT_CANCELLED                          -39
+#define FD_RUNTIME_TXN_ERR_BUNDLE_PEER                               -40
 
 /* Transaction error that does not directly map to an Agave error.
    These all map to FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND (-8) and are

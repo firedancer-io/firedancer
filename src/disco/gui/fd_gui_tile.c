@@ -286,7 +286,9 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_replay_slot_completed_t const * replay =  (fd_replay_slot_completed_t const *)ctx->buf;
 
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, replay->bank_idx );
-        FD_TEST( bank ); /* bank should already have positive refcnt */
+        /* bank should already have positive refcnt */
+        FD_TEST( bank );
+        FD_TEST( bank->refcnt!=0 );
 
         fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
         FD_TEST( fd_vote_states_cnt( vote_states )<FD_RUNTIME_MAX_VOTE_ACCOUNTS );
@@ -336,15 +338,15 @@ after_frag( fd_gui_ctx_t *      ctx,
           slot_completed.nonvote_failed_txn_cnt = (uint)fd_bank_nonvote_failed_txn_count_get( bank );
         }
 
-        slot_completed.slot                   = fd_bank_slot_get( bank );
-        slot_completed.completed_time         = replay->completion_time_nanos;
-        slot_completed.parent_slot            = fd_bank_parent_slot_get( bank );
-        slot_completed.max_compute_units      = (uint)max_compute_units;
-        slot_completed.transaction_fee        = fd_bank_execution_fees_get( bank );
-        slot_completed.priority_fee           = fd_bank_priority_fees_get( bank );
-        slot_completed.tips                   = 0UL;
-        slot_completed.compute_units          = (uint)fd_bank_total_compute_units_used_get( bank );
-        slot_completed.shred_cnt              = (uint)fd_bank_shred_cnt_get( bank );
+        slot_completed.slot              = fd_bank_slot_get( bank );
+        slot_completed.completed_time    = replay->completion_time_nanos;
+        slot_completed.parent_slot       = fd_bank_parent_slot_get( bank );
+        slot_completed.max_compute_units = (uint)max_compute_units;
+        slot_completed.transaction_fee   = fd_bank_execution_fees_get( bank );
+        slot_completed.priority_fee      = fd_bank_priority_fees_get( bank );
+        slot_completed.tips              = fd_bank_tips_get( bank );
+        slot_completed.compute_units     = (uint)fd_bank_total_compute_units_used_get( bank );
+        slot_completed.shred_cnt         = (uint)fd_bank_shred_cnt_get( bank );
 
         /* release shared ownership of bank and parent_bank */
         fd_stem_publish( stem, ctx->replay_out->idx, replay->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
