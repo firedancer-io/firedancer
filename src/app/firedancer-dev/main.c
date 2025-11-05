@@ -106,6 +106,7 @@ extern fd_topo_run_tile_t fd_tile_archiver_feeder;
 extern fd_topo_run_tile_t fd_tile_archiver_writer;
 extern fd_topo_run_tile_t fd_tile_archiver_playback;
 extern fd_topo_run_tile_t fd_tile_shredcap;
+extern fd_topo_run_tile_t fd_tile_capture;
 
 extern fd_topo_run_tile_t fd_tile_snapct;
 extern fd_topo_run_tile_t fd_tile_snapld;
@@ -161,6 +162,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_snapwr,
   &fd_tile_genesi,
   &fd_tile_ipecho,
+  &fd_tile_capture,
   NULL,
 };
 

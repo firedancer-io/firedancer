@@ -922,8 +922,6 @@ int fd_solana_account_meta_encode( fd_solana_account_meta_t const * self, fd_bin
   int err;
   err = fd_bincode_uint64_encode( self->lamports, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->rent_epoch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_bytes_encode( self->owner, sizeof(self->owner), ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_bool_encode( (uchar)(self->executable), ctx );
@@ -935,8 +933,6 @@ int fd_solana_account_meta_encode( fd_solana_account_meta_t const * self, fd_bin
 static int fd_solana_account_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
-  err = fd_bincode_uint64_decode_footprint( ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   err = fd_bincode_bytes_decode_footprint( 32, ctx );
@@ -958,7 +954,6 @@ int fd_solana_account_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
 static void fd_solana_account_meta_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_solana_account_meta_t * self = (fd_solana_account_meta_t *)struct_mem;
   fd_bincode_uint64_decode_unsafe( &self->lamports, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->rent_epoch, ctx );
   fd_bincode_bytes_decode_unsafe( &self->owner[0], sizeof(self->owner), ctx );
   fd_bincode_bool_decode_unsafe( &self->executable, ctx );
   fd_bincode_bytes_decode_unsafe( self->padding, 3, ctx );
@@ -978,7 +973,6 @@ void fd_solana_account_meta_walk( void * w, fd_solana_account_meta_t const * sel
   (void) varint;
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_solana_account_meta", level++, 0 );
   fun( w, &self->lamports, "lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
-  fun( w, &self->rent_epoch, "rent_epoch", FD_FLAMENCO_TYPE_ULONG, "ulong", level, 0  );
   fun( w, self->owner, "owner", FD_FLAMENCO_TYPE_HASH256, "uchar[32]", level, 0  );
   fun( w, &self->executable, "executable", FD_FLAMENCO_TYPE_BOOL, "bool", level, 0  );
   fun(w, self->padding, "padding", FD_FLAMENCO_TYPE_UCHAR, "uchar", level, 0 );

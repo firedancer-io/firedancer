@@ -15,6 +15,8 @@
 #include "../../types/fd_types.h"
 #include "../../../disco/pack/fd_pack.h"
 #include "generated/block.pb.h"
+#include "../../../discof/capture/fd_capture_ctx.h"
+#include "../../capture/fd_solcap_writer.h"
 
 /* Templatized leader schedule sort helper functions */
 typedef struct {
@@ -441,15 +443,28 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
   // Prepare. Execute. Finalize.
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
     fd_capture_ctx_t * capture_ctx = NULL;
+
     if( runner->solcap ) {
       void * capture_ctx_mem = fd_spad_alloc( runner->spad, fd_capture_ctx_align(), fd_capture_ctx_footprint() );
-      capture_ctx            = fd_capture_ctx_new( capture_ctx_mem );
-      if( FD_UNLIKELY( capture_ctx==NULL ) ) {
-        FD_LOG_ERR(("capture_ctx_mem is NULL, cannot write solcap"));
+      capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( capture_ctx_mem ) );
+      if( FD_UNLIKELY( !capture_ctx ) ) {
+        FD_LOG_ERR(( "Failed to initialize capture_ctx" ));
       }
-      capture_ctx->capture           = runner->solcap;
+
+      fd_capture_link_file_t * capture_link_file =
+        fd_spad_alloc( runner->spad, alignof(fd_capture_link_file_t), sizeof(fd_capture_link_file_t) );
+      if( FD_UNLIKELY( !capture_link_file ) ) {
+        FD_LOG_ERR(( "Failed to allocate capture_link_file" ));
+      }
+
+      capture_link_file->base.vt = &fd_capture_link_file_vt;
+
+      capture_link_file->file        = (FILE *)runner->solcap_file;
+      capture_ctx->capture_link      = &capture_link_file->base;
+      capture_ctx->capctx_buf.file   = capture_link_file;
       capture_ctx->solcap_start_slot = fd_bank_slot_get( runner->bank );
-      fd_solcap_writer_set_slot( capture_ctx->capture, fd_bank_slot_get( runner->bank ) );
+
+      fd_solcap_writer_init( capture_ctx->capture, (FILE *)runner->solcap_file );
     }
 
     fd_rewards_recalculate_partitioned_rewards( runner->banks, runner->bank, runner->accdb->funk, xid, runner->runtime_stack, capture_ctx );
@@ -687,7 +702,6 @@ fd_solfuzz_pb_block_run( fd_solfuzz_runner_t * runner,
   fd_exec_test_block_effects_t **      output = fd_type_pun( output_ );
 
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
-    /* Set up the block execution context */
     ulong txn_cnt;
     fd_txn_p_t * txn_ptrs = fd_solfuzz_pb_block_ctx_create( runner, input, &txn_cnt );
     if( txn_ptrs==NULL ) {

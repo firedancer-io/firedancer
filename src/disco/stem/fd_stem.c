@@ -37,6 +37,14 @@
    or monitoring tools.  The ctx is a user-provided context object from
    when the stem tile was initialized.
 
+    CUSTOM_INPUT_SELECTION
+   Is called to determine if the stem should shuffle the input
+   selection.  The ctx is a user-provided context object from when the
+   stem tile was initialized.  The stem should return 1 if the input
+   selection should be shuffled, 0 otherwise. Used alongside
+   STEM_CUSTOM_INPUT_ADVANCE_FLAG to determine if the input selection
+   should be advanced.
+
      BEFORE_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not.  This callback is also still
@@ -484,14 +492,19 @@ STEM_(run1)( ulong                        in_cnt,
         /* We also do the same with the ins to prevent there being a
            correlated order frag origins from different inputs
            downstream at extreme fan in and extreme in load. */
-
-        if( FD_LIKELY( in_cnt>1UL ) ) {
+#ifdef STEM_CUSTOM_INPUT_SELECTION
+        int shuffle_flag = STEM_CUSTOM_INPUT_ADVANCE_FLAG(ctx);
+#else
+        int shuffle_flag = 1;
+#endif
+        if( FD_LIKELY( in_cnt>1UL && shuffle_flag ) ) {
           swap_idx = (ulong)fd_rng_uint_roll( rng, (uint)in_cnt );
           fd_stem_tile_in_t in_tmp;
           in_tmp         = in[ swap_idx ];
           in[ swap_idx ] = in[ 0        ];
           in[ 0        ] = in_tmp;
         }
+
       }
 
       /* Reload housekeeping timer */
@@ -579,10 +592,12 @@ STEM_(run1)( ulong                        in_cnt,
     }
 #endif
 
-    fd_stem_tile_in_t * this_in = &in[ in_seq ];
+fd_stem_tile_in_t * this_in = &in[ in_seq ];
+#ifdef STEM_CUSTOM_INPUT_SELECTION
+#else
     in_seq++;
     if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
-
+#endif
     /* Check if this in has any new fragments to mux */
 
     ulong                  this_in_seq   = this_in->seq;
@@ -714,6 +729,15 @@ STEM_(run1)( ulong                        in_cnt,
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_COUNT_OFF ]++;
     this_in->accum[ FD_METRICS_COUNTER_LINK_CONSUMED_SIZE_BYTES_OFF ] += (uint)sz;
 
+    /* Custom input selection: advance to next input based on flag */
+#ifdef STEM_CUSTOM_INPUT_SELECTION
+    int should_advance = STEM_CUSTOM_INPUT_ADVANCE_FLAG(ctx);
+    if( FD_LIKELY( should_advance ) ) {
+      in_seq++;
+      if( in_seq>=in_cnt ) in_seq = 0UL; /* cmov */
+    }
+#endif
+
     metric_regime_ticks[1] += housekeeping_ticks;
     metric_regime_ticks[4] += prefrag_ticks;
     long next = fd_tickcount();
@@ -815,3 +839,5 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_CALLBACK_RETURNABLE_FRAG
 #undef STEM_CALLBACK_AFTER_FRAG
 #undef STEM_CALLBACK_AFTER_POLL_OVERRUN
+#undef STEM_CUSTOM_INPUT_SELECTION
+#undef STEM_CUSTOM_INPUT_ADVANCE_FLAG

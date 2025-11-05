@@ -584,6 +584,12 @@ struct fd_topo_tile {
       uint target_gid;
       uint target_uid;
     } genesi;
+
+    struct {
+      ulong capture_start_slot;
+      char solcap_capture[ PATH_MAX ];
+      int solcap_fd;
+    } capctx;
   };
 };
 
