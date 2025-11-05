@@ -26,6 +26,7 @@
 #include <sys/random.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <stdlib.h>
 #include <netdb.h>
 
 extern fd_topo_obj_callbacks_t * CALLBACKS[];
