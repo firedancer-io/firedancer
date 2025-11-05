@@ -12,6 +12,16 @@ podman build -t gcc:8 -f ./contrib/containers/gcc-8.dockerfile
 
 ## Run the container
 
+Check if SELinux is enabled:
+```bash
+# SELinux status check
+getenforce
+
+# Enforcing - SELinux is enabled and enforcing policies
+# Permissive - SELinux is enabled but only logging violations
+# Disabled - SELinux is completely disabled
+```
+
 If SELinux is enabled, run the following command once:
 
 ```bash
@@ -48,4 +58,17 @@ Compile desired targets:
 
 ```bash
 make -j all fdctl fddev
+```
+
+Exiting / Cleanup
+
+```bash
+# Leave the container
+exit
+
+# List of containers
+podman ps -a
+
+# Remove the container if necessary
+podman rm <container_id> # Image - localhost/gcc:8
 ```
