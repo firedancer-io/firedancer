@@ -351,7 +351,6 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
     FD_LOG_CRIT(( "fd_progcache_join failed" ));
   }
-  txn_ctx->bank_hash_cmp                 = NULL;
   txn_ctx->fuzz_config.enable_vm_tracing = runner->enable_vm_tracing;
   txn_ctx->xid[0]                        = *xid;
 

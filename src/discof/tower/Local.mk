@@ -1,3 +1,1 @@
-ifdef FD_HAS_INT128
-$(call add-objs,fd_tower_tile,fd_discof)
-endif
+$(call add-objs,fd_tower_tile fd_hard_fork_detector,fd_discof)

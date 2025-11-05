@@ -534,7 +534,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   FD_TEST( progcache );
 
-  ctx->txn_ctx->bank_hash_cmp = NULL; /* TODO - do we need this? */
   *(ctx->txn_ctx->funk)       = *funk;
   *(ctx->txn_ctx->_progcache) = *progcache;
   ctx->txn_ctx->progcache     = ctx->txn_ctx->_progcache;

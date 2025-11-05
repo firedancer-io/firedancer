@@ -1,6 +1,7 @@
 #include "fd_tower_tile.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
+#include "fd_hard_fork_detector.h"
 #include "../genesis/fd_genesi_tile.h"
 #include "../replay/fd_replay_tile.h"
 #include "../../choreo/ghost/fd_ghost.h"
@@ -46,6 +47,9 @@ struct fd_tower_tile {
   fd_tower_t * tower;
   uchar *      voters;
 
+  ulong seed;
+  fd_hard_fork_detector_t * hfd;
+
   long  ts;   /* tower timestamp */
 
   fd_snapshot_manifest_t manifest;
@@ -80,11 +84,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
 
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                            );
-  l = FD_LAYOUT_APPEND( l, fd_epoch_align(),         fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( FD_BLOCK_MAX )                 );
-  l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint()                               );
-  l = FD_LAYOUT_APPEND( l, fd_tower_align(),         fd_tower_footprint()*FD_REPLAY_TOWER_VOTE_ACC_MAX  );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_tower_tile_t),      sizeof(fd_tower_tile_t)                            );
+  l = FD_LAYOUT_APPEND( l, fd_epoch_align(),              fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_ghost_align(),              fd_ghost_footprint( FD_BLOCK_MAX )                 );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),              fd_tower_footprint()                               );
+  l = FD_LAYOUT_APPEND( l, fd_tower_align(),              fd_tower_footprint()*FD_REPLAY_TOWER_VOTE_ACC_MAX  );
+  l = FD_LAYOUT_APPEND( l, fd_hard_fork_detector_align(), fd_hard_fork_detector_footprint( tile->tower.max_live_slots, FD_REPLAY_TOWER_VOTE_ACC_MAX )    );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -232,6 +237,8 @@ replay_slot_completed( fd_tower_tile_t *            ctx,
 
   fd_stem_publish( stem, 0UL, 0UL, ctx->out_chunk, sizeof(fd_tower_slot_done_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_done_t), ctx->out_chunk0, ctx->out_wmark );
+
+  fd_hard_fork_detector_block( ctx->hfd, slot_info->slot, slot_info->block_id.uc, slot_info->block_hash.uc );
 
 # if LOGGING
   fd_ghost_print( ctx->ghost, ctx->epoch->total_stake, fd_ghost_root( ctx->ghost ) );
@@ -403,6 +410,8 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( fd_cstr_printf_check( path, sizeof(path), NULL, "%s/tower-1_9-%s.bin", tile->tower.ledger_path, FD_BASE58_ENC_32_ALLOCA( ctx->identity_key->uc ) ) );
   ctx->restore_fd = open( path, O_RDONLY );
   if( FD_UNLIKELY( -1==ctx->restore_fd && errno!=ENOENT ) ) FD_LOG_WARNING(( "open(`%s`) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ctx->seed ) ) );
 }
 
 static void
@@ -411,11 +420,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_tower_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t), sizeof(fd_tower_tile_t)                            );
-  void * _epoch          = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(),         fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
-  void * _ghost          = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),         fd_ghost_footprint( FD_BLOCK_MAX )                 );
-  void * _tower          = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint()                               );
-  void * _vote_towers    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),         fd_tower_footprint()*FD_REPLAY_TOWER_VOTE_ACC_MAX  );
+  fd_tower_tile_t * ctx  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_t),      sizeof(fd_tower_tile_t)                            );
+  void * _epoch          = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(),              fd_epoch_footprint( FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
+  void * _ghost          = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(),              fd_ghost_footprint( FD_BLOCK_MAX )                 );
+  void * _tower          = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),              fd_tower_footprint()                               );
+  void * _vote_towers    = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),              fd_tower_footprint()*FD_REPLAY_TOWER_VOTE_ACC_MAX  );
+  void * _hfd            = FD_SCRATCH_ALLOC_APPEND( l, fd_hard_fork_detector_align(), fd_hard_fork_detector_footprint( tile->tower.max_live_slots, FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
 
   ctx->epoch = fd_epoch_join( fd_epoch_new( _epoch, FD_REPLAY_TOWER_VOTE_ACC_MAX ) );
   FD_TEST( ctx->epoch );
@@ -430,6 +440,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->vote_towers[ i ] = fd_tower_join( fd_tower_new( (uchar*)_vote_towers+(i*fd_tower_footprint() ) ) );
     FD_TEST( ctx->vote_towers[ i ] );
   }
+
+  ctx->hfd = fd_hard_fork_detector_join( fd_hard_fork_detector_new( _hfd, tile->tower.max_live_slots, FD_REPLAY_TOWER_VOTE_ACC_MAX, tile->tower.fork_fatal, ctx->seed ) );
+  FD_TEST( ctx->hfd );
 
   ctx->initialized = 0;
 

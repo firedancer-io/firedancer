@@ -6,7 +6,6 @@
 #include "../../../ballet/txn/fd_txn.h"
 #include "../../features/fd_features.h"
 #include "../fd_txncache.h"
-#include "../fd_bank_hash_cmp.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
@@ -55,7 +54,6 @@ struct fd_exec_txn_ctx {
   fd_features_t                        features;
   fd_txncache_t *                      status_cache;
   int                                  enable_exec_recording;
-  fd_bank_hash_cmp_t *                 bank_hash_cmp;
   fd_funk_t                            funk[1];
   fd_progcache_t *                     progcache;
   fd_progcache_t                       _progcache[1];
