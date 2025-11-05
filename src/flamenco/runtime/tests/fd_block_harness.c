@@ -485,7 +485,8 @@ fd_solfuzz_block_ctx_exec( fd_solfuzz_runner_t *     runner,
           xid,
           txn_ctx,
           runner->bank,
-          capture_ctx );
+          capture_ctx,
+          NULL );
 
       if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
         break;

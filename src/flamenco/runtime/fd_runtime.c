@@ -34,7 +34,9 @@
 #include "tests/fd_dump_pb.h"
 
 #include "fd_system_ids.h"
+
 #include "../../disco/pack/fd_pack.h"
+#include "../../disco/genesis/fd_genesis_cluster.h"
 
 #include <unistd.h>
 #include <sys/stat.h>
@@ -318,11 +320,13 @@ fd_runtime_freeze( fd_bank_t *               bank,
     ulong old = fd_bank_capitalization_get( bank );
     fd_bank_capitalization_set( bank, fd_ulong_sat_sub( old, burn ) );
     FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, fd_bank_capitalization_get( bank ) ));
-
-    fd_bank_execution_fees_set( bank, 0UL );
-
-    fd_bank_priority_fees_set( bank, 0UL );
   }
+
+  /* jito collects a 3% fee at the end of the block + 3% fee at
+     distribution time. */
+  ulong tip = fd_bank_tips_get( bank );
+  tip -= (tip * 6UL / 100UL);
+  fd_bank_tips_set( bank, tip );
 
   fd_runtime_run_incinerator( bank, accdb, xid, capture_ctx );
 
@@ -887,7 +891,8 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
                          fd_funk_txn_xid_t const * xid,
                          fd_exec_txn_ctx_t *       txn_ctx,
                          fd_bank_t *               bank,
-                         fd_capture_ctx_t *        capture_ctx ) {
+                         fd_capture_ctx_t *        capture_ctx,
+                         ulong *                   tips_out_opt ) {
 
   /* Collect fees */
   FD_ATOMIC_FETCH_AND_ADD( fd_bank_txn_count_modify( bank ), 1UL );
@@ -921,6 +926,13 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
     }
   } else {
 
+    fd_pubkey_t const * tip_accounts = NULL;
+    if( fd_bank_cluster_type_get( bank )==FD_CLUSTER_TESTNET ) {
+      tip_accounts = TESTNET_TIP_ACCOUNTS;
+    } else if( fd_bank_cluster_type_get( bank )==FD_CLUSTER_MAINNET_BETA ) {
+      tip_accounts = MAINNET_TIP_ACCOUNTS;
+    }
+
     for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
@@ -931,6 +943,20 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
       fd_txn_account_t * acc_rec = fd_txn_account_join( &txn_ctx->accounts[i] );
       if( FD_UNLIKELY( !acc_rec ) ) {
         FD_LOG_CRIT(( "fd_runtime_finalize_txn: failed to join account at idx %u", i ));
+      }
+
+      /* Tips for bundles are collected in the bank: a user submitting a
+         bundle must include a instruction that transfers lamports to
+         a specific tip account.  Tips accumulated through the slot. */
+      if( tip_accounts ) {
+        for( ulong j=0UL; j<FD_TIP_ACCOUNTS_CNT; j++ ) {
+          if( 0==memcmp( acc_rec->pubkey, &tip_accounts[j], sizeof(fd_pubkey_t) ) ) {
+            ulong tip = fd_ulong_sat_sub( acc_rec->meta->lamports, acc_rec->starting_lamports );
+            if( !!tips_out_opt ) *tips_out_opt += tip;
+            FD_ATOMIC_FETCH_AND_ADD( fd_bank_tips_modify( bank ), tip );
+            break;
+          }
+        }
       }
 
       if( 0==memcmp( fd_txn_account_get_owner( acc_rec ), &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
@@ -982,8 +1008,7 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
   fd_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_locking_modify( bank );
   int res = fd_cost_tracker_calculate_cost_and_add( cost_tracker, txn_ctx );
   if( FD_UNLIKELY( res!=FD_COST_TRACKER_SUCCESS ) ) {
-    txn_ctx->exec_err = fd_cost_tracker_err_to_runtime_err( res );
-    txn_ctx->flags    = 0U;
+    txn_ctx->flags = 0U;
   }
   fd_bank_cost_tracker_end_locking_modify( bank );
 

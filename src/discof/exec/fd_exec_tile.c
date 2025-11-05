@@ -136,7 +136,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );
         if( FD_LIKELY( ctx->txn_ctx->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
           fd_funk_txn_xid_t xid = (fd_funk_txn_xid_t){ .ul = { fd_bank_slot_get( bank ), bank->idx } };
-          fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx );
+          fd_runtime_finalize_txn( ctx->funk, ctx->progcache, ctx->txncache, &xid, ctx->txn_ctx, bank, ctx->capture_ctx, NULL );
         }
 
         if( FD_LIKELY( ctx->exec_sig_out->idx!=ULONG_MAX ) ) {
@@ -293,8 +293,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !ctx->txn_ctx->progcache ) ) {
     FD_LOG_CRIT(( "fd_progcache_join() failed" ));
   }
-  ctx->txn_ctx->status_cache  = ctx->txncache;
-  ctx->txn_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+  ctx->txn_ctx->status_cache     = ctx->txncache;
+  ctx->txn_ctx->bank_hash_cmp    = ctx->bank_hash_cmp;
+  ctx->txn_ctx->bundle.is_bundle = 0;
 
   /********************************************************************/
   /* Capture context                                                 */

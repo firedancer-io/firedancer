@@ -918,25 +918,42 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
   fd_pubkey_t *      fee_payer_key = &txn_ctx->account_keys[FD_FEE_PAYER_TXN_IDX];
   fd_txn_account_t * rollback_fee_payer_acc;
 
-
-  /* When setting the data of the rollback fee payer, there is an edge case where the fee payer is the nonce account.
-     In this case, we can just deduct fees from the nonce account and return, because we save the nonce account in the
-     commit phase anyways. */
+  /* When setting the data of the rollback fee payer, there is an edge
+     case where the fee payer is the nonce account.  In this case, we
+     can just deduct fees from the nonce account and return, because
+     we save the nonce account in the commit phase anyways. */
   if( FD_UNLIKELY( txn_ctx->nonce_account_idx_in_txn==FD_FEE_PAYER_TXN_IDX ) ) {
     rollback_fee_payer_acc = txn_ctx->rollback_nonce_account;
   } else {
-    int err = FD_ACC_MGR_SUCCESS;
-    fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-        txn_ctx->funk,
-        txn_ctx->xid,
-        fee_payer_key,
-        NULL,
-        &err,
-        NULL );
+    fd_account_meta_t const * meta = NULL;
+    if( FD_UNLIKELY( txn_ctx->bundle.is_bundle ) ) {
+      int is_found = 0;
+      for( ulong i=txn_ctx->bundle.prev_txn_ctxs_cnt; i>0UL && !is_found; i-- ) {;
+        fd_exec_txn_ctx_t * prev_txn_ctx = txn_ctx->bundle.prev_txn_ctxs[ i-1 ];
+        for( ushort j=0UL; j<prev_txn_ctx->accounts_cnt; j++ ) {
+          if( !memcmp( &prev_txn_ctx->account_keys[ j ], fee_payer_key, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+            /* Found the account in a previous transaction */
+            meta = prev_txn_ctx-> accounts[ j ].meta;
+            is_found = 1;
+            break;
+          }
+        }
+      }
+    }
 
-    ulong   data_len       = fd_txn_account_get_data_len( &txn_ctx->accounts[FD_FEE_PAYER_TXN_IDX] );
+    int err = FD_ACC_MGR_SUCCESS;
+    if( !meta ) {
+      meta = fd_funk_get_acc_meta_readonly(
+          txn_ctx->funk,
+          txn_ctx->xid,
+          fee_payer_key,
+          NULL,
+          &err,
+          NULL );
+    }
+
     uchar * fee_payer_data = txn_ctx->exec_stack->accounts.rollback_fee_payer_mem;
-    fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + data_len );
+    fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
           txn_ctx->rollback_fee_payer_account,
           fee_payer_key,
@@ -1385,23 +1402,52 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
 
   fd_pubkey_t * acc = &txn_ctx->account_keys[ idx ];
 
+
+  fd_account_meta_t const * meta = NULL;
+  if( txn_ctx->bundle.is_bundle ) {
+    /* If we are in a bundle, that means that the latest version of an
+       account may be a transaction account from a previous transaction
+       and not in the accounts database.  This means we have to
+       reference the previous transaction's account.  Because we are in
+       a bundle, we know that the transaction accounts for all previous
+       bundle transactions are valid.  We will also assume that the
+       transactions are in execution order.
+
+       TODO: This lookup can be made more performant by using a map
+       from pubkey to the bundle transaction index and only inserting
+       or updating when the account is writable. */
+
+    int is_found = 0;
+    for( ulong i=txn_ctx->bundle.prev_txn_ctxs_cnt; i>0UL && !is_found; i-- ) {
+      fd_exec_txn_ctx_t * prev_txn_ctx = txn_ctx->bundle.prev_txn_ctxs[ i-1 ];
+      for( ushort j=0UL; j<prev_txn_ctx->accounts_cnt; j++ ) {
+        if( !memcmp( &prev_txn_ctx->account_keys[ j ], acc, sizeof(fd_pubkey_t) ) && fd_exec_txn_ctx_account_is_writable_idx( prev_txn_ctx, j ) ) {
+          /* Found the account in a previous transaction */
+          meta = prev_txn_ctx->accounts[ j ].meta;
+          is_found = 1;
+          break;
+        }
+      }
+    }
+  }
+
   int err = FD_ACC_MGR_SUCCESS;
-  fd_account_meta_t const * meta = fd_funk_get_acc_meta_readonly(
-      txn_ctx->funk,
-      txn_ctx->xid,
-      acc,
-      NULL,
-      &err,
-      NULL );
-
-  fd_txn_account_t * txn_account = &txn_ctx->accounts[ idx ];
-
+  if( FD_LIKELY( !meta ) ) {
+     meta = fd_funk_get_acc_meta_readonly(
+        txn_ctx->funk,
+        txn_ctx->xid,
+        acc,
+        NULL,
+        &err,
+        NULL );
+  }
   /* If there is an error with a read from the accounts database, it is
      unexpected unless the account does not exist. */
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
     FD_LOG_CRIT(( "fd_txn_account_init_from_funk_readonly err=%d", err ));
   }
 
+  fd_txn_account_t *  txn_account  = &txn_ctx->accounts[ idx ];
   int                 is_writable  = fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, idx ) || idx==FD_FEE_PAYER_TXN_IDX;
   fd_account_meta_t * account_meta = NULL;
 
@@ -1483,7 +1529,6 @@ fd_executor_setup_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
 
   for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
-
     fd_txn_account_t * txn_account = fd_executor_setup_txn_account( txn_ctx, i );
 
     if( FD_UNLIKELY( txn_account &&
