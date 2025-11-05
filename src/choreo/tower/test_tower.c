@@ -1,7 +1,9 @@
-#include "fd_tower.h"
+#include "fd_epoch_stakes.h"
+#include "fd_tower.c"
+#include "fd_tower_forks.h"
 // #include "test_tower.h"
 
-// static uchar scratch[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
+static uchar scratch[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
 
 // void
 // test_vote( void ) {
@@ -222,15 +224,311 @@
 //   // FD_TEST( 0==memcmp( restore + off, checkpt + off, sizeof(restore) - off ) );
 // }
 
+void
+make_vote_account( fd_hash_t const * pubkey, ulong stake, ulong vote, uint conf, fd_tower_accts_t * out ) {
+  fd_voter_t voter = {
+    .kind = FD_VOTER_V3,
+    .node_pubkey = *pubkey,
+    .votes_cnt = 1,
+    .votes_v3 = {
+      { .slot = vote, .conf = conf },
+    },
+  };
+
+  memcpy( out->data, &voter, sizeof(fd_voter_t) );
+  out->stake = stake;
+  out->addr = *pubkey;
+}
+
+
+void
+test_switch_check_simple( fd_wksp_t * wksp ) {
+  (void)scratch;
+  ulong slot_max    = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
+  void * forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( slot_max, voter_max ), 1UL );
+  void * epoch_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_epoch_stakes_align(), fd_epoch_stakes_footprint( slot_max ), 1UL );
+
+  fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
+  fd_forks_t *        forks        = fd_forks_join       ( fd_forks_new       ( forks_mem, slot_max, voter_max ) );
+  fd_epoch_stakes_t * epoch_stakes = fd_epoch_stakes_join( fd_epoch_stakes_new( epoch_stakes_mem, slot_max ) );
+
+  FD_TEST( tower );
+  FD_TEST( forks );
+  FD_TEST( epoch_stakes );
+  FD_TEST( tower );
+
+  push_vote( tower, 1 );
+  push_vote( tower, 2 );
+
+  /* lets make a fork with
+
+             1
+            / \
+           /   \
+          2     3       2 is last vote
+          |     |
+          4     5
+  */
+
+  /* add all the executed slots to forks */
+  fd_forks_replayed( forks, fd_forks_insert( forks, 1, ULONG_MAX ), 0, &(fd_hash_t){.ul = {1}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 2, 1 ), 1, &(fd_hash_t){.ul = {2}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 3, 1 ), 2, &(fd_hash_t){.ul = {3}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 4, 2 ), 3, &(fd_hash_t){.ul = {4}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 5, 3 ), 4, &(fd_hash_t){.ul = {5}} );
+
+
+  fd_tower_accts_t acct;
+  make_vote_account( &(fd_hash_t){.ul = {1}}, 10, 5, 1, &acct );
+  fd_forks_lockouts_add( forks, 5, &acct.addr, &acct );
+  ulong prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 5, &acct.addr, acct.stake, ULONG_MAX );
+
+  make_vote_account( &(fd_hash_t){.ul = {2}}, 10, 5, 1, &acct );
+  fd_forks_lockouts_add( forks, 5, &acct.addr, &acct );
+  prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 5, &acct.addr, acct.stake, prev );
+
+  make_vote_account( &(fd_hash_t){.ul = {3}}, 10, 5, 1, &acct );
+  fd_forks_lockouts_add( forks, 5, &acct.addr, &acct );
+  prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 5, &acct.addr, acct.stake, prev );
+
+  make_vote_account( &(fd_hash_t){.ul = {4}}, 9, 5, 1, &acct );
+  fd_forks_lockouts_add( forks, 5, &acct.addr, &acct );
+  prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 5, &acct.addr, acct.stake, prev );
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 5 ) == 1 );
+}
+
+void
+test_switch_threshold( fd_wksp_t * wksp ) {
+  (void)scratch;
+  ulong slot_max    = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
+  void * forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( slot_max, voter_max ), 1UL );
+  void * epoch_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_epoch_stakes_align(), fd_epoch_stakes_footprint( slot_max ), 1UL );
+
+  fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
+  fd_forks_t *        forks        = fd_forks_join       ( fd_forks_new       ( forks_mem, slot_max, voter_max ) );
+  fd_epoch_stakes_t * epoch_stakes = fd_epoch_stakes_join( fd_epoch_stakes_new( epoch_stakes_mem, slot_max ) );
+
+  FD_TEST( tower );
+  FD_TEST( forks );
+  FD_TEST( epoch_stakes );
+  FD_TEST( tower );
+
+  /* create tower forks tree like this
+          // Create the tree of banks
+        let forks = tr(0)
+            / (tr(1)
+                / (tr(2)
+                    // Minor fork 1
+                    / (tr(10) / (tr(11) / (tr(12) / (tr(13) / (tr(14))))))
+                    / (tr(43)
+                        / (tr(44)
+                            // Minor fork 2
+                            / (tr(45) / (tr(46) / (tr(47) / (tr(48) / (tr(49) / (tr(50)))))))
+                            / (tr(110)))
+                        / tr(112))));
+  */
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 10, 2 ), 3, &(fd_hash_t){.ul = {10}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 11, 10 ), 4, &(fd_hash_t){.ul = {11}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 12, 11 ), 5, &(fd_hash_t){.ul = {12}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 13, 12 ), 6, &(fd_hash_t){.ul = {13}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 14, 13 ), 7, &(fd_hash_t){.ul = {14}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 43, 2 ), 8, &(fd_hash_t){.ul = {43}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 44, 43 ), 9, &(fd_hash_t){.ul = {44}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 45, 44 ), 10, &(fd_hash_t){.ul = {45}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 46, 45 ), 11, &(fd_hash_t){.ul = {46}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 47, 46 ), 12, &(fd_hash_t){.ul = {47}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 48, 47 ), 13, &(fd_hash_t){.ul = {48}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 49, 48 ), 14, &(fd_hash_t){.ul = {49}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 50, 49 ), 15, &(fd_hash_t){.ul = {50}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 110, 44 ), 16, &(fd_hash_t){.ul = {110}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 112, 43 ), 17, &(fd_hash_t){.ul = {112}} );
+
+  /* our last vote is 47 */
+  push_vote( tower, 1 );
+  push_vote( tower, 2 );
+  push_vote( tower, 43 );
+  push_vote( tower, 44 );
+  push_vote( tower, 45 );
+  push_vote( tower, 46 );
+  push_vote( tower, 47 );
+
+  /* Pretend we want to switch to 110, which is the heaviest fork */
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 110 ) == 0 );
+
+  fd_tower_accts_t acct;
+  make_vote_account( &(fd_hash_t){.ul = {1}}, 100, 49, 6, &acct ); /* interval is 49 -> 114 */
+  fd_forks_lockouts_add( forks, 50, &acct.addr, &acct );
+  ulong prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 50, &acct.addr, acct.stake, ULONG_MAX );
+
+  /* Trying to switch to another fork at 110 should fail */
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 110 ) == 0 );
+
+  // Adding another validator lockout on an ancestor of last vote should
+  // not count toward the switch threshold
+  make_vote_account( &(fd_hash_t){.ul = {2}}, 100, 45, 6, &acct ); /* interval is 45 -> 109 */
+  fd_forks_lockouts_add( forks, 50, &acct.addr, &acct );
+  prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 50, &acct.addr, acct.stake, prev );
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 110 ) == 0 );
+
+  // Adding another validator lockout on a different fork, but the lockout
+  // doesn't cover the last vote, should not satisfy the switch threshold
+
+  make_vote_account( &(fd_hash_t){.ul = {3}}, 100, 12, 5, &acct ); /* interval is 12 -> 44 */
+  fd_forks_lockouts_add( forks, 14, &acct.addr, &acct );
+  prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 14, &acct.addr, acct.stake, ULONG_MAX );
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 110 ) == 0 );
+
+
+  // Adding another validator lockout on a different fork, and the lockout
+  // covers the last vote would count towards the switch threshold,
+  // unless the bank is not the most recent frozen bank on the fork (14 is a
+  // frozen/computed bank > 13 on the same fork in this case)
+  make_vote_account( &(fd_hash_t){.ul = {4}}, 100, 12, 6, &acct ); /* interval is 12 -> 76 */
+  fd_forks_lockouts_add( forks, 13, &acct.addr, &acct );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 13, &acct.addr, acct.stake, ULONG_MAX );
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 110 ) == 0 );
+
+  // Adding another validator lockout on a different fork, and the lockout
+  // covers the last vote, should satisfy the switch threshold
+
+  fd_tower_push_head( tower, (fd_tower_vote_t){.slot = 1, .conf = 32} ); // I NEED AN ARTIFICIAL ROOT,
+
+  make_vote_account( &(fd_hash_t){.ul = {5}}, 39, 12, 6, &acct ); /* interval is 14 -> 76 */
+  fd_forks_lockouts_add( forks, 14, &acct.addr, &acct );
+  prev = fd_epoch_stakes_slot_stakes_add( epoch_stakes, 14, &acct.addr, acct.stake, prev );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 110, &acct.addr, acct.stake, ULONG_MAX );
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 110 ) == 1 );
+  /* Simulate adding a lockout */
+}
+
+void
+test_switch_threshold_common_ancestor( fd_wksp_t * wksp ) {
+  (void)scratch;
+  ulong slot_max    = 64;
+  ulong voter_max   = 16;
+  ulong total_stake = 100;
+
+  void * tower_mem = fd_wksp_alloc_laddr( wksp, fd_tower_align(), fd_tower_footprint(), 1UL );
+  void * forks_mem = fd_wksp_alloc_laddr( wksp, fd_forks_align(), fd_forks_footprint( slot_max, voter_max ), 1UL );
+  void * epoch_stakes_mem = fd_wksp_alloc_laddr( wksp, fd_epoch_stakes_align(), fd_epoch_stakes_footprint( slot_max ), 1UL );
+
+  fd_tower_t *        tower        = fd_tower_join       ( fd_tower_new       ( tower_mem ) );
+  fd_forks_t *        forks        = fd_forks_join       ( fd_forks_new       ( forks_mem, slot_max, voter_max ) );
+  fd_epoch_stakes_t * epoch_stakes = fd_epoch_stakes_join( fd_epoch_stakes_new( epoch_stakes_mem, slot_max ) );
+
+  FD_TEST( tower );
+  FD_TEST( forks );
+  FD_TEST( epoch_stakes );
+  FD_TEST( tower );
+
+  // Create the tree of banks
+  //                                       /- 50
+  //          /- 51    /- 45 - 46 - 47 - 48 - 49
+  // 0 - 1 - 2 - 43 - 44
+  //                   \- 110 - 111 - 112
+  //                    \- 113
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 0, ULONG_MAX ), 0, &(fd_hash_t){.ul = {0}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 1, 0 ), 1, &(fd_hash_t){.ul = {1}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 2, 1 ), 2, &(fd_hash_t){.ul = {2}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 43, 2 ), 3, &(fd_hash_t){.ul = {43}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 44, 43 ), 4, &(fd_hash_t){.ul = {44}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 45, 44 ), 5, &(fd_hash_t){.ul = {45}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 46, 45 ), 6, &(fd_hash_t){.ul = {46}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 47, 46 ), 7, &(fd_hash_t){.ul = {47}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 48, 47 ), 8, &(fd_hash_t){.ul = {48}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 49, 48 ), 9, &(fd_hash_t){.ul = {49}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 50, 48 ), 10, &(fd_hash_t){.ul = {50}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 51, 2 ), 11, &(fd_hash_t){.ul = {51}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 110, 44 ), 11, &(fd_hash_t){.ul = {110}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 111, 110 ), 12, &(fd_hash_t){.ul = {111}} );
+  fd_forks_replayed( forks, fd_forks_insert( forks, 112, 111 ), 13, &(fd_hash_t){.ul = {112}} );
+
+  fd_forks_replayed( forks, fd_forks_insert( forks, 113, 44 ), 14, &(fd_hash_t){.ul = {113}} );
+
+  /* 43 -> 49 is our tower */
+  push_vote( tower, 43 );
+  push_vote( tower, 44 );
+  push_vote( tower, 45 );
+  push_vote( tower, 46 );
+  push_vote( tower, 47 );
+  push_vote( tower, 48 );
+  push_vote( tower, 49 );
+
+  /* for some reason in these tests through black magic, agave tower root
+     is still 0. So I will manually set the root to 1 */
+  fd_tower_push_head( tower, (fd_tower_vote_t){.slot = 1, .conf = 32} );
+
+  // Candidate slot 50 should *not* work
+  //vote_simulator.simulate_lockout_interval(50, (10, 49), &other_vote_account);
+  fd_tower_accts_t acct;
+  make_vote_account( &(fd_hash_t){.ul = {1}}, 100, 10, 6, &acct );
+  fd_forks_lockouts_add( forks, 50, &acct.addr, &acct );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 50, &acct.addr, acct.stake, ULONG_MAX );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 111, &acct.addr, acct.stake, ULONG_MAX ); // the switch slot
+
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 111 ) == 0 );
+
+  // 51, 111, 112, and 113 are all valid
+
+  fd_forks_lockouts_add( forks, 51, &acct.addr, &acct );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 51, &acct.addr, acct.stake, ULONG_MAX );
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 111 ) == 1 );
+  fd_forks_lockouts_clear( forks, 51 );
+
+  fd_forks_lockouts_add( forks, 112, &acct.addr, &acct );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 112, &acct.addr, acct.stake, ULONG_MAX );
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 111 ) == 1 );
+  fd_forks_lockouts_clear( forks, 112 );
+
+  fd_forks_lockouts_add( forks, 113, &acct.addr, &acct );
+  fd_epoch_stakes_slot_stakes_add( epoch_stakes, 113, &acct.addr, acct.stake, ULONG_MAX );
+  FD_TEST( switch_check( tower, forks, epoch_stakes, total_stake, 111 ) == 1 );
+  fd_forks_lockouts_clear( forks, 113 );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
+
+  ulong  page_cnt = 1;
+  char * page_sz = "gigantic";
+  ulong  numa_idx = fd_shmem_numa_idx( 0 );
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( page_sz ), page_cnt, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
+  FD_TEST( wksp );
 
   // test_serde();
   // fd_tower_restore( NULL, pubkey,  );
   // test_tower_vote();
   // test_tower_from_vote_acc_data_v1_14_11();
   // test_tower_from_vote_acc_data_current();
+  test_switch_check_simple( wksp );
+  test_switch_threshold( wksp );
+  test_switch_threshold_common_ancestor( wksp );
 
   fd_halt();
   return 0;
