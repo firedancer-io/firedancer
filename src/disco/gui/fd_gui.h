@@ -441,10 +441,14 @@ struct fd_gui_txn_waterfall {
     ulong pack_invalid;
     ulong pack_invalid_bundle;
     ulong pack_expired;
+    ulong pack_already_executed;
     ulong pack_retained;
     ulong pack_wait_full;
     ulong pack_leader_slow;
     ulong bank_invalid;
+    ulong bank_nonce_already_advanced;
+    ulong bank_nonce_advance_failed;
+    ulong bank_nonce_wrong_blockhash;
     ulong block_success;
     ulong block_fail;
   } out;

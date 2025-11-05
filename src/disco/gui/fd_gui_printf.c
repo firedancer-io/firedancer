@@ -642,10 +642,14 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui->http, "pack_invalid",        cur->out.pack_invalid        - prev->out.pack_invalid );
       jsonp_ulong( gui->http, "pack_invalid_bundle", cur->out.pack_invalid_bundle - prev->out.pack_invalid_bundle );
       jsonp_ulong( gui->http, "pack_expired",        cur->out.pack_expired        - prev->out.pack_expired );
+      jsonp_ulong( gui->http, "pack_already_executed", cur->out.pack_already_executed - prev->out.pack_already_executed );
       jsonp_ulong( gui->http, "pack_retained",       cur->out.pack_retained );
       jsonp_ulong( gui->http, "pack_wait_full",      cur->out.pack_wait_full      - prev->out.pack_wait_full );
       jsonp_ulong( gui->http, "pack_leader_slow",    cur->out.pack_leader_slow    - prev->out.pack_leader_slow );
       jsonp_ulong( gui->http, "bank_invalid",        cur->out.bank_invalid        - prev->out.bank_invalid );
+      jsonp_ulong( gui->http, "bank_nonce_already_advanced", cur->out.bank_nonce_already_advanced - prev->out.bank_nonce_already_advanced );
+      jsonp_ulong( gui->http, "bank_nonce_advance_failed",   cur->out.bank_nonce_advance_failed   - prev->out.bank_nonce_advance_failed   );
+      jsonp_ulong( gui->http, "bank_nonce_wrong_blockhash",  cur->out.bank_nonce_wrong_blockhash  - prev->out.bank_nonce_wrong_blockhash  );
       jsonp_ulong( gui->http, "block_success",       cur->out.block_success       - prev->out.block_success );
       jsonp_ulong( gui->http, "block_fail",          cur->out.block_fail          - prev->out.block_fail );
     jsonp_close_object( gui->http );

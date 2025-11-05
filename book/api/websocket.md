@@ -1910,6 +1910,7 @@ explicitly mentioned, skipped slots are not included.
                 "resolv_no_ledger": 0,
                 "pack_invalid": 0,
                 "pack_expired": 0,
+                "pack_already_executed": 0,
                 "pack_retained": 2225,
                 "pack_wait_full": 0,
                 "pack_leader_slow": 0,
@@ -2100,32 +2101,33 @@ explicitly mentioned, skipped slots are not included.
 | block_engine    | `number` | A transaction received from a block engine, for example Jito. The transaction might or might not have been part of a bundle |
 
 **`TxnWaterfallOut`**
-| Field             | Type     | Description |
-|-------------------|----------|-------------|
-| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
-| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
-| quic_frag_drop    | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space |
-| quic_abandoned    | `number` | Transactions were dropped because a connection closed before all bytes were received |
-| tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
-| tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid |
-| verify_overrun    | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
-| verify_parse      | `number` | Transactions were dropped because they were malformed and failed to parse |
-| verify_failed     | `number` | Transactions were dropped because signature verification failed |
-| verify_duplicate  | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
-| dedup_duplicate   | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
-| resolv_retained   | `number` | Transactions were retained inside the validator memory because they referenced a blockhash we do not yet know. We might include the transactions in a future block, if we learn about the blockhash they reference |
-| resolv_lut_failed | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
-| resolv_expired    | `number` | Transactions were dropped because they contained a transaction that was already expired |
-| resolv_no_ledger  | `number` | Transactions were dropped because they contained a LUT but we didn't yet have a ledger to look them up in |
-| resolv_ancient    | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
-| pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
-| pack_expired      | `number` | Transactions were dropped because pack determined that their TTL expired |
-| pack_retained     | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
-| pack_leader_slow  | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
-| pack_wait_full    | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
-| bank_invalid      | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
-| block_success     | `number` | Transactions made it into a block, and execution succeeded |
-| block_failure     | `number` | Transactions made it into a block, but execution failed |
+| Field              | Type     | Description |
+|--------------------|----------|-------------|
+| net_overrun           | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
+| quic_overrun          | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
+| quic_frag_drop        | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space |
+| quic_abandoned        | `number` | Transactions were dropped because a connection closed before all bytes were received |
+| tpu_quic_invalid      | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
+| tpu_udp_invalid       | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid |
+| verify_overrun        | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
+| verify_parse          | `number` | Transactions were dropped because they were malformed and failed to parse |
+| verify_failed         | `number` | Transactions were dropped because signature verification failed |
+| verify_duplicate      | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
+| dedup_duplicate       | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
+| resolv_retained       | `number` | Transactions were retained inside the validator memory because they referenced a blockhash we do not yet know. We might include the transactions in a future block, if we learn about the blockhash they reference |
+| resolv_lut_failed     | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
+| resolv_expired        | `number` | Transactions were dropped because they contained a transaction that was already expired |
+| resolv_no_ledger      | `number` | Transactions were dropped because they contained a LUT but we didn't yet have a ledger to look them up in |
+| resolv_ancient        | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
+| pack_invalid          | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
+| pack_expired          | `number` | Transactions were dropped because pack determined that their TTL expired |
+| pack_already_executed | `number` | Transactions dropped from pack because they were already executed (in either the replay or leader pipeline) |
+| pack_retained         | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
+| pack_leader_slow      | `number` | Transactions were dropped while leader because the bank tiles could not execute them quickly enough, pack will drop the lowest priority transactions first |
+| pack_wait_full        | `number` | Transactions were dropped while we were waiting for our leader slot because we ran out of memory to store them. All incoming transactions are dropped without regard for the priority |
+| bank_invalid          | `number` | Transactions were dropped because a bank tile could not execute them enough to charge fees. Failed transactions can still pay fees and be included in a block, but invalid transactions do not make it to a block. Reasons can include insufficient fee payer balance, or invalid address lookup tables |
+| block_success         | `number` | Transactions made it into a block, and execution succeeded |
+| block_failure         | `number` | Transactions made it into a block, but execution failed |
 
 **`SchedulerCounts`**
 | Field           | Type     | Description |

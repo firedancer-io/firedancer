@@ -384,6 +384,10 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_SIGNATURE_FAILURE ) ]
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_TOO_MANY_ACCOUNT_LOCKS ) ]
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_BUNDLE_PEER ) ];
+
+      cur->out.bank_nonce_already_advanced = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
+      cur->out.bank_nonce_advance_failed = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
+      cur->out.bank_nonce_wrong_blockhash = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_WRONG_BLOCKHASH ) ];
     }
   }
 
@@ -414,6 +418,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
                           pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ] +
                           pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DELETED ) ] +
                           pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONCE_PRIORITY ) ];
+
+  cur->out.pack_already_executed = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_ALREADY_EXECUTED ) ];
 
   cur->out.pack_leader_slow = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ];
 
