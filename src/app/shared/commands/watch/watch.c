@@ -248,9 +248,27 @@ write_snapshots( config_t const * config,
   ulong gossip_total_count = cur_tile[ snapct_idx*FD_METRICS_TOTAL_SZ+MIDX( GAUGE, SNAPCT, GOSSIP_TOTAL_COUNT ) ];
 
   double progress = 0.0;
-  if( FD_LIKELY( bytes_total>0UL ) ) progress = 100.0 * (double)bytes_read / (double)bytes_total;
-  else if( FD_LIKELY( gossip_total_count>0UL ) ) progress = 100.0 * (1.0 - (double)gossip_fresh_count / (double)gossip_total_count );
-  else progress = 0.0;
+  switch( state ) {
+    case FD_SNAPCT_STATE_WAITING_FOR_PEERS:
+    case FD_SNAPCT_STATE_WAITING_FOR_PEERS_INCREMENTAL:
+    case FD_SNAPCT_STATE_COLLECTING_PEERS:
+    case FD_SNAPCT_STATE_COLLECTING_PEERS_INCREMENTAL:
+      if( FD_LIKELY( gossip_total_count>0UL ) ) progress = 100.0 * (1.0 - (double)gossip_fresh_count / (double)gossip_total_count );
+      break;
+    case FD_SNAPCT_STATE_READING_FULL_FILE:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_FILE:
+    case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_FILE:
+    case FD_SNAPCT_STATE_READING_FULL_HTTP:
+    case FD_SNAPCT_STATE_FLUSHING_FULL_HTTP:
+    case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
+    case FD_SNAPCT_STATE_FLUSHING_INCREMENTAL_HTTP:
+      if( FD_LIKELY( bytes_total>0UL ) ) progress = 100.0 * (double)bytes_read / (double)bytes_total;
+      break;
+    case FD_SNAPCT_STATE_SHUTDOWN:
+      progress = 100.0;
+      break;
+  }
 
   ulong snap_rx_sum = 0UL;
   ulong num_snap_rx_samples = fd_ulong_min( snapshot_rx_idx, sizeof(snapshot_rx_samples)/sizeof(snapshot_rx_samples[0]) );
