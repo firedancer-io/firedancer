@@ -369,7 +369,7 @@ fd_vm_handle_input_mem_region_oob( fd_vm_t const * vm,
         fd_ulong_sat_add( vm->instr_ctx->txn_ctx->accounts_resize_delta, new_region_sz ),
         region->region_sz );
 
-      fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, requested_len );
+      fd_txn_account_resize( vm->acc_region_metas[ region->acc_region_meta_idx ].acct, new_region_sz );
       region->region_sz = (uint)new_region_sz;
     }
   }
