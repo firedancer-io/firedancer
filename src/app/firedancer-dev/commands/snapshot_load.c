@@ -11,6 +11,7 @@
 #include "../../../discof/restore/utils/fd_ssctrl.h"
 #include "../../../discof/restore/utils/fd_ssmsg.h"
 #include "../../../flamenco/accdb/fd_accdb_fsck.h"
+#include "../../../funk/fd_funk.h"
 
 #include <errno.h>
 #include <fcntl.h> /* open */
@@ -157,6 +158,18 @@ snapshot_load_args( int *    pargc,
 }
 
 static uint
+fsck_funk( config_t * config ) {
+  ulong funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
+  FD_TEST( funk_obj_id!=ULONG_MAX );
+  void * funk_shmem = fd_topo_obj_laddr( &config->topo, funk_obj_id );
+  fd_funk_t funk[1];
+  FD_TEST( fd_funk_join( funk, funk_shmem ) );
+  uint fsck_err = fd_accdb_fsck_funk( funk );
+  FD_TEST( fd_funk_leave( funk, NULL ) );
+  return fsck_err;
+}
+
+static uint
 fsck_vinyl( config_t * config ) {
   /* Join meta index */
 
@@ -235,7 +248,6 @@ snapshot_load_cmd_fn( args_t *   args,
   fd_topo_tile_t * snapin_tile = &topo->tiles[ fd_topo_find_tile( topo, "snapin", 0UL ) ];
   ulong            snapwr_idx  =               fd_topo_find_tile( topo, "snapwr", 0UL );
   fd_topo_tile_t * snapwr_tile = snapwr_idx!=ULONG_MAX ? &topo->tiles[ snapwr_idx ] : NULL;
-  if( args->snapshot_load.fsck && !snapwr_tile ) FD_LOG_ERR(( "Sorry, --fsck is not supported for in-memory database mode" ));
   if( args->snapshot_load.snapshot_path[0] ) {
     strcpy( snapct_tile->snapct.snapshots_path, args->snapshot_load.snapshot_path );
     strcpy( snapld_tile->snapld.snapshots_path, args->snapshot_load.snapshot_path );
@@ -361,7 +373,9 @@ snapshot_load_cmd_fn( args_t *   args,
 
   if( args->snapshot_load.fsck ) {
     FD_LOG_NOTICE(( "FSCK: starting" ));
-    uint fsck_err = fsck_vinyl( config );
+    uint fsck_err;
+    if( snapwr_tile ) fsck_err = fsck_vinyl( config );
+    else              fsck_err = fsck_funk ( config );
     if( !fsck_err ) {
       FD_LOG_NOTICE(( "FSCK: passed" ));
     } else {
