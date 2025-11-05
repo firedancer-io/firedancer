@@ -350,6 +350,8 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "exec_sig"     );
 
+  fd_topob_wksp( topo, "cswtch"       );
+
   if( FD_LIKELY( snapshots_enabled ) ) {
     fd_topob_wksp( topo, "snapct"      );
     fd_topob_wksp( topo, "snapld"      );
@@ -477,6 +479,7 @@ fd_topo_initialize( config_t * config ) {
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_keyswitch */
   /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                 fd_topob_tile( topo, "cswtch",  "cswtch",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   if( FD_LIKELY( snapshots_enabled ) ) {
     /**/               fd_topob_tile( topo, "snapct", "snapct", "metric_in", tile_to_cpu[ topo->tile_cnt ],    0,        0 )->allow_shutdown = 1;
@@ -1180,6 +1183,8 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     strncpy( tile->sign.identity_key_path, config->paths.identity_key, sizeof(tile->sign.identity_key_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
+
+  } else if( FD_UNLIKELY( !strcmp( tile->name, "cswtch" ) ) ) {
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "gui" ) ) ) {
 
