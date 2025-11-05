@@ -14,9 +14,6 @@ void
 fd_topo_initialize( fd_config_t * config );
 
 fd_topo_obj_t *
-setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name );
-
-fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,

@@ -28,7 +28,6 @@ typedef struct link_ctx {
 } link_ctx_t;
 
 typedef struct fd_exec_tile_ctx {
-
   ulong                 tile_idx;
 
   /* link-related data structures. */
@@ -38,8 +37,6 @@ typedef struct fd_exec_tile_ctx {
 
   fd_sha512_t           sha_mem[ FD_TXN_ACTUAL_SIG_MAX ];
   fd_sha512_t *         sha_lj[ FD_TXN_ACTUAL_SIG_MAX ];
-
-  fd_bank_hash_cmp_t *  bank_hash_cmp;
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
@@ -259,19 +256,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->banks = fd_banks_join( fd_topo_obj_laddr( topo, banks_obj_id ) );
   if( FD_UNLIKELY( !ctx->banks ) ) {
     FD_LOG_ERR(( "Failed to join banks" ));
-  }
-
-  /********************************************************************/
-  /* bank hash cmp                                                    */
-  /********************************************************************/
-
-  ulong bank_hash_cmp_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bh_cmp" );
-  if( FD_UNLIKELY( bank_hash_cmp_obj_id==ULONG_MAX ) ) {
-    FD_LOG_ERR(( "Could not find topology object for bank hash cmp" ));
-  }
-  ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_topo_obj_laddr( topo, bank_hash_cmp_obj_id ) );
-  if( FD_UNLIKELY( !ctx->bank_hash_cmp ) ) {
-    FD_LOG_ERR(( "Failed to join bank hash cmp" ));
   }
 
   void * shfunk = fd_topo_obj_laddr( topo, tile->exec.funk_obj_id );
