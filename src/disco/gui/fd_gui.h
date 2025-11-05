@@ -303,8 +303,7 @@ struct fd_gui_leader_slot {
                              slot will be written to gui->txs[ (start_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
   } txs;
 
-  fd_pack_limits_t       limits      [ 1 ];
-  fd_pack_limits_usage_t limits_usage[ 1 ];
+  fd_done_packing_t scheduler_stats[ 1 ];
 };
 
 typedef struct fd_gui_leader_slot fd_gui_leader_slot_t;

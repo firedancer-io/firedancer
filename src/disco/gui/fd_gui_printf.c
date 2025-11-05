@@ -1271,35 +1271,6 @@ fd_gui_printf_slot( fd_gui_t * gui,
         if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
         else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
 
-        if( FD_UNLIKELY( lslot ) ) {
-          jsonp_open_object( gui->http, "limits" );
-            jsonp_ulong( gui->http, "used_total_block_cost",        lslot->limits_usage->block_cost          );
-            jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->limits_usage->vote_cost           );
-            jsonp_ulong( gui->http, "used_total_bytes",             lslot->limits_usage->block_data_bytes    );
-            jsonp_ulong( gui->http, "used_total_microblocks",       lslot->limits_usage->microblocks         );
-            jsonp_open_array( gui->http, "used_account_write_costs" );
-              for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
-                if( FD_UNLIKELY( !memcmp( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
-
-                jsonp_open_object( gui->http, NULL );
-                  char account_base58[ FD_BASE58_ENCODED_32_SZ ];
-                  fd_base58_encode_32( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, NULL, account_base58 );
-                  jsonp_string( gui->http, "account", account_base58 );
-                  jsonp_ulong( gui->http, "cost", lslot->limits_usage->top_write_acct_costs[ i ].cost );
-                jsonp_close_object( gui->http );
-              }
-            jsonp_close_array( gui->http );
-
-            jsonp_ulong( gui->http, "max_total_block_cost",        lslot->limits->max_cost_per_block        );
-            jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->limits->max_vote_cost_per_block   );
-            jsonp_ulong( gui->http, "max_account_write_cost",      lslot->limits->max_write_cost_per_acct   );
-            jsonp_ulong( gui->http, "max_total_bytes",             lslot->limits->max_data_bytes_per_block  );
-            jsonp_ulong( gui->http, "max_total_microblocks",       lslot->limits->max_microblocks_per_block );
-          jsonp_close_object( gui->http );
-        } else {
-          jsonp_null( gui->http, "limits" );
-        }
-
         jsonp_bool( gui->http, "skipped", slot->skipped );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
         else                                          jsonp_long( gui->http, "duration_nanos", duration_nanos );
@@ -1435,35 +1406,6 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
         if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
         else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
 
-        if( FD_UNLIKELY( lslot ) ) {
-          jsonp_open_object( gui->http, "limits" );
-            jsonp_ulong( gui->http, "used_total_block_cost",        lslot->limits_usage->block_cost          );
-            jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->limits_usage->vote_cost           );
-            jsonp_ulong( gui->http, "used_total_bytes",             lslot->limits_usage->block_data_bytes    );
-            jsonp_ulong( gui->http, "used_total_microblocks",       lslot->limits_usage->microblocks         );
-            jsonp_open_array( gui->http, "used_account_write_costs" );
-              for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
-                if( FD_UNLIKELY( !memcmp( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
-
-                jsonp_open_object( gui->http, NULL );
-                  char account_base58[ FD_BASE58_ENCODED_32_SZ ];
-                  fd_base58_encode_32( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, NULL, account_base58 );
-                  jsonp_string( gui->http, "account", account_base58 );
-                  jsonp_ulong( gui->http, "cost", lslot->limits_usage->top_write_acct_costs[ i ].cost );
-                jsonp_close_object( gui->http );
-              }
-            jsonp_close_array( gui->http );
-
-            jsonp_ulong( gui->http, "max_total_block_cost",        lslot->limits->max_cost_per_block        );
-            jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->limits->max_vote_cost_per_block   );
-            jsonp_ulong( gui->http, "max_account_write_cost",      lslot->limits->max_write_cost_per_acct   );
-            jsonp_ulong( gui->http, "max_total_bytes",             lslot->limits->max_data_bytes_per_block  );
-            jsonp_ulong( gui->http, "max_total_microblocks",       lslot->limits->max_microblocks_per_block );
-          jsonp_close_object( gui->http );
-        } else {
-          jsonp_null( gui->http, "limits" );
-        }
-
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
@@ -1537,35 +1479,6 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
         else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
 
-        if( FD_UNLIKELY( lslot ) ) {
-          jsonp_open_object( gui->http, "limits" );
-            jsonp_ulong( gui->http, "used_total_block_cost",        lslot->limits_usage->block_cost          );
-            jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->limits_usage->vote_cost           );
-            jsonp_ulong( gui->http, "used_total_bytes",             lslot->limits_usage->block_data_bytes    );
-            jsonp_ulong( gui->http, "used_total_microblocks",       lslot->limits_usage->microblocks         );
-            jsonp_open_array( gui->http, "used_account_write_costs" );
-              for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
-                if( FD_UNLIKELY( !memcmp( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
-
-                jsonp_open_object( gui->http, NULL );
-                  char account_base58[ FD_BASE58_ENCODED_32_SZ ];
-                  fd_base58_encode_32( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, NULL, account_base58 );
-                  jsonp_string( gui->http, "account", account_base58 );
-                  jsonp_ulong( gui->http, "cost", lslot->limits_usage->top_write_acct_costs[ i ].cost );
-                jsonp_close_object( gui->http );
-              }
-            jsonp_close_array( gui->http );
-
-            jsonp_ulong( gui->http, "max_total_block_cost",        lslot->limits->max_cost_per_block        );
-            jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->limits->max_vote_cost_per_block   );
-            jsonp_ulong( gui->http, "max_account_write_cost",      lslot->limits->max_write_cost_per_acct   );
-            jsonp_ulong( gui->http, "max_total_bytes",             lslot->limits->max_data_bytes_per_block  );
-            jsonp_ulong( gui->http, "max_total_microblocks",       lslot->limits->max_microblocks_per_block );
-          jsonp_close_object( gui->http );
-        } else {
-          jsonp_null( gui->http, "limits" );
-        }
-
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui->http, "duration_nanos" );
@@ -1598,6 +1511,55 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
         if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui->http, "tips" );
         else                                       jsonp_ulong( gui->http, "tips", slot->tips );
       jsonp_close_object( gui->http );
+
+      if( FD_UNLIKELY( lslot ) ) {
+        jsonp_open_object( gui->http, "limits" );
+          jsonp_ulong( gui->http, "used_total_block_cost",        lslot->scheduler_stats->limits_usage->block_cost          );
+          jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->scheduler_stats->limits_usage->vote_cost           );
+          jsonp_ulong( gui->http, "used_total_bytes",             lslot->scheduler_stats->limits_usage->block_data_bytes    );
+          jsonp_ulong( gui->http, "used_total_microblocks",       lslot->scheduler_stats->limits_usage->microblocks         );
+          jsonp_open_array( gui->http, "used_account_write_costs" );
+            for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
+              if( FD_UNLIKELY( !memcmp( lslot->scheduler_stats->limits_usage->top_write_acct_costs[ i ].key.b, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
+
+              jsonp_open_object( gui->http, NULL );
+                char account_base58[ FD_BASE58_ENCODED_32_SZ ];
+                fd_base58_encode_32( lslot->scheduler_stats->limits_usage->top_write_acct_costs[ i ].key.b, NULL, account_base58 );
+                jsonp_string( gui->http, "account", account_base58 );
+                jsonp_ulong( gui->http, "cost", lslot->scheduler_stats->limits_usage->top_write_acct_costs[ i ].total_cost );
+              jsonp_close_object( gui->http );
+            }
+          jsonp_close_array( gui->http );
+
+          jsonp_ulong( gui->http, "max_total_block_cost",        lslot->scheduler_stats->limits->max_cost_per_block        );
+          jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->scheduler_stats->limits->max_vote_cost_per_block   );
+          jsonp_ulong( gui->http, "max_account_write_cost",      lslot->scheduler_stats->limits->max_write_cost_per_acct   );
+          jsonp_ulong( gui->http, "max_total_bytes",             lslot->scheduler_stats->limits->max_data_bytes_per_block  );
+          jsonp_ulong( gui->http, "max_total_microblocks",       lslot->scheduler_stats->limits->max_microblocks_per_block );
+        jsonp_close_object( gui->http );
+
+        jsonp_open_object( gui->http, "scheduler_stats" );
+          jsonp_open_array( gui->http, "slot_schedule_counts" );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->block_results[ i ] );
+          jsonp_close_array( gui->http );
+          jsonp_open_array( gui->http, "end_slot_schedule_counts" );
+            for( ulong i = 0; i<FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_CNT; i++ ) jsonp_ulong( gui->http, NULL, lslot->scheduler_stats->end_block_results[ i ] );
+          jsonp_close_array( gui->http );
+
+          if( FD_LIKELY( lslot->scheduler_stats->pending_smallest->cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_cost", lslot->scheduler_stats->pending_smallest->cus );
+          else                                                                        jsonp_null( gui->http, "pending_smallest_cost" );
+          if( FD_LIKELY( lslot->scheduler_stats->pending_smallest->bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_smallest_bytes", lslot->scheduler_stats->pending_smallest->bytes );
+          else                                                                          jsonp_null( gui->http, "pending_smallest_bytes" );
+          if( FD_LIKELY( lslot->scheduler_stats->pending_votes_smallest->cus!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_cost", lslot->scheduler_stats->pending_votes_smallest->cus );
+          else                                                                              jsonp_null( gui->http, "pending_vote_smallest_cost" );
+          if( FD_LIKELY( lslot->scheduler_stats->pending_votes_smallest->bytes!=ULONG_MAX ) ) jsonp_ulong( gui->http, "pending_vote_smallest_bytes", lslot->scheduler_stats->pending_votes_smallest->bytes );
+          else                                                                                jsonp_null( gui->http, "pending_vote_smallest_bytes" );
+        jsonp_close_object( gui->http );
+
+      } else {
+        jsonp_null( gui->http, "limits" );
+        jsonp_null( gui->http, "scheduler_stats" );
+      }
 
       int overwritten               = lslot && (gui->pack_txn_idx - lslot->txs.start_offset)>FD_GUI_TXN_HISTORY_SZ;
       int processed_all_microblocks = lslot &&
@@ -1775,35 +1737,6 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
         else                                                             jsonp_null       ( gui->http, "start_timestamp_nanos" );
         if( FD_UNLIKELY( lslot && lslot->leader_end_time!=LONG_MAX ) ) jsonp_long_as_str( gui->http, "target_end_timestamp_nanos", lslot->leader_end_time  );
         else                                                           jsonp_null       ( gui->http, "target_end_timestamp_nanos" );
-
-        if( FD_UNLIKELY( lslot ) ) {
-          jsonp_open_object( gui->http, "limits" );
-            jsonp_ulong( gui->http, "used_total_block_cost",        lslot->limits_usage->block_cost          );
-            jsonp_ulong( gui->http, "used_total_vote_cost",         lslot->limits_usage->vote_cost           );
-            jsonp_ulong( gui->http, "used_total_bytes",             lslot->limits_usage->block_data_bytes    );
-            jsonp_ulong( gui->http, "used_total_microblocks",       lslot->limits_usage->microblocks         );
-            jsonp_open_array( gui->http, "used_account_write_costs" );
-              for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
-                if( FD_UNLIKELY( !memcmp( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
-
-                jsonp_open_object( gui->http, NULL );
-                  char account_base58[ FD_BASE58_ENCODED_32_SZ ];
-                  fd_base58_encode_32( lslot->limits_usage->top_write_acct_costs[ i ].writer.uc, NULL, account_base58 );
-                  jsonp_string( gui->http, "account", account_base58 );
-                  jsonp_ulong( gui->http, "cost", lslot->limits_usage->top_write_acct_costs[ i ].cost );
-                jsonp_close_object( gui->http );
-              }
-            jsonp_close_array( gui->http );
-
-            jsonp_ulong( gui->http, "max_total_block_cost",        lslot->limits->max_cost_per_block        );
-            jsonp_ulong( gui->http, "max_total_vote_cost",         lslot->limits->max_vote_cost_per_block   );
-            jsonp_ulong( gui->http, "max_account_write_cost",      lslot->limits->max_write_cost_per_acct   );
-            jsonp_ulong( gui->http, "max_total_bytes",             lslot->limits->max_data_bytes_per_block  );
-            jsonp_ulong( gui->http, "max_total_microblocks",       lslot->limits->max_microblocks_per_block );
-          jsonp_close_object( gui->http );
-        } else {
-          jsonp_null( gui->http, "limits" );
-        }
 
         jsonp_bool( gui->http, "skipped", slot->skipped );
         jsonp_string( gui->http, "level", level );
