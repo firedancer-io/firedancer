@@ -202,6 +202,9 @@ fd_crds_entry_pubkey( fd_crds_entry_t const * entry );
 uchar const *
 fd_crds_entry_hash( fd_crds_entry_t const * entry );
 
+long
+fd_crds_entry_wallclock( fd_crds_entry_t const * entry );
+
 /* fd_crds_entry_is_contact_info returns 1 if entry holds a Contact
     Info CRDS value. Assumes entry was populated with either
    fd_crds_populate_{preflight,full} */
@@ -229,11 +232,14 @@ fd_contact_info_t const *
 fd_crds_contact_info_lookup( fd_crds_t const * crds,
                              uchar const *     pubkey );
 
-/* fd_crds_peer_count returns the number of Contact Info entries
-   present in the sidetable. The lifetime of a Contact Info entry
-   tracks the lifetime of the corresponding CRDS entry. */
+/* fd_crds{_staked}_peer_count returns the number of (staked) Contact
+   Info entries present in the sidetable. The lifetime of a Contact Info
+   entry tracks the lifetime of the corresponding CRDS entry. */
 ulong
 fd_crds_peer_count( fd_crds_t const * crds );
+
+ulong
+fd_crds_staked_peer_count( fd_crds_t const * crds );
 
 /* The CRDS table tracks whether a peer is active or not to determine
    whether it should be sampled (see sample APIs).

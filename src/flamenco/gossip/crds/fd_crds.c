@@ -1121,6 +1121,11 @@ fd_crds_entry_hash( fd_crds_entry_t const * entry ) {
   return entry->value_hash;
 }
 
+long
+fd_crds_entry_wallclock( fd_crds_entry_t const * entry ) {
+  return entry->wallclock_nanos;
+}
+
 inline static void
 make_contact_info_key( uchar const * pubkey,
                        fd_crds_key_t * key_out ) {
@@ -1156,6 +1161,11 @@ fd_crds_contact_info_lookup( fd_crds_t const * crds,
 ulong
 fd_crds_peer_count( fd_crds_t const * crds ){
   return crds_contact_info_pool_used( crds->contact_info.pool );
+}
+
+ulong
+fd_crds_staked_peer_count( fd_crds_t const * crds ) {
+  return crds->metrics->peer_staked_cnt;
 }
 
 static inline void
