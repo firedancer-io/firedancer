@@ -196,7 +196,7 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
 
 static void
 dump_syscall_table( void ) {
-  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ];
+  fd_sbpf_syscalls_t _syscalls[ 1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT ] = {0};
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) );
   FD_TEST( syscalls );
 
