@@ -396,7 +396,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   fd_vm_input_region_t    input_mem_regions[1000]              = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]                = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt                = 0U;
-  int                     direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, bpf_account_data_direct_mapping );
+  int                     direct_mapping                       = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, account_data_direct_mapping );
   int                     stricter_abi_and_runtime_constraints = FD_FEATURE_ACTIVE_BANK( instr_ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints );
 
   uchar * input = NULL;
