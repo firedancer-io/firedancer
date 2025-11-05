@@ -789,7 +789,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
     fd_txn_account_t txn_account[1];
     fd_txn_acct_addr_lut_t const * addr_lut  = &address_lookup_tables[i];
-    fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut[i].addr_off);
+    fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + addr_lut->addr_off);
     int ret = fd_txn_account_init_from_funk_readonly( txn_account, alut_key, txn_ctx->funk, txn_ctx->xid );
     if( FD_UNLIKELY( ret ) ) continue;
 
