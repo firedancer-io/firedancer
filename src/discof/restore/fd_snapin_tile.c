@@ -114,7 +114,10 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
     FD_LOG_WARNING(( "SlotHistory sysvar account missing or empty" ));
     return -1;
   }
-
+  if( FD_UNLIKELY( meta.dlen > FD_SYSVAR_SLOT_HISTORY_BINCODE_SZ ) ) {
+    FD_LOG_WARNING(( "SlotHistory sysvar account data too large: %u bytes", meta.dlen ));
+    return -1;
+  }
   if( FD_UNLIKELY( !fd_memeq( meta.owner, fd_sysvar_owner_id.uc, sizeof(fd_pubkey_t) ) ) ) {
     FD_BASE58_ENCODE_32_BYTES( meta.owner, owner_b58 );
     FD_LOG_WARNING(( "SlotHistory sysvar owner is invalid: %s != sysvar_owner_id", owner_b58 ));
@@ -135,7 +138,10 @@ verify_slot_deltas_with_slot_history( fd_snapin_tile_t * ctx ) {
 
   for( ulong i=0UL; i<ctx->txncache_entries_len; i++ ) {
     fd_sstxncache_entry_t const * entry = &ctx->txncache_entries[i];
-    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) return -1;
+    if( FD_UNLIKELY( fd_sysvar_slot_history_find_slot( &decoded.o, entry->slot )!=FD_SLOT_HISTORY_SLOT_FOUND ) ) {
+      FD_LOG_WARNING(( "slot %lu missing from SlotHistory sysvar account", entry->slot ));
+      return -1;
+    }
   }
   return 0;
 }
