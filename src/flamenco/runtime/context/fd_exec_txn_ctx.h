@@ -6,7 +6,6 @@
 #include "../../../ballet/txn/fd_txn.h"
 #include "../../features/fd_features.h"
 #include "../fd_txncache.h"
-#include "../fd_bank_hash_cmp.h"
 #include "../../progcache/fd_progcache_user.h"
 #include "../fd_compute_budget_details.h"
 #include "../../../disco/pack/fd_microblock.h"
@@ -50,7 +49,6 @@ struct fd_exec_txn_ctx {
   fd_txn_p_t           txn;
   fd_exec_stack_t *    exec_stack;
   fd_exec_accounts_t * exec_accounts;
-  fd_bank_hash_cmp_t * bank_hash_cmp;
 
   /* During sanitization, v0 transactions are allowed to have up to 256 accounts:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/sdk/program/src/message/versions/v0/mod.rs#L139

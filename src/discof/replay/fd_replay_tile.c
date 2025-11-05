@@ -159,8 +159,6 @@ struct fd_replay_tile {
 
   /* Replay state machine. */
   fd_sched_t *         sched;
-  uint                 enable_bank_hash_cmp:1;
-  fd_bank_hash_cmp_t * bank_hash_cmp;
   ulong                exec_cnt;
   fd_replay_out_link_t exec_out[ 1 ]; /* Sending work down to exec tiles */
 
@@ -764,35 +762,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   fd_hash_t const * bank_hash = fd_bank_bank_hash_query( bank );
   FD_TEST( bank_hash );
 
-  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  fd_bank_hash_cmp_lock( bank_hash_cmp );
-  fd_bank_hash_cmp_insert( bank_hash_cmp, fd_bank_slot_get( bank ), bank_hash, 1, 0 );
-
-  /* Try to move the bank hash comparison watermark forward */
-  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < fd_bank_slot_get( bank ); cmp_slot++ ) {
-    if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
-      bank_hash_cmp->watermark = cmp_slot;
-      break;
-    }
-    int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
-    switch ( rc ) {
-      case -1:
-        /* Mismatch */
-        FD_LOG_CRIT(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
-        break;
-      case 0:
-        /* Not ready */
-        break;
-      case 1:
-        /* Match*/
-        bank_hash_cmp->watermark = cmp_slot;
-        break;
-      default:;
-    }
-  }
-
-  fd_bank_hash_cmp_unlock( bank_hash_cmp );
-
   /* Must be last so we can measure completion time correctly, even
      though we could technically do this before the hash cmp and vote
      tower stuff. */
@@ -922,35 +891,6 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( ctx->leader_bank );
   FD_TEST( bank_hash );
-
-  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-  fd_bank_hash_cmp_lock( bank_hash_cmp );
-  fd_bank_hash_cmp_insert( bank_hash_cmp, curr_slot, bank_hash, 1, 0 );
-
-  /* Try to move the bank hash comparison watermark forward */
-  for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
-    if( FD_UNLIKELY( !ctx->enable_bank_hash_cmp ) ) {
-      bank_hash_cmp->watermark = cmp_slot;
-      break;
-    }
-    int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
-    switch ( rc ) {
-      case -1:
-        /* Mismatch */
-        FD_LOG_WARNING(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
-        break;
-      case 0:
-        /* Not ready */
-        break;
-      case 1:
-        /* Match*/
-        bank_hash_cmp->watermark = cmp_slot;
-        break;
-      default:;
-    }
-  }
-
-  fd_bank_hash_cmp_unlock( bank_hash_cmp );
 
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
 
@@ -1085,21 +1025,6 @@ init_after_snapshot( fd_replay_tile_t * ctx ) {
 
     snapshot_slot = 0UL;
   }
-
-  /* Initialize consensus structures post-snapshot */
-
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-
-  fd_bank_hash_cmp_t * bank_hash_cmp = ctx->bank_hash_cmp;
-
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states ); !fd_vote_states_iter_done( iter ); fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    bank_hash_cmp->total_stake += vote_state->stake;
-  }
-  bank_hash_cmp->watermark = snapshot_slot;
-
-  fd_bank_vote_states_end_locking_query( bank );
 
   if( FD_UNLIKELY( ctx->capture_ctx ) ) fd_solcap_writer_flush( ctx->capture_ctx->capture );
 }
@@ -2477,13 +2402,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->sched = fd_sched_join( fd_sched_new( sched_mem, tile->replay.max_live_slots, ctx->exec_cnt ), tile->replay.max_live_slots );
   FD_TEST( ctx->sched );
-
-  ctx->enable_bank_hash_cmp = !!tile->replay.enable_bank_hash_cmp;
-
-  ulong bank_hash_cmp_obj_id = fd_pod_query_ulong( topo->props, "bh_cmp", ULONG_MAX );
-  FD_TEST( bank_hash_cmp_obj_id!=ULONG_MAX );
-  ctx->bank_hash_cmp = fd_bank_hash_cmp_join( fd_bank_hash_cmp_new( fd_topo_obj_laddr( topo, bank_hash_cmp_obj_id ) ) );
-  FD_TEST( ctx->bank_hash_cmp );
 
   ctx->vote_tracker = fd_vote_tracker_join( fd_vote_tracker_new( vote_tracker_mem, 0UL ) );
   FD_TEST( ctx->vote_tracker );

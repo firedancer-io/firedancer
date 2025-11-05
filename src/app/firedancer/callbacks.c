@@ -39,34 +39,6 @@ fd_topo_obj_callbacks_t fd_obj_cb_banks = {
 };
 
 static ulong
-bh_cmp_footprint( fd_topo_t const *     topo,
-                  fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_bank_hash_cmp_footprint();
-}
-
-static ulong
-bh_cmp_align( fd_topo_t const *     topo,
-              fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  return fd_bank_hash_cmp_align();
-}
-
-static void
-bh_cmp_new( fd_topo_t const *     topo,
-                   fd_topo_obj_t const * obj ) {
-  (void)topo; (void)obj;
-  FD_TEST( fd_bank_hash_cmp_new( fd_topo_obj_laddr( topo, obj->id ) ) );
-}
-
-fd_topo_obj_callbacks_t fd_obj_cb_bank_hash_cmp = {
-  .name      = "bh_cmp",
-  .footprint = bh_cmp_footprint,
-  .align     = bh_cmp_align,
-  .new       = bh_cmp_new,
-};
-
-static ulong
 funk_align( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
   (void)topo; (void)obj;
