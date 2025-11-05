@@ -255,7 +255,7 @@ fd_policy_delete( void * policy );
    Currently implements the default round-robin DFS strategy. */
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot );
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy );
 
 fd_policy_peer_t const *
 fd_policy_peer_insert( fd_policy_t * policy, fd_pubkey_t const * key, fd_ip4_port_t const * addr );
@@ -280,6 +280,9 @@ fd_policy_peer_latency_bucket( fd_policy_t * policy, long total_rtt /* ns */, ul
 
 void
 fd_policy_peer_response_update( fd_policy_t * policy, fd_pubkey_t const * to, long rtt );
+
+int
+fd_policy_passes_throttle_threshold( fd_policy_t * policy, fd_forest_blk_t * ele );
 
 void
 fd_policy_set_turbine_slot0( fd_policy_t * policy, ulong slot );
