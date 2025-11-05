@@ -410,8 +410,7 @@ check( config_t const * config ) {
         }
 
         char * _min_size = strtok_r( NULL, ",", &saveptr2 );
-        if( FD_UNLIKELY( !_min_size ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
-        if( FD_UNLIKELY( strncmp( "min_size=", _min_size, 9UL ) ) ) {
+        if( FD_UNLIKELY( !_min_size || strncmp( "min_size=", _min_size, 9UL ) ) ) {
           if( FD_UNLIKELY( fclose( fp ) ) )
             FD_LOG_ERR(( "error closing `/proc/self/mounts` (%i-%s)", errno, fd_io_strerror( errno ) ));
           PARTIALLY_CONFIGURED( "mount `%s` has unrecognized min_size, expected at least `min_size=%lu`", mount_path[ i ], required_min_size[ i ] );
