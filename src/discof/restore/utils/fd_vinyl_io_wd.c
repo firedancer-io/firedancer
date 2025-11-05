@@ -73,7 +73,6 @@ wd_block_used( fd_vinyl_io_wd_t * wd ) {
   FD_CRIT( fd_vinyl_seq_ge( wd->base->seq_future, wd->base->seq_present ), "corrupt bstream io state" );
   ulong block_sz = wd->base->seq_future - buf->bstream_seq;
   FD_CRIT( block_sz<=wd->wr_mtu, "corrupt bstream io state" );
-  FD_CRIT( block_sz>0UL, "attempted to dispatch empty buf" );
   return block_sz;
 }
 
@@ -92,6 +91,7 @@ wd_dispatch( fd_vinyl_io_wd_t * wd ) {
   FD_CRIT( fd_vinyl_seq_ge( wd->base->seq_future, wd->base->seq_present ), "corrupt bstream io state" );
   ulong block_sz = wd_block_used( wd );
   FD_CRIT( fd_ulong_is_aligned( block_sz, FD_VINYL_BSTREAM_BLOCK_SZ ), "misaligned block_sz (bad appends?)" );
+  FD_CRIT( block_sz>0UL, "attempted to dispatch empty buf" );
 
   /* Align up block_sz to multiple of 4096 bytes.
      This step is critical for good O_DIRECT performance. */
