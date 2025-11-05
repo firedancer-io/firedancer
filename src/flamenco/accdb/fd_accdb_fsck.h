@@ -4,6 +4,7 @@
 /* fd_accdb_fsck.h provides APIs to do integrity checking of an account
    database. */
 
+#include "../../funk/fd_funk_base.h"
 #include "../../vinyl/io/fd_vinyl_io.h"
 #include "../../vinyl/meta/fd_vinyl_meta.h"
 
@@ -16,6 +17,14 @@
 #define FD_ACCDB_FSCK_UNKNOWN   4U /* check stopped early */
 
 FD_PROTOTYPES_BEGIN
+
+/* fd_accdb_fsck_funk verifies a funk index.  Returns the high-level
+   result (FD_ACCDB_FSCK_*) and writes NOTICE/WARNING logs along the
+   way.  Assumes that no concurrent access to funk is active (smashes
+   tag bits for integrity checking). */
+
+uint
+fd_accdb_fsck_funk( fd_funk_t * funk );
 
 /* fd_accdb_fsck_vinyl verifies a bstream and meta index.  Returns the
    high-level result (FD_ACCDB_FSCK_*) and writes NOTICE/WARNING logs
