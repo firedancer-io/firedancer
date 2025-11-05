@@ -1,11 +1,6 @@
 $(call add-hdrs,fd_acc_mgr.h)
 $(call add-objs,fd_acc_mgr,fd_flamenco)
 
-ifdef FD_HAS_ALLOCA
-$(call add-hdrs,fd_bank_hash_cmp.h)
-$(call add-objs,fd_bank_hash_cmp,fd_flamenco)
-endif
-
 $(call add-hdrs,fd_blockhashes.h)
 $(call add-objs,fd_blockhashes,fd_flamenco)
 

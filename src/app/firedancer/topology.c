@@ -52,12 +52,6 @@ parse_ip_port( const char * name, const char * ip_port, fd_topo_ip_port_t *parse
 }
 
 fd_topo_obj_t *
-setup_topo_bank_hash_cmp( fd_topo_t * topo, char const * wksp_name ) {
-  fd_topo_obj_t * obj = fd_topob_obj( topo, "bh_cmp", wksp_name );
-  return obj;
-}
-
-fd_topo_obj_t *
 setup_topo_banks( fd_topo_t *  topo,
                   char const * wksp_name,
                   ulong        max_live_slots,
@@ -935,12 +929,6 @@ fd_topo_initialize( config_t * config ) {
     }
   }
 
-  /* TODO: This should not exist in production */
-  fd_topo_obj_t * bank_hash_cmp_obj = setup_topo_bank_hash_cmp( topo, "bh_cmp" );
-  /**/               fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FOR(exec_tile_cnt) fd_topob_tile_uses( topo, &topo->tiles[ fd_topo_find_tile( topo, "exec",   i   ) ], bank_hash_cmp_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, bank_hash_cmp_obj->id, "bh_cmp" ) );
-
   ulong fec_set_cnt = shred_depth + config->tiles.shred.max_pending_shred_sets + 4UL;
   ulong fec_sets_sz = fec_set_cnt*sizeof(fd_shred34_t)*4; /* mirrors # of dcache entires in frankendancer */
   fd_topo_obj_t * fec_sets_obj = setup_topo_fec_sets( topo, "fec_sets", shred_tile_cnt*fec_sets_sz );
@@ -1181,7 +1169,6 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
     strncpy( tile->replay.identity_key_path, config->paths.identity_key, sizeof(tile->replay.identity_key_path) );
     tile->replay.ip_addr = config->net.ip_addr;
     strncpy( tile->replay.vote_account_path, config->paths.vote_account, sizeof(tile->replay.vote_account_path) );
-    tile->replay.enable_bank_hash_cmp = 1;
 
     tile->replay.capture_start_slot = config->capture.capture_start_slot;
     strncpy( tile->replay.solcap_capture, config->capture.solcap_capture, sizeof(tile->replay.solcap_capture) );
@@ -1208,6 +1195,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
 
+    tile->tower.fork_fatal         = config->firedancer.development.hard_fork_fatal;
     tile->tower.max_live_slots     = config->firedancer.runtime.max_live_slots;
     tile->tower.max_lookahead_conf = config->tiles.tower.max_lookahead_conf;
     strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );

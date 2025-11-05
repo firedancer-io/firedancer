@@ -158,6 +158,10 @@ struct fd_configf {
   } snapshots;
 
   struct {
+    int hard_fork_fatal;
+  } development;
+
+  struct {
     ulong max_completed_shred_sets;
   } store;
 };
