@@ -378,8 +378,6 @@ struct fd_topo_tile {
       ulong enable_features_cnt;
       char  enable_features[ 16 ][ FD_BASE58_ENCODED_32_SZ ];
 
-      ulong enable_bank_hash_cmp;
-
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];
@@ -476,11 +474,14 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
+      int   fork_fatal;
+      ulong max_live_slots;
       ulong funk_obj_id;
       char  identity_key_path[ PATH_MAX ];
       char  vote_acc_path[ PATH_MAX ];
       char  ledger_path[PATH_MAX];
     } tower;
+
     struct {
       char   folder_path[ PATH_MAX ];
       ushort repair_intake_listen_port;

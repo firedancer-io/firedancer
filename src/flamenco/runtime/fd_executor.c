@@ -1347,7 +1347,6 @@ fd_exec_txn_ctx_setup( fd_bank_t *               bank,
                        fd_funk_txn_xid_t const * xid,
                        fd_txncache_t *           status_cache,
                        fd_exec_txn_ctx_t *       ctx,
-                       fd_bank_hash_cmp_t *      bank_hash_cmp,
                        void *                    progcache_scratch,
                        ulong                     progcache_scratch_sz ) {
   if( FD_UNLIKELY( !fd_funk_join( ctx->funk, accdb_shfunk ) ) ) {
@@ -1364,8 +1363,6 @@ fd_exec_txn_ctx_setup( fd_bank_t *               bank,
   ctx->xid[0] = *xid;
 
   ctx->status_cache = status_cache;
-
-  ctx->bank_hash_cmp = bank_hash_cmp;
 
   ctx->enable_exec_recording = !!( bank->flags & FD_BANK_FLAGS_EXEC_RECORDING );
 
