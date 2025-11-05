@@ -473,8 +473,8 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 
   phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
   fd_vinyl_key_init( &phdr->key, result->account_header.pubkey, 32UL );
-  phdr->info.ul[0] = result->account_header.data_len;
-  phdr->info.ul[1] = result->account_header.slot;
+  phdr->info._val_sz = (uint)val_sz;
+  phdr->info.ul[1]   = result->account_header.slot;
 
   dst     += sizeof(fd_vinyl_bstream_phdr_t);
   dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
@@ -496,6 +496,16 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
     ulong                 memo = fd_vinyl_key_memo( map->seed, &phdr->key );
     fd_vinyl_meta_ele_t * ele  = fd_vinyl_meta_prepare_nolock( map, &phdr->key, memo );
     if( FD_UNLIKELY( !ele ) ) FD_LOG_CRIT(( "Failed to update vinyl index (full)" ));
+
+    if( FD_UNLIKELY( fd_vinyl_meta_ele_in_use( ele ) ) ) {
+      /* Drop current value if existing is newer */
+      ulong exist_slot = ele->phdr.info.ul[ 1 ];
+      if( exist_slot > result->account_header.slot ) {
+        ctx->vinyl_op.pair = NULL;
+        return;
+      }
+    }
+
     ele->memo      = memo;
     ele->phdr.ctl  = phdr->ctl;
     ele->phdr.key  = phdr->key;
@@ -521,6 +531,8 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 void
 fd_snapin_process_account_data_vinyl( fd_snapin_tile_t *            ctx,
                                       fd_ssparse_advance_result_t * result ) {
+  if( FD_UNLIKELY( !ctx->vinyl_op.pair ) ) return; /* ignored account */
+
   ulong chunk_sz = result->account_data.data_sz;
   if( FD_LIKELY( chunk_sz ) ) {
     FD_CRIT( chunk_sz <= ctx->vinyl_op.dst_rem,  "corruption detected" );
@@ -593,8 +605,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     fd_vinyl_bstream_phdr_t * phdr = &ele->phdr;
     phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
     phdr->key = *key;
-    phdr->info.ul[0] = data_len;
-    phdr->info.ul[1] = result->account_batch.slot;
+    phdr->info._val_sz = (uint)val_sz;
+    phdr->info.ul[1]   = result->account_batch.slot;
 
     ele->memo      = memo[ i ];
     ele->phdr.ctl  = phdr->ctl;
