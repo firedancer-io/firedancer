@@ -8,21 +8,25 @@
 
 #include <unistd.h>
 #include <errno.h>
+#include <poll.h>
 #include <stdlib.h>
 
 #include <sys/socket.h>
-#include <netinet/tcp.h>
 #include <netinet/in.h>
+
+#define FD_SSHTTP_MAGIC (0xF17EDA2CE5811900) /* FIREDANCE HTTP V0 */
 
 #define FD_SSHTTP_STATE_INIT  (0) /* start */
 #define FD_SSHTTP_STATE_REQ   (1) /* sending request */
 #define FD_SSHTTP_STATE_RESP  (2) /* receiving response headers */
 #define FD_SSHTTP_STATE_DL    (3) /* downloading response body */
 
+/* FIXME: Cleanup / standardize all the error logging. */
+
 struct fd_sshttp_private {
-  int  state;
-  long deadline;
-  int  full;
+  int   state;
+  long  deadline;
+  ulong empty_recvs;
 
   int   hops;
 
@@ -36,8 +40,7 @@ struct fd_sshttp_private {
   ulong response_len;
   char  response[ USHORT_MAX ];
 
-  char  full_snapshot_name[ PATH_MAX ];
-  char  incremental_snapshot_name[ PATH_MAX ];
+  char  snapshot_name[ PATH_MAX ];
 
   ulong content_len;
   ulong content_read;
@@ -47,15 +50,15 @@ struct fd_sshttp_private {
 
 FD_FN_CONST ulong
 fd_sshttp_align( void ) {
-  return FD_SSHTTP_ALIGN;
+  return alignof(fd_sshttp_t);
 }
 
 FD_FN_CONST ulong
 fd_sshttp_footprint( void ) {
   ulong l;
   l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
-  return FD_LAYOUT_FINI( l, FD_SSHTTP_ALIGN );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_sshttp_t), sizeof(fd_sshttp_t) );
+  return FD_LAYOUT_FINI( l, fd_sshttp_align() );
 }
 
 void *
@@ -71,11 +74,11 @@ fd_sshttp_new( void * shmem ) {
   }
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, FD_SSHTTP_ALIGN, sizeof(fd_sshttp_t) );
+  fd_sshttp_t * sshttp = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sshttp_t), sizeof(fd_sshttp_t) );
 
   sshttp->state = FD_SSHTTP_STATE_INIT;
-  sshttp->full_snapshot_name[ 0 ] = '\0';
-  sshttp->incremental_snapshot_name[ 0 ] = '\0';
+  sshttp->content_len = 0UL;
+  fd_cstr_fini( sshttp->snapshot_name );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( sshttp->magic ) = FD_SSHTTP_MAGIC;
@@ -125,18 +128,14 @@ fd_sshttp_init( fd_sshttp_t * http,
     "Host: " FD_IP4_ADDR_FMT "\r\n\r\n",
     (int)path_len, path, FD_IP4_ADDR_FMT_ARGS( addr.addr ) ) );
 
-  /* TODO: Figure out recv coalescing properly and switch stream back
-     to non-blocking. */
+  http->response_len = 0UL;
+  http->content_len  = 0UL;
+  http->content_read = 0UL;
+  http->empty_recvs  = 0UL;
+
   http->addr = addr;
-  http->sockfd = socket( AF_INET, SOCK_STREAM, 0 );
+  http->sockfd = socket( AF_INET, SOCK_STREAM|SOCK_NONBLOCK, 0 );
   if( FD_UNLIKELY( -1==http->sockfd ) ) FD_LOG_ERR(( "socket() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-
-  struct timeval timeout = {
-    .tv_sec = 0UL,
-    .tv_usec = (ulong)10e3,
-  };
-
-  if( FD_UNLIKELY( -1==setsockopt( http->sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout) ) ) ) FD_LOG_ERR(("setsockopt SO_RCVTIMEO failed (%d-%s)", errno, fd_io_strerror(errno)));
 
   struct sockaddr_in addr_in = {
     .sin_family = AF_INET,
@@ -144,10 +143,9 @@ fd_sshttp_init( fd_sshttp_t * http,
     .sin_addr   = { .s_addr = addr.addr }
   };
 
-  if( FD_UNLIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
+  if( FD_LIKELY( -1==connect( http->sockfd, fd_type_pun_const( &addr_in ), sizeof(addr_in) ) ) ) {
     if( FD_UNLIKELY( errno!=EINPROGRESS ) ) {
       if( FD_UNLIKELY( -1==close( http->sockfd ) ) ) FD_LOG_ERR(( "close() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      return;
     }
   }
 
@@ -239,9 +237,9 @@ follow_redirect( fd_sshttp_t *        http,
       fd_base58_encode_32( decoded_hash, NULL, encoded_hash );
 
       if( FD_LIKELY( incremental_entry_slot!=ULONG_MAX ) ) {
-        FD_TEST( fd_cstr_printf_check( http->incremental_snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
+        FD_TEST( fd_cstr_printf_check( http->snapshot_name, PATH_MAX, NULL, "incremental-snapshot-%lu-%lu-%s.tar.zst", full_entry_slot, incremental_entry_slot, encoded_hash ) );
       } else {
-        FD_TEST( fd_cstr_printf_check( http->full_snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
+        FD_TEST( fd_cstr_printf_check( http->snapshot_name, PATH_MAX, NULL, "snapshot-%lu-%s.tar.zst", full_entry_slot, encoded_hash ) );
       }
       break;
     }
@@ -267,7 +265,7 @@ follow_redirect( fd_sshttp_t *        http,
 
   FD_LOG_NOTICE(( "following redirect to http://" FD_IP4_ADDR_FMT ":%hu%.*s",
                   FD_IP4_ADDR_FMT_ARGS( http->addr.addr ), fd_ushort_bswap( http->addr.port ),
-                  (int)headers[ 0 ].value_len, headers[ 0 ].value ));
+                  (int)location_len, location ));
 
   fd_sshttp_cancel( http );
   fd_sshttp_init( http, http->addr, location, location_len, now );
@@ -287,7 +285,7 @@ read_response( fd_sshttp_t * http,
   }
 
   long read = recvfrom( http->sockfd, http->response+http->response_len, sizeof(http->response)-http->response_len, 0, NULL, NULL );
-  if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return 0;
+  if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
   else if( FD_UNLIKELY( -1==read ) ) {
     FD_LOG_WARNING(( "recv() failed (%d-%s)", errno, fd_io_strerror( errno ) ));
     fd_sshttp_cancel( http );
@@ -364,19 +362,31 @@ static int
 read_body( fd_sshttp_t * http,
            ulong *       data_len,
            uchar *       data ) {
+  /* FIXME: Add a forward-progress timeout */
+
   if( FD_UNLIKELY( http->content_read>=http->content_len ) ) {
     fd_sshttp_cancel( http );
-    http->state = FD_SSHTTP_STATE_INIT;
     return FD_SSHTTP_ADVANCE_DONE;
   }
 
-  FD_TEST( http->content_read<http->content_len );
   long read = recvfrom( http->sockfd, data, fd_ulong_min( *data_len, http->content_len-http->content_read ), 0, NULL, NULL );
-  if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) return FD_SSHTTP_ADVANCE_AGAIN;
-  else if( FD_UNLIKELY( -1==read ) ) {
+  if( FD_UNLIKELY( -1==read && errno==EAGAIN ) ) {
+    if( FD_UNLIKELY( ++http->empty_recvs>8UL ) ) {
+      /* If we have gone several iterations without having any data to
+         read, sleep the thread for up to one millisecond, or until
+         the socket is readable again, whichever comes first. */
+      struct pollfd pfd = {
+        .fd = http->sockfd,
+        .events = POLLIN,
+      };
+      fd_syscall_poll( &pfd, 1 /*fds*/, 1 /*ms*/ );
+    }
+    return FD_SSHTTP_ADVANCE_AGAIN;
+  } else if( FD_UNLIKELY( -1==read ) ) {
     fd_sshttp_cancel( http );
     return FD_SSHTTP_ADVANCE_ERROR;
   }
+  http->empty_recvs = 0UL;
 
   if( FD_UNLIKELY( !read ) ) return FD_SSHTTP_ADVANCE_AGAIN;
 
@@ -386,12 +396,9 @@ read_body( fd_sshttp_t * http,
   return FD_SSHTTP_ADVANCE_DATA;
 }
 
-void
-fd_sshttp_snapshot_names( fd_sshttp_t const * http,
-                          char const **       full_snapshot_name,
-                          char const **       incremental_snapshot_name ) {
-  *full_snapshot_name        = http->full_snapshot_name;
-  *incremental_snapshot_name = http->incremental_snapshot_name;
+char const *
+fd_sshttp_snapshot_name( fd_sshttp_t const * http ) {
+  return http->snapshot_name;
 }
 
 ulong
@@ -404,13 +411,11 @@ fd_sshttp_advance( fd_sshttp_t * http,
                    ulong *       data_len,
                    uchar *       data,
                    long          now ) {
-  /* TODO: Add timeouts ... */
-
   switch( http->state ) {
-    case FD_SSHTTP_STATE_INIT: return FD_SSHTTP_ADVANCE_AGAIN;
-    case FD_SSHTTP_STATE_REQ: return send_request( http, now );
+    case FD_SSHTTP_STATE_INIT: return FD_SSHTTP_ADVANCE_ERROR;
+    case FD_SSHTTP_STATE_REQ:  return send_request( http, now );
     case FD_SSHTTP_STATE_RESP: return read_response( http, data_len, data, now );
-    case FD_SSHTTP_STATE_DL: return read_body( http, data_len, data );
-    default: return 0;
+    case FD_SSHTTP_STATE_DL:   return read_body( http, data_len, data );
+    default:                   return FD_SSHTTP_ADVANCE_ERROR;
   }
 }
