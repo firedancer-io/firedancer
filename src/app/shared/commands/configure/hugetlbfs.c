@@ -290,7 +290,8 @@ fini( config_t const * config,
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   char const * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,

@@ -54,6 +54,16 @@ typedef struct {
     return result;                \
   } while( 0 )
 
+#define FD_CONFIGURE_CHECK_TYPE_INIT_PERM (0)
+#define FD_CONFIGURE_CHECK_TYPE_FINI_PERM (1)
+#define FD_CONFIGURE_CHECK_TYPE_PRE_INIT  (2)
+#define FD_CONFIGURE_CHECK_TYPE_UNDO_INIT (3)
+#define FD_CONFIGURE_CHECK_TYPE_POST_INIT (4)
+#define FD_CONFIGURE_CHECK_TYPE_CHECK     (5)
+#define FD_CONFIGURE_CHECK_TYPE_PRE_FINI  (6)
+#define FD_CONFIGURE_CHECK_TYPE_POST_FINI (7)
+#define FD_CONFIGURE_CHECK_TYPE_RUN       (8)
+
 /* fini() returns whether or not it took any actions. */
 
 typedef struct configure_stage {
@@ -64,7 +74,7 @@ typedef struct configure_stage {
   void               (*fini_perm)( fd_cap_chk_t * chk, config_t const * config );
   void               (*init)     ( config_t const * config );
   int                (*fini)     ( config_t const * config, int pre_init );
-  configure_result_t (*check)    ( config_t const * config );
+  configure_result_t (*check)    ( config_t const * config, int check_type );
 } configure_stage_t;
 
 extern configure_stage_t fd_cfg_stage_hugetlbfs;

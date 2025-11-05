@@ -54,7 +54,7 @@ configure_cmd_perm( args_t *         args,
     switch( args->configure.command ) {
       case CONFIGURE_CMD_INIT: {
         int enabled = !(*stage)->enabled || (*stage)->enabled( config );
-        if( FD_LIKELY( enabled && (*stage)->check( config ).result != CONFIGURE_OK ) )
+        if( FD_LIKELY( enabled && (*stage)->check( config, FD_CONFIGURE_CHECK_TYPE_INIT_PERM ).result != CONFIGURE_OK ) )
           if( FD_LIKELY( (*stage)->init_perm ) ) (*stage)->init_perm( chk, config );
         break;
       }
@@ -62,7 +62,7 @@ configure_cmd_perm( args_t *         args,
         break;
       case CONFIGURE_CMD_FINI: {
         int enabled = !(*stage)->enabled || (*stage)->enabled( config );
-        if( FD_LIKELY( enabled && (*stage)->check( config ).result != CONFIGURE_NOT_CONFIGURED ) )
+        if( FD_LIKELY( enabled && (*stage)->check( config, FD_CONFIGURE_CHECK_TYPE_FINI_PERM ).result != CONFIGURE_NOT_CONFIGURED ) )
           if( FD_LIKELY( (*stage)->fini_perm ) ) (*stage)->fini_perm( chk, config );
         break;
       }
@@ -81,7 +81,7 @@ configure_stage( configure_stage_t * stage,
 
   switch( command ) {
     case CONFIGURE_CMD_INIT: {
-      configure_result_t result = stage->check( config );
+      configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_PRE_INIT );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )
         FD_LOG_NOTICE(( "%s ... unconfigured ... %s", stage->name, result.message ));
       else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED ) ) {
@@ -92,7 +92,7 @@ configure_stage( configure_stage_t * stage,
           FD_LOG_ERR(( "%s ... does not support undo but was not valid ... %s", stage->name, result.message ));
         }
 
-        result = stage->check( config );
+        result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_UNDO_INIT );
         if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) )
           FD_LOG_ERR(( "%s ... clean was unable to get back to an unconfigured state ... %s", stage->name, result.message ));
       } else {
@@ -104,7 +104,7 @@ configure_stage( configure_stage_t * stage,
       if( FD_LIKELY( stage->init ) ) stage->init( config );
       FD_LOG_INFO(( "%s ... done", stage->name ));
 
-      result = stage->check( config );
+      result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_POST_INIT );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) )
         FD_LOG_ERR(( "%s ... tried to initialize but didn't do anything ... %s", stage->name, result.message ));
       else if( FD_UNLIKELY( result.result == CONFIGURE_PARTIALLY_CONFIGURED && !stage->always_recreate ) )
@@ -112,7 +112,7 @@ configure_stage( configure_stage_t * stage,
       break;
     }
     case CONFIGURE_CMD_CHECK: {
-      configure_result_t result = stage->check( config );
+      configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_CHECK );
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) ) {
         FD_LOG_WARNING(( "%s ... not configured ... %s", stage->name, result.message ));
         return 1;
@@ -127,7 +127,7 @@ configure_stage( configure_stage_t * stage,
       break;
     }
     case CONFIGURE_CMD_FINI: {
-      configure_result_t result = stage->check( config );
+      configure_result_t result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_PRE_FINI );
 
       if( FD_UNLIKELY( result.result == CONFIGURE_NOT_CONFIGURED ) ) {
         FD_LOG_NOTICE(( "%s ... not configured ... %s", stage->name, result.message ));
@@ -140,7 +140,7 @@ configure_stage( configure_stage_t * stage,
       int fini_done = 0;
       if( FD_LIKELY( stage->fini ) ) fini_done = stage->fini( config, 0 );
 
-      result = stage->check( config );
+      result = stage->check( config, FD_CONFIGURE_CHECK_TYPE_POST_FINI );
       if( FD_UNLIKELY( result.result == CONFIGURE_OK && stage->init && fini_done ) ) {
         /* if the fini step does nothing, it's fine if it's fully configured
             after being undone */

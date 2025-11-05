@@ -271,7 +271,7 @@ configure_stage_perm( configure_stage_t const * stage,
                       fd_cap_chk_t *            chk,
                       config_t const *          config ) {
   int enabled = !stage->enabled || stage->enabled( config );
-  if( enabled && stage->check( config ).result != CONFIGURE_OK )
+  if( enabled && stage->check( config, FD_CONFIGURE_CHECK_TYPE_INIT_PERM ).result != CONFIGURE_OK )
     if( stage->init_perm ) stage->init_perm( chk, config );
 }
 

@@ -44,6 +44,7 @@
 #define FD_ETHTOOL_FEATURE_TXUDPSEG      "tx-udp-segmentation"
 #define FD_ETHTOOL_FEATURE_TXGRESEG      "tx-gre-segmentation"
 #define FD_ETHTOOL_FEATURE_TXGRECSUMSEG  "tx-gre-csum-segmentation"
+#define FD_ETHTOOL_FEATURE_RXUDPGROFWD   "rx-udp-gro-forwarding"
 
 struct fd_ethtool_ioctl {
   int          fd;
@@ -154,12 +155,13 @@ fd_ethtool_ioctl_feature_gro_set( fd_ethtool_ioctl_t * ioc,
                                   int                  enabled );
 
 /* fd_ethtool_ioctl_feature_gro_test sets enabled to 1 if the
-   generic-receive-offload feature is enabled.  Returns nonzero on
-   failure. */
+   generic-receive-offload feature is enabled.  Sets supported to 1
+   if this feature is supported.  Returns nonzero on failure. */
 
 int
 fd_ethtool_ioctl_feature_gro_test( fd_ethtool_ioctl_t * ioc,
-                                   int *                enabled );
+                                   int *                enabled,
+                                   int *                supported );
 
 /* fd_ethtool_ioctl_ntuple_clear deletes any active ntuple flow steering
    rules, which is the default state.  Returns nonzero on failure. */

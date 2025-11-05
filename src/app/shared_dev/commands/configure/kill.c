@@ -170,7 +170,8 @@ init( config_t const * config ) {
 }
 
 static configure_result_t
-check( config_t const * config FD_PARAM_UNUSED ) {
+check( config_t const * config     FD_PARAM_UNUSED,
+       int              check_type FD_PARAM_UNUSED ) {
   PARTIALLY_CONFIGURED( "kill existing instances" );
 }
 
