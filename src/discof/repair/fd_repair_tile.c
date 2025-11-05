@@ -306,6 +306,7 @@ struct ctx {
     ulong repaired_slots;
     ulong current_slot;
     ulong sign_tile_unavail;
+    ulong rerequest;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
   } metrics[ 1 ];
@@ -911,7 +912,6 @@ after_credit( ctx_t *             ctx,
               int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
   long now = fd_log_wallclock();
-  *charge_busy = 1;
 
   /* Verify that there is at least one sign tile with available credits.
      If not, we can't send any requests and leave early. */
@@ -923,17 +923,18 @@ after_credit( ctx_t *             ctx,
   if( FD_UNLIKELY( !fd_signs_queue_empty( ctx->sign_queue ) ) ) {
     sign_pending_t signable = fd_signs_queue_pop( ctx->sign_queue );
     fd_repair_send_sign_request( ctx, sign_out, &signable.msg, signable.msg.kind == FD_REPAIR_KIND_PONG ? &signable.pong_data : NULL );
+    *charge_busy = 1;
     return;
   }
 
-  /* TODO make sure not to re-request inflights for stale slots */
-
   if( FD_UNLIKELY( fd_inflights_should_drain( ctx->inflight, now ) ) ) {
     ulong nonce; ulong slot; ulong shred_idx;
+    *charge_busy = 1;
     fd_inflights_request_pop( ctx->inflight, &nonce, &slot, &shred_idx );
     fd_forest_blk_t * blk = fd_forest_query( ctx->forest, slot );
     if( FD_UNLIKELY( blk && !fd_forest_blk_idxs_test( blk->idxs, shred_idx ) ) ) {
       fd_pubkey_t const * peer = fd_policy_peer_select( ctx->policy );
+      ctx->metrics->rerequest++;
       if( FD_UNLIKELY( !peer ) ) {
         /* No peers. But we CANNOT lose this request. */
         /* Add this request to the inflights table, pretend we've sent it and let the inflight timeout request it down the line. */
@@ -947,7 +948,7 @@ after_credit( ctx_t *             ctx,
     }
   }
 
-  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot );
+  fd_repair_msg_t const * cout = fd_policy_next( ctx->policy, ctx->forest, ctx->protocol, now, ctx->metrics->current_slot, charge_busy );
   if( FD_UNLIKELY( !cout ) ) return;
 
   fd_repair_send_sign_request( ctx, sign_out, cout, NULL );
@@ -1174,6 +1175,7 @@ metrics_write( ctx_t * ctx ) {
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_peer_pool_used( ctx->policy->peers.pool ) );
   FD_MCNT_SET( REPAIR, SIGN_TILE_UNAVAIL, ctx->metrics->sign_tile_unavail );
+  FD_MCNT_SET( REPAIR, REREQUEST_QUEUE,   ctx->metrics->rerequest );
 
   FD_MCNT_SET      ( REPAIR, TOTAL_PKT_COUNT, ctx->metrics->send_pkt_cnt   );
   FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES,  ctx->metrics->sent_pkt_types );

@@ -178,9 +178,10 @@ fd_policy_peer_select( fd_policy_t * policy ) {
 }
 
 fd_repair_msg_t const *
-fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot ) {
+fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair, long now, ulong highest_known_slot, int * charge_busy ) {
   fd_forest_blk_t *      pool     = fd_forest_pool( forest );
   fd_forest_subtrees_t * subtrees = fd_forest_subtrees( forest );
+  *charge_busy = 0;
 
   if( FD_UNLIKELY( forest->root == ULONG_MAX ) ) return NULL;
   if( FD_UNLIKELY( fd_peer_pool_used( policy->peers.pool ) == 0 ) ) return NULL;
@@ -189,6 +190,7 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
   ulong now_ms = ts_ms( now );
 
   if( FD_UNLIKELY( forest->subtree_cnt > 0 ) ) {
+    *charge_busy = 1;
     for( fd_forest_subtrees_iter_t iter = fd_forest_subtrees_iter_init( subtrees, pool );
           !fd_forest_subtrees_iter_done( iter, subtrees, pool );
           iter = fd_forest_subtrees_iter_next( iter, subtrees, pool ) ) {
@@ -241,8 +243,11 @@ fd_policy_next( fd_policy_t * policy, fd_forest_t * forest, fd_repair_t * repair
     /* TODO: Heinous... but the easiest way to ensure this slot gets
        added back to the requests deque is if we set the shred_idx to
        UINT_MAX, but maybe there should be an explicit API for it. */
+
     return NULL;
   }
+
+  *charge_busy = 1;
 
   if( FD_UNLIKELY( iter->shred_idx == UINT_MAX ) ) {
     if( FD_UNLIKELY( ele->slot < highest_known_slot ) ) {

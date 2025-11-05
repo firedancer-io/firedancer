@@ -826,6 +826,7 @@ metric introduced.
     <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
     <counter name="EagerRepairAggresses"                                                                summary="How many times we pass eager repair threshold" />
+    <counter name="RerequestQueue"                                                                      summary="How many times we re-request a shred from the inflights queue" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>
@@ -833,6 +834,7 @@ metric introduced.
       <summary>Time in nanoseconds it took to receive a repair request response</summary>
     </histogram>
     <histogram name="SignDurationSeconds" min="0.00000001" max="0.001" converter="seconds" summary="Duration of signing a message" />
+
 </tile>
 
 <enum name="CrdsValue">
