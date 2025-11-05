@@ -2658,8 +2658,7 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_LIKELY( !lslot ) ) return;
   lslot->txs.microblocks_upper_bound = (ushort)done_packing->microblocks_in_slot;
-  fd_memcpy( lslot->limits, done_packing->limits, sizeof(fd_pack_limits_t) );
-  fd_memcpy( lslot->limits_usage, done_packing->limits_usage, sizeof(fd_pack_limits_usage_t) );
+  fd_memcpy( lslot->scheduler_stats, done_packing, sizeof(fd_done_packing_t) );
 
   /* fd_gui_handle_slot_end may have already been called in response to
      a "became_leader" message for a subseqeunt slot. */
