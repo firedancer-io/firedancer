@@ -277,7 +277,8 @@ check_device_is_configured( char const *        device,
 }
 
 static configure_result_t
-check( fd_config_t const * config ) {
+check( fd_config_t const * config,
+       int                 check_type FD_PARAM_UNUSED ) {
   int only_dedicated =
     (0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ));
   int check_dedicated = only_dedicated ||

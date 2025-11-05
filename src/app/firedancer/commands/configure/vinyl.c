@@ -51,7 +51,8 @@ fini( config_t const * config,
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   struct stat st;
   if( FD_UNLIKELY( 0!=stat( config->paths.accounts, &st ) ) ) {
     if( errno==ENOENT ) NOT_CONFIGURED( "`%s` does not exist", config->paths.accounts );

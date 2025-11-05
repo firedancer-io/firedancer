@@ -296,7 +296,8 @@ fini( config_t const * config,
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   if( FD_LIKELY( config->gossip.entrypoints_cnt ) ) CONFIGURE_OK();
 
   char _genesis_path[ PATH_MAX ];

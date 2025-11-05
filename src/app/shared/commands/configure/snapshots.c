@@ -12,7 +12,8 @@ init( config_t const * config ) {
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   struct stat st;
   if( FD_UNLIKELY( stat( config->paths.snapshots, &st ) && errno==ENOENT ) )
     NOT_CONFIGURED( "`%s` does not exist", config->paths.snapshots );

@@ -74,7 +74,8 @@ init( config_t const * config ) {
 }
 
 static configure_result_t
-check( config_t const * config ) {
+check( config_t const * config,
+       int              check_type FD_PARAM_UNUSED ) {
   char faucet[ PATH_MAX ], stake[ PATH_MAX ];
 
   FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->paths.base ) );

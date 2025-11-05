@@ -392,9 +392,11 @@ fd_ethtool_ioctl_feature_gro_set( fd_ethtool_ioctl_t * ioc,
 
 int
 fd_ethtool_ioctl_feature_gro_test( fd_ethtool_ioctl_t * ioc,
-                                   int *                enabled ) {
+                                   int *                enabled,
+                                   int *                supported ) {
   struct ethtool_value gro = { .cmd = ETHTOOL_GGRO };
   int ret = run_ioctl( ioc, "ETHTOOL_GGRO", &gro, 1, 0 );
+  *supported = (ret!=EOPNOTSUPP);
   if( FD_UNLIKELY( ret!=0 ) ) {
     if( FD_LIKELY( ret==EOPNOTSUPP ) ) {
       *enabled = 0;
