@@ -1104,7 +1104,7 @@ after_frag( fd_pack_ctx_t *     ctx,
   }
   case IN_KIND_EXECUTED_TXN: {
     ulong deleted = fd_pack_delete_transaction( ctx->pack, fd_type_pun( ctx->executed_txn_sig ) );
-    FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
+    FD_MCNT_INC( PACK, TRANSACTION_ALREADY_EXECUTED, deleted );
     break;
   }
   }

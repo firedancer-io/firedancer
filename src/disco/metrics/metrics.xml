@@ -542,6 +542,7 @@ metric introduced.
     <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
     <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
     <counter name="TransactionDeleted" summary="Transactions dropped from pack because they were requested to be deleted" />
+    <counter name="TransactionAlreadyExecuted" summary="Transactions dropped from pack because they were already executed (in either the replay or leader pipeline)" />
     <counter name="TransactionDroppedPartialBundle" summary="Transactions dropped from pack because they were part of a partial bundle" />
 
     <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
