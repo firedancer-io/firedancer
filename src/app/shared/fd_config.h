@@ -17,6 +17,7 @@ struct fd_configh {
   char dynamic_port_range[ 32 ];
 
   struct {
+    char  ledger[ PATH_MAX ];
     char  accounts_path[ PATH_MAX ];
     ulong authorized_voter_paths_cnt;
     char  authorized_voter_paths[ 16 ][ PATH_MAX ];
@@ -213,7 +214,6 @@ struct fd_config {
 
   struct {
     char base[ PATH_MAX ];
-    char ledger[ PATH_MAX ];
     char identity_key[ PATH_MAX ];
     char vote_account[ PATH_MAX ];
     char snapshots[ PATH_MAX ];

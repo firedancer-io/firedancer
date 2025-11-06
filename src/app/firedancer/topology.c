@@ -1125,7 +1125,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
     strncpy( tile->tower.identity_key_path, config->paths.identity_key, sizeof(tile->tower.identity_key_path) );
     strncpy( tile->tower.vote_acc_path, config->paths.vote_account, sizeof(tile->tower.vote_acc_path) );
-    strncpy( tile->tower.ledger_path, config->paths.ledger, sizeof(tile->tower.ledger_path) );
+    strncpy( tile->tower.ledger_path, config->paths.base, sizeof(tile->tower.ledger_path) );
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "send" ) ) ) {
 

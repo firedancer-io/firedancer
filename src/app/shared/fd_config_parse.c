@@ -130,7 +130,6 @@ fd_config_extract_pod( uchar *       pod,
 
   if( FD_UNLIKELY( config->is_firedancer ) ) {
     CFG_POP    ( cstr,   paths.base                                       );
-    CFG_POP    ( cstr,   paths.ledger                                     );
     CFG_POP    ( cstr,   paths.identity_key                               );
     CFG_POP    ( cstr,   paths.vote_account                               );
     CFG_POP    ( cstr,   paths.snapshots                                  );
@@ -138,7 +137,7 @@ fd_config_extract_pod( uchar *       pod,
     CFG_POP    ( cstr,   paths.accounts                                   );
   } else {
     CFG_POP1   ( cstr,   scratch_directory,           paths.base          );
-    CFG_POP1   ( cstr,   ledger.path,                 paths.ledger        );
+    CFG_POP1   ( cstr,   ledger.path,                 frankendancer.paths.ledger );
     CFG_POP1   ( cstr,   consensus.identity_path,     paths.identity_key  );
     CFG_POP1   ( cstr,   consensus.vote_account_path, paths.vote_account  );
   }

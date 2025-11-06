@@ -94,7 +94,8 @@ update_config_for_dev( fd_config_t * config ) {
      exists and we don't know it.  If it doesn't exist, we'll keep it
      set to zero and get from gossip. */
   char genesis_path[ PATH_MAX ];
-  FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+  if( FD_LIKELY( config->is_firedancer ) ) fd_memcpy( genesis_path, config->paths.genesis, PATH_MAX );
+  else FD_TEST( fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
 
   ushort shred_version = 0;
   int result = compute_shred_version( genesis_path, &shred_version, NULL );
