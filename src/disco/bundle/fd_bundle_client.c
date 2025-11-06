@@ -462,12 +462,12 @@ fd_bundle_tile_publish_bundle_txn(
 
   fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
   *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4      = source_ipv4,
-    .source_tpu       = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
+    .reference_block_height = 0UL,
+    .payload_sz             = (ushort)txn_sz,
+    .txn_t_sz               = 0U,
+    .source_ipv4            = source_ipv4,
+    .source_tpu             = FD_TXN_M_TPU_SOURCE_BUNDLE,
+    .block_engine           = {
       .bundle_id      = ctx->bundle_seq,
       .bundle_txn_cnt = bundle_txn_cnt,
       .commission     = (uchar)ctx->builder_commission
@@ -500,12 +500,12 @@ fd_bundle_tile_publish_txn(
 ) {
   fd_txn_m_t * txnm = fd_chunk_to_laddr( ctx->verify_out.mem, ctx->verify_out.chunk );
   *txnm = (fd_txn_m_t) {
-    .reference_slot = 0UL,
-    .payload_sz     = (ushort)txn_sz,
-    .txn_t_sz       = 0U,
-    .source_ipv4    = source_ipv4,
-    .source_tpu     = FD_TXN_M_TPU_SOURCE_BUNDLE,
-    .block_engine   = {
+    .reference_block_height = 0UL,
+    .payload_sz             = (ushort)txn_sz,
+    .txn_t_sz               = 0U,
+    .source_ipv4            = source_ipv4,
+    .source_tpu             = FD_TXN_M_TPU_SOURCE_BUNDLE,
+    .block_engine           = {
       .bundle_id         = 0UL,
       .bundle_txn_cnt    = 1UL,
       .commission        = 0U,

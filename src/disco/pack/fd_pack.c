@@ -1977,7 +1977,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       /* Copied out to 1280 bytes, which copies some other fields we needed to
          copy anyway. */
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, blockhash_slot )+sizeof(((fd_txn_p_t*)NULL)->blockhash_slot)<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, block_height   )+sizeof(((fd_txn_p_t*)NULL)->block_height  )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_tpu     )+sizeof(((fd_txn_p_t*)NULL)->source_tpu    )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_ipv4    )+sizeof(((fd_txn_p_t*)NULL)->source_ipv4   )<=1280UL, nt_memcpy );
