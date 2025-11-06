@@ -663,7 +663,7 @@ fd_runtime_pre_execute_check( fd_exec_txn_ctx_t * txn_ctx ) {
     /* Regardless of whether transaction accounts were loaded successfully, the transaction is
        included in the block and transaction fees are collected.
        https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
-    txn_ctx->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
+    txn_ctx->fees_only = 1;
 
     /* If the transaction fails to load, the "rollback" accounts will include one of the following:
         1. Nonce account only
@@ -1074,7 +1074,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   /* Execute the transaction. Note that fees-only transactions are still
      marked as "executed". */
   txn_ctx->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  if( FD_LIKELY( !( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) ) {
+  if( FD_LIKELY( !txn_ctx->fees_only ) ) {
     exec_res = fd_execute_txn( txn_ctx );
   }
 

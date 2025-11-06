@@ -431,7 +431,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
 
     if( txn_result->sanitization_error ) {
       /* Collect fees for transactions that failed to load */
-      if( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+      if( txn_ctx->fees_only ) {
         txn_result->has_fee_details                = true;
         txn_result->fee_details.prioritization_fee = txn_ctx->priority_fee;
         txn_result->fee_details.transaction_fee    = txn_ctx->execution_fee;
@@ -502,7 +502,7 @@ fd_solfuzz_pb_txn_run( fd_solfuzz_runner_t * runner,
     /* If the transaction is a fees-only transaction, we have to create rollback accounts to iterate over and save. */
     fd_txn_account_t * accounts_to_save = txn_ctx->accounts;
     ulong              accounts_cnt     = txn_ctx->accounts_cnt;
-    if( txn_ctx->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+    if( txn_ctx->fees_only ) {
       accounts_to_save = fd_spad_alloc( runner->spad, alignof(fd_txn_account_t), sizeof(fd_txn_account_t) * 2 );
       accounts_cnt     = 0UL;
 

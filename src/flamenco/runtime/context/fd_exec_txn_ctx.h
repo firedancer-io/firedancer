@@ -146,9 +146,21 @@ struct fd_exec_txn_ctx {
 
   fd_log_collector_t          log_collector;             /* Log collector instance */
 
-  /* Execution error and type, to match Agave. */
+  /********************************************************************/
+
+  int can_land;
+  /* If a transaction is fees only, it can land and a fee is paid,
+     but the tgansaction will not be executed. */
+  int fees_only;
+
+  int txn_err;
+  /* These will only be set if the txn_err is set to
+     FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR (-7). */
   int exec_err;
   int exec_err_kind;
+  int exec_err_idx;
+
+  /********************************************************************/
 
    /* The current instruction index being executed */
   int current_instr_idx;
