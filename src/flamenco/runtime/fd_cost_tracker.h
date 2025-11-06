@@ -78,6 +78,8 @@ struct __attribute__((aligned(FD_COST_TRACKER_ALIGN))) fd_cost_tracker {
   ulong block_cost_limit;
   ulong vote_cost_limit;
   ulong account_cost_limit;
+
+  int larger_max_cost_per_block;
 };
 
 typedef struct fd_cost_tracker fd_cost_tracker_t;
@@ -112,6 +114,7 @@ fd_cost_tracker_footprint( void );
 
 void *
 fd_cost_tracker_new( void * shmem,
+                     int    larger_max_cost_per_block,
                      ulong  seed );
 
 fd_cost_tracker_t *
@@ -121,9 +124,6 @@ void
 fd_cost_tracker_init( fd_cost_tracker_t *   cost_tracker,
                       fd_features_t const * features,
                       ulong                 slot );
-
-ulong
-fd_cost_tracker_block_cost_limit( fd_bank_t const * bank );
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L323-L328 */
 FD_FN_PURE static inline ulong

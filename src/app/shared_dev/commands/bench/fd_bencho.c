@@ -21,14 +21,6 @@ typedef struct {
   ulong blockhash_state;
   long  blockhash_deadline;
 
-  int   txncount_measured1;
-  long  txncount_request;
-  ulong txncount_state;
-  long  txncount_nextprint;
-  long  txncount_deadline;
-
-  ulong txncount_prev;
-
   fd_rpc_client_t rpc[ 1 ];
 
   fd_wksp_t * mem;
@@ -102,58 +94,6 @@ service_block_hash( fd_bencho_ctx_t *   ctx,
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, 32, ctx->out_chunk0, ctx->out_wmark );
 
     fd_rpc_client_close( ctx->rpc, ctx->blockhash_request );
-    if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) {
-      ctx->txncount_nextprint = fd_log_wallclock();
-    }
-
-    did_work = 1;
-  }
-
-  return did_work;
-}
-
-static int
-service_txn_count( fd_bencho_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->txncount_nextprint ) ) return 0;
-
-  int did_work = 0;
-
-  if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_WAIT ) ) {
-    if( FD_LIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
-      ctx->txncount_state = FD_BENCHO_STATE_READY;
-  }
-
-  if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_READY ) ) {
-    ctx->txncount_request  = fd_rpc_client_request_transaction_count( ctx->rpc );
-    if( FD_UNLIKELY( ctx->txncount_request<0L ) ) FD_LOG_ERR(( "failed to send RPC request" ));
-
-    ctx->txncount_state    = FD_BENCHO_STATE_SENT;
-    ctx->txncount_deadline = fd_log_wallclock() + FD_BENCHO_RPC_RESPONSE_TIMEOUT;
-
-    did_work = 1;
-  }
-
-  if( FD_UNLIKELY( ctx->txncount_state==FD_BENCHO_STATE_SENT ) ) {
-    fd_rpc_client_response_t * response = fd_rpc_client_status( ctx->rpc, ctx->txncount_request, 0 );
-    if( FD_UNLIKELY( response->status==FD_RPC_CLIENT_PENDING ) ) {
-      if( FD_UNLIKELY( fd_log_wallclock()>=ctx->txncount_deadline ) )
-        FD_LOG_ERR(( "timed out waiting for RPC server to respond" ));
-      return did_work;
-    }
-
-    if( FD_UNLIKELY( response->status!=FD_RPC_CLIENT_SUCCESS ) )
-      FD_LOG_ERR(( "RPC server returned error %ld", response->status ));
-
-    ulong txns = response->result.transaction_count.transaction_count;
-    if( FD_LIKELY( ctx->txncount_measured1 ) )
-      FD_LOG_NOTICE(( "%lu txn/s", (ulong)((double)(txns - ctx->txncount_prev)/1.2 )));
-    ctx->txncount_measured1 = 1;
-    ctx->txncount_prev      = txns;
-    ctx->txncount_nextprint += 1200L * 1000L * 1000L; /* 1.2 seconds til we print again, multiple of slot duration to prevent jitter */
-
-    fd_rpc_client_close( ctx->rpc, ctx->txncount_request );
-    ctx->txncount_state = FD_BENCHO_STATE_WAIT;
-    ctx->txncount_deadline = ctx->txncount_nextprint;
 
     did_work = 1;
   }
@@ -170,9 +110,8 @@ after_credit( fd_bencho_ctx_t *   ctx,
 
   int did_work_rpc                = fd_rpc_client_service( ctx->rpc, 0 );
   int did_work_service_block_hash = service_block_hash( ctx, stem );
-  int did_work_service_txn_count  = service_txn_count( ctx );
 
-  *charge_busy = did_work_rpc | did_work_service_block_hash | did_work_service_txn_count;
+  *charge_busy = did_work_rpc | did_work_service_block_hash;
 }
 
 extern FD_TL fd_alloc_t * g_cjson_alloc_ctx;
@@ -197,9 +136,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->rpc_ready_deadline = fd_log_wallclock() + FD_BENCHO_RPC_INITIALIZE_TIMEOUT;
   ctx->blockhash_state    = FD_BENCHO_STATE_READY;
-  ctx->txncount_nextprint = 0;
-  ctx->txncount_state     = FD_BENCHO_STATE_READY;
-  ctx->txncount_measured1 = 0;
 
   FD_LOG_NOTICE(( "connecting to RPC server " FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->bencho.rpc_ip_addr ), tile->bencho.rpc_port ));
   FD_TEST( fd_rpc_client_join( fd_rpc_client_new( ctx->rpc, tile->bencho.rpc_ip_addr, tile->bencho.rpc_port ) ) );

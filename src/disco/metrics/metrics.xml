@@ -1085,4 +1085,8 @@ metric introduced.
     <counter name="ProgcacheInvalidations" summary="Number of program cache invalidations" />
 </tile>
 
+<tile name="benchs">
+    <counter name="TransactionsSent" summary="Number of benchmark packets sent" />
+</tile>
+
 </metrics>

@@ -282,10 +282,10 @@ returnable_frag( fd_rpc_tile_t *     ctx,
       case REPLAY_SIG_RESET: {
         fd_poh_reset_t const * reset = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
-        ulong prior_confirmed_idx = ctx->confirmed_idx;
-        ctx->confirmed_idx = reset->bank_idx;
+        ulong prior_processed_idx = ctx->processed_idx;
+        ctx->processed_idx = reset->bank_idx;
 
-        if( FD_LIKELY( prior_confirmed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, prior_confirmed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
+        if( FD_LIKELY( prior_processed_idx!=ULONG_MAX ) ) fd_stem_publish( stem, ctx->replay_out->idx, prior_processed_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
         break;
       }
       default: break;

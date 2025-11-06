@@ -173,6 +173,8 @@ total_regime( ulong const * metrics ) {
   return sum;
 }
 
+static ulong tps_sent_samples_idx = 0UL;
+static ulong tps_sent_samples[ 200UL ];
 static ulong sps_samples_idx = 0UL;
 static ulong sps_samples[ 200UL ];
 static ulong tps_samples_idx = 0UL;
@@ -212,6 +214,45 @@ static ulong snapshot_acc_samples[ 100UL ];
 #define COUNTF( count ) (__extension__({                     \
     fmt_countf( fd_alloca_check( 1UL, 64UL ), 64UL, count ); \
   }))
+
+static int
+write_bench( config_t const * config,
+             ulong const *    cur_tile,
+             ulong const *    prev_tile ) {
+  if( FD_UNLIKELY( fd_topo_find_tile( &config->topo, "benchs", 0UL )==ULONG_MAX ) ) return 0;
+
+  ulong tps_sum = 0UL;
+  ulong num_tps_samples = fd_ulong_min( tps_sent_samples_idx, sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0]));
+  for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_sent_samples[ i ];
+  char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
+
+  PRINT( "🌶  \033[1m\033[92mBENCH.......\033[0m\033[22m \033[1mGENERATED TPS\033[22m %s \033[1mBENCHG BUSY\033[22m", tps_str );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchg" ) ) ) continue;
+
+    ulong total_ticks = total_regime( &cur_tile[ i*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ i*FD_METRICS_TOTAL_SZ ] );
+    double backp_pct = 100.0*(double)( diff_tile( config, "benchg", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ) )/(double)total_ticks;
+    double idle_pct = 100.0*(double)( diff_tile( config, "benchg", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ) )/(double)total_ticks;
+    double busy_pct = 100.0 - idle_pct - backp_pct;
+
+    PRINT( " %.1f %%", busy_pct );
+  }
+
+  PRINT( " \033[1mBENCHS BUSY\033[22m" );
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
+    if( FD_LIKELY( strcmp( config->topo.tiles[ i ].name, "benchs" ) ) ) continue;
+
+    ulong total_ticks = total_regime( &cur_tile[ i*FD_METRICS_TOTAL_SZ ] )-total_regime( &prev_tile[ i*FD_METRICS_TOTAL_SZ ] );
+    double backp_pct = 100.0*(double)( diff_tile( config, "benchs", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_BACKPRESSURE_PREFRAG ) ) )/(double)total_ticks;
+    double idle_pct = 100.0*(double)( diff_tile( config, "benchs", prev_tile, cur_tile, MIDX( COUNTER, TILE, REGIME_DURATION_NANOS_CAUGHT_UP_POSTFRAG ) ) )/(double)total_ticks;
+    double busy_pct = 100.0 - idle_pct - backp_pct;
+
+    PRINT( " %.1f %%", busy_pct );
+  }
+
+  PRINT( "\033[K\n" );
+  return 1;
+}
 
 static void
 write_backtest( config_t const * config,
@@ -397,7 +438,7 @@ write_replay( config_t const * config,
   for( ulong i=0UL; i<num_tps_samples; i++ ) tps_sum += tps_samples[ i ];
   char * tps_str = COUNTF( 100.0*(double)tps_sum/(double)num_tps_samples );
 
-  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m \033[1mSLOT\033[22m %lu (%ld) \033[1mTPS\033[22m %s \033[1mSPS\033[22m %s \033[1mLEADER IN\033[22m %s \033[1mROOT DIST\033[22m %lu \033[1mBANKS\033[22m %lu\033[K\n",
+  PRINT( "💥 \033[1m\033[35mREPLAY......\033[0m\033[22m \033[1mSLOT\033[22m %lu (%02ld) \033[1mTPS\033[22m %s \033[1mSPS\033[22m %s \033[1mLEADER IN\033[22m %s \033[1mROOT DIST\033[22m %lu \033[1mBANKS\033[22m %lu\033[K\n",
     reset_slot,
     (long)reset_slot-(long)turbine_slot,
     tps_str,
@@ -432,6 +473,8 @@ write_summary( config_t const * config,
   if( FD_UNLIKELY( snap_shutdown_time==1L && shutdown  ) ) snap_shutdown_time = fd_log_wallclock();
 
   lines_printed = 1UL;
+
+  if( FD_UNLIKELY( write_bench( config, cur_tile, prev_tile ) ) ) lines_printed++;
 
   ulong backt_idx = fd_topo_find_tile( &config->topo, "backt", 0UL );
   if( FD_UNLIKELY( backt_idx!=ULONG_MAX ) ) {
@@ -526,6 +569,9 @@ run( config_t const * config,
       last_snap = 1UL-last_snap;
       snap_tiles( &config->topo, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ );
       snap_links( &config->topo, links+last_snap*(cons_cnt*8UL*FD_METRICS_ALL_LINK_IN_TOTAL) );
+
+      tps_sent_samples[ tps_sent_samples_idx%(sizeof(tps_sent_samples)/sizeof(tps_sent_samples[0])) ] = (ulong)diff_tile( config, "benchs", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, BENCHS, TRANSACTIONS_SENT ) );
+      tps_sent_samples_idx++;
 
       sps_samples[ sps_samples_idx%(sizeof(sps_samples)/sizeof(sps_samples[0])) ] = (ulong)diff_tile( config, "replay", tiles+(1UL-last_snap)*tile_cnt*FD_METRICS_TOTAL_SZ, tiles+last_snap*tile_cnt*FD_METRICS_TOTAL_SZ, MIDX( COUNTER, REPLAY, SLOTS_TOTAL ) );
       sps_samples_idx++;

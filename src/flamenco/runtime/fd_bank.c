@@ -168,28 +168,28 @@ fd_banks_footprint( ulong max_total_banks,
 }
 
 void *
-fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
-
-  fd_banks_t * banks = (fd_banks_t *)shmem;
-
-  if( FD_UNLIKELY( !banks ) ) {
-    FD_LOG_WARNING(( "NULL banks" ));
+fd_banks_new( void * shmem,
+              ulong  max_total_banks,
+              ulong  max_fork_width,
+              int    larger_max_cost_per_block,
+              ulong  seed ) {
+  if( FD_UNLIKELY( !shmem ) ) {
+    FD_LOG_WARNING(( "NULL shmem" ));
     return NULL;
   }
 
-  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)banks, fd_banks_align() ) ) ) {
-    FD_LOG_WARNING(( "misaligned banks" ));
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, fd_banks_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned shmem" ));
     return NULL;
   }
-
-  /* Set the rwlock to unlocked. */
-  fd_rwlock_unwrite( &banks->rwlock );
 
   /* First, layout the banks and the pool used by fd_banks_t. */
-  FD_SCRATCH_ALLOC_INIT( l, banks );
-  banks                        = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_banks_t * banks           = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_align(),                  sizeof(fd_banks_t) );
   void * pool_mem              = FD_SCRATCH_ALLOC_APPEND( l, fd_banks_pool_align(),             fd_banks_pool_footprint( max_total_banks ) );
   void * cost_tracker_pool_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_cost_tracker_pool_align(), fd_bank_cost_tracker_pool_footprint( max_fork_width ) );
+
+  fd_rwlock_new( &banks->rwlock );
 
   /* Need to layout all of the CoW pools. */
   #define HAS_COW_1_LIMIT_1(name) \
@@ -247,7 +247,7 @@ fd_banks_new( void * shmem, ulong max_total_banks, ulong max_fork_width ) {
 
   for( ulong i=0UL; i<max_fork_width; i++ ) {
     fd_bank_cost_tracker_t * cost_tracker = fd_bank_cost_tracker_pool_ele( cost_tracker_pool, i );
-    fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, 88888UL /* TODO: REAL SEED */ ) );
+    fd_cost_tracker_join( fd_cost_tracker_new( cost_tracker->data, larger_max_cost_per_block, seed ) );
   }
 
   /* Now, call _new() and _join() for all of the CoW pools. */
