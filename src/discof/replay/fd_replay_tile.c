@@ -146,6 +146,7 @@ struct fd_replay_tile {
   fd_txncache_t * txncache;
   fd_store_t *    store;
   fd_banks_t *    banks;
+  ulong           reset_bank_idx; /* most recent reset bank idx, used for determining root distance */
 
   /* This flag is 1 If we have seen a vote signature that our node has
      sent out get rooted at least one time.  The value is 0 otherwise.
@@ -2123,9 +2124,9 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
 }
 
 static void
-process_tower_update( fd_replay_tile_t *           ctx,
-                      fd_stem_context_t *          stem,
-                      fd_tower_slot_done_t const * msg ) {
+process_tower_slot_done( fd_replay_tile_t *           ctx,
+                         fd_stem_context_t *          stem,
+                         fd_tower_slot_done_t const * msg ) {
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -2148,7 +2149,6 @@ process_tower_update( fd_replay_tile_t *           ctx,
     FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", reset_bank_idx ));
   }
 
-  if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) FD_TEST( msg->root_slot<=msg->reset_slot );
   ctx->reset_bank = bank;
 
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
@@ -2184,20 +2184,34 @@ process_tower_update( fd_replay_tile_t *           ctx,
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
-  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, root_slot=%lu, root_block_id=%s)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
+  FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot ));
   maybe_become_leader( ctx, stem );
+}
 
-  if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
+static void
+process_tower_slot_confirmed( fd_replay_tile_t *                ctx,
+                              fd_stem_context_t *               stem,
+                              fd_tower_slot_confirmed_t const * msg ) {
+  if( FD_LIKELY( msg->kind==FD_TOWER_SLOT_CONFIRMED_ROOTED ) ) {
 
-    FD_TEST( msg->root_slot>=ctx->consensus_root_slot );
-    fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->root_block_id, NULL, ctx->block_id_arr );
+    FD_TEST( msg->slot>=ctx->consensus_root_slot );
+    fd_block_id_ele_t * block_id_ele = fd_block_id_map_ele_query( ctx->block_id_map, &msg->block_id, NULL, ctx->block_id_arr );
     FD_TEST( block_id_ele );
 
-    ctx->consensus_root_slot     = msg->root_slot;
-    ctx->consensus_root          = msg->root_block_id;
+    ctx->consensus_root_slot     = msg->slot;
+    ctx->consensus_root          = msg->block_id;
     ctx->consensus_root_bank_idx = fd_block_id_ele_get_idx( ctx->block_id_arr, block_id_ele );
 
     publish_root_advanced( ctx, stem );
+  }
+
+  /* If tower roots a slot, it always publishes the frag immediately
+     after the slot_done message, so ctx->reset_bank_idx should still be
+     valid at this point (it could not have been published away).  */
+
+  fd_bank_t * bank = fd_banks_bank_query( ctx->banks, ctx->reset_bank_idx );
+  if( FD_UNLIKELY( !bank ) ) {
+    FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", ctx->reset_bank_idx ));
   }
 
   ulong distance = 0UL;
@@ -2369,7 +2383,8 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) process_tower_update( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      if     ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE      ) ) process_tower_slot_done     ( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) process_tower_slot_confirmed( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
     case IN_KIND_SHRED: {

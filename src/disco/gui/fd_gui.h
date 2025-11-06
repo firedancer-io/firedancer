@@ -833,9 +833,14 @@ fd_gui_handle_leader_schedule( fd_gui_t *                    gui,
                                long                          now );
 
 void
-fd_gui_handle_tower_update( fd_gui_t *                   gui,
+fd_gui_handle_tower_slot_done( fd_gui_t *                   gui,
                             fd_tower_slot_done_t const * msg,
                             long                         now );
+
+void
+fd_gui_handle_tower_slot_confirmed( fd_gui_t *                        gui,
+                                    fd_tower_slot_confirmed_t const * slot_confirmed,
+                                    long                              now );
 
 void
 fd_gui_handle_replay_update( fd_gui_t *                gui,

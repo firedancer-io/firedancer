@@ -641,7 +641,7 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
   for( fd_tower_iter_t iter = fd_tower_iter_init( tower       );
                              !fd_tower_iter_done( tower, iter );
                        iter = fd_tower_iter_next( tower, iter ) ) {
-    fd_tower_t const * vote              = fd_tower_iter_ele_const( tower, iter );
+    fd_tower_t const * vote                   = fd_tower_iter_ele_const( tower, iter );
     tower_sync.lockouts[i].offset             = vote->slot - prev;
     tower_sync.lockouts[i].confirmation_count = (uchar)vote->conf;
     prev                                      = vote->slot;

@@ -385,8 +385,11 @@ after_frag( fd_gui_ctx_t *      ctx,
     case IN_KIND_TOWER_OUT: {
       FD_TEST( ctx->is_full_client );
       if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE )) {
-        fd_tower_slot_done_t const * tower = (fd_tower_slot_done_t const *)ctx->buf;
-        fd_gui_handle_tower_update( ctx->gui, tower, fd_clock_now( ctx->clock ) );
+        fd_tower_slot_done_t const * slot_done = (fd_tower_slot_done_t const *)ctx->buf;
+        fd_gui_handle_tower_slot_done( ctx->gui, slot_done, fd_clock_now( ctx->clock ) );
+      } else if ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+        fd_tower_slot_confirmed_t const * slot_confirmed = (fd_tower_slot_confirmed_t const *)ctx->buf;
+        fd_gui_handle_tower_slot_confirmed( ctx->gui, slot_confirmed, fd_clock_now( ctx->clock ) );
       }
       break;
     }
