@@ -70,10 +70,13 @@ typedef struct fd_exec_tile_ctx {
 
   fd_exec_stack_t       exec_stack;
 
-  /* This buffer is used for staging memory to dump instructions and
-     transactions into protobuf files.
+  /* tracing_mem is staging memory to dump instructions/transactions
+     into protobuf files.  tracing_mem is staging memory to output vm
+     execution traces.
      TODO: This should not be compiled in prod. */
   uchar                 dumping_mem[ FD_SPAD_FOOTPRINT( 1UL<<28UL ) ] __attribute__((aligned(FD_SPAD_ALIGN)));
+  uchar                 tracing_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_VM_TRACE_STATIC_ALIGN)));
+
 } fd_exec_tile_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -130,7 +133,8 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
                                                                      &msg->txn,
                                                                      ctx->capture_ctx,
                                                                      &ctx->exec_stack,
-                                                                     ctx->dumping_mem );
+                                                                     ctx->dumping_mem,
+                                                                     &ctx->tracing_mem[0][0] );
 
         /* Commit. */
         fd_bank_t * bank = fd_banks_bank_query( ctx->banks, msg->bank_idx );

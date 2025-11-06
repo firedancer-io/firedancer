@@ -95,7 +95,10 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
   txn_ctx->compute_budget_details.compute_unit_limit = test_ctx->cu_avail;
   txn_ctx->compute_budget_details.compute_meter      = test_ctx->cu_avail;
   txn_ctx->instr_info_cnt                            = 1UL;
-  txn_ctx->fuzz_config.enable_vm_tracing             = runner->enable_vm_tracing;
+  txn_ctx->enable_vm_tracing                         = runner->enable_vm_tracing;
+  txn_ctx->tracing_mem                               = runner->enable_vm_tracing ?
+                                                       fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH ) :
+                                                       NULL;
 
   /* Set up instruction context */
 

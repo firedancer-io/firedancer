@@ -1033,7 +1033,8 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     fd_txn_p_t *        txn,
                                     fd_capture_ctx_t *  capture_ctx,
                                     fd_exec_stack_t *   exec_stack,
-                                    uchar *             dumping_mem ) {
+                                    uchar *             dumping_mem,
+                                    uchar *             tracing_mem ) {
   int exec_res = 0;
 
   fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
@@ -1053,6 +1054,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->txn                   = *txn;
   txn_ctx->exec_stack            = exec_stack;
   txn_ctx->dumping_mem           = dumping_mem;
+  txn_ctx->tracing_mem           = tracing_mem;
   txn_ctx->flags                 = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   fd_exec_txn_ctx_setup_basic( txn_ctx );
   txn_ctx->capture_ctx           = capture_ctx;

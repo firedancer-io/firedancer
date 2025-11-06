@@ -210,6 +210,9 @@ FD_STATIC_ASSERT( BPF_LOADER_SERIALIZATION_FOOTPRINT==FD_BPF_LOADER_INPUT_REGION
 #define FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX (2048UL)
 #define FD_RUNTIME_VM_TRACE_FOOTPRINT      (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_vm_trace_footprint( FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ), fd_vm_trace_align() ))
 
+#define FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT (FD_RUNTIME_VM_TRACE_EVENT_MAX + sizeof(fd_vm_trace_t))
+#define FD_RUNTIME_VM_TRACE_STATIC_ALIGN     (8UL)
+
 #define FD_RUNTIME_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT)
 #define FD_SOLFUZZ_MISC_FOOTPRINT (FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT + FD_RUNTIME_VM_TRACE_FOOTPRINT)
 
@@ -297,7 +300,8 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
                                     fd_txn_p_t *        txn,
                                     fd_capture_ctx_t *  capture_ctx,
                                     fd_exec_stack_t *   exec_stack,
-                                    uchar *             dumping_mem );
+                                    uchar *             dumping_mem,
+                                    uchar *             tracing_mem );
 
 void
 fd_runtime_finalize_txn( fd_funk_t *               funk,

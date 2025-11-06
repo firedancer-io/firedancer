@@ -159,14 +159,16 @@ struct fd_exec_txn_ctx {
     ulong               prev_txn_ctxs_cnt;
   } bundle;
 
-  /* fuzzing options */
-  struct {
-    int enable_vm_tracing;
-  } fuzz_config;
+  /* debugging options */
 
   /* Pointer to buffer used for dumping instructions and transactions
      into protobuf files. */
   uchar * dumping_mem;
+
+  /* Pointer to buffer used for tracing instructions and transactions
+     into protobuf files. */
+  int enable_vm_tracing;
+  uchar * tracing_mem;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))
