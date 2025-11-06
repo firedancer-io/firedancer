@@ -105,7 +105,7 @@ agave_boot( config_t const * config ) {
     ADD1( "--no-os-network-limits-test" );
 
   /* ledger */
-  ADD( "--ledger", config->paths.ledger );
+  ADD( "--ledger", config->frankendancer.paths.ledger );
   ADDU( "--limit-ledger-size", config->frankendancer.ledger.limit_size );
   if( strcmp( "", config->frankendancer.paths.accounts_path ) )
     ADD( "--accounts", config->frankendancer.paths.accounts_path );
