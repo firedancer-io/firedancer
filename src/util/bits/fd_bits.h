@@ -678,7 +678,7 @@ fd_double_eq( double x,
    Hmmm. */
 
 #define FD_LOAD( T, src ) \
-  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (T const *)(src), sizeof(T) ); _fd_load_tmp; }))
+  (__extension__({ T _fd_load_tmp; memcpy( &_fd_load_tmp, (void const *)(src), sizeof(T) ); _fd_load_tmp; }))
 
 #define FD_STORE( T, dst, val ) \
   (__extension__({ T _fd_store_tmp = (val); (T *)memcpy( (T *)(dst), &_fd_store_tmp, sizeof(T) ); }))
