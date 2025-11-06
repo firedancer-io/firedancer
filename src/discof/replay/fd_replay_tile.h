@@ -37,6 +37,15 @@ struct fd_replay_slot_completed {
   long first_transaction_scheduled_nanos; /* timestamp when replay first sent a transaction to be executed */
   long last_transaction_finished_nanos;   /* timestamp when replay received the last execution completion */
   long completion_time_nanos;             /* timestamp when replay completed finalizing the slot and notified tower */
+
+  struct {
+    ulong block_cost;
+    ulong vote_cost;
+    ulong allocated_accounts_data_size;
+    ulong block_cost_limit;
+    ulong vote_cost_limit;
+    ulong account_cost_limit;
+  } cost_tracker;
 };
 
 typedef struct fd_replay_slot_completed fd_replay_slot_completed_t;
