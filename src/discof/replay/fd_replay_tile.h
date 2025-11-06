@@ -228,6 +228,7 @@ struct fd_replay_root_advanced {
   ulong     slot;
   fd_hash_t bank_hash;
   fd_hash_t block_id;
+  ulong     block_height;
 };
 typedef struct fd_replay_root_advanced fd_replay_root_advanced_t;
 

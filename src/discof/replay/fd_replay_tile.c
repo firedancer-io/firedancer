@@ -1482,6 +1482,7 @@ try_become_leader_ag( fd_replay_tile_t *  ctx,
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
   msg->bank_seq            = bank->bank_seq;
+  msg->block_height        = bank->f.block_height;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
   msg->hashcnt_per_tick    = 1UL; /* one tick per block, no hash budget (see replay_block_start) */
   msg->tick_duration_ns    = bank->f.slot_params.ns_per_slot_adjusted/msg->ticks_per_slot;
@@ -1709,11 +1710,12 @@ publish_root_advanced( fd_replay_tile_t *  ctx,
 
   fd_replay_root_advanced_t * msg = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
   /* f.* first: gcc 11 SLP otherwise materialises the 27 KB idx..f.slot gap element-wise */
-  msg->slot      = bank->f.slot;
-  msg->bank_hash = bank->f.bank_hash;
-  msg->block_id  = bank->f.block_id;
-  msg->bank_idx  = bank->idx;
-  msg->bank_seq  = bank->bank_seq;
+  msg->slot         = bank->f.slot;
+  msg->bank_hash    = bank->f.bank_hash;
+  msg->block_id     = bank->f.block_id;
+  msg->bank_idx     = bank->idx;
+  msg->block_height = bank->f.block_height;
+  msg->bank_seq     = bank->bank_seq;
 
   publish_replay_out( ctx, stem, REPLAY_SIG_ROOT_ADVANCED, sizeof(fd_replay_root_advanced_t) );
 }
@@ -2009,6 +2011,7 @@ try_become_leader( fd_replay_tile_t *  ctx,
   msg->slot_end_ns         = now_nanos+(long)bank->f.slot_params.ns_per_slot_adjusted;
   msg->bank                = NULL;
   msg->bank_idx            = bank->idx;
+  msg->block_height        = bank->f.block_height;
   msg->bank_seq            = bank->bank_seq;
   msg->ticks_per_slot      = bank->f.ticks_per_slot;
   msg->hashcnt_per_tick    = bank->f.slot_params.hashes_per_tick;

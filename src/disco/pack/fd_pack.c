@@ -1454,7 +1454,6 @@ populate_bitsets( fd_pack_t         * pack,
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
-                         ulong        expires_at,
                          ulong      * delete_cnt ) {
   *delete_cnt = 0UL;
 
@@ -1469,7 +1468,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
      accessed with adj_lut[n]. */
   fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
-  ord->expires_at = expires_at;
+  ord->expires_at = txne->txnp->reference_block_height;
 
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord, pack->lim );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
@@ -1488,7 +1487,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 
   /* Reject any transactions that have already expired */
-  if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
+  if( FD_UNLIKELY( ord->expires_at<pack->expire_before ) ) REJECT( EXPIRED );
 
   int replaces = 0;
   /* If it's a durable nonce and we already have one, delete one or the
@@ -1558,7 +1557,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   if( FD_UNLIKELY( is_durable_nonce ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
 
-  fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
+  fd_pack_expq_t temp[ 1 ] = {{ .expires_at = ord->expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
 
   if( FD_LIKELY( is_vote ) ) insert_into = pack->pending_votes;
