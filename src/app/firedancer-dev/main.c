@@ -242,12 +242,16 @@ main( int     argc,
   fd_config_file_t testnet = fd_config_file_testnet();
   fd_config_file_t devnet = fd_config_file_devnet();
   fd_config_file_t mainnet = fd_config_file_mainnet();
+  fd_config_file_t testnet_jito = fd_config_file_testnet_jito();
+  fd_config_file_t mainnet_jito = fd_config_file_mainnet_jito();
 
   fd_config_file_t * configs[] = {
     &_default,
     &testnet,
     &devnet,
     &mainnet,
+    &testnet_jito,
+    &mainnet_jito,
     NULL
   };
 
