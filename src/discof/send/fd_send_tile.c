@@ -9,9 +9,6 @@
 
 #include <sys/random.h>
 
-/* 'Staleness' is currently just for debugging - we don't act on it */
-#define CONTACT_INFO_STALE_NS (60e9L) /* ~60 seconds */
-
 /* map leader pubkey to contact/conn info
    A map entry is created only for staked peers. On receiving contact info, we update
    the map entry with the following 4 sockets from the contact info:
@@ -181,34 +178,9 @@ quic_tx_aio_send( void *                    _ctx,
 
 static void
 during_housekeeping( fd_send_tile_ctx_t * ctx ) {
-  ctx->housekeeping_ctr++;
-
   if( FD_UNLIKELY( ctx->recal_next <= ctx->now ) ) {
     ctx->recal_next = fd_clock_default_recal( ctx->clock );
   }
-
-  #define MAP_STATS_PERIOD (32UL)
-  if( ctx->housekeeping_ctr % MAP_STATS_PERIOD == 0UL ) {
-    ulong const map_cnt = fd_send_conn_map_slot_cnt();
-    ulong staked_no_ci = 0UL;
-    ulong stale_ci = 0UL;
-    ulong map_real_cnt = 0UL;
-    for( ulong i=0UL; i<map_cnt; i++ ) {
-      fd_send_conn_entry_t * entry = &ctx->conn_map[i];
-      if( !fd_send_conn_map_key_equal( entry->pubkey, fd_send_conn_map_key_null() ) ) {
-        map_real_cnt++;
-        if( !entry->got_ci_msg ) {
-          staked_no_ci++;
-        } else if( ctx->now - entry->last_ci_ns > CONTACT_INFO_STALE_NS ) {
-          stale_ci++;
-        }
-      }
-    }
-    ctx->metrics.staked_no_ci = staked_no_ci;
-    ctx->metrics.stale_ci = stale_ci;
-    FD_LOG_DEBUG(("send_tile map check: %lu no ci and %lu stale out of %lu staked", staked_no_ci, stale_ci, map_real_cnt ));
-  }
-  #undef MAP_STATS_PERIOD
 }
 
 /* quic_connect initiates quic connections for a given entry and port. It uses the
@@ -401,9 +373,6 @@ handle_contact_info_update( fd_send_tile_ctx_t *               ctx,
     ulong metric_idx = metric_idx_map[ !!info_changed<<(!!old_port) ];
     ctx->metrics.new_contact_info[i][metric_idx]++;
   }
-
-  entry->got_ci_msg    = 1;
-  entry->last_ci_ns    = ctx->now;
 }
 
 static inline void
@@ -822,10 +791,6 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( SEND, ENSURE_CONN_RESULT_QUIC_VOTE, ctx->metrics.ensure_conn_result[FD_METRICS_ENUM_SEND_QUIC_PORTS_V_QUIC_VOTE_IDX] );
   FD_MCNT_ENUM_COPY( SEND, ENSURE_CONN_RESULT_QUIC_TPU,  ctx->metrics.ensure_conn_result[FD_METRICS_ENUM_SEND_QUIC_PORTS_V_QUIC_TPU_IDX] );
 
-  /* Gauges */
-  FD_MGAUGE_SET(     SEND, STAKED_NO_CI,                 ctx->metrics.staked_no_ci                                 );
-  FD_MGAUGE_SET(     SEND, STALE_CI,                     ctx->metrics.stale_ci                                     );
-
   FD_MHIST_COPY(     SEND, SIGN_DURATION_NANOS,          ctx->metrics.sign_duration                                );
 
   /* General QUIC metrics */
@@ -873,7 +838,7 @@ metrics_write( fd_send_tile_ctx_t * ctx ) {
 
 
 #define STEM_BURST 1UL
-#define STEM_LAZY  1000L
+#define STEM_LAZY  (10e3L) /* 10us */
 
 #define STEM_CALLBACK_CONTEXT_TYPE        fd_send_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN       alignof(fd_send_tile_ctx_t)

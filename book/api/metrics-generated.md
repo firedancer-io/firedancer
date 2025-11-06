@@ -315,7 +315,7 @@
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;inserted_&#8203;from_&#8203;extra</span> | counter | Transactions pulled from the extra transaction storage and inserted into pack's primary storage |
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;expired</span> | counter | Transactions deleted from pack because their TTL expired |
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;deleted</span> | counter | Transactions dropped from pack because they were requested to be deleted |
-| <span class="metrics-name">pack_&#8203;transaction_&#8203;already_&#8203;executed</span> | counter | Transactions dropped from pack because they were already executed in the replay pipeline |
+| <span class="metrics-name">pack_&#8203;transaction_&#8203;already_&#8203;executed</span> | counter | Transactions dropped from pack because they were already executed (in either the replay or leader pipeline) |
 | <span class="metrics-name">pack_&#8203;transaction_&#8203;dropped_&#8203;partial_&#8203;bundle</span> | counter | Transactions dropped from pack because they were part of a partial bundle |
 | <span class="metrics-name">pack_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">all</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (All transactions in any treap) |
 | <span class="metrics-name">pack_&#8203;available_&#8203;transactions</span><br/>{avail_&#8203;txn_&#8203;type="<span class="metrics-enum">regular</span>"} | gauge | The total number of pending transactions in pack's pool that are available to be scheduled (Non-votes in the main treap) |
@@ -770,8 +770,6 @@
 | <span class="metrics-name">send_&#8203;handshake_&#8203;complete</span><br/>{send_&#8203;quic_&#8203;ports="<span class="metrics-enum">quic_&#8203;tpu</span>"} | counter | Total number of times we completed a handshake (QUIC TPU port) |
 | <span class="metrics-name">send_&#8203;quic_&#8203;conn_&#8203;final</span><br/>{send_&#8203;quic_&#8203;ports="<span class="metrics-enum">quic_&#8203;vote</span>"} | counter | Total number of times QUIC connection closed (QUIC Vote port) |
 | <span class="metrics-name">send_&#8203;quic_&#8203;conn_&#8203;final</span><br/>{send_&#8203;quic_&#8203;ports="<span class="metrics-enum">quic_&#8203;tpu</span>"} | counter | Total number of times QUIC connection closed (QUIC TPU port) |
-| <span class="metrics-name">send_&#8203;staked_&#8203;no_&#8203;ci</span> | gauge | Last counted # staked accounts without contact info |
-| <span class="metrics-name">send_&#8203;stale_&#8203;ci</span> | gauge | Last counted # staked accounts with stale contact info |
 | <span class="metrics-name">send_&#8203;received_&#8203;packets</span> | counter | Total count of QUIC packets received |
 | <span class="metrics-name">send_&#8203;received_&#8203;bytes</span> | counter | Total bytes received via QUIC |
 | <span class="metrics-name">send_&#8203;sent_&#8203;packets</span> | counter | Total count of QUIC packets sent |
