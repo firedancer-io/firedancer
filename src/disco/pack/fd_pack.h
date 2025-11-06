@@ -147,9 +147,10 @@ typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
 #define FD_PACK_TOP_WRITERS_CNT (5UL)
 #define FD_PACK_TOP_WRITERS_SORT_BEFORE(writer1,writer2) ( (memcmp( (writer1).key.b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ) && (writer1).total_cost>(writer2).total_cost) || !memcmp( (writer2).key.b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ))
 
-#define SORT_NAME fd_pack_writer_cost_sort
-#define SORT_KEY_T fd_pack_addr_use_t
+#define SORT_NAME        fd_pack_writer_cost_sort
+#define SORT_KEY_T       fd_pack_addr_use_t
 #define SORT_BEFORE(a,b) (FD_PACK_TOP_WRITERS_SORT_BEFORE(a,b))
+#define SORT_FN_ATTR     __attribute__((no_sanitize("address", "undefined"))) /* excessive ASan slowdown */
 #include "../../util/tmpl/fd_sort.c"
 
 /* fd_pack_limit_usage_t is used to store the actual per-slot resource
