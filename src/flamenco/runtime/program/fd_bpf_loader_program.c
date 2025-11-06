@@ -466,13 +466,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->fuzz_config.enable_vm_tracing ) ) {
-    /* TODO:FIXME: figure out what to do with 5 ~100mb buffers. */
-    // ulong event_max      = FD_RUNTIME_VM_TRACE_EVENT_MAX;
-    // ulong event_data_max = FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX;
-    // vm->trace = fd_vm_trace_join( fd_vm_trace_new( fd_spad_alloc(
-    // instr_ctx->txn_ctx->spad, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
-    // if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
+  if( FD_UNLIKELY( instr_ctx->txn_ctx->enable_vm_tracing && instr_ctx->txn_ctx->tracing_mem ) ) {
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( instr_ctx->txn_ctx->tracing_mem + ((instr_ctx->txn_ctx->instr_stack_sz-1UL) * FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT), FD_RUNTIME_VM_TRACE_EVENT_MAX, FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX ));
+    if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 
   int exec_err = fd_vm_exec( vm );

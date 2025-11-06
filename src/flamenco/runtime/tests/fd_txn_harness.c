@@ -351,9 +351,14 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
   if( FD_UNLIKELY( !txn_ctx->progcache ) ) {
     FD_LOG_CRIT(( "fd_progcache_join failed" ));
   }
-  txn_ctx->bank_hash_cmp                 = NULL;
-  txn_ctx->fuzz_config.enable_vm_tracing = runner->enable_vm_tracing;
-  txn_ctx->xid[0]                        = *xid;
+  txn_ctx->bank_hash_cmp = NULL;
+  txn_ctx->xid[0]        = *xid;
+
+  txn_ctx->enable_vm_tracing = runner->enable_vm_tracing;
+  uchar * tracing_mem = NULL;
+  if( runner->enable_vm_tracing ) {
+    tracing_mem = fd_spad_alloc_check( runner->spad, FD_RUNTIME_VM_TRACE_STATIC_ALIGN, FD_RUNTIME_VM_TRACE_STATIC_FOOTPRINT * FD_MAX_INSTRUCTION_STACK_DEPTH );
+  }
 
   *exec_res = fd_runtime_prepare_and_execute_txn(
       runner->banks,
@@ -362,7 +367,8 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
       txn,
       NULL,
       runner->exec_stack,
-      NULL );
+      NULL,
+      tracing_mem );
 
   return txn_ctx;
 }

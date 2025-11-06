@@ -178,7 +178,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack, NULL );
+    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack, NULL, NULL );
 
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
@@ -354,7 +354,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack_bundle[ i ], NULL );
+    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack_bundle[ i ], NULL, NULL );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) || txn_ctx->exec_err ) ) {
       execution_success = 0;
