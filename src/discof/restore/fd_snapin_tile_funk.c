@@ -124,7 +124,7 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     uchar const * frame  = result->account_batch.batch[ i ];
     uchar const * pubkey = frame+0x10UL;
-    ulong         memo   = fd_funk_rec_key_hash1( pubkey, 0UL, rec_map->map->seed );
+    ulong         memo   = fd_funk_rec_key_hash1( pubkey, rec_map->map->seed );
     chain_idx[ i ] = (uint)( memo&chain_mask );
   }
 

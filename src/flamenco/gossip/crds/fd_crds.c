@@ -235,7 +235,7 @@ lookup_hash( fd_crds_key_t const * key,
   default:
     break;
   }
-  return fd_funk_rec_key_hash1( key->pubkey, hash_fn, seed );
+  return fd_funk_rec_key_hash1( key->pubkey, seed^hash_fn );
 }
 
 static inline int
