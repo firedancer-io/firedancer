@@ -307,9 +307,6 @@ metric introduced.
     <counter name="HandshakeComplete" enum="SendQuicPorts" summary="Total number of times we completed a handshake" />
     <counter name="QuicConnFinal" enum="SendQuicPorts" summary="Total number of times QUIC connection closed" />
 
-    <gauge name="StakedNoCi" summary="Last counted # staked accounts without contact info" />
-    <gauge name="StaleCi" summary="Last counted # staked accounts with stale contact info" />
-
     <!-- QUIC packet metrics -->
     <counter name="ReceivedPackets" summary="Total count of QUIC packets received" />
     <counter name="ReceivedBytes" summary="Total bytes received via QUIC" />

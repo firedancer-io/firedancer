@@ -89,10 +89,8 @@ struct fd_send_conn_entry {
   fd_quic_conn_t * conn[ FD_SEND_PORT_UDP_VOTE_IDX ]; /* quic ports first in enum */
   long             last_quic_vote_close;
 
-  long             last_ci_ns;
   uint             ip4s [ FD_SEND_PORT_CNT ]; /* net order */
   ushort           ports[ FD_SEND_PORT_CNT ]; /* host order */
-  int              got_ci_msg;
 };
 typedef struct fd_send_conn_entry fd_send_conn_entry_t;
 
@@ -144,12 +142,9 @@ struct fd_send_tile_ctx {
   long             now;            /* current time in ns!     */
   fd_clock_t       clock[1];       /* memory for fd_clock_t   */
   long             recal_next;     /* next recalibration time (ns) */
-  ulong            housekeeping_ctr;
 
   struct {
     ulong leader_not_found;
-    ulong staked_no_ci;
-    ulong stale_ci;
 
     /* Contact info */
     ulong unstaked_ci_rcvd;
