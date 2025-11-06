@@ -7,8 +7,8 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     env:
-      MACHINE: linux_clang_haswell
-      OBJ_DIR: build/linux/clang/haswell
+      MACHINE: linux_clang_icelake
+      OBJ_DIR: build/linux/clang/icelake
       COV_BUILD_DIR: cov
       COV_OBJ_DIR: build/cov
       EXTRAS: fuzz # asan
@@ -34,7 +34,7 @@ jobs:
         env:
           BUILDDIR: ${{ env.COV_BUILD_DIR }}
           EXTRAS: fuzz llvm-cov
-          MACHINE: linux_clang_haswell
+          MACHINE: linux_clang_icelake
         with:
           command: cd src && pwd > buildpwd && cd - && make -j -Otarget lib && llvm-config --version | cut -d '.' -f 1 > llvm_version
 
