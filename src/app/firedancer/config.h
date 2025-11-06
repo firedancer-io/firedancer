@@ -15,6 +15,9 @@ extern ulong const firedancer_devnet_config_sz;
 extern uchar const firedancer_mainnet_config[];
 extern ulong const firedancer_mainnet_config_sz;
 
+extern uchar const firedancer_backtest_config[];
+extern ulong const firedancer_backtest_config_sz;
+
 fd_config_file_t
 fd_config_file_default( void ) {
   return (fd_config_file_t) {
@@ -48,6 +51,15 @@ fd_config_file_mainnet( void ) {
     .name    = "mainnet",
     .data    = firedancer_mainnet_config,
     .data_sz = firedancer_mainnet_config_sz,
+  };
+}
+
+fd_config_file_t
+fd_config_file_backtest( void ) {
+  return (fd_config_file_t) {
+    .name    = "backtest",
+    .data    = firedancer_backtest_config,
+    .data_sz = firedancer_backtest_config_sz,
   };
 }
 
