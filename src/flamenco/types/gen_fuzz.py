@@ -296,6 +296,7 @@ class DequeMember(TypeNode):
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.min = json.get("min", None)
+        self.max = json.get("max", None)
         self.growth = (json["growth"] if "growth" in json else None)
 
     def elem_type(self):
@@ -308,7 +309,10 @@ class DequeMember(TypeNode):
         return f'deq_{self.elem_type()}'
 
     def emitGenerate(self, indent=''):
-        print(f'  ulong {self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
+        if self.max:
+            print(f'  ulong {self.name}_len = fd_rng_ulong( rng ) % ({self.max}+1);', file=body)
+        else:
+            print(f'  ulong {self.name}_len = fd_rng_ulong( rng ) % 8;', file=body)
 
         if self.min:
             print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)

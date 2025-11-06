@@ -2654,8 +2654,9 @@ static int fd_vote_state_0_23_5_decode_footprint_inner( fd_bincode_decode_ctx_t 
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
+  if( FD_UNLIKELY( epoch_credits_len > 64 ) ) return FD_BINCODE_ERR_ENCODING;
+  ulong epoch_credits_max = epoch_credits_len == 0 ? 1 : epoch_credits_len;
+  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max ) ;
   ulong epoch_credits_sz;
   if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
@@ -2699,8 +2700,7 @@ static void fd_vote_state_0_23_5_decode_inner( void * struct_mem, void * * alloc
   }
   ulong epoch_credits_len;
   fd_bincode_uint64_decode_unsafe( &epoch_credits_len, ctx );
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_len );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
     fd_vote_epoch_credits_new( elem );
@@ -2987,8 +2987,9 @@ static int fd_vote_state_1_14_11_decode_footprint_inner( fd_bincode_decode_ctx_t
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
+  if( FD_UNLIKELY( epoch_credits_len > 64 ) ) return FD_BINCODE_ERR_ENCODING;
+  ulong epoch_credits_max = epoch_credits_len == 0 ? 1 : epoch_credits_len;
+  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max ) ;
   ulong epoch_credits_sz;
   if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
@@ -3031,8 +3032,7 @@ static void fd_vote_state_1_14_11_decode_inner( void * struct_mem, void * * allo
   fd_vote_prior_voters_decode_inner( &self->prior_voters, alloc_mem, ctx );
   ulong epoch_credits_len;
   fd_bincode_uint64_decode_unsafe( &epoch_credits_len, ctx );
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_len );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
     fd_vote_epoch_credits_new( elem );
@@ -3217,8 +3217,9 @@ static int fd_vote_state_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, 
   ulong epoch_credits_len;
   err = fd_bincode_uint64_decode( &epoch_credits_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max );
+  if( FD_UNLIKELY( epoch_credits_len > 64 ) ) return FD_BINCODE_ERR_ENCODING;
+  ulong epoch_credits_max = epoch_credits_len == 0 ? 1 : epoch_credits_len;
+  *total_sz += deq_fd_vote_epoch_credits_t_align() + deq_fd_vote_epoch_credits_t_footprint( epoch_credits_max ) ;
   ulong epoch_credits_sz;
   if( FD_UNLIKELY( __builtin_umull_overflow( epoch_credits_len, 24, &epoch_credits_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;
   err = fd_bincode_bytes_decode_footprint( epoch_credits_sz, ctx );
@@ -3261,8 +3262,7 @@ static void fd_vote_state_decode_inner( void * struct_mem, void * * alloc_mem, f
   fd_vote_prior_voters_decode_inner( &self->prior_voters, alloc_mem, ctx );
   ulong epoch_credits_len;
   fd_bincode_uint64_decode_unsafe( &epoch_credits_len, ctx );
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_len );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
     fd_vote_epoch_credits_new( elem );
@@ -3926,6 +3926,7 @@ static int fd_compact_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t
   ushort lockout_offsets_len;
   err = fd_bincode_compact_u16_decode( &lockout_offsets_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( lockout_offsets_len > 100 ) ) return FD_BINCODE_ERR_ENCODING;
   ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
   *total_sz += deq_fd_lockout_offset_t_align() + deq_fd_lockout_offset_t_footprint( lockout_offsets_max );
   for( ulong i = 0; i < lockout_offsets_len; ++i ) {

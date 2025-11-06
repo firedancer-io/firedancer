@@ -507,7 +507,8 @@ deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
   return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( deque_mem, max ) );
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6 */
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6
+	 https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L39C11-L39C36 */
 /* Encoded Size: Dynamic */
 struct fd_vote_state_0_23_5 {
   fd_pubkey_t node_pubkey;
@@ -519,7 +520,7 @@ struct fd_vote_state_0_23_5 {
   fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
   ulong root_slot;
   uchar has_root_slot;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (max cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_0_23_5 fd_vote_state_0_23_5_t;
@@ -561,7 +562,8 @@ struct fd_vote_authorized_voters {
 typedef struct fd_vote_authorized_voters fd_vote_authorized_voters_t;
 #define FD_VOTE_AUTHORIZED_VOTERS_ALIGN alignof(fd_vote_authorized_voters_t)
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310
+	 https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L39C11-L39C36 */
 /* Encoded Size: Dynamic */
 struct fd_vote_state_1_14_11 {
   fd_pubkey_t node_pubkey;
@@ -572,7 +574,7 @@ struct fd_vote_state_1_14_11 {
   uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (max cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state_1_14_11 fd_vote_state_1_14_11_t;
@@ -593,7 +595,8 @@ deq_fd_landed_vote_t_join_new( void * * alloc_mem, ulong max ) {
   return deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, max ) );
 }
 
-/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310 */
+/* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310
+	 https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L39C11-L39C36 */
 /* Encoded Size: Dynamic */
 struct fd_vote_state {
   fd_pubkey_t node_pubkey;
@@ -604,7 +607,7 @@ struct fd_vote_state {
   uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
-  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
+  fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (max cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
 typedef struct fd_vote_state fd_vote_state_t;
@@ -678,7 +681,7 @@ deq_fd_lockout_offset_t_join_new( void * * alloc_mem, ulong max ) {
 /* Encoded Size: Dynamic */
 struct fd_compact_tower_sync {
   ulong root;
-  fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
+  fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) (max cnt 100) */
   fd_hash_t hash;
   long timestamp;
   uchar has_timestamp;

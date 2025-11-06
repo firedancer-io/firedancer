@@ -511,9 +511,8 @@ void *fd_vote_state_0_23_5_generate( void *mem, void **alloc_mem, fd_rng_t * rng
       LLVMFuzzerMutate( (uchar *)&(self->root_slot), sizeof(ulong), sizeof(ulong) );
     }
   }
-  ulong epoch_credits_len = fd_rng_ulong( rng ) % 8;
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  ulong epoch_credits_len = fd_rng_ulong( rng ) % (64+1);
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_len );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
     fd_vote_epoch_credits_generate( elem, alloc_mem, rng );
@@ -565,9 +564,8 @@ void *fd_vote_state_1_14_11_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   }
   fd_vote_authorized_voters_generate( &self->authorized_voters, alloc_mem, rng );
   fd_vote_prior_voters_generate( &self->prior_voters, alloc_mem, rng );
-  ulong epoch_credits_len = fd_rng_ulong( rng ) % 8;
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  ulong epoch_credits_len = fd_rng_ulong( rng ) % (64+1);
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_len );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
     fd_vote_epoch_credits_generate( elem, alloc_mem, rng );
@@ -598,9 +596,8 @@ void *fd_vote_state_generate( void *mem, void **alloc_mem, fd_rng_t * rng ) {
   }
   fd_vote_authorized_voters_generate( &self->authorized_voters, alloc_mem, rng );
   fd_vote_prior_voters_generate( &self->prior_voters, alloc_mem, rng );
-  ulong epoch_credits_len = fd_rng_ulong( rng ) % 8;
-  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
-  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_max );
+  ulong epoch_credits_len = fd_rng_ulong( rng ) % (64+1);
+  self->epoch_credits = deq_fd_vote_epoch_credits_t_join_new( alloc_mem, epoch_credits_len );
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( self->epoch_credits );
     fd_vote_epoch_credits_generate( elem, alloc_mem, rng );
@@ -701,7 +698,7 @@ void *fd_compact_tower_sync_generate( void *mem, void **alloc_mem, fd_rng_t * rn
   *alloc_mem = (uchar *) *alloc_mem + sizeof(fd_compact_tower_sync_t);
   fd_compact_tower_sync_new(mem);
   self->root = fd_rng_ulong( rng );
-  ulong lockout_offsets_len = fd_rng_ulong( rng ) % 8;
+  ulong lockout_offsets_len = fd_rng_ulong( rng ) % (100+1);
   ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
   self->lockout_offsets = deq_fd_lockout_offset_t_join_new( alloc_mem, lockout_offsets_max );
   for( ulong i=0; i < lockout_offsets_len; i++ ) {

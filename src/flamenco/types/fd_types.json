@@ -413,10 +413,10 @@
           { "name": "commission", "type": "uchar" },
           { "name": "votes", "type": "deque", "element": "vote_lockout", "min": 32 },
           { "name": "root_slot", "type": "option", "element": "ulong", "flat": true },
-          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "min": 64 },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max": 64 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6"
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/vote_state_0_23_5.rs#L6\n\t https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L39C11-L39C36"
     },
     {
       "name": "vote_authorized_voters",
@@ -444,10 +444,10 @@
           { "name": "root_slot", "type": "option", "element": "ulong", "flat": true },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
-          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "min": 64 },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max": 64 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310\n\t https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L39C11-L39C36"
     },
     {
       "name": "vote_state",
@@ -460,10 +460,10 @@
           { "name": "root_slot", "type": "option", "element": "ulong", "flat": true },
           { "name": "authorized_voters", "type": "vote_authorized_voters" },
           { "name": "prior_voters", "type": "vote_prior_voters" },
-          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "min": 64 },
+          { "name": "epoch_credits", "type": "deque", "element": "vote_epoch_credits", "max": 64 },
           { "name": "last_timestamp", "type": "vote_block_timestamp" }
       ],
-      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310"
+      "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L310\n\t https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/programs/vote/src/vote_state/mod.rs#L39C11-L39C36"
     },
     {
       "name": "vote_state_versioned",

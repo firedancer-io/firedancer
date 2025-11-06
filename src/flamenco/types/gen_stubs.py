@@ -1258,6 +1258,7 @@ class DequeMember(TypeNode):
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.min = json.get("min", None)
+        self.max = json.get("max", None)
         self.growth = (json["growth"] if "growth" in json else None)
 
     def isFlat(self):
@@ -1328,18 +1329,21 @@ class DequeMember(TypeNode):
         pass
 
     def emitMember(self):
+        bound_tag = ""
         if self.min:
-            min_tag = f" (min cnt {self.min})"
-        else:
-            min_tag = ""
-        print(f'  {self.elem_type()} * {self.name}; /* fd_deque_dynamic{min_tag} */', file=header)
+            bound_tag = f" (min cnt {self.min})"
+        if self.max:
+            bound_tag += f" (max cnt {self.max})"
+        print(f'  {self.elem_type()} * {self.name}; /* fd_deque_dynamic{bound_tag} */', file=header)
 
     def emitMemberGlobal(self):
         if self.min:
-            min_tag = f" (min cnt {self.min})"
+            bound_tag = f" (min cnt {self.min})"
+        elif self.max:
+            bound_tag = f" (max cnt {self.max})"
         else:
-            min_tag = ""
-        print(f'  ulong {self.name}_offset; /* fd_deque_dynamic{min_tag} */', file=header)
+            bound_tag = ""
+        print(f'  ulong {self.name}_offset; /* fd_deque_dynamic{bound_tag} */', file=header)
 
     def emitOffsetJoin(self, type_name):
         ret_type = None
@@ -1368,6 +1372,8 @@ class DequeMember(TypeNode):
             print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
+        if self.max:
+            print(f'  if( FD_UNLIKELY( {self.name}_len > {self.max} ) ) return FD_BINCODE_ERR_ENCODING;', file=body)
         if self.min:
             print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)
             print(f'  *total_sz += {self.prefix()}_align() + {self.prefix()}_footprint( {self.name}_max );', file=body)
