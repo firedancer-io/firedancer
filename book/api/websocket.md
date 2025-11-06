@@ -2276,3 +2276,6 @@ These are the possible error codes that might be included in `txn_error_code` an
 | ProgramCacheHitMaxLimit               | 38   | The program cache allocated for transaction batch for this transaction hit its load limit |
 | CommitCancelled                       | 39   | This transaction was aborted during the commit stage |
 | BundlePeer                            | 40   | This transaction was part of a bundle that failed |
+| BlockhashNonceAlreadyAdvanced         | 50   | This transaction references a nonce account that is already advanced |
+| BlockhashNonceAdvanceFailed           | 51   | This transaction is a nonce transaction but the advance instruction was not valid or failed |
+| BlockhashNonceWrong                   | 52   | This transaction is a nonce transaction but the blockhash is not the correct one |
