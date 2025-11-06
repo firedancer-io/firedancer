@@ -59,7 +59,7 @@ typedef struct acc_vec acc_vec_t;
 
 /* FD_SSPARSE_ACC_BATCH_MAX controls the max number of accounts in a
    batch. */
-#define FD_SSPARSE_ACC_BATCH_MAX (16UL)
+#define FD_SSPARSE_ACC_BATCH_MAX (8UL)
 
 struct fd_ssparse_advance_result {
   ulong bytes_consumed;
