@@ -1263,7 +1263,7 @@ dynamic_port_range = "8900-9000"
         # The Firedancer team supports three different strategies which
         # are described below:
         #
-        #  "perf" (default)
+        #  "perf"
         #   Try to fill the block as fast as possible using the highest-
         #   paying transactions available.  This strategy results in
         #   consistently 100% full blocks.
@@ -1271,7 +1271,7 @@ dynamic_port_range = "8900-9000"
         #   When using the perf scheduling mode, there is no reason to
         #   increase the bank tile count beyond the default of 4.
         #
-        #  "balanced"
+        #  "balanced" (default)
         #   Try to fill the block at a rate that is just fast enough to
         #   fill it by the end.  This strategy optimizes for revenue
         #   from priority fees, but can result in blocks that are not
@@ -1297,8 +1297,8 @@ dynamic_port_range = "8900-9000"
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
-        # revert to the "perf" strategy.
-        schedule_strategy = "perf"
+        # revert to the "balanced" strategy.
+        schedule_strategy = "balanced"
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the

@@ -90,14 +90,19 @@ fd_config_load_buf( fd_config_t * out,
     }
   }
 
-  fd_config_extract_pod( pod, out );
+  if( FD_UNLIKELY( !fd_config_extract_pod( pod, out ) ) ) FD_LOG_ERR(( "Failed to parse config file (%s): there are unrecognized keys logged above", path ));
 
   fd_pod_delete( fd_pod_leave( pod ) );
 }
 
 static void
 fd_config_fillf( fd_config_t * config ) {
-  (void)config;
+  if( FD_UNLIKELY( strcmp( config->paths.accounts, "" ) ) ) {
+    replace( config->paths.accounts, "{user}", config->user );
+    replace( config->paths.accounts, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->paths.accounts, sizeof(config->paths.accounts), NULL, "%s/accounts.db", config->paths.base ) );
+  }
 }
 
 static void
@@ -107,11 +112,18 @@ fd_config_fillh( fd_config_t * config ) {
     replace( config->frankendancer.paths.accounts_path, "{name}", config->name );
   }
 
+  if( FD_UNLIKELY( strcmp( config->frankendancer.paths.ledger, "" ) ) ) {
+    replace( config->frankendancer.paths.ledger, "{user}", config->user );
+    replace( config->frankendancer.paths.ledger, "{name}", config->name );
+  } else {
+    FD_TEST( fd_cstr_printf_check( config->frankendancer.paths.ledger, sizeof(config->frankendancer.paths.ledger), NULL, "%s/ledger", config->paths.base ) );
+  }
+
   if( FD_UNLIKELY( strcmp( config->frankendancer.snapshots.path, "" ) ) ) {
     replace( config->frankendancer.snapshots.path, "{user}", config->user );
     replace( config->frankendancer.snapshots.path, "{name}", config->name );
   } else {
-    strncpy( config->frankendancer.snapshots.path, config->paths.ledger, sizeof(config->frankendancer.snapshots.path) );
+    strncpy( config->frankendancer.snapshots.path, config->frankendancer.paths.ledger, sizeof(config->frankendancer.snapshots.path) );
   }
 
   for( ulong i=0UL; i<config->frankendancer.paths.authorized_voter_paths_cnt; i++ ) {
@@ -320,13 +332,6 @@ fd_config_fill( fd_config_t * config,
 
   replace( config->paths.base, "{user}", config->user );
   replace( config->paths.base, "{name}", config->name );
-
-  if( FD_UNLIKELY( strcmp( config->paths.ledger, "" ) ) ) {
-    replace( config->paths.ledger, "{user}", config->user );
-    replace( config->paths.ledger, "{name}", config->name );
-  } else {
-    FD_TEST( fd_cstr_printf_check( config->paths.ledger, sizeof(config->paths.ledger), NULL, "%s/ledger", config->paths.base ) );
-  }
 
   if( FD_UNLIKELY( !strcmp( config->paths.identity_key, "" ) ) ) {
     if( FD_UNLIKELY( config->is_live_cluster ) ) FD_LOG_ERR(( "configuration file must specify [consensus.identity_path] when joining a live cluster" ));

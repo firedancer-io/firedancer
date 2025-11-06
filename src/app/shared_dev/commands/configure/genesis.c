@@ -230,11 +230,11 @@ init( config_t const * config ) {
   if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
   else {
     genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
   }
 
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
-    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->paths.ledger, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
   static uchar blob[ 16<<20UL ];
   ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
@@ -287,7 +287,7 @@ fini( config_t const * config,
   if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
   else {
     genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
   }
 
   if( FD_UNLIKELY( -1==unlink( genesis_path ) && errno!=ENOENT ) )
@@ -305,7 +305,7 @@ check( config_t const * config,
   if( FD_LIKELY( config->is_firedancer ) ) genesis_path = config->paths.genesis;
   else {
     genesis_path = _genesis_path;
-    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->paths.ledger ) );
+    FD_TEST( fd_cstr_printf_check( _genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->frankendancer.paths.ledger ) );
   }
 
   struct stat st;
@@ -313,7 +313,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( -1==err && errno!=ENOENT ) ) FD_LOG_ERR(( "could not stat genesis.bin file at `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
   else if( FD_UNLIKELY( -1==err ) ) NOT_CONFIGURED( "`%s` does not exist", genesis_path );
 
-  CHECK( check_dir( config->paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
+  if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
   uchar buffer[ 1UL<<18UL ]; /* 256kB buffer should be enough for genesis */

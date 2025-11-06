@@ -39,8 +39,8 @@ name = "fd1"
 user = ""
 
 # Firedancer uses the filesystem to store various data for running the
-# validator.  This includes ledger, accounts data, log files, and things
-# like the genesis file.
+# validator.  This includes account data, log files, and things like the
+# genesis file.
 #
 # Validator performance is highly dependent on the speed of the storage
 # devices under these filesystems, and the arrangement of the data.  It
@@ -52,42 +52,24 @@ user = ""
 # not recommended for production use.
 [paths]
     # Absolute directory path to use for placing all Firedancer related
-    # files, unless otherwise specified below.  By default, paths will
-    # be neatly organized into subdirectories under this path.  For
-    # example it might look like,
+    # files, unless otherwise specified below.  By default, files will
+    # be neatly organized under this base path.  For example it might
+    # look like,
     #
     # /home/fire/.firedancer/fd1
-    #  +-- ledger
-    #  +-- accounts
-    #  +-- snapshots
-    #      +-- 335660485
-    #          +-- 335660485
-    #          +-- status_cache
     #  +-- identity.json
     #  +-- vote-account.json
     #  +-- genesis.bin
+    #  +-- snapshots
+    #      +-- snapshot-368327930-E5ZsnTCNX7WToyrP4ZQYJj7pPii6Ssa7UnNcV7HZ3iAf.tar.zst
+    #      +-- incremental-snapshot-368327930-368400391-8ybYYVq7Ecui9TLj13SvzXjTX7JiGP65f4KrtNRCPajW.tar.zst
+    #  +-- tower-1_9-8RDPvMTMSDASGQBvehBFkiFVi2UdLTSZQYuFsGh5JwWU.bin.new
     #
     # Two substitutions will be performed on this string.  If "{user}"
     # is present it will be replaced with the user running Firedancer,
     # as above, and "{name}" will be replaced with the name of the
     # Firedancer instance.
     base = "/home/{user}/.firedancer/{name}"
-
-    # Absolute directory path to place the ledger.  If no ledger path is
-    # provided, it is defaulted to the `ledger` subdirectory of the
-    # base directory above.
-    #
-    # Two substitutions will be performed on this string.  If "{user}"
-    # is present it will be replaced with the user running Firedancer,
-    # as above, and "{name}" will be replaced with the name of the
-    # Firedancer instance.
-    #
-    # The ledger is loosely, a listing of transactions making up the
-    # history of the chain.  A complete ledger would start at genesis,
-    # but the live validator only stores a small set of recent
-    # transaction history, enough to replay recent slots and serve to
-    # other nodes so that they can replay recent slots.
-    ledger = ""
 
     # Absolute path to a `keypair.json` file containing the identity of
     # the validator.  When connecting to a non-local cluster it is
@@ -124,7 +106,20 @@ user = ""
 
     # Absolute directory path for storing snapshots.  If no path is
     # provided, it defaults to the `snapshot` subdirectory of the
-    # base firedancer path option ( [paths.base] ).
+    # base firedancer path option `[paths.base]`.
+    #
+    # Snapshots are stored in a specially named format so that their
+    # contents can be determined from the filename along.  This looks
+    # like:
+    #
+    #  - snapshot-368327930-E5ZsnTCNX7WToyrP4ZQYJj7pPii6Ssa7UnNcV7HZ3iAf.tar.zst
+    #  - incremental-snapshot-368327930-368400391-8ybYYVq7Ecui9TLj13SvzXjTX7JiGP65f4KrtNRCPajW.tar.zst
+    #
+    # Paths not matching this format will not be considered to be
+    # snapshots, and will be ignored by the validator.  The snapshot
+    # system in the validator automatically manages the files in this
+    # directory, according to the options in the `[snapshots]` section
+    # below.
     snapshots = ""
 
     # Absolute path where to store the `genesis.bin` file for the chain.
@@ -135,13 +130,14 @@ user = ""
     #
     # The genesis file must be known so that the validator can verify
     # the genesis hash matches the expected genesis hash specified in
-    # the [consensus] section below, and also verify that the genesis
+    # the `[consensus]` section below, and also verify that the genesis
     # hash matches the genesis hash contained in any full or incremental
-    # snapshot being loaded.
+    # snapshot being loaded.  It is also served over RPC to other nodes.
     #
     # The validator will attempt to load this file on boot, or if the
     # file does not exist, it will attempt to download it from a gossip
-    # entrypoint if allowed by the [snapshots.genesis_download] option.
+    # entrypoint if allowed by the `[snapshots.genesis_download]`
+    # option.
     #
     # If this node is a bootstrapping node for a new cluster, meaning
     # there are no gossip entrypoints specified because this node will
@@ -155,8 +151,17 @@ user = ""
     # Firedancer instance.
     genesis = ""
 
-    # Absolute path to the file backing the vinyl account database.
-    # Only used if [vinyl.enabled] is set.
+    # Absolute path where to store the `accounts.db` file containing all
+    # account data from the chain.  If no path is provided, it defaults
+    # to the `accounts.db` path within the base directory above.  The
+    # account data is large, several hundred gigabytes and growing, and
+    # should be placed on a disk with fast read and write bandwidth, as
+    # it can easily be a performance bottleneck for the validator.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
     accounts = ""
 
 # Firedancer logs to two places by default: stderr and a logfile.
@@ -257,8 +262,8 @@ user = ""
     # into loading a bad snapshot, or joining a malicious cluster.
     entrypoints = []
 
-    # The port number to listen for gossip messages on.  This port
-    # number will be advertised via. the gossip protocol to other
+    # The port number to listen for incoming gossip messages on.  This
+    # port number will be advertised via. the gossip protocol to other
     # peers, and the node must be publicly reachable on this port
     # to successfully join the cluster.
     port = 8001
@@ -499,6 +504,8 @@ user = ""
     file_size_gib = 16
 
 [runtime]
+    # TODO: This is not respected, the max vote accounts seems to be
+    # hardcoded in several places as 4096.
     max_vote_accounts = 2000000
 
     # max_live_slots and max_fork_width are parameters used to size
@@ -660,10 +667,9 @@ user = ""
     # the layout manually.
     affinity = "auto"
 
-    # How many net tiles to run.  Should be set to 1.  This is
-    # configurable and designed to scale out for future network
-    # conditions, but there is no need to run more than 1 net tile given
-    # current `mainnet-beta` conditions.
+    # How many net tiles to run.  This is configurable and designed to
+    # scale out for future network conditions, but there is no need to
+    # run more than 2 net tiles given current `mainnet-beta` conditions.
     #
     # Net tiles are responsible for sending and receiving packets from
     # the network device configured in the [tiles.net] section below.
@@ -675,6 +681,10 @@ user = ""
     #
     # See the comments for the [tiles.net] section below for more
     # information.
+    #
+    # TODO: This should defaulted to 2 for Firedancer, but cannot be for
+    # now because changing it to 2 switches the networking rx_queue_mode
+    # to "simple" which decreases snapshot performance materially.
     net_tile_count = 1
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
@@ -688,7 +698,7 @@ user = ""
     # Connections from the net tiles will be evenly distributed
     # between the available QUIC tiles round-robin style.
     #
-    # QUIC tiles are designed to scale linearly when adding more tiles,
+    # QUIC tiles are designed to scale linearly when adding more tiles.
     quic_tile_count = 1
 
     # How many resolver tiles to run.  Should be set to 1.  This is
@@ -715,27 +725,22 @@ user = ""
     # denial of service or spam attack.
     verify_tile_count = 6
 
-    # How many gossip verify tiles to run. Gossip verify tiles are
-    # architecturally similar to verify tiles in that inbound Gossip
-    # messages are routed through the gossip verify tiles first before
-    # arriving at the gossip tile (if verified successfully).
+    # How many gossip verify tiles to run. Gossip verify tiles perform
+    # signature verification on incoming gossip table entries, before
+    # routing successfully verified entries to the gossip tile.
+    #
+    # Gossvf tiles are designed to be scaled linearly when adding more
+    # tiles, and the gossvf tile count should be increased until the
+    # validator is not dropping incoming gossip table entries from
+    # clients, and the gossvf tiles are consistently idle.
+    gossvf_tile_count = 2
 
-    # Likewise, they are designed to be scaled linearly and should be
-    # increased until a favorable drop rate is achieved (~10%) once
-    # the table is nearly fully populated. Large drop rates are expected
-    # during the boot sequence due to the influx of pull responses as a
-    # result of making a pull request from an empty Gossip table. This
-    # can be mitigated by adding more cores, but it is difficult to
-    # avoid completely on mainnet and testnet loads.
-
-    gossvf_tile_count = 1
-
-    # How many bank tiles to run.  Should be set to 4 for perf and
+    # How many bank tiles to run.  Should be set to 2 for perf and
     # balanced scheduling modes.  Bank tiles execute transactions, so
     # the validator can include the results of the transaction into a
     # block when we are leader.  Because of current consensus limits
     # restricting blocks to around 32,000 transactions per block, there
-    # is typically no need to use more than 4 bank tiles on
+    # is typically no need to use more than 2 bank tiles on
     # mainnet-beta, except when using unique scheduling strategies.  For
     # development and benchmarking, it can be useful to increase this
     # number further.
@@ -750,25 +755,25 @@ user = ""
     # result in better blocks.  Adding too many bank tiles does have
     # diminishing returns, and it's suggested to experiment with values
     # around 10-20.
-    bank_tile_count = 1
+    bank_tile_count = 2
 
-    # How many exec tiles to run.  These tiles execute transactions for
-    # the replay tile.  Transactions can be executed in parallel so
-    # long as we maintain the serial fiction.  That is, reordering can
-    # happen, but only under the constraint that transactions appear to
-    # execute in the order in which they occur in the block.  The replay
-    # dispatcher figures out which transactions can be executed
-    # out-of-order or in parallel, and sends them to the exec tiles.
-    # More exec tiles would allow the validator to replay through blocks
+    # How many exec tiles to run.  These tiles execute transactions that
+    # are being replayed when our validator is not leader, and is
+    # verifying a block produced by someone else.  Transactions can be
+    # executed in parallel up to a point, but there are dependencies
+    # among transactions that reference similar accounts that limit how
+    # much parallelism is possible.
+    #
+    # More exec tiles can allow the validator to replay through blocks
     # faster, subject to Amdahl's law.  Empirically, we've found 8 exec
-    # tiles to achieve near optimal replay speed on recent mainnet
-    # blocks.
+    # tiles to achieve near optimal replay speed under current
+    # `mainnet-beta` conditions.
     #
     # Exec tiles are also responsible for writing account changes back
-    # to the accounts DB.  Since the accounts DB is designed to be
-    # highly concurrent, most of the time account writeback can be done
-    # in parallel without blocking.  Multiple exec tiles exploit this
-    # parallelism supported by the accounts DB.
+    # to the accounts database.  Since the accounts database is designed
+    # to be highly concurrent, most of the time account writeback can be
+    # done in parallel without blocking.  Multiple exec tiles exploit this
+    # parallelism supported by the accounts database.
     exec_tile_count = 8
 
     # How many shred tiles to run.  Should be set to 1.  This is
@@ -1254,7 +1259,7 @@ user = ""
         # The Firedancer team supports three different strategies which
         # are described below:
         #
-        #  "perf" (default)
+        #  "perf"
         #   Try to fill the block as fast as possible using the highest-
         #   paying transactions available.  This strategy results in
         #   consistently 100% full blocks.
@@ -1262,7 +1267,7 @@ user = ""
         #   When using the perf scheduling mode, there is no reason to
         #   increase the bank tile count beyond the default of 4.
         #
-        #  "balanced"
+        #  "balanced" (default)
         #   Try to fill the block at a rate that is just fast enough to
         #   fill it by the end.  This strategy optimizes for revenue
         #   from priority fees, but can result in blocks that are not
@@ -1288,8 +1293,8 @@ user = ""
         #
         # In cases of network congestion, high volume, or if seeing poor
         # block packing performance for any reason, it is recommended to
-        # revert to the "perf" strategy.
-        schedule_strategy = "perf"
+        # revert to the "balanced" strategy.
+        schedule_strategy = "balanced"
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the
@@ -1300,33 +1305,6 @@ user = ""
     # and mixes their hashes into a continuous stream of hashes that
     # proves to other validators time is passing.
     [tiles.poh]
-        # A validator will always be leader for at least four
-        # consecutive slots, which looks like ....
-        #
-        #   +-------------+----+----+----+----+-------------+
-        #   |     ...     | s0 | s1 | s2 | s3 |     ...     |
-        #   +-------------+----+----+----+----+-------------+
-        #                t0    t1
-        #
-        # Leader slots are 400 milliseconds, so in a well-behaved
-        # validator the start time of slot s1 (t1) will be 400
-        # milliseconds after s0 (t0).
-        #
-        # Agave validators start late, at some time t0 + 400 + x, where
-        # x is the time it takes the validator to "freeze" slot s0.
-        # This is typically around 100 milliseconds, but can be up to
-        # 300 or so in degenerate cases.  This is not good for the
-        # network because it increases confirmation times and skip
-        # rates, but it is beneficial to the individual validator (a
-        # tragedy of the commons) because the validator is leader
-        # longer, can receive higher paying transactions for longer,
-        # and ultimately generate more fees for the operator.
-        #
-        # Firedancer defaults to matching the Agave behavior here and
-        # starting late, but you can disable the option to use a more
-        # healthy behavior, where taking a long time to "freeze" slots
-        # cuts into your own next slot time, and does not increase it.
-        lagged_consecutive_leader_start = false
 
     # The shred tile distributes processed transactions that have been
     # executed to the rest of the cluster in the form of shred packets.
