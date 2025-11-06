@@ -91,6 +91,7 @@ struct fd_snapin_tile {
     fd_vinyl_io_t * io;
     fd_vinyl_io_t * io_wd;
     fd_vinyl_io_t * io_mm;
+    ulong           io_wd_mtu;
     ulong           io_seed;
 
     fd_vinyl_meta_t map[1];

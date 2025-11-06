@@ -171,6 +171,7 @@ fd_snapin_vinyl_unprivileged_init( fd_snapin_tile_t * ctx,
 
   /* Set up io_wd */
 
+  ctx->vinyl.io_wd_mtu = wr_link->mtu;
   ctx->vinyl.io_wd =
     fd_vinyl_io_wd_init( io_wd_mem,
                          ctx->vinyl.bstream_sz,
@@ -556,6 +557,8 @@ fd_snapin_process_account_data_vinyl( fd_snapin_tile_t *            ctx,
 void
 fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
+  FD_CRIT( ctx->vinyl.io==ctx->vinyl.io_wd, "vinyl must be in io_wd mode" );
+
   fd_vinyl_meta_t *     const map  = ctx->vinyl.map;
   fd_vinyl_meta_ele_t * const ele0 = ctx->vinyl.map->ele;
 
@@ -616,63 +619,188 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     ele->line_idx  = ULONG_MAX;
   }
 
-  /* Write out to bstream */
+  /* Attempt to pack the entire write batch into a contiguous buffer */
 
-  fd_vinyl_io_t * io = ctx->vinyl.io;
+  ulong pair_sz[ FD_SSPARSE_ACC_BATCH_MAX ];
+  ulong alloc_sz_sum = 0UL;
   for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
     fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
     if( FD_UNLIKELY( !ele ) ) continue;
+    uchar const * frame    = result->account_batch.batch[ i ];
+    ulong const   data_len = fd_ulong_load_8_fast( frame+0x08UL );
+    ulong         val_sz   = sizeof(fd_account_meta_t) + data_len;
+    pair_sz[i] = fd_vinyl_bstream_pair_sz( val_sz );
+    alloc_sz_sum += pair_sz[i];
+  };
 
-    uchar const *  frame      = result->account_batch.batch[ i ];
-    ulong const    data_len   = fd_ulong_load_8_fast( frame+0x08UL );
-    ulong          lamports   = fd_ulong_load_8_fast( frame+0x30UL );
-    uchar          owner[32];   memcpy( owner, frame+0x40UL, 32UL );
-    _Bool          executable = !!frame[ 0x60UL ];
+  /* Write out to bstream */
 
-    ulong val_sz = sizeof(fd_account_meta_t) + data_len;
-    FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
+  fd_vinyl_io_t * io = ctx->vinyl.io;
+  if( FD_LIKELY( alloc_sz_sum <= ctx->vinyl.io_wd_mtu ) ) {
 
-    ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-    uchar * pair    = fd_vinyl_io_wd_alloc_fast( io, pair_sz );
-    if( FD_UNLIKELY( !pair ) ) {
-      pair = fd_vinyl_io_wd_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    /* Fast path (single block), append elems into buffer */
+
+    uchar * const alloc   = fd_vinyl_io_wd_alloc( io, alloc_sz_sum, FD_VINYL_IO_FLAG_BLOCKING );
+    uchar *       dst     = alloc;
+    ulong         dst_rem = alloc_sz_sum;
+    uchar *       pair[ FD_SSPARSE_ACC_BATCH_MAX ];
+
+    for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+      fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
+      if( FD_UNLIKELY( !ele ) ) continue;
+
+      uchar const *  frame      = result->account_batch.batch[ i ];
+      ulong const    data_len   = fd_ulong_load_8_fast( frame+0x08UL );
+      ulong          lamports   = fd_ulong_load_8_fast( frame+0x30UL );
+      uchar          owner[32];   memcpy( owner, frame+0x40UL, 32UL );
+      _Bool          executable = !!frame[ 0x60UL ];
+
+      ulong val_sz = sizeof(fd_account_meta_t) + data_len;
+      FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
+
+      pair[ i ] = dst;
+      uchar * dst_next     = dst     + pair_sz[i];
+      ulong   dst_next_rem = dst_rem - pair_sz[i];
+
+      FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
+      fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
+      *phdr = ele->phdr;
+
+      dst     += sizeof(fd_vinyl_bstream_phdr_t);
+      dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
+
+      FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
+      fd_account_meta_t * meta = (fd_account_meta_t *)dst;
+      memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
+      memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+      meta->lamports   = lamports;
+      meta->slot       = result->account_batch.slot;
+      meta->dlen       = (uint)data_len;
+      meta->executable = !!executable;
+
+      FD_CRIT( dst_rem >= data_len, "corruption detected" );
+      fd_memcpy( dst, frame+0x88UL, data_len );
+
+      ulong val_esz = sizeof(fd_account_meta_t) + data_len;
+      ulong zoff    = sizeof(fd_vinyl_bstream_phdr_t) + val_esz;
+      ulong zsz     = pair_sz[ i ] - zoff;
+      if( zsz ) fd_memset( dst+val_esz, 0, zsz ); /* zero pad */
+
+      dst     = dst_next;
+      dst_rem = dst_next_rem;
     }
 
-    uchar * dst     = pair;
-    ulong   dst_rem = pair_sz;
+    /* Hash elements */
 
-    FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
-    fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
-    *phdr = ele->phdr;
+    ulong hash_i = 0UL;
+#   if FD_HAS_AVX512 && defined(__AVX512DQ__)
+    for( ; hash_i+8<=FD_SSPARSE_ACC_BATCH_MAX; hash_i+=8 ) {
+      ulong        h_trail[8];
+      ulong        h_block[8];
+      void const * h_tin  [8];
+      ulong        h_tinsz[8] = {0};
+      void const * h_bin  [8];
+      ulong        h_binsz[8] = {0};
+      for( ulong i=0UL; i<8; i++ ) {
+        fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
+        if( FD_LIKELY( ele ) ) {
+          h_tin  [ i ] = pair   [ i ] + FD_VINYL_BSTREAM_BLOCK_SZ;
+          h_tinsz[ i ] = pair_sz[ i ] - FD_VINYL_BSTREAM_BLOCK_SZ;
+          h_bin  [ i ] = pair   [ i ];
+          h_binsz[ i ] = pair_sz[ i ];
+        }
+      }
+      fd_vinyl_bstream_hash_batch8( fd_vinyl_io_seed( io ), h_trail, h_tin, h_tinsz );
+      fd_vinyl_bstream_hash_batch8( fd_vinyl_io_seed( io ), h_block, h_bin, h_binsz );
+      for( ulong i=0UL; i<8; i++ ) {
+        fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
+        if( FD_LIKELY( ele ) ) {
+          fd_vinyl_bstream_block_t * ftr = (fd_vinyl_bstream_block_t *)( pair[ i ]+pair_sz[ i ]-FD_VINYL_BSTREAM_BLOCK_SZ );
+          ftr->ftr.hash_trail  = h_trail[ i ];
+          ftr->ftr.hash_blocks = h_block[ i ];
+        }
+      }
+    }
+#   endif
+    for( ; hash_i<FD_SSPARSE_ACC_BATCH_MAX; hash_i++ ) {
+      fd_vinyl_meta_ele_t * ele = batch_ele[ hash_i ];
+      if( FD_UNLIKELY( !ele ) ) continue;
+      /* FIXME does an unnecessary memset */
+      fd_vinyl_bstream_pair_hash( fd_vinyl_io_seed( io ), (fd_vinyl_bstream_block_t *)pair[ hash_i ] );
+    }
 
-    dst     += sizeof(fd_vinyl_bstream_phdr_t);
-    dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
+    /* Dispatch buffer for writing, update index */
 
-    FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
-    fd_account_meta_t * meta = (fd_account_meta_t *)dst;
-    memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
-    memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
-    meta->lamports   = lamports;
-    meta->slot       = result->account_batch.slot;
-    meta->dlen       = (uint)data_len;
-    meta->executable = !!executable;
+    ulong seq_after = fd_vinyl_io_append( io, alloc, alloc_sz_sum );
+    for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+      fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
+      if( FD_UNLIKELY( !ele ) ) continue;
+      ele->seq = seq_after;
+      seq_after += pair_sz[i];
+      ctx->metrics.accounts_inserted++;
+    }
 
-    dst     += sizeof(fd_account_meta_t);
-    dst_rem -= sizeof(fd_account_meta_t);
+  } else {
 
-    FD_CRIT( dst_rem >= data_len, "corruption detected" );
-    fd_memcpy( dst, frame+0x88UL, data_len );
+    /* Slow path (multi block) */
 
-    dst     += data_len;
-    dst_rem -= data_len;
+    for( ulong i=0UL; i<FD_SSPARSE_ACC_BATCH_MAX; i++ ) {
+      fd_vinyl_meta_ele_t * ele = batch_ele[ i ];
+      if( FD_UNLIKELY( !ele ) ) continue;
 
-    fd_vinyl_bstream_pair_hash( fd_vinyl_io_seed( io ), (fd_vinyl_bstream_block_t *)pair );
+      uchar const *  frame      = result->account_batch.batch[ i ];
+      ulong const    data_len   = fd_ulong_load_8_fast( frame+0x08UL );
+      ulong          lamports   = fd_ulong_load_8_fast( frame+0x30UL );
+      uchar          owner[32];   memcpy( owner, frame+0x40UL, 32UL );
+      _Bool          executable = !!frame[ 0x60UL ];
 
-    ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
-    ele->seq = seq_after;
+      ulong val_sz = sizeof(fd_account_meta_t) + data_len;
+      FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
-    ctx->metrics.accounts_inserted++;
+      ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
+      uchar * pair    = fd_vinyl_io_wd_alloc_fast( io, pair_sz );
+      if( FD_UNLIKELY( !pair ) ) {
+        pair = fd_vinyl_io_wd_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+      }
+
+      uchar * dst     = pair;
+      ulong   dst_rem = pair_sz;
+
+      FD_CRIT( dst_rem >= sizeof(fd_vinyl_bstream_phdr_t), "corruption detected" );
+      fd_vinyl_bstream_phdr_t * phdr = (fd_vinyl_bstream_phdr_t *)dst;
+      *phdr = ele->phdr;
+
+      dst     += sizeof(fd_vinyl_bstream_phdr_t);
+      dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
+
+      FD_CRIT( dst_rem >= sizeof(fd_account_meta_t), "corruption detected" );
+      fd_account_meta_t * meta = (fd_account_meta_t *)dst;
+      memset( meta, 0, sizeof(fd_account_meta_t) ); /* bulk zero */
+      memcpy( meta->owner, owner, sizeof(fd_pubkey_t) );
+      meta->lamports   = lamports;
+      meta->slot       = result->account_batch.slot;
+      meta->dlen       = (uint)data_len;
+      meta->executable = !!executable;
+
+      dst     += sizeof(fd_account_meta_t);
+      dst_rem -= sizeof(fd_account_meta_t);
+
+      FD_CRIT( dst_rem >= data_len, "corruption detected" );
+      fd_memcpy( dst, frame+0x88UL, data_len );
+
+      dst     += data_len;
+      dst_rem -= data_len;
+
+      fd_vinyl_bstream_pair_hash( fd_vinyl_io_seed( io ), (fd_vinyl_bstream_block_t *)pair );
+
+      ulong seq_after = fd_vinyl_io_append( io, pair, pair_sz );
+      ele->seq = seq_after;
+
+      ctx->metrics.accounts_inserted++;
+    }
+
   }
+
 }
 
 void

@@ -129,4 +129,5 @@ fd_vinyl_bstream_hash_batch8( ulong                                  seed_,
   h = wwv_xor( h, wwv_shr( h, 32 ) );
 
   wwv_stu( out, h );
+  for( ulong i=0UL; i<8UL; i++ ) if( !sz_[i] ) out[i] = seed_;
 }
