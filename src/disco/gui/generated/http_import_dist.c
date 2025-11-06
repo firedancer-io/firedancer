@@ -114,15 +114,15 @@ FD_IMPORT_BINARY( file_dev4_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendanc
 FD_IMPORT_BINARY( file_dev5, "src/disco/gui/dist_dev/assets/frankendancer_logo_circle-D5z79vwQ.svg" );
 FD_IMPORT_BINARY( file_dev5_zstd, "src/disco/gui/dist_dev_cmp/assets/frankendancer_logo_circle-D5z79vwQ.svg.zst" );
 FD_IMPORT_BINARY( file_dev5_gzip, "src/disco/gui/dist_dev_cmp/assets/frankendancer_logo_circle-D5z79vwQ.svg.gz" );
-FD_IMPORT_BINARY( file_dev6, "src/disco/gui/dist_dev/assets/index-CfJV700r.css" );
-FD_IMPORT_BINARY( file_dev6_zstd, "src/disco/gui/dist_dev_cmp/assets/index-CfJV700r.css.zst" );
-FD_IMPORT_BINARY( file_dev6_gzip, "src/disco/gui/dist_dev_cmp/assets/index-CfJV700r.css.gz" );
-FD_IMPORT_BINARY( file_dev7, "src/disco/gui/dist_dev/assets/index-DNXP4xqK.js" );
-FD_IMPORT_BINARY( file_dev7_zstd, "src/disco/gui/dist_dev_cmp/assets/index-DNXP4xqK.js.zst" );
-FD_IMPORT_BINARY( file_dev7_gzip, "src/disco/gui/dist_dev_cmp/assets/index-DNXP4xqK.js.gz" );
-FD_IMPORT_BINARY( file_dev8, "src/disco/gui/dist_dev/assets/index-tJDngArz.js" );
-FD_IMPORT_BINARY( file_dev8_zstd, "src/disco/gui/dist_dev_cmp/assets/index-tJDngArz.js.zst" );
-FD_IMPORT_BINARY( file_dev8_gzip, "src/disco/gui/dist_dev_cmp/assets/index-tJDngArz.js.gz" );
+FD_IMPORT_BINARY( file_dev6, "src/disco/gui/dist_dev/assets/index-BAAo7Mve.css" );
+FD_IMPORT_BINARY( file_dev6_zstd, "src/disco/gui/dist_dev_cmp/assets/index-BAAo7Mve.css.zst" );
+FD_IMPORT_BINARY( file_dev6_gzip, "src/disco/gui/dist_dev_cmp/assets/index-BAAo7Mve.css.gz" );
+FD_IMPORT_BINARY( file_dev7, "src/disco/gui/dist_dev/assets/index-Bsi9GVMc.js" );
+FD_IMPORT_BINARY( file_dev7_zstd, "src/disco/gui/dist_dev_cmp/assets/index-Bsi9GVMc.js.zst" );
+FD_IMPORT_BINARY( file_dev7_gzip, "src/disco/gui/dist_dev_cmp/assets/index-Bsi9GVMc.js.gz" );
+FD_IMPORT_BINARY( file_dev8, "src/disco/gui/dist_dev/assets/index-C9mUdeZr.js" );
+FD_IMPORT_BINARY( file_dev8_zstd, "src/disco/gui/dist_dev_cmp/assets/index-C9mUdeZr.js.zst" );
+FD_IMPORT_BINARY( file_dev8_gzip, "src/disco/gui/dist_dev_cmp/assets/index-C9mUdeZr.js.gz" );
 FD_IMPORT_BINARY( file_dev9, "src/disco/gui/dist_dev/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
 FD_IMPORT_BINARY( file_dev9_zstd, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BW_APOAv.woff.zst" );
 FD_IMPORT_BINARY( file_dev9_gzip, "src/disco/gui/dist_dev_cmp/assets/inter-tight-latin-400-normal-BW_APOAv.woff.gz" );
@@ -489,7 +489,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev5_gzip_sz,
 	},
 	{
-		.name = "/assets/index-CfJV700r.css",
+		.name = "/assets/index-BAAo7Mve.css",
 		.data = file_dev6,
 		.data_len = &file_dev6_sz,
 		.zstd_data = file_dev6_zstd,
@@ -498,7 +498,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev6_gzip_sz,
 	},
 	{
-		.name = "/assets/index-DNXP4xqK.js",
+		.name = "/assets/index-Bsi9GVMc.js",
 		.data = file_dev7,
 		.data_len = &file_dev7_sz,
 		.zstd_data = file_dev7_zstd,
@@ -507,7 +507,7 @@ fd_http_static_file_t STATIC_FILES_DEV[] = {
 		.gzip_data_len = &file_dev7_gzip_sz,
 	},
 	{
-		.name = "/assets/index-tJDngArz.js",
+		.name = "/assets/index-C9mUdeZr.js",
 		.data = file_dev8,
 		.data_len = &file_dev8_sz,
 		.zstd_data = file_dev8_zstd,
