@@ -246,7 +246,7 @@ during_frag( fd_snapwr_t *       ctx,
   /* Because snapwr pacing is so loose and this tile sleeps, fd_stem
      will not return flow control credits fast enough.
      So, always update fseq (consumer progress) here. */
-  ctx->seq_sync[ 0 ] = fd_seq_inc( meta_seq, 1UL );
+  fd_fseq_update( ctx->seq_sync, fd_seq_inc( meta_seq, 1UL ) );
 
   return 0;
 }

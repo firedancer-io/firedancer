@@ -158,12 +158,11 @@ setup_topo_txncache( fd_topo_t *  topo,
 }
 
 void
-setup_topo_vinyl( fd_topo_t *    topo,
-                  fd_configf_t * config ) {
-  (void)config;
-  fd_topob_wksp( topo, "vinyl" );
+setup_topo_vinyl_meta( fd_topo_t *    topo,
+                       fd_configf_t * config ) {
+  fd_topob_wksp( topo, "vinyl_meta" );
 
-  fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "vinyl" );
+  fd_topo_obj_t * map_obj = fd_topob_obj( topo, "vinyl_meta", "vinyl_meta" );
   ulong const meta_max  = fd_ulong_pow2_up( config->vinyl.max_account_records );
   ulong const lock_cnt  = fd_vinyl_meta_lock_cnt_est ( meta_max );
   ulong const probe_max = fd_vinyl_meta_probe_max_est( meta_max );
@@ -172,11 +171,22 @@ setup_topo_vinyl( fd_topo_t *    topo,
   fd_pod_insertf_ulong( topo->props, probe_max, "obj.%lu.probe_max", map_obj->id );
   fd_pod_insertf_ulong( topo->props, (ulong)fd_tickcount(), "obj.%lu.seed", map_obj->id );
 
-  fd_topo_obj_t * meta_pool_obj = fd_topob_obj( topo, "vinyl_meta_e", "vinyl" );
+  fd_topo_obj_t * meta_pool_obj = fd_topob_obj( topo, "vinyl_meta_e", "vinyl_meta" );
   fd_pod_insertf_ulong( topo->props, meta_max, "obj.%lu.cnt", meta_pool_obj->id );
 
   fd_pod_insert_ulong( topo->props, "vinyl.meta_map",  map_obj->id );
   fd_pod_insert_ulong( topo->props, "vinyl.meta_pool", meta_pool_obj->id );
+}
+
+fd_topo_obj_t *
+setup_topo_vinyl_cache( fd_topo_t *    topo,
+                        fd_configf_t * config ) {
+  fd_topob_wksp( topo, "vinyl_data" );
+  fd_topo_obj_t * line_obj = fd_topob_obj( topo, "vinyl_data", "vinyl_data" );
+  ulong const heap_max = config->vinyl.cache_size_gib<<30;
+  fd_pod_insertf_ulong( topo->props, heap_max, "obj.%lu.data_sz", line_obj->id );
+  fd_pod_insert_ulong( topo->props, "vinyl.data", line_obj->id );
+  return line_obj;
 }
 
 static int
@@ -363,17 +373,13 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "snapld"      );
     fd_topob_wksp( topo, "snapdc"      );
     fd_topob_wksp( topo, "snapin"      );
-    if( vinyl_enabled ) {
-      fd_topob_wksp( topo, "snapwr" );
-    }
+    if( vinyl_enabled ) fd_topob_wksp( topo, "snapwr" );
 
     fd_topob_wksp( topo, "snapct_ld"   );
     fd_topob_wksp( topo, "snapld_dc"   );
     fd_topob_wksp( topo, "snapdc_in"   );
     fd_topob_wksp( topo, "snapin_ct"   );
-    if( vinyl_enabled ) {
-      fd_topob_wksp( topo, "snapin_wr" );
-    }
+    if( vinyl_enabled ) fd_topob_wksp( topo, "snapin_wr" );
 
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui"  );
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapin_gui"  );

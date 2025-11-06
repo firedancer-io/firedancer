@@ -502,6 +502,8 @@ user = ""
     enabled = false
     max_account_records = 30_000_000
     file_size_gib = 16
+    max_cache_entries = 1_000_000
+    cache_size_gib = 2
 
 [runtime]
     # TODO: This is not respected, the max vote accounts seems to be

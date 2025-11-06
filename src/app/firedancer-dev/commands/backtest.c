@@ -90,7 +90,7 @@ backtest_topo( config_t * config ) {
   fd_topob_tile_uses( topo, replay_tile, progcache_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   if( snap_vinyl ) {
-    setup_topo_vinyl( topo, &config->firedancer );
+    setup_topo_vinyl_meta( topo, &config->firedancer );
   }
 
   /**********************************************************************/
