@@ -3,6 +3,7 @@
 #include "../../../util/log/fd_log.h"
 #include "../../../util/archive/fd_tar.h"
 #include "../../../flamenco/runtime/fd_runtime_const.h"
+#include "../../../flamenco/runtime/fd_system_ids.h"
 
 #include <stdio.h>
 
@@ -43,6 +44,7 @@ struct fd_ssparse_private {
   } tar;
 
   struct {
+    uchar const * owner;
     uchar header[ 136UL ];
     ulong header_bytes_consumed;
     ulong data_bytes_consumed;
@@ -108,6 +110,7 @@ fd_ssparse_new( void *  shmem,
   ssparse->tar.file_bytes_consumed   = 0UL;
   ssparse->tar.file_bytes            = 0UL;
 
+  ssparse->account.owner                 = NULL;
   ssparse->account.header_bytes_consumed = 0UL;
   ssparse->account.data_bytes_consumed   = 0UL;
   ssparse->account.data_len              = 0UL;
@@ -152,6 +155,7 @@ fd_ssparse_reset( fd_ssparse_t * ssparse ) {
   ssparse->tar.file_bytes_consumed       = 0UL;
   ssparse->tar.file_bytes                = 0UL;
 
+  ssparse->account.owner                 = NULL;
   ssparse->account.header_bytes_consumed = 0UL;
   ssparse->account.data_bytes_consumed   = 0UL;
   ssparse->account.data_len              = 0UL;
@@ -430,6 +434,14 @@ advance_account_batch( fd_ssparse_t *                ssparse,
   ulong off = 0UL;
   for( ulong idx=0UL; idx<FD_SSPARSE_ACC_BATCH_MAX && off+136UL<=avail; idx++ ) {
     uchar const * acc_hdr     = (uchar *)data+off;
+
+    /* We want ConfigProgram accounts to go through the slow path,
+       since they are published from there to consumers for monitoring. */
+    if( FD_UNLIKELY( !memcmp( acc_hdr+64UL, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) ) ) {
+      if( FD_UNLIKELY( idx==0UL  ) ) return FD_SSPARSE_ADVANCE_AGAIN; /* At the front of the batch, abort */
+      else                           break; /* otherwise, break early.  */
+    }
+
     ulong         acc_data_sz = fd_ulong_load_8_fast( acc_hdr+8 );
     ulong         next_off    = off+136UL+acc_data_sz;
     ulong         pad_sz      = fd_ulong_align_up( ssparse->tar.file_bytes_consumed+next_off, 8UL ) -
@@ -520,6 +532,7 @@ advance_account_header( fd_ssparse_t *                ssparse,
   result->account_header.hash       = hdr+104UL;
   result->account_header.slot       = ssparse->slot;
 
+  ssparse->account.owner               = hdr+64UL;
   ssparse->account.data_len            = result->account_header.data_len;
   ssparse->account.data_bytes_consumed = 0UL;
   ssparse->state = FD_SSPARSE_STATE_ACCOUNT_DATA;
@@ -551,6 +564,7 @@ advance_account_data( fd_ssparse_t *                ssparse,
   ssparse->account.data_bytes_consumed += consume;
   result->bytes_consumed                = consume;
 
+  result->account_data.owner    = ssparse->account.owner;
   result->account_data.data_sz  = consume;
   result->account_data.data     = data;
 

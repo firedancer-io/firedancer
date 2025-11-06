@@ -11,6 +11,7 @@
 #include "../../discof/replay/fd_replay_tile.h"
 #include "../../disco/net/fd_net_tile.h"
 #include "../../discof/restore/fd_snapct_tile.h"
+#include "../../disco/gui/fd_gui_peers.h"
 #include "../../disco/quic/fd_tpu.h"
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../../disco/tiles.h"
@@ -375,6 +376,7 @@ fd_topo_initialize( config_t * config ) {
     }
 
     if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapct_gui"  );
+    if( FD_LIKELY( config->tiles.gui.enabled ) ) fd_topob_wksp( topo, "snapin_gui"  );
     fd_topob_wksp( topo, "snapin_manif" );
     fd_topob_wksp( topo, "snapct_repr"  );
   }
@@ -402,6 +404,7 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_link( topo, "snapct_repr",  "snapct_repr",  128UL,                                    0UL,                           1UL )->permit_no_consumers = 1; /* TODO: wire in repair later */
     if( FD_LIKELY( config->tiles.gui.enabled ) ) {
       /**/             fd_topob_link( topo, "snapct_gui",   "snapct_gui",   128UL,                                    sizeof(fd_snapct_update_t),    1UL );
+      /**/             fd_topob_link( topo, "snapin_gui",   "snapin_gui",   4UL,                                      FD_GUI_PEERS_CONFIG_KEYS_MAX_SZ+FD_GUI_PEERS_VALIDATOR_INFO_MAX_SZ, 1UL );
     }
     if( vinyl_enabled ) {
       /**/             fd_topob_link( topo, "snapin_wr",    "snapin_wr",    4UL,                                      16UL<<20,                      1UL );
@@ -577,6 +580,9 @@ fd_topo_initialize( config_t * config ) {
     /**/              fd_topob_tile_in (    topo, "snapin",  0UL,          "metric_in", "snapdc_in",    0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     /**/              fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_ct",    0UL                                                );
     /**/              fd_topob_tile_out(    topo, "snapin",  0UL,                       "snapin_manif", 0UL                                                );
+    if( FD_LIKELY( config->tiles.gui.enabled ) ) {
+      /**/            fd_topob_tile_out(    topo, "snapin", 0UL,                        "snapin_gui",   0UL                                                );
+    }
   }
 
   /**/                 fd_topob_tile_in(    topo, "repair",  0UL,          "metric_in", "genesi_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
@@ -860,7 +866,8 @@ fd_topo_initialize( config_t * config ) {
     FOR(bank_tile_cnt)   fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "bank_poh",       i,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
 
     if( FD_LIKELY( snapshots_enabled ) ) {
-                         fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapct_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapct_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
+    /**/                 fd_topob_tile_in ( topo, "gui",    0UL,           "metric_in", "snapin_gui",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
     }
   }
 

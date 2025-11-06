@@ -160,7 +160,7 @@ static void
 transition_malformed( fd_snapin_tile_t *  ctx,
                       fd_stem_context_t * stem ) {
   ctx->state = FD_SNAPSHOT_STATE_ERROR;
-  fd_stem_publish( stem, ctx->out_ct_idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->ct_out.idx, FD_SNAPSHOT_MSG_CTRL_ERROR, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static int
@@ -381,7 +381,7 @@ populate_txncache( fd_snapin_tile_t *                     ctx,
 
 static void
 process_manifest( fd_snapin_tile_t * ctx ) {
-  fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk );
+  fd_snapshot_manifest_t * manifest = fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk );
 
   ctx->bank_slot = manifest->slot;
   if( FD_UNLIKELY( verify_slot_deltas_with_bank_slot( ctx, manifest->slot ) ) ) {
@@ -409,7 +409,7 @@ process_manifest( fd_snapin_tile_t * ctx ) {
 
   ulong sig = ctx->full ? fd_ssmsg_sig( FD_SSMSG_MANIFEST_FULL ) :
                           fd_ssmsg_sig( FD_SSMSG_MANIFEST_INCREMENTAL );
-  fd_stem_publish( ctx->stem, ctx->out_mani_idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
+  fd_stem_publish( ctx->stem, ctx->manifest_out.idx, sig, ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), 0UL, 0UL, 0UL );
   ctx->manifest_out.chunk = fd_dcache_compact_next( ctx->manifest_out.chunk, sizeof(fd_snapshot_manifest_t), ctx->manifest_out.chunk0, ctx->manifest_out.wmark );
 }
 
@@ -496,6 +496,14 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
         fd_snapin_process_account_data( ctx, result );
+
+        /* We exepect ConfigKeys Vec to be length 2 */
+        if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX && !memcmp( result->account_data.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) && result->account_data.data_sz && *(uchar *)result->account_data.data==2UL ) ) {
+          uchar * acct = fd_chunk_to_laddr( ctx->gui_out.mem, ctx->gui_out.chunk );
+          fd_memcpy( acct, result->account_data.data, result->account_data.data_sz );
+          fd_stem_publish( stem, ctx->gui_out.idx, 0UL, ctx->gui_out.chunk, result->account_data.data_sz, 0UL, 0UL, 0UL );
+          ctx->gui_out.chunk = fd_dcache_compact_next( ctx->gui_out.chunk, result->account_data.data_sz, ctx->gui_out.chunk0, ctx->gui_out.wmark );
+        }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
         fd_snapin_process_account_batch( ctx, result );
@@ -538,7 +546,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       ctx->blockhash_offsets_len = 0UL;
       fd_txncache_reset( ctx->txncache );
       fd_ssparse_reset( ctx->ssparse );
-      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
+      fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
       fd_slot_delta_parser_init( ctx->slot_delta_parser );
       fd_memset( &ctx->flags,    0, sizeof(ctx->flags)    );
       fd_memset( &ctx->vinyl_op, 0, sizeof(ctx->vinyl_op) );
@@ -629,7 +637,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
       fd_accdb_advance_root( ctx->accdb_admin,           &target_xid );
       fd_funk_txn_xid_copy( ctx->xid, &target_xid );
 
-      fd_stem_publish( stem, ctx->out_mani_idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, ctx->manifest_out.idx, fd_ssmsg_sig( FD_SSMSG_DONE ), 0UL, 0UL, 0UL, 0UL, 0UL );
       break;
     }
 
@@ -656,7 +664,7 @@ handle_control_frag( fd_snapin_tile_t *  ctx,
   }
 
   /* Forward the control message down the pipeline */
-  fd_stem_publish( stem, ctx->out_ct_idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
+  fd_stem_publish( stem, ctx->ct_out.idx, sig, 0UL, 0UL, 0UL, 0UL, 0UL );
 }
 
 static inline int
@@ -723,6 +731,23 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
+static inline fd_snapin_out_link_t
+out1( fd_topo_t const *      topo,
+      fd_topo_tile_t const * tile,
+      char const *           name ) {
+  ulong idx = fd_topo_find_tile_out_link( topo, tile, name, 0UL );
+
+  if( FD_UNLIKELY( idx==ULONG_MAX ) ) return (fd_snapin_out_link_t){ .idx = ULONG_MAX, .mem = NULL, .chunk0 = 0, .wmark = 0, .chunk = 0, .mtu = 0 };
+
+  ulong mtu = topo->links[ tile->out_link_id[ idx ] ].mtu;
+  if( FD_UNLIKELY( mtu==0UL ) ) return (fd_snapin_out_link_t){ .idx = idx, .mem = NULL, .chunk0 = ULONG_MAX, .wmark = ULONG_MAX, .chunk = ULONG_MAX, .mtu = mtu };
+
+  void * mem   = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ idx ] ].dcache_obj_id ].wksp_id ].wksp;
+  ulong chunk0 = fd_dcache_compact_chunk0( mem, topo->links[ tile->out_link_id[ idx ] ].dcache );
+  ulong wmark  = fd_dcache_compact_wmark ( mem, topo->links[ tile->out_link_id[ idx ] ].dcache, mtu );
+  return (fd_snapin_out_link_t){ .idx = idx, .mem = mem, .chunk0 = chunk0, .wmark = wmark, .chunk = chunk0, .mtu = mtu };
+}
+
 FD_FN_UNUSED static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -774,23 +799,15 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->kind_id ) ) FD_LOG_ERR(( "There can only be one `" NAME "` tile" ));
   if( FD_UNLIKELY( tile->in_cnt!=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1", tile->in_cnt ));
 
-  ulong out_link_ct_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_ct", 0UL );
-  if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_rd`" ));
-  ctx->out_ct_idx = out_link_ct_idx;
+  ctx->ct_out       = out1( topo, tile, "snapin_ct"    );
+  ctx->manifest_out = out1( topo, tile, "snapin_manif" );
+  ctx->gui_out      = out1( topo, tile, "snapin_gui"   );
 
-  ulong out_link_mani_idx = fd_topo_find_tile_out_link( topo, tile, "snapin_manif", 0UL );
-  if( FD_UNLIKELY( out_link_mani_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
-  fd_topo_link_t * snapin_mani_link = &topo->links[ tile->out_link_id[ out_link_mani_idx ] ];
-  ctx->out_mani_idx = out_link_mani_idx;
-
-  ctx->manifest_out.wksp   = topo->workspaces[ topo->objs[ snapin_mani_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->manifest_out.chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( snapin_mani_link->dcache ), snapin_mani_link->dcache );
-  ctx->manifest_out.wmark  = fd_dcache_compact_wmark ( ctx->manifest_out.wksp, snapin_mani_link->dcache, snapin_mani_link->mtu );
-  ctx->manifest_out.chunk  = ctx->manifest_out.chunk0;
-  ctx->manifest_out.mtu    = snapin_mani_link->mtu;
+  if( FD_UNLIKELY( ctx->ct_out.idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct`"    ));
+  if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
   fd_ssparse_reset( ctx->ssparse );
-  fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.wksp, ctx->manifest_out.chunk ) );
+  fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
 
   fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0UL ] ];

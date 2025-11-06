@@ -89,6 +89,7 @@ struct fd_ssparse_advance_result {
     } account_header;
 
     struct {
+      uchar const * owner;
       uchar const * data;
       ulong         data_sz;
     } account_data;

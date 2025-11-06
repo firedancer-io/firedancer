@@ -2,6 +2,7 @@
 #include "fd_gui_printf.h"
 
 #include "../../ballet/json/cJSON.h"
+#include "../../ballet/utf8/fd_utf8.h"
 #include "../../flamenco/gossip/fd_gossip_private.h"
 
 #define LOGGING 0
@@ -12,6 +13,8 @@ fd_gui_peers_align( void ) {
   a = fd_ulong_max( a, alignof(fd_gui_peers_ctx_t)              );
   a = fd_ulong_max( a, fd_gui_peers_live_table_align()          );
   a = fd_ulong_max( a, fd_gui_peers_bandwidth_tracking_align()  );
+  a = fd_ulong_max( a, fd_gui_peers_node_info_pool_align()      );
+  a = fd_ulong_max( a, fd_gui_peers_node_info_map_align()       );
   a = fd_ulong_max( a, fd_gui_peers_node_pubkey_map_align()     );
   a = fd_ulong_max( a, fd_gui_peers_node_sock_map_align()       );
   a = fd_ulong_max( a, alignof(fd_gui_peers_ws_conn_t)          );
@@ -21,6 +24,7 @@ fd_gui_peers_align( void ) {
 
 FD_FN_CONST ulong
 fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
+  ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
   ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE );
   ulong sock_chain_cnt   = fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
 
@@ -28,6 +32,8 @@ fd_gui_peers_footprint( ulong max_ws_conn_cnt ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ctx_t),             sizeof(fd_gui_peers_ctx_t)                                              );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_live_table_align(),         fd_gui_peers_live_table_footprint        ( FD_CONTACT_INFO_TABLE_SIZE ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_bandwidth_tracking_align(), fd_gui_peers_bandwidth_tracking_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_info_pool_align(),     fd_gui_peers_node_info_pool_footprint    ( FD_CONTACT_INFO_TABLE_SIZE ) );
+  l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_info_map_align(),      fd_gui_peers_node_info_map_footprint     ( info_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
   l = FD_LAYOUT_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
   l = FD_LAYOUT_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
@@ -51,6 +57,7 @@ fd_gui_peers_new( void *             shmem,
       return NULL;
     }
 
+    ulong info_chain_cnt   = fd_gui_peers_node_info_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
     ulong pubkey_chain_cnt = fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE );
     ulong sock_chain_cnt   = fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE );
 
@@ -58,6 +65,8 @@ fd_gui_peers_new( void *             shmem,
     fd_gui_peers_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ctx_t),             sizeof(fd_gui_peers_ctx_t)                                              );
     void * _live_table       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_live_table_align(),         fd_gui_peers_live_table_footprint        ( FD_CONTACT_INFO_TABLE_SIZE ) );
     void * _bw_tracking      = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_bandwidth_tracking_align(), fd_gui_peers_bandwidth_tracking_footprint( FD_CONTACT_INFO_TABLE_SIZE ) );
+    void * _info_pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_info_pool_align(),     fd_gui_peers_node_info_pool_footprint    ( FD_CONTACT_INFO_TABLE_SIZE ) );
+    void * _info_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_info_map_align(),      fd_gui_peers_node_info_map_footprint     ( info_chain_cnt )             );
     void * _pubkey_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_pubkey_map_align(),    fd_gui_peers_node_pubkey_map_footprint   ( pubkey_chain_cnt )           );
     void * _sock_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_peers_node_sock_map_align(),      fd_gui_peers_node_sock_map_footprint     ( sock_chain_cnt )             );
     ctx->client_viewports    = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_peers_ws_conn_t),         max_ws_conn_cnt*sizeof(fd_gui_peers_ws_conn_t)                          );
@@ -84,8 +93,10 @@ fd_gui_peers_new( void *             shmem,
     ctx->bw_tracking     = fd_gui_peers_bandwidth_tracking_join( fd_gui_peers_bandwidth_tracking_new( _bw_tracking, FD_CONTACT_INFO_TABLE_SIZE ) );
     fd_gui_peers_bandwidth_tracking_seed( ctx->contact_info_table, FD_CONTACT_INFO_TABLE_SIZE, 42UL );
 
-    ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, fd_gui_peers_node_pubkey_map_chain_cnt_est( FD_CONTACT_INFO_TABLE_SIZE ), 42UL ) );
-    ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   fd_gui_peers_node_sock_map_chain_cnt_est  ( FD_CONTACT_INFO_TABLE_SIZE ), 42UL ) );
+    ctx->node_info_pool  = fd_gui_peers_node_info_pool_join ( fd_gui_peers_node_info_pool_new ( _info_pool,  FD_CONTACT_INFO_TABLE_SIZE ) );
+    ctx->node_info_map   = fd_gui_peers_node_info_map_join  ( fd_gui_peers_node_info_map_new  ( _info_map,   info_chain_cnt,   42UL ) );
+    ctx->node_pubkey_map = fd_gui_peers_node_pubkey_map_join( fd_gui_peers_node_pubkey_map_new( _pubkey_map, pubkey_chain_cnt, 42UL ) );
+    ctx->node_sock_map   = fd_gui_peers_node_sock_map_join  ( fd_gui_peers_node_sock_map_new  ( _sock_map,   sock_chain_cnt,   42UL ) );
 
     return shmem;
 }
@@ -186,8 +197,9 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
     fd_gui_peers_node_t * cur = fd_gui_peers_bandwidth_tracking_fwd_iter_ele( iter, peers->contact_info_table );
 
     if( FD_UNLIKELY( j<gossip_stats->network_ingress_peer_sz ) ) {
-      if( FD_LIKELY( cur->has_val_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], sizeof(gossip_stats->network_ingress_peer_names[ j ]), NULL, "%s", cur->name ) );
-      else                                  gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
+      fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->contact_info.pubkey, NULL, peers->node_info_pool );
+      if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_ingress_peer_names[ j ], FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
+      else                         gossip_stats->network_ingress_peer_names[ j ][ 0 ] = '\0';
       gossip_stats->network_ingress_peer_bytes_per_sec[ j ] = cur->gossvf_rx_sum.rate_ema;
       fd_memcpy( &gossip_stats->network_ingress_peer_identities[ j ], cur->contact_info.pubkey.uc, 32UL );
     }
@@ -230,8 +242,9 @@ fd_gui_peers_gossip_stats_snap( fd_gui_peers_ctx_t *          peers,
     fd_gui_peers_node_t * cur = fd_gui_peers_bandwidth_tracking_fwd_iter_ele( iter, peers->contact_info_table );
 
     if( FD_UNLIKELY( j<gossip_stats->network_egress_peer_sz ) ) {
-      if( FD_LIKELY( cur->has_val_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], sizeof(gossip_stats->network_egress_peer_names[ j ]), NULL, "%s", cur->name ) );
-      else                                  gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
+      fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &cur->contact_info.pubkey, NULL, peers->node_info_pool );
+      if( FD_LIKELY( node_info ) ) FD_TEST( fd_cstr_printf_check( gossip_stats->network_egress_peer_names[ j ], FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ+1UL, NULL, "%s", node_info->name ) );
+      else                         gossip_stats->network_egress_peer_names[ j ][ 0 ] = '\0';
       gossip_stats->network_egress_peer_bytes_per_sec[ j ] = cur->gossip_tx_sum.rate_ema;
       fd_memcpy( &gossip_stats->network_egress_peer_identities[ j ], cur->contact_info.pubkey.uc, 32UL );
     }
@@ -525,7 +538,6 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           memset( &peer->gossip_tx,     0, sizeof(peer->gossip_tx) );
           memset( &peer->gossvf_rx_sum, 0, sizeof(peer->gossvf_rx_sum) );
           memset( &peer->gossip_tx_sum, 0, sizeof(peer->gossip_tx_sum) );
-          peer->has_val_info = 0;
           peer->has_vote_info = 0;
           peer->stake = ULONG_MAX;
           peer->valid = 1;
@@ -700,6 +712,117 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
     fd_http_server_ws_broadcast( peers->http );
   }
 }
+
+void
+fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
+                                    uchar const *         data,
+                                    ulong                 sz ) {
+  /*
+    pub struct ConfigKeys {
+        #[cfg_attr(feature = "serde", serde(with = "short_vec"))]
+        pub keys: Vec<(Pubkey, bool)>,
+    }
+
+    The memory layout of a ConfigProgram account is a bincode serialized
+    ConfigKeys followed immediately by a stringified json object
+    containing the desired info.
+
+    The short_vec serialization format is a 1-3 bytes size field (where
+    the highest bit in a given byte is a continuation bit) followed by
+    serialized elements in the vector (in this case, each element is a
+    32byte pubkey followed by a 1byte bool. For our simple parser, we
+    only need to consider vectors smaller than 128 elements.
+
+    The JSON schema for a validator info object is the following
+
+    {
+      "name": "<validator name>",
+      "website": "<website url>",
+      "details": "<validator details>",
+      "iconUrl": "<icon url>"
+    }
+
+    Since accounts are at most 10MB, we should be safely within cJSON's
+    allocator limits.
+*/
+  ulong i = 0UL;
+
+#define CHECK( cond )  do { \
+    if( FD_UNLIKELY( !(cond) ) ) { \
+      return; \
+    } \
+  } while( 0 )
+
+  /* CHECK that it is safe to read at least n more bytes assuming i is
+     the current location. n is untrusted and could trigger overflow, so
+     don't do i+n<=payload_sz */
+#define CHECK_LEFT( n ) CHECK( (n)<=(sz-i) )
+
+  CHECK_LEFT( 1UL ); uchar ck_sz = data[ i ]; i++;
+  if( FD_UNLIKELY( ck_sz!=2 ) ) return;
+
+  struct __attribute__((packed, aligned(1))) config_keys {
+    fd_pubkey_t pubkey;
+    uchar       is_signer;
+  };
+
+  struct config_keys * data_config_keys = (struct config_keys *)(data + i);
+  CHECK_LEFT( (sizeof(fd_pubkey_t) + 1UL)*ck_sz ); i += (sizeof(fd_pubkey_t) + 1UL)*ck_sz;
+  CHECK_LEFT( FD_GUI_PEERS_VALIDATOR_INFO_MAX_SZ );
+
+  /* First entry should be Va1idator1nfo111111111111111111111111111111 */
+  uchar expected[ 32UL ] = { 0x07, 0x51, 0x97, 0x01, 0x74, 0x48, 0xf2, 0xac, 0x5d, 0xc2, 0x3c, 0x9e, 0xbc, 0x7a, 0xc7, 0x8c, 0x0a, 0x27, 0x25, 0x7a, 0xc6, 0x14, 0x45, 0x8d, 0xe0, 0xa4, 0xf1, 0x6f, 0x80, 0x00, 0x00, 0x00 };
+  if( FD_UNLIKELY( memcmp( data_config_keys[0].pubkey.uc, expected, sizeof(fd_pubkey_t) ) || data_config_keys[0].is_signer ) ) return;
+
+  CHECK_LEFT( sizeof(ulong) ); ulong json_str_sz = *(ulong *)(data+i); i += sizeof(ulong);
+
+  CHECK_LEFT( json_str_sz );
+  cJSON * json = cJSON_ParseWithLengthOpts( (char *)(data+i), json_str_sz, NULL, 0 );
+  if( FD_UNLIKELY( !json ) ) return;
+
+  if( FD_UNLIKELY( !fd_gui_peers_node_info_pool_free( peers->node_info_pool ) ) ) {
+    FD_LOG_WARNING(( "On-chain ConfigProgram accounts count exceeded %lu", FD_CONTACT_INFO_TABLE_SIZE ));
+    return;
+  }
+  fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &data_config_keys[1].pubkey, NULL, peers->node_info_pool );
+  if( FD_UNLIKELY( node_info ) ) return; /* no duplicate entries */
+  node_info = fd_gui_peers_node_info_pool_ele_acquire( peers->node_info_pool );
+  fd_memcpy( node_info->pubkey.uc, data_config_keys[1].pubkey.uc, sizeof(fd_pubkey_t) );
+
+  const cJSON * name = cJSON_GetObjectItemCaseSensitive( json, "name" );
+  /* cJSON guarantees name->valuestring is NULL terminated */
+  int missing_name = !cJSON_IsString( name )
+                  || strlen(name->valuestring)>FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ
+                  || !fd_cstr_printf_check( node_info->name, strlen(name->valuestring)+1UL, NULL, "%s", name->valuestring )
+                  || !fd_utf8_verify( node_info->name, strlen(node_info->name) );
+  if( FD_UNLIKELY( missing_name ) ) node_info->name[ 0 ] = '\0';
+
+  const cJSON * website = cJSON_GetObjectItemCaseSensitive( json, "website" );
+  int missing_website = !cJSON_IsString( website )
+                     || strlen(website->valuestring)>FD_GUI_PEERS_VALIDATOR_INFO_WEBSITE_SZ
+                     || !fd_cstr_printf_check( node_info->website, strlen(website->valuestring)+1UL, NULL, "%s", website->valuestring )
+                     || !fd_utf8_verify( node_info->website, strlen(node_info->website) );
+  if( FD_UNLIKELY( missing_website ) ) node_info->website[ 0 ] = '\0';
+
+  const cJSON * details = cJSON_GetObjectItemCaseSensitive( json, "details" );
+  int missing_details = !cJSON_IsString( details )
+                     || strlen(details->valuestring)>FD_GUI_PEERS_VALIDATOR_INFO_DETAILS_SZ
+                     || !fd_cstr_printf_check( node_info->details, strlen(details->valuestring)+1UL, NULL, "%s", details->valuestring )
+                     || !fd_utf8_verify( node_info->details, strlen(node_info->details) );
+  if( FD_UNLIKELY( missing_details ) ) node_info->details[ 0 ] = '\0';
+
+  const cJSON * icon_uri = cJSON_GetObjectItemCaseSensitive( json, "iconUrl" );
+  int missing_icon_uri = !cJSON_IsString( icon_uri )
+                      || strlen(icon_uri->valuestring)>FD_GUI_PEERS_VALIDATOR_INFO_ICON_URI_SZ
+                      || !fd_cstr_printf_check( node_info->icon_uri, strlen(icon_uri->valuestring)+1UL, NULL, "%s", icon_uri->valuestring )
+                      || !fd_utf8_verify( node_info->icon_uri, strlen(node_info->icon_uri) );
+  if( FD_UNLIKELY( missing_icon_uri ) ) node_info->icon_uri[ 0 ] = '\0';
+
+  fd_gui_peers_node_info_map_ele_insert( peers->node_info_map, node_info, peers->node_info_pool );
+#undef CHECK
+#undef CHECK_LEFT
+}
+
 
 static void
 fd_gui_peers_viewport_snap( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {

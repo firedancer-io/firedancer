@@ -985,14 +985,15 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
       jsonp_close_array( peers->http );
     }
 
-    if( FD_UNLIKELY( !peer->has_val_info ) ) {
+    fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->contact_info.pubkey, NULL, peers->node_info_pool );
+    if( FD_UNLIKELY( !node_info ) ) {
       jsonp_string( peers->http, "info", NULL );
     } else {
       jsonp_open_object( peers->http, "info" );
-        jsonp_string( peers->http, "name", peer->name );
-        jsonp_string( peers->http, "details", peer->details );
-        jsonp_string( peers->http, "website", peer->website );
-        jsonp_string( peers->http, "icon_url", peer->icon_uri );
+        jsonp_string( peers->http, "name", node_info->name );
+        jsonp_string( peers->http, "details", node_info->details );
+        jsonp_string( peers->http, "website", node_info->website );
+        jsonp_string( peers->http, "icon_url", node_info->icon_uri );
       jsonp_close_object( peers->http );
     }
 
