@@ -341,7 +341,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * bank = &topo->tiles[ fd_topo_find_tile( topo, "bank", i ) ];
 
     volatile ulong const * bank_metrics = fd_metrics_tile( bank->metrics );
-    if( FD_LIKELY( gui->summary.is_full_client ) ) {
+    if( FD_LIKELY( !gui->summary.is_full_client ) ) {
       cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANK, SUCCESSFUL_TRANSACTIONS ) ];
 
       cur->out.block_fail +=
@@ -442,7 +442,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    if( FD_LIKELY( gui->summary.is_full_client ) ) {
+    if( FD_LIKELY( !gui->summary.is_full_client ) ) {
       cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
       cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ]
                                   + resolv_metrics[ MIDX( COUNTER, RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE  ) ];
