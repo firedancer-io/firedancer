@@ -89,3 +89,4 @@ src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-stricter-
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-368528500-direct-mapping -y 5 -m 2000000 -e 368528527 -c 3.0.3 -o CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM,9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l testnet-362107883-direct-mapping-2 -y 1 -m 2000000 -e 362219427 -c 3.0.3 -o CxeBn9PVeeXbmjbNwLv6U4C6svNxnC4JX6mfkvgeMocM,9s3RKimHWS44rJcJ9P1rwCmn2TvMqtZQBmz815ZUUHqJ
 src/flamenco/runtime/tests/run_ledger_backtest.sh -l devnet-413869565 -y 40 -m 100000000 -e 413869600 -c 2.3.6
+src/flamenco/runtime/tests/run_ledger_backtest.sh -l mainnet-376969880 -y 1 -m 2000000 -e 376969900 -c 3.0.6
