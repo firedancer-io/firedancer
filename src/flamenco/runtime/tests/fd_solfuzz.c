@@ -80,7 +80,7 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
   /* Allocate objects */
   ulong const txn_max  = 16UL;
   ulong const rec_max  = 1024UL;
-  ulong const spad_max = 1000000000UL;
+  ulong const spad_max = 1500000000UL; /* 1.5GB to accommodate 128 accounts 10MB each */
   ulong const bank_max = 1UL;
   ulong const fork_max = 1UL;
   fd_solfuzz_runner_t * runner     = fd_wksp_alloc_laddr( wksp, alignof(fd_solfuzz_runner_t), sizeof(fd_solfuzz_runner_t),              wksp_tag );
