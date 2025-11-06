@@ -117,9 +117,22 @@ union fdctl_args {
   } metrics;
 
   struct {
-    uint fsck;
-    uint accounts_hist;
-    char snapshot_path[ PATH_MAX ];
+    uint fsck : 1;
+    uint accounts_hist : 1;
+    uint offline : 1;
+    uint no_incremental : 1;
+    uint no_watch : 1;
+    uint is_vinyl : 1;
+    uint vinyl_server : 1;
+
+    char snapshot_dir[ PATH_MAX ];
+    char vinyl_path   [ PATH_MAX ];
+    char vinyl_io     [ 3 ];
+
+    ulong db_sz;
+    ulong db_rec_max;
+    ulong cache_sz;
+    ulong cache_rec_max;
   } snapshot_load;
 
 };

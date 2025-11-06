@@ -107,6 +107,8 @@ struct fd_configf {
     int   enabled;
     ulong max_account_records;
     ulong file_size_gib;
+    ulong max_cache_entries;
+    ulong cache_size_gib;
   } vinyl;
 
   struct {

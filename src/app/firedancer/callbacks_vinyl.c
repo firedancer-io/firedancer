@@ -82,3 +82,32 @@ fd_topo_obj_callbacks_t fd_obj_cb_vinyl_meta_ele = {
   .align     = vinyl_meta_ele_align,
   .new       = vinyl_meta_ele_new,
 };
+
+/* vinyl_data: memory arena for data cache entries */
+
+static ulong
+vinyl_data_align( fd_topo_t const *     topo,
+                  fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  return alignof(fd_vinyl_data_obj_t);
+}
+
+static ulong
+vinyl_data_footprint( fd_topo_t const *     topo,
+                      fd_topo_obj_t const * obj ) {
+  return fd_ulong_align_dn( VAL("data_sz"), alignof(fd_vinyl_data_obj_t) );
+}
+
+static void
+vinyl_data_new( fd_topo_t const *     topo,
+                fd_topo_obj_t const * obj ) {
+  (void)topo; (void)obj;
+  /* initialized by user */
+}
+
+fd_topo_obj_callbacks_t fd_obj_cb_vinyl_data = {
+  .name      = "vinyl_data",
+  .footprint = vinyl_data_footprint,
+  .align     = vinyl_data_align,
+  .new       = vinyl_data_new,
+};

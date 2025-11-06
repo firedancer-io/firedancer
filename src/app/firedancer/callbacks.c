@@ -83,7 +83,6 @@ funk_footprint( fd_topo_t const *     topo,
 static ulong
 funk_loose( fd_topo_t const *     topo,
             fd_topo_obj_t const * obj ) {
-  (void)topo;
   return VAL("heap_max");
 }
 
