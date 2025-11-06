@@ -42,7 +42,7 @@ typedef struct fd_blockhash_info fd_blockhash_info_t;
 #define MAP_IDX_T         ushort
 #define MAP_NEXT          next
 #define MAP_KEY_EQ(k0,k1) fd_hash_eq( (k0), (k1) )
-#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k->uc), 0, (s) )
+#define MAP_KEY_HASH(k,s) fd_funk_rec_key_hash1( (k->uc), (s) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_blockhashes_t is the class representing a blockhash queue.
