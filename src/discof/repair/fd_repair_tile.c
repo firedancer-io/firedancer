@@ -774,7 +774,7 @@ after_frag( ctx_t * ctx,
         fd_policy_reset  ( ctx->policy, ctx->forest );
       }
     } else if( FD_LIKELY( sig == FD_TOWER_SIG_DUPLICATE_CONFIRMED ) ) {
-      fd_tower_duplicate_confirmed_t const * msg = (fd_tower_duplicate_confirmed_t const *)fd_type_pun_const( ctx->buffer );
+      fd_tower_slot_confirmed_t const * msg = (fd_tower_slot_confirmed_t const *)fd_type_pun_const( ctx->buffer );
       (void)msg;
     }
     return;

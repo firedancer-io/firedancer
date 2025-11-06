@@ -2425,27 +2425,23 @@ fd_gui_handle_rooted_slot( fd_gui_t * gui, ulong root_slot ) {
   fd_http_server_ws_broadcast( gui->http );
 }
 
-/* fd_gui_handle_tower_update handles updates from the tower tile, which
-   manages consensus related fork switching, rooting, slot confirmation. */
+/* fd_gui_handle_tower_slot_done handles slot_done frags from the tower
+   tile, which manages consensus related fork switching, rooting, slot
+   confirmation. */
 void
-fd_gui_handle_tower_update( fd_gui_t *                   gui,
-                            fd_tower_slot_done_t const * tower,
-                            long                         now ) {
+fd_gui_handle_tower_slot_done( fd_gui_t *                   gui,
+                               fd_tower_slot_done_t const * slot_done,
+                               long                         now ) {
   (void)now;
 
-  /* handle new root */
-  if( FD_LIKELY( tower->root_slot!=ULONG_MAX && gui->summary.slot_rooted!=tower->root_slot ) ) {
-    fd_gui_handle_rooted_slot( gui, tower->root_slot );
-  }
-
-  if( FD_UNLIKELY( gui->summary.vote_distance!=tower->reset_slot-tower->vote_slot ) ) {
-    gui->summary.vote_distance = tower->reset_slot-tower->vote_slot;
+  if( FD_UNLIKELY( gui->summary.vote_distance!=slot_done->reset_slot-slot_done->vote_slot ) ) {
+    gui->summary.vote_distance = slot_done->reset_slot-slot_done->vote_slot;
     fd_gui_printf_vote_distance( gui );
     fd_http_server_ws_broadcast( gui->http );
   }
 
   if( FD_LIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_NON_VOTING ) ) {
-    if( FD_UNLIKELY( tower->vote_slot==ULONG_MAX || (tower->vote_slot+150UL)<tower->reset_slot ) ) {
+    if( FD_UNLIKELY( slot_done->vote_slot==ULONG_MAX || (slot_done->vote_slot+150UL)<slot_done->reset_slot ) ) {
       if( FD_UNLIKELY( gui->summary.vote_state!=FD_GUI_VOTE_STATE_DELINQUENT ) ) {
         gui->summary.vote_state = FD_GUI_VOTE_STATE_DELINQUENT;
         fd_gui_printf_vote_state( gui );
@@ -2458,6 +2454,24 @@ fd_gui_handle_tower_update( fd_gui_t *                   gui,
         fd_http_server_ws_broadcast( gui->http );
       }
     }
+  }
+
+  /* todo ... optimistic confirmation, waiting on fd_ghost / fd_notar */
+}
+
+/* fd_gui_handle_tower_update handles slot_confirmed frags from the
+   tower tile, which indicate when slots are optimistically confirmed or
+   rooted. */
+
+void
+fd_gui_handle_tower_slot_confirmed( fd_gui_t *                        gui,
+                                    fd_tower_slot_confirmed_t const * slot_confirmed,
+                                    long                              now ) {
+  (void)now;
+
+  /* handle new root */
+  if( FD_LIKELY( slot_confirmed->kind==FD_TOWER_SLOT_CONFIRMED_ROOTED && gui->summary.slot_rooted!=slot_confirmed->slot ) ) {
+    fd_gui_handle_rooted_slot( gui, slot_confirmed->slot );
   }
 
   /* todo ... optimistic confirmation, waiting on fd_ghost / fd_notar */
