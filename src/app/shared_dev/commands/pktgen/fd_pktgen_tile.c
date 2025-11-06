@@ -88,6 +88,8 @@ before_credit( fd_pktgen_tile_ctx_t * ctx,
 
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
 
+#define STEM_LAZY ((ulong)1e9) /* max possible */
+
 #include "../../../../disco/stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_pktgen = {
