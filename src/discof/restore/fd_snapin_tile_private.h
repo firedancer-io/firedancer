@@ -22,6 +22,16 @@ struct blockhash_group {
 
 typedef struct blockhash_group blockhash_group_t;
 
+struct fd_snapin_out_link {
+  ulong       idx;
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+  ulong       chunk;
+  ulong       mtu;
+};
+typedef struct fd_snapin_out_link fd_snapin_out_link_t;
+
 struct fd_snapin_tile {
   int  state;
   uint full      : 1; /* loading a full snapshot? */
@@ -38,8 +48,6 @@ struct fd_snapin_tile {
   fd_funk_txn_xid_t xid[1]; /* txn XID */
 
   fd_stem_context_t *      stem;
-  ulong                    out_ct_idx;
-  ulong                    out_mani_idx;
 
   fd_ssparse_t *           ssparse;
   fd_ssmanifest_parser_t * manifest_parser;
@@ -75,13 +83,9 @@ struct fd_snapin_tile {
     ulong       pos;
   } in;
 
-  struct {
-    fd_wksp_t * wksp;
-    ulong       chunk0;
-    ulong       wmark;
-    ulong       chunk;
-    ulong       mtu;
-  } manifest_out;
+  fd_snapin_out_link_t ct_out;
+  fd_snapin_out_link_t manifest_out;
+  fd_snapin_out_link_t gui_out;
 
   struct {
     uchar * bstream_mem;

@@ -49,6 +49,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #define IN_KIND_REPLAY_OUT   (12UL) /* firedancer only */
 #define IN_KIND_REPLAY_STAKE (13UL) /* firedancer only */
 #define IN_KIND_GENESI_OUT   (14UL) /* firedancer only */
+#define IN_KIND_SNAPIN       (15UL) /* firedancer only */
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -109,7 +110,7 @@ typedef struct {
 
   uchar __attribute__((aligned(FD_CLOCK_ALIGN))) clock_mem[ FD_CLOCK_FOOTPRINT ];
 
-  /* This needs to be max(plugin_msg) across all kinds of messages.
+  /* This needs to be max(sz) across all kinds of messages.
      Currently this is just figured out manually, it's a gossip update
      message assuming the table is completely full (40200) of peers.
 
@@ -363,6 +364,11 @@ after_frag( fd_gui_ctx_t *      ctx,
 
       fd_stake_weight_msg_t * leader_schedule = (fd_stake_weight_msg_t *)ctx->buf;
       fd_gui_handle_leader_schedule( ctx->gui, leader_schedule, fd_clock_now( ctx->clock ) );
+      break;
+    }
+    case IN_KIND_SNAPIN: {
+      FD_TEST( ctx->is_full_client );
+      fd_gui_peers_handle_config_account( ctx->peers, ctx->buf, sz );
       break;
     }
     case IN_KIND_GENESI_OUT: {
@@ -738,6 +744,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "replay_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_OUT;   /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "replay_stake" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY_STAKE; /* full client only */
     else if( FD_LIKELY( !strcmp( link->name, "genesi_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_GENESI_OUT; /* full client only */
+    else if( FD_LIKELY( !strcmp( link->name, "snapin_gui"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SNAPIN; /* full client only */
     else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
 
     if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
