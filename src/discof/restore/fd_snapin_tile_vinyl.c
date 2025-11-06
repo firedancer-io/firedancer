@@ -567,7 +567,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     uchar const *  frame  = result->account_batch.batch[ i ];
     uchar const *  pubkey = frame+0x10UL;
     fd_vinyl_key_t key[1];  fd_vinyl_key_init( key, pubkey, 32UL );
-    memo[ i ] = fd_vinyl_meta_key_hash( key, map->seed );;
+    memo[ i ] = fd_vinyl_key_memo( map->seed, key );
   }
 
   /* Prefetch slots */
@@ -633,7 +633,10 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     FD_CRIT( val_sz<=FD_VINYL_VAL_MAX, "corruption detected" );
 
     ulong   pair_sz = fd_vinyl_bstream_pair_sz( val_sz );
-    uchar * pair    = bstream_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    uchar * pair    = fd_vinyl_io_wd_alloc_fast( io, pair_sz );
+    if( FD_UNLIKELY( !pair ) ) {
+      pair = fd_vinyl_io_wd_alloc( io, pair_sz, FD_VINYL_IO_FLAG_BLOCKING );
+    }
 
     uchar * dst     = pair;
     ulong   dst_rem = pair_sz;

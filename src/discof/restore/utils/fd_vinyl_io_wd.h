@@ -9,6 +9,54 @@
 
 #include "../../../vinyl/io/fd_vinyl_io.h"
 
+/* wd_buf describes an O_DIRECT append buf */
+
+struct wd_buf;
+typedef struct wd_buf wd_buf_t;
+
+struct wd_buf {
+  uchar *    buf;          /* pointer into dcache */
+  uint       state;        /* WD_BUF_* */
+  wd_buf_t * next;         /* next ele in linked list */
+  ulong      io_seq;       /* mcache request sequence number */
+  ulong      bstream_seq;  /* APPEND=bstream seq of first block */
+                           /* IOWAIT=bstream seq after buffer is fully written */
+};
+
+/* WD_BUF_* give append buf states */
+
+#define WD_BUF_IDLE   1U
+#define WD_BUF_APPEND 2U
+#define WD_BUF_IOWAIT 3U
+
+/* fd_vinyl_io_wd implements the fd_vinyl_io_t interface */
+
+struct fd_vinyl_io_wd {
+  fd_vinyl_io_t base[1];
+  ulong         dev_base;
+  ulong         dev_sz;        /* Block store byte size (BLOCK_SZ multiple) */
+
+  /* Buffer linked lists by state */
+  wd_buf_t * buf_idle;         /* free stack */
+  wd_buf_t * buf_append;       /* current wip block */
+  wd_buf_t * buf_iowait_head;  /* least recently enqueued (seq increasing) */
+  wd_buf_t * buf_iowait_tail;  /* most  recently enqueued */
+
+  /* Work queue (snapwr) */
+  fd_frag_meta_t * wr_mcache;  /* metadata ring */
+  ulong            wr_seq;     /* next metadata seq no */
+  ulong            wr_seqack;  /* next expected ACK seq */
+  ulong            wr_depth;   /* metadata ring depth */
+  uchar *          wr_base;    /* base pointer for data cache */
+  uchar *          wr_chunk0;  /* [wr_chunk0,wr_chunk1) is the data cache data region */
+  uchar *          wr_chunk1;
+  ulong const *    wr_fseq;    /* completion notifications */
+  ulong            wr_mtu;     /* max block byte size */
+};
+
+typedef struct fd_vinyl_io_wd fd_vinyl_io_wd_t;
+
+
 /* fd_vinyl_io_wd_{align,footprint} specify the alignment and footprint
    needed for a bstream O_DIRECT writer with block_depth max blocks
    inflight.  align will be a reasonable power-of-2 and footprint will
@@ -77,3 +125,22 @@ void
 fd_vinyl_io_wd_ctrl( fd_vinyl_io_t * io,
                      ulong           ctl,
                      ulong           sig );
+
+/* fd_viny_io_wd_alloc_fast is an optimistic version of vinyl_io->alloc.
+   If it fails (returns NULL), the caller should fall back to calling
+   fd_vinyl_io_alloc normally. */
+
+static inline void *
+fd_vinyl_io_wd_alloc_fast( fd_vinyl_io_t * io,
+                           ulong           sz ) {
+  fd_vinyl_io_wd_t * wd = (fd_vinyl_io_wd_t *)io; /* Note: io must be non-NULL to have even been called */
+
+  wd_buf_t * buf = wd->buf_append;
+  if( FD_UNLIKELY( !buf ) ) return NULL;
+
+  ulong buf_used = wd->base->seq_future - buf->bstream_seq;
+  ulong buf_free = wd->wr_mtu - buf_used;
+  if( FD_UNLIKELY( sz>buf_free ) ) return NULL;
+
+  return buf->buf + buf_used;
+}
