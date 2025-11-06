@@ -8,6 +8,7 @@
 #include "../../waltz/http/fd_http_server.h"
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/json/cJSON.h"
+#include "../../ballet/json/cJSON_alloc.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 #include <stddef.h>
@@ -404,7 +405,6 @@ static void
 jsonp_close_envelope( fd_http_server_t * http,
                       ulong              id ) {
   jsonp_close_object( http );
-  jsonp_strip_trailing_comma( http );
   jsonp_ulong( http, "id", id );
   jsonp_close_object( http );
   jsonp_strip_trailing_comma( http );
@@ -971,18 +971,6 @@ privileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "rpc server listening at http://" FD_IP4_ADDR_FMT ":%u", FD_IP4_ADDR_FMT_ARGS( tile->rpc.listen_addr ), tile->rpc.listen_port ));
 }
 
-static FD_TL fd_alloc_t * cjson_alloc_ctx;
-
-static void *
-cjson_alloc( ulong sz ) {
-  return fd_alloc_malloc( cjson_alloc_ctx, alignof(max_align_t), sz );
-}
-
-static void
-cjson_free( void * ptr ) {
-  fd_alloc_free( cjson_alloc_ctx, ptr );
-}
-
 extern char const fdctl_version_string[];
 
 static inline fd_rpc_out_t
@@ -1023,13 +1011,9 @@ unprivileged_init( fd_topo_t *      topo,
   void * _alloc       = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),         fd_alloc_footprint()                                   );
   void * _banks       = FD_SCRATCH_ALLOC_APPEND( l, alignof(bank_info_t),     tile->rpc.max_live_slots*sizeof(bank_info_t)           );
 
-  cjson_alloc_ctx = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
-  FD_TEST( cjson_alloc_ctx );
-  cJSON_Hooks hooks = {
-    .malloc_fn = cjson_alloc,
-    .free_fn   = cjson_free,
-  };
-  cJSON_InitHooks( &hooks );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+  FD_TEST( alloc );
+  cJSON_alloc_install( alloc );
 
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
