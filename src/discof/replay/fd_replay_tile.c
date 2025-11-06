@@ -15,6 +15,7 @@
 #include "../../disco/tiles.h"
 #include "../../disco/fd_txn_m.h"
 #include "../../disco/store/fd_store.h"
+#include "../../disco/pack/fd_pack.h"
 #include "../../discof/reasm/fd_reasm.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/genesis/fd_genesis_cluster.h"
@@ -342,6 +343,8 @@ struct fd_replay_tile {
   fd_replay_tower_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 
   fd_multi_epoch_leaders_t * mleaders;
+
+  int larger_max_cost_per_block;
 
   fd_pubkey_t identity_pubkey[1]; /* TODO: Keyswitch */
 
@@ -1017,7 +1020,7 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   }
   fd_funk_txn_xid_t xid = { .ul = { curr_slot, ctx->leader_bank->idx } };
 
-  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, 0 );
+  fd_runtime_block_execute_finalize( ctx->leader_bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
   fd_hash_t const * bank_hash  = fd_bank_bank_hash_query( ctx->leader_bank );
   FD_TEST( bank_hash );
@@ -1332,7 +1335,7 @@ maybe_become_leader( fd_replay_tile_t *  ctx,
 
   fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
 
-  msg->limits.slot_max_cost = cost_tracker->block_cost_limit;
+  msg->limits.slot_max_cost = ctx->larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : cost_tracker->block_cost_limit;
   msg->limits.slot_max_vote_cost = cost_tracker->vote_cost_limit;
   msg->limits.slot_max_write_cost_per_acct = cost_tracker->account_cost_limit;
 
@@ -2563,6 +2566,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->exec_cnt = fd_topo_tile_name_cnt( topo, "exec" );
 
   ctx->is_booted = 0;
+
+  ctx->larger_max_cost_per_block = tile->replay.larger_max_cost_per_block;
 
   ctx->reasm = fd_reasm_join( fd_reasm_new( reasm_mem, 1 << 20, 0 ) );
   FD_TEST( ctx->reasm );

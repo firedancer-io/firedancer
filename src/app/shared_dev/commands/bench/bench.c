@@ -2,10 +2,12 @@
 #include "../../../shared/commands/configure/configure.h"
 #include "../../../shared/commands/run/run.h"
 
+#include "../../../shared/commands/watch/watch.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../util/tile/fd_tile_private.h"
 
+#include <errno.h>
 #include <unistd.h>
 #include <sched.h>
 #include <fcntl.h>
@@ -121,7 +123,8 @@ extern int * fd_log_private_shared_lock;
 
 void
 bench_cmd_fn( args_t *   args,
-              config_t * config ) {
+              config_t * config,
+              int        watch ) {
 
   ushort dest_port = fd_ushort_if( args->load.no_quic,
                                    config->tiles.quic.regular_transaction_listen_port,
@@ -190,6 +193,19 @@ bench_cmd_fn( args_t *   args,
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
-  /* FIXME allow running sandboxed/multiprocess */
-  fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  if( watch ) {
+    int pipefd[2];
+    if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    args_t watch_args;
+    watch_args.watch.drain_output_fd = pipefd[0];
+    if( FD_UNLIKELY( -1==dup2( pipefd[ 1 ], STDERR_FILENO ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* FIXME allow running sandboxed/multiprocess */
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+    watch_cmd_fn( &watch_args, config );
+  } else {
+    /* FIXME allow running sandboxed/multiprocess */
+    fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run );
+  }
 }

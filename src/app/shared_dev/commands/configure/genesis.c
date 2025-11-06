@@ -207,7 +207,7 @@ create_genesis( config_t const * config,
 
   /* Serialize blob */
 
-  static uchar scratch_smem[ 16<<20UL ];  /* fits at least 32k accounts */
+  static uchar scratch_smem[ 1<<24UL ];  /* fits at least 32k accounts */
          ulong scratch_fmem[ 4 ];
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
@@ -236,7 +236,7 @@ init( config_t const * config ) {
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( genesis_path, config->uid, config->gid, 0 ) ) )
     FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", genesis_path, errno, fd_io_strerror( errno ) ));
 
-  static uchar blob[ 16<<20UL ];
+  static uchar blob[ 1UL<<24UL ];
   ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
 
   /* Switch to target user in the configuration when creating the
@@ -316,7 +316,7 @@ check( config_t const * config,
   if( FD_UNLIKELY( !config->is_firedancer ) ) CHECK( check_dir( config->frankendancer.paths.ledger, config->uid, config->gid, S_IFDIR | S_IRUSR | S_IWUSR | S_IXUSR ) );
   CHECK( check_file( genesis_path, config->uid, config->gid, S_IFREG | S_IRUSR | S_IWUSR ) );
 
-  uchar buffer[ 1UL<<18UL ]; /* 256kB buffer should be enough for genesis */
+  static uchar buffer[ 1UL<<24UL ]; /* 16 MiB buffer should be enough for genesis */
   if( FD_UNLIKELY( (ulong)st.st_size>sizeof(buffer) ) ) FD_LOG_ERR(( "genesis file at `%s` too large (%lu bytes, max %lu)", genesis_path, (ulong)st.st_size, sizeof(buffer) ));
 
   ulong bytes_read = 0UL;
@@ -341,7 +341,7 @@ check( config_t const * config,
   err = fd_genesis_solana_decode_footprint( &decode_ctx, &genesis_sz );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "malformed genesis file at `%s`", genesis_path ));
 
-  char _genesis[ 1UL<<20UL ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 1MiB for decoded genesis */
+  static char _genesis[ 1UL<<24UL ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 16 MiB for decoded genesis */
   if( FD_UNLIKELY( genesis_sz>sizeof(_genesis) ) ) FD_LOG_ERR(( "genesis file at `%s` decode footprint too large (%lu bytes, max %lu)", genesis_path, genesis_sz, sizeof(_genesis) ));
 
   fd_genesis_solana_global_t * genesis = fd_genesis_solana_decode_global( _genesis, &decode_ctx );
@@ -357,7 +357,7 @@ check( config_t const * config,
   err = fd_genesis_solana_decode_footprint( &decode_ctx, &genesis_sz );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) FD_LOG_ERR(( "malformed genesis file generated for comparison for `%s`", genesis_path ));
 
-  char _tmp_genesis[ 1UL<<20UL ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 1MiB for decoded genesis */
+  static char _tmp_genesis[ 1UL<<24UL ] __attribute__((aligned(alignof(fd_genesis_solana_global_t)))); /* 16 MiB for decoded genesis */
   if( FD_UNLIKELY( genesis_sz>sizeof(_tmp_genesis) ) ) FD_LOG_ERR(( "genesis file generated for comparison for `%s` decode footprint too large (%lu bytes, max %lu)", genesis_path, genesis_sz, sizeof(_tmp_genesis) ));
 
   fd_genesis_solana_global_t * tmp_genesis = fd_genesis_solana_decode_global( _tmp_genesis, &decode_ctx );

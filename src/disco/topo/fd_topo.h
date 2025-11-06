@@ -384,6 +384,8 @@ struct fd_topo_tile {
 
       ulong enable_bank_hash_cmp;
 
+      int   larger_max_cost_per_block;
+
       ulong capture_start_slot;
       char  solcap_capture[ PATH_MAX ];
       char  dump_proto_dir[ PATH_MAX ];

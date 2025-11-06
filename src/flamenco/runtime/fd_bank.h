@@ -792,7 +792,9 @@ fd_banks_footprint( ulong max_total_banks,
 void *
 fd_banks_new( void * mem,
               ulong  max_total_banks,
-              ulong  max_fork_width );
+              ulong  max_fork_width,
+              int    larger_max_cost_per_block,
+              ulong  seed );
 
 /* fd_banks_join() joins a new fd_banks_t struct. */
 
