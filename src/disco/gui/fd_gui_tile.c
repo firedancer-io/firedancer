@@ -26,7 +26,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../disco/plugin/fd_plugin.h"
 #include "../../discof/genesis/fd_genesi_tile.h" // TODO: Layering violation
 #include "../../waltz/http/fd_http_server.h"
-#include "../../ballet/json/cJSON.h"
+#include "../../ballet/json/cJSON_alloc.h"
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
 #include "../../util/pod/fd_pod_format.h"
@@ -664,26 +664,6 @@ privileged_init( fd_topo_t *      topo,
   }
 }
 
-static FD_TL fd_alloc_t * cjson_alloc_ctx;
-
-static void *
-cjson_alloc( ulong sz ) {
-  if( FD_LIKELY( cjson_alloc_ctx ) ) {
-    return fd_alloc_malloc( cjson_alloc_ctx, 8UL, sz );
-  } else {
-    return malloc( sz );
-  }
-}
-
-static void
-cjson_free( void * ptr ) {
-  if( FD_LIKELY( cjson_alloc_ctx ) ) {
-    fd_alloc_free( cjson_alloc_ctx, ptr );
-  } else {
-    free( ptr );
-  }
-}
-
 extern char const fdctl_version_string[];
 
 static void
@@ -726,13 +706,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
   FD_TEST( ctx->keyswitch );
 
-  cjson_alloc_ctx = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
-  FD_TEST( cjson_alloc_ctx );
-  cJSON_Hooks hooks = {
-    .malloc_fn = cjson_alloc,
-    .free_fn   = cjson_free,
-  };
-  cJSON_InitHooks( &hooks );
+  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
+  FD_TEST( alloc );
+  cJSON_alloc_install( alloc );
 
   ctx->next_poll_deadline = fd_tickcount();
 
