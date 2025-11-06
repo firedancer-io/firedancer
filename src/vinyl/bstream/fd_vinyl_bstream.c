@@ -1,6 +1,20 @@
 #include "fd_vinyl_bstream.h"
 
 void
+fd_vinyl_bstream_pair_zero( fd_vinyl_bstream_block_t * hdr ) {
+
+  ulong ctl     = hdr->ctl;
+  ulong val_esz = fd_vinyl_bstream_ctl_sz( ctl );
+
+  ulong pair_sz = fd_vinyl_bstream_pair_sz( val_esz );
+
+  ulong off = sizeof(fd_vinyl_bstream_phdr_t) + val_esz;
+  ulong zsz = pair_sz - off; /* covers zpad and footer so at least FD_VINYL_BSTREAM_FTR_SZ */
+
+  memset( (uchar *)hdr + off, 0, zsz );
+}
+
+void
 fd_vinyl_bstream_pair_hash( ulong                      seed,
                             fd_vinyl_bstream_block_t * hdr ) {
 
