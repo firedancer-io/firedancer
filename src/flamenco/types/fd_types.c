@@ -5520,43 +5520,6 @@ int fd_cluster_type_encode( fd_cluster_type_t const * self, fd_bincode_encode_ct
   return err;
 }
 
-int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  int err;
-  err = fd_bincode_uint32_encode( self->major, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->minor, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint32_encode( self->patch, ctx );
-  if( FD_UNLIKELY( err ) ) return err;
-  return FD_BINCODE_SUCCESS;
-}
-static inline int fd_cluster_version_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  ctx->data = (void *)( (ulong)ctx->data + 12UL );
-  return 0;
-}
-static void fd_cluster_version_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_cluster_version_t * self = (fd_cluster_version_t *)struct_mem;
-  fd_bincode_uint32_decode_unsafe( &self->major, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->minor, ctx );
-  fd_bincode_uint32_decode_unsafe( &self->patch, ctx );
-}
-void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_cluster_version_t * self = (fd_cluster_version_t *)mem;
-  fd_cluster_version_new( self );
-  void * alloc_region = (uchar *)mem + sizeof(fd_cluster_version_t);
-  void * * alloc_mem = &alloc_region;
-  fd_cluster_version_decode_inner( mem, alloc_mem, ctx );
-  return self;
-}
-void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint ) {
-  (void) varint;
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cluster_version", level++, 0 );
-  fun( w, &self->major, "major", FD_FLAMENCO_TYPE_UINT, "uint", level, 0  );
-  fun( w, &self->minor, "minor", FD_FLAMENCO_TYPE_UINT, "uint", level, 0  );
-  fun( w, &self->patch, "patch", FD_FLAMENCO_TYPE_UINT, "uint", level, 0  );
-  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cluster_version", level--, 0 );
-}
 int fd_stake_reward_encode( fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
   err = fd_pubkey_encode( &self->stake_pubkey, ctx );

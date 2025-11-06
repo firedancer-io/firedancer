@@ -85,7 +85,7 @@ fd_features_enable_all( fd_features_t * );
    of the Firedancer software and can't be disabled. */
 
 void
-fd_features_enable_cleaned_up( fd_features_t *, fd_cluster_version_t const * );
+fd_features_enable_cleaned_up( fd_features_t * );
 
 /* fd_features_enable_one_offs enables all manually passed in features. */
 

@@ -195,12 +195,7 @@ create_genesis( config_t const * config,
 
   fd_features_t features[1];
   fd_features_disable_all( features );
-  fd_cluster_version_t cluster_version = {
-    .major = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR,
-    .minor = FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR,
-    .patch = FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH
-  };
-  fd_features_enable_cleaned_up( features, &cluster_version );
+  fd_features_enable_cleaned_up( features );
   default_enable_features( features );
 
   options->features = features;

@@ -249,7 +249,6 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( bool,   capture.dump_txn_to_pb                           );
   CFG_POP      ( bool,   capture.dump_block_to_pb                         );
 
-  CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );

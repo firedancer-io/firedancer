@@ -362,7 +362,6 @@ struct fd_topo_tile {
       ulong progcache_obj_id;
 
       char  shred_cap[ PATH_MAX ];
-      char  cluster_version[ 32 ];
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;

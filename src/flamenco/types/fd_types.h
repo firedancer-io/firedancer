@@ -946,15 +946,6 @@ struct fd_cluster_type {
 typedef struct fd_cluster_type fd_cluster_type_t;
 #define FD_CLUSTER_TYPE_ALIGN alignof(fd_cluster_type_t)
 
-/* Encoded Size: Fixed (12 bytes) */
-struct fd_cluster_version {
-  uint major;
-  uint minor;
-  uint patch;
-};
-typedef struct fd_cluster_version fd_cluster_version_t;
-#define FD_CLUSTER_VERSION_ALIGN alignof(fd_cluster_version_t)
-
 /* Encoded Size: Fixed (49 bytes) */
 struct fd_stake_reward {
   ulong prev;
@@ -2575,18 +2566,6 @@ fd_cluster_type_enum_MainnetBeta = 1,
 fd_cluster_type_enum_Devnet = 2,
 fd_cluster_type_enum_Development = 3,
 };
-static inline void fd_cluster_version_new( fd_cluster_version_t * self ) { fd_memset( self, 0, sizeof(fd_cluster_version_t) ); }
-int fd_cluster_version_encode( fd_cluster_version_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_cluster_version_walk( void * w, fd_cluster_version_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );
-static inline ulong fd_cluster_version_size( fd_cluster_version_t const * self ) { (void)self; return 12UL; }
-static inline ulong fd_cluster_version_align( void ) { return FD_CLUSTER_VERSION_ALIGN; }
-static inline int fd_cluster_version_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
-  *total_sz += sizeof(fd_cluster_version_t);
-  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
-  return 0;
-}
-void * fd_cluster_version_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-
 static inline void fd_stake_reward_new( fd_stake_reward_t * self ) { fd_memset( self, 0, sizeof(fd_stake_reward_t) ); }
 int fd_stake_reward_encode( fd_stake_reward_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_stake_reward_walk( void * w, fd_stake_reward_t const * self, fd_types_walk_fn_t fun, const char *name, uint level, uint varint );

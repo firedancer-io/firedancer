@@ -19,18 +19,8 @@ fd_features_disable_all( fd_features_t * f ) {
 }
 
 void
-fd_features_enable_cleaned_up( fd_features_t * f, fd_cluster_version_t const * cluster_version ) {
-  for( fd_feature_id_t const * id = fd_feature_iter_init();
-       !fd_feature_iter_done( id );
-       id = fd_feature_iter_next( id ) ) {
-    if( ( id->cleaned_up[0]<cluster_version->major ) ||
-        ( id->cleaned_up[0]==cluster_version->major && id->cleaned_up[1]<cluster_version->minor ) ||
-        ( id->cleaned_up[0]==cluster_version->major && id->cleaned_up[1]==cluster_version->minor && id->cleaned_up[2]<=cluster_version->patch ) ) {
-      fd_features_set( f, id, 0UL );
-    } else {
-      fd_features_set( f, id, FD_FEATURE_DISABLED );
-    }
-  }
+fd_features_enable_cleaned_up( fd_features_t * f ) {
+  (void)f;
 }
 
 void

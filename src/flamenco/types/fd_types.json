@@ -679,16 +679,6 @@
       ]
     },
     {
-      "name": "cluster_version",
-      "type": "struct",
-      "global": true,
-      "fields": [
-        { "name": "major", "type": "uint" },
-        { "name": "minor", "type": "uint" },
-        { "name": "patch", "type": "uint" }
-      ]
-    },
-    {
       "name": "stake_reward",
       "type": "struct",
       "fields": [
