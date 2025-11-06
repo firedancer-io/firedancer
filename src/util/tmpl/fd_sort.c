@@ -204,6 +204,12 @@
 #define SORT_IDX_IF(c,t,f) ((SORT_IDX_T)fd_ulong_if( (c), (ulong)(t), (ulong)(f) ))
 #endif
 
+/* SORT_FN_ATTR applies extra function attributes. */
+
+#ifndef SORT_FN_ATTR
+#define SORT_FN_ATTR
+#endif
+
 /* 0 - local use only
    1 - library header declaration
    2 - library implementation */
@@ -244,21 +250,21 @@ SORT_(cnt_valid)( SORT_IDX_T cnt ) {
 FD_FN_CONST static inline ulong SORT_(stable_scratch_align)    ( void )           { return alignof(SORT_KEY_T); }
 FD_FN_CONST static inline ulong SORT_(stable_scratch_footprint)( SORT_IDX_T cnt ) { return sizeof (SORT_KEY_T)*(ulong)cnt; }
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(private_merge)( SORT_KEY_T * key,
                       long         cnt,
                       SORT_KEY_T * tmp );
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(private_quick)( SORT_KEY_T * key,
                       SORT_IDX_T   cnt );
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(private_select)( SORT_KEY_T * key,
                        SORT_IDX_T   cnt,
                        SORT_IDX_T   rnk );
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(insert)( SORT_KEY_T * key,
                SORT_IDX_T   cnt );
 
@@ -392,7 +398,7 @@ SORT_(stable_para)( fd_tpool_t * tpool,
   return key;
 }
 
-SORT_STATIC void
+SORT_FN_ATTR SORT_STATIC void
 SORT_(private_quick_node)( void * _tpool,
                            ulong  t0,      ulong t1,
                            void * _args,
@@ -414,7 +420,7 @@ SORT_(inplace_para)( fd_tpool_t * tpool,
 
 #if FD_HAS_ALLOCA
 
-SORT_STATIC SORT_KEY_T *
+SORT_FN_ATTR SORT_STATIC SORT_KEY_T *
 SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
                   SORT_KEY_T * key,
                   SORT_IDX_T   cnt,
@@ -432,7 +438,7 @@ FD_PROTOTYPES_END
 
 #if SORT_IMPL_STYLE!=1 /* need implementations (assumes header already included) */
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(insert)( SORT_KEY_T * key,
                SORT_IDX_T   cnt ) {
   for( SORT_IDX_T i=((SORT_IDX_T)1); i<cnt; i++ ) {
@@ -449,7 +455,7 @@ SORT_(insert)( SORT_KEY_T * key,
   return key;
 }
 
-static void
+SORT_FN_ATTR static void
 SORT_(private_merge_pass)( SORT_KEY_T const * key_l, long cnt_l,
                            SORT_KEY_T const * key_r, long cnt_r,
                            SORT_KEY_T       * key_m ) {
@@ -487,7 +493,7 @@ SORT_(private_merge_pass)( SORT_KEY_T const * key_l, long cnt_l,
 # endif
 }
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(private_merge)( SORT_KEY_T * key,
                       long         cnt,
                       SORT_KEY_T * tmp ) {
@@ -526,7 +532,7 @@ SORT_(private_merge)( SORT_KEY_T * key,
 /* This uses a dual pivot quick sort for better theoretical and
    practical mojo. */
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(private_quick)( SORT_KEY_T * key,
                       SORT_IDX_T   cnt ) {
   SORT_IDX_T stack[ 4UL*8UL*sizeof(SORT_IDX_T) ]; /* See note below on sizing */
@@ -703,7 +709,7 @@ SORT_(private_quick)( SORT_KEY_T * key,
    partition that could contain rank).  See above for comments on the
    algo. */
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(private_select)( SORT_KEY_T * key,
                        SORT_IDX_T   cnt,
                        SORT_IDX_T   rnk ) {
@@ -801,7 +807,7 @@ SORT_(private_select)( SORT_KEY_T * key,
    relevant to parallelization are commented.  See above for comments on
    the algo. */
 
-void
+SORT_FN_ATTR void
 SORT_(private_quick_node)( void * _tpool,
                            ulong  t0,      ulong t1,
                            void * _args,
@@ -1141,7 +1147,7 @@ static FD_FOR_ALL_BEGIN( SORT_(private_subsort_para), 1L ) {
 
 } FD_FOR_ALL_END
 
-SORT_KEY_T *
+SORT_FN_ATTR SORT_KEY_T *
 SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
                   SORT_KEY_T * key,
                   SORT_IDX_T   cnt,
@@ -1291,6 +1297,7 @@ SORT_(fast_para)( fd_tpool_t * tpool, ulong t0, ulong t1,
 #undef SORT_STATIC
 
 #undef SORT_IMPL_STYLE
+#undef SORT_FN_ATTR
 #undef SORT_IDX_IF
 #undef SORT_OVERSAMPLE_RATIO
 #undef SORT_PARALLEL
