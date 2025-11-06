@@ -313,13 +313,6 @@ after_frag( fd_gui_ctx_t *      ctx,
         }
         fd_bank_vote_states_end_locking_query( bank );
 
-        ulong max_compute_units = UINT_MAX;
-        if( FD_LIKELY( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) ) ) ) {
-          fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
-          max_compute_units = cost_tracker->block_cost_limit;
-          fd_bank_cost_tracker_end_locking_query( bank );
-        }
-
         fd_gui_slot_completed_t slot_completed;
         if( FD_LIKELY( replay->parent_bank_idx!=ULONG_MAX ) ) {
           fd_bank_t * parent_bank = fd_banks_bank_query( ctx->banks, replay->parent_bank_idx );
@@ -341,7 +334,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         slot_completed.slot              = fd_bank_slot_get( bank );
         slot_completed.completed_time    = replay->completion_time_nanos;
         slot_completed.parent_slot       = fd_bank_parent_slot_get( bank );
-        slot_completed.max_compute_units = (uint)max_compute_units;
+        slot_completed.max_compute_units = (uint)replay->cost_tracker.block_cost_limit;
         slot_completed.transaction_fee   = fd_bank_execution_fees_get( bank );
         slot_completed.priority_fee      = fd_bank_priority_fees_get( bank );
         slot_completed.tips              = fd_bank_tips_get( bank );

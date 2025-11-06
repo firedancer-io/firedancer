@@ -787,6 +787,19 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->last_transaction_finished_nanos   = bank->last_transaction_finished_nanos;
   slot_info->completion_time_nanos             = fd_log_wallclock();
 
+  if( bank->cost_tracker_pool_idx!=fd_bank_cost_tracker_pool_idx_null( fd_bank_get_cost_tracker_pool( bank ) ) ) {
+    fd_cost_tracker_t const * cost_tracker = fd_bank_cost_tracker_locking_query( bank );
+    slot_info->cost_tracker.block_cost                   = cost_tracker->block_cost;
+    slot_info->cost_tracker.vote_cost                    = cost_tracker->vote_cost;
+    slot_info->cost_tracker.allocated_accounts_data_size = cost_tracker->allocated_accounts_data_size;
+    slot_info->cost_tracker.block_cost_limit             = cost_tracker->block_cost_limit;
+    slot_info->cost_tracker.vote_cost_limit              = cost_tracker->vote_cost_limit;
+    slot_info->cost_tracker.account_cost_limit           = cost_tracker->account_cost_limit;
+    fd_bank_cost_tracker_end_locking_query( bank );
+  } else {
+    memset( &slot_info->cost_tracker, 0, sizeof(slot_info->cost_tracker) );
+  }
+
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done usin the bank. */
@@ -827,9 +840,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
 
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
-
-  /* Mark the bank as frozen. */
-  fd_banks_mark_bank_frozen( ctx->banks, bank );
 
   /* Copy the vote tower of all the vote accounts into the buffer,
      which will be published in after_credit. */
@@ -882,6 +892,9 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
     fd_dump_block_to_protobuf( ctx->block_dump_ctx, ctx->banks, bank, ctx->accdb->funk, ctx->capture_ctx );
     fd_block_dump_context_reset( ctx->block_dump_ctx );
   }
+
+  /* Mark the bank as frozen. */
+  fd_banks_mark_bank_frozen( ctx->banks, bank );
 }
 
 /**********************************************************************/
@@ -979,8 +992,6 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
 
   ctx->leader_bank->last_transaction_finished_nanos = fd_log_wallclock();
 
-  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
-
   ulong curr_slot = fd_bank_slot_get( ctx->leader_bank );
 
   fd_sched_block_add_done( ctx->sched, ctx->leader_bank->idx, ctx->leader_bank->parent_idx, curr_slot );
@@ -1041,6 +1052,8 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   ctx->recv_block_id = 0;
   ctx->recv_poh      = 0;
   ctx->is_leader     = 0;
+
+  fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
 }
 
 static void
