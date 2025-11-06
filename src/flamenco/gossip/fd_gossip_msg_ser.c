@@ -214,10 +214,10 @@ fd_gossip_pull_request_init( uchar *       payload,
 }
 
 int
-fd_gossip_contact_info_encode( fd_contact_info_t const *     contact_info,
-                               uchar *                       out_buf,
-                               ulong                         out_buf_sz,
-                               ulong *                       opt_encoded_sz ) {
+fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
+                               uchar *                   out_buf,
+                               ulong                     out_buf_sz,
+                               ulong *                   opt_encoded_sz ) {
   FD_TEST( out_buf_sz<=FD_GOSSIP_MTU );
   /* fd_contact_info_t has a fixed-size array of addresses and sockets, while
      the encoded representation is a variable-length array of addrs and

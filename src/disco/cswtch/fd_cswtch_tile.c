@@ -57,6 +57,8 @@ before_credit( fd_cswtch_ctx_t *   ctx,
   *charge_busy = 1;
 
   for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
+    if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) continue;
+
     if( FD_UNLIKELY( -1==lseek( ctx->status_fds[ i ], 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
 
     char contents[ 4096 ] = {0};
@@ -80,7 +82,10 @@ before_credit( fd_cswtch_ctx_t *   ctx,
     if( FD_UNLIKELY( process_died ) ) {
       /* The tile died, but it's a tile which is allowed to shutdown, so
          just stop updating metrics for it. */
-      if( FD_UNLIKELY( ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) continue;
+      if( FD_LIKELY( 2UL==ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) {
+        ctx->status_fds[ i ] = -1; /* stop trying to read from it */
+        continue;
+      }
     }
 
     /* Supervisor is going to bring the whole process tree down if any
@@ -171,7 +176,13 @@ privileged_init( fd_topo_t *      topo,
       FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/%lu/task/%lu/status", pid, tid ) );
       ctx->status_fds[ i ] = open( path, O_RDONLY );
       ctx->metrics[ i ] = fd_metrics_tile( metrics );
-      if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) FD_LOG_ERR(( "open failed (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) {
+        /* Might be a tile that's allowed to shutdown already did so
+           before we got to here, due to a race condition.  Just
+           proceed, we will not be able to get context switch metrics
+           for the shut down process. */
+        if( FD_LIKELY( 2UL!=ctx->metrics[ i ][ FD_METRICS_GAUGE_TILE_STATUS_OFF ] ) ) FD_LOG_ERR(( "open failed (%i-%s)", errno, strerror( errno ) ));
+      }
       break;
     }
   }
@@ -221,8 +232,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  for( ulong i=0UL; i<ctx->tile_cnt; i++ )
-    out_fds[ out_cnt++ ] = ctx->status_fds[ i ]; /* /proc/<pid>/task/<tid>/status descriptor */
+  for( ulong i=0UL; i<ctx->tile_cnt; i++ ) {
+    if( -1!=ctx->status_fds[ i ] ) out_fds[ out_cnt++ ] = ctx->status_fds[ i ]; /* /proc/<pid>/task/<tid>/status descriptor */
+  }
   return out_cnt;
 }
 

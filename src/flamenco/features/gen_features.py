@@ -8,13 +8,27 @@ import json
 from pathlib import Path
 import struct
 import base58
+import hashlib
 
+
+def calculate_feature_set_id(feature_map):
+    feature_names = sorted([feature["name"] for feature in feature_map])
+    hasher = hashlib.sha256()
+    for name in feature_names:
+        hasher.update(name.encode('utf-8'))
+
+    hash_result = hasher.digest()
+    feature_set_id = struct.unpack("<I", hash_result[:4])[0]
+
+    return feature_set_id
 
 def generate(feature_map_path, header_path, body_path):
     with open(feature_map_path, "r") as json_file:
         feature_map = json.load(json_file)
     header = open(header_path, "w")
     body = open(body_path, "w")
+    feature_set_id = calculate_feature_set_id(feature_map)
+
     # Generate struct body of fd_features_t.
     fd_features_t_params = []
     rmap = {}
@@ -39,6 +53,10 @@ def generate(feature_map_path, header_path, body_path):
 
 /* FEATURE_ID_CNT is the number of features in ids */
 #define FD_FEATURE_ID_CNT ({len(fm)}UL)
+
+/* Feature set ID calculated from all feature names */
+#define FD_FEATURE_SET_ID ({feature_set_id}U)
+
 union fd_features {{
   ulong f[ FD_FEATURE_ID_CNT ];
   struct {{

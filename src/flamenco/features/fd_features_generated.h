@@ -9,6 +9,10 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 #define FD_FEATURE_ID_CNT (245UL)
+
+/* Feature set ID calculated from all feature names */
+#define FD_FEATURE_SET_ID (2404396587U)
+
 union fd_features {
   ulong f[ FD_FEATURE_ID_CNT ];
   struct {

@@ -401,8 +401,8 @@ process_manifest( fd_snapin_tile_t * ctx ) {
     uchar hash32[32]; fd_blake3_hash( sum, FD_LTHASH_LEN_BYTES, hash32 );
     FD_BASE58_ENCODE_32_BYTES( sum,    sum_enc    );
     FD_BASE58_ENCODE_32_BYTES( hash32, hash32_enc );
-    FD_LOG_NOTICE(( "Snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
-                    manifest->slot, sum_enc, hash32_enc ));
+    FD_LOG_INFO(( "snapshot manifest slot=%lu indicates lthash[..32]=%s blake3(lthash)=%s",
+                  manifest->slot, sum_enc, hash32_enc ));
   }
 
   manifest->txncache_fork_id = ctx->txncache_root_fork_id.val;
