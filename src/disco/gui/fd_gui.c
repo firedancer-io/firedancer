@@ -360,9 +360,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     } else {
       cur->out.block_success += bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_SUCCESS ) ];
       cur->out.block_fail +=
-          bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSTRUCTON_ERROR ) ]
-        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSUFFICIENT_FUNDS_FOR_RENT ) ]
-        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_UNBALANCED_TRANSACTION ) ];
+          bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSTRUCTON_ERROR ) ];
 
       cur->out.bank_invalid +=
           bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ACCOUNT_NOT_FOUND ) ]
@@ -383,7 +381,9 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_ACCOUNT_LOADED_TWICE ) ]
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_SIGNATURE_FAILURE ) ]
         + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_TOO_MANY_ACCOUNT_LOCKS ) ]
-        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_BUNDLE_PEER ) ];
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_BUNDLE_PEER ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_INSUFFICIENT_FUNDS_FOR_RENT ) ]
+        + bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_UNBALANCED_TRANSACTION ) ];
 
       cur->out.bank_nonce_already_advanced = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ALREADY_ADVANCED ) ];
       cur->out.bank_nonce_advance_failed = bank_metrics[ MIDX( COUNTER, BANKF, TRANSACTION_RESULT_NONCE_ADVANCE_FAILED ) ];
