@@ -14,3 +14,10 @@
         [snapshots.sources.gossip]
             allow_any = false
             allow_list = []
+[tiles.bundle]
+    enabled = true
+    url = "https://dallas.testnet.block-engine.jito.wtf"
+    tip_distribution_program_addr = "F2Zu7QZiTYUhPd7u9ukRVwxh7B71oA3NMJcHuCHc29P2"
+    tip_payment_program_addr = "GJHtFqM9agxPmkeKjHny6qiRKrXZALvvFGiKf11QE7hy"
+    tip_distribution_authority = "7heQNXEtxSv3wV8sNbuQsDN5xNGbbpLvHGiyXuJxEf7n"
+    commission_bps = 1000

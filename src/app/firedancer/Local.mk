@@ -27,6 +27,8 @@ $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/default.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/testnet.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/devnet.toml
 $(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/mainnet.toml
+$(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/testnet-jito.toml
+$(OBJDIR)/obj/app/firedancer/config.o: src/app/firedancer/config/mainnet-jito.toml
 $(OBJDIR)/obj/app/firedancer/version.d: src/app/firedancer/version.h
 
 .PHONY: firedancer

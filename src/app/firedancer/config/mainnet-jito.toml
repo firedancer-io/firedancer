@@ -17,3 +17,10 @@
         [snapshots.sources.gossip]
             allow_any = false
             allow_list = []
+[tiles.bundle]
+    enabled = true
+    url = "https://frankfurt.mainnet.block-engine.jito.wtf"
+    tip_distribution_program_addr = "4R3gSG8BpU4t19KYj8CfnbtRpnT8gtk4dvTHxVRwc2r7"
+    tip_payment_program_addr = "T1pyyaTNZsKv2WcRAB8oVnk93mLJw2XzjtVYqCsaHqt"
+    tip_distribution_authority = "GZctHpWXmsZC1YHACTGGcHhYxjdRqQvTpYkb9LMvxDib"
+    commission_bps = 0
