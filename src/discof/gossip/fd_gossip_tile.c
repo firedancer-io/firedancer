@@ -4,6 +4,7 @@
 
 #include "../../flamenco/gossip/crds/fd_crds.h"
 #include "../../flamenco/gossip/fd_gossip_out.h"
+#include "../../flamenco/features/fd_features.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../disco/fd_txn_m.h"
@@ -380,7 +381,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->my_contact_info->version.minor       = (ushort)firedancer_minor_version;
   ctx->my_contact_info->version.patch       = (ushort)firedancer_patch_version;
   ctx->my_contact_info->version.commit      = firedancer_commit_ref;
-  ctx->my_contact_info->version.feature_set = UINT_MAX; /* TODO ... */
+  ctx->my_contact_info->version.feature_set = FD_FEATURE_SET_ID;
 
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ]            = (fd_ip4_port_t){ .addr = tile->gossip.ports.gossip   ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.gossip )   };
   ctx->my_contact_info->sockets[ FD_CONTACT_INFO_SOCKET_TVU ]               = (fd_ip4_port_t){ .addr = tile->gossip.ports.tvu      ? tile->gossip.ip_addr : 0, .port = fd_ushort_bswap( tile->gossip.ports.tvu )      };

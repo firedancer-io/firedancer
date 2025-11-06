@@ -346,6 +346,10 @@ struct fd_topo_tile {
       ulong max_http_connections;
       ulong send_buffer_size_mb;
       ulong max_http_request_length;
+
+      ulong max_live_slots;
+
+      char identity_key_path[ PATH_MAX ];
     } rpc;
 
     struct {

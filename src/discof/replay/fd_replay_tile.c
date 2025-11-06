@@ -73,16 +73,17 @@
     be replayed.  The new Dispatcher will change this by taking a FEC
     set as input instead. */
 
-#define IN_KIND_SNAP    (0)
-#define IN_KIND_GENESIS (1)
-#define IN_KIND_IPECHO  (2)
-#define IN_KIND_TOWER   (3)
-#define IN_KIND_RESOLV  (4)
-#define IN_KIND_POH     (5)
-#define IN_KIND_EXEC    (6)
-#define IN_KIND_SHRED   (7)
-#define IN_KIND_VTXN    (8)
-#define IN_KIND_GUI     (9)
+#define IN_KIND_SNAP    ( 0)
+#define IN_KIND_GENESIS ( 1)
+#define IN_KIND_IPECHO  ( 2)
+#define IN_KIND_TOWER   ( 3)
+#define IN_KIND_RESOLV  ( 4)
+#define IN_KIND_POH     ( 5)
+#define IN_KIND_EXEC    ( 6)
+#define IN_KIND_SHRED   ( 7)
+#define IN_KIND_VTXN    ( 8)
+#define IN_KIND_GUI     ( 9)
+#define IN_KIND_RPC     (10)
 
 #define DEBUG_LOGGING 0
 
@@ -377,6 +378,7 @@ struct fd_replay_tile {
      consumer is enabled so it can increment the bank's refcnt before
      publishing the bank_idx to the gui. */
   int gui_enabled;
+  int rpc_enabled;
 
   /* For dumping blocks to protobuf. For backtest only. */
   fd_block_dump_ctx_t * block_dump_ctx;
@@ -780,6 +782,18 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   slot_info->bank_hash             = *bank_hash;
   slot_info->block_hash            = *block_hash;
   slot_info->transaction_count     = fd_bank_txn_count_get( bank );
+
+  fd_inflation_t inflation = fd_bank_inflation_get( bank );
+  slot_info->inflation.foundation      = inflation.foundation;
+  slot_info->inflation.foundation_term = inflation.foundation_term;
+  slot_info->inflation.terminal        = inflation.terminal;
+  slot_info->inflation.initial         = inflation.initial;
+  slot_info->inflation.taper           = inflation.taper;
+
+  fd_rent_t rent = fd_bank_rent_get( bank );
+  slot_info->rent.burn_percent            = rent.burn_percent;
+  slot_info->rent.lamports_per_uint8_year = rent.lamports_per_uint8_year;
+  slot_info->rent.exemption_threshold     = rent.exemption_threshold;
 
   slot_info->first_fec_set_received_nanos      = bank->first_fec_set_received_nanos;
   slot_info->preparation_begin_nanos           = bank->preparation_begin_nanos;
@@ -1362,7 +1376,7 @@ process_poh_message( fd_replay_tile_t *                 ctx,
 static void
 publish_reset( fd_replay_tile_t *  ctx,
                fd_stem_context_t * stem,
-               fd_bank_t const *   bank ) {
+               fd_bank_t *         bank ) {
   if( FD_UNLIKELY( ctx->replay_out->idx==ULONG_MAX ) ) return;
 
   fd_hash_t const * block_hash = fd_blockhashes_peek_last( fd_bank_block_hash_queue_query( bank ) );
@@ -1370,6 +1384,7 @@ publish_reset( fd_replay_tile_t *  ctx,
 
   fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
+  reset->bank_idx         = bank->idx;
   reset->timestamp        = fd_log_wallclock();
   reset->completed_slot   = fd_bank_slot_get( bank );
   reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
@@ -1386,6 +1401,8 @@ publish_reset( fd_replay_tile_t *  ctx,
     reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
   }
   reset->next_leader_slot = ctx->next_leader_slot;
+
+  if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++;
 
   fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2137,6 +2154,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
   if( FD_LIKELY( ctx->replay_out->idx!=ULONG_MAX ) ) {
     fd_poh_reset_t * reset = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
 
+    reset->bank_idx = bank->idx;
     reset->timestamp = ctx->reset_timestamp_nanos;
     reset->completed_slot = ctx->reset_slot;
     reset->hashcnt_per_tick = fd_bank_hashes_per_tick_get( bank );
@@ -2159,6 +2177,8 @@ process_tower_update( fd_replay_tile_t *           ctx,
       reset->max_microblocks_in_slot = fd_ulong_min( MAX_MICROBLOCKS_PER_SLOT, ticks_per_slot*(reset->hashcnt_per_tick-1UL) );
     }
     reset->next_leader_slot = ctx->next_leader_slot;
+
+    if( FD_LIKELY( ctx->rpc_enabled ) ) bank->refcnt++;
 
     fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_RESET, ctx->replay_out->chunk, sizeof(fd_poh_reset_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
@@ -2364,6 +2384,7 @@ returnable_frag( fd_replay_tile_t *  ctx,
       process_vote_txn_sent( ctx, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
       break;
     }
+    case IN_KIND_RPC:
     case IN_KIND_GUI: {
       fd_bank_t * bank = fd_banks_bank_query( ctx->banks, sig );
       FD_TEST( bank );
@@ -2610,6 +2631,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( !strcmp( link->name, "shred_out"    ) ) ctx->in_kind[ i ] = IN_KIND_SHRED;
     else if( !strcmp( link->name, "send_out"     ) ) ctx->in_kind[ i ] = IN_KIND_VTXN;
     else if( !strcmp( link->name, "gui_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_GUI;
+    else if( !strcmp( link->name, "rpc_replay"   ) ) ctx->in_kind[ i ] = IN_KIND_RPC;
     else FD_LOG_ERR(( "unexpected input link name %s", link->name ));
   }
 
@@ -2628,6 +2650,7 @@ unprivileged_init( fd_topo_t *      topo,
   exec_out->chunk  = exec_out->chunk0;
 
   ctx->gui_enabled = fd_topo_find_tile( topo, "gui", 0UL )!=ULONG_MAX;
+  ctx->rpc_enabled = fd_topo_find_tile( topo, "rpc", 0UL )!=ULONG_MAX;
 
   fd_memset( &ctx->metrics, 0, sizeof(ctx->metrics) );
 

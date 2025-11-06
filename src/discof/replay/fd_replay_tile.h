@@ -26,6 +26,20 @@ struct fd_replay_slot_completed {
 
   ulong transaction_count;
 
+  struct {
+    double initial;
+    double terminal;
+    double taper;
+    double foundation;
+    double foundation_term;
+  } inflation;
+
+  struct {
+    ulong lamports_per_uint8_year;
+    double exemption_threshold;
+    uchar burn_percent;
+  } rent;
+
   /* Reference to the bank for this completed slot.  TODO: We can
      eliminate non-timestamp fields and have consumers just use
      bank_idx. */
