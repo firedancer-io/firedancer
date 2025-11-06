@@ -13,53 +13,6 @@
 
 ***********************************************************************/
 
-/* wd_buf describes an O_DIRECT append buf */
-
-struct wd_buf;
-typedef struct wd_buf wd_buf_t;
-
-struct wd_buf {
-  uchar *    buf;          /* pointer into dcache */
-  uint       state;        /* WD_BUF_* */
-  wd_buf_t * next;         /* next ele in linked list */
-  ulong      io_seq;       /* mcache request sequence number */
-  ulong      bstream_seq;  /* APPEND=bstream seq of first block */
-                           /* IOWAIT=bstream seq after buffer is fully written */
-};
-
-/* WD_BUF_* give append buf states */
-
-#define WD_BUF_IDLE   1U
-#define WD_BUF_APPEND 2U
-#define WD_BUF_IOWAIT 3U
-
-/* fd_vinyl_io_wd implements the fd_vinyl_io_t interface */
-
-struct fd_vinyl_io_wd {
-  fd_vinyl_io_t base[1];
-  ulong         dev_base;
-  ulong         dev_sz;        /* Block store byte size (BLOCK_SZ multiple) */
-
-  /* Buffer linked lists by state */
-  wd_buf_t * buf_idle;         /* free stack */
-  wd_buf_t * buf_append;       /* current wip block */
-  wd_buf_t * buf_iowait_head;  /* least recently enqueued (seq increasing) */
-  wd_buf_t * buf_iowait_tail;  /* most  recently enqueued */
-
-  /* Work queue (snapwr) */
-  fd_frag_meta_t * wr_mcache;  /* metadata ring */
-  ulong            wr_seq;     /* next metadata seq no */
-  ulong            wr_seqack;  /* next expected ACK seq */
-  ulong            wr_depth;   /* metadata ring depth */
-  uchar *          wr_base;    /* base pointer for data cache */
-  uchar *          wr_chunk0;  /* [wr_chunk0,wr_chunk1) is the data cache data region */
-  uchar *          wr_chunk1;
-  ulong const *    wr_fseq;    /* completion notifications */
-  ulong            wr_mtu;     /* max block byte size */
-};
-
-typedef struct fd_vinyl_io_wd fd_vinyl_io_wd_t;
-
 /* wd_block_used returns the number of bytes already committed in an
    APPEND buffer. */
 
