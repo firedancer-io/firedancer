@@ -66,6 +66,9 @@
 | <span class="metrics-name">net_&#8203;tx_&#8203;idle_&#8203;cnt</span> | gauge | Number of transmit buffers currently idle. |
 | <span class="metrics-name">net_&#8203;xsk_&#8203;tx_&#8203;wakeup_&#8203;cnt</span> | counter | Number of XSK sendto syscalls dispatched. |
 | <span class="metrics-name">net_&#8203;xsk_&#8203;rx_&#8203;wakeup_&#8203;cnt</span> | counter | Number of XSK recvmsg syscalls dispatched. |
+| <span class="metrics-name">net_&#8203;tx_&#8203;wakeup_&#8203;timeout_&#8203;cnt</span> | counter | Number of XSK sendto syscalls dispatched due to timeout. |
+| <span class="metrics-name">net_&#8203;tx_&#8203;wakeup_&#8203;level_&#8203;cnt</span> | counter | Number of XSK sendto syscalls dispatched due to flush level. |
+| <span class="metrics-name">net_&#8203;tx_&#8203;wakeup_&#8203;timeout_&#8203;and_&#8203;level_&#8203;cnt</span> | counter | Number of XSK sendto syscalls dispatched due to both timeout and flush level reached. |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other</span> | counter | xdp_statistics_v0.rx_dropped: Dropped for other reasons |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;rx_&#8203;invalid_&#8203;descs</span> | counter | xdp_statistics_v0.rx_invalid_descs: Dropped due to invalid descriptor |
 | <span class="metrics-name">net_&#8203;xdp_&#8203;tx_&#8203;invalid_&#8203;descs</span> | counter | xdp_statistics_v0.tx_invalid_descs: Dropped due to invalid descriptor |

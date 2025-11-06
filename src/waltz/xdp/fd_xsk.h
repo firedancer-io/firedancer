@@ -120,14 +120,8 @@
 struct __attribute__((aligned(64UL))) fd_xdp_ring {
   /* This point is 64-byte aligned */
 
-  /* mmap() params, only used during join/leave for munmap() */
-
   void *  mem;    /* Points to start of shared descriptor ring mmap region */
   ulong   map_sz; /* Size of shared descriptor ring mmap region */
-  ulong   _pad_0x10;
-  ulong   _pad_0x18;
-
-  /* This point is 64-byte aligned */
 
   /* Pointers to fields opaque XSK ring structure.
      This indirection is required because the memory layout of the
@@ -143,7 +137,6 @@ struct __attribute__((aligned(64UL))) fd_xdp_ring {
   uint *  prod;        /* Points to producer seq in shared descriptor ring */
   uint *  cons;        /* Points to consumer seq in shared descriptor ring */
 
-  /* This point is 64-byte aligned */
 
   /* Managed by fd_xsk_t */
 

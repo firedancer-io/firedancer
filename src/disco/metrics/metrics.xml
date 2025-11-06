@@ -71,6 +71,10 @@ metric introduced.
 
     <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched." />
     <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched." />
+    <histogram name="TxWakeupReasonCnt" enum="TxWakeupReason" summary="Number of XSK sendto syscalls dispatched due to timeout and flush level." />
+    <counter name="TxWakeupTimeoutCnt" summary="Number of XSK sendto syscalls dispatched due to timeout." />
+    <counter name="TxWakeupLevelCnt" summary="Number of XSK sendto syscalls dispatched due to flush level." />
+    <counter name="TxWakeupTimeoutAndLevelCnt" summary="Number of XSK sendto syscalls dispatched due to both timeout and flush level reached." />
 
     <!-- Kernel xdp_statistics struct -->
     <counter name="XdpRxDroppedOther" summary="xdp_statistics_v0.rx_dropped: Dropped for other reasons" />

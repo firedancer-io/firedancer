@@ -42,7 +42,6 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
                   ulong           elem_sz,
                   ulong           depth,
                   struct xdp_ring_offset const * ring_offset ) {
-  /* TODO what is ring_offset->desc ? */
   /* TODO: mmap was originally called with MAP_POPULATE,
            but this symbol isn't available with this build */
 
@@ -51,6 +50,9 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
     return -1;
   }
 
+  /* xdp_ring_offset->desc is the offset of the descriptor ring from the start of the mmaped region
+     The descriptor ring must be the last 'thing' in the mapped region, so we can ignore the other
+     offsets */
   ulong map_sz = ring_offset->desc + depth*elem_sz;
 
   void * res = mmap( NULL, map_sz, PROT_READ|PROT_WRITE, MAP_SHARED, xsk_fd, map_off );

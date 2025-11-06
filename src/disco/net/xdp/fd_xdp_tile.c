@@ -132,7 +132,7 @@ fd_net_flusher_check( fd_net_flusher_t * flusher,
     flusher->next_tail_flush_ticks = LONG_MAX;
     return 0;
   }
-  return 1;
+  return flush_level << 1 | flush_timeout;
 }
 
 /* fd_net_flusher_wakeup signals a sendto() wakeup was done.  now is a
@@ -266,6 +266,8 @@ typedef struct {
     ulong rx_gre_inv_pkt_cnt;
     ulong tx_gre_cnt;
     ulong tx_gre_route_fail_cnt;
+
+    ulong tx_wakeup_reason_cnt[3]; /* 0: timeout, 1: flush_level, 2: both */
   } metrics;
 } fd_net_ctx_t;
 
@@ -310,6 +312,10 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, RX_GRE_IGNORED_CNT,    ctx->metrics.rx_gre_ignored_cnt    );
   FD_MCNT_SET( NET, TX_GRE_CNT,            ctx->metrics.tx_gre_cnt            );
   FD_MCNT_SET( NET, TX_GRE_ROUTE_FAIL_CNT, ctx->metrics.tx_gre_route_fail_cnt );
+
+  FD_MCNT_SET( NET, TX_WAKEUP_TIMEOUT_CNT,    ctx->metrics.tx_wakeup_reason_cnt[0]    );
+  FD_MCNT_SET( NET, TX_WAKEUP_LEVEL_CNT,      ctx->metrics.tx_wakeup_reason_cnt[1]      );
+  FD_MCNT_SET( NET, TX_WAKEUP_TIMEOUT_AND_LEVEL_CNT, ctx->metrics.tx_wakeup_reason_cnt[2] );
 }
 
 struct xdp_statistics_v0 {
@@ -453,10 +459,14 @@ net_rx_wakeup( fd_net_ctx_t * ctx,
 static void
 net_tx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
-               int *          charge_busy ) {
+               int *          charge_busy,
+               uint           flush_result ) {
   if( !fd_xsk_tx_need_wakeup( xsk ) ) return;
   if( FD_VOLATILE_CONST( *xsk->ring_tx.prod )==FD_VOLATILE_CONST( *xsk->ring_tx.cons ) ) return;
   *charge_busy = 1;
+  ctx->metrics.tx_wakeup_reason_cnt[flush_result-1]++;
+
+  long dt = -fd_tickcount();
   if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
       FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
@@ -468,6 +478,10 @@ net_tx_wakeup( fd_net_ctx_t * ctx,
         xsk->log_suppress_until_ns = ts + (long)1e9;
       }
     }
+  }
+  dt += fd_tickcount();
+  if( dt > 5e6L ) { /* only print if longer than 5ms, reduce spam */
+    FD_LOG_INFO(( "xsk sendto took %ld ticks", dt ));
   }
   ctx->metrics.xsk_tx_wakeup_cnt++;
 }
@@ -482,8 +496,9 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
   uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.prod );
   uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.cons );
   int tx_ring_empty = tx_prod==tx_cons;
-  if( fd_net_flusher_check( ctx->tx_flusher+xsk_idx, now, tx_ring_empty ) ) {
-    net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy );
+  uint flush_result = (uint)fd_net_flusher_check( ctx->tx_flusher+xsk_idx, now, tx_ring_empty );
+  if( flush_result ) {
+    net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy, flush_result );
     fd_net_flusher_wakeup( ctx->tx_flusher+xsk_idx, now );
   }
   return 0;
@@ -1525,7 +1540,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
     frame_off = net_xsk_bootstrap( ctx, j, frame_off );
     net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
-    net_tx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
+    net_tx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy, 1 ); /* one-time miscount :shrug: */
   }
 
   if( FD_UNLIKELY( frame_off > ctx->umem_sz ) ) {
