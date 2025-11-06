@@ -6,10 +6,12 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 #include "fd_capture_ctx.h"
 #include "../../flamenco/capture/fd_solcap_writer.h"
@@ -66,6 +68,14 @@ struct __attribute__((packed)) fd_capture_tile_ctx {
 
   FILE * file;
 
+  /* Recent-only rotating capture state */
+  int   recent_only;                  /* 1 if using 3-file rotation, 0 for single file */
+  FILE* recent_files[3];              /* Array of 3 FILE pointers for rotation */
+  int   recent_fds[3];                /* File descriptors for seccomp */
+  ulong recent_current_idx;           /* Current file index (0, 1, or 2) */
+  ulong recent_file_start_slot;       /* Slot number when current file was started (ULONG_MAX = uninitialized) */
+  ulong recent_slots_per_file;        /* Number of slots per file */
+
   /* Incoming links for mcache/dcache processing */
   struct {
     fd_wksp_t * mem;
@@ -83,6 +93,13 @@ struct __attribute__((packed)) fd_capture_tile_ctx {
 
 typedef struct fd_capture_tile_ctx fd_capture_tile_ctx_t;
 
+/* _capture_failure: Called on any unrecoverable capture error.
+   Logs a warning and spins forever instead of crashing the validator. */
+static void
+_capture_failure( char const * msg ) {
+  FD_LOG_ERR(( "\033[1;31mSOLCAP HAS FAILED: %s. Contact Firedancer Development team immediately.\033[0m", msg ));
+  for(;;) FD_SPIN_PAUSE();
+}
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
@@ -103,10 +120,14 @@ populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
+  /* FD values are stored in tile->capctx during privileged_init,
+     avoiding the need to access context scratch memory here */
   populate_sock_filter_policy_fd_capture_tile( out_cnt,
                                                out,
                                                (uint)fd_log_private_logfile_fd(),
-                                               (uint)tile->capctx.solcap_fd );
+                                               (uint)tile->capctx.solcap_fd_0,
+                                               (uint)tile->capctx.solcap_fd_1,
+                                               (uint)tile->capctx.solcap_fd_2 );
   return sock_filter_policy_fd_capture_tile_instr_cnt;
 }
 
@@ -120,8 +141,20 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd();
-  if( FD_LIKELY( -1!=tile->capctx.solcap_fd ) )
-    out_fds[ out_cnt++ ] = tile->capctx.solcap_fd;
+  
+  if( tile->capctx.recent_only ) {
+    /* In recent_only mode, allow all 3 rotating file descriptors */
+    if( FD_LIKELY( -1!=tile->capctx.solcap_fd_0 ) )
+      out_fds[ out_cnt++ ] = tile->capctx.solcap_fd_0;
+    if( FD_LIKELY( -1!=tile->capctx.solcap_fd_1 ) )
+      out_fds[ out_cnt++ ] = tile->capctx.solcap_fd_1;
+    if( FD_LIKELY( -1!=tile->capctx.solcap_fd_2 ) )
+      out_fds[ out_cnt++ ] = tile->capctx.solcap_fd_2;
+  } else {
+    /* Traditional single file mode */
+    if( FD_LIKELY( -1!=tile->capctx.solcap_fd ) )
+      out_fds[ out_cnt++ ] = tile->capctx.solcap_fd;
+  }
 
   return out_cnt;
 }
@@ -157,7 +190,7 @@ fd_capctx_buf_process_msg(fd_capture_ctx_t * capture_ctx,
         break;
       }
     default:
-      FD_LOG_ERR(( "Unknown signal: %d", msg_hdr->sig ));
+      _capture_failure( "Unknown signal received in message processing" );
       break;
   }
   return block_len;
@@ -192,6 +225,41 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
     actual_data       = (char *)(data + sizeof(fd_solcap_buf_msg_t));
     ctx->msg_set_slot = msg_hdr->slot;
     ctx->msg_set_sig  = SOLCAP_SIG_MAP(msg_hdr->sig);
+    
+    /* Handle file rotation for recent_only mode */
+    if( ctx->recent_only ) {
+      if( ctx->recent_file_start_slot == ULONG_MAX ) {
+        ctx->recent_file_start_slot = msg_hdr->slot;
+      } else if( msg_hdr->slot >= ctx->recent_file_start_slot + ctx->recent_slots_per_file ) {
+        /* Check if we need to rotate (>= 16 slots from start) */
+          /* Rotate to next file */
+        ulong next_idx = (ctx->recent_current_idx + 1) % 3;
+        FILE * next_file = ctx->recent_files[next_idx];
+        int next_fd = fileno(next_file);
+
+        /* The following is a series of checks to ensure the file is
+            flushed and truncated correctly. This occurs via: 
+            1. Flushing the current file 
+            2. Flushing the next file
+            3. Truncating the next file
+            4. Resetting the file descriptor position to 0
+            5. Resetting the FILE* stream position to 0
+            6. Clearing any error indicators on the stream
+            7. Reinitializing the solcap writer with the new file
+        */
+        if( FD_UNLIKELY( fflush( ctx->file ) ) ) { _capture_failure( "fflush failed on current file during rotation" ); }
+        if( FD_UNLIKELY( fflush( next_file ) ) ) { _capture_failure( "fflush failed on next file during rotation" ); }
+        if( FD_UNLIKELY( ftruncate( next_fd, 0L ) != 0 ) ) { _capture_failure( "ftruncate failed during file rotation" ); }
+        if( FD_UNLIKELY( lseek( next_fd, 0L, SEEK_SET ) == -1L ) ) { _capture_failure( "lseek failed during file rotation" ); }
+        if( FD_UNLIKELY( fseek( next_file, 0L, SEEK_SET ) != 0 ) ) { _capture_failure( "fseek failed during file rotation" ); }
+        
+        clearerr( next_file );
+        fd_solcap_writer_init( ctx->capture_ctx->capture, next_file );
+        ctx->recent_current_idx = next_idx;
+        ctx->recent_file_start_slot = msg_hdr->slot;
+        ctx->file = next_file;
+      }
+    }
   } else {
     msg_hdr_storage.sig     = ctx->msg_set_sig;
     msg_hdr_storage.slot    = ctx->msg_set_slot;
@@ -232,7 +300,6 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_capture_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_capture_tile_ctx_t), sizeof(fd_capture_tile_ctx_t) );
@@ -243,17 +310,77 @@ privileged_init( fd_topo_t *      topo,
   ctx->capture_ctx = fd_capture_ctx_join( fd_capture_ctx_new( _capture_ctx ) );
   FD_TEST( ctx->capture_ctx );
 
-  tile->capctx.solcap_fd = open( tile->capctx.solcap_capture, O_RDWR | O_CREAT | O_TRUNC, 0644 );
-  if( FD_UNLIKELY( tile->capctx.solcap_fd == -1 ) ) {
-    FD_LOG_ERR(( "failed to open or create solcap capture file %s (%i-%s)", 
-                 tile->capctx.solcap_capture, errno, strerror(errno) ));
+  ctx->recent_only = tile->capctx.recent_only;
+  ctx->recent_slots_per_file = tile->capctx.recent_slots_per_file ? tile->capctx.recent_slots_per_file : 128UL;
+
+  struct stat path_stat;
+  int stat_result = stat( tile->capctx.solcap_capture, &path_stat );
+
+  if( ctx->recent_only ) {
+    /* recent_only=1: Ensure path is a directory, create if not exists */
+    if( stat_result != 0 ) {
+      if( FD_UNLIKELY( mkdir(tile->capctx.solcap_capture, 0755) != 0 ) ) {
+        FD_LOG_ERR(( "solcap_recent_only=1 but could not create directory: %s (%i-%s)", 
+                   tile->capctx.solcap_capture, errno, strerror(errno) ));
+      }
+    } else if( FD_UNLIKELY( !S_ISDIR(path_stat.st_mode) ) ) {
+      FD_LOG_ERR(( "solcap_recent_only=1 but path is not a directory: %s", tile->capctx.solcap_capture ));
+    }
+    
+    ctx->recent_current_idx = 0;
+    ctx->recent_file_start_slot = 0UL;  /* Will be set on first fragment */
+    
+    for( ulong i = 0; i < 3; i++ ) {
+      char filepath[PATH_MAX];
+      int ret = snprintf( filepath, PATH_MAX, "%s/recent_%lu.solcap", tile->capctx.solcap_capture, i );
+      if( FD_UNLIKELY( ret<0 || ret>=PATH_MAX ) ) {
+        FD_LOG_ERR(( "snprintf failed or path too long for recent file %lu", i ));
+      }
+      
+      ctx->recent_fds[i] = open( filepath, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+      if( FD_UNLIKELY( ctx->recent_fds[i] == -1 ) ) {
+        FD_LOG_ERR(( "failed to open or create solcap recent file %s (%i-%s)", 
+                     filepath, errno, strerror(errno) ));
+      }
+      
+      ctx->recent_files[i] = fdopen( ctx->recent_fds[i], "w+" );
+      if( FD_UNLIKELY( !ctx->recent_files[i] ) ) {
+        FD_LOG_ERR(( "failed to fdopen solcap recent file descriptor %d (%i-%s)", 
+                     ctx->recent_fds[i], errno, strerror(errno) ));
+      }
+    }
+    
+    ctx->file = ctx->recent_files[0];
+    tile->capctx.solcap_fd = ctx->recent_fds[0];
+    
+    tile->capctx.solcap_fd_0 = ctx->recent_fds[0];
+    tile->capctx.solcap_fd_1 = ctx->recent_fds[1];
+    tile->capctx.solcap_fd_2 = ctx->recent_fds[2];
+    
+  } else {
+    /* recent_only=0: Validate that path is a file*/
+    if( FD_UNLIKELY( stat_result == 0 && S_ISDIR(path_stat.st_mode) ) ) {
+      FD_LOG_ERR(( "solcap_recent_only=0 but path is a directory: %s (should be a file path)", tile->capctx.solcap_capture ));
+    }
+    
+    tile->capctx.solcap_fd = open( tile->capctx.solcap_capture, O_RDWR | O_CREAT | O_TRUNC, 0644 );
+    if( FD_UNLIKELY( tile->capctx.solcap_fd == -1 ) ) {
+      FD_LOG_ERR(( "failed to open or create solcap capture file %s (%i-%s)", 
+                   tile->capctx.solcap_capture, errno, strerror(errno) ));
+    }
+
+    ctx->file = fdopen( tile->capctx.solcap_fd, "w+" );
+    if( FD_UNLIKELY( !ctx->file ) ) {
+      FD_LOG_ERR(( "failed to fdopen solcap capture file descriptor %d (%i-%s)", 
+                   tile->capctx.solcap_fd, errno, strerror(errno) ));
+    }
+    
+    /* Store same FD for all 3 slots in single file mode */
+    tile->capctx.solcap_fd_0 = tile->capctx.solcap_fd;
+    tile->capctx.solcap_fd_1 = tile->capctx.solcap_fd;
+    tile->capctx.solcap_fd_2 = tile->capctx.solcap_fd;
   }
 
-  ctx->file = fdopen( tile->capctx.solcap_fd, "w+" );
-  if( FD_UNLIKELY( !ctx->file ) ) {
-    FD_LOG_ERR(( "failed to fdopen solcap capture file descriptor %d (%i-%s)", 
-                 tile->capctx.solcap_fd, errno, strerror(errno) ));
-  }
   FD_TEST( ctx->capture_ctx->capture );
 
   ctx->capture_ctx->solcap_start_slot = tile->capctx.capture_start_slot;

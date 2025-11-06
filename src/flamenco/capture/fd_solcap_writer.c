@@ -29,7 +29,7 @@ fd_solcap_writer_delete( fd_solcap_writer_t * writer ) {
 
 fd_solcap_writer_t *
 fd_solcap_writer_init( fd_solcap_writer_t * writer,
-                          FILE *                  file ) {
+                       FILE *               file ) {
 
   if( FD_UNLIKELY( !writer ) ) {
     FD_LOG_WARNING(( "NULL writer" ));

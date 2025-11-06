@@ -1,31 +1,46 @@
 # logfile_fd: It can be disabled by configuration, but typically tiles
 #             will open a log file on boot and write all messages there.
 #
-# solcap_fd: The file that the solcap capture will be written to
-unsigned int logfile_fd, uint solcap_fd
+# solcap_fd_0: The first solcap capture file (single file mode or recent_0.solcap)
+# solcap_fd_1: The second solcap capture file (recent_1.solcap in recent_only mode)
+# solcap_fd_2: The third solcap capture file (recent_2.solcap in recent_only mode)
+unsigned int logfile_fd, uint solcap_fd_0, uint solcap_fd_1, uint solcap_fd_2
 
 # logging: all log messages are written to a file and/or pipe
 #
 # 'WARNING' and above are written to the STDERR pipe, while all messages
 # are always written to the log file.
 #
-# The capture tile writes to the solcap file.
+# The capture tile writes to the solcap file(s).
 #
 # arg 0 is the file descriptor to write to.  The boot process ensures
 # that descriptor 2 is always STDERR.
 write: (or (eq (arg 0) 2)
            (eq (arg 0) logfile_fd)
-           (eq (arg 0) solcap_fd))
+           (eq (arg 0) solcap_fd_0)
+           (eq (arg 0) solcap_fd_1)
+           (eq (arg 0) solcap_fd_2))
 
 # fflush() requires fstat to check file state before flushing
 #
 # arg 0 is the file descriptor to fstat.
-fstat: (eq (arg 0) solcap_fd)
+fstat: (or (eq (arg 0) solcap_fd_0)
+           (eq (arg 0) solcap_fd_1)
+           (eq (arg 0) solcap_fd_2))
 
 # fflush() may use lseek to manage file position
 #
 # arg 0 is the file descriptor to lseek.
-lseek: (eq (arg 0) solcap_fd)
+lseek: (or (eq (arg 0) solcap_fd_0)
+           (eq (arg 0) solcap_fd_1)
+           (eq (arg 0) solcap_fd_2))
+
+# ftruncate: used to clear/reset rotating capture files
+#
+# arg 0 is the file descriptor to truncate.
+ftruncate: (or (eq (arg 0) solcap_fd_0)
+               (eq (arg 0) solcap_fd_1)
+               (eq (arg 0) solcap_fd_2))
 
 # logging: 'WARNING' and above fsync the logfile to disk immediately
 #

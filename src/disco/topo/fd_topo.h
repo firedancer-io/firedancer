@@ -616,7 +616,12 @@ struct fd_topo_tile {
     struct {
       ulong capture_start_slot;
       char solcap_capture[ PATH_MAX ];
+      int recent_only;
+      ulong recent_slots_per_file;
       int solcap_fd;
+      int solcap_fd_0;  /* First FD (single file mode) or recent_0.solcap */
+      int solcap_fd_1;  /* Second FD (recent_1.solcap, or same as fd_0) */
+      int solcap_fd_2;  /* Third FD (recent_2.solcap, or same as fd_0) */
     } capctx;
   };
 };
