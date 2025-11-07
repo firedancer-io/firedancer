@@ -451,11 +451,9 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   spot->txnp->scheduler_arrival_time_nanos = insert->txnp->scheduler_arrival_time_nanos;
   extra_txn_deq_remove_head( ctx->extra_txn_deq );
 
-  ulong blockhash_slot = insert->txnp->blockhash_slot;
-
   ulong deleted;
   long insert_duration = -fd_tickcount();
-  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot, &deleted );
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, &deleted );
   insert_duration      += fd_tickcount();
 
   FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
@@ -842,11 +840,12 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
-    ulong payload_sz  = txnm->payload_sz;
-    ulong txn_t_sz    = txnm->txn_t_sz;
-    uint  source_ipv4 = txnm->source_ipv4;
-    uchar source_tpu  = txnm->source_tpu;
+    fd_txn_m_t * txnm            = (fd_txn_m_t *)dcache_entry;
+    ulong payload_sz             = txnm->payload_sz;
+    ulong txn_t_sz               = txnm->txn_t_sz;
+    uint  source_ipv4            = txnm->source_ipv4;
+    uchar source_tpu             = txnm->source_tpu;
+    ulong reference_block_height = txnm->reference_block_height;
     FD_TEST( payload_sz<=FD_TPU_MTU    );
     FD_TEST( txn_t_sz  <=FD_TXN_MAX_SZ );
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
@@ -893,7 +892,7 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->bundle = fd_pack_insert_bundle_init( ctx->pack, ctx->current_bundle->_txn, ctx->current_bundle->txn_cnt );
       }
       ctx->cur_spot                         = ctx->current_bundle->bundle[ ctx->current_bundle->txn_received ];
-      ctx->current_bundle->min_block_height = fd_ulong_min( ctx->current_bundle->min_block_height, txnm->reference_block_height );
+      ctx->current_bundle->min_block_height = fd_ulong_min( ctx->current_bundle->min_block_height, reference_block_height );
     } else {
       ctx->is_bundle = 0;
 #if FD_PACK_USE_EXTRA_STORAGE
@@ -906,11 +905,7 @@ during_frag( fd_pack_ctx_t * ctx,
           FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
         }
         ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
-        /* We want to store the current time in cur_spot so that we can
-           track its expiration better.  We just stash it in the CU
-           fields, since those aren't important right now. */
-        ctx->cur_spot->txnp->blockhash_block_height = sig;
-        ctx->insert_to_extra                = 1;
+        ctx->insert_to_extra = 1;
         FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
       }
 #else
@@ -929,6 +924,10 @@ during_frag( fd_pack_ctx_t * ctx,
     ctx->cur_spot->txnp->payload_sz  = payload_sz;
     ctx->cur_spot->txnp->source_ipv4 = source_ipv4;
     ctx->cur_spot->txnp->source_tpu  = source_tpu;
+    /* We just stash the reference block height in the CU
+       fields, since those aren't important until
+       fd_pack_insert_txn_fini is called. */
+    ctx->cur_spot->txnp->reference_block_height = reference_block_height;
 
     break;
   }
@@ -1077,10 +1076,9 @@ after_frag( fd_pack_ctx_t *     ctx,
         ctx->current_bundle->bundle = NULL;
       }
     } else {
-      ulong block_height = sig;
       ulong deleted;
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, block_height, &deleted );
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, &deleted );
       insert_duration      += fd_tickcount();
       FD_MCNT_INC( PACK, TRANSACTION_DELETED, deleted );
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;

@@ -1284,7 +1284,6 @@ populate_bitsets( fd_pack_t         * pack,
 int
 fd_pack_insert_txn_fini( fd_pack_t  * pack,
                          fd_txn_e_t * txne,
-                         ulong        expires_at,
                          ulong      * delete_cnt ) {
   *delete_cnt = 0UL;
 
@@ -1299,7 +1298,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
      accessed with adj_lut[n]. */
   fd_acct_addr_t const * alt_adj = ord->txn_e->alt_accts - fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
 
-  ord->expires_at = expires_at;
+  ord->expires_at = txne->txnp->reference_block_height;
 
   int est_result = fd_pack_estimate_rewards_and_compute( txne, ord );
   if( FD_UNLIKELY( !est_result ) ) REJECT( ESTIMATION_FAIL );
@@ -1318,7 +1317,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
   }
 
   /* Reject any transactions that have already expired */
-  if( FD_UNLIKELY( expires_at<pack->expire_before                          ) ) REJECT( EXPIRED          );
+  if( FD_UNLIKELY( ord->expires_at<pack->expire_before ) ) REJECT( EXPIRED );
 
   int replaces = 0;
   /* If it's a durable nonce and we already have one, delete one or the
@@ -1388,7 +1387,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   if( FD_UNLIKELY( is_durable_nonce ) ) noncemap_ele_insert( pack->noncemap, ord, pack->pool );
 
-  fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
+  fd_pack_expq_t temp[ 1 ] = {{ .expires_at = ord->expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
 
   if( FD_LIKELY( is_vote ) ) insert_into = pack->pending_votes;
@@ -1977,7 +1976,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       /* Copied out to 1280 bytes, which copies some other fields we needed to
          copy anyway. */
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, payload_sz     )+sizeof(((fd_txn_p_t*)NULL)->payload_sz    )<=1280UL, nt_memcpy );
-      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, block_height   )+sizeof(((fd_txn_p_t*)NULL)->block_height  )<=1280UL, nt_memcpy );
+      FD_STATIC_ASSERT( offsetof(fd_txn_p_t, reference_block_height   )+sizeof(((fd_txn_p_t*)NULL)->reference_block_height  )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, scheduler_arrival_time_nanos )+sizeof(((fd_txn_p_t*)NULL)->scheduler_arrival_time_nanos )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_tpu     )+sizeof(((fd_txn_p_t*)NULL)->source_tpu    )<=1280UL, nt_memcpy );
       FD_STATIC_ASSERT( offsetof(fd_txn_p_t, source_ipv4    )+sizeof(((fd_txn_p_t*)NULL)->source_ipv4   )<=1280UL, nt_memcpy );

@@ -333,9 +333,9 @@ FD_STATIC_ASSERT( FD_PACK_INSERT_ACCEPT_NONCE_NONVOTE_REPLACE<FD_PACK_INSERT_RET
    returns one of the FD_PACK_INSERT_ACCEPT_* or FD_PACK_INSERT_REJECT_*
    codes explained above.
  */
-fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                                         );
-int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong expires_at, ulong * delete_cnt );
-void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                                       );
+fd_txn_e_t * fd_pack_insert_txn_init  ( fd_pack_t * pack                                       );
+int          fd_pack_insert_txn_fini  ( fd_pack_t * pack, fd_txn_e_t * txn, ulong * delete_cnt );
+void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn                     );
 
 /* fd_pack_insert_bundle_{init,fini,cancel} are parallel to the
    similarly named fd_pack_insert_txn functions but can be used to
