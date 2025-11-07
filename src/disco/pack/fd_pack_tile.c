@@ -855,14 +855,14 @@ during_frag( fd_pack_ctx_t * ctx,
     FD_TEST( addr_table_sz<=32UL*FD_TXN_ACCT_ADDR_MAX );
 
     if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->root_block_height) ) ) {
-      /* Using the resolv tile's knowledge of the current last root block height is a bit
-         of a hack, since we don't get any info if there are no
-         transactions and we're not leader.  We're actually in exactly
-         the case where that's okay though.  The point of calling
-         expire_before long before we become leader is so that we don't
-         drop new but low-fee-paying transactions when pack is clogged
-         with expired but high-fee-paying transactions.  That can only
-         happen if we are getting transactions. */
+      /* Using the resolv tile's knowledge of the current last root
+         block height is a bit of a hack, since we don't get any info if
+         there are no transactions and we're not leader.  We're actually
+         in exactly the case where that's okay though.  The point of
+         calling expire_before long before we become leader is so that
+         we don't drop new but low-fee-paying transactions when pack is
+         clogged with expired but high-fee-paying transactions.
+         That can only happen if we are getting transactions. */
       ctx->root_block_height = sig;
       ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->root_block_height, FD_TXN_MAX_BLOCK_HEIGHT )-FD_TXN_MAX_BLOCK_HEIGHT );
       FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
