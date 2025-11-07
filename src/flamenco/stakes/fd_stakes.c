@@ -84,8 +84,22 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
      to make clock calulations more efficient.  This is purely an
      optimization. */
 
-  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_query( bank );
+  if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
+    fd_vote_states_iter_t vs_iter_[1];
+    for( fd_vote_states_iter_t * vs_iter = fd_vote_states_iter_init( vs_iter_, vote_states );
+        !fd_vote_states_iter_done( vs_iter );
+        fd_vote_states_iter_next( vs_iter ) ) {
+      fd_vote_state_ele_t * vote_state           = fd_vote_states_iter_ele( vs_iter );
+      fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_states_prev_prev, &vote_state->vote_account );
+      vote_state->stake_t_2 = !!vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
+    }
+  }
+  fd_bank_vote_states_prev_prev_end_locking_query( bank );
 
+  /* Cache the stake from epoch T-1 for the vote accounts in the vote
+     states cache, to be sent to Tower for it's threshold checks. */
+  fd_vote_states_t const * vote_states_prev = fd_bank_vote_states_prev_locking_query( bank );
   if( FD_LIKELY( fd_bank_slot_get( bank )!=0UL ) ) {
     fd_vote_states_iter_t vs_iter_[1];
     for( fd_vote_states_iter_t * vs_iter = fd_vote_states_iter_init( vs_iter_, vote_states );
@@ -93,10 +107,10 @@ fd_refresh_vote_accounts( fd_bank_t *                    bank,
         fd_vote_states_iter_next( vs_iter ) ) {
       fd_vote_state_ele_t * vote_state      = fd_vote_states_iter_ele( vs_iter );
       fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_states_prev, &vote_state->vote_account );
-      vote_state->stake_t_2 = !!vote_state_prev ? vote_state_prev->stake : 0UL;
+      vote_state->stake_t_1 = !!vote_state_prev ? vote_state_prev->stake : 0UL;
     }
   }
-  fd_bank_vote_states_prev_prev_end_locking_query( bank );
+  fd_bank_vote_states_prev_end_locking_query( bank );
   fd_bank_vote_states_end_locking_modify( bank );
 }
 

@@ -52,6 +52,7 @@
    - stake: stake as of the end of the previous epoch.  This is used
      eventually for leader schedule calculations.  The stake from epoch
      T-2 (stake_t_2) is used for the stake in clock calculations.
+     T-1 (stake_t_1) is used for the stake in Tower's threshold switch checks.
    - rewards: this information is only used at the epoch boundary.
 */
 
@@ -76,8 +77,11 @@ struct fd_vote_state_ele {
 
   /* Vote account stake information which is derived from the stake
      delegations.  This information is used for leader schedule
-     calculation and clock stake-weighted median calculations. */
+     calculation and clock stake-weighted median calculations.
+
+     stake_t_1 is used in Tower, for it's threshold switch checks. */
   ulong       stake;
+  ulong       stake_t_1;
   ulong       stake_t_2;
 
   /* Vote account information which is derived from the vote account

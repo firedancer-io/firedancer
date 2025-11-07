@@ -199,6 +199,7 @@ fd_vote_states_update( fd_vote_states_t *  vote_states,
 
   vote_state->vote_account = *vote_account;
   vote_state->stake        = 0UL;
+  vote_state->stake_t_1    = 0UL;
   vote_state->stake_t_2    = 0UL;
 
   if( FD_UNLIKELY( !fd_vote_state_map_ele_insert(
@@ -330,6 +331,7 @@ fd_vote_states_reset_stakes( fd_vote_states_t * vote_states ) {
     }
 
     vote_state->stake     = 0UL;
+    vote_state->stake_t_1 = 0UL;
     vote_state->stake_t_2 = 0UL;
   }
 }

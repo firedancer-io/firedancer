@@ -1565,6 +1565,7 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
     if( !memcmp( acc->account.owner.key, fd_solana_vote_program_id.key, sizeof(fd_pubkey_t) ) ) {
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &acc->key );
 
+      vote_state->stake_t_1 = vote_state->stake;
       vote_state->stake_t_2 = vote_state->stake;
     }
   }
