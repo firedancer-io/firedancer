@@ -8,6 +8,7 @@ endif
 ifdef FD_HAS_INT128
 $(call add-objs,fd_snapin_tile fd_snapin_tile_funk fd_snapin_tile_vinyl,fd_discof)
 endif
+$(call add-objs,fd_snapwh_tile,fd_discof)
 $(call add-objs,fd_snapwr_tile,fd_discof)
 endif
 ifdef FD_HAS_INT128

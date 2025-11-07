@@ -39,6 +39,7 @@ class Tile(Enum):
     EXEC = 33
     SNAPWR = 34
     BENCHS = 35
+    SNAPWH = 36
 
 class MetricType(Enum):
     COUNTER = 0

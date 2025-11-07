@@ -462,6 +462,13 @@ fd_vinyl_io_wd_init( void *           lmem,
   wd->wr_fseq   = block_fseq;
   wd->wr_mtu    = block_mtu;
 
+  /* Set vinyl io_seed */
+
+  FD_CRIT( fd_dcache_app_sz( block_dcache )>=sizeof(ulong), "block_dcache app region too small to hold io_seed" );
+  FD_COMPILER_MFENCE();
+  FD_STORE( ulong, fd_dcache_app_laddr( block_dcache ), io_seed );
+  FD_COMPILER_MFENCE();
+
   /* Set up initial buffer list state */
 
   wd_buf_t * buf_pool = (wd_buf_t *)(wd+1);
