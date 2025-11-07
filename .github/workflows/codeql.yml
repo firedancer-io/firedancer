@@ -53,6 +53,7 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: ./contrib/codeql/nightly
+          source-root: ./src
           config: |
               disable-default-queries: true
       - if: matrix.build-mode == 'manual'
