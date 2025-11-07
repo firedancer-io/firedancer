@@ -87,6 +87,7 @@
 #define FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED                 (-24) /* compute unit limit exceeded in syscall */
 #define FD_VM_SYSCALL_ERR_SEGFAULT                                (-25) /* illegal memory address (e.g. read/write to an address not backed by any memory) in syscall */
 #define FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME                         (-26) /* syscall called with vm not running in solana runtime */
+#define FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY                   (-27) /* memory translation error: "Invalid length" (with space) */
 
 /* Poseidon returns custom errors for some reason */
 #define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS                 (1)

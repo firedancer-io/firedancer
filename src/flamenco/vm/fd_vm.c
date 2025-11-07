@@ -25,6 +25,7 @@ fd_vm_syscall_strerror( int err ) {
   case FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE:                  return "Return data too large"; // truncated
   case FD_VM_SYSCALL_ERR_TOO_MANY_SLICES:                        return "Hashing too many sequences";
   case FD_VM_SYSCALL_ERR_INVALID_LENGTH:                         return "InvalidLength";
+  case FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY:                  return "Invalid length";
   case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED:      return "Invoked an instruction with data that is too large"; // truncated
   case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED:      return "Invoked an instruction with too many accounts"; // truncated
   case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED: return "Invoked an instruction with too many account info's"; // truncated
