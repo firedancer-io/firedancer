@@ -707,7 +707,7 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
           h_tin  [ i ] = pair   [ i ] + FD_VINYL_BSTREAM_BLOCK_SZ;
           h_tinsz[ i ] = pair_sz[ i ] - FD_VINYL_BSTREAM_BLOCK_SZ;
           h_bin  [ i ] = pair   [ i ];
-          h_binsz[ i ] = pair_sz[ i ];
+          h_binsz[ i ] = FD_VINYL_BSTREAM_BLOCK_SZ;
         }
       }
       fd_vinyl_bstream_hash_batch8( fd_vinyl_io_seed( io ), h_trail, h_tin, h_tinsz );
