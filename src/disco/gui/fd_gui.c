@@ -2657,7 +2657,7 @@ fd_gui_unbecame_leader( fd_gui_t *                gui,
   if( FD_UNLIKELY( !slot ) ) slot = fd_gui_clear_slot( gui, _slot, ULONG_MAX );
   fd_gui_leader_slot_t * lslot = fd_gui_get_leader_slot( gui, _slot );
   if( FD_LIKELY( !lslot ) ) return;
-  lslot->txs.microblocks_upper_bound = (ushort)done_packing->microblocks_in_slot;
+  lslot->txs.microblocks_upper_bound = (uint)done_packing->microblocks_in_slot;
   fd_memcpy( lslot->scheduler_stats, done_packing, sizeof(fd_done_packing_t) );
 
   /* fd_gui_handle_slot_end may have already been called in response to
@@ -2720,7 +2720,7 @@ fd_gui_microblock_execution_begin( fd_gui_t *   gui,
      even if it received microblocks with multiple transactions
      (i.e. a bundle). This means that we need to calculate microblock
      count here based on the transaction count. */
-  lslot->txs.begin_microblocks = (ushort)(lslot->txs.begin_microblocks + txn_cnt);
+  lslot->txs.begin_microblocks += (uint)txn_cnt;
 }
 
 void
