@@ -56,6 +56,7 @@ fd_bank_footprint( void ) {
     if( FD_UNLIKELY( !child_##name ) ) {                                                                           \
       FD_LOG_CRIT(( "Failed to acquire " #name " pool element" ));                                                 \
     }                                                                                                              \
+    FD_LOG_INFO(("ACQUIRED " #name " pool element %lu BANK IDX %lu USED %lu", bank->name##_pool_idx, bank->idx, fd_bank_##name##_pool_used( name##_pool ) ));           \
     fd_rwlock_unwrite( fd_bank_get_##name##_pool_lock( bank ) );                                                   \
     /* If the dirty flag has not been set yet, we need to allocated a */                                           \
     /* new pool element and copy over the data from the parent idx.   */                                           \
@@ -805,6 +806,7 @@ fd_banks_advance_root( fd_banks_t * banks,
       if( head->name##_dirty && head->name##_pool_idx!=new_root->name##_pool_idx && head->flags&FD_BANK_FLAGS_REPLAYABLE ) { \
         fd_rwlock_write( &banks->name##_pool_lock );                                                                         \
         fd_bank_##name##_pool_idx_release( name##_pool, head->name##_pool_idx );                                             \
+        FD_LOG_INFO(("RELEASED " #name " pool element %lu BANK IDX %lu USED %lu", head->name##_pool_idx, head->idx, fd_bank_##name##_pool_used( name##_pool ) ));                 \
         fd_rwlock_unwrite( &banks->name##_pool_lock );                                                                       \
       } else if( new_root->name##_pool_idx!=fd_bank_##name##_pool_idx_null( name##_pool ) ) {                                \
         new_root->name##_dirty = 1;                                                                                          \
@@ -823,6 +825,9 @@ fd_banks_advance_root( fd_banks_t * banks,
 
     head->flags = 0UL;
     fd_banks_pool_ele_release( bank_pool, head );
+
+    FD_LOG_INFO(("RELEASED BANK IDX %lu", head->idx));
+
     head = next;
   }
 
@@ -1042,6 +1047,8 @@ fd_banks_new_bank( fd_banks_t * banks,
   }
 
   ulong child_bank_idx = fd_banks_pool_idx_acquire( bank_pool );
+
+  FD_LOG_INFO(("ACQUIRED BANK IDX %lu", child_bank_idx));
 
   /* Make sure that the bank is valid. */
 
