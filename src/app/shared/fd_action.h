@@ -118,6 +118,7 @@ union fdctl_args {
 
   struct {
     uint fsck;
+    uint accounts_hist;
     char snapshot_path[ PATH_MAX ];
   } snapshot_load;
 
