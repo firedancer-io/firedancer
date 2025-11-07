@@ -8,13 +8,11 @@
  * @severity warning
  */
 import cpp
-import filter
 import rettypes
 
 from
     LiteralReturn ret1, MacroReturn ret2, Function func
 where
-    included(func.getLocation()) and
     ret1.getEnclosingFunction() = func and
     ret2.getEnclosingFunction() = func
 select func, "Mixed return values" /* ret1.getExpr(), ret2.getExpr() */

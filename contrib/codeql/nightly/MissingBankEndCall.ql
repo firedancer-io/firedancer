@@ -9,7 +9,6 @@
  */
 
 import cpp
-import filter
 
 bindingset[base]
 predicate end(FunctionCall u, string base) {
@@ -46,6 +45,5 @@ where
   r = nextNoUnlock(l.getASuccessor(), base) and
   exists(FunctionCall g | g.getTarget().hasName(lock_name) | dominates(g, r)) and
   op = l.getTarget().getName().regexpCapture(".*_locking_(.*)", 1) and
-  lock_name = "fd_bank_" + base + "_locking_" + op and
-  included(l.getLocation())
+  lock_name = "fd_bank_" + base + "_locking_" + op
 select l, "missing " + "fd_bank_" + base + "_end_locking_" + op + " call"

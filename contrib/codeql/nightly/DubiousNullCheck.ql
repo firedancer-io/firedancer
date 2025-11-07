@@ -11,7 +11,6 @@
  */
 
 import cpp
-import filter
 
 predicate zeroComparison(EqualityOperation e) {
   exists(Expr zero | zero.getValue() = "0" |
@@ -45,5 +44,4 @@ where
   not v instanceof MemberVariable and
   offset = strictsum(chainedFields(fa).getTarget().getByteOffset()) and
   offset != 0
-  and included(addrof.getLocation())
 select addrof, "This will only be NULL if " + v.getName() + " == -" + offset + "."

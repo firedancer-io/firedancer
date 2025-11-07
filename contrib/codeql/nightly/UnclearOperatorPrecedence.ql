@@ -7,12 +7,10 @@
  */
 
 import cpp
-import filter
 
 from BinaryBitwiseOperation bit, ComparisonOperation rel, Expr other
 where
     bit.hasOperands(rel, other) and
-    not rel.isParenthesised() and
-    included(bit.getLocation())
+    not rel.isParenthesised()
 select rel, "Operator precedence and parentheses hint at a likely issue"
 

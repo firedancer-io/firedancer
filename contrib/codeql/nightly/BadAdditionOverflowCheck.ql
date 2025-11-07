@@ -18,9 +18,7 @@
 
 import cpp
 import BadAdditionOverflowCheck
-import filter
 
 from RelationalOperation cmp, AddExpr a
 where badAdditionOverflowCheck(cmp, a)
-and included(cmp.getLocation())
 select cmp, cmp.getFile().getRelativePath()

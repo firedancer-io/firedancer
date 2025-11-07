@@ -11,7 +11,6 @@
 
 import cpp
 import semmle.code.cpp.commons.Buffer
-import filter
 
 from Function f, FunctionCall c, int i, ArrayType argType, ArrayType paramType, int a, int b
 where
@@ -25,6 +24,5 @@ where
   not memberMayBeVarSize(_, c.getArgument(i).(VariableAccess).getTarget()) and
   // filter out results for inconsistent declarations
   strictcount(f.getParameter(i).getType().getSize()) = 1
-  and included(c.getLocation())
 select c.getArgument(i),
   "Array of size " + a + " passed to $@ which expects an array of size " + b + ".", f, f.getName()

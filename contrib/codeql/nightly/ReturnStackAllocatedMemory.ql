@@ -17,7 +17,6 @@ import cpp
 import semmle.code.cpp.ir.IR
 import semmle.code.cpp.ir.dataflow.MustFlow
 import PathGraph
-import filter
 
 /** Holds if `f` has a name that we interpret as evidence of intentionally returning the value of the stack pointer. */
 predicate intentionallyReturnsStackPointer(Function f) {
@@ -100,7 +99,6 @@ from
   ReturnStackAllocatedMemoryConfig conf
 where
   conf.hasFlowPath(pragma[only_bind_into](source), pragma[only_bind_into](sink)) and
-  source.getInstruction() = instr and
-  included(instr.getEnclosingFunction().getLocation())
+  source.getInstruction() = instr
 select sink.getInstruction(), source, sink, "May return stack-allocated memory from $@.",
   instr.getAst(), instr.getAst().toString()

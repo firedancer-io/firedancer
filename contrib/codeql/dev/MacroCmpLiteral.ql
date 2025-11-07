@@ -8,7 +8,6 @@
  */
 
 import cpp
-import filter
 import rettypes
 
 predicate callOriginated(Element e, FunctionCall call) {

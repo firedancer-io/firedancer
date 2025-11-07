@@ -13,7 +13,6 @@
  */
 
 import cpp
-import filter
 
 predicate lossyPointerCast(Expr e, PointerType pt, IntegralType it) {
   not it instanceof BoolType and
@@ -26,6 +25,5 @@ predicate lossyPointerCast(Expr e, PointerType pt, IntegralType it) {
 }
 
 from Expr e, PointerType pt, IntegralType it
-where lossyPointerCast(e, pt, it) and
-  included(e.getLocation())
+where lossyPointerCast(e, pt, it)
 select e, "Converted from " + pt.getName() + " to smaller type " + it.getName()

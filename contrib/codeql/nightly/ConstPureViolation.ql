@@ -8,7 +8,6 @@
  */
 
 import cpp
-import filter
 
 predicate isDref(Parameter p) {
   exists(Expr e | e = p.getAnAccess().getQualifier())
@@ -46,6 +45,5 @@ class PureFunc extends RestrictedFunc {
 }
 
 from RestrictedFunc f
-where f.isViolated() and
-included(f.getLocation())
+where f.isViolated()
 select f, "Function is attributed with " + f.getAnAttribute().getName() + ", but accesses a pointer in an illegal way."

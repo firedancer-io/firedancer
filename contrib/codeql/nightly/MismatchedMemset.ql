@@ -9,7 +9,6 @@
  */
 
 import cpp
-import filter
 
 class MemsetFunction extends Function {
   MemsetFunction() {
@@ -34,6 +33,5 @@ where
   call.getArgument(memset.sizeIdx()) instanceof SizeofTypeOperator and
   t = call.getArgument(0).getUnspecifiedType().(DerivedType).getBaseType().getUnspecifiedType() and
   t != call.getArgument(memset.sizeIdx()).(SizeofTypeOperator).getTypeOperand().getUnspecifiedType() and
-  not (t.hasName("char") or t.hasName("unsigned char") or t.hasName("void")) and
-  included(call.getLocation())
+  not (t.hasName("char") or t.hasName("unsigned char") or t.hasName("void"))
 select call, "The call to " + memset.getName() + " might be of incorrect size. The first argument is of type " + t.getName() + " but the size is taken from sizeof(" + call.getArgument(memset.sizeIdx()).(SizeofTypeOperator).getTypeOperand().getUnspecifiedType().getName() + ")."

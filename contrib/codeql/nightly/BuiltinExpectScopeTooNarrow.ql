@@ -17,8 +17,6 @@
  */
 
 import cpp
-import filter
-
 
 from FunctionCall builtinCall, Element e
 where
@@ -27,7 +25,6 @@ where
   not ((e instanceof ConditionalStmt) or
        (e instanceof Loop) or
        (e instanceof BinaryLogicalOperation) or
-       (e instanceof ConditionalExpr)) and
-  included(builtinCall.getLocation())
+       (e instanceof ConditionalExpr))
 select builtinCall, "Use of __builtin_expect() in non-conditional context"
 

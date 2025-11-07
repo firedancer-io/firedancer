@@ -17,8 +17,7 @@
  import cpp
  import semmle.code.cpp.ir.IR
  import semmle.code.cpp.ir.ValueNumbering
- import PathGraph
- import filter
+ import PathGraph 
  
  /** An instruction that represents a null pointer. */
  class NullInstruction extends ConstantValueInstruction {
@@ -212,10 +211,7 @@
    // basic block then the deref is unavoidable even if the check concluded that
    // the pointer was null. To follow this idea to its full generality, we
    // should also give an alert when `check` post-dominates `deref`.
-   deref.getBlock() = dominator and
-   included(checked.getLocation()) and
-   included(deref.getLocation())
-
+   deref.getBlock() = dominator
  select checked, deref, checked, "This null check is redundant because $@ in any case.", deref,
    "the value is dereferenced"
 

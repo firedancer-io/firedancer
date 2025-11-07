@@ -9,7 +9,6 @@
  */
 
 import cpp
-import filter
 
 class LayoutOption extends MacroInvocation {
   LayoutOption() { this.getMacroName() = ["FD_LAYOUT_APPEND", "FD_LAYOUT_INIT", "FD_LAYOUT_FINI"] }
@@ -70,8 +69,7 @@ class ScratchOption extends MacroInvocation {
   ScratchOption() {
     this.getMacroName() = ["FD_SCRATCH_ALLOC_APPEND",
                            "FD_SCRATCH_ALLOC_INIT",
-                           "FD_SCRATCH_ALLOC_FINI"] and
-    included(this.getLocation())
+                           "FD_SCRATCH_ALLOC_FINI"]
   }
 
   LayoutOption getAbove() {

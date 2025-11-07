@@ -13,9 +13,7 @@
 
 import cpp
 import UnsignedGEZero
-import filter
 
 from UnsignedGEZero ugez, string msg
 where unsignedGEZero(ugez, msg)
-and included(ugez.getLocation())
 select ugez, msg

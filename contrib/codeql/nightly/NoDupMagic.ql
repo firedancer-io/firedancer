@@ -7,7 +7,6 @@
  */
 
 import cpp
-import filter
 
 class MagicConstant extends Macro {
   MagicConstant() {
@@ -24,5 +23,4 @@ from MagicConstant a, MagicConstant b
 where
 (a.getBody() = b.getBody() or a.getFullyConverted() = b.getFullyConverted())
 and a.getName() > b.getName()
-and included(a.getLocation()) and included(b.getLocation())
 select a, "Has the same magic constant as " + b

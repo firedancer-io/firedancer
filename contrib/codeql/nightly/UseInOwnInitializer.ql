@@ -10,7 +10,6 @@
  */
 
 import cpp
-import filter
 
 class VariableAccessInInitializer extends VariableAccess {
   Variable var;
@@ -41,6 +40,5 @@ where
     va.getParent() = init and
     exists(MacroInvocation mi | va = mi.getExpr())
   ) and
-  not va.getEnclosingStmt().isInMacroExpansion() and
-  included(v.getLocation())
+  not va.getEnclosingStmt().isInMacroExpansion()
 select va, v.getName() + " is used in its own initializer."

@@ -9,7 +9,6 @@
 
 
 import cpp
-import filter
 
 from FunctionCall fc, int bound, BufferWriteEstimationReason reason
 where (
@@ -29,6 +28,5 @@ or
     fc.getTarget().getName() = "fd_log_collector_printf_inefficient_max_512" and
     bound = fc.(FormattingFunctionCall).getFormat().(FormatLiteral).getMaxConvertedLengthLimitedWithReason(reason) and
     bound - 1  < 512
-) and
-included(fc.getLocation())
+)
 select fc, "After formatting this may have a size up to " + bound.toString() + " bytes, estimated by " + reason.toString()

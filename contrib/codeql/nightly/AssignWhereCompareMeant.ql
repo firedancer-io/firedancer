@@ -13,7 +13,6 @@
 
 import cpp
 import semmle.code.cpp.controlflow.StackVariableReachability
-import filter
 
 class UndefReachability extends StackVariableReachability {
   UndefReachability() { this = "UndefReachability" }
@@ -117,5 +116,4 @@ where
   candidateResult(ae) and
   not ae.isFromUninstantiatedTemplate(_) and
   not undef.reaches(_, ae.getLValue().(VariableAccess).getTarget(), ae.getLValue())
-  and included(ae.getLocation())
 select ae, "Use of '=' where '==' may have been intended."

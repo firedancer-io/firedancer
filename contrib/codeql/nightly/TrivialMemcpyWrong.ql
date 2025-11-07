@@ -12,7 +12,6 @@
  */
 
 import cpp
-import filter
 
 class MemcpyFunction extends Function {
   MemcpyFunction() {
@@ -31,7 +30,6 @@ class NotVoidChar extends Type {
 
 from FunctionCall call, MemcpyFunction memcpy, NotVoidChar t1, NotVoidChar t2
 where
-  included(call.getLocation()) and
   not call.isInMacroExpansion() and
   call.getTarget() = memcpy and
   call.getArgument(2) instanceof SizeofTypeOperator and

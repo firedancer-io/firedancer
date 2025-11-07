@@ -12,7 +12,6 @@
  */
 
 import cpp
-import filter
 
 from EnumSwitch es, float missing, float total, EnumConstant case
 where
@@ -20,6 +19,5 @@ where
   missing = count(es.getAMissingCase()) and
   total = missing + count(es.getASwitchCase()) and
   missing / total < 0.3 and
-  case = es.getAMissingCase() and
-  included(es.getLocation())
+  case = es.getAMissingCase()
 select es, "Switch statement does not have a case for $@.", case, case.getName()

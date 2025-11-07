@@ -15,7 +15,6 @@
 import cpp
 private import semmle.code.cpp.valuenumbering.GlobalValueNumbering
 private import semmle.code.cpp.commons.Exclusions
-import filter
 
 from RelationalOperation ro, PointerAddExpr add, Expr expr1, Expr expr2
 where
@@ -30,6 +29,5 @@ where
   exists(Compilation c | c.getAFileCompiled() = ro.getFile() |
     not c.getAnArgument() = "-fwrapv-pointer" and
     not c.getAnArgument() = "-fno-strict-overflow"
-  ) and
-  included(ro.getLocation())
+  )
 select ro, "Range check relying on pointer overflow."

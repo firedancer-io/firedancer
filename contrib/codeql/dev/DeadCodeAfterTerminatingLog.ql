@@ -11,7 +11,6 @@ import cpp
 
 import semmle.code.cpp.controlflow.ControlFlowGraph
 import semmle.code.cpp.controlflow.internal.ConstantExprs
-import filter
 
 class TerminatingLog extends FunctionCall {
     TerminatingLog() {

@@ -10,7 +10,6 @@
  */
 
 import cpp
-import filter
 
 from RelationalOperation e, BinaryBitwiseOperation lhs
 where
@@ -25,6 +24,5 @@ where
   // if `lhs` has the form `x & c`, with constant `c`, `c` is negative
   forall(int op | op = lhs.(BitwiseAndExpr).getAnOperand().getValue().toInt() | op < 0) and
   // exception for cases involving macros
-  not e.isAffectedByMacro() and
-  included(e.getLocation())
+  not e.isAffectedByMacro()
 select e, "Potentially unsafe sign check of a bitwise operation."

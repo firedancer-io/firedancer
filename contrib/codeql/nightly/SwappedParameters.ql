@@ -12,11 +12,9 @@
  */
 
 import cpp
-import filter
 
 from Function f, ParameterDeclarationEntry defP, Parameter implP
-where included(f.getLocation()) and
-implP = f.getAParameter() and
+where implP = f.getAParameter() and
 defP = f.getADeclarationEntry().getAParameterDeclarationEntry() and
 defP.getName() = implP.getName() and
 defP.getIndex() != implP.getIndex()

@@ -15,7 +15,6 @@ import cpp
 import semmle.code.cpp.dataflow.EscapesTree
 import semmle.code.cpp.commons.Exclusions
 import semmle.code.cpp.models.interfaces.Alias
-import filter
 
 class MemsetFunction extends Function {
   MemsetFunction() {
@@ -79,6 +78,5 @@ where
   exists(Compilation c |
     c.getAFileCompiled() = call.getFile() and
     not c.getAnArgument() = "-fno-builtin-memset"
-  ) and
-  included(call.getLocation())
+  )
 select call, "Call to " + memset.getName() + " may be deleted by the compiler."

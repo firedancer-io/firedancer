@@ -11,7 +11,6 @@
  */
 
 import cpp
-import filter
 
 /**
  * A base class for expressions that can be identified by their name.
@@ -87,7 +86,7 @@ predicate wrongComparison(RelationalOperation ro, IdxBasedExpr ibe, MaxBasedExpr
 }
 
 from IdxBasedExpr ibe, MaxBasedExpr mbe, RelationalOperation ro
-where wrongComparison(ro, ibe, mbe) and included(ro.getLocation())
+where wrongComparison(ro, ibe, mbe)
 select ro,
   "The comparison between this $@ and $@ can be wrong if the index is assumed to be in the range [0, "
     + mbe + ").", ibe, "index-based expression", mbe, "max-sized expression"

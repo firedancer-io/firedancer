@@ -13,7 +13,6 @@
  */
 
 import cpp
-import filter
 
 class MemcpyFunction extends Function {
   MemcpyFunction() {
@@ -49,7 +48,6 @@ Type getSizeofType(SizeofOperator so) {
 
 from FunctionCall call, MemcpyFunction memcpy, InScopeType t
 where
-  included(call.getLocation()) and
   not call.isInMacroExpansion() and
   not ignoredLocation(call.getLocation()) and
   call.getTarget() = memcpy and

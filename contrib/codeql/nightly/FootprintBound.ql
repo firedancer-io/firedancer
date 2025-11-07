@@ -8,13 +8,11 @@
  */
 
 import cpp
-import filter
 
 
 predicate fitsInFootprint(string structName, string macroName) {
     exists(Struct struct |
         struct.getName() = structName and
-        included(struct.getLocation()) and
         exists(MacroInvocation footprint |
             footprint.getMacroName() = macroName and
             footprint.getExpr().toString().toInt() >= struct.getSize()
