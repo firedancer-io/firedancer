@@ -29,6 +29,7 @@ static fd_http_static_file_t * STATIC_FILES;
 #include "../../ballet/json/cJSON_alloc.h"
 #include "../../util/clock/fd_clock.h"
 #include "../../discof/repair/fd_repair.h"
+#include "../../discof/replay/fd_replay_tile.h"
 #include "../../util/pod/fd_pod_format.h"
 
 #include "../../flamenco/gossip/fd_gossip_private.h"

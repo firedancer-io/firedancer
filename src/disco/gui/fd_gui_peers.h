@@ -14,26 +14,17 @@
    including a live view of the peer table with the option to order the
    table a custom sort key. */
 
+#include "fd_gui_config_parse.h"
+
 #include "../../util/net/fd_net_headers.h"
-#include "../../disco/metrics/fd_metrics.h"
+#include "../../disco/metrics/generated/fd_metrics_enums.h"
 #include "../../flamenco/gossip/fd_gossip_types.h"
-#include "../../discof/replay/fd_replay_tile.h"
 #include "../../flamenco/runtime/fd_runtime_const.h"
 
 #include "../../waltz/http/fd_http_server.h"
 #include "../topo/fd_topo.h"
 
 #include <math.h>
-
-/* https://github.com/anza-xyz/agave/blob/master/account-decoder/src/validator_info.rs */
-#define FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ     (  80UL) /* +1UL for NULL terminator */
-#define FD_GUI_PEERS_VALIDATOR_INFO_WEBSITE_SZ  (  80UL)
-#define FD_GUI_PEERS_VALIDATOR_INFO_DETAILS_SZ  ( 300UL)
-#define FD_GUI_PEERS_VALIDATOR_INFO_ICON_URI_SZ (  80UL)
-#define FD_GUI_PEERS_VALIDATOR_INFO_MAX_SZ      ( 576UL) /* does not include size of ConfigKeys */
-
-/* The size of a ConfigKeys of length 2, which is the expected length of ValidatorInfo */
-#define FD_GUI_PEERS_CONFIG_KEYS_MAX_SZ         (1UL + (32UL + 1UL)*2UL)
 
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
@@ -93,19 +84,6 @@ struct fd_gui_peers_vote {
 };
 
 typedef struct fd_gui_peers_vote fd_gui_peers_vote_t;
-
-struct fd_gui_peers_node_info {
-  fd_pubkey_t pubkey;
-  char name    [ FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ     + 1UL ]; /* +1UL for NULL */
-  char website [ FD_GUI_PEERS_VALIDATOR_INFO_WEBSITE_SZ  + 1UL ];
-  char details [ FD_GUI_PEERS_VALIDATOR_INFO_DETAILS_SZ  + 1UL ];
-  char icon_uri[ FD_GUI_PEERS_VALIDATOR_INFO_ICON_URI_SZ + 1UL ];
-
-  struct { ulong prev, next; } map;
-  struct { ulong next; } pool;
-};
-
-typedef struct fd_gui_peers_node_info fd_gui_peers_node_info_t;
 
 struct fd_gui_peers_node {
   int valid;
@@ -189,13 +167,13 @@ struct fd_gui_peers_gossip_stats {
   ulong network_ingress_total_bytes;
   ulong network_ingress_peer_sz;
   long  network_ingress_peer_bytes_per_sec   [ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ];
-  char  network_ingress_peer_names           [ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ][ FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ + 1UL ];
+  char  network_ingress_peer_names           [ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ][ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
   fd_pubkey_t network_ingress_peer_identities[ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ];
   long  network_ingress_total_bytes_per_sec;
   ulong network_egress_total_bytes;
   ulong network_egress_peer_sz;
   long  network_egress_peer_bytes_per_sec   [ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ];
-  char  network_egress_peer_names           [ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ][ FD_GUI_PEERS_VALIDATOR_INFO_NAME_SZ + 1UL ];
+  char  network_egress_peer_names           [ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ][ FD_GUI_CONFIG_PARSE_VALIDATOR_INFO_NAME_SZ + 1UL ];
   fd_pubkey_t network_egress_peer_identities[ FD_GUI_PEERS_GOSSIP_TOP_PEERS_CNT ];
   long  network_egress_total_bytes_per_sec;
   ulong storage_capacity;
@@ -216,12 +194,12 @@ struct fd_gui_peers_gossip_stats {
 typedef struct fd_gui_peers_gossip_stats fd_gui_peers_gossip_stats_t;
 
 #define POOL_NAME fd_gui_peers_node_info_pool
-#define POOL_T    fd_gui_peers_node_info_t
+#define POOL_T    fd_gui_config_parse_info_t
 #define POOL_NEXT pool.next
 #include "../../util/tmpl/fd_pool.c"
 
 #define MAP_NAME  fd_gui_peers_node_info_map
-#define MAP_ELE_T fd_gui_peers_node_info_t
+#define MAP_ELE_T fd_gui_config_parse_info_t
 #define MAP_KEY_T fd_pubkey_t
 #define MAP_KEY   pubkey
 #define MAP_IDX_T ulong
@@ -311,7 +289,7 @@ struct fd_gui_peers_ctx {
   long next_metric_rate_update_nanos; /* ns timestamp when we'll next update rate-of-change metrics */
   long next_gossip_stats_update_nanos; /* ns timestamp when we'll next broadcast out gossip stats message */
 
-  fd_gui_peers_node_info_t * node_info_pool;
+  fd_gui_config_parse_info_t * node_info_pool;
   fd_gui_peers_node_info_map_t * node_info_map;
   fd_gui_peers_node_pubkey_map_t * node_pubkey_map;
   fd_gui_peers_node_sock_map_t  * node_sock_map;

@@ -1417,7 +1417,8 @@ identity is no longer in these three data sources, it will be removed.
                 "name": "ExampleStake Firedancer 🔥💃",
                 "details": "A longer description of the validator, perhaps describing the team behind it or how the node is operated",
                 "website": "https://github.com/firedancer-io/firedancer",
-                "icon_url": "https://docs.firedancer.io/fire.svg"
+                "icon_url": "https://docs.firedancer.io/fire.svg",
+                "keybase_username": ""
             }
         }
     ],
@@ -1449,29 +1450,30 @@ identity is no longer in these three data sources, it will be removed.
 | delinquent      | `boolean`      | Whether the vote account is delinquent or not. A vote account is considered delinquent if it has not had a vote land on chain for any of the last 127 (inclusive) confirmed slots, according to this validator. If there have been less than 128 confirmed slots on the chain (it is a new chain), a validator is considered delinquent only if it has not voted yet at all |
 
 **`PeerUpdateInfo`**
-| Field    | Type     | Description |
-|----------|----------|-------------|
-| name     | `string\|null` | Self reported name of the validator, could be any string or null if there is no name set |
-| details  | `string\|null` | Self reported detailed description of the validator, could be any string or null if there is no details set |
-| website  | `string\|null` | Self reported website of the validator, could be any string and need not be a valid URI, or could be null if there is no website set |
-| icon_url | `string\|null` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be null if there is no icon URI set |
+| Field            | Type     | Description |
+|------------------|----------|-------------|
+| name             | `string` | Self reported name of the validator, could be any string or empty string if there is no name set |
+| details          | `string` | Self reported detailed description of the validator, could be any string or empty string if there is no details set |
+| website          | `string` | Self reported website of the validator, could be any string and need not be a valid URI, or could be empty string if there is no website set |
+| icon_url         | `string` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be empty string if there is no icon URI set |
+| keybase_username | `string` | Self reported keybase username of the validator, could be any string or empty string if there is no username set.  Keybase is a public, legacy storage for icon images.  Although this method for publiscising an icon is deprecated, it is included for completeness as many validators have not migrated to `iconUrl` |
 
 **`PeerUpdate`**
-| Field    | Type   | Description
-|----------|--------|------------
-| identity | `string` | Identity public key of the validator, encoded in base58 |
-| gossip   | `PeerUpdateGossip\|null` | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
+| Field    | Type                      | Description |
+|----------|---------------------------|-------------|
+| identity | `string`                  | Identity public key of the validator, encoded in base58 |
+| gossip   | `PeerUpdateGossip\|null`  | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
 | vote     | `PeerUpdateVoteAccount[]` | Information about the vote account(s) associated with this identity key, if there are any. It is extremely unusual for multiple vote accounts to report the same identity key. Vote account information like stake and commission is derived from the accounts on chain and cannot be corrupt, invalid, or incorrect |
-| info     | `PeerUpdateInfo\|null` | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
+| info     | `PeerUpdateInfo\|null`    | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
 
 **`PeerRemove`**
-| Field    | Type   | Description |
-|----------|--------|-------------|
+| Field    | Type     | Description |
+|----------|----------|-------------|
 | identity | `string` | Identity public key of the validator, encoded in base58 |
 
 **`PeersUpdate`**
-| Field  | Type   | Description |
-|--------|--------|-------------|
+| Field  | Type                 | Description |
+|--------|----------------------|-------------|
 | add    | `GossipPeerUpdate[]` | List of peer validators that were added since the last update, or all of the peers for the first update after connecting |
 | update | `GossipPeerUpdate[]` | List of peer validators that were changed since the last update |
 | remove | `GossipPeerRemove[]` | List of peer validators that were removed since the last update |

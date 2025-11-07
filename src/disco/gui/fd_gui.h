@@ -6,6 +6,7 @@
 #include "../topo/fd_topo.h"
 
 #include "../../ballet/txn/fd_txn.h"
+#include "../../disco/tiles.h"
 #include "../../disco/fd_txn_p.h"
 #include "../../discof/restore/fd_snapct_tile.h"
 #include "../../discof/tower/fd_tower_tile.h"
