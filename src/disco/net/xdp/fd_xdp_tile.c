@@ -424,7 +424,7 @@ net_tx_ready( fd_net_ctx_t * ctx,
   fd_xdp_ring_t *      tx_ring = &xsk->ring_tx;
   fd_net_free_ring_t * free    = &ctx->free_tx;
   if( free->prod == free->cons ) return 0; /* drop */
-  if( tx_ring->prod - tx_ring->cons >= tx_ring->depth ) return 0; /* drop */
+  if( tx_ring->cached_prod - FD_VOLATILE_CONST( *tx_ring->cons ) >= tx_ring->depth ) return 0; /* drop */
   return 1;
 }
 
