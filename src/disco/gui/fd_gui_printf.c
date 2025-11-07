@@ -1,4 +1,5 @@
 #include "fd_gui_printf.h"
+#include "fd_gui_config_parse.h"
 
 #include "../../waltz/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
@@ -913,6 +914,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
         jsonp_string( gui->http, "details", gui->validator_info.info[ info_idx ].details );
         jsonp_string( gui->http, "website", gui->validator_info.info[ info_idx ].website );
         jsonp_string( gui->http, "icon_url", gui->validator_info.info[ info_idx ].icon_uri );
+        jsonp_string( gui->http, "keybase_username", "" );
       jsonp_close_object( gui->http );
     }
 
@@ -985,7 +987,7 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
       jsonp_close_array( peers->http );
     }
 
-    fd_gui_peers_node_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->contact_info.pubkey, NULL, peers->node_info_pool );
+    fd_gui_config_parse_info_t * node_info = fd_gui_peers_node_info_map_ele_query( peers->node_info_map, &peer->contact_info.pubkey, NULL, peers->node_info_pool );
     if( FD_UNLIKELY( !node_info ) ) {
       jsonp_string( peers->http, "info", NULL );
     } else {
@@ -994,6 +996,7 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
         jsonp_string( peers->http, "details", node_info->details );
         jsonp_string( peers->http, "website", node_info->website );
         jsonp_string( peers->http, "icon_url", node_info->icon_uri );
+        jsonp_string( peers->http, "keybase_username", node_info->keybase_username );
       jsonp_close_object( peers->http );
     }
 

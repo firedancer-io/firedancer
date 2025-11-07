@@ -1,8 +1,9 @@
 ifdef FD_HAS_INT128
-$(call add-hdrs,fd_gui.h fd_gui_printf.h fd_gui_peers.h)
-$(call add-objs,fd_gui fd_gui_printf fd_gui_peers fd_gui_tile generated/http_import_dist,fd_disco)
+$(call add-hdrs,fd_gui.h fd_gui_printf.h fd_gui_peers.h fd_gui_config_parse.h)
+$(call add-objs,fd_gui fd_gui_printf fd_gui_peers fd_gui_config_parse fd_gui_tile generated/http_import_dist,fd_disco)
 $(OBJDIR)/obj/disco/gui/fd_gui_tile.o: book/public/fire.svg
 $(call make-unit-test,test_live_table,test_live_table,fd_disco fd_util)
+$(call make-fuzz-test,fuzz_config_parser,fuzz_config_parser,fd_disco fd_ballet fd_util)
 endif
 
 src/disco/gui/dist_stable_cmp/%.zst: src/disco/gui/dist_stable/%
