@@ -1027,14 +1027,15 @@ fd_runtime_finalize_txn( fd_funk_t *               funk,
 }
 
 int
-fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
-                                    ulong               bank_idx,
-                                    fd_exec_txn_ctx_t * txn_ctx,
-                                    fd_txn_p_t *        txn,
-                                    fd_capture_ctx_t *  capture_ctx,
-                                    fd_exec_stack_t *   exec_stack,
-                                    uchar *             dumping_mem,
-                                    uchar *             tracing_mem ) {
+fd_runtime_prepare_and_execute_txn( fd_banks_t *         banks,
+                                    ulong                bank_idx,
+                                    fd_exec_txn_ctx_t *  txn_ctx,
+                                    fd_txn_p_t *         txn,
+                                    fd_capture_ctx_t *   capture_ctx,
+                                    fd_exec_stack_t *    exec_stack,
+                                    fd_exec_accounts_t * exec_accounts,
+                                    uchar *              dumping_mem,
+                                    uchar *              tracing_mem ) {
   int exec_res = 0;
 
   fd_bank_t * bank = fd_banks_bank_query( banks, bank_idx );
@@ -1053,6 +1054,7 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *        banks,
   txn_ctx->xid[0]                = (fd_funk_txn_xid_t){ .ul = { slot, bank_idx } };
   txn_ctx->txn                   = *txn;
   txn_ctx->exec_stack            = exec_stack;
+  txn_ctx->exec_accounts         = exec_accounts;
   txn_ctx->dumping_mem           = dumping_mem;
   txn_ctx->tracing_mem           = tracing_mem;
   txn_ctx->flags                 = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;

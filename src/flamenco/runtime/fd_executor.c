@@ -952,7 +952,7 @@ fd_executor_create_rollback_fee_payer_account( fd_exec_txn_ctx_t * txn_ctx,
           NULL );
     }
 
-    uchar * fee_payer_data = txn_ctx->exec_stack->accounts.rollback_fee_payer_mem;
+    uchar * fee_payer_data = txn_ctx->exec_accounts->rollback_fee_payer_mem;
     fd_memcpy( fee_payer_data, (uchar *)meta, sizeof(fd_account_meta_t) + meta->dlen );
     if( FD_UNLIKELY( !fd_txn_account_join( fd_txn_account_new(
           txn_ctx->rollback_fee_payer_account,
@@ -1457,7 +1457,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
        copy the account data into the staging area; otherwise, we need to
        initialize a new metadata. */
 
-    uchar * new_raw_data = txn_ctx->exec_stack->accounts.accounts_mem[idx];
+    uchar * new_raw_data = txn_ctx->exec_accounts->accounts_mem[idx];
     ulong   dlen         = !!meta ? meta->dlen : 0UL;
 
     if( FD_LIKELY( meta ) ) {
@@ -1479,7 +1479,7 @@ fd_executor_setup_txn_account( fd_exec_txn_ctx_t * txn_ctx,
     if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
       account_meta = (fd_account_meta_t *)meta;
     } else {
-      uchar * mem = txn_ctx->exec_stack->accounts.accounts_mem[idx];
+      uchar * mem = txn_ctx->exec_accounts->accounts_mem[idx];
       account_meta = (fd_account_meta_t *)mem;
       fd_account_meta_init( account_meta );
     }

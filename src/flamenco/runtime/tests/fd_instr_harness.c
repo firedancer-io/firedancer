@@ -42,7 +42,8 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
 
   ctx->txn_ctx = txn_ctx;
 
-  ctx->txn_ctx->exec_stack = runner->exec_stack;
+  ctx->txn_ctx->exec_stack    = runner->exec_stack;
+  ctx->txn_ctx->exec_accounts = runner->exec_accounts;
 
   /* Bank manager */
   fd_banks_clear_bank( runner->banks, runner->bank );

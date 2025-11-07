@@ -112,6 +112,8 @@ fd_solfuzz_runner_new( fd_wksp_t *                         wksp,
 
   runner->exec_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_exec_stack_t), sizeof(fd_exec_stack_t), wksp_tag );
   if( FD_UNLIKELY( !runner->exec_stack ) ) goto bail2;
+  runner->exec_accounts = fd_wksp_alloc_laddr( wksp, alignof(fd_exec_accounts_t), sizeof(fd_exec_accounts_t), wksp_tag );
+  if( FD_UNLIKELY( !runner->exec_accounts ) ) goto bail2;
   runner->runtime_stack = fd_wksp_alloc_laddr( wksp, alignof(fd_runtime_stack_t), sizeof(fd_runtime_stack_t), wksp_tag );
   if( FD_UNLIKELY( !runner->runtime_stack ) ) goto bail2;
 

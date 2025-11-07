@@ -5,17 +5,18 @@
 #include "program/fd_vote_program.h"
 #include "fd_runtime_const.h"
 
+struct fd_exec_accounts {
+  uchar rollback_nonce_account_mem[ FD_ACC_TOT_SZ_MAX ]                       __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  uchar rollback_fee_payer_mem[ FD_ACC_TOT_SZ_MAX ]                           __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+  uchar accounts_mem[ FD_RUNTIME_WRITABLE_ACCOUNTS_MAX ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
+};
+typedef struct fd_exec_accounts fd_exec_accounts_t;
+
 struct fd_exec_stack {
 
   struct {
     uchar serialization_mem[ FD_MAX_INSTRUCTION_STACK_DEPTH ][ BPF_LOADER_SERIALIZATION_FOOTPRINT ] __attribute__((aligned(FD_RUNTIME_EBPF_HOST_ALIGN)));
   } bpf_loader_serialization;
-
-  struct {
-    uchar rollback_nonce_account_mem[ FD_ACC_TOT_SZ_MAX ]                       __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-    uchar rollback_fee_payer_mem[ FD_ACC_TOT_SZ_MAX ]                           __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-    uchar accounts_mem[ FD_RUNTIME_WRITABLE_ACCOUNTS_MAX ][ FD_ACC_TOT_SZ_MAX ] __attribute__((aligned(FD_ACCOUNT_REC_ALIGN)));
-  } accounts;
 
   struct {
     uchar rodata        [ FD_RUNTIME_ACC_SZ_MAX ]     __attribute__((aligned(FD_SBPF_PROG_RODATA_ALIGN)));

@@ -39,6 +39,7 @@ struct fd_solfuzz_runner {
   void *               solcap_file; /* FILE * */
 
   fd_exec_stack_t *    exec_stack;
+  fd_exec_accounts_t * exec_accounts;
   fd_runtime_stack_t * runtime_stack;
 
   int enable_vm_tracing;
