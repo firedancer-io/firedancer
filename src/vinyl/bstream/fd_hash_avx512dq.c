@@ -31,46 +31,53 @@ fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed_,
 
   wv_t const CC1 = wv_bcast( C1 );
   wv_t const CC2 = wv_bcast( C2 );
-
-  ulong dummy[4] = { 0UL }; /* used if sz_[i]==0 for any */
+  wv_t const CWV = wv( C1+C2, C2, 0UL, -C1 );
 
   /* Vi = ( w_i, x_i, y_i, z_i ) */
-  wv_t V0 = wv_add( wv_bcast( seed_[0] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r0 = wl_bcast( (long)sz_[0]-1L );    uchar const * p0 = fd_ptr_if( !!sz_[0], buf_[0], dummy );
-  wv_t V1 = wv_add( wv_bcast( seed_[1] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r1 = wl_bcast( (long)sz_[1]-1L );    uchar const * p1 = fd_ptr_if( !!sz_[1], buf_[1], dummy );
-  wv_t V2 = wv_add( wv_bcast( seed_[2] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r2 = wl_bcast( (long)sz_[2]-1L );    uchar const * p2 = fd_ptr_if( !!sz_[2], buf_[2], dummy );
-  wv_t V3 = wv_add( wv_bcast( seed_[3] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r3 = wl_bcast( (long)sz_[3]-1L );    uchar const * p3 = fd_ptr_if( !!sz_[3], buf_[3], dummy );
-  wv_t V4 = wv_add( wv_bcast( seed_[4] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r4 = wl_bcast( (long)sz_[4]-1L );    uchar const * p4 = fd_ptr_if( !!sz_[4], buf_[4], dummy );
-  wv_t V5 = wv_add( wv_bcast( seed_[5] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r5 = wl_bcast( (long)sz_[5]-1L );    uchar const * p5 = fd_ptr_if( !!sz_[5], buf_[5], dummy );
-  wv_t V6 = wv_add( wv_bcast( seed_[6] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r6 = wl_bcast( (long)sz_[6]-1L );    uchar const * p6 = fd_ptr_if( !!sz_[6], buf_[6], dummy );
-  wv_t V7 = wv_add( wv_bcast( seed_[7] ), wv( C1+C2, C2, 0UL, -C1 ) );    wl_t r7 = wl_bcast( (long)sz_[7]-1L );    uchar const * p7 = fd_ptr_if( !!sz_[7], buf_[7], dummy );
-
+  wv_t V0 = wv_add( wv_bcast( seed_[0] ), CWV );    uchar const * p0 = (uchar const *)buf_[0];
+  wv_t V1 = wv_add( wv_bcast( seed_[1] ), CWV );    uchar const * p1 = (uchar const *)buf_[1];
+  wv_t V2 = wv_add( wv_bcast( seed_[2] ), CWV );    uchar const * p2 = (uchar const *)buf_[2];
+  wv_t V3 = wv_add( wv_bcast( seed_[3] ), CWV );    uchar const * p3 = (uchar const *)buf_[3];
+  wv_t V4 = wv_add( wv_bcast( seed_[4] ), CWV );    uchar const * p4 = (uchar const *)buf_[4];
+  wv_t V5 = wv_add( wv_bcast( seed_[5] ), CWV );    uchar const * p5 = (uchar const *)buf_[5];
+  wv_t V6 = wv_add( wv_bcast( seed_[6] ), CWV );    uchar const * p6 = (uchar const *)buf_[6];
+  wv_t V7 = wv_add( wv_bcast( seed_[7] ), CWV );    uchar const * p7 = (uchar const *)buf_[7];
 
   ulong max_sz = 0UL;
   for( ulong i=0UL; i<8UL; i++ ) max_sz = fd_ulong_max( max_sz, sz_[i] );
 
-  for( ulong j=0UL; j<max_sz; j+=32UL ) {
-    wv_t v0 = wv_add( V0, wv_mul( CC2, wv_ldu( p0 ) ) );   v0 = wv_mul( wv_rol( v0, 31 ), CC1 );    V0 = w_if( r0, V0, v0 );
-    wv_t v1 = wv_add( V1, wv_mul( CC2, wv_ldu( p1 ) ) );   v1 = wv_mul( wv_rol( v1, 31 ), CC1 );    V1 = w_if( r1, V1, v1 );
-    wv_t v2 = wv_add( V2, wv_mul( CC2, wv_ldu( p2 ) ) );   v2 = wv_mul( wv_rol( v2, 31 ), CC1 );    V2 = w_if( r2, V2, v2 );
-    wv_t v3 = wv_add( V3, wv_mul( CC2, wv_ldu( p3 ) ) );   v3 = wv_mul( wv_rol( v3, 31 ), CC1 );    V3 = w_if( r3, V3, v3 );
-    wv_t v4 = wv_add( V4, wv_mul( CC2, wv_ldu( p4 ) ) );   v4 = wv_mul( wv_rol( v4, 31 ), CC1 );    V4 = w_if( r4, V4, v4 );
-    wv_t v5 = wv_add( V5, wv_mul( CC2, wv_ldu( p5 ) ) );   v5 = wv_mul( wv_rol( v5, 31 ), CC1 );    V5 = w_if( r5, V5, v5 );
-    wv_t v6 = wv_add( V6, wv_mul( CC2, wv_ldu( p6 ) ) );   v6 = wv_mul( wv_rol( v6, 31 ), CC1 );    V6 = w_if( r6, V6, v6 );
-    wv_t v7 = wv_add( V7, wv_mul( CC2, wv_ldu( p7 ) ) );   v7 = wv_mul( wv_rol( v7, 31 ), CC1 );    V7 = w_if( r7, V7, v7 );
+  wwv_t rem_sz = wwv_ldu( sz_ );
+  wwv_t sub512 = wwv_bcast( 512UL );
 
-    wl_t sub32 = wl_bcast( -32L );
-    wl_t neg1  = wl_bcast( -1L );
+  for( ulong j_outer=0UL; j_outer<max_sz; j_outer+=512UL ) {
+    /* not_done has one bit per lane, and we need to convert it to one
+       mask per lane.  We'll extract and invert the kth bit with a shift
+       and mask, then add 0xFF to it, which has the effect of
+       broadcasting the inverted bit: 0x00 + 0xFF = 0xFF, whereas 0x01 +
+       0xFF = 0x00. */
+    __mmask8 not_done = _mm512_cmpneq_epi64_mask( rem_sz, wwv_zero() );
+    /* Do effectively a saturating subtract */
+    rem_sz = _mm512_mask_sub_epi64( rem_sz, not_done, rem_sz, sub512 );
+    __mmask8 k0 = _kadd_mask8( 0xFF, _kandn_mask8(                  not_done,      0x01 ) );
+    __mmask8 k1 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 1 ), 0x01 ) );
+    __mmask8 k2 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 2 ), 0x01 ) );
+    __mmask8 k3 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 3 ), 0x01 ) );
+    __mmask8 k4 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 4 ), 0x01 ) );
+    __mmask8 k5 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 5 ), 0x01 ) );
+    __mmask8 k6 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 6 ), 0x01 ) );
+    __mmask8 k7 = _kadd_mask8( 0xFF, _kandn_mask8( _kshiftri_mask8( not_done, 7 ), 0x01 ) );
 
-    /* We want to do a subtraction that clamps at -1. Shockingly wl_max
-       is not a single-cycle instruction, but we can just do a blend. */
-    r0 = wv_add( r0, sub32 );   r0 = w_if( r0, neg1, r0 );   p0 = fd_ptr_if( sz_[0]<j+32UL, p0, p0+32UL );
-    r1 = wv_add( r1, sub32 );   r1 = w_if( r1, neg1, r1 );   p1 = fd_ptr_if( sz_[1]<j+32UL, p1, p1+32UL );
-    r2 = wv_add( r2, sub32 );   r2 = w_if( r2, neg1, r2 );   p2 = fd_ptr_if( sz_[2]<j+32UL, p2, p2+32UL );
-    r3 = wv_add( r3, sub32 );   r3 = w_if( r3, neg1, r3 );   p3 = fd_ptr_if( sz_[3]<j+32UL, p3, p3+32UL );
-    r4 = wv_add( r4, sub32 );   r4 = w_if( r4, neg1, r4 );   p4 = fd_ptr_if( sz_[4]<j+32UL, p4, p4+32UL );
-    r5 = wv_add( r5, sub32 );   r5 = w_if( r5, neg1, r5 );   p5 = fd_ptr_if( sz_[5]<j+32UL, p5, p5+32UL );
-    r6 = wv_add( r6, sub32 );   r6 = w_if( r6, neg1, r6 );   p6 = fd_ptr_if( sz_[6]<j+32UL, p6, p6+32UL );
-    r7 = wv_add( r7, sub32 );   r7 = w_if( r7, neg1, r7 );   p7 = fd_ptr_if( sz_[7]<j+32UL, p7, p7+32UL );
+
+    for( ulong j=j_outer; j<j_outer+512UL; j+=32UL ) {
+      V0 = _mm256_mask_mullo_epi64( V0, k0, wv_rol( wv_add( V0, wv_mul( CC2, _mm256_maskz_loadu_epi64( k0, p0+j ) ) ), 31 ), CC1 );
+      V1 = _mm256_mask_mullo_epi64( V1, k1, wv_rol( wv_add( V1, wv_mul( CC2, _mm256_maskz_loadu_epi64( k1, p1+j ) ) ), 31 ), CC1 );
+      V2 = _mm256_mask_mullo_epi64( V2, k2, wv_rol( wv_add( V2, wv_mul( CC2, _mm256_maskz_loadu_epi64( k2, p2+j ) ) ), 31 ), CC1 );
+      V3 = _mm256_mask_mullo_epi64( V3, k3, wv_rol( wv_add( V3, wv_mul( CC2, _mm256_maskz_loadu_epi64( k3, p3+j ) ) ), 31 ), CC1 );
+      V4 = _mm256_mask_mullo_epi64( V4, k4, wv_rol( wv_add( V4, wv_mul( CC2, _mm256_maskz_loadu_epi64( k4, p4+j ) ) ), 31 ), CC1 );
+      V5 = _mm256_mask_mullo_epi64( V5, k5, wv_rol( wv_add( V5, wv_mul( CC2, _mm256_maskz_loadu_epi64( k5, p5+j ) ) ), 31 ), CC1 );
+      V6 = _mm256_mask_mullo_epi64( V6, k6, wv_rol( wv_add( V6, wv_mul( CC2, _mm256_maskz_loadu_epi64( k6, p6+j ) ) ), 31 ), CC1 );
+      V7 = _mm256_mask_mullo_epi64( V7, k7, wv_rol( wv_add( V7, wv_mul( CC2, _mm256_maskz_loadu_epi64( k7, p7+j ) ) ), 31 ), CC1 );
+    }
   }
 
   /* In preparation for the final steps, we need to transpose
