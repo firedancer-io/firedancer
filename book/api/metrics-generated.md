@@ -1118,3 +1118,13 @@
 | <span class="metrics-name">benchs_&#8203;transactions_&#8203;sent</span> | counter | Number of benchmark packets sent |
 
 </div>
+
+## Snapwh Tile
+
+<div class="metrics">
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| <span class="metrics-name">snapwh_&#8203;state</span> | gauge | State of the tile. 0=IDLE, 1=PROCESSING, 4=SHUTDOWN |
+
+</div>

@@ -117,11 +117,13 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt !=1UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu ins, expected 1",  tile->in_cnt  ));
   if( FD_UNLIKELY( tile->out_cnt!=0UL ) ) FD_LOG_ERR(( "tile `" NAME "` has %lu outs, expected 0", tile->out_cnt ));
 
-  fd_topo_link_t const * in_link = &topo->links[ tile->in_link_id[ 0 ] ];
   if( FD_UNLIKELY( !tile->in_link_reliable[ 0 ] ) ) FD_LOG_ERR(( "tile `" NAME "` in link 0 must be reliable" ));
-  ulong * fseq = tile->in_link_fseq[ 0 ];
-  snapwr->base     = in_link->dcache;
-  snapwr->seq_sync = &fseq[ 0 ];
+  FD_TEST( tile->snapwr.dcache_obj_id!=ULONG_MAX );
+
+  uchar const * in_dcache = fd_dcache_join( fd_topo_obj_laddr( topo, tile->snapwr.dcache_obj_id ) );
+  FD_TEST( in_dcache );
+  snapwr->base     = in_dcache;
+  snapwr->seq_sync = tile->in_link_fseq[ 0 ];
 
   snapwr->state = FD_SNAPSHOT_STATE_IDLE;
 }
