@@ -44,35 +44,30 @@ fd_solcap_writer_t *
 fd_solcap_writer_init(  fd_solcap_writer_t * writer,
                         FILE *               file );
 
-int
-fd_solcap_write_account( fd_solcap_writer_t *             writer,
-                         ulong                            txn_idx,
-                         ulong                            slot,
-                         void const *                     key,
-                         fd_solana_account_meta_t const * meta,
-                         void const *                     data,
-                         ulong                            data_sz );
-
 uint32_t
-fd_solcap_write_account_hdr( fd_solcap_writer_t *         writer,
-                              fd_solcap_buf_msg_t *           msg_hdr,
-                              fd_solcap_account_update_hdr_t * account_update );
+fd_solcap_write_account_hdr( fd_solcap_writer_t *              writer,
+                              fd_solcap_buf_msg_t *            msg_hdr,
+                              fd_solcap_account_update_hdr_t * account_update,
+                              uint *                           error_flag );
 
 uint32_t
 fd_solcap_write_account_data( fd_solcap_writer_t * writer,
                               void const *         data,
-                              ulong                data_sz );
+                              ulong                data_sz,
+                              uint *               error_flag );
 
 
 uint32_t
-fd_solcap_write_bank_preimage( fd_solcap_writer_t * writer,
-                               fd_solcap_buf_msg_t * msg_hdr,
-                               fd_solcap_bank_preimage_t * bank_preimage );
+fd_solcap_write_bank_preimage( fd_solcap_writer_t *        writer,
+                               fd_solcap_buf_msg_t *       msg_hdr,
+                               fd_solcap_bank_preimage_t * bank_preimage,
+                               uint *                      error_flag );
 
 
 uint32_t
 fd_solcap_write_ftr( fd_solcap_writer_t * writer,
-                     uint32_t             block_len_redundant );
+                     uint32_t             block_len_redundant,
+                     uint *               error_flag );
 
 FD_PROTOTYPES_END
 

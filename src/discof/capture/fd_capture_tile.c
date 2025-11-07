@@ -54,7 +54,7 @@
    been read completely using the SOM/EOM flags.
 */
 
-struct __attribute__((packed)) fd_capture_tile_ctx {
+struct fd_capture_tile_ctx {
   ulong tile_idx;
 
   ulong    msg_idx;
@@ -85,6 +85,8 @@ struct __attribute__((packed)) fd_capture_tile_ctx {
   } in[32];
 
   ulong in_cnt;
+
+  uint failure;
 
   /* Custom input selection control */
   int advance_link;
@@ -165,28 +167,28 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   the solcap writer API's.
 */
 uint32_t
-fd_capctx_buf_process_msg(fd_capture_ctx_t * capture_ctx,
-                          fd_solcap_buf_msg_t * msg_hdr,
-                          char *              actual_data ) {
+fd_capctx_buf_process_msg(fd_capture_tile_ctx_t * ctx,
+                          fd_solcap_buf_msg_t *   msg_hdr,
+                          char *                  actual_data ) {
   uint32_t block_len = 0;
   switch ( msg_hdr->sig ) {
     case SOLCAP_WRITE_ACCOUNT_HDR:
       {
         fd_solcap_account_update_hdr_t * account_update = (fd_solcap_account_update_hdr_t *)actual_data;
-        block_len = fd_solcap_write_account_hdr( capture_ctx->capture, msg_hdr, account_update );
+        block_len = fd_solcap_write_account_hdr( ctx->capture_ctx->capture, msg_hdr, account_update, &ctx->failure );
         break;
       }
     case SOLCAP_WRITE_ACCOUNT_DATA:
       {
         ulong msg_sz = *(ulong *)actual_data;
         actual_data += sizeof(ulong);
-        block_len = fd_solcap_write_account_data( capture_ctx->capture, actual_data, msg_sz );
+        block_len = fd_solcap_write_account_data( ctx->capture_ctx->capture, actual_data, msg_sz, &ctx->failure );
         break;
       }
     case SOLCAP_WRITE_BANK_PREIMAGE:
       {
         fd_solcap_bank_preimage_t * bank_preimage = (fd_solcap_bank_preimage_t *)actual_data;
-        block_len = fd_solcap_write_bank_preimage( capture_ctx->capture, msg_hdr, bank_preimage );
+        block_len = fd_solcap_write_bank_preimage( ctx->capture_ctx->capture, msg_hdr, bank_preimage, &ctx->failure );
         break;
       }
     default:
@@ -211,6 +213,8 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
   if( FD_UNLIKELY( in_idx >= ctx->in_cnt ) ) return 0;
 
   if( FD_UNLIKELY( chunk < ctx->in[in_idx].chunk0 || chunk > ctx->in[in_idx].wmark || sz > ctx->in[in_idx].mtu ) ) return 0;
+
+  if( FD_UNLIKELY( ctx->failure ) ) return 0;
 
   uchar const * data = fd_chunk_to_laddr_const( ctx->in[in_idx].mem, chunk );
 
@@ -268,7 +272,7 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
     actual_data             = (char *)data;
   }
 
-  uint32_t block_len = fd_capctx_buf_process_msg( ctx->capture_ctx, msg_hdr, actual_data );
+  uint32_t block_len = fd_capctx_buf_process_msg( ctx, msg_hdr, actual_data );
 
   if (som) {
     ctx->block_len = block_len;
@@ -276,7 +280,7 @@ returnable_frag( fd_capture_tile_ctx_t * ctx,
 
   /* If message you receive has the eom flag, write footer */
   if (eom) {
-    fd_solcap_write_ftr( ctx->capture_ctx->capture, ctx->block_len );
+    fd_solcap_write_ftr( ctx->capture_ctx->capture, ctx->block_len, &ctx->failure );
 
     if (ctx->msg_set_sig == SOLCAP_WRITE_BANK_PREIMAGE) {
       fflush(ctx->file);
@@ -329,6 +333,7 @@ privileged_init( fd_topo_t *      topo,
     
     ctx->recent_current_idx = 0;
     ctx->recent_file_start_slot = 0UL;  /* Will be set on first fragment */
+    ctx->failure = 0;
     
     for( ulong i = 0; i < 3; i++ ) {
       char filepath[PATH_MAX];

@@ -136,6 +136,7 @@ fd_cap_link_translate_account_update_buf( fd_capture_ctx_t *               ctx,
   if ( FD_UNLIKELY( !_valid_slot_range( ctx, slot ) ) ) return;
 
   fd_capture_link_buf_t * buf = ctx->capctx_buf.buf;
+  uint error_flag = 0;
 
   _wait_to_write_solcap_msg(buf);
 
@@ -169,6 +170,10 @@ fd_cap_link_translate_account_update_buf( fd_capture_ctx_t *               ctx,
   buf->chunk = fd_dcache_compact_next( buf->chunk, msg_sz, buf->chunk0, buf->wmark );
   buf->seq++;
 
+  if( FD_UNLIKELY( error_flag ) ) {
+    FD_LOG_ERR(( "Solcap writer failed to write account update buf" ));
+  }
+
   if( !has_data ) return;
 
   for ( ulong i = 0; i < write_cnt; i++ ) {
@@ -196,6 +201,10 @@ fd_cap_link_translate_account_update_buf( fd_capture_ctx_t *               ctx,
     buf->chunk = fd_dcache_compact_next( buf->chunk, msg_sz, buf->chunk0, buf->wmark );
     buf->seq++;
   }
+
+  if( FD_UNLIKELY( error_flag ) ) {
+    FD_LOG_ERR(( "Solcap writer failed to write account update buf" ));
+  }
 }
 
 void
@@ -210,6 +219,8 @@ fd_cap_link_translate_account_update_file(fd_capture_ctx_t *               ctx,
   if ( FD_UNLIKELY( !_valid_slot_range( ctx, slot ) ) ) return;
 
   fd_solcap_writer_t * writer = ctx->capture;
+  uint error_flag = 0;
+
 
   /* Prepare message header */
   fd_solcap_buf_msg_t msg_hdr = {
@@ -226,13 +237,17 @@ fd_cap_link_translate_account_update_file(fd_capture_ctx_t *               ctx,
   };
 
   /* Write the header (EPB + internal header + account metadata) */
-  uint32_t block_len = fd_solcap_write_account_hdr( writer, &msg_hdr, &account_update );
+  uint32_t block_len = fd_solcap_write_account_hdr( writer, &msg_hdr, &account_update, &error_flag );
 
   /* Write the account data */
-  fd_solcap_write_account_data( writer, data, data_sz );
+  fd_solcap_write_account_data( writer, data, data_sz, &error_flag );
 
   /* Write the footer */
-  fd_solcap_write_ftr( writer, block_len );
+  fd_solcap_write_ftr( writer, block_len, &error_flag );
+
+  if( FD_UNLIKELY( error_flag ) ) {
+    FD_LOG_ERR(( "Solcap writer failed to write account update file" ));
+  }
 }
 
 void
@@ -288,6 +303,8 @@ fd_cap_link_write_bank_preimage_file(fd_capture_ctx_t * ctx,
 
   fd_solcap_writer_t * writer = ctx->capture;
 
+  uint error_flag = 0;
+
   fd_solcap_buf_msg_t msg_hdr = {
     .sig = SOLCAP_WRITE_BANK_PREIMAGE,
     .slot = slot,
@@ -302,7 +319,11 @@ fd_cap_link_write_bank_preimage_file(fd_capture_ctx_t * ctx,
     .signature_cnt = signature_cnt
   };
 
-  uint32_t block_len = fd_solcap_write_bank_preimage( writer, &msg_hdr, &bank_preimage );
+  uint32_t block_len = fd_solcap_write_bank_preimage( writer, &msg_hdr, &bank_preimage, &error_flag );
 
-  fd_solcap_write_ftr( writer, block_len );
+  fd_solcap_write_ftr( writer, block_len, &error_flag );
+
+  if( FD_UNLIKELY( error_flag ) ) {
+    FD_LOG_ERR(( "Solcap writer failed to write footer for bank preimage file" ));
+  }
 }

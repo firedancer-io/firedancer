@@ -242,9 +242,4 @@ fd_capture_link_vt_t fd_capture_link_file_vt = {
   .write_bank_preimage  = fd_cap_link_write_bank_preimage_file,
 };
 
-uint32_t
-fd_capctx_buf_process_msg( fd_capture_ctx_t *   capture_ctx,
-                          fd_solcap_buf_msg_t * msg_hdr,
-                          char *                actual_data );
-
 #endif /* HEADER_fd_src_discof_capture_fd_capture_ctx_h */
