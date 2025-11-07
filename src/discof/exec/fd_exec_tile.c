@@ -69,6 +69,7 @@ typedef struct fd_exec_tile_ctx {
   ulong                 txn_idx;
 
   fd_exec_stack_t       exec_stack;
+  fd_exec_accounts_t    exec_accounts;
 
   /* tracing_mem is staging memory to dump instructions/transactions
      into protobuf files.  tracing_mem is staging memory to output vm
@@ -133,6 +134,7 @@ returnable_frag( fd_exec_tile_ctx_t * ctx,
                                                                      &msg->txn,
                                                                      ctx->capture_ctx,
                                                                      &ctx->exec_stack,
+                                                                     &ctx->exec_accounts,
                                                                      ctx->dumping_mem,
                                                                      &ctx->tracing_mem[0][0] );
 

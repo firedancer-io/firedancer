@@ -50,7 +50,8 @@ struct fd_exec_txn_ctx {
 
   fd_bank_t * bank;
 
-  fd_exec_stack_t * exec_stack;
+  fd_exec_stack_t *    exec_stack;
+  fd_exec_accounts_t * exec_accounts;
 
   /* All pointers starting here are valid local joins in txn execution. */
   fd_features_t                        features;

@@ -367,6 +367,7 @@ fd_solfuzz_txn_ctx_exec( fd_solfuzz_runner_t *     runner,
       txn,
       NULL,
       runner->exec_stack,
+      runner->exec_accounts,
       NULL,
       tracing_mem );
 

@@ -49,13 +49,14 @@ typedef struct {
   fd_funk_t      funk[1];
   fd_progcache_t progcache[1];
 
-  /* Used for microblock execution. */
-  fd_exec_txn_ctx_t txn_ctx[1];
-  fd_exec_stack_t   exec_stack;
+  /* For bundle execution, we need to execute each transaction against
+     a separate transaction context and a set of accounts, but the exec
+     stack can be reused.  We will also use these same memory regions
+     for non-bundle execution. */
+  fd_exec_txn_ctx_t  txn_ctx[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_exec_accounts_t exec_accounts[ FD_PACK_MAX_TXN_PER_BUNDLE ];
+  fd_exec_stack_t    exec_stack;
 
-  /* Used for bundle execution. */
-  fd_exec_txn_ctx_t txn_ctx_bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
-  fd_exec_stack_t   exec_stack_bundle[ FD_PACK_MAX_TXN_PER_BUNDLE ];
 
   struct {
     ulong txn_result[ FD_METRICS_ENUM_TRANSACTION_RESULT_CNT ];
@@ -166,7 +167,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
-    fd_exec_txn_ctx_t * txn_ctx = ctx->txn_ctx;
+    fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ 0 ];
+    ctx->txn_ctx->bundle.is_bundle = 0;
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
@@ -178,7 +180,15 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
-    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack, NULL, NULL );
+    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks,
+                                                            ctx->_bank_idx,
+                                                            txn_ctx,
+                                                            txn,
+                                                            NULL,
+                                                            &ctx->exec_stack,
+                                                            &ctx->exec_accounts[0],
+                                                            NULL,
+                                                            NULL );
 
     /* Stash the result in the flags value so that pack can inspect it. */
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
@@ -344,7 +354,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
 
     fd_txn_p_t *        txn     = &txns[ i ];
-    fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];
+    fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
 
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
@@ -354,7 +364,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
-    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack_bundle[ i ], NULL, NULL );
+    txn_ctx->exec_err = fd_runtime_prepare_and_execute_txn( ctx->banks, ctx->_bank_idx, txn_ctx, txn, NULL, &ctx->exec_stack, &ctx->exec_accounts[ i ], NULL, NULL );
     txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)(-txn_ctx->exec_err)<<24);
     if( FD_UNLIKELY( !(txn_ctx->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) || txn_ctx->exec_err ) ) {
       execution_success = 0;
@@ -372,7 +382,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   if( FD_LIKELY( execution_success ) ) {
     for( ulong i=0UL; i<txn_cnt; i++ ) {
 
-      fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx_bundle[ i ];
+      fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
+      txn_ctx->bundle.is_bundle = 1;
       uchar * signature = (uchar *)txn_ctx->txn.payload + TXN( &txn_ctx->txn )->signature_off;
 
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS | FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
@@ -525,12 +536,6 @@ unprivileged_init( fd_topo_t *      topo,
   fd_progcache_t * progcache = fd_progcache_join( ctx->progcache, shprogcache, pc_scratch, FD_PROGCACHE_SCRATCH_FOOTPRINT );
   FD_TEST( progcache );
 
-  ctx->txn_ctx->bank_hash_cmp    = NULL; /* TODO - do we need this? */
-  *(ctx->txn_ctx->funk)          = *funk;
-  *(ctx->txn_ctx->_progcache)    = *progcache;
-  ctx->txn_ctx->progcache        = ctx->txn_ctx->_progcache;
-  ctx->txn_ctx->bundle.is_bundle = 0;
-
   void * _txncache_shmem = fd_topo_obj_laddr( topo, tile->bank.txncache_obj_id );
   fd_txncache_shmem_t * txncache_shmem = fd_txncache_shmem_join( _txncache_shmem );
   FD_TEST( txncache_shmem );
@@ -539,17 +544,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->txn_ctx->status_cache = txncache;
 
   for( ulong i=0UL; i<FD_PACK_MAX_TXN_PER_BUNDLE; i++ ) {
-    ctx->txn_ctx_bundle[ i ].bundle.is_bundle         = 1;
-    ctx->txn_ctx_bundle[ i ].bundle.prev_txn_ctxs_cnt = i;
+    ctx->txn_ctx[ i ].bundle.prev_txn_ctxs_cnt = i;
     for( ulong j=0UL; j<i; j++ ) {
-      ctx->txn_ctx_bundle[ i ].bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx_bundle[ j ];
+      ctx->txn_ctx[ i ].bundle.prev_txn_ctxs[ j ] = &ctx->txn_ctx[ j ];
     }
 
-    ctx->txn_ctx_bundle[ i ].bank_hash_cmp    = NULL; /* TODO - do we need this? */
-    ctx->txn_ctx_bundle[ i ].progcache        = ctx->txn_ctx_bundle[ i ]._progcache;
-    ctx->txn_ctx_bundle[ i ].status_cache     = txncache;
-    *(ctx->txn_ctx_bundle[ i ].funk)          = *funk;
-    *(ctx->txn_ctx_bundle[ i ]._progcache)    = *progcache;
+    ctx->txn_ctx[ i ].bank_hash_cmp    = NULL; /* TODO - do we need this? */
+    ctx->txn_ctx[ i ].progcache        = ctx->txn_ctx[ i ]._progcache;
+    ctx->txn_ctx[ i ].status_cache     = txncache;
+    *(ctx->txn_ctx[ i ].funk)          = *funk;
+    *(ctx->txn_ctx[ i ]._progcache)    = *progcache;
   }
 
   ulong banks_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "banks" );
