@@ -1,138 +1,176 @@
 #include "fd_vinyl.h"
 
-static int   ref_exists;
-static int   ref_creating;
-static long  ref_cnt;
-static ulong ref_ver;
-static ulong ref_quota_rem;
+#define PAIR_MAX (4UL)
 
-static ulong           ref_val_max;
-static fd_vinyl_info_t ref_info[ 1 ];
-static uchar           ref_val[ FD_VINYL_VAL_MAX ];
+struct pair {
+  int             creating;
+  long            acq;
+  ulong           ver;
+  ulong           val_max;
+  fd_vinyl_key_t  key        [ 1 ];
+  fd_vinyl_info_t info       [ 1 ];
+  fd_vinyl_info_t backup_info[ 1 ];
+  uchar           val        [ FD_VINYL_VAL_MAX ];
+  uchar           backup_val [ FD_VINYL_VAL_MAX ];
+};
 
-static fd_vinyl_info_t backup_info[ 1 ];
-static uchar           backup_val [ FD_VINYL_VAL_MAX ];
+typedef struct pair pair_t;
+
+static struct {
+  ulong  quota_rem;
+  ulong  used;
+  pair_t pair[ PAIR_MAX ];
+} ref;
 
 static int
-req( int     type,
-     ulong   flags,   /* request flags */
-     ulong   val_max, /* for acquire-with-modify */
-     ulong * _ver ) { /* holds version for successful try, has try version for test, ignored otherwise */
+req( int                    type,    /* request type */
+     ulong                  flags,   /* request flags */
+     ulong                  val_max, /* for acquire-with-modify */
+     fd_vinyl_key_t const * key,     /* Key for req */
+     pair_t **              _pair,   /* Location of pair on successful acquire and/or successful try */
+     ulong *                _ver ) { /* Version of pair on try, has try version on test, ignored otherwise */
 
   switch( type ) {
 
   case FD_VINYL_REQ_TYPE_ACQUIRE: {
-
     if( fd_vinyl_req_flag_modify( flags ) && (val_max>FD_VINYL_VAL_MAX) ) return FD_VINYL_ERR_INVAL; /* bad req val_max */
-    if( !ref_quota_rem                                                  ) return FD_VINYL_ERR_FULL;  /* client quota exhausted */
+    if( !ref.quota_rem                                                  ) return FD_VINYL_ERR_FULL;  /* client quota exhausted */
 
-    if( ref_exists ) {
+    ulong    idx  = 0UL;
+    pair_t * pair = NULL;
+    for( ; idx<PAIR_MAX; idx++ ) {
+      if( ((ref.used >> idx) & 1UL) && fd_vinyl_key_eq( key, ref.pair[ idx ].key ) ) {
+        pair = &ref.pair[ idx ];
+        break;
+      }
+    }
+
+    if( pair ) {
 
       if( !fd_vinyl_req_flag_modify( flags ) ) {
 
-        /* start blocking read of existing key */
+        /* start blocking read of an existing pair */
 
-        if( ref_cnt<0L ) return FD_VINYL_ERR_AGAIN; /* key acquired for modify */
+        if( pair->acq < 0L ) return FD_VINYL_ERR_AGAIN; /* key acquired for modify */
 
-        FD_TEST( ref_exists & (!ref_creating) );
+        ulong ref_szc = fd_vinyl_data_szc( (ulong)pair->info->val_sz );
+        pair->val_max = fd_vinyl_data_szc_val_max( ref_szc );
 
-        ulong ref_szc = fd_vinyl_data_szc( (ulong)ref_info->val_sz );
-        ref_val_max = fd_vinyl_data_szc_val_max( ref_szc );
+        FD_TEST( !pair->creating );
+        pair->acq++;
+      //pair->ver unchanged
 
-        ref_cnt++;
-      //ref_ver unchanged
-        ref_quota_rem--;
+        ref.quota_rem--;
+
+        *_pair = pair;
         return FD_VINYL_SUCCESS;
 
       }
 
-      /* start modify of existing key */
+      /* start modify of an existing pair */
 
-      if( ref_cnt                         ) return FD_VINYL_ERR_AGAIN; /* key acquired at least once */
+      if( pair->acq                       ) return FD_VINYL_ERR_AGAIN; /* key acquired at least once */
       if( fd_vinyl_req_flag_excl( flags ) ) return FD_VINYL_ERR_INVAL; /* not allowed to modify existing */
 
-      backup_info[0] = ref_info[0];
-      if( ref_info->val_sz ) memcpy( backup_val, ref_val, (ulong)ref_info->val_sz );
+      pair->backup_info[0] = pair->info[0];
+      if( pair->info->val_sz ) memcpy( pair->backup_val, pair->val, (ulong)pair->info->val_sz );
 
-      if( fd_vinyl_req_flag_ignore( flags ) ) ref_info->val_sz = 0U;
+      if( fd_vinyl_req_flag_ignore( flags ) ) pair->info->val_sz = 0U;
 
-      ulong ref_szc = fd_vinyl_data_szc( fd_ulong_max( val_max, (ulong)ref_info->val_sz ) );
-      ref_val_max = fd_vinyl_data_szc_val_max( ref_szc );
+      ulong ref_szc = fd_vinyl_data_szc( fd_ulong_max( val_max, (ulong)pair->info->val_sz ) );
+      pair->val_max = fd_vinyl_data_szc_val_max( ref_szc );
 
-      FD_TEST( ref_exists & (!ref_creating) );
+      FD_TEST( !pair->creating );
+      pair->acq = -1L;
+      pair->ver++;
 
-      ref_cnt = -1L;
-      ref_ver++;
-      ref_quota_rem--;
+      ref.quota_rem--;
+
+      *_pair = pair;
       return FD_VINYL_SUCCESS;
 
     }
 
-    /* start creating a key */
+    /* start creating a pair */
 
     if( !(fd_vinyl_req_flag_modify( flags ) && fd_vinyl_req_flag_create( flags )) ) return FD_VINYL_ERR_KEY;
 
-    memset( ref_info, 0UL, sizeof(fd_vinyl_info_t) );
+    FD_TEST( (ulong)fd_ulong_popcnt( ref.used ) < PAIR_MAX );
+    idx = (ulong)fd_ulong_find_lsb( ~ref.used );
+    pair = &ref.pair[ idx ];
+    ref.used |= (1UL << idx);
+
+    pair->key[0] = key[0];
+    memset( pair->info, 0UL, sizeof(fd_vinyl_info_t) );
+
     ulong ref_szc = fd_vinyl_data_szc( val_max );
-    ref_val_max = fd_vinyl_data_szc_val_max( ref_szc );
+    pair->val_max = fd_vinyl_data_szc_val_max( ref_szc );
 
-    FD_TEST( (!ref_exists) & (!ref_creating) );
+    pair->creating = 1;
+    pair->acq      = -1L;
+    pair->ver++;
 
-    ref_exists   = 1;
-    ref_creating = 1;
-    ref_cnt      = -1L;
-    ref_ver++;
-    ref_quota_rem--;
+    ref.quota_rem--;
+
+    *_pair = pair;
     return FD_VINYL_SUCCESS;
   }
 
   case FD_VINYL_REQ_TYPE_RELEASE: {
-    if( !ref_exists ) return FD_VINYL_ERR_INVAL; /* Key does not exist (cannot have been acquired) */
-    if( !ref_cnt    ) return FD_VINYL_ERR_INVAL; /* Key is not acquired */
+    ulong    idx  = 0UL;
+    pair_t * pair = NULL;
+    for( ; idx<PAIR_MAX; idx++ ) {
+      if( ((ref.used >> idx) & 1UL) && fd_vinyl_key_eq( key, ref.pair[ idx ].key ) ) {
+        pair = &ref.pair[ idx ];
+        break;
+      }
+    }
 
-    if( ref_cnt>0L ) {
+    if( !pair      ) return FD_VINYL_ERR_INVAL; /* Key does not exist and is not being created (cannot have been acquired) */
+    if( !pair->acq ) return FD_VINYL_ERR_INVAL; /* Key is not acquired */
+
+    if( pair->acq > 0L ) {
 
       /* finish blocking read */
 
       if( fd_vinyl_req_flag_modify( flags ) ) FD_LOG_CRIT(( "modify read only" ));
 
-      FD_TEST( ref_exists & (!ref_creating) );
-      ref_cnt--;
-    //ref_ver unchanged
-      ref_quota_rem++;
+      FD_TEST( !pair->creating );
+
+      pair->acq--;
+
+      ref.quota_rem++;
       return FD_VINYL_SUCCESS;
 
     }
 
-    if( ref_creating ) {
+    if( pair->creating ) {
 
       if( ((!fd_vinyl_req_flag_modify( flags )) | fd_vinyl_req_flag_erase( flags )) ) {
 
         /* cancel / erase a create */
 
-        FD_TEST( ref_exists & ref_creating );
-        ref_exists   = 0;
-        ref_creating = 0;
-        ref_cnt      = 0L;
-        ref_ver++;
-        ref_quota_rem++;
+        pair->ver++;
+
+        ref.used &= ~(1UL << idx);
+
+        ref.quota_rem++;
         return FD_VINYL_SUCCESS;
 
       }
 
-      /* finish creating */
+      /* finish a create */
 
-      if( (ulong)ref_info->val_sz > ref_val_max ) FD_LOG_CRIT(( "val buffer overrun" ));
+      if( (ulong)pair->info->val_sz > pair->val_max ) FD_LOG_CRIT(( "val buffer overrun" ));
 
-      ulong ref_szc = fd_vinyl_data_szc( (ulong)ref_info->val_sz );
-      ref_val_max = fd_vinyl_data_szc_val_max( ref_szc );
+      ulong ref_szc = fd_vinyl_data_szc( (ulong)pair->info->val_sz );
+      pair->val_max = fd_vinyl_data_szc_val_max( ref_szc );
 
-      FD_TEST( ref_exists & ref_creating );
-      ref_exists   = 1;
-      ref_creating = 0;
-      ref_cnt      = 0L;
-      ref_ver++;
-      ref_quota_rem++;
+      pair->creating = 0;
+      pair->acq      = 0L;
+      pair->ver++;
+
+      ref.quota_rem++;
       return FD_VINYL_SUCCESS;
 
     }
@@ -141,28 +179,28 @@ req( int     type,
 
       if( !fd_vinyl_req_flag_ignore( flags ) ) {
 
-        /* cancel modify existing with an unchanged val/val-sz */
+        /* cancel modify existing (info/val were not clobbered during the modify attempt) */
 
-        FD_TEST( ref_exists & (!ref_creating) );
-        ref_cnt = 0L;
-        ref_ver--;
-        ref_quota_rem++;
+        pair->acq = 0L;
+        pair->ver--;
+
+        ref.quota_rem++;
         return FD_VINYL_SUCCESS;
 
       }
 
-      /* cancel modify existing with an untrusted val/val_sz */
+      /* cancel modify existing (info/val were potentially clobbered during the modify attempt) */
 
-      if( backup_info->val_sz ) memcpy( ref_val, backup_val, (ulong)backup_info->val_sz );
-      ref_info[0] = backup_info[0];
+      pair->info[0] = pair->backup_info[0];
+      if( pair->backup_info->val_sz ) memcpy( pair->val, pair->backup_val, (ulong)pair->backup_info->val_sz );
 
-      ulong ref_szc = fd_vinyl_data_szc( (ulong)backup_info->val_sz );
-      ref_val_max = fd_vinyl_data_szc_val_max( ref_szc );
+      ulong ref_szc = fd_vinyl_data_szc( (ulong)pair->info->val_sz );
+      pair->val_max = fd_vinyl_data_szc_val_max( ref_szc );
 
-      FD_TEST( ref_exists & (!ref_creating) );
-      ref_cnt = 0L;
-      ref_ver++;
-      ref_quota_rem++;
+      pair->acq = 0L;
+      pair->ver++;
+
+      ref.quota_rem++;
       return FD_VINYL_SUCCESS;
 
     }
@@ -171,51 +209,139 @@ req( int     type,
 
       /* erase existing */
 
-      FD_TEST( ref_exists & (!ref_creating) );
-      ref_exists = 0;
-      ref_cnt    = 0L;
-      ref_ver++;
-      ref_quota_rem++;
+      pair->ver++;
+
+      ref.used &= ~(1UL<<idx);
+      ref.quota_rem++;
       return FD_VINYL_SUCCESS;
 
     }
 
-    /* finish a modify existing */
+    /* finish modify existing */
 
-    if( (ulong)ref_info->val_sz > ref_val_max ) FD_LOG_CRIT(( "val buffer overrun" ));
+    if( (ulong)pair->info->val_sz > pair->val_max ) FD_LOG_CRIT(( "val buffer overrun" ));
 
-    ulong ref_szc = fd_vinyl_data_szc( (ulong)ref_info->val_sz );
-    ref_val_max = fd_vinyl_data_szc_val_max( ref_szc );
+    ulong ref_szc = fd_vinyl_data_szc( (ulong)pair->info->val_sz );
+    pair->val_max = fd_vinyl_data_szc_val_max( ref_szc );
 
-    FD_TEST( ref_exists & (!ref_creating) );
-    ref_cnt = 0L;
-    ref_ver++;
-    ref_quota_rem++;
+    pair->acq = 0L;
+    pair->ver++;
+
+    ref.quota_rem++;
     return FD_VINYL_SUCCESS;
   }
 
-  case FD_VINYL_REQ_TYPE_ERASE:
-    if( !ref_exists ) return FD_VINYL_ERR_KEY;   /* Key does not exist */
-    if( ref_cnt     ) return FD_VINYL_ERR_AGAIN; /* Key acquired at least once */
-    ref_ver++;
-    ref_exists = 0;
-    return FD_VINYL_SUCCESS;
+  case FD_VINYL_REQ_TYPE_ERASE: {
+    ulong    idx  = 0UL;
+    pair_t * pair = NULL;
+    for( ; idx<PAIR_MAX; idx++ ) {
+      if( ((ref.used >> idx) & 1UL) && fd_vinyl_key_eq( key, ref.pair[ idx ].key ) ) {
+        pair = &ref.pair[ idx ];
+        break;
+      }
+    }
 
-  case FD_VINYL_REQ_TYPE_TRY:
-    if( !ref_exists ) return FD_VINYL_ERR_KEY;   /* Key does not exist */
-    if( ref_cnt<0L  ) return FD_VINYL_ERR_AGAIN; /* Key acquired-for-modify */
-    *_ver = ref_ver;
-    return FD_VINYL_SUCCESS;
+    if( !pair     ) return FD_VINYL_ERR_KEY;   /* Key does not exist */
+    if( pair->acq ) return FD_VINYL_ERR_AGAIN; /* Key acquired at least once */
 
-  case FD_VINYL_REQ_TYPE_TEST:
-    if( ref_ver!=*_ver ) return FD_VINYL_ERR_CORRUPT; /* Key modified during the try */
-    return FD_VINYL_SUCCESS;
+    pair->ver++;
 
-  default: /* MOVE, FETCH and FLUSH for the case of a single key */
+    ref.used &= ~(1UL<<idx);
+    return FD_VINYL_SUCCESS;
+  }
+
+  case FD_VINYL_REQ_TYPE_MOVE: {
+    fd_vinyl_key_t const * src_key = key;
+    fd_vinyl_key_t const * dst_key = (fd_vinyl_key_t *)_pair;
+
+    if( fd_vinyl_key_eq( src_key, dst_key ) ) return FD_VINYL_SUCCESS; /* Input and output keys are the same is a no-op */
+
+    /* Lookup pair dst_key.  Fail with AGAIN if pair dst_key exists and
+       is currently acquired. */
+
+    ulong    dst_idx  = 0UL;
+    pair_t * dst_pair = NULL;
+    for( ; dst_idx<PAIR_MAX; dst_idx++ ) {
+      if( ((ref.used >> dst_idx) & 1UL) && fd_vinyl_key_eq( dst_key, ref.pair[ dst_idx ].key ) ) {
+        dst_pair = &ref.pair[ dst_idx ];
+        break;
+      }
+    }
+
+    if( dst_pair && dst_pair->acq ) return FD_VINYL_ERR_AGAIN;
+
+    /* Lookup pair src_key.  If it doesn't exist, fail with KEY.  If it
+       is acquired, fail with AGAIN. */
+
+    ulong    src_idx  = 0UL;
+    pair_t * src_pair = NULL;
+    for( ; src_idx<PAIR_MAX; src_idx++ ) {
+      if( ((ref.used >> src_idx) & 1UL) && fd_vinyl_key_eq( src_key, ref.pair[ src_idx ].key ) ) {
+        src_pair = &ref.pair[ src_idx ];
+        break;
+      }
+    }
+
+    if( !src_pair     ) return FD_VINYL_ERR_KEY;
+    if( src_pair->acq ) return FD_VINYL_ERR_AGAIN;
+
+    /* At this point:
+      - pair dst_key may or may not exist.  If it exists it is not
+        acquired.
+      - pair src_key exists and is not acquired.
+      Thus we are clear to move.  Erase pair dst_key if it exists.  Then
+      rename pair src_key to pair dst_key. */
+
+    if( dst_pair ) {
+      dst_pair->ver++;
+      ref.used &= ~(1UL<<dst_idx);
+    }
+
+    src_pair->key[0] = dst_key[0];
+    src_pair->ver++;
+
+    return FD_VINYL_SUCCESS;
+  }
+
+  case FD_VINYL_REQ_TYPE_FETCH: {
+    return FD_VINYL_SUCCESS;
+  }
+
+  case FD_VINYL_REQ_TYPE_FLUSH: {
+    return FD_VINYL_SUCCESS;
+  }
+
+  case FD_VINYL_REQ_TYPE_TRY: {
+    ulong    idx  = 0UL;
+    pair_t * pair = NULL;
+    for( ; idx<PAIR_MAX; idx++ ) {
+      if( ((ref.used >> idx) & 1UL) && fd_vinyl_key_eq( key, ref.pair[ idx ].key ) ) {
+        pair = &ref.pair[ idx ];
+        break;
+      }
+    }
+
+    if( !pair        ) return FD_VINYL_ERR_KEY;   /* Key does not exist */
+    if( pair->acq<0L ) return FD_VINYL_ERR_AGAIN; /* Key acquired-for-modify */
+
+    *_pair = pair;
+    *_ver  = pair->ver;
+
+    return FD_VINYL_SUCCESS;
+  }
+
+  case FD_VINYL_REQ_TYPE_TEST: {
+
+    if( (*_pair)->ver != (*_ver) ) return FD_VINYL_ERR_CORRUPT; /* Key modified during the try */
+
+    return FD_VINYL_SUCCESS;
+  }
+
+  default:
     break;
   }
 
-  return FD_VINYL_SUCCESS;
+  return FD_VINYL_ERR_INVAL;
 }
 
 static int
@@ -238,19 +364,18 @@ client_tile( ulong            iter_max,
 
   uchar * top = (uchar *)_scratch;
 
+  fd_vinyl_key_t *  _key       = (fd_vinyl_key_t *) top; top += sizeof(fd_vinyl_key_t)*PAIR_MAX;
+  ulong *           _try_gaddr = (ulong *)          top; top += sizeof(ulong)*2UL     *PAIR_MAX;
+
   fd_vinyl_comp_t * comp      = (fd_vinyl_comp_t *)top; top += sizeof(fd_vinyl_comp_t);
-  fd_vinyl_key_t *  key       = (fd_vinyl_key_t *) top; top += sizeof(fd_vinyl_key_t);
   ulong *           val_gaddr = (ulong *)          top; top += sizeof(ulong);
-  ulong *           try_gaddr = (ulong *)          top; top += sizeof(ulong)*2UL;
   schar *           err       = (schar *)          top; top += sizeof(schar);
 
-  ulong cq_seq = fd_vinyl_cq_seq( cq );
-
   ulong comp_gaddr      = fd_wksp_gaddr( wksp, comp      );
-  ulong key_gaddr       = fd_wksp_gaddr( wksp, key       );
   ulong val_gaddr_gaddr = fd_wksp_gaddr( wksp, val_gaddr );
   ulong err_gaddr       = fd_wksp_gaddr( wksp, err       );
-  ulong try_gaddr_gaddr = fd_wksp_gaddr( wksp, try_gaddr );
+
+  ulong cq_seq = fd_vinyl_cq_seq( cq );
 
 # define WAIT do {                                                   \
     if( oob ) {                                                      \
@@ -267,20 +392,33 @@ client_tile( ulong            iter_max,
 
   ulong val_max_bad = FD_VINYL_VAL_MAX+1UL;
 
-  long  acq          = 0L;
-  ulong acq_gaddr    = 0UL;
-  int   acq_modified = 0;
+  long     acq         [ PAIR_MAX ]; for( ulong idx=0UL; idx<PAIR_MAX; idx++ ) acq         [idx] = 0L;
+  ulong    acq_gaddr   [ PAIR_MAX ]; for( ulong idx=0UL; idx<PAIR_MAX; idx++ ) acq_gaddr   [idx] = 0UL;
+  int      acq_modified[ PAIR_MAX ]; for( ulong idx=0UL; idx<PAIR_MAX; idx++ ) acq_modified[idx] = 0;
 
-  int   in_try  = 0;
-  ulong ref_try = 0UL;
+  int      try_live    [ PAIR_MAX ]; for( ulong idx=0UL; idx<PAIR_MAX; idx++ ) try_live    [idx] = 0;
+  pair_t * try_pair    [ PAIR_MAX ]; for( ulong idx=0UL; idx<PAIR_MAX; idx++ ) try_pair    [idx] = NULL;
+  ulong    try_ver     [ PAIR_MAX ]; for( ulong idx=0UL; idx<PAIR_MAX; idx++ ) try_ver     [idx] = 0UL;
 
-  fd_vinyl_key_init( key, "test", 5UL );
+  fd_vinyl_key_init( _key+0, "test",   5UL );
+  fd_vinyl_key_init( _key+1, "foo",    4UL );
+  fd_vinyl_key_init( _key+2, "bar",    4UL );
+  fd_vinyl_key_init( _key+3, "foobar", 7UL );
 
-  for( ulong rem=iter_max; rem; rem-- ) {
+  ulong diag_rem = 0UL;
+  for( ulong iter_idx=0UL; iter_idx<iter_max; iter_idx++ ) {
+    if( !diag_rem ) {
+      FD_LOG_NOTICE(( "On iteration %lu of %lu", iter_idx, iter_max ));
+      diag_rem = 1000000UL;
+    }
+    diag_rem--;
+
     ulong req_id = fd_rng_ulong( rng );
 
     ulong r = fd_rng_ulong( rng );
 
+    ulong src_idx =      (r &  3UL);                                r >>=  2;
+    ulong dst_idx =      (r &  3UL);                                r >>=  2;
     int   op      = (int)(r & 63UL);                                r >>=  6;
     int   by_key  = (int)(r &  1UL);                                r >>=  1;
     int   do_mod  = (int)(r &  1UL);                                r >>=  1;
@@ -289,25 +427,33 @@ client_tile( ulong            iter_max,
     ulong val_max = (r & (ulong)UINT_MAX) % (FD_VINYL_VAL_MAX+1UL); r >>= 32;
     int   pat     = (int)(r & 255UL);                               r >>=  8;
 
+    fd_vinyl_key_t * src_key         = _key       +     src_idx;
+    fd_vinyl_key_t * dst_key         = _key       +     dst_idx;
+    ulong *          try_gaddr       = _try_gaddr + 2UL*src_idx;
+
+    ulong src_key_gaddr   = fd_wksp_gaddr( wksp, src_key   );
+    ulong dst_key_gaddr   = fd_wksp_gaddr( wksp, dst_key   );
+    ulong try_gaddr_gaddr = fd_wksp_gaddr( wksp, try_gaddr );
+
     comp->seq = 0UL;
 
     switch( op ) {
 
     case 0: /* mismatched link id (dropped and ticks the DROP_LINK counter) */
       fd_vinyl_rq_send( rq, req_id, ~link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 1UL, val_max,
-                        key_gaddr, val_gaddr_gaddr, err_gaddr, oob );
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob );
       break;
 
     case 1: /* unmappable oob completion (dropped and ticks the DROP_COMP counter) */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 1UL, val_max,
-                        key_gaddr, val_gaddr_gaddr, err_gaddr, ULONG_MAX );
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, ULONG_MAX );
       break;
 
     case 2: /* bad request type */
       fd_vinyl_rq_send( rq, req_id, link_id, -1, flags, 1UL, val_max,
-                        key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     /* acquire tests */
@@ -316,82 +462,84 @@ client_tile( ulong            iter_max,
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 1UL, val_max,
                         0UL, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 4: /* acquire with unmappable val */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 1UL, val_max,
-                        key_gaddr, 0UL, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 5: /* acquire with unmappable err */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 1UL, val_max,
-                        key_gaddr, val_gaddr_gaddr, 0UL, oob ); WAIT;
+                        src_key_gaddr, val_gaddr_gaddr, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 6: /* acquire with bad val_max */
-      FD_TEST( req( FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, val_max_bad, NULL )==FD_VINYL_ERR_INVAL );
+      FD_TEST( req( FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, val_max_bad,
+                    src_key, NULL, NULL )==FD_VINYL_ERR_INVAL );
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags | FD_VINYL_REQ_FLAG_MODIFY, 1UL, val_max_bad,
-                        key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 7: /* acquire with zero batch */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 0UL, val_max,
                         0UL, 0UL, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS  ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0         ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0         ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 8: { /* acquire */
-      int ref_err = req( FD_VINYL_REQ_TYPE_ACQUIRE, flags, val_max, NULL );
+      pair_t * pair;
+      int ref_err = req( FD_VINYL_REQ_TYPE_ACQUIRE, flags, val_max, src_key, &pair, NULL );
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ACQUIRE, flags, 1UL, val_max,
-                        key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
       if( ref_err==FD_VINYL_ERR_FULL ) {
         FD_TEST( comp->err      ==FD_VINYL_ERR_FULL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-        FD_TEST( comp->fail_cnt ==(ushort)0         ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+        FD_TEST( comp->fail_cnt ==(ushort)0         ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
         break;
       }
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS  ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       FD_TEST( err[0]==(schar)ref_err );
 
       if( !ref_err ) {
-        acq_gaddr = val_gaddr[0];
+        acq_gaddr[ src_idx ] = val_gaddr[0];
 
         void *            val     = fd_wksp_laddr_fast( wksp, val_gaddr[0] );
         fd_vinyl_info_t * info    = fd_vinyl_data_info( val );
         ulong             val_sz  = (ulong)info->val_sz;
         ulong             val_max = fd_vinyl_data_val_max( val );
 
-        FD_TEST( val_max==ref_val_max );
+        FD_TEST( val_max==pair->val_max );
 
-        FD_TEST( !memcmp( info, ref_info, sizeof(fd_vinyl_info_t) ) );
+        FD_TEST( !memcmp( info, pair->info, sizeof(fd_vinyl_info_t) ) );
 
-        if( val_sz ) FD_TEST( !memcmp( val, ref_val, val_sz ) );
+        if( val_sz ) FD_TEST( !memcmp( val, pair->val, val_sz ) );
 
         /* FIXME: TEST [VAL_SZ,VAL_MAX) ZPAD? */
 
         if( fd_vinyl_req_flag_modify( flags ) ) {
-          acq = -1L;
-          acq_modified = fd_vinyl_req_flag_ignore( flags );
+          acq         [ src_idx ] = -1L;
+          acq_modified[ src_idx ] = fd_vinyl_req_flag_ignore( flags );
           if( do_mod ) {
             val_sz = fd_rng_ulong_roll( rng, val_max + 1UL );
-            memset( info,     pat, sizeof(fd_vinyl_info_t) ); memset( ref_info, pat, sizeof(fd_vinyl_info_t) );
-            memset( val,      pat, val_sz                  ); memset( ref_val,  pat, val_sz                  );
-            info->val_sz = (uint)val_sz;                      ref_info->val_sz = (uint)val_sz;
-            acq_modified |= 1;
+            memset( info,     pat, sizeof(fd_vinyl_info_t) ); memset( pair->info, pat, sizeof(fd_vinyl_info_t) );
+            memset( val,      pat, val_sz                  ); memset( pair->val,  pat, val_sz                  );
+            info->val_sz = (uint)val_sz;                      pair->info->val_sz = (uint)val_sz;
+            acq_modified[ src_idx ] |= 1;
           }
         } else {
-          FD_TEST( !memcmp( info, ref_info, sizeof(fd_vinyl_info_t) ) );
-          FD_TEST( !memcmp( val,  ref_val,  val_sz                  ) );
-          acq++;
-          acq_modified = 0;
+          FD_TEST( !memcmp( info, pair->info, sizeof(fd_vinyl_info_t) ) );
+          FD_TEST( !memcmp( val,  pair->val,  val_sz                  ) );
+          acq         [ src_idx ]++;
+          acq_modified[ src_idx ] = 0;
         }
       }
       break;
@@ -403,48 +551,48 @@ client_tile( ulong            iter_max,
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, flags | FD_VINYL_REQ_FLAG_BY_KEY, 1UL, val_max_bad,
                         0UL, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 10: /* release with unmappable val */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, flags & ~FD_VINYL_REQ_FLAG_BY_KEY, 1UL, val_max_bad,
-                        key_gaddr, 0UL, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 11: /* release with unmappable err */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, flags, 1UL, val_max_bad,
-                        key_gaddr, val_gaddr_gaddr, 0UL, oob ); WAIT;
+                        src_key_gaddr, val_gaddr_gaddr, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 12: /* release with zero batch */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, flags, 0UL, val_max_bad,
                         0UL, 0UL, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 13: { /* release */
-      if( acq>0L ) flags &= ~FD_VINYL_REQ_FLAG_MODIFY; /* can't say modify on an acquire-for-read */
-      if( ((acq<0L) & (!fd_vinyl_req_flag_modify( flags )) & acq_modified) ) flags |= FD_VINYL_REQ_FLAG_IGNORE;
-
-      int ref_err = req( FD_VINYL_REQ_TYPE_RELEASE, flags, val_max_bad, NULL );
-      if( by_key ) {
+      if( acq[ src_idx ] > 0L ) flags &= ~FD_VINYL_REQ_FLAG_MODIFY; /* can't say modify on an acquire-for-read */
+      if( ((acq[ src_idx ] < 0L) & (!fd_vinyl_req_flag_modify( flags )) & acq_modified[ src_idx ]) )
+        flags |= FD_VINYL_REQ_FLAG_IGNORE;
+      int ref_err = req( FD_VINYL_REQ_TYPE_RELEASE, flags, val_max_bad, src_key, NULL, NULL );
+      if( by_key || !acq[ src_idx ] ) {
         fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, flags |  FD_VINYL_REQ_FLAG_BY_KEY, 1UL, val_max_bad,
-                          key_gaddr, 0UL, err_gaddr, oob );
+                          src_key_gaddr, 0UL, err_gaddr, oob );
       } else {
-        val_gaddr[0] = acq_gaddr;
+        val_gaddr[0] = acq_gaddr[ src_idx ];
         fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, flags & ~FD_VINYL_REQ_FLAG_BY_KEY, 1UL, val_max_bad,
                           0UL, val_gaddr_gaddr, err_gaddr, oob );
       }
       WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       FD_TEST( err[0]==(schar)ref_err );
-      if( !ref_err ) acq = acq>0L ? (acq-1L) : 0L;
+      if( !ref_err ) acq[ src_idx ] = (acq[ src_idx ] > 0L) ? (acq[ src_idx ]-1L) : 0L;
       break;
     }
 
@@ -454,29 +602,29 @@ client_tile( ulong            iter_max,
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, flags, 1UL, val_max_bad,
                         0UL, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 15: /* erase with unmappable err */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, flags, 1UL, val_max_bad,
-                        key_gaddr, 0UL, 0UL, oob ); WAIT;
+                        src_key_gaddr, 0UL, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 16: /* erase with zero batch */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, flags, 0UL, val_max_bad,
-                        key_gaddr, 0UL, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 17: { /* erase */
-      int ref_err = req( FD_VINYL_REQ_TYPE_ERASE, flags, val_max_bad, NULL );
+      int ref_err = req( FD_VINYL_REQ_TYPE_ERASE, flags, val_max_bad, src_key, NULL, NULL );
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_ERASE, flags, 1UL, val_max_bad,
-                        key_gaddr, 1UL, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, 1UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       FD_TEST( err[0]==(schar)ref_err );
       break;
     }
@@ -485,38 +633,41 @@ client_tile( ulong            iter_max,
 
     case 18: /* move with unmappable src */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_MOVE, flags, 1UL, val_max_bad,
-                        0UL, key_gaddr, err_gaddr, oob ); WAIT;
+                        0UL, src_key_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 19: /* move with unmappable dst */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_MOVE, flags, 1UL, val_max_bad,
-                        key_gaddr, 0UL, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 20: /* move with unmappable err */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_MOVE, flags, 1UL, val_max_bad,
-                        key_gaddr, key_gaddr, 0UL, oob ); WAIT;
+                        src_key_gaddr, dst_key_gaddr, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 21: /* move with zero batch */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_MOVE, flags, 0UL, val_max_bad,
-                        key_gaddr, key_gaddr, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, dst_key_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
-    case 22: /* move */
-      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_MOVE, flags, 0UL, val_max_bad,
-                        key_gaddr, key_gaddr, err_gaddr, oob ); WAIT;
-      FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+    case 22: { /* move */
+      int ref_err = req( FD_VINYL_REQ_TYPE_MOVE, flags, val_max_bad, src_key, (pair_t **)dst_key, NULL );
+      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_MOVE, flags, 1UL, val_max_bad,
+                        src_key_gaddr, dst_key_gaddr, err_gaddr, oob ); WAIT;
+      FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
+      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
+      FD_TEST( err[0]==(schar)ref_err );
       break;
+    }
 
     /* fetch tests (these are logical no-op / hints and don't generate completions) */
 
@@ -529,8 +680,8 @@ client_tile( ulong            iter_max,
       break;
 
     case 25: /* fetch */
-      FD_TEST( !req( FD_VINYL_REQ_TYPE_FETCH, 0UL, 0UL, NULL ) );
-      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_FETCH, flags, 1UL, val_max_bad, key_gaddr, 0UL, 0UL, oob );
+      FD_TEST( !req( FD_VINYL_REQ_TYPE_FETCH, 0UL, 0UL, src_key, NULL, NULL ) );
+      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_FETCH, flags, 1UL, val_max_bad, src_key_gaddr, 0UL, 0UL, oob );
       break;
 
     /* flush tests (these are logical no-ops / hints and don't generate completions) */
@@ -544,8 +695,8 @@ client_tile( ulong            iter_max,
       break;
 
     case 28: /* flush */
-      FD_TEST( !req( FD_VINYL_REQ_TYPE_FLUSH, 0UL, 0UL, NULL ) );
-      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_FLUSH, flags, 1UL, val_max_bad, key_gaddr, 0UL, 0UL, oob );
+      FD_TEST( !req( FD_VINYL_REQ_TYPE_FLUSH, 0UL, 0UL, src_key, NULL, NULL ) );
+      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_FLUSH, flags, 1UL, val_max_bad, src_key_gaddr, 0UL, 0UL, oob );
       break;
 
     /* try tests */
@@ -554,38 +705,38 @@ client_tile( ulong            iter_max,
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TRY, flags, 1UL, val_max_bad,
                         0UL, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 30: /* try with unmappable try */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TRY, flags, 1UL, val_max_bad,
-                        key_gaddr, 0UL, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 31: /* try with unmappable err */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TRY, flags, 1UL, val_max_bad,
-                        key_gaddr, try_gaddr_gaddr, 0UL, oob ); WAIT;
+                        src_key_gaddr, try_gaddr_gaddr, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 32: /* try with zero batch */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TRY, flags, 0UL, val_max_bad,
-                        key_gaddr, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 33: { /* try */
-      int ref_err = req( FD_VINYL_REQ_TYPE_TRY, flags, val_max_bad, &ref_try );
+      int ref_err = req( FD_VINYL_REQ_TYPE_TRY, flags, val_max_bad, src_key, &try_pair[ src_idx ], &try_ver[ src_idx ] );
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TRY, flags, 1UL, val_max_bad,
-                        key_gaddr, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
+                        src_key_gaddr, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       FD_TEST( err[0]==(schar)ref_err );
-      if( !ref_err ) in_try  = 1;
+      if( !ref_err ) try_live[ src_idx ] = 1;
       break;
     }
 
@@ -595,38 +746,39 @@ client_tile( ulong            iter_max,
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TEST, flags, 1UL, val_max_bad,
                         0UL, 0UL, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 35: /* test with unmappable err */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TEST, flags, 1UL, val_max_bad,
                         0UL, try_gaddr_gaddr, 0UL, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_ERR_INVAL ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 36: /* test with zero batch */
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TEST, flags, 0UL, val_max_bad,
                         0UL, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)0             );
-      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
+      FD_TEST( comp->fail_cnt ==(ushort)0          ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
       break;
 
     case 37: { /* test */
-      if( !in_try ) break;
+      if( !try_live[ src_idx ] ) break;
       void *            try_val    = fd_wksp_laddr_fast( wksp, try_gaddr[0] );
       fd_vinyl_info_t * try_info   = fd_vinyl_data_info( try_val );
       ulong             try_val_sz = fd_ulong_min( (ulong)try_info->val_sz, FD_VINYL_VAL_MAX );
-      int try_cmp = (!memcmp( try_info, try_info, sizeof(fd_vinyl_info_t) )) &&
-                    (!memcmp( try_val,  try_val,  try_val_sz              ));
-      int ref_err = req( FD_VINYL_REQ_TYPE_TEST, flags, val_max_bad, &ref_try );
+      int try_cmp = (!memcmp( try_info, try_pair[ src_idx ]->info, sizeof(fd_vinyl_info_t) )) &&
+                    (!memcmp( try_val,  try_pair[ src_idx ]->val,  try_val_sz              ));
+      int ref_err = req( FD_VINYL_REQ_TYPE_TEST, flags, val_max_bad, NULL, &try_pair[ src_idx ], &try_ver[ src_idx ] );
       fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_TEST, flags, 1UL, val_max_bad,
                         0UL, try_gaddr_gaddr, err_gaddr, oob ); WAIT;
-      in_try = 0;
+      try_live[ src_idx ] = 0;
       FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
-      /**/                                            FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
-      /* Because of cache line flushing, it is possible for a try to
-         work in the ref version and fail in the full version. */
+      /**/                                            FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
+      /* Note that it is possible for a try to work in the ref version
+         and fail in the full version (e.g. cache line flushing, val
+         resizing in the background, etc). */
       if( ((!ref_err) & (!!err[0])) ) break;
       FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  );
       FD_TEST( (!!err[0]) | try_cmp );
@@ -650,17 +802,22 @@ client_tile( ulong            iter_max,
 
   /* Clean up */
 
-  val_gaddr[0] = acq_gaddr;
-  for( acq=(long)fd_long_abs( acq ); acq; acq-- ) {
-    ulong req_id = fd_rng_ulong( rng );
-    ulong oob    = 0UL;
-    int ref_err = req( FD_VINYL_REQ_TYPE_RELEASE, FD_VINYL_REQ_FLAG_IGNORE, val_max_bad, NULL );
-    FD_TEST( !ref_err );
-    fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, FD_VINYL_REQ_FLAG_IGNORE, 1UL, val_max_bad,
-                      0UL, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
-    FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
-    FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref_quota_rem );
-    FD_TEST( err[0]==(schar)ref_err );
+  for( ulong src_idx=0UL; src_idx<PAIR_MAX; src_idx++ ) {
+    fd_vinyl_key_t * src_key       = _key + src_idx;
+    ulong            src_key_gaddr = fd_wksp_gaddr( wksp, src_key );
+    val_gaddr[0] = acq_gaddr[ src_idx ];
+    for( long rem=(long)fd_long_abs( acq[ src_idx ] ); rem; rem-- ) {
+      ulong req_id = fd_rng_ulong( rng );
+      ulong oob    = 0UL;
+      int ref_err = req( FD_VINYL_REQ_TYPE_RELEASE, FD_VINYL_REQ_FLAG_IGNORE, val_max_bad, src_key, NULL, NULL );
+      FD_TEST( !ref_err );
+      fd_vinyl_rq_send( rq, req_id, link_id, FD_VINYL_REQ_TYPE_RELEASE, FD_VINYL_REQ_FLAG_IGNORE, 1UL, val_max_bad,
+                        src_key_gaddr, val_gaddr_gaddr, err_gaddr, oob ); WAIT;
+      FD_TEST( comp->err      ==FD_VINYL_SUCCESS   ); FD_TEST( comp->batch_cnt==(ushort)1             );
+      FD_TEST( comp->fail_cnt ==(ushort)!!ref_err  ); FD_TEST( comp->quota_rem==(ushort)ref.quota_rem );
+      FD_TEST( err[0]==(schar)ref_err );
+    }
+
   }
 
   fd_rng_delete( fd_rng_leave( rng ) );
@@ -745,7 +902,7 @@ main( int     argc,
   void * _obj     = fd_wksp_alloc_laddr( wksp, alignof(fd_vinyl_data_obj_t), obj_footprint,   tag ); FD_TEST( _obj     );
   void * _rq      = fd_wksp_alloc_laddr( wksp, fd_vinyl_rq_align(),          rq_footprint,    tag ); FD_TEST( _rq      );
   void * _cq      = fd_wksp_alloc_laddr( wksp, fd_vinyl_cq_align(),          cq_footprint,    tag ); FD_TEST( _cq      );
-  void * _scratch = fd_wksp_alloc_laddr( wksp, 128UL,                        scratch_sz,      tag ); FD_TEST( _scratch );
+  void * _scratch = fd_wksp_alloc_laddr( wksp, 4096UL,                       scratch_sz,      tag ); FD_TEST( _scratch );
 
   fd_vinyl_io_t * io = fd_vinyl_io_mm_init( _io, spad_max, _dev, dev_footprint, 1, "test", 5UL, io_seed ); FD_TEST( io );
 
@@ -869,7 +1026,7 @@ main( int     argc,
 
   FD_TEST( !fd_vinyl_client_join( cnc, rq, cq, wksp, link_id, burst_max, quota_max ) );
 
-  ref_quota_rem = quota_max;
+  ref.quota_rem = quota_max;
 
   FD_TEST( fd_vinyl_client_join( cnc, rq, cq, wksp, link_id, burst_max, quota_max )==FD_VINYL_ERR_FULL ); /* already joined */
 
