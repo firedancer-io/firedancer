@@ -113,6 +113,8 @@ after_frag( fd_verify_ctx_t *   ctx,
   (void)sz;
   (void)_tspub;
 
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx ]==IN_KIND_SEND ) ) ctx->metrics.gossiped_votes_cnt++;
+
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t *  txnt = fd_txn_m_txn_t( txnm );
   txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, NULL );
@@ -151,8 +153,6 @@ after_frag( fd_verify_ctx_t *   ctx,
 
     return;
   }
-
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) ctx->metrics.gossiped_votes_cnt++;
 
   ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 0 );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
