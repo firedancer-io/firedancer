@@ -340,7 +340,7 @@ accounts_hist_vinyl( accounts_hist_t * hist,
   for( ulong ele_i=0; ele_i < fd_vinyl_meta_ele_max( meta ); ele_i++ ) {
     fd_vinyl_meta_ele_t const * ele = meta->ele + ele_i;
     if( FD_UNLIKELY( fd_vinyl_meta_private_ele_is_free( meta->ctx, ele ) ) ) continue;
-    accounts_hist_update( hist, (ulong)ele->phdr.info._val_sz );
+    accounts_hist_update( hist, (ulong)ele->phdr.info.val_sz );
   }
 }
 
