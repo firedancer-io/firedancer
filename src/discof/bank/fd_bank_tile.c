@@ -357,6 +357,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_exec_txn_ctx_t * txn_ctx = &ctx->txn_ctx[ i ];
     txn_ctx->bundle.is_bundle = 1;
 
+    txn_ctx->bundle.is_bundle          = 1;
+    txn_ctx->bundle.prev_txn_ctxs_cnt  = i;
+
     txn->flags &= ~FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
     txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
 
@@ -424,6 +427,10 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   }
 
   fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
+
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    ctx->txn_ctx[ i ].bundle.is_bundle = 0;
+  }
 
   /* Indicate to pack tile we are done processing the transactions so
      it can pack new microblocks using these accounts. */
