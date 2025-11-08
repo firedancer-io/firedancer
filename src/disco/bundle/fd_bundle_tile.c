@@ -334,6 +334,7 @@ fd_bundle_tile_load_certs( SSL_CTX * ssl_ctx ) {
   }
 
   struct dirent * entry;
+  errno = 0; // clear old value since entry can be NULL when reaching end of directory.
   while( (entry = readdir( dir )) ) {
     if( !strcmp( entry->d_name, "." ) || !strcmp( entry->d_name, ".." ) ) continue;
 
