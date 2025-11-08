@@ -283,7 +283,7 @@ FD_PROTOTYPES_END
 #define FD_VINYL_INFO_SZ (16UL)
 
 union fd_vinyl_info {
-  uint  _val_sz;
+  uint  val_sz;
   uchar uc[ FD_VINYL_INFO_SZ                 ];
   uint  ui[ FD_VINYL_INFO_SZ / sizeof(uint ) ];
   ulong ul[ FD_VINYL_INFO_SZ / sizeof(ulong) ];

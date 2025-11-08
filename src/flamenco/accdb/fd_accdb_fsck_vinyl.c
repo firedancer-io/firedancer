@@ -144,7 +144,7 @@ fd_accdb_fsck_vinyl( fd_vinyl_io_t *   io,
     }
 
     /* Interpret block */
-    fd_vinyl_bstream_block_t const block = FD_LOAD( fd_vinyl_bstream_block_t, mmio+mm_off );
+    fd_vinyl_bstream_block_t block = FD_LOAD( fd_vinyl_bstream_block_t, mmio+mm_off );
     int ctl_type = fd_vinyl_bstream_ctl_type( block.ctl );
     switch( ctl_type ) {
 

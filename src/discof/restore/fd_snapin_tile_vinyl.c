@@ -473,8 +473,8 @@ fd_snapin_process_account_header_vinyl( fd_snapin_tile_t *            ctx,
 
   phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
   fd_vinyl_key_init( &phdr->key, result->account_header.pubkey, 32UL );
-  phdr->info._val_sz = (uint)val_sz;
-  phdr->info.ul[1]   = result->account_header.slot;
+  phdr->info.val_sz = (uint)val_sz;
+  phdr->info.ul[1]  = result->account_header.slot;
 
   dst     += sizeof(fd_vinyl_bstream_phdr_t);
   dst_rem -= sizeof(fd_vinyl_bstream_phdr_t);
@@ -605,8 +605,8 @@ fd_snapin_process_account_batch_vinyl( fd_snapin_tile_t *            ctx,
     fd_vinyl_bstream_phdr_t * phdr = &ele->phdr;
     phdr->ctl = fd_vinyl_bstream_ctl( FD_VINYL_BSTREAM_CTL_TYPE_PAIR, FD_VINYL_BSTREAM_CTL_STYLE_RAW, val_sz );
     phdr->key = *key;
-    phdr->info._val_sz = (uint)val_sz;
-    phdr->info.ul[1]   = result->account_batch.slot;
+    phdr->info.val_sz = (uint)val_sz;
+    phdr->info.ul[1]  = result->account_batch.slot;
 
     ele->memo      = memo[ i ];
     ele->phdr.ctl  = phdr->ctl;
