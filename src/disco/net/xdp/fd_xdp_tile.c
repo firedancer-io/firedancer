@@ -115,7 +115,7 @@ fd_net_flusher_inc( fd_net_flusher_t * flusher,
 
 /* fd_net_flusher_check returns 1 if a sendto() wakeup should be issued
    immediately.  now is a recent fd_tickcount() value.
-   If tx_ring_empty==0 then the kernel is caught up with the net tile
+   If tx_ring_empty==1 then the kernel is caught up with the net tile
    on the XDP TX ring.  (Otherwise, the kernel is behind the net tile) */
 
 static inline int
@@ -132,7 +132,7 @@ fd_net_flusher_check( fd_net_flusher_t * flusher,
     flusher->next_tail_flush_ticks = LONG_MAX;
     return 0;
   }
-  return flush_level << 1 | flush_timeout;
+  return (flush_level<<1) | flush_timeout;
 }
 
 /* fd_net_flusher_wakeup signals a sendto() wakeup was done.  now is a
@@ -140,8 +140,9 @@ fd_net_flusher_check( fd_net_flusher_t * flusher,
 
 static inline void
 fd_net_flusher_wakeup( fd_net_flusher_t * flusher,
-                       long               now ) {
-  flusher->pending_cnt           = 0UL;
+                       long               now,
+                       uint               pre_wakeup_depth ) {
+  flusher->pending_cnt           = fd_uint_sat_sub( pre_wakeup_depth, 32 );
   flusher->next_tail_flush_ticks = now + flusher->tail_flush_backoff;
 }
 
@@ -424,7 +425,7 @@ net_tx_ready( fd_net_ctx_t * ctx,
   fd_xdp_ring_t *      tx_ring = &xsk->ring_tx;
   fd_net_free_ring_t * free    = &ctx->free_tx;
   if( free->prod == free->cons ) return 0; /* drop */
-  if( tx_ring->cached_prod - FD_VOLATILE_CONST( *tx_ring->cons ) >= tx_ring->depth ) return 0; /* drop */
+  if( FD_VOLATILE_CONST( *tx_ring->prod ) - FD_VOLATILE_CONST( *tx_ring->cons ) >= tx_ring->depth ) return 0; /* drop */
   return 1;
 }
 
@@ -454,20 +455,24 @@ net_rx_wakeup( fd_net_ctx_t * ctx,
 }
 
 /* net_tx_wakeup triggers xsk_sendmsg to run in the kernel.  Needs to be
-   called periodically in order to transmit packets. */
+   called periodically in order to transmit packets.
+   Returns 1 if it issued a wakeup, 0 otherwise.*/
 
-static void
+static int
 net_tx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
                int *          charge_busy,
                uint           flush_result ) {
-  if( !fd_xsk_tx_need_wakeup( xsk ) ) return;
-  if( FD_VOLATILE_CONST( *xsk->ring_tx.prod )==FD_VOLATILE_CONST( *xsk->ring_tx.cons ) ) return;
+  if( !fd_xsk_tx_need_wakeup( xsk ) ) return 0;
+  uint tx_prod = xsk->ring_tx.cached_prod;
+  uint tx_cons = xsk->ring_tx.cached_cons;
+  if( tx_prod==tx_cons ) return 0;
   *charge_busy = 1;
   ctx->metrics.tx_wakeup_reason_cnt[flush_result-1]++;
 
   long dt = -fd_tickcount();
-  if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
+  ssize_t res = sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 );
+  if( FD_UNLIKELY( -1==res ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
       FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
     }
@@ -479,11 +484,13 @@ net_tx_wakeup( fd_net_ctx_t * ctx,
       }
     }
   }
+
   dt += fd_tickcount();
-  if( dt > 5e6L ) { /* only print if longer than 5ms, reduce spam */
-    FD_LOG_INFO(( "xsk sendto took %ld ticks", dt ));
+  if( dt > 10e6L ) { /* only print if longer than 10ms, reduce spam */
+    FD_LOG_INFO(( "xsk sendto took %ld ticks with depth %u", dt, tx_prod - tx_cons ));
   }
   ctx->metrics.xsk_tx_wakeup_cnt++;
+  return 1;
 }
 
 /* net_tx_periodic_wakeup does a timer based xsk_sendmsg wakeup. */
@@ -493,13 +500,16 @@ net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
                         uint           xsk_idx,
                         long           now,
                         int *          charge_busy ) {
-  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.prod );
-  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ xsk_idx ].ring_tx.cons );
+  fd_xdp_ring_t * tx_ring = &ctx->xsk[ xsk_idx ].ring_tx;
+  uint tx_prod = tx_ring->cached_prod = FD_VOLATILE_CONST( *tx_ring->prod );
+  uint tx_cons = tx_ring->cached_cons = FD_VOLATILE_CONST( *tx_ring->cons );
   int tx_ring_empty = tx_prod==tx_cons;
   uint flush_result = (uint)fd_net_flusher_check( ctx->tx_flusher+xsk_idx, now, tx_ring_empty );
   if( flush_result ) {
-    net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy, flush_result );
-    fd_net_flusher_wakeup( ctx->tx_flusher+xsk_idx, now );
+    if( net_tx_wakeup( ctx, &ctx->xsk[ xsk_idx ], charge_busy, flush_result ) ) {
+      /* only reset the flusher if we issued a wakeup */
+      fd_net_flusher_wakeup( ctx->tx_flusher+xsk_idx, now, tx_prod - tx_cons );
+    }
   }
   return 0;
 }
@@ -537,6 +547,7 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ticks;
     poll_xdp_statistics( ctx );
   }
+
 }
 
 
@@ -1046,7 +1057,6 @@ net_comp_event( fd_net_ctx_t * ctx,
   fd_xdp_ring_t * comp_ring  = &xsk->ring_cr;
   uint            comp_mask  = comp_ring->depth - 1U;
   ulong           frame      = FD_VOLATILE_CONST( comp_ring->frame_ring[ comp_seq&comp_mask ] );
-  ulong const     frame_mask = FD_NET_MTU - 1UL;
   if( FD_UNLIKELY( frame+FD_NET_MTU > ctx->umem_sz ) ) {
     FD_LOG_ERR(( "Bounds check failed: frame=0x%lx umem_sz=0x%lx",
                  frame, (ulong)ctx->umem_sz ));
@@ -1058,9 +1068,9 @@ net_comp_event( fd_net_ctx_t * ctx,
   ulong                free_prod = free->prod;
   ulong                free_mask = free->depth - 1UL;
   long free_cnt = fd_seq_diff( free_prod, free->cons );
-  if( FD_UNLIKELY( free_cnt>=(long)free->depth ) ) return; /* blocked */
+  if( FD_UNLIKELY( free_cnt>=(long)free->depth ) ) { FD_LOG_NOTICE(( "free ring blocked" )); return; /* blocked */ }
 
-  free->queue[ free_prod&free_mask ] = (ulong)ctx->umem_frame0 + (frame & (~frame_mask));
+  free->queue[ free_prod&free_mask ] = (ulong)ctx->umem_frame0 + frame;
   free->prod = fd_seq_inc( free_prod, 1UL );
 
   /* Wind up for next iteration */
@@ -1093,7 +1103,6 @@ net_rx_event( fd_net_ctx_t * ctx,
   fd_xdp_ring_t * fill_ring  = &xsk->ring_fr;
   uint            fill_depth = fill_ring->depth;
   uint            fill_mask  = fill_depth-1U;
-  ulong           frame_mask = FD_NET_MTU - 1UL;
   uint            fill_prod  = FD_VOLATILE_CONST( *fill_ring->prod );
   uint            fill_cons  = FD_VOLATILE_CONST( *fill_ring->cons );
 
@@ -1120,7 +1129,7 @@ net_rx_event( fd_net_ctx_t * ctx,
                   freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
   }
   ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
-  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
+  fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off;
   FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
 
 }
@@ -1153,7 +1162,7 @@ before_credit( fd_net_ctx_t *      ctx,
 
   net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
 
-  uint rx_cons = rr_xsk->ring_rx.cached_cons;
+  uint rx_cons = FD_VOLATILE_CONST( *rr_xsk->ring_rx.cons );
   uint rx_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
@@ -1187,7 +1196,7 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   ulong const fr_depth  = ctx->xsk[ xsk_idx ].ring_fr.depth/2UL;
 
   fd_xdp_ring_t * fill      = &xsk->ring_fr;
-  uint            fill_prod = fill->cached_prod;
+  uint            fill_prod = FD_VOLATILE_CONST( *fill->prod );
   for( ulong j=0UL; j<fr_depth; j++ ) {
     fill->frame_ring[ j ] = frame_off;
     frame_off += frame_sz;
@@ -1494,7 +1503,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   for( uint j=0U; j<2U; j++ ) {
-    ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->xdp.xdp_tx_queue_size * 0.7 );
+    ctx->tx_flusher[ j ].pending_wmark         = 32;
     ctx->tx_flusher[ j ].tail_flush_backoff    = (long)( (double)tile->xdp.tx_flush_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
     ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
   }
