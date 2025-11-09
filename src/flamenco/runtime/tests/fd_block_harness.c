@@ -35,6 +35,7 @@ typedef struct {
    using the stake delegations cache. */
 static void
 fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
+                                        fd_vote_states_t *       vote_states_prev,
                                         fd_vote_states_t *       vote_states_prev_prev,
                                         fd_stake_delegations_t * stake_delegations,
                                         ulong                    epoch ) {
@@ -53,6 +54,7 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
     if( !vote_state ) continue;
 
     vote_state->stake     += stake;
+    vote_state->stake_t_1 += stake;
     vote_state->stake_t_2 += stake;
   }
 
@@ -69,6 +71,17 @@ fd_solfuzz_block_refresh_vote_accounts( fd_vote_states_t *       vote_states,
     ulong t_2_stake = !!vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
     vote_state->stake_t_2 = epoch>=2UL ? t_2_stake : vote_state->stake;
     vote_state->stake_t_2 = vote_state->stake;
+  }
+
+  /* Set stake_t_1 for the vote accounts in the vote states cache. */
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( vs_iter_, vote_states_prev );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_states_prev, &vote_state->vote_account );
+    ulong t_1_stake = !!vote_state_prev ? vote_state_prev->stake : 0UL;
+    vote_state->stake_t_1 = epoch>=1UL ? t_1_stake : vote_state->stake;
+    vote_state->stake_t_1 = vote_state->stake;
   }
 }
 
@@ -180,6 +193,7 @@ fd_solfuzz_pb_block_update_prev_epoch_votes_cache( fd_vote_states_t *           
       fd_vote_states_update_from_account( vote_states, &vote_address, vote_data, vote_data_len );
       fd_vote_state_ele_t * vote_state = fd_vote_states_query( vote_states, &vote_address );
       vote_state->stake     += stake;
+      vote_state->stake_t_1 += stake;
       vote_state->stake_t_2 += stake;
     }
   } FD_SPAD_FRAME_END;
@@ -347,7 +361,12 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
       runner->spad );
 
   /* Refresh vote accounts to calculate stake delegations */
-  fd_solfuzz_block_refresh_vote_accounts( vote_states, vote_states_prev_prev, stake_delegations, fd_bank_epoch_get( bank ) );
+  fd_solfuzz_block_refresh_vote_accounts(
+    vote_states,
+    vote_states_prev,
+    vote_states_prev_prev,
+    stake_delegations,
+    fd_bank_epoch_get( bank ) );
   fd_bank_vote_states_end_locking_modify( bank );
 
   fd_bank_vote_states_prev_prev_end_locking_modify( bank );
@@ -639,7 +658,7 @@ fd_solfuzz_pb_build_leader_schedule_effects( fd_solfuzz_runner_t *              
       memcpy( &pubkey, test_ctx->acct_states[i].address, sizeof(fd_pubkey_t) );
       fd_solfuzz_block_register_stake_delegation( runner->accdb->funk, xid, stake_delegations, &pubkey );
     }
-    fd_solfuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
+    fd_solfuzz_block_refresh_vote_accounts( tmp_vs, tmp_vs, tmp_vs, stake_delegations, fd_bank_epoch_get( runner->bank ) );
   }
 
   /* Build weights from the selected stake source */

@@ -549,10 +549,10 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
    - stake:          The stake amount associated with this vote account
    - vote_tower_out: Output structure to populate with vote state information
 
-   Failure modes:
-   - Vote account data is too large (returns -1)
-   - Vote account is not found in Funk (returns -1) */
-static int
+   This function should never fail, as the vote_states cache is guarenteed to
+   only contain valid vote accounts.
+*/
+static void
 fd_replay_out_vote_tower_from_funk(
     fd_accdb_user_t *         accdb,
     fd_funk_txn_xid_t const * xid,
@@ -571,18 +571,15 @@ fd_replay_out_vote_tower_from_funk(
 
     fd_accdb_peek_t peek[1];
     if( FD_UNLIKELY( !fd_accdb_peek( accdb, peek, xid, pubkey->uc ) ) ) {
-      /* FIXME crash here? */
-      FD_LOG_WARNING(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-      return -1;
+      FD_LOG_CRIT(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
     }
 
     ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
     if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
-      FD_LOG_WARNING(( "vote account %s has too large data. dlen %lu > %lu",
+      FD_LOG_CRIT(( "vote account %s has too large data. dlen %lu > %lu",
         FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
         data_sz,
         sizeof(vote_tower_out->acc) ));
-      return -1;
     }
 
     fd_memcpy( vote_tower_out->acc, fd_accdb_ref_data_const( peek->acc ), data_sz );
@@ -591,8 +588,6 @@ fd_replay_out_vote_tower_from_funk(
     if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
     FD_SPIN_PAUSE();
   }
-
-  return 0;
 }
 
 /* This function buffers all the vote account towers that Tower needs at
@@ -608,7 +603,7 @@ buffer_vote_towers( fd_replay_tile_t *        ctx,
   ctx->vote_tower_out_idx = 0UL;
   ctx->vote_tower_out_len = 0UL;
 
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_prev_locking_query( bank );
+  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
   fd_vote_states_iter_t iter_[1];
   for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
        !fd_vote_states_iter_done( iter );
@@ -617,15 +612,14 @@ buffer_vote_towers( fd_replay_tile_t *        ctx,
     if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
     fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
     if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
-    if( FD_UNLIKELY( fd_replay_out_vote_tower_from_funk( ctx->accdb,
-                                                         xid,
-                                                         vote_account_pubkey,
-                                                         vote_state->stake,
-                                                         &ctx->vote_tower_out[ctx->vote_tower_out_len++] ) ) ) {
-      FD_LOG_DEBUG(( "failed to get vote state for vote account %s", FD_BASE58_ENC_32_ALLOCA( vote_account_pubkey->uc ) ));
-    }
+    fd_replay_out_vote_tower_from_funk(
+      ctx->accdb,
+      xid,
+      vote_account_pubkey,
+      vote_state->stake_t_2,
+      &ctx->vote_tower_out[ ctx->vote_tower_out_len++ ] );
   }
-  fd_bank_vote_states_prev_end_locking_query( bank );
+  fd_bank_vote_states_end_locking_query( bank );
 }
 
 /* This function publishes the next vote tower in the

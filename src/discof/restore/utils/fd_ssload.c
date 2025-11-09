@@ -270,6 +270,9 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     fd_vote_state_ele_t * vote_state_prev_prev = fd_vote_states_query( vote_stakes_prev_prev, (fd_pubkey_t *)elem->vote_account_pubkey );
     ulong prev_prev_stake = vote_state_prev_prev ? vote_state_prev_prev->stake : 0UL;
 
+    fd_vote_state_ele_t * vote_state_prev = fd_vote_states_query( vote_stakes_prev, (fd_pubkey_t *)elem->vote_account_pubkey );
+    ulong prev_stake = vote_state_prev ? vote_state_prev->stake : 0UL;
+
     fd_vote_state_ele_t * vote_state = fd_vote_states_update( vote_states, (fd_pubkey_t *)elem->vote_account_pubkey );
 
     vote_state->node_account        = *(fd_pubkey_t *)elem->node_account_pubkey;
@@ -277,6 +280,7 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_timestamp = elem->last_timestamp;
     vote_state->last_vote_slot      = elem->last_slot;
     vote_state->stake               = elem->stake;
+    vote_state->stake_t_1           = prev_stake;
     vote_state->stake_t_2           = prev_prev_stake;
   }
   fd_bank_vote_states_end_locking_modify( bank );
