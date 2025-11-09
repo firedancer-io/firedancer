@@ -1436,6 +1436,19 @@ dynamic_port_range = "8900-9000"
         # slow clients but also increase memory usage.
         send_buffer_size_mb = 5120
 
+    # SNP tile handles the Solana Network Protocol (SNP), both ingress
+    # and egress.
+    [tiles.snp]
+        # SNP is currently optional, and disabled by default.
+        enabled = false
+
+        # With SNP currently optional, the validator auto detects if
+        # peers have SNP enabled or not, and gracefully degrades to
+        # UDP for peers that don't support SNP.
+        # SNP can be enforced for a specific set of destinations.
+        # For these, SNP will be required and not downgraded to UDP.
+        enforced_destinations = []
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program
