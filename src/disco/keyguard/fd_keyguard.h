@@ -23,7 +23,8 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_ROLE_BUNDLE       (5)  /* Bundle tile */
 #define FD_KEYGUARD_ROLE_EVENT        (6)  /* Event tile */
 #define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
-#define FD_KEYGUARD_ROLE_CNT          (8)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_SNP          (8)  /* SNP tile */
+#define FD_KEYGUARD_ROLE_CNT          (9)  /* number of known roles */
 
 /* Payload types ******************************************************/
 
@@ -37,6 +38,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_LG_BUNDLE ( 8)  /* Bundle block producer authentication */
 #define FD_KEYGUARD_PAYLOAD_LG_EVENT  ( 9)  /* Event reporter authentication */
 #define FD_KEYGUARD_PAYLOAD_LG_PONG   (10)  /* Gossip/Repair ping/pong protocol */
+#define FD_KEYGUARD_PAYLOAD_LG_SNP    (11)  /* SNP message */
 
 #define FD_KEYGUARD_PAYLOAD_TXN    (1UL<<FD_KEYGUARD_PAYLOAD_LG_TXN   )
 #define FD_KEYGUARD_PAYLOAD_GOSSIP (1UL<<FD_KEYGUARD_PAYLOAD_LG_GOSSIP)
@@ -48,6 +50,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_BUNDLE (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE)
 #define FD_KEYGUARD_PAYLOAD_EVENT  (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT )
 #define FD_KEYGUARD_PAYLOAD_PONG   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PONG  )
+#define FD_KEYGUARD_PAYLOAD_SNP    (1UL<<FD_KEYGUARD_PAYLOAD_LG_SNP   )
 
 /* Sign types *********************************************************/
 
@@ -55,6 +58,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519                   (1)  /* ed25519_sign(sha256(data)) */
 #define FD_KEYGUARD_SIGN_TYPE_PUBKEY_CONCAT_ED25519            (2)  /* ed25519_sign(pubkey-data) */
 #define FD_KEYGUARD_SIGN_TYPE_FD_METRICS_REPORT_CONCAT_ED25519 (3)  /* ed25519_sign(FD_METRICS_REPORT-data)) */
+#define FD_KEYGUARD_SIGN_TYPE_ULONG_ID_ED25519                 (4)  /* ed25519_sign(input + sizeof(ulong)) */
 
 /* Type confusion/ambiguity checks ************************************/
 

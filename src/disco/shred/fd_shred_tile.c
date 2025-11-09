@@ -1200,8 +1200,14 @@ fd_shred_signer( void *        signer_ctx,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
+  const char * net_in_name  = "net_shred";
+  const char * net_out_name = "shred_net";
+  if( tile->shred.is_snp_enabled ) {
+    net_in_name  = "snp_shred";
+    net_out_name = "shred_snp";
+  }
 
-  FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ NET_OUT_IDX   ]].name, "shred_net"   ) );
+  FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ NET_OUT_IDX   ]].name, net_out_name  ) );
   FD_TEST( 0==strcmp( topo->links[tile->out_link_id[ SIGN_OUT_IDX  ]].name, "shred_sign"  ) );
 
   if( FD_UNLIKELY( !tile->out_cnt ) )
@@ -1364,7 +1370,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "net_shred"    ) ) ) {
+    if( FD_LIKELY(      !strcmp( link->name, net_in_name    ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_NET;
       fd_net_rx_bounds_init( &ctx->in[ i ].net_rx, link->dcache );
       continue; /* only net_rx needs to be set in this case. */

@@ -202,6 +202,11 @@ after_frag_sensitive( void *              _ctx,
     fd_ed25519_sign( dst, ctx->event_concat, 18UL+32UL, ctx->public_key, ctx->private_key, ctx->sha512 );
     break;
   }
+  case FD_KEYGUARD_SIGN_TYPE_ULONG_ID_ED25519: {
+    memcpy( &sig, ctx->_data, sizeof(ulong) );
+    fd_ed25519_sign( dst, ctx->_data + sizeof(ulong), sz-sizeof(ulong), ctx->public_key, ctx->private_key, ctx->sha512 );
+    break;
+  }
   default:
     FD_LOG_EMERG(( "invalid sign type: %d", sign_type ));
   }
@@ -335,6 +340,11 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
       ctx->in[ i ].role = FD_KEYGUARD_ROLE_BUNDLE_CRANK;
       FD_TEST( !strcmp( out_link->name, "sign_pack" ) );
       FD_TEST( in_link->mtu==1232UL );
+      FD_TEST( out_link->mtu==64UL );
+    } else if( !strcmp(in_link->name, "snp_sign" ) ) {
+      ctx->in[ i ].role = FD_KEYGUARD_ROLE_SNP;
+      FD_TEST( !strcmp( out_link->name, "sign_snp" ) );
+      FD_TEST( in_link->mtu==40UL );
       FD_TEST( out_link->mtu==64UL );
     } else {
       FD_LOG_CRIT(( "unexpected link %s", in_link->name ));

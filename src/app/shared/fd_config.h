@@ -474,6 +474,12 @@ struct fd_config {
       ulong write_buffer_size;
     } shredcap;
 
+    struct {
+      int   enabled;
+      char  enforced_destinations[ FD_TOPO_ADTL_DESTS_MAX ][ sizeof("255.255.255.255:65535") ];
+      ulong enforced_destinations_cnt;
+    } snp;
+
   } tiles;
   struct {
     ulong capture_start_slot;
