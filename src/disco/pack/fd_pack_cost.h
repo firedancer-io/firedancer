@@ -10,7 +10,7 @@
    that is soon to be part of consensus.
    The cost model consists of several components:
      * per-signature cost: The costs associated with transaction
-       signatures + signatures from precompiles (ED25519 + SECP256K1)
+       signatures + signatures from precompiles (ED25519 + SECP256*)
      * per-write-lock cost: cost assiciated with aquiring write locks
        for writable accounts listed in the transaction.
      * instruction data length cost: The fixed cost for each instruction
@@ -242,7 +242,8 @@ fd_pack_compute_cost( fd_txn_t const * txn,
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
   fd_pack_builtin_prog_cost_t const * compute_budget_row     = ROW( COMPUTE_BUDGET_PROG_ID );
   fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
-  fd_pack_builtin_prog_cost_t const * secp256k1_precomp_row  = ROW( KECCAK_SECP_PROG_ID      );
+  fd_pack_builtin_prog_cost_t const * secp256k1_precomp_row  = ROW( KECCAK_SECP_PROG_ID    );
+  fd_pack_builtin_prog_cost_t const * secp256r1_precomp_row  = ROW( SECP256R1_PROG_ID      );
 #undef ROW
 
   /* special handling for simple votes */
@@ -301,6 +302,10 @@ fd_pack_compute_cost( fd_txn_t const * txn,
       ulong secp256k1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
       precompile_sig_cnt += secp256k1_signature_count;
       signature_cost += secp256k1_signature_count * FD_PACK_COST_PER_SECP256K1_SIGNATURE;
+    } else if( FD_UNLIKELY( (in_tbl==secp256r1_precomp_row) ) ) {
+      ulong secp256r1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      precompile_sig_cnt += secp256r1_signature_count;
+      signature_cost += secp256r1_signature_count * FD_PACK_COST_PER_SECP256R1_SIGNATURE;
     }
   }
 
