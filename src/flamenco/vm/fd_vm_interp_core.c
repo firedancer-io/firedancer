@@ -79,6 +79,18 @@
  */
 #define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
 
+/* i32::wrapping_shr: Arithmetic right shift with wrapping semantics
+
+   https://doc.rust-lang.org/std/primitive.i32.html#method.wrapping_shr
+ */
+#define FD_RUST_INT_WRAPPING_SHR( a, b ) ((int)(a) >> ( (b) & ( 31 ) ))
+
+/* i64::wrapping_shr: Arithmetic right shift with wrapping semantics
+
+   https://doc.rust-lang.org/std/primitive.i64.html#method.wrapping_shr
+ */
+#define FD_RUST_LONG_WRAPPING_SHR( a, b ) ((long)(a) >> ( (b) & ( 63 ) ))
+
 
 # define FD_VM_INTERP_INSTR_EXEC                                                                 \
   if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
@@ -292,11 +304,11 @@ interp_exec:
   /* 0x00 - 0x0f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x04) /* FD_SBPF_OP_ADD_IMM */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst + (int)imm );
+    reg[ dst ] = (ulong)(uint)( (uint)reg_dst + (uint)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x04depr) /* FD_SBPF_OP_ADD_IMM deprecated SIMD-0174 */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)imm );
+    reg[ dst ] = (ulong)(long)(int)( (uint)reg_dst + (uint)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x05) /* FD_SBPF_OP_JA */
@@ -308,11 +320,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x0c) /* FD_SBPF_OP_ADD_REG */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst + (int)reg_src );
+    reg[ dst ] = (ulong)(uint)( (uint)reg_dst + (uint)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x0cdepr) /* FD_SBPF_OP_ADD_REG deprecated SIMD-0174 */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst + (int)reg_src );
+    reg[ dst ] = (ulong)(long)(int)( (uint)reg_dst + (uint)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x0f) /* FD_SBPF_OP_ADD64_REG */
@@ -322,11 +334,11 @@ interp_exec:
   /* 0x10 - 0x1f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x14) /* FD_SBPF_OP_SUB_IMM */
-    reg[ dst ] = (ulong)(uint)( (int)imm - (int)reg_dst );
+    reg[ dst ] = (ulong)(uint)( (uint)imm - (uint)reg_dst );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x14depr) /* FD_SBPF_OP_SUB_IMM deprecated SIMD-0174 */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)imm );
+    reg[ dst ] = (ulong)(long)(int)( (uint)reg_dst - (uint)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x15) /* FD_SBPF_OP_JEQ_IMM */
@@ -350,11 +362,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1c) /* FD_SBPF_OP_SUB_REG */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst - (int)reg_src );
+    reg[ dst ] = (ulong)(uint)( (uint)reg_dst - (uint)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x1cdepr) /* FD_SBPF_OP_SUB_REG deprecated SIMD-0174 */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst - (int)reg_src );
+    reg[ dst ] = (ulong)(long)(int)( (uint)reg_dst - (uint)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x1d) /* FD_SBPF_OP_JEQ_REG */
@@ -368,7 +380,7 @@ interp_exec:
   /* 0x20 - 0x2f ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0x24) /* FD_SBPF_OP_MUL_IMM */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)imm );
+    reg[ dst ] = (ulong)(uint)( (uint)reg_dst * (uint)imm );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x25) /* FD_SBPF_OP_JGT_IMM */
@@ -419,11 +431,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x27depr) /* FD_SBPF_OP_MUL64_IMM */
-    reg[ dst ] = (ulong)( (long)reg_dst * (long)(int)imm );
+    reg[ dst ] = reg_dst * (ulong)(long)(int)imm;
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_INSTR_BEGIN(0x2cdepr) /* FD_SBPF_OP_MUL_REG */
-    reg[ dst ] = (ulong)(long)( (int)reg_dst * (int)reg_src );
+  FD_VM_INTERP_INSTR_BEGIN(0x2cdepr) /* FD_SBPF_OP_MUL_REG deprecated */
+    reg[ dst ] = (ulong)(long)(int)( (uint)reg_dst * (uint)reg_src );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x2fdepr) /* FD_SBPF_OP_MUL64_REG */
@@ -871,7 +883,7 @@ interp_exec:
   FD_VM_INTERP_BRANCH_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9e) /* FD_SBPF_OP_LMUL64_REG */
-    reg[ dst ] = reg_dst * reg_src;
+    reg[ dst ] = (ulong)(reg_dst) * (ulong)(reg_src);
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0x9f) { /* FD_SBPF_OP_STXQ */
@@ -969,10 +981,10 @@ interp_exec:
   /* 0xc0 - 0xcf ******************************************************/
 
   FD_VM_INTERP_INSTR_BEGIN(0xc4) /* FD_SBPF_OP_ARSH_IMM */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
-  FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */ /* FIXME: CHECK IMM SIGN EXTENSION */
+  FD_VM_INTERP_BRANCH_BEGIN(0xc5) /* FD_SBPF_OP_JSLT_IMM */
     pc += fd_ulong_if( (long)reg_dst<(long)(int)imm, offset, 0UL );
   FD_VM_INTERP_BRANCH_END;
 
@@ -982,11 +994,11 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xc7) /* FD_SBPF_OP_ARSH64_IMM */
-    reg[ dst ] = (ulong)( (long)reg_dst >> imm ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( reg_dst, imm ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcc) /* FD_SBPF_OP_ARSH_REG */
-    reg[ dst ] = (ulong)(uint)( (int)reg_dst >> (uint)reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)(uint)( FD_RUST_INT_WRAPPING_SHR( reg_dst, reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0xcd) /* FD_SBPF_OP_JSLT_REG */
@@ -1000,7 +1012,7 @@ interp_exec:
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_INSTR_BEGIN(0xcf) /* FD_SBPF_OP_ARSH64_REG */
-    reg[ dst ] = (ulong)( (long)reg_dst >> reg_src ); /* FIXME: WIDE SHIFTS, STRICT SIGN EXTENSION */
+    reg[ dst ] = (ulong)( FD_RUST_LONG_WRAPPING_SHR( reg_dst, reg_src ) );
   FD_VM_INTERP_INSTR_END;
 
   /* 0xd0 - 0xdf ******************************************************/
