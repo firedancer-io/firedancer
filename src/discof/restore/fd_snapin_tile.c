@@ -842,6 +842,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->hash_out = out1( topo, tile, "snapin_ls" );
   }
 
+  fd_ssparse_config_prog_slow_path_enable( ctx->ssparse, 1 );
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );

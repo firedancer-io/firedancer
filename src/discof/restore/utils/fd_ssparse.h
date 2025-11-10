@@ -148,6 +148,18 @@ void
 fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
                          int            enabled );
 
+/* fd_ssparse_config_prog_slow_path_enable toggles whether config
+   programs are routed away from batch processing to individual slow
+   path account processing.  If enabled, config program accounts are
+   only processed in the slow path (FD_SSPARSE_ADVANCE_ACCOUNT_HEADER
+   and FD_SSPARSE_ADVANCE_ACCOUNT_DATA) and not returned by
+   FD_SSPARSE_ADVANCE_ACCOUNT_BATCH.  Note that batch processing must
+   be enabled for this option to take effect.  Otherwise, this option
+   does nothing. */
+void
+fd_ssparse_config_prog_slow_path_enable( fd_ssparse_t * ssparse,
+                                         int            enabled );
+
 /* Test/Fuzz APIs */
 
 /* fd_ssparse_populate_acc_vec_map is for testing/fuzzing purposes

@@ -21,6 +21,7 @@
 struct fd_ssparse_private {
   int state;
   uint batch_enabled : 1;
+  uint config_prog_slow_path: 1;
 
   struct {
     int seen_zero_tar_frame;
@@ -437,7 +438,7 @@ advance_account_batch( fd_ssparse_t *                ssparse,
 
     /* We want ConfigProgram accounts to go through the slow path,
        since they are published from there to consumers for monitoring. */
-    if( FD_UNLIKELY( !memcmp( acc_hdr+64UL, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) ) ) {
+    if( FD_UNLIKELY( ssparse->config_prog_slow_path && !memcmp( acc_hdr+64UL, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) ) ) {
       if( FD_UNLIKELY( idx==0UL  ) ) return FD_SSPARSE_ADVANCE_AGAIN; /* At the front of the batch, abort */
       else                           break; /* otherwise, break early.  */
     }
@@ -652,6 +653,12 @@ void
 fd_ssparse_batch_enable( fd_ssparse_t * ssparse,
                          int            enabled ) {
   ssparse->batch_enabled = !!enabled;
+}
+
+void
+fd_ssparse_config_prog_slow_path_enable( fd_ssparse_t * ssparse,
+                                         int            enabled ) {
+  ssparse->config_prog_slow_path = !!enabled;
 }
 
 int
