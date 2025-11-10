@@ -26,6 +26,33 @@
 
 #include <math.h>
 
+/* Node in an IP geolocation binary trie.  The trie is built from a
+   compressed binary file with the following format:
+
+     num_country_codes: ulong count of country codes (little-endian)
+     country_codes: Array of 2-byte ASCII country codes
+     nodes: Series of 6-byte records containing:
+       uint network address (big-endian)
+       uchar prefix length (0-32), which defines the applicable network
+             mask
+       uchar country code index, into country_codes
+
+  In the trie, each node represents one bit position in an IP address.
+  Paths follow 0 (left child) and 1 (right child) bits from the IP's MSB
+  to LSB.  Nodes with has_prefix=1 indicate a match at that prefix
+  lengt country_code_idx references the 2-letter country code in the
+  table.  Maximum depth is 32 levels (for IPv4).  */
+
+struct fd_gui_ipinfo_node {
+  uchar has_prefix;
+  uchar country_code_idx;
+
+  struct fd_gui_ipinfo_node * left;
+  struct fd_gui_ipinfo_node * right;
+};
+
+typedef struct fd_gui_ipinfo_node fd_gui_ipinfo_node_t;
+
 #define FD_GUI_PEERS_NODE_NOP    (0)
 #define FD_GUI_PEERS_NODE_ADD    (1)
 #define FD_GUI_PEERS_NODE_UPDATE (2)
@@ -103,6 +130,7 @@ struct fd_gui_peers_node {
   uchar       commission;
   ulong       epoch;
   ulong       epoch_credits;
+  uchar       country_code_idx;
   int         delinquent;
 
   struct {
@@ -283,7 +311,9 @@ struct fd_gui_peers_ws_conn {
   fd_gui_peers_node_t viewport[ FD_GUI_PEERS_WS_VIEWPORT_MAX_SZ ];
   fd_gui_peers_live_table_sort_key_t sort_key;
 };
+
 typedef struct fd_gui_peers_ws_conn fd_gui_peers_ws_conn_t;
+
 struct fd_gui_peers_ctx {
   long next_client_nanos; /* ns timestamp when we'll service the next ws client */
   long next_metric_rate_update_nanos; /* ns timestamp when we'll next update rate-of-change metrics */
@@ -310,6 +340,7 @@ struct fd_gui_peers_ctx {
   fd_gui_peers_vote_t votes        [ FD_RUNTIME_MAX_VOTE_ACCOUNTS ];
   fd_gui_peers_vote_t votes_scratch[ FD_RUNTIME_MAX_VOTE_ACCOUNTS ]; /* for fast stable sort */
 };
+
 typedef struct fd_gui_peers_ctx fd_gui_peers_ctx_t;
 
 FD_PROTOTYPES_BEGIN
@@ -350,18 +381,21 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
                                     int                   is_rx );
 
 /* fd_gui_peers_handle_gossip_message_tx parses frags on the gossip_out
-   link and uses the contact info update to build up the peer table.
-   */
+   link and uses the contact info update to build up the peer table. */
+
 void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
+                                   fd_gui_ipinfo_node_t const *       ipinfo_nodes,
                                    fd_gossip_update_message_t const * update,
-                                   long                               now );
+                                   long                               now,
+                                   char                               country_code_map[ static 512 ][ 3 ] );
 
 void
 fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
-                                 long                  now );
+                                 long                  now,
+                                 char                  country_code_map[ static 512 ][ 3 ] );
 
 void
 fd_gui_peers_handle_config_account( fd_gui_peers_ctx_t *  peers,
@@ -384,20 +418,25 @@ fd_gui_peers_ws_message( fd_gui_peers_ctx_t * peers,
    connection id of the new client.  now is a UNIX nanosecond timestamp
    for the current time. */
 void
-fd_gui_peers_ws_open( fd_gui_peers_ctx_t * peers, ulong ws_conn_id, long now );
+fd_gui_peers_ws_open( fd_gui_peers_ctx_t * peers,
+                      ulong                ws_conn_id,
+                      long                 now,
+                      char                 country_code_map[ static 512 ][ 3 ] );
 
 /* fd_gui_peers_ws_close is a callback which should be triggered when an
    existing client closes their WebSocket connection.  ws_conn_id is the
    connection id of the client.*/
 void
-fd_gui_peers_ws_close( fd_gui_peers_ctx_t * peers, ulong ws_conn_id );
+fd_gui_peers_ws_close( fd_gui_peers_ctx_t * peers,
+                       ulong                ws_conn_id );
 
 /* fd_gui_peers_poll should be called in a the tile's main spin loop to
    periodically update peers internal state as well as publish new
    Websocket messages to clients. now is a UNIX nanosecond timestamp for
    the current time. */
 int
-fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now  );
+fd_gui_peers_poll( fd_gui_peers_ctx_t * peers,
+                   long                 now  );
 
 FD_PROTOTYPES_END
 

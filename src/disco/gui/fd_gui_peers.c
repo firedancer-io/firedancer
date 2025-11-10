@@ -464,10 +464,48 @@ fd_gui_peers_handle_gossip_message( fd_gui_peers_ctx_t *  peers,
 #endif
 }
 
+#if FD_HAS_ZSTD
+
+static uchar
+ipinfo_lookup( fd_gui_ipinfo_node_t const * nodes,
+               uint                         ip_addr ) {
+  uchar best_country_idx = 0;
+  uchar found_match = 0;
+
+  uint ip_addr_host = fd_uint_bswap( ip_addr );
+
+  fd_gui_ipinfo_node_t const * node = &nodes[0];
+
+  for( uchar bit_pos=0; bit_pos<32; bit_pos++ ) {
+    if( FD_UNLIKELY( node->has_prefix ) ) {
+      best_country_idx = node->country_code_idx;
+      found_match = 1;
+    }
+
+    uchar bit = (ip_addr_host >> (31 - bit_pos)) & 1;
+    fd_gui_ipinfo_node_t const * child = bit ? node->right : node->left;
+    if( FD_UNLIKELY( !child ) ) break;
+
+    node = child;
+  }
+
+  if( FD_UNLIKELY( node->has_prefix ) ) {
+    best_country_idx = node->country_code_idx;
+    found_match = 1;
+  }
+
+  if( FD_LIKELY( found_match ) ) return best_country_idx;
+  return UCHAR_MAX;
+}
+
+#endif
+
 void
 fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
+                                   fd_gui_ipinfo_node_t const *       ipinfo_nodes,
                                    fd_gossip_update_message_t const * update,
-                                   long                               now ) {
+                                   long                               now,
+                                   char                               country_code_map[ static 512 ][ 3 ] ) {
     switch( update->tag ) {
       case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: {
         /* origin_pubkey should be the same as the contact info pubkey */
@@ -515,6 +553,13 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
             break;
           }
 
+          /* fetch and set country code */
+#if FD_HAS_ZSTD
+          peer->country_code_idx = ipinfo_lookup( ipinfo_nodes, peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr );
+#else
+          peer->country_code_idx = UCHAR_MAX;
+#endif
+
           fd_gui_peers_node_sock_map_idx_remove_fast( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_live_table_idx_remove        ( peers->live_table,    update->contact_info.idx, peers->contact_info_table );
 
@@ -525,7 +570,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_gui_peers_node_sock_map_idx_insert     ( peers->node_sock_map, update->contact_info.idx, peers->contact_info_table );
 
           /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL );
+          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_UPDATE }, (ulong[]){ update->contact_info.idx }, 1UL, country_code_map );
           fd_http_server_ws_broadcast( peers->http );
         } else {
           FD_TEST( !fd_gui_peers_node_pubkey_map_ele_query_const( peers->node_pubkey_map, &update->contact_info.contact_info->pubkey, NULL, peers->contact_info_table ) );
@@ -544,6 +589,14 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           peer->update_time_nanos = now;
           fd_memcpy( &peer->contact_info, update->contact_info.contact_info, sizeof(peer->contact_info) );
 
+          /* fetch and set country code */
+#if FD_HAS_ZSTD
+          peer->country_code_idx = ipinfo_lookup( ipinfo_nodes, peer->contact_info.sockets[ FD_CONTACT_INFO_SOCKET_GOSSIP ].addr );
+#else
+          peer->country_code_idx = UCHAR_MAX;
+          (void)ipinfo_nodes;
+#endif
+
           /* update pubkey_map, sock_map */
           fd_gui_peers_node_sock_map_idx_insert  ( peers->node_sock_map,   update->contact_info.idx, peers->contact_info_table );
           fd_gui_peers_node_pubkey_map_idx_insert( peers->node_pubkey_map, update->contact_info.idx, peers->contact_info_table );
@@ -556,7 +609,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
           fd_http_server_ws_broadcast( peers->http );
 
           /* broadcast update to WebSocket clients */
-          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info.idx }, 1UL );
+          fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_ADD }, (ulong[]){ update->contact_info.idx }, 1UL, country_code_map );
           fd_http_server_ws_broadcast( peers->http );
         }
         break;
@@ -594,7 +647,7 @@ fd_gui_peers_handle_gossip_update( fd_gui_peers_ctx_t *               peers,
         fd_http_server_ws_broadcast( peers->http );
 
         /* broadcast update to WebSocket clients */
-        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info.idx }, 1UL );
+        fd_gui_peers_printf_nodes( peers, (int[]){ FD_GUI_PEERS_NODE_DELETE }, (ulong[]){ update->contact_info.idx }, 1UL, country_code_map );
         fd_http_server_ws_broadcast( peers->http );
         break;
       }
@@ -621,7 +674,8 @@ void
 fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
                                  fd_gui_peers_vote_t * votes,
                                  ulong                 vote_cnt,
-                                 long                  now ) {
+                                 long                  now,
+                                 char                  country_code_map[ static 512 ][ 3 ] ) {
   (void)now;
   fd_gui_peers_vote_t * votes_sorted  = votes;
   fd_gui_peers_vote_t * votes_scratch = peers->votes_scratch;
@@ -708,7 +762,7 @@ fd_gui_peers_handle_vote_update( fd_gui_peers_ctx_t *  peers,
   }
 
   if( FD_UNLIKELY( count ) ) {
-    fd_gui_peers_printf_nodes( peers, actions, idxs, count );
+    fd_gui_peers_printf_nodes( peers, actions, idxs, count, country_code_map );
     fd_http_server_ws_broadcast( peers->http );
   }
 }
@@ -1099,7 +1153,10 @@ fd_gui_peers_poll( fd_gui_peers_ctx_t * peers, long now ) {
 }
 
 void
-fd_gui_peers_ws_open( fd_gui_peers_ctx_t * peers, ulong ws_conn_id, long now ) {
+fd_gui_peers_ws_open( fd_gui_peers_ctx_t * peers,
+                      ulong                ws_conn_id,
+                      long                 now,
+                      char                 country_code_map[ static 512 ][ 3 ] ) {
   peers->client_viewports[ ws_conn_id ].connected = 1;
   peers->client_viewports[ ws_conn_id ].connected_time = now;
   peers->client_viewports[ ws_conn_id ].start_row = 0;
@@ -1107,12 +1164,13 @@ fd_gui_peers_ws_open( fd_gui_peers_ctx_t * peers, ulong ws_conn_id, long now ) {
   peers->client_viewports[ ws_conn_id ].sort_key = FD_GUI_PEERS_LIVE_TABLE_DEFAULT_SORT_KEY;
   fd_gui_peers_ws_conn_rr_grow( peers, ws_conn_id );
 
-  fd_gui_peers_printf_node_all( peers );
+  fd_gui_peers_printf_node_all( peers, country_code_map );
   FD_TEST( !fd_http_server_ws_send( peers->http, ws_conn_id ) );
 }
 
 void
-fd_gui_peers_ws_close( fd_gui_peers_ctx_t * peers, ulong ws_conn_id ) {
+fd_gui_peers_ws_close( fd_gui_peers_ctx_t * peers,
+                       ulong                ws_conn_id ) {
   fd_gui_peers_live_table_sort_key_remove( peers->live_table, &peers->client_viewports[ ws_conn_id ].sort_key );
   peers->client_viewports[ ws_conn_id ].connected = 0;
   fd_gui_peers_ws_conn_rr_shrink( peers, ws_conn_id );
