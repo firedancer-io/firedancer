@@ -1731,6 +1731,22 @@ replay( fd_replay_tile_t *  ctx,
   return charge_busy;
 }
 
+static int
+can_process_fec( fd_replay_tile_t * ctx ) {
+  fd_reasm_fec_t * fec;
+  if( FD_UNLIKELY( !fd_sched_can_ingest( ctx->sched, 1UL ) ) ) return 0;
+  if( FD_UNLIKELY( (fec = fd_reasm_peek( ctx->reasm ))==NULL ) ) return 0;
+
+  /* If fec_set_idx is 0, we need a new bank for a new slot.  Banks must
+     not be full in this case. */
+  if( FD_UNLIKELY( fd_banks_is_full( ctx->banks ) && fec->fec_set_idx==0 ) ) return 0;
+
+  /* Otherwise, banks may not be full, so we can always create a new
+     bank if needed.  Or, if banks are full, the current fec set's
+     ancestor (idx 0) already created a bank for this slot.*/
+  return 1;
+}
+
 static void
 process_fec_set( fd_replay_tile_t * ctx,
                  fd_reasm_fec_t *   reasm_fec ) {
@@ -1945,10 +1961,10 @@ after_credit( fd_replay_tile_t *  ctx,
   /* If the reassembler has a fec that is ready, we should process it
      and pass it to the scheduler. */
 
-  fd_reasm_fec_t * fec;
   /* FIXME: The reasm logic needs to get reworked to support
      equivocation more robustly. */
-  if( FD_LIKELY( fd_sched_can_ingest( ctx->sched, 1UL ) && !fd_banks_is_full( ctx->banks ) && (fec = fd_reasm_peek( ctx->reasm )) ) ) {
+  if( FD_LIKELY( can_process_fec( ctx ) ) ) {
+    fd_reasm_fec_t * fec = fd_reasm_peek( ctx->reasm );
 
     /* If fec->eqvoc is set that means that equivocation mid-block was
        detected in fd_reasm_t.  We need to replay up to and including
