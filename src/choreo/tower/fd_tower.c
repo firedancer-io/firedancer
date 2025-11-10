@@ -541,7 +541,7 @@ fd_tower_vote_and_reset( fd_tower_t       * tower,
 
        So if we have a confirmed block id, we return that.  Otherwise
        we return our own vote block id for that slot, which we assume
-       is the cluster confirmed version by the time it gets rooted.
+       is the cluster converged on by the time we're rooting it.
 
        The only way it is possible for us to root the wrong version of
        a block (ie. not the one the cluster confirmed) is if there is
@@ -641,7 +641,7 @@ fd_tower_to_vote_txn( fd_tower_t const *    tower,
   for( fd_tower_iter_t iter = fd_tower_iter_init( tower       );
                              !fd_tower_iter_done( tower, iter );
                        iter = fd_tower_iter_next( tower, iter ) ) {
-    fd_tower_t const * vote              = fd_tower_iter_ele_const( tower, iter );
+    fd_tower_t const * vote                   = fd_tower_iter_ele_const( tower, iter );
     tower_sync.lockouts[i].offset             = vote->slot - prev;
     tower_sync.lockouts[i].confirmation_count = (uchar)vote->conf;
     prev                                      = vote->slot;

@@ -94,31 +94,23 @@ fd_notar_delete( void * notar ) {
   return notar;
 }
 
-int
+fd_notar_blk_t *
 fd_notar_count_vote( fd_notar_t *        notar,
                      ulong               total_stake,
                      fd_pubkey_t const * addr,
                      ulong               vote_slot,
                      fd_hash_t const *   vote_block_id ) {
 
-  if( FD_UNLIKELY( !notar ) ) {
-    FD_LOG_WARNING(( "NULL notar" ));
-    return 0;
-  }
+  if( FD_UNLIKELY( !notar ) ) { FD_LOG_WARNING(( "NULL notar" )); return NULL; }
 
   /* Ignore if this vote slot isn't in range. */
 
-  if( FD_UNLIKELY( vote_slot < notar->lo_wmark || vote_slot > notar->hi_wmark ) ) return 0;
+  if( FD_UNLIKELY( vote_slot < notar->lo_wmark || vote_slot > notar->hi_wmark ) ) return NULL;
 
   /* Ignore if this vote account isn't in the voter set. */
 
   fd_notar_vtr_t const * vtr = fd_notar_vtr_query( notar->vtr_map, *addr, NULL );
-  if( FD_UNLIKELY( !vtr ) ) return 0;
-
-  /* Ignore if this notar blk was already duplicate confirmed. */
-
-  fd_notar_blk_t * notar_blk = fd_notar_blk_query( notar->blk_map, *vote_block_id, NULL );
-  if( FD_LIKELY( notar_blk && notar_blk->dup_conf ) ) return 0;
+  if( FD_UNLIKELY( !vtr ) ) return NULL;
 
   /* Check we haven't already counted the voter's stake for this slot.
      If a voter voted for multiple block ids for the same slot, we only
@@ -138,12 +130,13 @@ fd_notar_count_vote( fd_notar_t *        notar,
     fd_notar_slot_vtrs_null( notar_slot->prev_vtrs );
     fd_notar_slot_vtrs_null( notar_slot->vtrs );
   }
-  if( FD_LIKELY( fd_notar_slot_vtrs_test( notar_slot->vtrs, vtr->bit ) ) ) return 0;
+  if( FD_LIKELY( fd_notar_slot_vtrs_test( notar_slot->vtrs, vtr->bit ) ) ) return NULL;
   fd_notar_slot_vtrs_insert( notar_slot->vtrs, vtr->bit );
   notar_slot->stake += vtr->stake;
 
   /* Get the actual block with the block_id. */
 
+  fd_notar_blk_t * notar_blk = fd_notar_blk_query( notar->blk_map, *vote_block_id, NULL );
   if( FD_UNLIKELY( !notar_blk ) ) {
     notar_blk        = fd_notar_blk_insert( notar->blk_map, *vote_block_id );
     notar_blk->slot  = vote_slot;
@@ -152,8 +145,9 @@ fd_notar_count_vote( fd_notar_t *        notar,
     notar_slot->block_ids[notar_slot->block_ids_cnt++] = *vote_block_id;
   }
   notar_blk->stake   += vtr->stake;
-  notar_blk->dup_conf = (double)notar_blk->stake / (double)total_stake > 0.52; /* duplicate confirmed if > 52% stake */
-  return notar_blk->dup_conf;
+  notar_blk->dup_conf = ((double)notar_blk->stake / (double)total_stake) > 0.52;
+  notar_blk->opt_conf = ((double)notar_blk->stake / (double)total_stake) > (2.0/3.0);
+  return notar_blk;
 }
 
 void

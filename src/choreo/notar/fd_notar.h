@@ -10,16 +10,16 @@
      important in two contexts:
 
      1. When becoming leader, we need to check that our "previous"
-         leader block _as of_ the parent slot we're building on, has
-         propagated. If it's not propagated, we need to instead
-         retransmit our last block that failed to propagate.  "Previous"
-         is quoted, because there is a grace period of one leader
-         rotation for leader blocks to propagate.
+        leader block _as of_ the parent slot we're building on, has
+        propagated.  If it's not propagated, we need to instead
+        retransmit our last block that failed to propagate.  "Previous"
+        is quoted, because there is a grace period of one leader
+        rotation for leader blocks to propagate.
 
      2. When voting, we need to check our previous leader block _as of_
-         the slot we're voting for has propagated (unless we're voting
-         for one of our leader blocks).  We cannot vote for slots in
-         which our last leader block failed to propagate.
+        the slot we're voting for has propagated (unless we're voting
+        for one of our own leader blocks).  We cannot vote for slots in
+        which our last leader block failed to propagate.
 
    - duplicate confirmed: a block is duplicate confirmed if it has
      received votes from at least 52% of stake in the cluster.  The
@@ -85,6 +85,10 @@
 #define FD_NOTAR_PARANOID 1
 #endif
 
+#define FD_NOTAR_FLAG_CONFIRMED_PROPAGATED (0)
+#define FD_NOTAR_FLAG_CONFIRMED_DUPLICATE  (1)
+#define FD_NOTAR_FLAG_CONFIRMED_OPTIMISTIC (2)
+
 #define SET_NAME fd_notar_slot_vtrs
 #define SET_MAX  FD_VOTER_MAX
 #include "../../util/tmpl/fd_set.c"
@@ -95,7 +99,7 @@ struct fd_notar_slot {
   ulong prev_leader_slot; /* previous slot in which we were leader */
   ulong stake;            /* amount of stake that has voted for this slot */
   int   is_leader;        /* whether this slot was our own leader slot */
-  int   is_propagated;    /* whether this slot has reached 33% of stake */
+  int   is_propagated;    /* whether this slot has reached 1/3 of stake */
 
   fd_hash_t block_ids[FD_VOTER_MAX]; /* one block id per voter per slot */
   ulong     block_ids_cnt;           /* count of block ids */
@@ -105,13 +109,13 @@ struct fd_notar_slot {
 };
 typedef struct fd_notar_slot fd_notar_slot_t;
 
-
 struct fd_notar_blk {
   fd_hash_t block_id; /* map key */
   uint      hash;     /* reserved for fd_map_dynamic */
   ulong     slot;     /* slot associated with this block */
   ulong     stake;    /* sum of stake that has voted for this block_id */
   int       dup_conf; /* whether this block has reached 52% of stake */
+  int       opt_conf; /* whether this block has reached 2/3 of stake */
 };
 typedef struct fd_notar_blk fd_notar_blk_t;
 
@@ -161,7 +165,7 @@ struct __attribute__((aligned(128UL))) fd_notar {
   ulong epoch;    /* highest replayed epoch */
   ulong lo_wmark; /* notar ignores votes < lo_wmark */
   ulong hi_wmark; /* notar ignores votes > hi_wmark */
-  ulong slot_max; /* maximum slot number */
+  ulong slot_max; /* maximum number of slots notar can track */
 
   fd_notar_slot_t * slot_map; /* tracks who has voted for a given slot */
   fd_notar_blk_t *  blk_map;  /* tracks amount of stake for a given block (keyed by block id) */
@@ -237,7 +241,7 @@ fd_notar_delete( void * notar );
    account in the current epoch, slot is slot being voted for, block_id
    is the voter's proposed block id for this vote slot. */
 
-int
+fd_notar_blk_t *
 fd_notar_count_vote( fd_notar_t *        notar,
                      ulong               total_stake,
                      fd_pubkey_t const * addr,
