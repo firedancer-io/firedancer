@@ -1589,7 +1589,6 @@ maybe_switch_block( fd_sched_t * sched, ulong bank_idx ) {
        are just not getting FEC sets for it fast enough.  This could
        happen when the network path is congested, or when the leader
        simply went down.  Reset the active block. */
-    FD_LOG_DEBUG(( "reset active_bank_idx %lu", sched->active_bank_idx ));
     sched->active_bank_idx = ULONG_MAX;
     sched->metrics->deactivate_no_txn_cnt++;
     try_activate_block( sched );
