@@ -347,7 +347,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         fd_stem_publish( stem, ctx->replay_out->idx, replay->bank_idx, 0UL, 0UL, 0UL, 0UL, 0UL );
 
         /* update vote info */
-        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ) );
+        fd_gui_peers_handle_vote_update( ctx->peers, ctx->peers->votes, vote_count, fd_clock_now( ctx->clock ), ctx->gui->ipinfo.country_code );
 
         /* update slot data */
         fd_gui_handle_replay_update( ctx->gui, &slot_completed, fd_clock_now( ctx->clock ) );
@@ -453,7 +453,7 @@ after_frag( fd_gui_ctx_t *      ctx,
         case FD_GOSSIP_UPDATE_TAG_CONTACT_INFO: FD_TEST( sz == FD_GOSSIP_UPDATE_SZ_CONTACT_INFO ); break;
         default: break;
       }
-      fd_gui_peers_handle_gossip_update( ctx->peers, update, fd_clock_now( ctx-> clock ) );
+      fd_gui_peers_handle_gossip_update( ctx->peers, ctx->gui->ipinfo.nodes, update, fd_clock_now( ctx-> clock ), ctx->gui->ipinfo.country_code );
       break;
     }
     case IN_KIND_POH_PACK: {
@@ -608,7 +608,7 @@ gui_ws_open( ulong  conn_id,
   fd_gui_ctx_t * ctx = (fd_gui_ctx_t *)_ctx;
 
   fd_gui_ws_open( ctx->gui, conn_id );
-  if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ) );
+  if( FD_UNLIKELY( ctx->is_full_client ) ) fd_gui_peers_ws_open( ctx->peers, conn_id, fd_clock_now( ctx->clock ), ctx->gui->ipinfo.country_code );
 }
 
 static void

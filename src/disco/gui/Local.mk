@@ -41,3 +41,4 @@ FD_GUI_FRONTEND_DEV_GZ_FILES := $(patsubst src/disco/gui/dist_dev/%, src/disco/g
 FD_GUI_FRONTEND_DEV_ZST_FILES := $(patsubst src/disco/gui/dist_dev/%, src/disco/gui/dist_dev_cmp/%.zst, $(FD_GUI_FRONTEND_DEV_FILES))
 
 $(OBJDIR)/obj/disco/gui/generated/http_import_dist.d: $(FD_GUI_FRONTEND_STABLE_GZ_FILES) $(FD_GUI_FRONTEND_STABLE_ZST_FILES) $(FD_GUI_FRONTEND_ALPHA_GZ_FILES) $(FD_GUI_FRONTEND_ALPHA_ZST_FILES) $(FD_GUI_FRONTEND_DEV_GZ_FILES) $(FD_GUI_FRONTEND_DEV_ZST_FILES)
+$(OBJDIR)/obj/disco/gui/fd_gui.d: src/disco/gui/ipinfo.bin.zstd

@@ -55,10 +55,12 @@ void
 fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
                            int *                actions,
                            ulong *              idxs,
-                           ulong                count );
+                           ulong                count,
+                           char                 country_code_map[ static 512 ][ 3 ] );
 
 void
-fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers );
+fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers,
+                              char                 country_code_map[ static 512 ][ 3 ] );
 
 void
 fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,

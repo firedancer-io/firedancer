@@ -1,4 +1,5 @@
 #include "fd_gui.h"
+#include "fd_gui_peers.h"
 #include "fd_gui_printf.h"
 
 #include "../metrics/fd_metrics.h"
@@ -10,7 +11,18 @@
 #include "../../disco/pack/fd_pack.h"
 #include "../../disco/pack/fd_pack_cost.h"
 
+FD_IMPORT_BINARY( ipinfo, "src/disco/gui/ipinfo.bin.zstd" );
+
 #include <stdio.h>
+
+#if FD_HAS_ZSTD
+#define FD_HTTP_ZSTD_COMPRESSION_LEVEL 3
+#define ZSTD_STATIC_LINKING_ONLY
+#include <zstd.h>
+/* TODO: Just use a small buffer with streaming decompression */
+#define IPINFO_DECOMPRESSED_SZ (1UL<<24UL) /* 16 MiB */
+#define IPINFO_MAX_NODES       (1UL<<22UL) /* 4M nodes */
+#endif
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -19,8 +31,90 @@ fd_gui_align( void ) {
 
 FD_FN_CONST ulong
 fd_gui_footprint( void ) {
-  return sizeof(fd_gui_t);
+  ulong l = FD_LAYOUT_INIT;
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(),                sizeof( fd_gui_t ) );
+#if FD_HAS_ZSTD
+  l = FD_LAYOUT_APPEND( l, 1UL,                           IPINFO_DECOMPRESSED_SZ );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_gui_ipinfo_node_t), sizeof(fd_gui_ipinfo_node_t)*IPINFO_MAX_NODES );
+#endif
+  return FD_LAYOUT_FINI( l, fd_gui_align() );
 }
+
+#if FD_HAS_ZSTD
+
+static void
+build_ipinfo_trie( fd_gui_t *             gui,
+                   uchar *                ipinfo_buffer,
+                   fd_gui_ipinfo_node_t * nodes ) {
+  gui->ipinfo.nodes = nodes;
+
+  ulong actual_sz = ZSTD_decompress( ipinfo_buffer, IPINFO_DECOMPRESSED_SZ, ipinfo, ipinfo_sz );
+  FD_TEST( !ZSTD_isError( actual_sz ) );
+  FD_TEST( actual_sz>8UL );
+
+  ulong country_code_cnt = FD_LOAD( ulong, ipinfo_buffer );
+  FD_TEST( country_code_cnt && country_code_cnt<256UL ); /* 256 reserved for unknown */
+  FD_TEST( actual_sz>=8UL+country_code_cnt*2UL );
+
+  for( ulong i=0UL; i<country_code_cnt; i++ ) {
+    fd_memcpy( gui->ipinfo.country_code[ i ], ipinfo_buffer+8UL+i*2UL, 2UL );
+    gui->ipinfo.country_code[ i ][ 2 ] = '\0';
+  }
+
+  ulong processed = 8UL+country_code_cnt*2UL;
+  FD_TEST( !((actual_sz-processed)%6UL) );
+  FD_TEST( (actual_sz-processed)/6UL<=IPINFO_MAX_NODES-1UL );
+
+  fd_gui_ipinfo_node_t * root = &nodes[ 0 ];
+  root->left = NULL;
+  root->right = NULL;
+  root->has_prefix = 0;
+
+  ulong node_cnt = 1UL;
+  while( processed<actual_sz ) {
+    uint ip_addr = fd_uint_bswap( FD_LOAD( uint, ipinfo_buffer+processed ) );
+    uchar prefix_len = *( ipinfo_buffer+processed+4UL );
+    FD_TEST( prefix_len<=32UL );
+    uchar country_idx = *( ipinfo_buffer+processed+5UL );
+    FD_TEST( country_idx<country_code_cnt );
+
+    fd_gui_ipinfo_node_t * node = root;
+    for( uchar bit_pos=0; bit_pos<prefix_len; bit_pos++ ) {
+      uchar bit = (ip_addr >> (31 - bit_pos)) & 1;
+
+      fd_gui_ipinfo_node_t * child;
+      if( FD_LIKELY( !bit ) ) {
+        child = node->left;
+        if( FD_LIKELY( !child ) ) {
+          FD_TEST( node_cnt<IPINFO_MAX_NODES );
+          child = &nodes[ node_cnt++ ];
+          child->left = NULL;
+          child->right = NULL;
+          child->has_prefix = 0;
+          node->left = child;
+        }
+      } else {
+        child = node->right;
+        if( FD_LIKELY( !child ) ) {
+          FD_TEST( node_cnt<IPINFO_MAX_NODES );
+          child = &nodes[ node_cnt++ ];
+          child->left = NULL;
+          child->right = NULL;
+          child->has_prefix = 0;
+          node->right = child;
+        }
+      }
+      node = child;
+    }
+
+    node->has_prefix = 1;
+    node->country_code_idx = country_idx;
+
+    processed += 6UL;
+  }
+}
+
+#endif
 
 void *
 fd_gui_new( void *                shmem,
@@ -52,7 +146,12 @@ fd_gui_new( void *                shmem,
     return NULL;
   }
 
-  fd_gui_t * gui = (fd_gui_t *)shmem;
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_gui_t * gui                = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),                sizeof(fd_gui_t) );
+#if FD_HAS_ZSTD
+  uchar * _ipinfo_buffer        = FD_SCRATCH_ALLOC_APPEND( l, 1UL,                           IPINFO_DECOMPRESSED_SZ );
+  fd_gui_ipinfo_node_t * _nodes = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_gui_ipinfo_node_t), sizeof(fd_gui_ipinfo_node_t)*IPINFO_MAX_NODES );
+#endif
 
   gui->http = http;
   gui->topo = topo;
@@ -154,7 +253,6 @@ fd_gui_new( void *                shmem,
   for( ulong i=0UL; i<FD_GUI_LEADER_CNT; i++ ) gui->leader_slots[ i ]->slot      = ULONG_MAX;
   gui->leader_slots_cnt      = 0UL;
 
-
   gui->block_engine.has_block_engine = 0;
 
   gui->epoch.has_epoch[ 0 ] = 0;
@@ -173,6 +271,10 @@ fd_gui_new( void *                shmem,
   gui->shreds.history_slot          = ULONG_MAX;
   gui->summary.catch_up_repair_sz  = 0UL;
   gui->summary.catch_up_turbine_sz = 0UL;
+
+#if FD_HAS_ZSTD
+  build_ipinfo_trie( gui, _ipinfo_buffer, _nodes );
+#endif
 
   return gui;
 }

@@ -372,8 +372,8 @@ struct fd_gui_slot_rankings {
 typedef struct fd_gui_slot_rankings fd_gui_slot_rankings_t;
 
 struct fd_gui_ephemeral_slot {
-      ulong slot; /* ULONG_MAX indicates invalid/evicted */
-      long timestamp_arrival_nanos;
+  ulong slot; /* ULONG_MAX indicates invalid/evicted */
+  long timestamp_arrival_nanos;
 };
 typedef struct fd_gui_ephemeral_slot fd_gui_ephemeral_slot_t;
 
@@ -649,6 +649,11 @@ struct fd_gui {
     /* Temporary storage for samples. Will be downsampled into leader history on slot end. */
     fd_gui_scheduler_counts_t scheduler_counts_snap[ FD_GUI_SCHEDULER_COUNT_SNAP_CNT ][ 1 ];
   } summary;
+
+  struct {
+    fd_gui_ipinfo_node_t * nodes;
+    char country_code[ 512 ][ 3 ]; /* ISO 3166-1 alpha-2 country codes */
+  } ipinfo;
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 

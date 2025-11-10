@@ -923,7 +923,8 @@ fd_gui_printf_peer( fd_gui_t *    gui,
 
 static void
 peers_printf_node( fd_gui_peers_ctx_t * peers,
-                          ulong                contact_info_table_idx ) {
+                   ulong                contact_info_table_idx,
+                   char                 country_code_map[ static 512 ][ 3 ] ) {
   fd_gui_peers_node_t * peer = &peers->contact_info_table[ contact_info_table_idx ];
 
   jsonp_open_object( peers->http, NULL );
@@ -966,6 +967,12 @@ peers_printf_node( fd_gui_peers_ctx_t * peers,
         }
       jsonp_close_object( peers->http );
 
+      if( FD_LIKELY( peer->country_code_idx!=UCHAR_MAX ) ) {
+        jsonp_string( peers->http, "country_code", country_code_map[ peer->country_code_idx ] );
+      } else {
+        jsonp_null( peers->http, "country_code" );
+      }
+
     jsonp_close_object( peers->http );
 
     if( FD_LIKELY( !peer->has_vote_info ) ) {
@@ -1007,15 +1014,16 @@ void
 fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
                            int *                actions,
                            ulong *              idxs,
-                           ulong                count ) {
+                           ulong                count,
+                           char                 country_code_map[ static 512 ][ 3 ] ) {
   jsonp_open_envelope( peers->http, "peers", "update" );
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "add" );
-        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_ADD ) ) peers_printf_node( peers, idxs[ i ] );
+        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_ADD ) ) peers_printf_node( peers, idxs[ i ], country_code_map );
       jsonp_close_array( peers->http );
 
       jsonp_open_array( peers->http, "update" );
-        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_UPDATE ) ) peers_printf_node( peers, idxs[ i ] );
+        for( ulong i=0UL; i<count; i++ ) if( FD_UNLIKELY( actions[ i ]==FD_GUI_PEERS_NODE_UPDATE ) ) peers_printf_node( peers, idxs[ i ], country_code_map );
       jsonp_close_array( peers->http );
 
       jsonp_open_array( peers->http, "remove" );
@@ -1034,7 +1042,8 @@ fd_gui_peers_printf_nodes( fd_gui_peers_ctx_t * peers,
 }
 
 void
-fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers ) {
+fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers,
+                              char                 country_code_map[ static 512 ][ 3 ] ) {
   jsonp_open_envelope( peers->http, "peers", "update" );
     jsonp_open_object( peers->http, "value" );
       jsonp_open_array( peers->http, "add" );
@@ -1043,7 +1052,7 @@ fd_gui_peers_printf_node_all( fd_gui_peers_ctx_t * peers ) {
              !fd_gui_peers_bandwidth_tracking_fwd_iter_done( iter );
              iter = fd_gui_peers_bandwidth_tracking_fwd_iter_next( iter, peers->contact_info_table ), j++ ) {
           ulong contact_info_table_idx = fd_gui_peers_bandwidth_tracking_fwd_iter_idx( iter );
-          peers_printf_node( peers, contact_info_table_idx );
+          peers_printf_node( peers, contact_info_table_idx, country_code_map );
         }
       jsonp_close_array( peers->http );
       jsonp_open_array( peers->http, "update" );

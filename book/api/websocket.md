@@ -1400,7 +1400,8 @@ identity is no longer in these three data sources, it will be removed.
                     "gossip": "93.119.195.160:8001",
                     "tpu": "192.64.85.26:8000",
                     // ... other sockets ...
-                }
+                },
+                "country_code": "CN"
             },
             "vote": [
                 {
@@ -1438,6 +1439,7 @@ identity is no longer in these three data sources, it will be removed.
 | version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
 | feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
 | sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of gossip `serve_repair_quic`, `rpc`, `rpc_pubsub`, `serve_repair`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, `tvu_quic`, `tpu_vote_quic`, or `alpenglow`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
+| country_code  | `string\|null` | ISO 3166-1 alpha-2 country code of where the validator is located, determined by GeoIP lookup on the gossip IP address. Country code may not be correct and is a best estimate. If no country code could be determined, will be `null`. |
 
 **`PeerUpdateVoteAccount`**
 | Field           | Type           | Description |
