@@ -275,7 +275,21 @@ returnable_frag( fd_backt_tile_t *   ctx,
       if( FD_UNLIKELY( !ctx->initialized ) ) return 1;
 
       fd_replay_slot_completed_t const * msg = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
-      if( FD_UNLIKELY( msg->slot==ctx->start_slot ) ) return 0;
+      if( FD_UNLIKELY( msg->slot==ctx->start_slot ) ) {
+        /* Even though this is the first slot, we need to simulate tower
+           publishing the slot done message to replay so replay can
+           release the bank reference count on it. */
+        fd_tower_slot_done_t * dst = fd_chunk_to_laddr( ctx->tower_out->mem, ctx->tower_out->chunk );
+        dst->vote_slot             = msg->slot;
+        dst->reset_slot            = msg->slot;
+        dst->reset_block_id        = msg->block_id;
+        dst->root_slot             = msg->slot;
+        dst->root_block_id         = msg->block_id;
+        dst->replay_bank_idx       = msg->bank_idx;
+        fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
+        ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );
+        return 0;
+      }
 
       long prior_completion_timestamp = ctx->prior_completion_timestamp ? ctx->prior_completion_timestamp : msg->preparation_begin_nanos;
 
@@ -310,6 +324,7 @@ returnable_frag( fd_backt_tile_t *   ctx,
       dst->reset_block_id        = msg->block_id;
       dst->root_slot             = msg->slot;
       dst->root_block_id         = msg->block_id;
+      dst->replay_bank_idx       = msg->bank_idx;
 
       fd_stem_publish( stem, ctx->tower_out->idx, 0UL, ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), 0UL, tspub, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->tower_out->chunk = fd_dcache_compact_next( ctx->tower_out->chunk, sizeof(fd_tower_slot_done_t), ctx->tower_out->chunk0, ctx->tower_out->wmark );

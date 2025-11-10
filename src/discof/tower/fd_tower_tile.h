@@ -41,6 +41,14 @@ struct fd_tower_slot_done {
   ulong     root_slot;
   fd_hash_t root_block_id;
 
+  /* This tower_slot_done message is 1-to-1 with the completion of a
+     replayed slot.  When that slot was done, the bank_idx was sent to
+     tower, which tower used to query the bank and populate the vote
+     accounts.  Tower needs to send back the bank_idx to replay so it
+     can decrement the reference count on the bank. */
+
+  ulong replay_bank_idx;
+
   /* This always contains a vote transaction with our current tower,
      regardless of whether there is a new vote slot or not (ie. vote
      slot can be ULONG_MAX and vote_txn will contain a txn of our
