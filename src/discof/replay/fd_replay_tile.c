@@ -1471,7 +1471,7 @@ boot_genesis( fd_replay_tile_t *  ctx,
   ctx->reset_bank            = bank;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
-  if( FD_LIKELY( ctx->next_leader_slot ) ) {
+  if( FD_LIKELY( ctx->next_leader_slot && ctx->next_leader_slot != ULONG_MAX ) ) {
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
   } else {
     ctx->next_leader_tickcount = LONG_MAX;
@@ -1567,7 +1567,7 @@ on_snapshot_message( fd_replay_tile_t *  ctx,
     ctx->reset_bank            = bank;
     ctx->reset_timestamp_nanos = fd_log_wallclock();
     ctx->next_leader_slot      = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, 1UL, ctx->identity_pubkey );
-    if( FD_LIKELY( ctx->next_leader_slot ) ) {
+    if( FD_LIKELY( ctx->next_leader_slot && ctx->next_leader_slot != ULONG_MAX ) ) {
       ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
     } else {
       ctx->next_leader_tickcount = LONG_MAX;
@@ -2128,7 +2128,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
   ctx->reset_timestamp_nanos = fd_log_wallclock();
   ulong min_leader_slot = fd_ulong_max( msg->reset_slot+1UL, fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot+1UL ) );
   ctx->next_leader_slot = fd_multi_epoch_leaders_get_next_slot( ctx->mleaders, min_leader_slot, ctx->identity_pubkey );
-  if( FD_LIKELY( ctx->next_leader_slot ) ) {
+  if( FD_LIKELY( ctx->next_leader_slot && ctx->next_leader_slot!=ULONG_MAX ) ) {
     ctx->next_leader_tickcount = (long)((double)(ctx->next_leader_slot-ctx->reset_slot-1UL)*ctx->slot_duration_ticks) + fd_tickcount();
   } else {
     ctx->next_leader_tickcount = LONG_MAX;
