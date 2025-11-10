@@ -267,6 +267,7 @@ STEM_(run1)( ulong                        in_cnt,
   ulong **       cons_slow;    /* cons_slow[cons_idx] for cons_idx in [0,cons_cnt) is where to accumulate slow events */
   ulong *        cons_out;     /* cons_out[cons_idx] for cons_idx in [0,cons_ct) is which out the consumer consumes from */
   ulong *        cons_seq;     /* cons_seq [cons_idx] is the most recent observation of cons_fseq[cons_idx] */
+  ulong          outstanding_cr; /* number of outstanding credits not yet consumed across all out links */
 
   /* housekeeping state */
   ulong    event_cnt; /* ==in_cnt+cons_cnt+1, total number of housekeeping events */
@@ -329,6 +330,7 @@ STEM_(run1)( ulong                        in_cnt,
   out_seq    = (ulong *)FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), out_cnt*sizeof(ulong) );
 
   ulong cr_max = fd_ulong_if( !out_cnt, 128UL, ULONG_MAX );
+  outstanding_cr = cr_max;
 
   for( ulong out_idx=0UL; out_idx<out_cnt; out_idx++ ) {
 
@@ -412,7 +414,6 @@ STEM_(run1)( ulong                        in_cnt,
 
         /* Send flow control credits and drain flow control diagnostics
            for in_idx. */
-
         STEM_(in_update)( &in[ in_idx ] );
 
       } else { /* event_idx==cons_cnt, housekeeping event */
@@ -430,9 +431,10 @@ STEM_(run1)( ulong                        in_cnt,
         metric_backp_cnt = 0UL;
 
         /* Receive flow control credits */
-        if( FD_LIKELY( min_cr_avail<cr_max ) ) {
+        if( FD_LIKELY( outstanding_cr ) ) {
           ulong slowest_cons = ULONG_MAX;
           min_cr_avail = cr_max;
+          outstanding_cr = 0UL;
           for( ulong out_idx=0; out_idx<out_cnt; out_idx++ ) {
             cr_avail[ out_idx ] = out_depth[ out_idx ];
           }
@@ -440,6 +442,7 @@ STEM_(run1)( ulong                        in_cnt,
           for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
             ulong out_idx = cons_out[ cons_idx ];
             ulong cons_cr_avail = (ulong)fd_long_max( (long)out_depth[ out_idx ]-fd_long_max( fd_seq_diff( out_seq[ out_idx ], cons_seq[ cons_idx ] ), 0L ), 0L );
+            outstanding_cr += (ulong)fd_long_max( fd_seq_diff( out_seq[ out_idx ], cons_seq[ cons_idx ] ), 0 );
 
             /* If a reliable consumer exits, they can set the credit
                return fseq to STEM_SHUTDOWN_SEQ to indicate they are no
@@ -511,6 +514,7 @@ STEM_(run1)( ulong                        in_cnt,
 
       .cr_avail            = cr_avail,
       .min_cr_avail        = &min_cr_avail,
+      .outstanding_cr      = &outstanding_cr,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
     };
 #endif

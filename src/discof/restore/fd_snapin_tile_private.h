@@ -138,9 +138,9 @@ typedef struct fd_snapin_tile fd_snapin_tile_t;
 
 FD_PROTOTYPES_BEGIN
 
-int fd_snapin_process_account_header_funk( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-int fd_snapin_process_account_data_funk  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
-int fd_snapin_process_account_batch_funk ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result, buffered_account_batch_t * buffered_batch );
+void fd_snapin_process_account_header_funk( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+void fd_snapin_process_account_data_funk  ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result );
+void fd_snapin_process_account_batch_funk ( fd_snapin_tile_t * ctx, fd_ssparse_advance_result_t * result, buffered_account_batch_t * buffered_batch );
 
 void
 fd_snapin_read_account_funk( fd_snapin_tile_t *  ctx,
@@ -256,38 +256,35 @@ FD_PROTOTYPES_BEGIN
 fd_snapin_process_account_data, and fd_snapin_process_account_batch
 indicates whether to yield to stem for credit return */
 
-static inline int
+static inline void
 fd_snapin_process_account_header( fd_snapin_tile_t *            ctx,
                                   fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
     fd_snapin_process_account_header_vinyl( ctx, result );
   } else {
-    return fd_snapin_process_account_header_funk( ctx, result );
+    fd_snapin_process_account_header_funk( ctx, result );
   }
-  return 0;
 }
 
-static inline int
+static inline void
 fd_snapin_process_account_data( fd_snapin_tile_t *            ctx,
                                 fd_ssparse_advance_result_t * result ) {
   if( ctx->use_vinyl ) {
     fd_snapin_process_account_data_vinyl( ctx, result );
   } else {
-    return fd_snapin_process_account_data_funk( ctx, result );
+    fd_snapin_process_account_data_funk( ctx, result );
   }
-  return 0;
 }
 
-static inline int
+static inline void
 fd_snapin_process_account_batch( fd_snapin_tile_t *            ctx,
                                  fd_ssparse_advance_result_t * result,
                                  buffered_account_batch_t *    buffered_batch ) {
   if( ctx->use_vinyl ) {
     fd_snapin_process_account_batch_vinyl( ctx, result );
   } else {
-    return fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
+    fd_snapin_process_account_batch_funk( ctx, result, buffered_batch );
   }
-  return 0;
 }
 
 static inline void
@@ -332,7 +329,7 @@ fd_snapin_send_duplicate_account( fd_snapin_tile_t * ctx,
     fd_snapshot_full_account_t * existing_account = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );
     fd_snapshot_account_hdr_init( &existing_account->hdr, pubkey, owner, lamports, executable, data_len );
     fd_memcpy( existing_account->data, data, data_len );
-    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_full_account_t), 0UL, 0UL, 0UL );
+    fd_stem_publish( ctx->stem, ctx->out_ct_idx, FD_SNAPSHOT_HASH_MSG_SUB, ctx->hash_out.chunk, sizeof(fd_snapshot_account_hdr_t)+data_len, 0UL, 0UL, 0UL );
     ctx->hash_out.chunk = fd_dcache_compact_next( ctx->hash_out.chunk, sizeof(fd_snapshot_account_hdr_t)+data_len, ctx->hash_out.chunk0, ctx->hash_out.wmark );
   } else {
     fd_snapshot_account_hdr_t * acc_hdr = fd_chunk_to_laddr( ctx->hash_out.mem, ctx->hash_out.chunk );

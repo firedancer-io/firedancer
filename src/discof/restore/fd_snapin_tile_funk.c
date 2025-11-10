@@ -3,7 +3,7 @@
 #include "fd_snapin_tile_private.h"
 #include "../../flamenco/accdb/fd_accdb_sync.h"
 
-int
+void
 fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
                                        fd_ssparse_advance_result_t * result ) {
   fd_funk_t * funk = ctx->accdb_admin->funk;
@@ -13,7 +13,6 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   fd_funk_rec_t * rec = fd_funk_rec_query_try( funk, ctx->xid, &id, query );
   fd_funk_rec_t const * existing_rec = rec;
 
-  int early_exit = 0;
   if( !ctx->full && !existing_rec ) {
     fd_accdb_peek_t peek[1];
     if( fd_accdb_peek( ctx->accdb, peek, ctx->xid, result->account_header.pubkey ) ) {
@@ -25,10 +24,10 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
     if( FD_UNLIKELY( meta ) ) {
       if( FD_LIKELY( meta->slot>result->account_header.slot ) ) {
         ctx->acc_data = NULL;
-        fd_snapin_send_duplicate_account( ctx, result->account_header.lamports, NULL, result->account_header.data_len, (uchar)result->account_header.executable, result->account_header.owner, result->account_header.pubkey, 0, &early_exit );
-        return early_exit;
+        fd_snapin_send_duplicate_account( ctx, result->account_header.lamports, NULL, result->account_header.data_len, (uchar)result->account_header.executable, result->account_header.owner, result->account_header.pubkey, 0, NULL );
+        return;
       }
-      fd_snapin_send_duplicate_account( ctx, meta->lamports, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen, meta->executable, meta->owner, result->account_header.pubkey, 1, &early_exit);
+      fd_snapin_send_duplicate_account( ctx, meta->lamports, (uchar const *)meta + sizeof(fd_account_meta_t), meta->dlen, meta->executable, meta->owner, result->account_header.pubkey, 1, NULL );
     }
   }
 
@@ -62,21 +61,18 @@ fd_snapin_process_account_header_funk( fd_snapin_tile_t *            ctx,
   ctx->metrics.accounts_inserted++;
 
   if( FD_LIKELY( should_publish ) ) fd_funk_rec_publish( funk, prepare );
-  return early_exit;
 }
 
-int
+void
 fd_snapin_process_account_data_funk( fd_snapin_tile_t *            ctx,
                                      fd_ssparse_advance_result_t * result ) {
-  int early_exit = 0;
   if( FD_UNLIKELY( !ctx->acc_data ) ) {
-    fd_snapin_send_duplicate_account_data( ctx, result->account_data.data, result->account_data.data_sz, &early_exit );
-    return early_exit;
+    fd_snapin_send_duplicate_account_data( ctx, result->account_data.data, result->account_data.data_sz, NULL );
+    return;
   }
 
   fd_memcpy( ctx->acc_data, result->account_data.data, result->account_data.data_sz );
   ctx->acc_data += result->account_data.data_sz;
-  return 0;
 }
 
 /* streamlined_insert inserts an unfragmented account.
@@ -125,11 +121,10 @@ streamlined_insert( fd_snapin_tile_t * ctx,
    The main optimization implemented for funk is doing hash map memory
    accesses in parallel to amortize DRAM latency. */
 
-int
+void
 fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
                                       fd_ssparse_advance_result_t * result,
                                       buffered_account_batch_t *    buffered_batch ) {
-  int early_exit  = 0;
   ulong start_idx = result ? 0 : buffered_batch->remaining_idx;
   fd_funk_t *         funk    = ctx->accdb_admin->funk;
   fd_funk_rec_map_t * rec_map = funk->rec_map;
@@ -215,26 +210,12 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       if( existing->slot > slot ) {
         rec[ i ] = NULL;  /* skip record if existing value is newer */
         /* send the skipped account to the subtracting hash tile */
-        fd_snapin_send_duplicate_account( ctx, lamports, data, data_len, executable, owner, pubkey, 1, &early_exit );
+        fd_snapin_send_duplicate_account( ctx, lamports, data, data_len, executable, owner, pubkey, 1, NULL );
       } else if( slot > existing->slot) {
         /* send the to-be-replaced account to the subtracting hash tile */
-        fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, &early_exit );
+        fd_snapin_send_duplicate_account( ctx, existing->lamports, (uchar const *)existing + sizeof(fd_account_meta_t), existing->dlen, existing->executable, existing->owner, pubkey, 1, NULL );
       } else { /* slot==existing->slot */
         FD_TEST( 0 );
-      }
-
-      if( FD_LIKELY( early_exit ) ) {
-        /* buffer account batch if not already buffered */
-        if( FD_LIKELY( result && i<FD_SSPARSE_ACC_BATCH_MAX-1UL ) ) {
-          FD_TEST( ctx->buffered_batch.batch_cnt==0UL );
-          fd_memcpy( ctx->buffered_batch.batch, result->account_batch.batch, sizeof(uchar const*)*FD_SSPARSE_ACC_BATCH_MAX );
-          ctx->buffered_batch.slot          = result->account_batch.slot;
-          ctx->buffered_batch.batch_cnt     = result->account_batch.batch_cnt;
-          ctx->buffered_batch.remaining_idx = i + 1UL;
-        }
-
-        insert_limit = i+1UL;
-        break;
       }
     }
   }
@@ -247,17 +228,6 @@ fd_snapin_process_account_batch_funk( fd_snapin_tile_t *            ctx,
       streamlined_insert( ctx, rec[ i ], frame, slot );
     }
   }
-
-  if( FD_LIKELY( buffered_batch ) ) {
-    if( FD_LIKELY( insert_limit==FD_SSPARSE_ACC_BATCH_MAX ) ) {
-      buffered_batch->batch_cnt     = 0UL;
-      buffered_batch->remaining_idx = 0UL;
-    } else {
-      buffered_batch->remaining_idx = insert_limit;
-    }
-  }
-
-  return early_exit;
 }
 
 void

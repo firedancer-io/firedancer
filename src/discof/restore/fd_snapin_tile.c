@@ -1,6 +1,7 @@
 #include "fd_snapin_tile_private.h"
 #include "utils/fd_ssctrl.h"
 #include "utils/fd_ssmsg.h"
+#include "utils/fd_ssparse.h"
 #include "utils/fd_vinyl_io_wd.h"
 
 #include "../../disco/topo/fd_topo.h"
@@ -447,17 +448,13 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
 
   FD_TEST( chunk>=ctx->in.chunk0 && chunk<=ctx->in.wmark && sz<=ctx->in.mtu );
 
-  if( FD_UNLIKELY( !ctx->lthash_disabled && ctx->buffered_batch.batch_cnt>0UL ) ) {
-    fd_snapin_process_account_batch( ctx, NULL, &ctx->buffered_batch );
-    return 1;
-  }
-
   for(;;) {
     if( FD_UNLIKELY( sz-ctx->in.pos==0UL ) ) break;
 
     uchar const * data = (uchar const *)fd_chunk_to_laddr_const( ctx->in.wksp, chunk ) + ctx->in.pos;
 
-    int early_exit = 0;
+    if( !ctx->lthash_disabled && stem->cr_avail[ ctx->hash_out.idx ]<FD_SSPARSE_ACC_BATCH_MAX ) break;
+
     fd_ssparse_advance_result_t result[1];
     int res = fd_ssparse_advance( ctx->ssparse, data, sz-ctx->in.pos, result );
     switch( res ) {
@@ -511,10 +508,10 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         break;
       }
       case FD_SSPARSE_ADVANCE_ACCOUNT_HEADER:
-        early_exit = fd_snapin_process_account_header( ctx, result );
+        fd_snapin_process_account_header( ctx, result );
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_DATA:
-        early_exit = fd_snapin_process_account_data( ctx, result );
+        fd_snapin_process_account_data( ctx, result );
 
         /* We exepect ConfigKeys Vec to be length 2 */
         if( FD_UNLIKELY( ctx->gui_out.idx!=ULONG_MAX && !memcmp( result->account_data.owner, fd_solana_config_program_id.key, sizeof(fd_hash_t) ) && result->account_data.data_sz && *(uchar *)result->account_data.data==2UL ) ) {
@@ -525,7 +522,7 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
         }
         break;
       case FD_SSPARSE_ADVANCE_ACCOUNT_BATCH:
-        early_exit = fd_snapin_process_account_batch( ctx, result, NULL );
+        fd_snapin_process_account_batch( ctx, result, NULL );
         break;
       case FD_SSPARSE_ADVANCE_DONE:
         ctx->state = FD_SNAPSHOT_STATE_FINISHING;
@@ -543,8 +540,6 @@ handle_data_frag( fd_snapin_tile_t *  ctx,
     ctx->in.pos += result->bytes_consumed;
     if( FD_LIKELY( ctx->full ) ) ctx->metrics.full_bytes_read        += result->bytes_consumed;
     else                         ctx->metrics.incremental_bytes_read += result->bytes_consumed;
-
-    if( FD_UNLIKELY( early_exit ) ) break;
   }
 
   int reprocess_frag = ctx->in.pos<sz;
@@ -709,6 +704,14 @@ returnable_frag( fd_snapin_tile_t *  ctx,
   return 0;
 }
 
+static void
+after_credit( fd_snapin_tile_t *  ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in FD_PARAM_UNUSED,
+              int *               charge_busy FD_PARAM_UNUSED ) {
+  if( !ctx->lthash_disabled && stem->cr_avail[ ctx->out_ct_idx ]<FD_SSPARSE_ACC_BATCH_MAX ) *opt_poll_in = 0;
+}
+
 static ulong
 populate_allowed_fds( fd_topo_t      const * topo FD_PARAM_UNUSED,
                       fd_topo_tile_t const * tile FD_PARAM_UNUSED,
@@ -834,15 +837,17 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( out_link_ct_idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
   fd_topo_link_t * snapin_out_link = &topo->links[ tile->out_link_id[ out_link_ct_idx ] ];
   ctx->out_ct_idx = out_link_ct_idx;
+  FD_LOG_WARNING(("out ct idx is %lu", ctx->out_ct_idx));
 
   if( FD_UNLIKELY( ctx->out_ct_idx==ULONG_MAX ) )       FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_ct` or `snapin_ls`" ));
   if( FD_UNLIKELY( ctx->manifest_out.idx==ULONG_MAX ) ) FD_LOG_ERR(( "tile `" NAME "` missing required out link `snapin_manif`" ));
 
   if( 0==strcmp( snapin_out_link->name, "snapin_ls" ) ) {
     ctx->hash_out = out1( topo, tile, "snapin_ls" );
+    FD_LOG_WARNING(("hash out idx is %lu", ctx->hash_out.idx));
   }
 
-  fd_ssparse_config_prog_slow_path_enable( ctx->ssparse, 1 );
+  fd_ssparse_config_prog_slow_path_enable( ctx->ssparse, 0 );
   fd_ssparse_reset( ctx->ssparse );
   fd_ssmanifest_parser_init( ctx->manifest_parser, fd_chunk_to_laddr( ctx->manifest_out.mem, ctx->manifest_out.chunk ) );
   fd_slot_delta_parser_init( ctx->slot_delta_parser );
@@ -879,6 +884,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_SHOULD_SHUTDOWN should_shutdown
 #define STEM_CALLBACK_METRICS_WRITE   metrics_write
 #define STEM_CALLBACK_RETURNABLE_FRAG returnable_frag
+#define STEM_CALLBACK_AFTER_CREDIT    after_credit
 
 #include "../../disco/stem/fd_stem.c"
 
