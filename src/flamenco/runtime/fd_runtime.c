@@ -324,9 +324,7 @@ fd_runtime_freeze( fd_bank_t *               bank,
 
   /* jito collects a 3% fee at the end of the block + 3% fee at
      distribution time. */
-  ulong tip = fd_bank_tips_get( bank );
-  tip -= (tip * 6UL / 100UL);
-  fd_bank_tips_set( bank, tip );
+  fd_bank_tips_set( bank, (fd_bank_tips_get( bank ) * 6UL / 100UL) );
 
   fd_runtime_run_incinerator( bank, accdb, xid, capture_ctx );
 
@@ -1120,11 +1118,25 @@ fd_runtime_prepare_and_execute_txn( fd_banks_t *         banks,
 /* Epoch Boundary                                                             */
 /******************************************************************************/
 
+static void
+fd_runtime_refresh_previous_stake_values( fd_bank_t * bank ) {
+  fd_vote_states_t * vote_states = fd_bank_vote_states_locking_modify( bank );
+  fd_vote_states_iter_t iter_[1];
+  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
+       !fd_vote_states_iter_done( iter );
+       fd_vote_states_iter_next( iter ) ) {
+    fd_vote_state_ele_t * vote_state = fd_vote_states_iter_ele( iter );
+    vote_state->stake_t_2 = vote_state->stake_t_1;
+    vote_state->stake_t_1 = vote_state->stake;
+  }
+  fd_bank_vote_states_end_locking_modify( bank );
+}
+
 /* Replace the vote states for T-2 (vote_states_prev_prev) with the vote
    states for T-1 (vote_states_prev) */
 
 static void
-fd_update_vote_states_prev_prev( fd_bank_t * bank ) {
+fd_runtime_update_vote_states_prev_prev( fd_bank_t * bank ) {
 
   fd_vote_states_t *       vote_states_prev_prev = fd_bank_vote_states_prev_prev_locking_modify( bank );
   fd_vote_states_t const * vote_states_prev      = fd_bank_vote_states_prev_locking_query( bank );
@@ -1137,7 +1149,7 @@ fd_update_vote_states_prev_prev( fd_bank_t * bank ) {
    states for T-1 (vote_states) */
 
 static void
-fd_update_vote_states_prev( fd_bank_t * bank ) {
+fd_runtime_update_vote_states_prev( fd_bank_t * bank ) {
   fd_vote_states_t *       vote_states_prev = fd_bank_vote_states_prev_locking_modify( bank );
   fd_vote_states_t const * vote_states      = fd_bank_vote_states_locking_query( bank );
   fd_memcpy( vote_states_prev, vote_states, fd_bank_vote_states_footprint );
@@ -1351,13 +1363,20 @@ fd_runtime_process_new_epoch( fd_banks_t *              banks,
      https://github.com/anza-xyz/agave/blob/v3.0.4/runtime/src/bank.rs#L2175
   */
 
+  /* We want to cache the stake values for T-1 and T-2 in the forward
+     looking vote states.  This is done as an optimization for tower
+     calculations (T-1 stake) and clock calculation (T-2 stake).
+     We use the current stake to populate the T-1 stake and the T-1
+     stake to populate the T-2 stake. */
+  fd_runtime_refresh_previous_stake_values( bank );
+
   /* Update vote_states_prev_prev with vote_states_prev */
 
-  fd_update_vote_states_prev_prev( bank );
+  fd_runtime_update_vote_states_prev_prev( bank );
 
   /* Update vote_states_prev with vote_states */
 
-  fd_update_vote_states_prev( bank );
+  fd_runtime_update_vote_states_prev( bank );
 
   /* Now that our stakes caches have been updated, we can calculate the
      leader schedule for the upcoming epoch epoch using our new
