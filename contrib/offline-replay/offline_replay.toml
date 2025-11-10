@@ -10,6 +10,8 @@
         cluster_version = "{cluster_version}"
     [tiles.gui]
         enabled = false
+    [tiles.rpc]
+        enabled = false
 [funk]
     heap_size_gib = {funk_pages}
     max_account_records = {index_max}
