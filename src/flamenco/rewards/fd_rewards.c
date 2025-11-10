@@ -129,7 +129,8 @@ calculate_stake_points_and_credits_recalculation( fd_stake_history_t const *    
                                                   fd_vote_state_credits_t *      recalc_vote_state_credits,
                                                   fd_calculated_stake_points_t * result ) {
   ulong credits_in_stake = stake->credits_observed;
-  ulong credits_in_vote  = recalc_vote_state_credits->credits[ recalc_vote_state_credits->credits_cnt-1UL ];
+  ulong credits_in_vote  = recalc_vote_state_credits->credits_cnt > 0UL ?
+                           recalc_vote_state_credits->credits[ recalc_vote_state_credits->credits_cnt-1UL ] : 0UL;
 
   /* If the Vote account has less credits observed than the Stake account,
       something is wrong and we need to force an update.
