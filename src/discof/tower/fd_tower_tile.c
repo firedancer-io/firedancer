@@ -54,6 +54,10 @@
 
 #define VOTE_TXN_SIG_MAX (2UL) /* validator identity and vote authority */
 
+#define DEQUE_NAME slots
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 static const fd_hash_t manifest_block_id = { .ul = { 0xf17eda2ce7b1d } }; /* FIXME manifest_block_id */
 
 typedef struct {
@@ -65,8 +69,6 @@ typedef struct {
 
 typedef struct {
   ulong       seed;  /* map seed */
-  ulong       root;  /* most recent tower root slot */
-  ulong       slot0; /* snapshot or genesis slot */
   fd_pubkey_t identity_key[1];
   fd_pubkey_t vote_account[1];
   int         checkpt_fd;
@@ -80,6 +82,7 @@ typedef struct {
   fd_tower_accts_t * tower_accts;
   fd_tower_forks_t * tower_forks;
   fd_tower_t *       tower_spare; /* spare tower used during processing */
+  ulong *            slots;       /* deque of slot number for internal processing */
 
   /* frag-related structures (consume and publish) */
 
@@ -88,6 +91,12 @@ typedef struct {
   fd_compact_tower_sync_serde_t compact_tower_sync_serde;
   fd_snapshot_manifest_t        manifest;
   fd_replay_slot_completed_t    replay_slot_completed;
+
+  /* slot watermarks */
+
+  ulong init_slot; /* initial slot from genesis or snapshot */
+  ulong root_slot; /* monotonically increasing contiguous tower root slot */
+  ulong conf_slot; /* monotonically increasing contiguous confirmed slot */
 
   /* in/out link setup */
 
@@ -98,6 +107,8 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  /* metrics */
 
   struct {
     ulong ancestor_rollback;
@@ -128,6 +139,7 @@ scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_tower_accts_align(), fd_tower_accts_footprint( FD_VOTER_MAX )       );
   l = FD_LAYOUT_APPEND( l, fd_tower_forks_align(), fd_tower_forks_footprint( lg_slot_max )        );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(),       fd_tower_footprint()                           );
+  l = FD_LAYOUT_APPEND( l, slots_align(),          slots_footprint( slot_max )                    );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -144,25 +156,75 @@ metrics_write( ctx_t * ctx ) {
 }
 
 static void
-duplicate_confirm( ctx_t *             ctx,
-                   ulong               slot,
-                   fd_hash_t const *   block_id,
-                   ulong               tsorig,
-                   fd_stem_context_t * stem ) {
-  fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, slot, NULL ); /* ensure fork exists */
-  if( FD_UNLIKELY( !fork ) ) {
-    fork                     = fd_tower_forks_insert( ctx->tower_forks, slot );
-    fork->parent_slot        = ULONG_MAX;
-    fork->voted              = 0;
-  }
-  fork->confirmed          = 1;
-  fork->confirmed_block_id = *block_id;
+publish_slot_confirmed( ctx_t *             ctx,
+                        fd_stem_context_t * stem,
+                        ulong               tsorig,
+                        ulong               slot,
+                        fd_hash_t const *   block_id,
+                        int                 kind ) {
+  fd_tower_slot_confirmed_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  msg->slot                       = slot;
+  msg->block_id                   = *block_id;
+  msg->kind                       = kind;
+  fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_CONFIRMED, ctx->out_chunk, sizeof(fd_tower_slot_confirmed_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_confirmed_t), ctx->out_chunk0, ctx->out_wmark );
+}
 
-  fd_tower_duplicate_confirmed_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
-  msg->block_id                        = *block_id;
-  msg->slot                            = slot;
-  fd_stem_publish( stem, 0UL, FD_TOWER_SIG_DUPLICATE_CONFIRMED, ctx->out_chunk, sizeof(fd_tower_duplicate_confirmed_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_duplicate_confirmed_t), ctx->out_chunk0, ctx->out_wmark );
+static void
+contiguous_confirm( ctx_t *             ctx,
+                    fd_stem_context_t * stem,
+                    ulong               tsorig,
+                    ulong               slot,
+                    ulong               wmark,
+                    int                 kind ) {
+
+  /* For optimistic and rooted confirmations, confirming a slot means
+     all ancestors are confirmed too, so we need to publish any skipped
+     ancestors (confirmations can be out-of-order and roots can be
+     skipped due to lockout). */
+
+  ulong ancestor = slot;
+  while( FD_UNLIKELY( ancestor > wmark ) ) {
+    fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, ancestor, NULL );
+    if( FD_UNLIKELY( !fork ) ) break; /* rooted past this ancestor */
+    slots_push_tail( ctx->slots, ancestor );
+    ancestor = fork->parent_slot;
+  }
+  while( FD_LIKELY( !slots_empty( ctx->slots ) ) ) {
+    ulong             ancestor = slots_pop_tail( ctx->slots );
+    fd_hash_t const * block_id = fd_tower_forks_canonical_block_id( ctx->tower_forks, ancestor );
+    if( FD_UNLIKELY( !block_id ) ) FD_LOG_CRIT(( "missing block id for ancestor %lu", ancestor ));
+    publish_slot_confirmed( ctx, stem, tsorig, ancestor, block_id, kind );
+  }
+}
+
+static void
+notar_confirm( ctx_t *             ctx,
+               fd_stem_context_t * stem,
+               ulong               tsorig,
+               fd_notar_blk_t *    notar_blk ) {
+
+  /* Record any confirmations in our tower forks structure and also
+     publish slot_confirmed frags indicating confirmations to consumers.
+
+     See documentation in fd_tower_tile.h for guarantees. */
+
+  if( FD_LIKELY( notar_blk->dup_conf ) ) {
+    fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, notar_blk->slot, NULL ); /* ensure fork exists */
+    if( FD_UNLIKELY( !fork           ) ) return; /* a slot may be already duplicate confirmed over gossip votes before replay */
+    if( FD_LIKELY  ( fork->confirmed ) ) return; /* already published confirmed frag */
+    fork->confirmed          = 1;
+    fork->confirmed_block_id = notar_blk->block_id;
+    publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, FD_TOWER_SLOT_CONFIRMED_DUPLICATE );
+  }
+  if( FD_LIKELY( notar_blk->opt_conf ) ) {
+    publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, FD_TOWER_SLOT_CONFIRMED_CLUSTER );
+    fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, notar_blk->slot, NULL );
+    if( FD_UNLIKELY( fork && fork->replayed && notar_blk->slot > ctx->conf_slot ) ) {
+      contiguous_confirm( ctx, stem, tsorig, notar_blk->slot, ctx->conf_slot, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC );
+      ctx->conf_slot = notar_blk->slot;
+    }
+  }
 }
 
 static void
@@ -211,8 +273,8 @@ gossip_vote( ctx_t *                  ctx,
 
   fd_pubkey_t const * addrs = (fd_pubkey_t const *)fd_type_pun_const( accts );
   fd_pubkey_t const * addr  = NULL;
-  if( FD_UNLIKELY( txn->signature_cnt==1 ) ) addr = (fd_pubkey_t const *)fd_type_pun_const( &addrs[1] ); /* account idx 1 is the vote account address */
-  else                                       addr = (fd_pubkey_t const *)fd_type_pun_const( &addrs[2] ); /* account idx 2 is the vote account address */
+  if( FD_UNLIKELY( txn->signature_cnt==1 ) ) addr = (fd_pubkey_t const *)fd_type_pun_const( &addrs[1] ); /* identity and authority same, account idx 1 is the vote account address */
+  else                                       addr = (fd_pubkey_t const *)fd_type_pun_const( &addrs[2] ); /* identity and authority diff, account idx 2 is the vote account address */
 
   /* Return early if their tower is empty. */
 
@@ -226,8 +288,9 @@ gossip_vote( ctx_t *                  ctx,
   fd_tower_vote_t const * their_last_vote = fd_tower_peek_tail_const( ctx->tower_spare );
   fd_hash_t const *       their_block_id  = &ctx->compact_tower_sync_serde.block_id;
 
-  int duplicate_confirmed = fd_notar_count_vote( ctx->notar, fd_ghost_root( ctx->ghost )->total_stake, addr, their_last_vote->slot, their_block_id );
-  if( FD_UNLIKELY( duplicate_confirmed ) ) duplicate_confirm( ctx, their_last_vote->slot, their_block_id, tsorig, stem );
+  ulong            total_stake = fd_ghost_root( ctx->ghost )->total_stake;
+  fd_notar_blk_t * notar_blk   = fd_notar_count_vote( ctx->notar, total_stake, addr, their_last_vote->slot, their_block_id );
+  if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, stem, tsorig, notar_blk );
 
   fd_hash_t const * our_block_id = fd_tower_forks_canonical_block_id( ctx->tower_forks, their_last_vote->slot );
   if( FD_UNLIKELY( !our_block_id || 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) return;
@@ -278,8 +341,9 @@ gossip_vote( ctx_t *                  ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
-    int duplicate_confirmed = fd_notar_count_vote( ctx->notar, fd_ghost_root( ctx->ghost )->total_stake, addr, their_intermediate_vote->slot, our_block_id );
-    if( FD_UNLIKELY( duplicate_confirmed ) ) duplicate_confirm( ctx, their_intermediate_vote->slot, our_block_id, tsorig, stem );
+
+    fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, addr, their_last_vote->slot, their_block_id );
+    if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, stem, tsorig, notar_blk );
   }
 }
 
@@ -298,20 +362,42 @@ replay_slot_completed( ctx_t *                      ctx,
   /* Insert the just replayed block into ghost. */
 
   fd_hash_t const * parent_block_id = &slot_info->parent_block_id;
-  if( FD_UNLIKELY( slot_info->parent_slot==ctx->slot0 ) ) parent_block_id = &manifest_block_id;
+  if( FD_UNLIKELY( slot_info->parent_slot==ctx->init_slot ) ) parent_block_id = &manifest_block_id;
   fd_ghost_blk_t * ghost_blk = fd_ghost_insert( ctx->ghost, &slot_info->block_id, parent_block_id, slot_info->slot );
 
   /* Insert the just replayed block into tower forks. */
 
-  fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL ); /* ensure fork exists */
-  if( FD_UNLIKELY( !fork ) ) {
-    fork            = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
-    fork->confirmed = 0;
-    fork->voted     = 0;
+  FD_TEST( !fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL ) );
+  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
+
+  /* Check if gossip votes already confirmed a block id (via notar). */
+
+  fork->confirmed              = 0;
+  fd_notar_slot_t * notar_slot = fd_notar_slot_query( ctx->notar->slot_map, slot_info->slot, NULL );
+  if( FD_UNLIKELY( notar_slot )) { /* optimize for replay keeping up (being ahead of gossip votes) */
+    for( ulong i = 0; i < notar_slot->block_ids_cnt; i++ ) {
+      fd_notar_blk_t * notar_blk = fd_notar_blk_query( ctx->notar->blk_map, notar_slot->block_ids[i], NULL );
+      FD_TEST( notar_blk ); /* block_ids_cnt corrupt */
+      if( FD_LIKELY( notar_blk->dup_conf ) ) {
+        fork->confirmed          = 1;
+        fork->confirmed_block_id = notar_blk->block_id;
+        break;
+      }
+    }
   }
+
+  /* Record the replayed block id. */
+
   fork->replayed          = 1;
   fork->replayed_block_id = slot_info->block_id;
   fork->parent_slot       = slot_info->parent_slot;
+
+  /* We replayed an unconfirmed duplicate, warn for now.  Follow-up PR
+     will implement eviction and repair of the correct one. */
+
+  if( FD_UNLIKELY( fork->confirmed && 0!=memcmp( &fork->confirmed_block_id, &fork->replayed_block_id, sizeof(fd_hash_t) ) ) ) {
+    FD_LOG_WARNING(( "replayed an unconfirmed duplicate %lu. ours %s. confirmed %s.", slot_info->slot, FD_BASE58_ENC_32_ALLOCA( &slot_info->block_id ), FD_BASE58_ENC_32_ALLOCA( &fork->confirmed_block_id ) ));
+  }
 
   /* Iterate all the vote accounts to count votes towards fork choice
      (fd_ghost) and confirmation (fd_notar) and also reconcile our local
@@ -329,7 +415,7 @@ replay_slot_completed( ctx_t *                      ctx,
 
     /* If this is our vote acc, reconcile with our local tower. */
 
-    if( FD_UNLIKELY( 0==memcmp( &acct->addr, ctx->vote_account, sizeof(fd_pubkey_t) ) ) ) fd_tower_reconcile( ctx->tower, ctx->root, acct->data );
+    if( FD_UNLIKELY( 0==memcmp( &acct->addr, ctx->vote_account, sizeof(fd_pubkey_t) ) ) ) fd_tower_reconcile( ctx->tower, ctx->root_slot, acct->data );
 
     /* Deserialize the last vote slot from this vote account's tower. */
 
@@ -341,21 +427,22 @@ replay_slot_completed( ctx_t *                      ctx,
        vote slot.  In Agave, they look this value up using a hashmap of
        slot->block_id ("fork progress"), but that approach only works
        because they dump and repair (so there's only ever one canonical
-       block_id).  We may replay `n` versions of a block and have `n`
-       different block_ids. */
+       block id).  We retain multiple block ids, both the original and
+       confirmed one. */
 
-    fd_ghost_blk_t * ancestor = fd_ghost_slot_ancestor( ctx->ghost, ghost_blk, vote_slot ); /* FIXME potentially slow */
+    fd_ghost_blk_t * ancestor_blk = fd_ghost_slot_ancestor( ctx->ghost, ghost_blk, vote_slot ); /* FIXME potentially slow */
 
     /* It is impossible for ancestor to be missing, because these are
        vote accounts on a given fork, not vote txns across forks.  So we
        know these towers must contain slots we know about (as long as
        they are >= root, which we checked above). */
 
-    if( FD_UNLIKELY( !ancestor ) ) FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_info->slot, vote_slot, FD_BASE58_ENC_32_ALLOCA( &acct->addr ) ));
+    if( FD_UNLIKELY( !ancestor_blk ) ) FD_LOG_CRIT(( "missing ancestor. replay slot %lu vote slot %lu voter %s", slot_info->slot, vote_slot, FD_BASE58_ENC_32_ALLOCA( &acct->addr ) ));
 
     /* Count the vote toward ghost, notar and total_stake. */
 
-    fd_ghost_count_vote( ctx->ghost, ancestor, &acct->addr, acct->stake, vote_slot );
+    fd_ghost_count_vote( ctx->ghost, ancestor_blk, &acct->addr, acct->stake, vote_slot );
+
     /* TODO count TPU vote txns towards notar */
   }
   if( FD_UNLIKELY( fd_ghost_root( ctx->ghost )->total_stake==0 ) ) fd_ghost_root( ctx->ghost )->total_stake = total_stake;
@@ -407,11 +494,21 @@ replay_slot_completed( ctx_t *                      ctx,
     FD_TEST( newr );
     fd_ghost_publish( ctx->ghost, newr );
     fd_notar_advance_wmark( ctx->notar, out.root_slot );
-    for(ulong slot = ctx->root; slot < out.root_slot; slot++ ) {
+    for(ulong slot = ctx->root_slot; slot < out.root_slot; slot++ ) {
       fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, slot, NULL );
       if( FD_LIKELY( fork ) ) fd_tower_forks_remove( ctx->tower_forks, fork );
     }
-    ctx->root = out.root_slot;
+
+    /* Rooting implies optimistic confirmation in the Firedancer API, so
+       we need to make sure to publish the optimistic frags before the
+       rooted frags.  In most cases this is a no-op because gossip votes
+       already triggered optimistic confirmation.
+
+       TODO include replay votes in optimistic conf vote counting. */
+
+    contiguous_confirm( ctx, stem, tsorig, out.root_slot, ctx->root_slot, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC );
+    contiguous_confirm( ctx, stem, tsorig, out.root_slot, ctx->root_slot, FD_TOWER_SLOT_CONFIRMED_ROOTED     );
+    ctx->root_slot = out.root_slot;
   }
 
 # if LOGGING
@@ -422,23 +519,33 @@ replay_slot_completed( ctx_t *                      ctx,
 
 static void
 init_genesis( ctx_t * ctx ) {
+  FD_TEST( ctx->init_slot==ULONG_MAX );
+  FD_TEST( ctx->root_slot==ULONG_MAX );
+  FD_TEST( ctx->conf_slot==ULONG_MAX );
+  ctx->init_slot = 0;
+  ctx->root_slot = 0;
+  ctx->conf_slot = 0;
+
   fd_ghost_insert( ctx->ghost, &manifest_block_id, NULL, 0 );
-  fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, 0 );
+  fd_tower_forks_t * fork  = fd_tower_forks_insert( ctx->tower_forks, 0 );
   fork->confirmed          = 1;
   fork->confirmed_block_id = manifest_block_id;
-  ctx->root                = 0;
-  ctx->slot0               = 0;
 }
 
 static void
 snapshot_done( ctx_t *                        ctx,
                fd_snapshot_manifest_t const * manifest ) {
+  FD_TEST( ctx->init_slot==ULONG_MAX );
+  FD_TEST( ctx->root_slot==ULONG_MAX );
+  FD_TEST( ctx->conf_slot==ULONG_MAX );
+  ctx->init_slot = manifest->slot;
+  ctx->root_slot = manifest->slot;
+  ctx->conf_slot = manifest->slot;
+
   fd_ghost_insert( ctx->ghost, &manifest_block_id, NULL, manifest->slot );
   fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, manifest->slot );
   fork->confirmed          = 1;
   fork->confirmed_block_id = manifest_block_id;
-  ctx->root                = manifest->slot;
-  ctx->slot0               = manifest->slot;
 }
 
 static inline int
@@ -472,7 +579,7 @@ returnable_frag( ctx_t *             ctx,
   case IN_KIND_GOSSIP: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    if( FD_UNLIKELY( ctx->root==ULONG_MAX ) ) return 1;
+    if( FD_UNLIKELY( ctx->root_slot==ULONG_MAX ) ) return 1;
     if( FD_UNLIKELY( sig==FD_GOSSIP_UPDATE_TAG_VOTE ) ) {
       fd_gossip_vote_t const * vote = &((fd_gossip_update_message_t const *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ))->vote;
       gossip_vote( ctx, vote, tsorig, stem );
@@ -482,7 +589,7 @@ returnable_frag( ctx_t *             ctx,
   case IN_KIND_REPLAY: {
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
       FD_LOG_ERR(( "chunk %lu %lu from in %d corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_kind[ in_idx ], ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    if( FD_UNLIKELY( ctx->root==ULONG_MAX ) ) return 1;
+    if( FD_UNLIKELY( ctx->root_slot==ULONG_MAX ) ) return 1;
     if( FD_LIKELY( sig==REPLAY_SIG_SLOT_COMPLETED ) ) {
       fd_memcpy( &ctx->replay_slot_completed, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ), sizeof(fd_replay_slot_completed_t) );
     } else if( FD_LIKELY( sig==REPLAY_SIG_VOTE_STATE ) ) {
@@ -547,6 +654,7 @@ unprivileged_init( fd_topo_t *      topo,
   void  * accts = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_accts_align(), fd_tower_accts_footprint( FD_VOTER_MAX )       );
   void  * forks = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_forks_align(), fd_tower_forks_footprint( lg_slot_max )        );
   void  * spare = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(),       fd_tower_footprint()                           );
+  void  * slots = FD_SCRATCH_ALLOC_APPEND( l, slots_align(),          slots_footprint( slot_max )                    );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->ghost       = fd_ghost_join      ( fd_ghost_new      ( ghost, 2*slot_max, FD_VOTER_MAX, 42UL ) ); /* FIXME seed */
@@ -555,6 +663,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower_accts = fd_tower_accts_join( fd_tower_accts_new( accts, FD_VOTER_MAX                   ) );
   ctx->tower_forks = fd_tower_forks_join( fd_tower_forks_new( forks, lg_slot_max                    ) );
   ctx->tower_spare = fd_tower_join      ( fd_tower_new      ( spare                                 ) );
+  ctx->slots       = slots_join         ( slots_new         ( slots, slot_max                       ) );
   FD_TEST( ctx->ghost );
   FD_TEST( ctx->notar );
   FD_TEST( ctx->tower );
@@ -568,7 +677,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->gossip_vote_sha[i] = sha;
   }
 
-  ctx->root = ULONG_MAX;
+  ctx->init_slot = ULONG_MAX;
+  ctx->root_slot = ULONG_MAX;
+  ctx->conf_slot = ULONG_MAX;
 
   FD_TEST( tile->in_cnt<sizeof(ctx->in_kind)/sizeof(ctx->in_kind[0]) );
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
@@ -626,7 +737,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (1UL) /* FIXME needs to be configured at runtime with max_unrooted_slots */
 
 #define STEM_CALLBACK_CONTEXT_TYPE    ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN   alignof(ctx_t)

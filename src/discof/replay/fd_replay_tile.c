@@ -2139,9 +2139,9 @@ process_exec_task_done( fd_replay_tile_t *        ctx,
 }
 
 static void
-process_tower_update( fd_replay_tile_t *           ctx,
-                      fd_stem_context_t *          stem,
-                      fd_tower_slot_done_t const * msg ) {
+process_tower_slot_done( fd_replay_tile_t *           ctx,
+                         fd_stem_context_t *          stem,
+                         fd_tower_slot_done_t const * msg ) {
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -2200,7 +2200,7 @@ process_tower_update( fd_replay_tile_t *           ctx,
     ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_poh_reset_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
   }
 
-  FD_LOG_INFO(( "tower_update(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu, root_slot=%lu, root_block_id=%s)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot, msg->root_slot, FD_BASE58_ENC_32_ALLOCA( &msg->root_block_id ) ));
+  FD_LOG_INFO(( "tower_slot_done(reset_slot=%lu, next_leader_slot=%lu, vote_slot=%lu)", msg->reset_slot, ctx->next_leader_slot, msg->vote_slot ));
   maybe_become_leader( ctx, stem );
 
   if( FD_LIKELY( msg->root_slot!=ULONG_MAX ) ) {
@@ -2385,7 +2385,19 @@ returnable_frag( fd_replay_tile_t *  ctx,
       break;
     }
     case IN_KIND_TOWER: {
-      if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE ) ) process_tower_update( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      if     ( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_DONE      ) ) process_tower_slot_done( ctx, stem, fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk ) );
+      else if( FD_LIKELY( sig==FD_TOWER_SIG_SLOT_CONFIRMED ) ) {
+        fd_tower_slot_confirmed_t const * msg = fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
+
+        /* Implement replay plugin API here */
+
+        switch( msg->kind ) {
+          case FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC:
+            break;
+          case FD_TOWER_SLOT_CONFIRMED_ROOTED:
+            break;
+        }
+      };
       break;
     }
     case IN_KIND_SHRED: {
