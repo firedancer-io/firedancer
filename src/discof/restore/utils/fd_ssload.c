@@ -259,7 +259,6 @@ fd_ssload_recover( fd_snapshot_manifest_t *  manifest,
     vote_state->last_vote_timestamp = elem->timestamp;
     vote_state->last_vote_slot      = elem->slot;
     vote_state->stake               = elem->stake;
-    vote_state->stake               = elem->stake;
   }
 
   /* Vote states for the current epoch. */
