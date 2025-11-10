@@ -61,15 +61,15 @@ struct fd_sysvar_pos {
 
   char const * name;
 
-  int  (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-  void (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
-  int  (* encode)( void const * self, fd_bincode_encode_ctx_t * ctx );
+  int    (* decode_footprint)( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+  void * (* decode)( void * mem, fd_bincode_decode_ctx_t * ctx );
+  int    (* encode)( void const * self, fd_bincode_encode_ctx_t * ctx );
 };
 typedef struct fd_sysvar_pos fd_sysvar_pos_t;
 
 #define TYPES_CALLBACKS( name, suf )                                   \
   .decode_footprint = fd_##name##_decode_footprint,                    \
-  .decode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->decode))(ulong)fd_##name##_decode##suf, \
+  .decode           = fd_##name##_decode##suf, \
   .encode           = (__typeof__(((fd_sysvar_pos_t *)NULL)->encode))(ulong)fd_##name##_encode##suf
 
 static fd_sysvar_pos_t const fd_sysvar_pos_tbl[ FD_SYSVAR_CACHE_ENTRY_CNT ] = {
