@@ -938,26 +938,27 @@ metric introduced.
     <int value="4" name="SuccessPing" label="Ping (success)" />
     <int value="5" name="SuccessPong" label="Pong (success)" />
 
-    <int value="6" name="DroppedUnparseable" label="Unparseable" />
+    <int value="6" name="DroppedMalformedPacket" label="Invalid UDP header values/size" />
+    <int value="7" name="DroppedUnparseable" label="Unparseable" />
 
-    <int value="7" name="DroppedPullRequestNotContactInfo" label="Pull Request (not contact info)" />
-    <int value="8" name="DroppedPullRequestLoopback" label="Pull Request (loopback)" />
-    <int value="9" name="DroppedPullRequestInactive" label="Pull Request (inactive)" />
-    <int value="10" name="DroppedPullRequestWallclock" label="Pull Request (wallclock)" />
-    <int value="11" name="DroppedPullRequestSignature" label="Pull Request (signature)" />
-    <int value="12" name="DroppedPullRequestShredVersion" label="Pull Request (shred version)" />
+    <int value="8" name="DroppedPullRequestNotContactInfo" label="Pull Request (not contact info)" />
+    <int value="9" name="DroppedPullRequestLoopback" label="Pull Request (loopback)" />
+    <int value="10" name="DroppedPullRequestInactive" label="Pull Request (inactive)" />
+    <int value="11" name="DroppedPullRequestWallclock" label="Pull Request (wallclock)" />
+    <int value="12" name="DroppedPullRequestSignature" label="Pull Request (signature)" />
+    <int value="13" name="DroppedPullRequestShredVersion" label="Pull Request (shred version)" />
 
-    <int value="13" name="DroppedPruneDestination" label="Prune (destination)" />
-    <int value="14" name="DroppedPruneWallclock" label="Prune (wallclock)" />
-    <int value="15" name="DroppedPruneSignature" label="Prune (signature)" />
+    <int value="14" name="DroppedPruneDestination" label="Prune (destination)" />
+    <int value="15" name="DroppedPruneWallclock" label="Prune (wallclock)" />
+    <int value="16" name="DroppedPruneSignature" label="Prune (signature)" />
 
-    <int value="16" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
+    <int value="17" name="DroppedPushNoValidCrds" label="Push (no valid crds)" />
 
-    <int value="17" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
+    <int value="18" name="DroppedPullResponseNoValidCrds" label="Pull Response (no valid crds)" />
 
-    <int value="18" name="DroppedPingSignature" label="Ping (signature)" />
+    <int value="19" name="DroppedPingSignature" label="Ping (signature)" />
 
-    <int value="19" name="DroppedPongSignature" label="Pong (signature)" />
+    <int value="20" name="DroppedPongSignature" label="Pong (signature)" />
 </enum>
 
 <enum name="GossvfCrdsOutcome">
