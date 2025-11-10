@@ -235,6 +235,8 @@ echo "
         enable_features = [ $FORMATTED_ONE_OFFS ]
     [tiles.gui]
         enabled = false
+    [tiles.rpc]
+        enabled = false
 [store]
     max_completed_shred_sets = 32768
 [funk]
