@@ -19,7 +19,7 @@ typedef struct fd_vote_tracker_ele fd_vote_tracker_ele_t;
 #define MAP_KEY           vote_sig
 #define MAP_NEXT          next_
 #define MAP_KEY_EQ(k0,k1) fd_signature_eq( (k0), (k1) )
-#define MAP_KEY_HASH(k,s) fd_hash( s, (k)->uc, sizeof(fd_signature_t) )
+#define MAP_KEY_HASH(k,s) fd_hash( s, (k), sizeof(fd_signature_t) )
 #include "../../util/tmpl/fd_map_chain.c"
 
 struct fd_vote_tracker {
