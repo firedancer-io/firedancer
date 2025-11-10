@@ -161,11 +161,19 @@ fd_rust_duration_normalize ( fd_rust_duration_t * self ) {
 //
 int
 fd_rust_duration_footprint_validator ( fd_bincode_decode_ctx_t * ctx ) {
-  fd_rust_duration_t *d = (fd_rust_duration_t *) ctx->data;
-  if( d->nanoseconds < 1000000000U )
+  // Read fields from potentially unaligned memory using FD_LOAD
+  // to avoid undefined behavior from misaligned access
+
+  if( (ulong)ctx->data + 12UL > (ulong)ctx->dataend )
+    return FD_BINCODE_ERR_OVERFLOW;
+
+  ulong seconds    = FD_LOAD( ulong, ctx->data );
+  uint nanoseconds = FD_LOAD( uint, (uchar*)ctx->data + sizeof(ulong) );
+
+  if( nanoseconds < 1000000000U )
     return FD_BINCODE_SUCCESS;
   ulong out;
-  if( __builtin_uaddl_overflow( d->seconds, d->nanoseconds/1000000000U, &out ) )
+  if( __builtin_uaddl_overflow( seconds, nanoseconds/1000000000U, &out ) )
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
 }
