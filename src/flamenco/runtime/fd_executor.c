@@ -520,6 +520,7 @@ fd_executor_load_transaction_accounts_old( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* TODO: Consider using a hash set (if its more performant) */
   ushort      instr_cnt             = TXN( &txn_ctx->txn )->instr_cnt;
+  if( FD_UNLIKELY( !instr_cnt ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
   fd_pubkey_t validated_loaders[instr_cnt];
   ushort      validated_loaders_cnt = 0;
 
