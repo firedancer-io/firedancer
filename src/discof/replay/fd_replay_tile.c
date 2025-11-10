@@ -338,9 +338,6 @@ struct fd_replay_tile {
 
   /* Buffer to store vote towers that need to be published to the Tower
      tile. */
-  ulong             vote_tower_out_idx; /* index of vote tower to publish next */
-  ulong             vote_tower_out_len; /* number of vote towers in the buffer */
-  fd_replay_tower_t vote_tower_out[FD_REPLAY_TOWER_VOTE_ACC_MAX];
 
   fd_multi_epoch_leaders_t * mleaders;
 
@@ -535,115 +532,6 @@ publish_stake_weights( fd_replay_tile_t *   ctx,
 }
 
 /**********************************************************************/
-/* Vote tower publishing helpers                                      */
-/**********************************************************************/
-
-/* fd_replay_out_vote_tower_from_funk queries Funk for the state of the vote
-   account with the given pubkey, and copies the state into the given
-   fd_replay_tower_t structure. The account data is simply copied as-is.
-
-   Parameters:
-   - funk:           The funk database instance to query vote account data from
-   - funk_txn:       The funk transaction context for consistent reads
-   - pubkey:         The public key of the vote account to retrieve
-   - stake:          The stake amount associated with this vote account
-   - vote_tower_out: Output structure to populate with vote state information
-
-   This function should never fail, as the vote_states cache is guarenteed to
-   only contain valid vote accounts.
-*/
-static void
-fd_replay_out_vote_tower_from_funk(
-    fd_accdb_user_t *         accdb,
-    fd_funk_txn_xid_t const * xid,
-    fd_pubkey_t const *       pubkey,
-    ulong                     stake,
-    fd_replay_tower_t *       vote_tower_out
-) {
-
-  fd_memset( vote_tower_out, 0, sizeof(fd_replay_tower_t) );
-  vote_tower_out->key   = *pubkey;
-  vote_tower_out->stake = stake;
-
-  /* Speculatively copy out the raw vote account state from Funk */
-  for(;;) {
-    fd_memset( vote_tower_out->acc, 0, sizeof(vote_tower_out->acc) );
-
-    fd_accdb_peek_t peek[1];
-    if( FD_UNLIKELY( !fd_accdb_peek( accdb, peek, xid, pubkey->uc ) ) ) {
-      FD_LOG_CRIT(( "vote account not found. address: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ) ));
-    }
-
-    ulong data_sz = fd_accdb_ref_data_sz( peek->acc );
-    if( FD_UNLIKELY( data_sz > sizeof(vote_tower_out->acc) ) ) {
-      FD_LOG_CRIT(( "vote account %s has too large data. dlen %lu > %lu",
-        FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
-        data_sz,
-        sizeof(vote_tower_out->acc) ));
-    }
-
-    fd_memcpy( vote_tower_out->acc, fd_accdb_ref_data_const( peek->acc ), data_sz );
-    vote_tower_out->acc_sz = data_sz;
-
-    if( FD_LIKELY( fd_accdb_peek_test( peek ) ) ) break;
-    FD_SPIN_PAUSE();
-  }
-}
-
-/* This function buffers all the vote account towers that Tower needs at
-   the end of this slot into the ctx->vote_tower_out buffer.  These will
-   then be published in after_credit.
-
-   This function should be called at the end of a slot, before any epoch
-   boundary processing. */
-static void
-buffer_vote_towers( fd_replay_tile_t *        ctx,
-                    fd_funk_txn_xid_t const * xid,
-                    fd_bank_t *               bank ) {
-  ctx->vote_tower_out_idx = 0UL;
-  ctx->vote_tower_out_len = 0UL;
-
-  fd_vote_states_t const * vote_states = fd_bank_vote_states_locking_query( bank );
-  fd_vote_states_iter_t iter_[1];
-  for( fd_vote_states_iter_t * iter = fd_vote_states_iter_init( iter_, vote_states );
-       !fd_vote_states_iter_done( iter );
-       fd_vote_states_iter_next( iter ) ) {
-    fd_vote_state_ele_t const * vote_state = fd_vote_states_iter_ele( iter );
-    if( FD_UNLIKELY( vote_state->stake == 0 ) ) continue; /* skip unstaked vote accounts */
-    fd_pubkey_t const * vote_account_pubkey = &vote_state->vote_account;
-    if( FD_UNLIKELY( ctx->vote_tower_out_len >= (FD_REPLAY_TOWER_VOTE_ACC_MAX-1UL) ) ) FD_LOG_ERR(( "vote_tower_out_len too large" ));
-    fd_replay_out_vote_tower_from_funk(
-      ctx->accdb,
-      xid,
-      vote_account_pubkey,
-      vote_state->stake_t_2,
-      &ctx->vote_tower_out[ ctx->vote_tower_out_len++ ] );
-  }
-  fd_bank_vote_states_end_locking_query( bank );
-}
-
-/* This function publishes the next vote tower in the
-   ctx->vote_tower_out buffer to the tower tile.
-
-   This function should be called in after_credit, after all the vote
-   towers for the end of a slot have been buffered in
-   ctx->vote_tower_out. */
-
-static void
-publish_next_vote_tower( fd_replay_tile_t *  ctx,
-                         fd_stem_context_t * stem ) {
-  int som = ctx->vote_tower_out_idx==0;
-  int eom = ctx->vote_tower_out_idx==( ctx->vote_tower_out_len - 1 );
-
-  fd_replay_tower_t * vote_state = fd_chunk_to_laddr( ctx->replay_out->mem, ctx->replay_out->chunk );
-  *vote_state = ctx->vote_tower_out[ ctx->vote_tower_out_idx ];
-  fd_stem_publish( stem, ctx->replay_out->idx, REPLAY_SIG_VOTE_STATE, ctx->replay_out->chunk, sizeof(fd_replay_tower_t), fd_frag_meta_ctl( 0UL, som, eom, 0 ), 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
-  ctx->replay_out->chunk = fd_dcache_compact_next( ctx->replay_out->chunk, sizeof(fd_replay_tower_t), ctx->replay_out->chunk0, ctx->replay_out->wmark );
-
-  ctx->vote_tower_out_idx++;
-}
-
-/**********************************************************************/
 /* Transaction execution state machine helpers                        */
 /**********************************************************************/
 
@@ -815,6 +703,7 @@ publish_slot_completed( fd_replay_tile_t *  ctx,
   /* refcnt should be incremented by 1 for each consumer that uses
      `bank_idx`.  Each consumer should decrement the bank's refcnt once
      they are done usin the bank. */
+  bank->refcnt++; /* tower_tile */
   if( FD_LIKELY( ctx->gui_enabled ) ) bank->refcnt++; /* gui tile */
   slot_info->bank_idx = bank->idx;
 
@@ -855,9 +744,8 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
   /* Do hashing and other end-of-block processing. */
   fd_runtime_block_execute_finalize( bank, ctx->accdb, &xid, ctx->capture_ctx, 1 );
 
-  /* Copy the vote tower of all the vote accounts into the buffer,
-     which will be published in after_credit. */
-  buffer_vote_towers( ctx, &xid, bank );
+  /* Mark the bank as frozen. */
+  fd_banks_mark_bank_frozen( ctx->banks, bank );
 
   /**********************************************************************/
   /* Bank hash comparison, and halt if there's a mismatch after replay  */
@@ -899,9 +787,6 @@ replay_block_finalize( fd_replay_tile_t *  ctx,
      though we could technically do this before the hash cmp and vote
      tower stuff. */
   publish_slot_completed( ctx, stem, bank, 0, 0 /* is_leader */ );
-
-  /* Mark the bank as frozen. */
-  fd_banks_mark_bank_frozen( ctx->banks, bank );
 
   /* If enabled, dump the block to a file and reset the dumping
      context state */
@@ -1054,10 +939,6 @@ fini_leader_bank( fd_replay_tile_t *  ctx,
   publish_slot_completed( ctx, stem, ctx->leader_bank, 0, 1 /* is_leader */ );
 
   fd_banks_mark_bank_frozen( ctx->banks, ctx->leader_bank );
-
-  /* Copy the vote tower of all the vote accounts into the buffer,
-      which will be published in after_credit. */
-  buffer_vote_towers( ctx, &xid, ctx->leader_bank );
 
   /* The reference on the bank is finally no longer needed. */
   ctx->leader_bank->refcnt--;
@@ -1940,21 +1821,6 @@ after_credit( fd_replay_tile_t *  ctx,
               int *               charge_busy ) {
   if( FD_UNLIKELY( !ctx->is_booted ) ) return;
 
-  /* Send any outstanding vote states to tower.  TODO: Not sure why this
-     is here?  Should happen when the slot completes instead? */
-  if( FD_UNLIKELY( ctx->vote_tower_out_idx<ctx->vote_tower_out_len ) ) {
-    *charge_busy = 1;
-    publish_next_vote_tower( ctx, stem );
-    /* Don't continue polling for fragments but instead skip to the next
-       iteration of the stem loop.
-
-       This is necessary so that all the votes states for the end of a
-       particular slot are sent in one atomic block, and are not
-       interleaved with votes states at the end of other slots. */
-    *opt_poll_in = 0;
-    return;
-  }
-
   if( FD_UNLIKELY( maybe_become_leader( ctx, stem ) ) ) {
     *charge_busy = 1;
     *opt_poll_in = 0;
@@ -2142,6 +2008,10 @@ static void
 process_tower_slot_done( fd_replay_tile_t *           ctx,
                          fd_stem_context_t *          stem,
                          fd_tower_slot_done_t const * msg ) {
+  fd_bank_t * replay_bank = fd_banks_bank_query( ctx->banks, msg->replay_bank_idx );
+  if( FD_UNLIKELY( !replay_bank ) ) FD_LOG_CRIT(( "invariant violation: bank not found for bank index %lu", msg->replay_bank_idx ));
+  replay_bank->refcnt--;
+
   ctx->reset_block_id = msg->reset_block_id;
   ctx->reset_slot     = msg->reset_slot;
   ctx->reset_timestamp_nanos = fd_log_wallclock();
@@ -2495,9 +2365,6 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( store_obj_id!=ULONG_MAX );
   ctx->store = fd_store_join( fd_topo_obj_laddr( topo, store_obj_id ) );
   FD_TEST( ctx->store );
-
-  ctx->vote_tower_out_idx = 0UL;
-  ctx->vote_tower_out_len = 0UL;
 
   ulong banks_obj_id = fd_pod_query_ulong( topo->props, "banks", ULONG_MAX );
   FD_TEST( banks_obj_id!=ULONG_MAX );
