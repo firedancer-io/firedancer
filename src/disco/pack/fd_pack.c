@@ -2619,6 +2619,7 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
   pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
   pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
   pack->cumulative_rebated_cus += rebate->total_cost_rebate;
+  FD_LOG_DEBUG(( "pack_cost_tracker(block_cost=%lu,vote_cost=%lu,data_bytes_consumed=%lu)", pack->cumulative_block_cost, pack->cumulative_vote_cost, pack->data_bytes_consumed ));
   /* For now, we want to ignore the microblock count rebate.  There are
      3 places the microblock count is kept (here, in the pack tile, and
      in the PoH tile), and they all need to count microblocks that end
