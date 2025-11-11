@@ -127,8 +127,8 @@ union fdctl_args {
     uint vinyl_server : 1;
 
     char snapshot_dir[ PATH_MAX ];
-    char vinyl_path   [ PATH_MAX ];
-    char vinyl_io     [ 3 ];
+    char vinyl_path  [ PATH_MAX ];
+    char vinyl_io    [ 3 ];
 
     ulong db_sz;
     ulong db_rec_max;

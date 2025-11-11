@@ -271,6 +271,12 @@ int
 fd_vinyl_client_leave( fd_cnc_t * cnc,
                        ulong      link_id );
 
+#define FD_VINYL_CNC_SIGNAL_CSTR_BUF_MAX (21UL)
+
+char *
+fd_vinyl_cnc_signal_cstr( ulong  signal,
+                          char * buf );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_vinyl_fd_vinyl_h */
