@@ -255,6 +255,11 @@ fd_curve25519_affine_dbln( fd_ed25519_point_t *       r,
                            fd_ed25519_point_t const * a,
                            int const                  n );
 
+/* fd_ed25519_debug prints the point a, for debugging purposes. */
+void
+fd_ed25519_debug( char const *               name,
+                  fd_ed25519_point_t const * a );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_ed25519_fd_curve25519_h */
