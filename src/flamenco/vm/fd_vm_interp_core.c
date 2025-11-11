@@ -79,6 +79,31 @@
  */
 #define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
 
+#define FD_VM_INTERP_ALIGN_CHECK( ALIGN_, ACCESS_TYP_ )                                                     \
+  do {                                                                                                      \
+    ulong const _fd_align         = (ulong)(ALIGN_);                                                         \
+    ulong const _fd_haddr         = haddr;                                                                   \
+    int   const _fd_check_enabled = fd_vm_is_check_align_enabled( vm );                                      \
+    int   const _fd_is_aligned    = fd_ulong_is_aligned( _fd_haddr, _fd_align );                             \
+    FD_LOG_NOTICE(( "vm-align-%s: align=%lu vaddr=0x%016lx haddr=0x%016lx check=%d direct=%u stricter=%u deprecated=%u", \
+                    _fd_check_enabled ? "interp_trap" : "interp_skip",                                     \
+                    _fd_align,                                                                               \
+                    vaddr,                                                                                   \
+                    _fd_haddr,                                                                               \
+                    _fd_check_enabled,                                                                       \
+                    (uint)vm->direct_mapping,                                                                \
+                    (uint)vm->stricter_abi_and_runtime_constraints,                                          \
+                    (uint)vm->is_deprecated ));                                                              \
+    if( FD_UNLIKELY( _fd_check_enabled && !_fd_is_aligned ) ) {                                              \
+      FD_VM_LOG_SYSCALL_ERR_ONLY( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                 \
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                  \
+      vm->segv_vaddr       = vaddr;                                                                          \
+      vm->segv_access_type = (ACCESS_TYP_);                                                                  \
+      vm->segv_access_len  = _fd_align;                                                                      \
+      goto sigsyscall;                                                                                       \
+    }                                                                                                        \
+  } while(0)
+
 
 # define FD_VM_INTERP_INSTR_EXEC                                                                 \
   if( FD_UNLIKELY( pc>=text_cnt ) ) goto sigtext; /* Note: untaken branches don't consume BTB */ \
@@ -455,7 +480,9 @@ interp_exec:
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 2UL;
       goto sigsegv;
-    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+  }
+  FD_VM_INTERP_ALIGN_CHECK( 2UL, FD_VM_ACCESS_TYPE_ST );
+  /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_2( haddr, (ushort)imm );
   }
   FD_VM_INTERP_INSTR_END;
@@ -468,8 +495,9 @@ interp_exec:
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 2UL;
-      goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+      goto sigsegv;
     }
+    FD_VM_INTERP_ALIGN_CHECK( 2UL, FD_VM_ACCESS_TYPE_LD );
     reg[ dst ] = fd_vm_mem_ld_2( haddr );
   }
   FD_VM_INTERP_INSTR_END;
@@ -487,7 +515,8 @@ interp_exec:
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 2UL;
       goto sigsegv;
-    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+  }
+  FD_VM_INTERP_ALIGN_CHECK( 2UL, FD_VM_ACCESS_TYPE_ST ); /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_2( haddr, (ushort)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
@@ -738,7 +767,8 @@ interp_exec:
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 4UL;
       goto sigsegv;
-    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+  }
+  FD_VM_INTERP_ALIGN_CHECK( 4UL, FD_VM_ACCESS_TYPE_ST ); /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_4( haddr, imm );
   } FD_VM_INTERP_INSTR_END;
 
@@ -754,17 +784,24 @@ interp_exec:
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 4UL;
-      goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    goto sigsegv; /* Note: untaken branches don't consume BTB */
     }
+  FD_VM_INTERP_ALIGN_CHECK( 4UL, FD_VM_ACCESS_TYPE_LD );
     reg[ dst ] = fd_vm_mem_ld_4( haddr );
   }
   FD_VM_INTERP_INSTR_END;
 
   FD_VM_INTERP_BRANCH_BEGIN(0x8d) { /* FD_SBPF_OP_CALL_REG */
     FD_VM_INTERP_STACK_PUSH;
-    ulong target_pc = (reg_src - vm->text_off) / 8UL;
-    if( FD_UNLIKELY( target_pc>=text_cnt ) ) goto sigtextbr;
+    ulong program_vm_addr = FD_VM_MEM_MAP_PROGRAM_REGION_START + vm->text_off;
+    ulong target_pc = (reg_src - program_vm_addr) / 8UL;
+    FD_LOG_NOTICE(( "CALL_REG 0x8d: reg_src=0x%lx program_vm_addr=0x%lx text_off=%lu target_pc=%lu text_cnt=%lu", reg_src, program_vm_addr, vm->text_off, target_pc, text_cnt ));
+    if( FD_UNLIKELY( target_pc>=text_cnt ) ) {
+      FD_LOG_NOTICE(( "CALL_REG 0x8d: target_pc >= text_cnt, going to sigtextbr" ));
+      goto sigtextbr;
+    }
     if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
+      FD_LOG_NOTICE(( "CALL_REG 0x8d: calldests test failed for target_pc=%lu, going to sigillbr", target_pc ));
       goto sigillbr;
     }
     pc = target_pc - 1;
@@ -802,7 +839,8 @@ interp_exec:
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 4UL;
       goto sigsegv;
-    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    }
+    FD_VM_INTERP_ALIGN_CHECK( 4UL, FD_VM_ACCESS_TYPE_ST ); /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_4( haddr, (uint)reg_src );
   }
   FD_VM_INTERP_INSTR_END;
@@ -835,7 +873,8 @@ interp_exec:
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 8UL;
       goto sigsegv;
-    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    }
+    FD_VM_INTERP_ALIGN_CHECK( 8UL, FD_VM_ACCESS_TYPE_ST ); /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_8( haddr, (ulong)(long)(int)imm );
   }
   FD_VM_INTERP_INSTR_END;
@@ -848,8 +887,9 @@ interp_exec:
       vm->segv_vaddr       = vaddr;
       vm->segv_access_type = FD_VM_ACCESS_TYPE_LD;
       vm->segv_access_len  = 8UL;
-      goto sigsegv; /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+      goto sigsegv; /* Note: untaken branches don't consume BTB */
     }
+    FD_VM_INTERP_ALIGN_CHECK( 8UL, FD_VM_ACCESS_TYPE_LD );
     reg[ dst ] = fd_vm_mem_ld_8( haddr );
   }
   FD_VM_INTERP_INSTR_END;
@@ -883,7 +923,8 @@ interp_exec:
       vm->segv_access_type = FD_VM_ACCESS_TYPE_ST;
       vm->segv_access_len  = 8UL;
       goto sigsegv;
-    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    }
+    FD_VM_INTERP_ALIGN_CHECK( 8UL, FD_VM_ACCESS_TYPE_ST ); /* Note: untaken branches don't consume BTB */
     fd_vm_mem_st_8( haddr, reg_src );
   }
   FD_VM_INTERP_INSTR_END;

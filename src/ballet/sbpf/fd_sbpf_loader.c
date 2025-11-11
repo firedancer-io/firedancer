@@ -338,13 +338,16 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
     if( FD_UNLIKELY( prog->entry_pc!=ULONG_MAX && prog->entry_pc!=target_pc  ) ) {
       /* We already registered the entrypoint to a different target PC,
          so we cannot register it again. */
+      FD_LOG_NOTICE(("SYMBOL_HASH_COLLISION entrypoint_mismatch target_pc=%lu existing=%lu",
+        target_pc, prog->entry_pc));
       return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
     }
     prog->entry_pc = target_pc;
 
-    /* Optimization for this constant value */
-    pc_hash = FD_SBPF_ENTRYPOINT_HASH;
+    /* Match Agave: use hash_symbol_name(b"entrypoint") for collision checks */
+    pc_hash = fd_murmur3_32( "entrypoint", strlen( "entrypoint" ), 0U );
   } else {
+    /* Key written into text imm for VM fast path (bijective) */
     pc_hash = fd_pchash( (uint)target_pc );
   }
 
@@ -352,8 +355,76 @@ fd_sbpf_register_function_hashed_legacy( fd_sbpf_loader_t *  loader,
      registry. Fail if the target PC is present there.
 
      https://github.com/anza-xyz/sbpf/blob/v0.12.2/src/program.rs#L161-L163 */
-  if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) ) ) {
-    return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+  {
+    /* Match Agave collision behavior:
+       - entrypoint uses hash_symbol_name("entrypoint")
+       - bpf-to-bpf uses hash_symbol_name(LE(target_pc)) */
+    uint collision_key = pc_hash;
+    if( is_entrypoint ) {
+      collision_key = fd_murmur3_32( "entrypoint", strlen( "entrypoint" ), 0U );
+    } else {
+      uchar pc_le[ 8 ];
+      ulong v = target_pc;
+      for( int i=0; i<8; i++ ) { pc_le[ i ] = (uchar)( v & 0xFF ); v >>= 8; }
+      collision_key = fd_murmur3_32( pc_le, 8UL, 0U );
+    }
+    if( FD_UNLIKELY( fd_sbpf_syscalls_query( loader->syscalls, collision_key, NULL ) ) ) {
+
+      FD_LOG_NOTICE(("SYMBOL_HASH_COLLISION syscall key=%08x target_pc=%lu is_entrypoint=%u",
+        (unsigned)collision_key, target_pc, (unsigned)is_entrypoint));
+
+      return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+    }
+
+    /* Debug: trace function registration and computed keys */
+    FD_LOG_NOTICE(("REGFUNC name=%.*s is_entrypoint=%u target_pc=%lu pc_hash=%08x coll_key=%08x",
+      (int)name_len, (name? (char const*)name : ""), (unsigned)is_entrypoint,
+      target_pc, (unsigned)pc_hash, (unsigned)collision_key));
+
+    /* Debug: does this collide with a syscall? */
+    void *sys = fd_sbpf_syscalls_query(loader->syscalls, collision_key, NULL);
+    FD_LOG_NOTICE(("REGFUNC syscall_query key=%08x -> %p", (unsigned)collision_key, sys));
+
+    /* Also detect collisions against functions already registered for this program.
+       Agave errors if a key already exists and maps to a different target PC. */
+    if( loader->calldests ) {
+      /* Check potential collision with entrypoint if it was already registered */
+      if( FD_UNLIKELY( prog->entry_pc!=ULONG_MAX ) ) {
+        uint entry_key = fd_murmur3_32( "entrypoint", strlen( "entrypoint" ), 0U );
+        if( FD_UNLIKELY( collision_key==entry_key && prog->entry_pc!=target_pc ) ) {
+          FD_LOG_NOTICE(("SYMBOL_HASH_COLLISION entry_vs_call key=%08x target_pc=%lu entry_pc=%lu",
+            (unsigned)collision_key, target_pc, prog->entry_pc));
+          return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+        }
+      }
+      /* Check collisions with existing calldests (hash of LE(PC)) */
+      for( ulong pc_it = fd_sbpf_calldests_const_iter_init( loader->calldests );
+                  !fd_sbpf_calldests_const_iter_done( pc_it );
+           pc_it = fd_sbpf_calldests_const_iter_next( loader->calldests, pc_it ) ) {
+        if( FD_UNLIKELY( pc_it!=target_pc ) ) {
+          uchar pc_le2[ 8 ];
+          ulong w = pc_it;
+          for( int i=0; i<8; i++ ) { pc_le2[ i ] = (uchar)( w & 0xFF ); w >>= 8; }
+          uint key2 = fd_murmur3_32( pc_le2, 8UL, 0U );
+          if( FD_UNLIKELY( key2==collision_key ) ) {
+            FD_LOG_NOTICE(("SYMBOL_HASH_COLLISION call_vs_call key=%08x target_pc=%lu existing_pc=%lu",
+              (unsigned)collision_key, target_pc, pc_it));
+            return FD_SBPF_ELF_ERR_SYMBOL_HASH_COLLISION;
+          }
+        }
+      }
+    }
+  }
+
+  if( loader->calldests ) {
+    ulong count = 0;
+    for( ulong pc_it=fd_sbpf_calldests_const_iter_init(loader->calldests);
+         !fd_sbpf_calldests_const_iter_done(pc_it);
+         pc_it=fd_sbpf_calldests_const_iter_next(loader->calldests, pc_it) ) {
+      uchar b[8]; ulong w=pc_it; for(int i=0;i<8;i++){ b[i]=(uchar)(w&0xFF); w>>=8; }
+      uint k = fd_murmur3_32(b, 8UL, 0U);
+      if((count++ & 0xFFUL)==0UL) FD_LOG_NOTICE(("EXISTING_CALLDEST pc=%lu key=%08x", pc_it, (unsigned)k));
+    }
   }
 
   /* Insert the target PC into the calldests set if it's not the
@@ -1509,6 +1580,10 @@ fd_sbpf_elf_peek( fd_sbpf_elf_info_t *            info,
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
   };
 
+  FD_LOG_NOTICE(("ELF_PEEK sbpf_version=%lu strict=%u",
+    info->sbpf_version,
+    (unsigned)fd_sbpf_enable_stricter_elf_headers_enabled(info->sbpf_version)));
+
   /* Invoke strict vs lenient parser. The strict parser is used for
      SBPF version >= 3. The strict parser also returns an ElfParserError
      while the lenient parser returns an ElfError, so we have to map
@@ -1733,6 +1808,7 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
       uint pc_hash;
       int err = fd_sbpf_register_function_hashed_legacy( loader, prog, NULL, 0UL, (ulong)target_pc, &pc_hash );
       if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
+        FD_LOG_NOTICE(("REGISTER_ERR callscan err=%d target_pc=%ld", err, (long)target_pc));
         return err;
       }
 
@@ -1777,6 +1853,9 @@ fd_sbpf_program_relocate( fd_sbpf_program_t *             prog,
       }
 
       if( FD_UNLIKELY( err!=FD_SBPF_ELF_SUCCESS ) ) {
+        FD_LOG_NOTICE(("REGISTER_ERR relocation err=%d type=%u r_offset=%lu r_sym=%lu",
+          err, (unsigned)FD_ELF64_R_TYPE( dt_rel->r_info ),
+          r_offset, (unsigned long)FD_ELF64_R_SYM( dt_rel->r_info )));
         return err;
       }
     }
@@ -1890,9 +1969,17 @@ fd_sbpf_program_load( fd_sbpf_program_t *             prog,
     fd_elf64_phdr phdr_1   = FD_LOAD( fd_elf64_phdr, bin+sizeof(fd_elf64_ehdr)+sizeof(fd_elf64_phdr) );
     prog->rodata_sz        = phdr_1.p_memsz;
     prog->entry_pc         = ( ehdr.e_entry-phdr_0.p_vaddr )/8UL;
+    FD_LOG_NOTICE(("STRICT_LOAD sbpf_version=%lu rodata_sz=%lu entry_pc=%lu",
+      (unsigned long)prog->info.sbpf_version,
+      (unsigned long)phdr_1.p_memsz,
+      (unsigned long)((ehdr.e_entry-phdr_0.p_vaddr)/8UL)));
     return FD_SBPF_ELF_SUCCESS;
   }
   int res = fd_sbpf_program_load_lenient( prog, bin, bin_sz, &loader, config, scratch, scratch_sz );
+  FD_LOG_NOTICE(("LENIENT_LOAD sbpf_version=%lu rodata_sz=%lu entry_pc=%lu",
+    (unsigned long)prog->info.sbpf_version,
+    (unsigned long)prog->rodata_sz,
+    (unsigned long)prog->entry_pc));
   if( FD_UNLIKELY( res!=FD_SBPF_ELF_SUCCESS ) ) {
     return res;
   }

@@ -58,7 +58,15 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_borrowed_account_get_data_len( &proof_acc ) < sizeof(fd_zksdk_proof_ctx_state_meta_t) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
+  if( FD_UNLIKELY( 0!=memcmp( fd_borrowed_account_get_owner( &proof_acc ),
+                              fd_solana_zk_elgamal_proof_program_id.key,
+                              sizeof(fd_pubkey_t) ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
   fd_zksdk_proof_ctx_state_meta_t const * proof_ctx_state_meta = fd_type_pun_const( fd_borrowed_account_get_data( &proof_acc ) );
+  if( FD_UNLIKELY( proof_ctx_state_meta->proof_type==FD_ZKSDK_PROOF_TYPE_UNINITIALIZED ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L155 */
   fd_pubkey_t const * expected_owner_addr = &proof_ctx_state_meta->ctx_state_authority;
@@ -102,7 +110,6 @@ int
 fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   int err;
   uchar const * instr_data = ctx->instr->data;
-  ulong instr_acc_cnt      = ctx->instr->acct_cnt;
   uchar instr_id = instr_data[0]; /* instr_data_sz already checked by the caller */
 
   /* ProofContextState "header" size, ie. 1 authority pubkey + 1 proof_type byte */
@@ -215,7 +222,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
 
   /* Create context state if accounts are provided with the instruction
      https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L92 */
-  if( instr_acc_cnt > accessed_accounts ) {
+  if( ctx->instr->acct_cnt >= (ushort)(accessed_accounts+2U) ) {
     fd_pubkey_t context_state_authority[1];
 
     /* Obtain the context_state_authority by borrowing the account temporarily in a local scope.
@@ -229,7 +236,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     /* Borrow the proof context account
        https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L101-L102 */
     fd_guarded_borrowed_account_t proof_context_acc = {0};
-    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts, &proof_context_acc );
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, (ushort)accessed_accounts, &proof_context_acc );
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
     if( FD_UNLIKELY( !fd_memeq( fd_borrowed_account_get_owner( &proof_context_acc ), &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {

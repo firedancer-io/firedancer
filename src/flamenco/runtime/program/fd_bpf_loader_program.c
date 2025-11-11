@@ -482,6 +482,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
   }
 
   int exec_err = fd_vm_exec( vm );
+  FD_LOG_NOTICE(( "bpf_loader: exec_err=%d exec_err_kind=%d instr_exec_err=%d", exec_err, instr_ctx->txn_ctx->exec_err_kind, instr_ctx->txn_ctx->exec_err ));
   instr_ctx->txn_ctx->compute_budget_details.compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
@@ -518,6 +519,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
      }
      ulong status = vm->reg[0];
      if( FD_UNLIKELY( status ) ) {
+       FD_LOG_NOTICE(( "bpf_loader: nonzero status with exec_err=0 status=%ld", status ));
        err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->custom_err );
        FD_VM_PREPARE_ERR_OVERWRITE( vm );
        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
@@ -2515,6 +2517,11 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   fd_account_meta_t const * metadata = fd_borrowed_account_get_acc_meta( &program_account );
   uchar is_deprecated = !memcmp( metadata->owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
+  fprintf( stderr,
+           "bpf_loader: is_deprecated=%u stricter=%d direct_mapping=%d\n",
+           (uint)is_deprecated,
+           FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, stricter_abi_and_runtime_constraints ),
+           FD_FEATURE_ACTIVE_BANK( ctx->txn_ctx->bank, account_data_direct_mapping ) );
 
   if( !memcmp( metadata->owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
     fd_bpf_upgradeable_loader_state_t program_account_state[1];

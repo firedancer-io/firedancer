@@ -513,16 +513,16 @@ fd_vm_mem_haddr( fd_vm_t const * vm,
      solana_transaction_context::TransactionContext::access_violation_handler
 
      https://github.com/anza-xyz/agave/blob/v3.0.1/transaction-context/src/lib.rs#L510-L581 */
-  if( region==FD_VM_INPUT_REGION ) {
-    return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
-  }
-
-# ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
-  if ( FD_LIKELY( sz<=sz_max ) ) {
-    fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
-  }
-# endif
-  return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
+     if( region==FD_VM_INPUT_REGION ) {
+      return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel );
+    }
+  
+  # ifdef FD_VM_INTERP_MEM_TRACING_ENABLED
+    if ( FD_LIKELY( sz<=sz_max ) ) {
+      fd_vm_trace_event_mem( vm->trace, write, vaddr, sz, vm_region_haddr[ region ] + offset );
+    }
+  # endif
+    return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
 }
 
 static inline ulong

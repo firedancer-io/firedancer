@@ -105,10 +105,10 @@ fd_exec_instr_ctx_try_borrow_instr_account_with_key( fd_exec_instr_ctx_t const *
     }
   }
 
-  /* Return a NotEnoughAccountKeys error if the account is not found
+  /* Return a MissingAccount error if the account is not found
      in the instruction context to match the error code returned by
      fd_exec_instr_ctx_try_borrow_instr_account. */
-  return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 }
 
 int

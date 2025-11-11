@@ -491,7 +491,8 @@ fd_log_collector_program_failure( fd_exec_instr_ctx_t * ctx ) {
     int needs_prefix = ( txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) &&
                        ( txn_ctx->exec_err==FD_VM_SYSCALL_ERR_UNALIGNED_POINTER ||
                          txn_ctx->exec_err==FD_VM_SYSCALL_ERR_INVALID_LENGTH_MEMORY ||
-                         txn_ctx->exec_err==FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
+                         txn_ctx->exec_err==FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||
+                         txn_ctx->exec_err==FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED );
     const char * prefix = needs_prefix ? "Syscall error: " : "";
     int err_prefix_len = sprintf( err_prefix, "Program %s failed: %s", ctx->program_id_base58, prefix );
     if( err_prefix_len > 0 ) {

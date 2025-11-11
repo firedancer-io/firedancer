@@ -75,7 +75,7 @@ fd_solfuzz_pb_elf_loader_run( fd_solfuzz_runner_t * runner,
     /* Register any syscalls given the active feature set */
     fd_vm_syscall_register_slot(
         syscalls,
-        UINT_MAX /* Arbitrary slot, doesn't matter */,
+        0UL /* Enable ALL syscalls to mirror agave environment */,
         &feature_set,
         !!config.elf_deploy_checks );
 

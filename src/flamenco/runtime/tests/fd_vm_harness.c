@@ -572,7 +572,6 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   effects->error = 0;
   if( syscall_err ) {
     if( exec_err==0 ) {
-      FD_LOG_WARNING(( "TODO: syscall returns error, but exec_err not set. this is probably missing a log." ));
       effects->error = -1;
     } else {
       effects->error = (exec_err <= 0) ? -exec_err : -1;
@@ -633,9 +632,9 @@ fd_solfuzz_pb_syscall_run( fd_solfuzz_runner_t * runner,
   effects->frame_count = vm->frame_cnt;
 
   fd_log_collector_t * log = &vm->instr_ctx->txn_ctx->log_collector;
-  /* Only collect log on valid errors (i.e., != -1). Follows
-     https://github.com/firedancer-io/solfuzz-agave/blob/99758d3c4f3a342d56e2906936458d82326ae9a8/src/utils/err_map.rs#L148 */
-  if( effects->error != -1 && log->buf_sz ) {
+  /* Collect log if there are any logs written, even if error is -1.
+     This matches Agave behavior where logs are collected regardless of error code. */
+  if( log->buf_sz ) {
     effects->log = FD_SCRATCH_ALLOC_APPEND(
       l, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( log->buf_sz ) );
     if( FD_UNLIKELY( _l > output_end ) ) {

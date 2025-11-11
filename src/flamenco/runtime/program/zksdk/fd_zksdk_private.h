@@ -68,6 +68,8 @@ struct __attribute__((packed)) fd_zksdk_proof_ctx_state_meta {
 };
 typedef struct fd_zksdk_proof_ctx_state_meta fd_zksdk_proof_ctx_state_meta_t;
 
+#define FD_ZKSDK_PROOF_TYPE_UNINITIALIZED ((uchar)0)
+
 /* Define all the fd_zksdk_instr_verify_proof_* functions with a macro
    so it's easy to keep the interface. */
 #define DEFINE_VERIFY_PROOF(name)                                \

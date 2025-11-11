@@ -1655,6 +1655,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "enable_vote_address_leader_schedule",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, vote_state_v4)>>3,
+    .id                        = {"\xec\xfa\x3a\xf2\xab\xa3\x21\x89\x19\xf4\xc3\x4c\x05\xdf\x88\xf0\x79\x57\x48\xf1\x3e\x35\x12\x0b\x7b\x56\xaa\xae\x3f\xe9\x98\x58"},
+                                 /* Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ */
+    .name                      = "vote_state_v4",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index                     = offsetof(fd_features_t, enshrine_slashing_program)>>3,
     .id                        = {"\x0c\xe8\xe3\x0a\x1b\x9d\x30\xc1\x5d\x98\x93\xa3\x19\x40\xb4\xc8\x7f\x92\x5b\x24\x5e\x7a\xe6\xec\x6b\xe8\x87\xd5\xaa\x22\xb2\x6d"},
                                  /* sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ */
@@ -1926,10 +1932,11 @@ fd_feature_id_query( ulong prefix ) {
   case 0x7170cf84367fbb1a: return &ids[ 238 ];
   case 0xa9e3bfbaf8d67260: return &ids[ 239 ];
   case 0x3711b30f40730240: return &ids[ 240 ];
-  case 0xc1309d1b0ae3e80c: return &ids[ 241 ];
-  case 0x5c64cc1a9be3790a: return &ids[ 242 ];
-  case 0x90a88c0cfe8bb1b1: return &ids[ 243 ];
-  case 0xe8604b2d7d45af83: return &ids[ 244 ];
+  case 0x8921a3abf23afaec: return &ids[ 241 ];
+  case 0xc1309d1b0ae3e80c: return &ids[ 242 ];
+  case 0x5c64cc1a9be3790a: return &ids[ 243 ];
+  case 0x90a88c0cfe8bb1b1: return &ids[ 244 ];
+  case 0xe8604b2d7d45af83: return &ids[ 245 ];
   default: break;
   }
   return NULL;
@@ -2176,8 +2183,9 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, formalize_loaded_transaction_data_siz
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_extend_program_checked                           )>>3==238UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, require_static_nonce_account                            )>>3==239UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_vote_address_leader_schedule                     )>>3==240UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==241UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==242UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints                    )>>3==243UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==244UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==241UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enshrine_slashing_program                               )>>3==242UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_account_cu_limit                                  )>>3==243UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, stricter_abi_and_runtime_constraints                    )>>3==244UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, account_data_direct_mapping                             )>>3==245UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
