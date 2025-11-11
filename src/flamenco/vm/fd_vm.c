@@ -22,6 +22,10 @@ fd_vm_syscall_set_override( int err, char const * msg ) {
    See also fd_log_collector_program_failure(). */
 char const *
 fd_vm_syscall_strerror( int err ) {
+  if( FD_UNLIKELY( fd_vm_syscall_override_valid && err==fd_vm_syscall_override_code ) ) {
+    fd_vm_syscall_override_valid = 0;
+    return fd_vm_syscall_override_msg;
+  }
 
   switch( err ) {
 
@@ -70,10 +74,6 @@ fd_vm_syscall_strerror( int err ) {
    See also fd_log_collector_program_failure(). */
 char const *
 fd_vm_ebpf_strerror( int err ) {
-  if( FD_UNLIKELY( fd_vm_syscall_override_valid && err==fd_vm_syscall_override_code ) ) {
-    fd_vm_syscall_override_valid = 0;
-    return fd_vm_syscall_override_msg;
-  }
 
   switch( err ) {
 
