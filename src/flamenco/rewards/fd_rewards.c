@@ -559,7 +559,6 @@ calculate_stake_vote_rewards( fd_bank_t *                    bank,
         calculated_stake_rewards );
 
     if( FD_UNLIKELY( err!=0 ) ) {
-      FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( &stake_delegation->stake_account ), err ));
       continue;
     }
 
