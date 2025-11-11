@@ -36,7 +36,10 @@ meta_query_fast( fd_vinyl_meta_t *      join,
 
 uint
 fd_accdb_fsck_vinyl( fd_vinyl_io_t *   io,
-                     fd_vinyl_meta_t * meta ) {
+                     fd_vinyl_meta_t * meta,
+                     uint              flags ) {
+  _Bool const lthash = !!( flags & FD_ACCDB_FSCK_FLAGS_LTHASH );
+
   uint        err     = FD_ACCDB_FSCK_NO_ERROR;
   ulong       err_cnt =   0UL;
   ulong const err_max = 512UL;
@@ -122,10 +125,13 @@ fd_accdb_fsck_vinyl( fd_vinyl_io_t *   io,
      - meta entries match bstream blocks
      - bstream block checksums are valid */
 
-  fd_lthash_adder_t adder_[1];
-  fd_lthash_adder_t * adder = fd_lthash_adder_new( adder_ );
-  FD_TEST( adder );
   fd_lthash_value_t sum[1]; fd_lthash_zero( sum );
+  fd_lthash_adder_t adder_[1];
+  fd_lthash_adder_t * adder = NULL;
+  if( lthash ) {
+    adder = fd_lthash_adder_new( adder_ );
+    FD_TEST( adder );
+  }
 
   ulong seq        = seq_past;
   ulong seq_report = seq;
@@ -226,7 +232,7 @@ fd_accdb_fsck_vinyl( fd_vinyl_io_t *   io,
       ulong                     lamports   = meta->lamports;
       _Bool                     executable = !!meta->executable;
       void const *              owner      = meta->owner;
-      if( FD_LIKELY( lamports ) ) {
+      if( lthash && FD_LIKELY( lamports ) ) {
         fd_lthash_adder_push_solana_account( adder, sum, pubkey, data, data_sz, lamports, executable, owner );
       }
 
@@ -264,11 +270,13 @@ next:
     return FD_ACCDB_FSCK_CORRUPT;
   }
 
-  fd_lthash_adder_flush( adder, sum );
-  uchar hash32[32]; fd_blake3_hash( sum->bytes, FD_LTHASH_LEN_BYTES, hash32 );
-  FD_BASE58_ENCODE_32_BYTES( sum->bytes, sum_enc    );
-  FD_BASE58_ENCODE_32_BYTES( hash32,     hash32_enc );
-  FD_LOG_NOTICE(( "FSCK: lthash[..32]=%s blake3(lthash)=%s", sum_enc, hash32_enc ));
+  if( lthash ) {
+    fd_lthash_adder_flush( adder, sum );
+    uchar hash32[32]; fd_blake3_hash( sum->bytes, FD_LTHASH_LEN_BYTES, hash32 );
+    FD_BASE58_ENCODE_32_BYTES( sum->bytes, sum_enc    );
+    FD_BASE58_ENCODE_32_BYTES( hash32,     hash32_enc );
+    FD_LOG_NOTICE(( "FSCK: lthash[..32]=%s blake3(lthash)=%s", sum_enc, hash32_enc ));
+  }
 
   if( !err_cnt ) FD_LOG_INFO(( "FSCK: bstream OK" ));
 

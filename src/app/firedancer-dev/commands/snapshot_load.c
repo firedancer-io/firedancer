@@ -225,6 +225,7 @@ snapshot_load_args( int *    pargc,
       "  --db-sz <bytes>      Database size in bytes (e.g. 10e9 -> 10 GB)\n"
       "  --db-rec-max <num>   Database max record/account count (e.g. 10e6 -> 10M accounts)\n"
       "  --fsck               After loading, run database integrity checks\n"
+      "  --lthash             After loading, recompute the account DB lthash\n"
       "  --accounts-hist      After loading, analyze account size distribution\n"
       "\n"
       "Vinyl database flags:\n"
@@ -250,6 +251,7 @@ snapshot_load_args( int *    pargc,
   float        db_sz         = fd_env_strip_cmdline_float   ( pargc, pargv, "--db-sz",        NULL, 0.0f   );
   float        db_rec_max    = fd_env_strip_cmdline_float   ( pargc, pargv, "--db-rec-max",   NULL, 0.0f   );
   _Bool        fsck          = fd_env_strip_cmdline_contains( pargc, pargv, "--fsck"                       )!=0;
+  _Bool        lthash        = fd_env_strip_cmdline_contains( pargc, pargv, "--lthash"                     )!=0;
   _Bool        accounts_hist = fd_env_strip_cmdline_contains( pargc, pargv, "--accounts-hist"              )!=0;
   _Bool        vinyl_server  = fd_env_strip_cmdline_contains( pargc, pargv, "--vinyl-server"               )!=0;
   char const * vinyl_path    = fd_env_strip_cmdline_cstr    ( pargc, pargv, "--vinyl-path",   NULL, NULL   );
@@ -260,6 +262,7 @@ snapshot_load_args( int *    pargc,
   if( snapshot_dir ) fd_cstr_ncpy( args->snapshot_load.snapshot_dir, snapshot_dir, sizeof(args->snapshot_load.snapshot_dir) );
   else               args->snapshot_load.snapshot_dir[0] = '\0';
   args->snapshot_load.fsck           = fsck;
+  args->snapshot_load.lthash         = lthash;
   args->snapshot_load.accounts_hist  = accounts_hist;
   args->snapshot_load.offline        = offline;
   args->snapshot_load.no_incremental = no_incremental;
@@ -283,19 +286,21 @@ snapshot_load_args( int *    pargc,
 }
 
 static uint
-fsck_funk( config_t * config ) {
+fsck_funk( config_t * config,
+           _Bool      lthash ) {
   ulong funk_obj_id = fd_pod_query_ulong( config->topo.props, "funk", ULONG_MAX );
   FD_TEST( funk_obj_id!=ULONG_MAX );
   void * funk_shmem = fd_topo_obj_laddr( &config->topo, funk_obj_id );
   fd_funk_t funk[1];
   FD_TEST( fd_funk_join( funk, funk_shmem ) );
-  uint fsck_err = fd_accdb_fsck_funk( funk );
+  uint fsck_err = fd_accdb_fsck_funk( funk, lthash ? FD_ACCDB_FSCK_FLAGS_LTHASH : 0U );
   FD_TEST( fd_funk_leave( funk, NULL ) );
   return fsck_err;
 }
 
 static uint
-fsck_vinyl( config_t * config ) {
+fsck_vinyl( config_t * config,
+           _Bool       lthash ) {
   /* Join meta index */
 
   fd_topo_t * topo = &config->topo;
@@ -330,7 +335,7 @@ fsck_vinyl( config_t * config ) {
 
   /* Run verifier */
 
-  uint fsck_err = fd_accdb_fsck_vinyl( io, meta );
+  uint fsck_err = fd_accdb_fsck_vinyl( io, meta, lthash ? FD_ACCDB_FSCK_FLAGS_LTHASH : 0U );
 
   /* Clean up */
 
@@ -784,8 +789,8 @@ snapshot_load_cmd_fn( args_t *   args,
   if( args->snapshot_load.fsck ) {
     FD_LOG_NOTICE(( "FSCK: starting" ));
     uint fsck_err;
-    if( snapwr_tile ) fsck_err = fsck_vinyl( config );
-    else              fsck_err = fsck_funk ( config );
+    if( snapwr_tile ) fsck_err = fsck_vinyl( config, args->snapshot_load.lthash );
+    else              fsck_err = fsck_funk ( config, args->snapshot_load.lthash );
     if( !fsck_err ) {
       FD_LOG_NOTICE(( "FSCK: passed" ));
     } else {
