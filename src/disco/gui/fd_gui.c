@@ -836,10 +836,10 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
+      gui->gossip.peer_cnt--;
       fd_memcpy( removed[ removed_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
       if( FD_LIKELY( i+1UL!=gui->gossip.peer_cnt ) ) {
         gui->gossip.peers[ i ] = gui->gossip.peers[ gui->gossip.peer_cnt-1UL ];
-        gui->gossip.peer_cnt--;
         i--;
       }
     }
@@ -878,7 +878,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
         gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
       }
 
-      gui->gossip.peer_cnt++;
+      gui->gossip.peer_cnt = fd_ulong_min( gui->gossip.peer_cnt+1UL, FD_GUI_MAX_PEER_CNT-1UL );
     } else {
       int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=*(ushort const *)(data+i*(58UL+12UL*6UL)+40UL) ||
                          // gui->gossip.peers[ found_idx ].wallclock!=*(ulong const *)(data+i*(58UL+12UL*6UL)+32UL) ||
@@ -964,10 +964,10 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
+      gui->vote_account.vote_account_cnt--;
       fd_memcpy( removed[ removed_cnt++ ].uc, gui->vote_account.vote_accounts[ i ].vote_account->uc, 32UL );
       if( FD_LIKELY( i+1UL!=gui->vote_account.vote_account_cnt ) ) {
         gui->vote_account.vote_accounts[ i ] = gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt-1UL ];
-        gui->vote_account.vote_account_cnt--;
         i--;
       }
     }
@@ -996,7 +996,7 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].commission = *(data+i*112UL+96UL);
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].delinquent = *(data+i*112UL+97UL);
 
-      gui->vote_account.vote_account_cnt++;
+      gui->vote_account.vote_account_cnt = fd_ulong_min( gui->vote_account.vote_account_cnt+1UL, FD_GUI_MAX_PEER_CNT-1UL );
     } else {
       int peer_updated =
         memcmp( gui->vote_account.vote_accounts[ found_idx ].pubkey->uc, data+i*112UL+32UL, 32UL ) ||
