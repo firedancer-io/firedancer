@@ -539,7 +539,7 @@ struct fd_pack_private {
 
   /* top_writers: A simple max heap of the top 5 writers in the slot,
      used by downstream consumers for monitoring purposes. */
-  fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_HEAP_SZ ];
+  fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
 
   /* At the end of every slot, we have to clear out writer_costs.  The
      map is large, but typically very sparsely populated.  As an
@@ -643,24 +643,6 @@ FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_
 /* Forward-declare some helper functions */
 static ulong delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
-
-static inline void
-fd_pack_try_insert_top_writer( fd_pack_t * pack, fd_pack_addr_use_t const * writer_cost ) {
-   if( FD_UNLIKELY( !fd_pack_unwritable_contains( &writer_cost->key ) && !FD_PACK_TOP_WRITERS_SORT_BEFORE( pack->top_writers[ FD_PACK_TOP_WRITERS_HEAP_SZ-1UL ], (*writer_cost) ) ) ) {
-      int in_heap = 0;
-      for( ulong i = 0UL; i<(FD_PACK_TOP_WRITERS_HEAP_SZ-1UL); i++ ) {
-         if( !memcmp( &pack->top_writers[ i ].key.b, writer_cost->key.b, FD_TXN_ACCT_ADDR_SZ ) ) {
-            pack->top_writers[ i ].total_cost = writer_cost->total_cost;
-            in_heap = 1;
-            break;
-         }
-      }
-
-      if( FD_LIKELY( !in_heap ) ) fd_memcpy( &pack->top_writers[ FD_PACK_TOP_WRITERS_HEAP_SZ-1UL ], writer_cost, sizeof(fd_pack_addr_use_t) );
-
-      fd_pack_writer_cost_sort_insert( pack->top_writers, FD_PACK_TOP_WRITERS_HEAP_SZ );
-   }
-}
 
 FD_FN_PURE ulong
 fd_pack_footprint( ulong                    pack_depth,
@@ -1998,9 +1980,6 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       }
       in_wcost_table->total_cost += cur->compute_est;
 
-      /* keep track of top writable accounts */
-      fd_pack_try_insert_top_writer( pack, in_wcost_table );
-
       fd_pack_addr_use_t * use = acct_uses_insert( acct_in_use, acct_addr );
       use->in_use_by = bank_tile_mask | FD_PACK_IN_USE_WRITABLE;
 
@@ -2597,9 +2576,13 @@ fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_
     opt_limits_usage->vote_cost           = pack->cumulative_vote_cost;
     opt_limits_usage->block_data_bytes    = pack->data_bytes_consumed;
     opt_limits_usage->microblocks         = pack->microblock_cnt;
-    fd_memcpy( opt_limits_usage->top_write_acct_costs, pack->top_writers, sizeof(opt_limits_usage->top_write_acct_costs) );
   }
   if( FD_LIKELY( opt_limits ) ) fd_memcpy( opt_limits, pack->lim, sizeof(fd_pack_limits_t) );
+}
+
+void
+fd_pack_get_top_writers( fd_pack_t * pack, fd_pack_addr_use_t * top_writers ) {
+  fd_memcpy( top_writers, pack->top_writers, sizeof(pack->top_writers) );
 }
 
 void
@@ -2639,8 +2622,6 @@ fd_pack_rebate_cus( fd_pack_t              * pack,
     in_wcost_table->total_cost -= rebate->writer_rebates[i].rebate_cus;
     /* Important: Even if this is 0, don't delete it from the table so
        that the insert order doesn't get messed up. */
-
-    fd_pack_try_insert_top_writer( pack, in_wcost_table );
   }
 }
 
@@ -2686,6 +2667,7 @@ fd_pack_end_block( fd_pack_t * pack ) {
   pack->initializer_bundle_state = FD_PACK_IB_STATE_NOT_INITIALIZED;
 
   acct_uses_clear( pack->acct_in_use  );
+  memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
   if( FD_LIKELY( pack->written_list_cnt<pack->written_list_max-1UL ) ) {
     /* The less dangerous way of doing this is to instead record the
@@ -2705,17 +2687,22 @@ fd_pack_end_block( fd_pack_t * pack ) {
        starting in the element after, but we'll never hit the MAP_MOVE
        case. */
     for( ulong i=0UL; i<pack->written_list_cnt; i++ ) {
+      fd_pack_addr_use_t * writer = pack->written_list[ pack->written_list_cnt - 1UL - i ];
+      /* build a small max heap with the top writer costs */
+      if( FD_UNLIKELY( !fd_pack_unwritable_contains( &writer->key ) && !FD_PACK_TOP_WRITERS_SORT_BEFORE( pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ], (*writer) ) ) ) {
+          fd_memcpy( &pack->top_writers[ FD_PACK_TOP_WRITERS_CNT-1UL ], writer, sizeof(fd_pack_addr_use_t) );
+          fd_pack_writer_cost_sort_insert( pack->top_writers, FD_PACK_TOP_WRITERS_CNT );
+      }
+
       /* Clearing the cost field here is unnecessary (since it gets
          cleared on insert), but makes debugging a bit easier. */
-      pack->written_list[ pack->written_list_cnt - 1UL - i ]->total_cost = 0UL;
-      acct_uses_remove( pack->writer_costs, pack->written_list[ pack->written_list_cnt - 1UL - i ] );
+      writer->total_cost = 0UL;
+      acct_uses_remove( pack->writer_costs, writer );
     }
   } else {
     acct_uses_clear( pack->writer_costs );
   }
   pack->written_list_cnt = 0UL;
-
-  memset( pack->top_writers, 0, sizeof(pack->top_writers) );
 
   /* compressed_slot_number is > FD_PACK_SKIP_CNT, which means +1 is the
      max unless it overflows. */

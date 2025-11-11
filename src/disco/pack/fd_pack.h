@@ -125,28 +125,9 @@ struct fd_pack_private_addr_use_record {
 typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
 
 /* The point of this array it to keep a simple heap of the top 5
-   writable accounts by cus in a given slot.  If we choose to only
-   updated this heap after execution when CUs are rebated, then we could
-   get away with making the heap exactly 5 elements long, and we would
-   end up with the top 5 writers at the end of the slot.
-
-   Unfortunately, this misses accounts for transactions that aren't
-   rebated (e.g. votes), since we don't rebate 0 cus. Therefore we will
-   also add writers to this heap at schedule time, using the requested
-   CU amount.  Since requested CUs is an upper bound, if we do this
-   while also sizing the heap to exactly 5, then a scheduled transaction
-   might evict a writer that was already rebated and was supposed to end
-   up in the heap.
-
-   To fix this, we'll increase the size of the heap by the maximum
-   amount of in-flight, to-be-rebated transactions which currently is
-   just the number of banks times the number of transactions per
-   microblock, which is currently limited to 5 in the case of bundles.
-
-   If/when the system is redesigned to include more than 5 transactions
-   per microblock, then there is a small chance that the final state of
-   the heap is incorrect. */
-#define FD_PACK_TOP_WRITERS_HEAP_SZ (5*FD_PACK_MAX_BANK_TILES + 5UL + 1UL)
+   writable accounts by cus in a given slot. The top writers heap is
+   constructed and available at the end of a leader slot, after all CUs
+   have been rebated. */
 #define FD_PACK_TOP_WRITERS_CNT (5UL)
 #define FD_PACK_TOP_WRITERS_SORT_BEFORE(writer1,writer2) ( (memcmp( (writer1).key.b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ) && (writer1).total_cost>(writer2).total_cost) || !memcmp( (writer2).key.b, &(uchar[32]){ 0 }, FD_TXN_ACCT_ADDR_SZ ))
 
@@ -166,7 +147,7 @@ struct fd_pack_limits_usage {
 
   /* Contains the top 5 writers in the block. If there are less than 5
      writeable accounts, unused slots will have their pubkey zeroed out. */
-  fd_pack_addr_use_t top_write_acct_costs[ FD_PACK_TOP_WRITERS_CNT ];
+  fd_pack_addr_use_t top_writers[ FD_PACK_TOP_WRITERS_CNT ];
   ulong block_data_bytes;
   ulong microblocks;
 };
@@ -299,8 +280,17 @@ void fd_pack_set_block_limits( fd_pack_t * pack, fd_pack_limits_t const * limits
    utilization in opt_limits_usage, if opt_limits_usage is not NULL.
 
    Limit utilization is updated both when each transactions is scheduled
-   and when any used resources are rebated. */
+   and when any used resources are rebated.
+
+   The opt_limits_usage->top_writers field is ignored. */
 void fd_pack_get_block_limits( fd_pack_t * pack, fd_pack_limits_usage_t * opt_limits_usage, fd_pack_limits_t * opt_limits );
+
+/* fd_pack_get_top_writers copies the top FD_PACK_TOP_WRITERS_CNT by
+   writer cost writers into top_writers.
+
+   This should be called at the end of the relevant leader slot right
+   after fd_pack_end_block, otherwise the copied data will be stale. */
+void fd_pack_get_top_writers( fd_pack_t * pack, fd_pack_addr_use_t * top_writers );
 
 /* Copies the currently smallest pending,
    non-conflicting, non-vote transaction into opt_pending_smallest iff
