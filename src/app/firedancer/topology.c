@@ -409,7 +409,7 @@ fd_topo_initialize( config_t * config ) {
 
   /* TODO: Explain this .... USHORT_MAX is not dcache max */
   ulong pending_fec_shreds_depth = fd_ulong_min( fd_ulong_pow2_up( config->tiles.shred.max_pending_shred_sets * FD_REEDSOL_DATA_SHREDS_MAX ), USHORT_MAX + 1 /* dcache max */ );
-  ulong max_unrooted_slots       = config->firedancer.consensus.max_unrooted_slots;
+  ulong max_unrooted_slots       = config->tiles.tower.max_unrooted_slots;
 
   /*                                  topo, link_name,      wksp_name,      depth,                                    mtu,                           burst */
   /**/                 fd_topob_link( topo, "gossip_net",   "net_gossip",   32768UL,                                  FD_NET_MTU,                    1UL );
@@ -1210,7 +1210,7 @@ fd_topo_configure_tile( fd_topo_tile_t * tile,
 
   } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
 
-    tile->tower.slot_max = config->firedancer.consensus.max_unrooted_slots;
+    tile->tower.slot_max = config->tiles.tower.max_unrooted_slots;
     strncpy( tile->tower.identity_key, config->paths.identity_key, sizeof(tile->tower.identity_key) );
     strncpy( tile->tower.vote_account, config->paths.vote_account, sizeof(tile->tower.vote_account) );
     strncpy( tile->tower.base_path, config->paths.base, sizeof(tile->tower.base_path) );

@@ -472,15 +472,6 @@ user = ""
     # abort with an error.
     expected_genesis_hash = ""
 
-    # Firedancer can process at most this many slots without rooting in
-    # the consensus rules before it must begin evicting.
-    #
-    # This is an estimate and should be set as generously as possible to
-    # allow for brief anomalies such as the validator disconnecting from
-    # part of the cluster due to data center issues.  Roughly, at 400 ms
-    # per slot, the default allows for 30 minutes without rooting.
-    max_unrooted_slots = 4096
-
 # This section configures the "funk" account database.  Currently, funk
 # stores all Solana accounts.  In future versions of Firedancer, most
 # accounts will be offloaded to the "groove" database.
@@ -1377,6 +1368,27 @@ user = ""
     [tiles.replay]
         # TODO: What is this ... needs to be deleted
         cluster_version =  "1.18.0"
+
+    # The tower tile runs the fork choice and tower rules to determine
+    # both what block to vote on and what block to build our own leader
+    # blocks on top of.
+    [tiles.tower]
+        # Firedancer can process at most this many slots without rooting
+        # in the consensus rules before it must begin evicting.
+        #
+        # This is an estimate and should be set as generously as
+        # possible to allow for temporary outages such as network
+        # partitions.  For example, the validator might get disconnected
+        # from part of the cluster due to data center issues.  Roughly,
+        # the default of 4096 allows for 30 minutes without rooting.
+        #
+        # Specifically, tower will ignore gossip votes that exceed max
+        # unrooted slots ahead of the current root.  Additionally, both
+        # fork choice and tower structures will OOM and cause Firedancer
+        # to exit if it needs to maintain more than max unrooted slots
+        # tower forks (TODO in the future Firedancer will instead
+        # gracefully degrade by evicting forks).
+        max_unrooted_slots = 4096
 
     [tiles.send]
         # The port the send tile uses for QUIC, to send votes and other

@@ -4,10 +4,7 @@
 #define SHORTVEC 0
 
 #define DE( T, name ) do {                                                               \
-    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) {                                          \
-      FD_LOG_WARNING(( "de %s: overflow (off %lu > buf_sz: %lu)", #name, off, buf_sz )); \
-      return -1;                                                                         \
-    }                                                                                    \
+    if( FD_UNLIKELY( off+sizeof(T)>buf_sz ) ) return -1;                                 \
     serde->name = *(T const *)fd_type_pun_const( buf+off );                              \
     off += sizeof(T);                                                                    \
 } while(0)
@@ -45,11 +42,8 @@ fd_compact_tower_sync_deserialize( fd_compact_tower_sync_serde_t * serde,
   ulong off = 0;
   DE( ulong, root );
   off += de_short_u16( &serde->lockouts_cnt, buf+off );
-  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) {
-    FD_LOG_WARNING(( "lockouts_cnt > 31: %u", serde->lockouts_cnt ));
-    return -1;
-  }
-  for( ulong i = 0; i < fd_ulong_min( serde->lockouts_cnt, 31 ); i++ ) {
+  if( FD_UNLIKELY( serde->lockouts_cnt > FD_TOWER_VOTE_MAX ) ) return -1;
+  for( ulong i = 0; i < serde->lockouts_cnt; i++ ) {
     off += de_var_int( &serde->lockouts[i].offset, buf+off );
     DE( uchar, lockouts[i].confirmation_count );
   }
