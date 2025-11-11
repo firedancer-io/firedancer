@@ -1109,6 +1109,9 @@ metric introduced.
 </tile>
 
 <tile name="tower">
+    <counter name="VoteTxnInvalid" summary="Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.)" />
+    <counter name="VoteTxnIgnored" summary="Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind)" />
+    <counter name="VoteTxnMismatch" summary="Number of times a vote txn mismatched our own block id" />
     <counter name="AncestorRollback" summary="Rollback to an ancestor of our prev vote (can't vote)" />
     <counter name="SiblingConfirmed" summary="Duplicate sibling got confirmed (can't vote)" />
     <counter name="SameFork" summary="Same fork as prev vote (can vote)" />

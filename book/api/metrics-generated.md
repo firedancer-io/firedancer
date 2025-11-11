@@ -1159,6 +1159,9 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;invalid</span> | counter | Number of times we dropped a vote txn because it was invalid (malformed, bad signature, etc.) |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;ignored</span> | counter | Number of times we ignored all or part of a vote txn because we didn't recognize a slot (eg. our replay was behind) |
+| <span class="metrics-name">tower_&#8203;vote_&#8203;txn_&#8203;mismatch</span> | counter | Number of times a vote txn mismatched our own block id |
 | <span class="metrics-name">tower_&#8203;ancestor_&#8203;rollback</span> | counter | Rollback to an ancestor of our prev vote (can't vote) |
 | <span class="metrics-name">tower_&#8203;sibling_&#8203;confirmed</span> | counter | Duplicate sibling got confirmed (can't vote) |
 | <span class="metrics-name">tower_&#8203;same_&#8203;fork</span> | counter | Same fork as prev vote (can vote) |

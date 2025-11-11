@@ -134,10 +134,6 @@ struct fd_configf {
   } gossip;
 
   struct {
-    ulong max_unrooted_slots;
-  } consensus;
-
-  struct {
     struct {
       uint max_local_full_effective_age;
       uint max_local_incremental_age;
@@ -485,6 +481,10 @@ struct fd_config {
       char  folder_path[ PATH_MAX ];
       ulong write_buffer_size;
     } shredcap;
+
+    struct {
+      ulong max_unrooted_slots;
+    } tower;
 
   } tiles;
   struct {

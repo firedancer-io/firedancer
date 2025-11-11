@@ -31,8 +31,8 @@ struct fd_tower_forks {
   fd_hash_t confirmed_block_id; /* the block_id that was duplicate confirmed */
   int       voted;              /* whether we voted for this slot yet */
   fd_hash_t voted_block_id;     /* the block_id we voted on for this slot */
-  int       replayed;           /* whether we replayed this slot yet */
   fd_hash_t replayed_block_id;  /* the block_id we _first_ replayed for this slot */
+  ulong     bank_idx;           /* pool idx of the bank as of this replayed block */
 };
 typedef struct fd_tower_forks fd_tower_forks_t;
 
@@ -78,8 +78,7 @@ fd_tower_forks_lowest_common_ancestor( fd_tower_forks_t * forks,
    so they're always comparing the confirmed block id */
 
 fd_hash_t const *
-fd_tower_forks_canonical_block_id( fd_tower_forks_t * forks,
-                                   ulong              slot );
+fd_tower_forks_canonical_block_id( fd_tower_forks_t * fork );
 
 FD_PROTOTYPES_END
 
