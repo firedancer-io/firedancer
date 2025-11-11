@@ -820,13 +820,13 @@ metric introduced.
 <tile name="repair">
     <counter name="TotalPktCount"             clickhouse_exclude="true"                                 summary="How many network packets we have sent, including reqs, pings, pongs, etc." />
     <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
-    <gauge   name="SendPktRate"                                                                         summary="Rate of network packets we are sending, in packets per second coarsely" />
     <counter name="RepairedSlots"                                                                       summary="Until which slots have we fully repaired" />
     <counter name="CurrentSlot"                                                                         summary="Our view of the current cluster slot, max slot received" />
     <counter name="RequestPeers"                                                                        summary="How many peers have we requested" />
     <counter name="SignTileUnavail"                                                                     summary="How many times no sign tiles were available to send request" />
     <counter name="EagerRepairAggresses"                                                                summary="How many times we pass eager repair threshold" />
     <counter name="RerequestQueue"                                                                      summary="How many times we re-request a shred from the inflights queue" />
+    <counter name="MalformedPing"                                                                       summary="How many times we received a malformed ping" />
     <histogram name="SlotCompleteTime" min="0.200" max="2.0" converter="seconds">
       <summary>Time in seconds it took to complete a slot</summary>
     </histogram>
