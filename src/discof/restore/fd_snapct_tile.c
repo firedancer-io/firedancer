@@ -406,6 +406,7 @@ init_load( fd_snapct_tile_t *  ctx,
   if( !file ) out->addr = ctx->addr;
   fd_stem_publish( stem, ctx->out_ld.idx, full ? FD_SNAPSHOT_MSG_CTRL_INIT_FULL : FD_SNAPSHOT_MSG_CTRL_INIT_INCR, ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), 0UL, 0UL, 0UL );
   ctx->out_ld.chunk = fd_dcache_compact_next( ctx->out_ld.chunk, sizeof(fd_ssctrl_init_t), ctx->out_ld.chunk0, ctx->out_ld.wmark );
+  ctx->flush_ack = 0;
 
   if( file ) {
     /* When loading from a local file and not from HTTP, there is no
@@ -753,6 +754,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_FULL_FILE:
+      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -772,6 +774,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_INCREMENTAL_FILE:
+      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -790,6 +793,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_FULL_HTTP:
+      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -811,6 +815,7 @@ after_credit( fd_snapct_tile_t *  ctx,
 
     /* ============================================================== */
     case FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP:
+      if( FD_UNLIKELY( !ctx->flush_ack ) ) break;
       if( FD_UNLIKELY( ctx->malformed ) ) {
         ctx->malformed = 0;
         fd_stem_publish( stem, ctx->out_ld.idx, FD_SNAPSHOT_MSG_CTRL_FAIL, 0UL, 0UL, 0UL, 0UL, 0UL );
@@ -1060,10 +1065,19 @@ snapin_frag( fd_snapct_tile_t *  ctx,
              ulong               sig ) {
   switch( sig ) {
     case FD_SNAPSHOT_MSG_CTRL_INIT_FULL:
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_FULL_HTTP ||
+                     ctx->state==FD_SNAPCT_STATE_READING_FULL_FILE ) ) {
+        FD_TEST( !ctx->flush_ack );
+        ctx->flush_ack = 1;
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
+      break;
+
     case FD_SNAPSHOT_MSG_CTRL_INIT_INCR:
-      /* Note: We do not need to wait for the init control message to
-         be flushed through the entire pipeline, like we do for fail and
-         done.  It is safe to immediately send a fail message downstream. */
+      if( FD_LIKELY( ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_HTTP ||
+                     ctx->state==FD_SNAPCT_STATE_READING_INCREMENTAL_FILE ) ) {
+        FD_TEST( !ctx->flush_ack );
+        ctx->flush_ack = 1;
+      } else FD_LOG_ERR(( "invalid control frag %lu in state %d", sig, ctx->state ));
       break;
 
     case FD_SNAPSHOT_MSG_CTRL_NEXT:
