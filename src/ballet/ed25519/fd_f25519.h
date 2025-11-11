@@ -252,6 +252,11 @@ int
 fd_f25519_sqrt_ratio2( fd_f25519_t * r1, fd_f25519_t const * u1, fd_f25519_t const * v1,
                        fd_f25519_t * r2, fd_f25519_t const * u2, fd_f25519_t const * v2 );
 
+/* fd_f25519_debug prints the element a, for debugging purposes. */
+void
+fd_f25519_debug( char const *        name,
+                 fd_f25519_t const * a );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_ballet_ed25519_fd_f25519_h */

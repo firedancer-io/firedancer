@@ -82,7 +82,7 @@ fd_f25519_sub_nr( fd_f25519_t * r,
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_neg( fd_f25519_t * r,
                fd_f25519_t const * a ) {
-  (r->el) = fd_r43x6_neg_fast( (a->el) );
+  (r->el) = fd_r43x6_neg( (a->el) );
   return r;
 }
 

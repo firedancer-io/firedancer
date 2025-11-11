@@ -7,6 +7,21 @@
 #include "ref/fd_f25519.c"
 #endif
 
+void
+fd_f25519_debug( char const * name,
+                 fd_f25519_t const * a ) {
+  char *
+  fd_hex_encode( char *       FD_RESTRICT dst,
+                 void const * FD_RESTRICT src,
+                 ulong                    sz );
+  uchar out[ 32 ];
+  char buf[ 65 ] = { 0 };
+  fd_f25519_tobytes( out, a );
+  fd_hex_encode( buf, out, 32UL );
+  FD_LOG_WARNING(( "%s: %s", name, buf ));
+  FD_LOG_HEXDUMP_WARNING(( name, a, sizeof(fd_f25519_t) ));
+}
+
 /* fd_f25519_pow22523 computes r = a^(2^252-3), and returns r. */
 fd_f25519_t *
 fd_f25519_pow22523( fd_f25519_t *       r,
