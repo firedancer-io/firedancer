@@ -666,8 +666,8 @@ while [[ $# -gt 0 ]]; do
       _CC=clang
       _CXX=clang++
       EXTRA_CFLAGS+=" -fsanitize=memory"
-      EXTRA_CXXFLAGS+="$EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
-      EXTRA_LDFLAGS+="$PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
+      EXTRA_CXXFLAGS+=" $EXTRA_CFLAGS -nostdinc++ -nostdlib++ -isystem $PREFIX/include/c++/v1"
+      EXTRA_LDFLAGS+=" $PREFIX/lib/libc++.a $PREFIX/lib/libc++abi.a"
       ;;
     "+dev")
       shift
