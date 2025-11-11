@@ -1,5 +1,20 @@
 #include "fd_vm_private.h"
 
+static FD_TL int  fd_vm_syscall_override_valid;
+static FD_TL int  fd_vm_syscall_override_code;
+static FD_TL char fd_vm_syscall_override_msg[ FD_LOG_COLLECTOR_MAX + FD_LOG_COLLECTOR_EXTRA + 1 ];
+
+void
+fd_vm_syscall_set_override( int err, char const * msg ) {
+  fd_vm_syscall_override_valid = 1;
+  fd_vm_syscall_override_code  = err;
+  if( FD_LIKELY( msg ) ) {
+    snprintf( fd_vm_syscall_override_msg, sizeof(fd_vm_syscall_override_msg), "%s", msg );
+  } else {
+    fd_vm_syscall_override_msg[0] = '\0';
+  }
+}
+
 /* fd_vm_syscall_strerror() returns the error message corresponding to err,
    intended to be logged by log_collector, or an empty string if the error code
    should be omitted in logs for whatever reason.  Omitted examples are success,
@@ -55,6 +70,10 @@ fd_vm_syscall_strerror( int err ) {
    See also fd_log_collector_program_failure(). */
 char const *
 fd_vm_ebpf_strerror( int err ) {
+  if( FD_UNLIKELY( fd_vm_syscall_override_valid && err==fd_vm_syscall_override_code ) ) {
+    fd_vm_syscall_override_valid = 0;
+    return fd_vm_syscall_override_msg;
+  }
 
   switch( err ) {
 

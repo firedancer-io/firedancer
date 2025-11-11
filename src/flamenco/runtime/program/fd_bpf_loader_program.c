@@ -90,6 +90,16 @@ program_error_to_instr_error( ulong  err,
   }
 }
 
+static inline int
+syscall_error_to_instr_error( int syscall_err ) {
+  switch( syscall_err ) {
+    case FD_VM_SYSCALL_ERR_UNALIGNED_POINTER:
+      return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+    default:
+      return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+}
+
 /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L216-L229 */
 static ulong
 calculate_heap_cost( ulong heap_size, ulong heap_cost ) {
@@ -495,13 +505,24 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
      the Ok(status) case, hence exec_err must be 0 for this case to be hit.
      https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/lib.rs#L1675-L1678 */
   if( FD_LIKELY( !exec_err ) ) {
-    ulong status = vm->reg[0];
-    if( FD_UNLIKELY( status ) ) {
-      err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->custom_err );
+    if( FD_UNLIKELY( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) ) {
+      int syscall_err = instr_ctx->txn_ctx->exec_err;
+      int instr_err = syscall_error_to_instr_error( syscall_err );
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
-      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-      return err;
-    }
+      if( FD_LIKELY( instr_err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+        FD_VM_ERR_FOR_LOG_INSTR( vm, instr_err );
+        return instr_err;
+      }
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, syscall_err );
+      return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+     }
+     ulong status = vm->reg[0];
+     if( FD_UNLIKELY( status ) ) {
+       err = program_error_to_instr_error( status, &instr_ctx->txn_ctx->custom_err );
+       FD_VM_PREPARE_ERR_OVERWRITE( vm );
+       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+       return err;
+     }
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.1.13/programs/bpf_loader/src/lib.rs#L1434-L1439 */
     /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
@@ -592,10 +613,19 @@ fd_bpf_execute( fd_exec_instr_ctx_t *      instr_ctx,
     }
 
     /* Syscall error case. The VM would have also set the syscall error
-       code in the txn_ctx exec_err. */
-    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ) {
+       code in the txn_ctx exec_err. Older code paths (e.g. unaligned
+       pointer checks) only log the syscall error without updating the
+       exec_err_kind.  Match on the VM return code as a fallback to keep
+       Firedancer aligned with Agave. */
+    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_SYSCALL ||
+        exec_err==FD_VM_ERR_EBPF_SYSCALL_ERROR ) {
       err = instr_ctx->txn_ctx->exec_err;
       FD_VM_PREPARE_ERR_OVERWRITE( vm );
+      int instr_err = syscall_error_to_instr_error( err );
+      if( FD_LIKELY( instr_err!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+        FD_VM_ERR_FOR_LOG_INSTR( vm, instr_err );
+        return instr_err;
+      }
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
       return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
     }
