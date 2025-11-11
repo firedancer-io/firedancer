@@ -421,17 +421,11 @@ ancestry_frontier_remove( fd_forest_t * forest, ulong slot ) {
 static fd_forest_blk_t *
 subtrees_orphaned_remove( fd_forest_t * forest, ulong slot ) {
   fd_forest_blk_t * pool = fd_forest_pool( forest );
-  fd_forest_blk_t * ele = NULL;
+  fd_forest_blk_t * ele  = NULL;
   ele = fd_forest_orphaned_ele_remove( fd_forest_orphaned( forest ), &slot, NULL, pool );
-  if( ele ) {
-    requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, ele ) );
-    return ele;
-  }
+  if( ele ) return ele;
   ele = fd_forest_subtrees_ele_remove( fd_forest_subtrees( forest ), &slot, NULL, pool );
-  if( ele ) {
-    requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, ele ) );
-    forest->subtree_cnt--;
-  }
+  if( ele ) forest->subtree_cnt--;
   return ele;
 }
 
@@ -797,13 +791,19 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   }
 # endif
 
-  /* Edge case where if we haven't been getting repairs, and we have a
-     gap between the root and orphans. we publish forward to a slot that
-     we don't have. This only case this should be happening is when we
-     load a second incremental and that incremental slot lives in the
-     gap. In that case this isn't a bug, but we should be treating this
-     new root like the snapshot slot / init root. Should be happening
-     very rarely given a well-functioning repair.  */
+  /* As an unfortunate side effect of maintaining forest slots in such
+     a fine-grained way, and also the possibility we can publish forwards
+     and backwards non-monotically, we have to consider every possible case of
+     what the new root could be.
+     1. new root not in forest.
+     2. new root in ancestry or frontier.
+     3. new root in orphaned or subtrees. */
+
+  /* 1. If we haven't been getting repairs, and we have a gap between
+        the root and orphans. we publish forward to a slot that we don't
+        have. In that case this isn't a bug, but we should be treating
+        this new root like the snapshot slot / init root. TODO: possible
+        could be publishing backwards to a slot that we don't have. */
 
   if( FD_UNLIKELY( !new_root_ele ) ) {
     new_root_ele = fd_forest_blk_insert( forest, new_root_slot, 0 );
@@ -820,11 +820,16 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
 # if FD_FOREST_USE_HANDHOLDING
   FD_TEST( fd_forest_deque_cnt( queue ) == 0 );
 # endif
+
+  /* 2. New root is in forest, and is either in ancestry or frontier
+        (means it is part of the main repair tree).  This is the common
+        case.  */
+
   fd_forest_blk_t * head = ancestry_frontier_remove( forest, old_root_ele->slot );
   if( FD_LIKELY( head ) ) fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, head ) );
 
-  /* Second, BFS down the tree, inserting each ele into the prune queue
-     except for the new root.  Loop invariant: head always descends from
+  /* BFS down the tree, inserting each ele into the prune queue except
+     for the new root.  Loop invariant: head always descends from
      old_root_ele and never descends from new_root_ele. */
 
   while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
@@ -846,13 +851,18 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
   new_root_ele->parent = null; /* unlink new root from parent */
   forest->root         = fd_forest_pool_idx( pool, new_root_ele );
 
+  /* 3. New root is in orphaned. This is the case where maybe the
+        expected snapshot slot has jumped far ahead.  Invariants tell
+        us that the entire ancestry and frontier must have been pruned
+        above, so the consumed list and requests list must be empty.*/
+
   int new_root_is_orphan = fd_forest_subtrees_ele_query( subtrees, &new_root_ele->slot, NULL, pool ) ||
                            fd_forest_orphaned_ele_query( orphaned, &new_root_ele->slot, NULL, pool );
+
   if( FD_UNLIKELY( new_root_is_orphan ) ) {
 
     /* Extend the frontier from the new root */
 
-    FD_TEST( fd_forest_deque_empty( queue ) );
     fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, new_root_ele ) );
     while( FD_LIKELY( fd_forest_deque_cnt( queue ) ) ) {
       head = fd_forest_pool_ele( pool, fd_forest_deque_pop_head( queue ) );
@@ -865,13 +875,15 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
         fd_forest_deque_push_tail( queue, fd_forest_pool_idx( pool, child ) );
         child = fd_forest_pool_ele( pool, child->sibling );
       }
+      requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, head ) );
     }
   }
 
-  /* If there is nothing on the consumed, we have hit an edge case
-     during catching up where all of our repair frontiers were < the new root.
-     In that case we need to continue repairing from the new root, so
-     add it to the consumed map. */
+  /* If there is nothing on the consumed, like in the case where we
+     publish to an orphan, or during catchup where all of our repair
+     consumed frontiers were < the new root. In that case we need to
+     continue repairing from the new root, so add it to the consumed
+     map. */
 
   if( FD_UNLIKELY( fd_forest_conslist_is_empty( fd_forest_conslist( forest ), conspool ) ) ) {
     consumed_insert( forest, fd_forest_pool_idx( pool, new_root_ele ) );
@@ -909,8 +921,9 @@ fd_forest_publish( fd_forest_t * forest, ulong new_root_slot ) {
       }
       child = fd_forest_pool_ele( pool, child->sibling );
     }
-    ulong remove = fd_forest_orphaned_idx_remove( orphaned, &head->slot, null, pool ); /* remove myself */
-    remove = fd_ulong_if( remove == null, fd_forest_subtrees_idx_remove( subtrees, &head->slot, null, pool ), remove );
+    subtrees_orphaned_remove( forest, head->slot );
+    /* Remove from orphan requests if present */
+    requests_remove( forest, fd_forest_orphreqs( forest ), fd_forest_orphlist( forest ), &forest->orphiter, fd_forest_pool_idx( pool, head ) );
     fd_forest_pool_ele_release( pool, head ); /* free head */
   }
   return new_root_ele;
@@ -1015,7 +1028,16 @@ fd_forest_iter_next( fd_forest_iter_t * iter, fd_forest_t * forest ) {
 
       iter->ele_idx = fd_forest_reqslist_ele_peek_head( reqslist, reqspool )->idx;
       ele           = fd_forest_pool_ele_const( pool, iter->ele_idx );
-      if( FD_UNLIKELY( !fd_forest_query( forest, ele->slot ) ) )  FD_LOG_CRIT(("slot %lu not found in forest", ele->slot));
+
+      if( FD_UNLIKELY( !fd_forest_query( forest, ele->slot ) ) ) {
+        /* TODO: should never meet this condition if the iterator
+           invariants are maintained.  Can consider changing back to
+           LOG_CRIT after dynamic expected snapshot slot changes go in,
+           or removing this check entirely. */
+         FD_LOG_WARNING(( "repair iterator: slot %lu not found in forest. purging from requests list.", ele->slot ));
+         requests_remove( forest, reqsmap, reqslist, iter, iter->ele_idx );
+         return iter;
+      }
       next_shred_idx = ele->buffered_idx + 1;
     }
 
