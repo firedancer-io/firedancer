@@ -585,7 +585,7 @@ metric introduced.
     <int value="3" name="InvalidAccountOwner" label="The account that owns the referenced lookup table is not the address lookup table program." />
     <int value="4" name="InvalidAccountData" label="The data for the referenced address lookup table is malformed." />
     <int value="5" name="InvalidIndex" label="The referenced index in the address lookup table does not exist." />
-</enum>"
+</enum>
 
 <enum name="TransactionError">
     <int value="0" name="Success" label="Success" />
