@@ -1524,13 +1524,13 @@ fd_gui_printf_slot_transactions_request( fd_gui_t * gui,
           jsonp_ulong( gui->http, "used_total_microblocks",       lslot->scheduler_stats->limits_usage->microblocks         );
           jsonp_open_array( gui->http, "used_account_write_costs" );
             for( ulong i = 0; i<FD_PACK_TOP_WRITERS_CNT; i++ ) {
-              if( FD_UNLIKELY( !memcmp( lslot->scheduler_stats->limits_usage->top_write_acct_costs[ i ].key.b, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
+              if( FD_UNLIKELY( !memcmp( lslot->scheduler_stats->limits_usage->top_writers[ i ].key.b, ((fd_pubkey_t){ 0 }).uc, sizeof(fd_pubkey_t) ) ) ) break;
 
               jsonp_open_object( gui->http, NULL );
                 char account_base58[ FD_BASE58_ENCODED_32_SZ ];
-                fd_base58_encode_32( lslot->scheduler_stats->limits_usage->top_write_acct_costs[ i ].key.b, NULL, account_base58 );
+                fd_base58_encode_32( lslot->scheduler_stats->limits_usage->top_writers[ i ].key.b, NULL, account_base58 );
                 jsonp_string( gui->http, "account", account_base58 );
-                jsonp_ulong( gui->http, "cost", lslot->scheduler_stats->limits_usage->top_write_acct_costs[ i ].total_cost );
+                jsonp_ulong( gui->http, "cost", lslot->scheduler_stats->limits_usage->top_writers[ i ].total_cost );
               jsonp_close_object( gui->http );
             }
           jsonp_close_array( gui->http );
