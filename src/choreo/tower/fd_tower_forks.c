@@ -42,12 +42,8 @@ fd_tower_forks_lowest_common_ancestor( fd_tower_forks_t * forks,
 }
 
 fd_hash_t const *
-fd_tower_forks_canonical_block_id( fd_tower_forks_t * forks,
-                                   ulong              slot ) {
-  fd_tower_forks_t * fork = fd_tower_forks_query( forks, slot, NULL );
-  if( FD_UNLIKELY( !fork ) ) return NULL;
+fd_tower_forks_canonical_block_id( fd_tower_forks_t * fork ) {
   if     ( FD_LIKELY( fork->confirmed ) ) return &fork->confirmed_block_id;
   else if( FD_LIKELY( fork->voted     ) ) return &fork->voted_block_id;
-  else if( FD_LIKELY( fork->replayed  ) ) return &fork->replayed_block_id;
-  else return NULL;
+  else                                    return &fork->replayed_block_id;
 }

@@ -80,8 +80,6 @@ fd_config_extract_podf( uchar *        pod,
                         fd_configf_t * config ) {
   CFG_POP      ( cstr,   gossip.host                                         );
 
-  CFG_POP      ( ulong,  consensus.max_unrooted_slots                        );
-
   CFG_POP      ( uint,   layout.exec_tile_count                              );
   CFG_POP      ( uint,   layout.sign_tile_count                              );
   CFG_POP      ( uint,   layout.gossvf_tile_count                            );
@@ -256,12 +254,9 @@ fd_config_extract_pod( uchar *       pod,
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
   CFG_POP_ARRAY( cstr,   tiles.replay.enable_features                     );
 
-  CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
-  CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
-  CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
-  CFG_POP      ( ulong,  tiles.store_int.shred_cap_end_slot               );
-
   CFG_POP      ( ushort, tiles.send.send_src_port                         );
+
+  CFG_POP      ( ulong,  tiles.tower.max_unrooted_slots                   );
 
   CFG_POP      ( bool,   tiles.archiver.enabled                           );
   CFG_POP      ( ulong,  tiles.archiver.end_slot                          );

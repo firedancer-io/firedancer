@@ -110,12 +110,14 @@ struct fd_notar_slot {
 typedef struct fd_notar_slot fd_notar_slot_t;
 
 struct fd_notar_blk {
-  fd_hash_t block_id; /* map key */
-  uint      hash;     /* reserved for fd_map_dynamic */
-  ulong     slot;     /* slot associated with this block */
-  ulong     stake;    /* sum of stake that has voted for this block_id */
-  int       dup_conf; /* whether this block has reached 52% of stake */
-  int       opt_conf; /* whether this block has reached 2/3 of stake */
+  fd_hash_t block_id;  /* map key */
+  uint      hash;      /* reserved for fd_map_dynamic */
+  ulong     slot;      /* slot associated with this block */
+  ulong     stake;     /* sum of stake that has voted for this block_id */
+  int       dup_conf;  /* whether this block has reached 52% of stake */
+  int       opt_conf;  /* whether this block has reached 2/3 of stake */
+  int       dup_notif; /* set by caller, whether we've notified consumers this is duplicate confirmed */
+  int       opt_notif; /* set by caller, whether we've notified consumers this is optimistically confirmed */
 };
 typedef struct fd_notar_blk fd_notar_blk_t;
 

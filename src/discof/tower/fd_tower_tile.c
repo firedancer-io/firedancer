@@ -111,6 +111,9 @@ typedef struct {
   /* metrics */
 
   struct {
+    ulong vote_txn_invalid;
+    ulong vote_txn_ignored;
+    ulong vote_txn_mismatch;
     ulong ancestor_rollback;
     ulong sibling_confirmed;
     ulong same_fork;
@@ -145,6 +148,9 @@ scratch_footprint( FD_PARAM_UNUSED fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( ctx_t * ctx ) {
+  FD_MCNT_SET( TOWER, VOTE_TXN_INVALID,  ctx->metrics.vote_txn_invalid  );
+  FD_MCNT_SET( TOWER, VOTE_TXN_IGNORED,  ctx->metrics.vote_txn_ignored  );
+  FD_MCNT_SET( TOWER, VOTE_TXN_MISMATCH, ctx->metrics.vote_txn_mismatch );
   FD_MCNT_SET( TOWER, ANCESTOR_ROLLBACK, ctx->metrics.ancestor_rollback );
   FD_MCNT_SET( TOWER, SIBLING_CONFIRMED, ctx->metrics.sibling_confirmed );
   FD_MCNT_SET( TOWER, SAME_FORK,         ctx->metrics.same_fork         );
@@ -161,10 +167,12 @@ publish_slot_confirmed( ctx_t *             ctx,
                         ulong               tsorig,
                         ulong               slot,
                         fd_hash_t const *   block_id,
+                        ulong               bank_idx,
                         int                 kind ) {
   fd_tower_slot_confirmed_t * msg = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   msg->slot                       = slot;
   msg->block_id                   = *block_id;
+  msg->bank_idx                   = bank_idx;
   msg->kind                       = kind;
   fd_stem_publish( stem, 0UL, FD_TOWER_SIG_SLOT_CONFIRMED, ctx->out_chunk, sizeof(fd_tower_slot_confirmed_t), 0UL, tsorig, fd_frag_meta_ts_comp( fd_tickcount() ) );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_tower_slot_confirmed_t), ctx->out_chunk0, ctx->out_wmark );
@@ -191,10 +199,10 @@ contiguous_confirm( ctx_t *             ctx,
     ancestor = fork->parent_slot;
   }
   while( FD_LIKELY( !slots_empty( ctx->slots ) ) ) {
-    ulong             ancestor = slots_pop_tail( ctx->slots );
-    fd_hash_t const * block_id = fd_tower_forks_canonical_block_id( ctx->tower_forks, ancestor );
-    if( FD_UNLIKELY( !block_id ) ) FD_LOG_CRIT(( "missing block id for ancestor %lu", ancestor ));
-    publish_slot_confirmed( ctx, stem, tsorig, ancestor, block_id, kind );
+    ulong              ancestor = slots_pop_tail( ctx->slots );
+    fd_tower_forks_t * fork     = fd_tower_forks_query( ctx->tower_forks, ancestor, NULL );
+    if( FD_UNLIKELY( !fork ) ) FD_LOG_CRIT(( "missing fork for ancestor %lu", ancestor ));
+    publish_slot_confirmed( ctx, stem, tsorig, ancestor, fd_tower_forks_canonical_block_id( fork ), fork->bank_idx, kind );
   }
 }
 
@@ -210,17 +218,22 @@ notar_confirm( ctx_t *             ctx,
      See documentation in fd_tower_tile.h for guarantees. */
 
   if( FD_LIKELY( notar_blk->dup_conf ) ) {
+    if( FD_UNLIKELY( !notar_blk->dup_notif ) ) {
+      publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, ULONG_MAX, FD_TOWER_SLOT_CONFIRMED_DUPLICATE );
+      notar_blk->dup_notif = 1;
+    }
     fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, notar_blk->slot, NULL ); /* ensure fork exists */
-    if( FD_UNLIKELY( !fork           ) ) return; /* a slot may be already duplicate confirmed over gossip votes before replay */
-    if( FD_LIKELY  ( fork->confirmed ) ) return; /* already published confirmed frag */
+    if( FD_UNLIKELY( !fork ) ) return; /* a slot can be duplicate confirmed by gossip votes before replay */
     fork->confirmed          = 1;
     fork->confirmed_block_id = notar_blk->block_id;
-    publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, FD_TOWER_SLOT_CONFIRMED_DUPLICATE );
   }
   if( FD_LIKELY( notar_blk->opt_conf ) ) {
-    publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, FD_TOWER_SLOT_CONFIRMED_CLUSTER );
+    if( FD_UNLIKELY( !notar_blk->opt_notif ) ) {
+      publish_slot_confirmed( ctx, stem, tsorig, notar_blk->slot, &notar_blk->block_id, ULONG_MAX, FD_TOWER_SLOT_CONFIRMED_CLUSTER ); /* a slot can be cluster confirmed by gossip votes before replay */
+      notar_blk->opt_notif = 1;
+    }
     fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, notar_blk->slot, NULL );
-    if( FD_UNLIKELY( fork && fork->replayed && notar_blk->slot > ctx->conf_slot ) ) {
+    if( FD_UNLIKELY( fork && notar_blk->slot > ctx->conf_slot ) ) {
       contiguous_confirm( ctx, stem, tsorig, notar_blk->slot, ctx->conf_slot, FD_TOWER_SLOT_CONFIRMED_OPTIMISTIC );
       ctx->conf_slot = notar_blk->slot;
     }
@@ -238,16 +251,31 @@ gossip_vote( ctx_t *                  ctx,
   uchar const * payload    = vote->txn;
   ulong         payload_sz = vote->txn_sz;
   ulong         sz         = fd_txn_parse_core( vote->txn, vote->txn_sz, ctx->gossip_vote_txn, NULL, NULL );
-  if( FD_UNLIKELY( sz==0 ) ) return;
+ if( FD_UNLIKELY( sz==0 ) ) { ctx->metrics.vote_txn_invalid++; return; };
+
+  /* We are a little stricter than Agave here when validating the vote.
+     For example we use the same validation as pack ie. is_simple_vote
+     which includes a check that there are at most two signers, whereas
+     Agave's gossip vote parser does not perform that same check (the
+     only two signers are the identity key and vote authority, which may
+     optionally be the same).
+
+     Being a little stricter here is ok because even if we drop some
+     votes with extraneous signers that Agave would consider valid
+     (unlikely), gossip votes are in general considered unreliable and
+     ultimate consensus is reached through replaying the vote txns. */
+
   fd_txn_t * txn = (fd_txn_t *)ctx->gossip_vote_txn;
-  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, vote->txn ) ) ) return; /* TODO Agave doesn't have the same validation of <=2 signatures */
+  if( FD_UNLIKELY( !fd_txn_is_simple_vote_transaction( txn, vote->txn ) ) ) { ctx->metrics.vote_txn_invalid++; return; }
+
+  /* TODO check the authorized voter for this vote account (from epoch stakes) is one of the signers */
 
   /* Filter any non-tower sync votes. */
 
   fd_txn_instr_t * instr      = &txn->instr[0];
   uchar const *    instr_data = vote->txn + instr->data_off;
   uint             kind       = fd_uint_load_4_fast( instr_data );
-  if( FD_UNLIKELY( kind != FD_VOTE_IX_KIND_TOWER_SYNC && kind != FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) return;
+  if( FD_UNLIKELY( kind != FD_VOTE_IX_KIND_TOWER_SYNC && kind != FD_VOTE_IX_KIND_TOWER_SYNC_SWITCH ) ) { ctx->metrics.vote_txn_ignored++; return; };
 
   /* Sigverify the vote txn. */
 
@@ -255,21 +283,21 @@ gossip_vote( ctx_t *                  ctx,
   ulong         msg_sz = (ulong)payload_sz - txn->message_off;
   uchar const * sigs   = payload + txn->signature_off;
   uchar const * accts  = payload + txn->acct_addr_off;
-  if( FD_UNLIKELY( txn->signature_cnt == 0 ) ) return;
-  int err = fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, accts, ctx->gossip_vote_sha, txn->signature_cnt );
-  if( FD_UNLIKELY( err != FD_ED25519_SUCCESS ) ) return;
+  if( FD_UNLIKELY( txn->signature_cnt == 0 ) ) { ctx->metrics.vote_txn_invalid++; return; };
+  int err = fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, accts, ctx->gossip_vote_sha, txn->signature_cnt ); /* TODO use verify tiles */
+  if( FD_UNLIKELY( err != FD_ED25519_SUCCESS ) ) { ctx->metrics.vote_txn_invalid++; return; };
 
   /* Deserialize the CompactTowerSync. */
 
-  err = fd_compact_tower_sync_deserialize( &ctx->compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) ); /* FIXME validate */
-  if( FD_UNLIKELY( err == -1 ) ) return;
+  err = fd_compact_tower_sync_deserialize( &ctx->compact_tower_sync_serde, instr_data + sizeof(uint), instr->data_sz - sizeof(uint) );
+  if( FD_UNLIKELY( err == -1 ) ) { ctx->metrics.vote_txn_invalid++; return; }
   ulong slot = ctx->compact_tower_sync_serde.root;
   fd_tower_remove_all( ctx->tower_spare );
   for( ulong i = 0; i < ctx->compact_tower_sync_serde.lockouts_cnt; i++ ) {
     slot += ctx->compact_tower_sync_serde.lockouts[i].offset;
     fd_tower_push_tail( ctx->tower_spare, (fd_tower_vote_t){ .slot = slot, .conf = ctx->compact_tower_sync_serde.lockouts[i].confirmation_count } );
   }
-  if( FD_UNLIKELY( 0==memcmp( &ctx->compact_tower_sync_serde.block_id, &hash_null, sizeof(fd_hash_t) ) ) ) return;
+  if( FD_UNLIKELY( 0==memcmp( &ctx->compact_tower_sync_serde.block_id, &hash_null, sizeof(fd_hash_t) ) ) ) { ctx->metrics.vote_txn_invalid++; return; };
 
   fd_pubkey_t const * addrs = (fd_pubkey_t const *)fd_type_pun_const( accts );
   fd_pubkey_t const * addr  = NULL;
@@ -278,7 +306,7 @@ gossip_vote( ctx_t *                  ctx,
 
   /* Return early if their tower is empty. */
 
-  if( FD_UNLIKELY( fd_tower_empty( ctx->tower_spare ) ) ) return;
+  if( FD_UNLIKELY( fd_tower_empty( ctx->tower_spare ) ) ) { ctx->metrics.vote_txn_ignored++; return; };
 
   /* The vote txn contains a block id and bank hash for their last vote
      slot in the tower.  Agave always counts the last vote.
@@ -292,8 +320,11 @@ gossip_vote( ctx_t *                  ctx,
   fd_notar_blk_t * notar_blk   = fd_notar_count_vote( ctx->notar, total_stake, addr, their_last_vote->slot, their_block_id );
   if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, stem, tsorig, notar_blk );
 
-  fd_hash_t const * our_block_id = fd_tower_forks_canonical_block_id( ctx->tower_forks, their_last_vote->slot );
-  if( FD_UNLIKELY( !our_block_id || 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) return;
+  fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, their_last_vote->slot, NULL );
+  if( FD_UNLIKELY( !fork ) ) { ctx->metrics.vote_txn_ignored++; return; /* we haven't replayed this slot yet */ };
+
+  fd_hash_t const *  our_block_id = fd_tower_forks_canonical_block_id( fork );
+  if( FD_UNLIKELY( 0!=memcmp( our_block_id, their_block_id, sizeof(fd_hash_t) ) ) ) { ctx->metrics.vote_txn_mismatch++; return; }
 
   /* Agave decides to count intermediate vote slots in the tower only if
      1. they've replayed the slot and 2. their replay bank hash matches
@@ -330,8 +361,8 @@ gossip_vote( ctx_t *                  ctx,
 
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L513-L518 */
 
-    fd_hash_t const * our_block_id = fd_tower_forks_canonical_block_id( ctx->tower_forks, their_intermediate_vote->slot );
-    if( FD_UNLIKELY( !our_block_id ) ) continue;
+    fd_tower_forks_t * fork = fd_tower_forks_query( ctx->tower_forks, their_intermediate_vote->slot, NULL );
+    if( FD_UNLIKELY( !fork ) ) { ctx->metrics.vote_txn_ignored++; continue; }
 
     /* Otherwise, we count the vote using our own block id for that slot
        (again, mirroring what Agave does albeit with bank hashes).
@@ -342,7 +373,7 @@ gossip_vote( ctx_t *                  ctx,
        https://github.com/anza-xyz/agave/blob/v2.3.7/core/src/cluster_info_vote_listener.rs#L500 */
 
 
-    fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, addr, their_last_vote->slot, their_block_id );
+    fd_notar_blk_t * notar_blk = fd_notar_count_vote( ctx->notar, total_stake, addr, their_last_vote->slot, fd_tower_forks_canonical_block_id( fork ) );
     if( FD_LIKELY( notar_blk ) ) notar_confirm( ctx, stem, tsorig, notar_blk );
   }
 }
@@ -370,6 +401,12 @@ replay_slot_completed( ctx_t *                      ctx,
   FD_TEST( !fd_tower_forks_query( ctx->tower_forks, slot_info->slot, NULL ) );
   fd_tower_forks_t * fork = fd_tower_forks_insert( ctx->tower_forks, slot_info->slot );
 
+  /* Record metadata about the replayed block. */
+
+  fork->parent_slot       = slot_info->parent_slot;
+  fork->replayed_block_id = slot_info->block_id;
+  fork->bank_idx          = slot_info->bank_idx;
+
   /* Check if gossip votes already confirmed a block id (via notar). */
 
   fork->confirmed              = 0;
@@ -385,12 +422,6 @@ replay_slot_completed( ctx_t *                      ctx,
       }
     }
   }
-
-  /* Record the replayed block id. */
-
-  fork->replayed          = 1;
-  fork->replayed_block_id = slot_info->block_id;
-  fork->parent_slot       = slot_info->parent_slot;
 
   /* We replayed an unconfirmed duplicate, warn for now.  Follow-up PR
      will implement eviction and repair of the correct one. */
