@@ -128,4 +128,10 @@ fd_vinyl_bstream_hash_batch8( ulong const *              FD_RESTRICT seed_,
 
   wwv_stu( out, h );
   for( ulong i=0UL; i<8UL; i++ ) if( !sz_[i] ) out[i] = seed_[i];
+
+#undef C1
+#undef C2
+#undef C3
+#undef C4
+#undef C5
 }
