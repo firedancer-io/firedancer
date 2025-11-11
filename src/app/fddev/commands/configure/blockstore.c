@@ -90,6 +90,7 @@ init( config_t const * config ) {
   fd_shredder_t _shredder[ 1 ];
   fd_shredder_t * shredder = fd_shredder_join( fd_shredder_new( _shredder, zero_signer, NULL, shred_version ) );
 
+  uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ] = { 0 };
   fd_shredder_init_batch( shredder, &batch, batch_sz, 0UL, meta );
   fd_shredder_next_fec_set( shredder, &fec, /* chained */ NULL );
 

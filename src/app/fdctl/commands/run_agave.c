@@ -115,7 +115,6 @@ agave_boot( config_t const * config ) {
     ADD( "--accounts-index-path", config->frankendancer.ledger.accounts_index_path );
   if( strcmp( "", config->frankendancer.ledger.accounts_hash_cache_path ) )
     ADD( "--accounts-hash-cache-path", config->frankendancer.ledger.accounts_hash_cache_path );
-  if( !config->frankendancer.ledger.enable_accounts_disk_index ) ADD1( "--disable-accounts-disk-index" );
   for( ulong i=0UL; i<config->frankendancer.ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->frankendancer.ledger.account_indexes[ i ] );
   if( FD_LIKELY( !config->frankendancer.ledger.account_index_include_keys_cnt ) ) {
