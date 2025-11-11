@@ -904,6 +904,31 @@ test_iter_subtree( fd_wksp_t * wksp ) {
   }
 }
 
+void
+test_orphan_requests( fd_wksp_t * wksp ) {
+  ulong ele_max = 8;
+  void * mem = fd_wksp_alloc_laddr( wksp, fd_forest_align(), fd_forest_footprint( ele_max ), 1UL );
+  FD_TEST( mem );
+  fd_forest_t * forest = fd_forest_join( fd_forest_new( mem, ele_max, 42UL /* seed */ ) );
+  fd_forest_init( forest, 0 );
+
+  fd_forest_iter_next( &forest->iter, forest );
+  FD_TEST( forest->iter.ele_idx == slot_idx( forest, 0 ) );
+
+  fd_forest_blk_data_shred_insert( forest, 8, 7, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 7, 6, 0, 0, 0, 0 );
+  fd_forest_blk_data_shred_insert( forest, 6, 5, 0, 0, 0, 0 );
+  FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
+  fd_forest_iter_next( &forest->orphiter, forest );
+  FD_TEST( forest->orphiter.ele_idx == slot_idx( forest, 6 ) );
+
+  fd_forest_publish( forest, 7 );
+  //FD_LOG_NOTICE(( "orphan iter ele_idx: %lu slot: %lu", forest->orphiter.ele_idx, idx_slot( forest, forest->orphiter.ele_idx ) ));
+  FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
+  fd_forest_iter_next( &forest->orphiter, forest );
+  FD_TEST( forest->orphiter.ele_idx == fd_forest_pool_idx_null( fd_forest_pool( forest ) ) );
+}
+
 int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
@@ -927,6 +952,7 @@ main( int argc, char ** argv ) {
   test_fec_clear( wksp );
   test_iter_publish( wksp );
   test_iter_subtree( wksp );
+  test_orphan_requests( wksp );
 
   fd_halt();
   return 0;
