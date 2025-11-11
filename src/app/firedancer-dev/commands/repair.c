@@ -741,6 +741,7 @@ repair_cmd_fn_profiler_mode( args_t *   args,
 
   ulong turbine_slot0    = 0UL;
   long  last_print       = fd_log_wallclock();
+  ulong last_sent        = 0UL;
   fd_topo_run_single_process( &config->topo, 0, config->uid, config->gid, fdctl_tile_run );
   for(;;) {
 
@@ -771,7 +772,8 @@ repair_cmd_fn_profiler_mode( args_t *   args,
       printf( " | HighestWindow | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_HIGHEST_WINDOW ) ] ) );
       printf( " | Index         | %s |\n", fmt_count( buf2, repair_metrics[ MIDX( COUNTER, REPAIR, SENT_PKT_TYPES_NEEDED_WINDOW         ) ] ) );
       printf( " +---------------+--------------+\n" );
-      printf( " Send Pkt Rate: %s pps\n", fmt_count( buf2, repair_metrics[ MIDX( GAUGE, REPAIR, SEND_PKT_RATE ) ] ) );
+      printf( " Send Pkt Rate: %s pps\n",  fmt_count( buf2, (ulong)((sent - last_sent)*1e9L / (now - last_print) ) ) );
+      last_sent = sent;
 
       /* Sum overrun across all net tiles connected to repair_net */
       ulong total_overrun = repair_net_links[0][ MIDX( COUNTER, LINK, OVERRUN_POLLING_FRAG_COUNT ) ]; /* coarse double counting prevention */

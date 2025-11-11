@@ -301,12 +301,12 @@ struct ctx {
   ulong manifest_slot;
   struct {
     ulong send_pkt_cnt;
-    ulong send_pkt_rate;
     ulong sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_CNT];
     ulong repaired_slots;
     ulong current_slot;
     ulong sign_tile_unavail;
     ulong rerequest;
+    ulong malformed_ping;
     fd_histf_t slot_compl_time[ 1 ];
     fd_histf_t response_latency[ 1 ];
   } metrics[ 1 ];
@@ -314,9 +314,6 @@ struct ctx {
   /* Slot-level metrics */
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
-
-  ulong send_pkt_cnt_ref;
-  long  send_pkt_ref_ts;
 };
 typedef struct ctx ctx_t;
 
@@ -735,24 +732,17 @@ after_net( ctx_t * ctx,
   if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
   fd_ip4_port_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
-  ushort dport = udp->net_dport;
-  if( ctx->repair_intake_addr.port == dport ) {
-    if( FD_UNLIKELY( data_sz < sizeof(fd_repair_ping_t) ) ) {
-      /* TODO: increment a malformed repair ping counter? */
-      return;
-    }
-    fd_repair_ping_t * res = (fd_repair_ping_t *)fd_type_pun( data );
-    switch( res->kind ) {
-      case FD_REPAIR_KIND_PING: {
-        fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
-        fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
-        break;
-      }
-      default: FD_LOG_ERR(( "unhandled kind %u", (uint)res->kind ));
-    }
-  } else {
-    FD_LOG_WARNING(( "Unexpectedly received packet for port %u", (uint)fd_ushort_bswap( dport ) ));
+  if( FD_UNLIKELY( data_sz != sizeof(fd_repair_ping_t) ) ) {
+    ctx->metrics->malformed_ping++;
+    return;
   }
+  fd_repair_ping_t * res = (fd_repair_ping_t *)fd_type_pun( data );
+  if( FD_UNLIKELY( res->kind != FD_REPAIR_KIND_PING ) ) {
+    ctx->metrics->malformed_ping++;
+    return;
+  }
+  fd_repair_msg_t * pong = fd_repair_pong( ctx->protocol, &res->ping.hash );
+  fd_signs_queue_push( ctx->sign_queue, (sign_pending_t){ .msg = *pong, .pong_data = { .peer_addr = peer_addr, .hash = res->ping.hash, .daddr = ip4->daddr } } );
 }
 
 static inline void
@@ -1131,8 +1121,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
-  ctx->send_pkt_cnt_ref = 0;
-  ctx->send_pkt_ref_ts  = -1;
 }
 
 static ulong
@@ -1161,16 +1149,6 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 
 static inline void
 metrics_write( ctx_t * ctx ) {
-  long now = fd_log_wallclock();
-  if( FD_UNLIKELY( ctx->send_pkt_ref_ts == -1 ) ) {
-    ctx->send_pkt_cnt_ref = ctx->metrics->send_pkt_cnt;
-    ctx->send_pkt_ref_ts  = now;
-  } else if( FD_UNLIKELY( now - ctx->send_pkt_ref_ts > 1e6L ) ) {
-    ctx->metrics->send_pkt_rate = ((ctx->metrics->send_pkt_cnt - ctx->send_pkt_cnt_ref) * 1000000000UL) / (ulong)(now - ctx->send_pkt_ref_ts);
-    ctx->send_pkt_cnt_ref = ctx->metrics->send_pkt_cnt;
-    ctx->send_pkt_ref_ts  = now;
-  }
-  FD_MGAUGE_SET( REPAIR, SEND_PKT_RATE, ctx->metrics->send_pkt_rate );
   FD_MCNT_SET( REPAIR, CURRENT_SLOT,      ctx->metrics->current_slot );
   FD_MCNT_SET( REPAIR, REPAIRED_SLOTS,    ctx->metrics->repaired_slots );
   FD_MCNT_SET( REPAIR, REQUEST_PEERS,     fd_peer_pool_used( ctx->policy->peers.pool ) );
