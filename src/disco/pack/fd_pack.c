@@ -2670,6 +2670,7 @@ fd_pack_expire_before( fd_pack_t * pack,
 
 void
 fd_pack_end_block( fd_pack_t * pack ) {
+  FD_LOG_INFO(("PACK END BLOCK COST %lu", pack->cumulative_block_cost));
   /* rounded division */
   ulong pct_cus_per_block = (pack->cumulative_block_cost*100UL + (pack->lim->max_cost_per_block>>1))/pack->lim->max_cost_per_block;
   fd_histf_sample( pack->pct_cus_per_block,       pct_cus_per_block                                          );

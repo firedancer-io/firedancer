@@ -322,6 +322,10 @@ fd_runtime_freeze( fd_bank_t *               bank,
     FD_LOG_DEBUG(( "fd_runtime_freeze: burn %lu, capitalization %lu->%lu ", burn, old, fd_bank_capitalization_get( bank ) ));
   }
 
+  fd_cost_tracker_t * cost_tracker_mod = fd_bank_cost_tracker_locking_modify( bank );
+  FD_LOG_INFO(("SLOT %lu, BLOCK COST %lu", fd_bank_slot_get( bank ), cost_tracker_mod->block_cost));
+  fd_bank_cost_tracker_end_locking_modify( bank );
+
   /* jito collects a 3% fee at the end of the block + 3% fee at
      distribution time. */
   fd_bank_tips_set( bank, (fd_bank_tips_get( bank ) * 6UL / 100UL) );
