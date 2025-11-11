@@ -361,6 +361,7 @@ would_fit( fd_cost_tracker_t const *     cost_tracker,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L290-L293 */
+  FD_LOG_INFO(("cost_tracker->block_cost: %lu, cost: %lu, cost_tracker->block_cost_limit: %lu", cost_tracker->block_cost, cost, cost_tracker->block_cost_limit));
   if( FD_UNLIKELY( fd_ulong_sat_add( cost_tracker->block_cost, cost )>cost_tracker->block_cost_limit ) ) {
     return FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT;
   }
