@@ -39,6 +39,9 @@ typedef struct {
 
   ulong numa_idx;     /* The index of the NUMA node on the system that this workspace should be allocated from. */
 
+  ulong min_part_max; /* Artificially raise part_max */
+  ulong min_loose_sz; /* Artificially raise loose footprint */
+
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     ulong page_sz;  /* The size of the pages that this workspace is backed by.  One of FD_PAGE_SIZE_*. */
