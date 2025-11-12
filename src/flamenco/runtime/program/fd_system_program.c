@@ -309,7 +309,7 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L332 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L333-L339
      Authorization check is lifted out from 'allocate' to here. */
@@ -345,7 +345,7 @@ fd_system_program_exec_assign( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L382 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L383-L384 */
 
@@ -376,7 +376,7 @@ fd_system_program_exec_transfer( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L395 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 2 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L396-L402 */
 
@@ -394,7 +394,7 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L360 */
 
   if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 2UL) ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L361-L367 */
 
@@ -440,7 +440,7 @@ fd_system_program_exec_allocate( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L505 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L506-L507 */
   fd_guarded_borrowed_account_t account = {0};
@@ -472,7 +472,7 @@ fd_system_program_exec_allocate_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L523 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#524-525 */
 
@@ -519,7 +519,7 @@ fd_system_program_exec_assign_with_seed( fd_exec_instr_ctx_t *                  
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#543 */
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt < 1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L544-L545 */
 
@@ -559,7 +559,7 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L410 */
 
   if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 3UL ) ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L411-L421
      Inlined call to system_processor::transfer_with_seed */

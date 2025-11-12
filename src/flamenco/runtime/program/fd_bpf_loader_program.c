@@ -955,7 +955,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L476-L493 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_initialize_buffer: {
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L479 */
@@ -996,7 +996,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L494-L525 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_write: {
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L497 */
@@ -1056,7 +1056,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     case fd_bpf_upgradeable_loader_program_instruction_enum_deploy_with_max_data_len: {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L527-L541 */
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 4U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L529-L534 */
@@ -1093,7 +1093,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L538 */
       if( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 8U ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L539-L541 */
@@ -1396,7 +1396,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     case fd_bpf_upgradeable_loader_program_instruction_enum_upgrade: {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L704-L714 */
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L706-L708 */
@@ -1419,7 +1419,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 7U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L713-L715 */
@@ -1680,7 +1680,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     case fd_bpf_upgradeable_loader_program_instruction_enum_set_authority: {
       int err;
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L896-L897 */
@@ -1787,7 +1787,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L968-L969 */
@@ -1885,7 +1885,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       int err;
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1032-L1046 */
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* It's safe to directly access the instruction accounts because we already checked for two
@@ -1939,7 +1939,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_borrowed_account_drop( &close_account );
 
         if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+          return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
         }
 
         fd_bpf_upgradeable_loader_state_buffer_t * state_buf = &close_account_state->inner.buffer;
@@ -1957,7 +1957,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( close_account_state ) ) {
         int err;
         if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 4U ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+          return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
         }
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/lib.rs#L1074 */
@@ -2067,7 +2067,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1346 */
       if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.6/programs/bpf_loader/src/lib.rs#L1347-L1349 */

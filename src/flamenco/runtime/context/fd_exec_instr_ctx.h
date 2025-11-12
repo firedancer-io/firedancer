@@ -41,7 +41,7 @@ FD_PROTOTYPES_BEGIN
 
    Assert that enough accounts were supplied to this instruction. Returns
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and
-   FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
+   FD_EXECUTOR_INSTR_ERR_MISSING_ACC otherwise.
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L490 */
 
@@ -50,7 +50,7 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t const * ctx,
                                            uint                        expected_accounts ) {
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt<expected_accounts ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -82,7 +82,7 @@ fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t
   /* Return a NotEnoughAccountKeys error if the idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L559 */
   if( FD_UNLIKELY( idx_in_instr>=ctx->instr->acct_cnt ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
   *idx_in_txn = ctx->instr->accounts[ idx_in_instr ].index_in_transaction;
