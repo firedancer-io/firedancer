@@ -720,42 +720,33 @@ fd_gossip_push_vote( fd_gossip_t *       gossip,
                      long                now ) {
   /* TODO: we can avoid addt'l memcpy if we pass a propely laid out
      crds buffer instead */
-  uchar crds_val[ FD_GOSSIP_CRDS_MAX_SZ ];
-  ulong crds_val_sz;
+  uchar                       crds_val[ FD_GOSSIP_CRDS_MAX_SZ ];
+  fd_gossip_view_crds_value_t view[1];
+
   fd_gossip_crds_vote_encode( crds_val,
                               FD_GOSSIP_CRDS_MAX_SZ,
                               txn,
                               txn_sz,
                               gossip->identity_pubkey,
                               now,
-                              &crds_val_sz );
-  fd_gossip_view_crds_value_t value[1];
+                              0UL, /* vote_index TODO */
+                              view );
 
   gossip->sign_fn( gossip->sign_ctx,
                    crds_val+64UL,
-                   crds_val_sz-64UL,
+                   view->length-64UL,
                    FD_KEYGUARD_SIGN_TYPE_ED25519,
                    crds_val );
 
-  value->tag                   = FD_GOSSIP_VALUE_VOTE;
-  value->value_off             = 0UL;
-  value->length                = (ushort)crds_val_sz;
-  value->pubkey_off            = 64UL+1UL; /* Signature + vote index */
-  value->wallclock_nanos       = now;
-  fd_gossip_view_vote_t * vote = value->vote;
-  vote->index                  = 0UL; /* TODO */
-  vote->txn_sz                 = (ushort)txn_sz;
-  vote->txn_off                = 64UL+1UL+32UL; /* Signature + vote index + pubkey */
-
-  int res = fd_crds_checks_fast( gossip->crds, value, crds_val, 0 );
+  int res = fd_crds_checks_fast( gossip->crds, view, crds_val, 0 );
   if( FD_UNLIKELY( res ) ) return -1;
 
-  fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, value, crds_val, gossip->identity_stake, 1, /* is_me */ now, stem );
+  fd_crds_entry_t const * entry = fd_crds_insert( gossip->crds, view, crds_val, gossip->identity_stake, 1, /* is_me */ now, stem );
   if( FD_UNLIKELY( !entry ) ) return -1;
 
   active_push_set_insert( gossip,
                           crds_val,
-                          crds_val_sz,
+                          view->length,
                           gossip->identity_pubkey,
                           gossip->identity_stake,
                           stem,

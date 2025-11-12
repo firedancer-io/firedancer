@@ -375,11 +375,12 @@ fd_gossip_contact_info_encode( fd_contact_info_t const * contact_info,
                                ulong *                   opt_encoded_sz );
 
 int
-fd_gossip_crds_vote_encode( uchar *       out_buf,
-                            ulong         out_buf_sz,
-                            uchar const * txn,
-                            ulong         txn_sz,
-                            uchar const * identity_pubkey,
-                            long          now,
-                            ulong *       opt_encoded_sz );
+fd_gossip_crds_vote_encode( uchar *                       out_buf,
+                            ulong                         out_buf_sz,
+                            uchar const *                 txn,
+                            ulong                         txn_sz,
+                            uchar const *                 identity_pubkey,
+                            long                          now,
+                            uchar                         vote_index,
+                            fd_gossip_view_crds_value_t * out_view );
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_private_h */
