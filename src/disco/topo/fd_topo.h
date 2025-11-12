@@ -491,7 +491,8 @@ struct fd_topo_tile {
     } archiver;
 
     struct {
-      ulong slot_max;
+      ulong max_live_slots;
+      ulong max_lookahead_conf;
       char  identity_key[ PATH_MAX ];
       char  vote_account[ PATH_MAX ];
       char  base_path[PATH_MAX];
@@ -575,7 +576,6 @@ struct fd_topo_tile {
 
     struct {
       ulong max_live_slots;
-
       ulong txncache_obj_id;
       ulong funk_obj_id;
       ulong progcache_obj_id;
