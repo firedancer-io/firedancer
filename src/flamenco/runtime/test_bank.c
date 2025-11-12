@@ -38,6 +38,11 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
   curr_ctx->txn = *curr_txn_p;
   /* Set up funk so executor can fall back to it */
   FD_TEST( fd_funk_join( curr_ctx->funk, shfunk ) );
+  /* Set up transaction ID for funk queries */
+  fd_funk_txn_xid_t parent_xid;
+  fd_funk_txn_xid_set_root( &parent_xid );
+  fd_funk_txn_xid_t xid = { .ul = { 100UL, 0UL } };
+  curr_ctx->xid[0] = xid;
 
   fd_pubkey_t fee_payer_key = {0};
   fee_payer_key.uc[ 0 ] = 42;
@@ -71,8 +76,10 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
   fd_txn_account_t * acct_bug = fd_executor_setup_txn_account( curr_ctx, FD_FEE_PAYER_TXN_IDX );
   /* Without prev_txn_ctxs_cnt set, executor won't look in prev_txn_ctxs
      and will fall back to AccountsDB. Since the account doesn't exist in funk,
-     this should return NULL. */
-  FD_TEST( !acct_bug );
+     it will create a new zeroed account with lamports=0 instead of seeing
+     the modified account with lamports=500 from prev_ctx. */
+  FD_TEST( acct_bug );
+  FD_TEST( acct_bug->meta->lamports == 0UL );  /* Wrong! Should be 500 from prev_ctx */
 
   /* Test fix scenario: when prev_txn_ctxs_cnt IS properly set,
      the executor should successfully find the account from the previous
@@ -80,8 +87,8 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
   curr_ctx->bundle.prev_txn_ctxs_cnt = 1UL;  /* Fix: bank tile sets this correctly */
   fd_txn_account_t * acct = fd_executor_setup_txn_account( curr_ctx, FD_FEE_PAYER_TXN_IDX );
   FD_TEST( acct );
-  /* If the executor fails to consult prev_txn_ctxs, meta points to a
-     zeroed staging buffer (or NULL) and this assertion trips. */
+  /* With prev_txn_ctxs_cnt properly set, executor consults prev_txn_ctxs
+     and finds the modified account with the correct lamports value. */
   FD_TEST( acct->meta->lamports==prev_account_storage.meta.lamports );
 
   /* Cleanup */
