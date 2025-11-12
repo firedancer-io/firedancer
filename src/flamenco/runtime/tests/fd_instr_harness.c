@@ -253,9 +253,7 @@ fd_solfuzz_pb_instr_ctx_create( fd_solfuzz_runner_t *                runner,
       fd_blockhash_info_t * info = fd_blockhashes_push_new( blockhashes, &last->blockhash );
       info->fee_calculator = last->fee_calculator;
 
-      fd_bank_lamports_per_signature_set( runner->bank, last->fee_calculator.lamports_per_signature );
-
-      fd_bank_prev_lamports_per_signature_set( runner->bank, last->fee_calculator.lamports_per_signature );
+      fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
     }
   }
 

@@ -198,7 +198,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     }
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L54-L58 */
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/programs/system/src/system_instruction.rs#L57-L63 */
 
     fd_nonce_state_versions_t new_state = {
       .discriminant = fd_nonce_state_versions_enum_current,
@@ -208,7 +208,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = data->authority,
           .durable_nonce  = next_durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = fd_bank_prev_lamports_per_signature_get( ctx->txn_ctx->bank )
+            .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( ctx->txn_ctx->bank )
           }
         } }
       } }
@@ -563,7 +563,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
     fd_hash_t durable_nonce;
     fd_durable_nonce_from_blockhash( &durable_nonce, &blockhash );
 
-    /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L181-L186 */
+    /* https://github.com/anza-xyz/agave/blob/v3.0.3/programs/system/src/system_instruction.rs#L185-L191 */
 
     fd_nonce_state_versions_t new_state = {
       .discriminant = fd_nonce_state_versions_enum_current,
@@ -573,7 +573,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = *authorized,
           .durable_nonce  = durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = fd_bank_prev_lamports_per_signature_get( ctx->txn_ctx->bank )
+            .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( ctx->txn_ctx->bank )
           }
         } }
       } }
@@ -867,7 +867,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3529-L3554 */
+/* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L166-L200 */
 /* The age of a transaction is valid under two conditions. The first is that
    the transactions blockhash is a recent blockhash (within 151) in the block
    hash queue. The other condition is that the transaction contains a valid
@@ -970,7 +970,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
-  /* verify_recent_blockhash. Thjis checks that the decoded nonce record is
+  /* verify_recent_blockhash. This checks that the decoded nonce record is
      not a legacy nonce nor uninitialized. If this is the case, then we can
      verify by comparing the decoded durable nonce to the recent blockhash */
   if( FD_UNLIKELY( fd_nonce_state_versions_is_legacy( state ) ) ) {
@@ -1013,6 +1013,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_FAIL_ADVANCE_NONCE_INSTR;
         }
+        /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L217-L221*/
         fd_nonce_state_versions_t new_state = {
           .discriminant = fd_nonce_state_versions_enum_current,
           .inner = { .current = {
@@ -1021,7 +1022,8 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
               .authority      = state->inner.current.inner.initialized.authority,
               .durable_nonce  = next_durable_nonce,
               .fee_calculator = {
-                .lamports_per_signature = fd_bank_prev_lamports_per_signature_get( txn_ctx->bank )
+                /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank/check_transactions.rs#L88-L90 */
+                .lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( txn_ctx->bank )
               }
             } }
           } }

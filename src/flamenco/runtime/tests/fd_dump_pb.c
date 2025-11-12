@@ -716,7 +716,6 @@ create_block_context_protobuf_from_block( fd_block_dump_ctx_t * dump_ctx,
   fd_memcpy( block_context->slot_ctx.parent_lthash, parent_lthash, sizeof(fd_lthash_value_t) );
   fd_bank_lthash_end_locking_query( parent_bank );
 
-  block_context->slot_ctx.prev_lps                  = fd_bank_prev_lamports_per_signature_get( parent_bank );
   block_context->slot_ctx.prev_epoch_capitalization = fd_bank_capitalization_get( parent_bank );
 
   /* BlockContext -> SlotContext -> fee_rate_governor */

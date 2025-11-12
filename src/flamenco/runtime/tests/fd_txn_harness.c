@@ -86,17 +86,15 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   }
 
   /* Setup Bank manager */
-
-  fd_bank_lamports_per_signature_set( runner->bank, 5000UL );
-
-  fd_bank_prev_lamports_per_signature_set( runner->bank, 5000UL );
-
   fd_fee_rate_governor_t * fee_rate_governor = fd_bank_fee_rate_governor_modify( runner->bank );
   fee_rate_governor->burn_percent                  = 50;
   fee_rate_governor->min_lamports_per_signature    = 0;
   fee_rate_governor->max_lamports_per_signature    = 0;
   fee_rate_governor->target_lamports_per_signature = 10000;
   fee_rate_governor->target_signatures_per_slot    = 20000;
+
+  /* https://github.com/anza-xyz/agave/blob/v3.0.3/runtime/src/bank.rs#L1249-L1251 */
+  fd_runtime_new_fee_rate_governor_derived( runner->bank, fd_bank_parent_signature_cnt_get( runner->bank ) );
 
   fd_bank_ticks_per_slot_set( runner->bank, 64 );
 
@@ -172,8 +170,7 @@ fd_solfuzz_pb_txn_ctx_create( fd_solfuzz_runner_t *              runner,
   if( rbh_sysvar && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      fd_bank_lamports_per_signature_set( runner->bank, last->fee_calculator.lamports_per_signature );
-      fd_bank_prev_lamports_per_signature_set( runner->bank, last->fee_calculator.lamports_per_signature );
+      fd_bank_rbh_lamports_per_sig_set( runner->bank, last->fee_calculator.lamports_per_signature );
     }
   }
 

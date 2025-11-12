@@ -333,17 +333,13 @@ fd_runtime_freeze( fd_bank_t *               bank,
 /******************************************************************************/
 /* Block-Level Execution Preparation/Finalization                             */
 /******************************************************************************/
-
-/*
-https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/sdk/program/src/fee_calculator.rs#L105-L165
-*/
-static void
+void
 fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
                                           ulong       latest_signatures_per_slot ) {
 
   fd_fee_rate_governor_t const * base_fee_rate_governor = fd_bank_fee_rate_governor_query( bank );
 
-  ulong old_lamports_per_signature = fd_bank_lamports_per_signature_get( bank );
+  ulong old_lamports_per_signature = fd_bank_rbh_lamports_per_sig_get( bank );
 
   fd_fee_rate_governor_t me = {
     .target_signatures_per_slot    = base_fee_rate_governor->target_signatures_per_slot,
@@ -386,16 +382,8 @@ fd_runtime_new_fee_rate_governor_derived( fd_bank_t * bank,
     me.min_lamports_per_signature = me.target_lamports_per_signature;
     me.max_lamports_per_signature = me.target_lamports_per_signature;
   }
-
-  if( FD_UNLIKELY( old_lamports_per_signature==0UL ) ) {
-    fd_bank_prev_lamports_per_signature_set( bank, new_lamports_per_signature );
-  } else {
-    fd_bank_prev_lamports_per_signature_set( bank, old_lamports_per_signature );
-  }
-
   fd_bank_fee_rate_governor_set( bank, me );
-
-  fd_bank_lamports_per_signature_set( bank, new_lamports_per_signature );
+  fd_bank_rbh_lamports_per_sig_set( bank, new_lamports_per_signature );
 }
 
 static int
@@ -1447,10 +1435,6 @@ fd_runtime_init_bank_from_genesis( fd_banks_t *                       banks,
   }
 
   fd_bank_fee_rate_governor_set( bank, genesis_block->fee_rate_governor );
-
-  fd_bank_lamports_per_signature_set( bank, 0UL );
-
-  fd_bank_prev_lamports_per_signature_set( bank, 0UL );
 
   fd_bank_max_tick_height_set( bank, genesis_block->ticks_per_slot * (fd_bank_slot_get( bank ) + 1) );
 

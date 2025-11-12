@@ -253,10 +253,6 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
 
   fd_bank_capitalization_set( bank, test_ctx->slot_ctx.prev_epoch_capitalization );
 
-  fd_bank_lamports_per_signature_set( bank, 5000UL );
-
-  fd_bank_prev_lamports_per_signature_set( bank, test_ctx->slot_ctx.prev_lps );
-
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
   fd_bank_hashes_per_tick_set( bank, test_ctx->epoch_ctx.hashes_per_tick );
 
@@ -278,6 +274,8 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
     .max_lamports_per_signature    = test_ctx->slot_ctx.fee_rate_governor.max_lamports_per_signature,
     .burn_percent                  = (uchar)test_ctx->slot_ctx.fee_rate_governor.burn_percent
   };
+  /* https://github.com/firedancer-io/solfuzz-agave/blob/agave-v3.0.3/src/block.rs#L393-L396 */
+  fd_bank_rbh_lamports_per_sig_set( bank, FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE );
 
   fd_inflation_t * inflation = fd_bank_inflation_modify( bank );
   *inflation = (fd_inflation_t){
@@ -393,8 +391,7 @@ fd_solfuzz_pb_block_ctx_create( fd_solfuzz_runner_t *                runner,
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      fd_bank_lamports_per_signature_set( bank, last->fee_calculator.lamports_per_signature );
-      fd_bank_prev_lamports_per_signature_set( bank, last->fee_calculator.lamports_per_signature );
+      fd_bank_rbh_lamports_per_sig_set( bank, last->fee_calculator.lamports_per_signature );
     }
   }
 

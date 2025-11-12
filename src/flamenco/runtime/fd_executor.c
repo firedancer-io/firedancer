@@ -860,12 +860,6 @@ fd_get_prioritization_fee( fd_compute_budget_details_t const * compute_budget_de
   return fee>(uint128)ULONG_MAX ? ULONG_MAX : (ulong)fee;
 }
 
-static ulong
-fd_executor_lamports_per_signature( fd_fee_rate_governor_t const * fee_rate_governor ) {
-  // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
-  return fee_rate_governor->target_lamports_per_signature / 2;
-}
-
 static void
 fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
                           fd_txn_t const *      txn_descriptor,
@@ -874,7 +868,7 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
                           ulong *               ret_priority_fee) {
   /* The execution fee is just the signature fee. The priority fee
      is calculated based on the compute budget details.
-     https://github.com/anza-xyz/agave/blob/v2.3.1/fee/src/lib.rs#L66-L83 */
+     https://github.com/anza-xyz/agave/blob/v3.0.3/fee/src/lib.rs#L65-L84 */
 
   // let signature_fee = Self::get_num_signatures_in_message(message) .saturating_mul(fee_structure.lamports_per_signature);
   ulong num_signatures = txn_descriptor->signature_cnt;
@@ -891,8 +885,7 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *  txn_ctx,
       num_signatures     = fd_ulong_sat_add(num_signatures, (ulong)(data[0]));
     }
   }
-
-  *ret_execution_fee = fd_executor_lamports_per_signature( fd_bank_fee_rate_governor_query( txn_ctx->bank ) ) * num_signatures;
+  *ret_execution_fee = FD_RUNTIME_FEE_STRUCTURE_LAMPORTS_PER_SIGNATURE * num_signatures;
   *ret_priority_fee  = fd_get_prioritization_fee( &txn_ctx->compute_budget_details );
 }
 

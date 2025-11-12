@@ -362,8 +362,6 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
   fd_bank_parent_slot_set( test_ctx->parent_bank, parent_slot - 1 );
   fd_bank_block_height_set( test_ctx->parent_bank, parent_slot );  /* Assume block_height == slot for simplicity */
   fd_bank_capitalization_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_epoch_capitalization );
-  fd_bank_lamports_per_signature_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_lps );
-  fd_bank_prev_lamports_per_signature_set( test_ctx->parent_bank, input_ctx.slot_ctx.prev_lps );
   fd_bank_hashes_per_tick_set( test_ctx->parent_bank, input_ctx.epoch_ctx.hashes_per_tick );
   fd_bank_ticks_per_slot_set( test_ctx->parent_bank, input_ctx.epoch_ctx.ticks_per_slot );
   fd_bank_slots_per_year_set( test_ctx->parent_bank, input_ctx.epoch_ctx.slots_per_year );
@@ -391,6 +389,7 @@ FD_SPAD_FRAME_BEGIN( test_ctx->spad ) {
     frg->min_lamports_per_signature    = input_ctx.slot_ctx.fee_rate_governor.min_lamports_per_signature;
     frg->max_lamports_per_signature    = input_ctx.slot_ctx.fee_rate_governor.max_lamports_per_signature;
     frg->burn_percent                  = (uchar)input_ctx.slot_ctx.fee_rate_governor.burn_percent;
+    fd_runtime_new_fee_rate_governor_derived( test_ctx->parent_bank, input_ctx.slot_ctx.parent_signature_count );
   }
 
   /* Set inflation */
