@@ -47,11 +47,23 @@ test_bundle_prev_ctx_is_visible_to_executor( void ) {
 
   curr_ctx->exec_accounts = exec_accounts;
   curr_ctx->bundle.is_bundle          = 1;
-  curr_ctx->bundle.prev_txn_ctxs_cnt  = 1UL;
   curr_ctx->bundle.prev_txn_ctxs[ 0 ] = prev_ctx;
 
-  /* Edge case: fee payer lamports were mutated by the previous bundle
-     transaction and have not been committed to AccountsDB yet. */
+  /* Test bug scenario: when prev_txn_ctxs_cnt is NOT set (remains 0),
+     the executor should fail to find the account from the previous
+     bundle transaction. This simulates what happens when fd_bank_tile.c
+     doesn't set prev_txn_ctxs_cnt before execution. */
+  curr_ctx->bundle.prev_txn_ctxs_cnt = 0UL;  /* Bug: bank tile didn't set this */
+  fd_txn_account_t * acct_bug = fd_executor_setup_txn_account( curr_ctx, FD_FEE_PAYER_TXN_IDX );
+  /* Without prev_txn_ctxs_cnt set, executor won't look in prev_txn_ctxs
+     and will fall back to AccountsDB (which is not set up in this test),
+     so it should either return NULL or a zeroed account. */
+  FD_TEST( !acct_bug || acct_bug->meta->lamports != prev_account_storage.meta.lamports );
+
+  /* Test fix scenario: when prev_txn_ctxs_cnt IS properly set,
+     the executor should successfully find the account from the previous
+     bundle transaction. This is what fd_bank_tile.c should do. */
+  curr_ctx->bundle.prev_txn_ctxs_cnt = 1UL;  /* Fix: bank tile sets this correctly */
   fd_txn_account_t * acct = fd_executor_setup_txn_account( curr_ctx, FD_FEE_PAYER_TXN_IDX );
   FD_TEST( acct );
   /* If the executor fails to consult prev_txn_ctxs, meta points to a
