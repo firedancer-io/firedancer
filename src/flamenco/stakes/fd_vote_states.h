@@ -54,7 +54,38 @@
      T-2 (stake_t_2) is used for the stake in clock calculations.
      T-1 (stake_t_1) is used for the stake in Tower's threshold switch checks.
    - rewards: this information is only used at the epoch boundary.
-*/
+
+   NOTE: The leader schedule epoch is almost always equal to the current
+   epoch + 1.
+   TODO: highlight the cases where this is not possible.
+
+   In the agave client, each bank holds its own epoch stakes (agave
+   equivalent of vote_states).  These are keyed by leader schedule epoch
+   (which is almost always equal to epoch + 1).  Old entries are removed
+   and new entries are inserted at the epoch boundary.  When we use the
+   epoch stakes for consensus and for clock timestamp calculations, we
+   query the epoch stakes by the current epoch we are executing in.
+
+   When we cross from Epoch E-1 to E, we compute our stakes assuming
+   we are in E.  At this point, because we are in epoch E, this means
+   that the leader schedule epoch is E+1 so an epoch_stakes entry for
+   epoch E+1 is inserted into epoch_stakes.
+
+   After we cross the boundary, in epoch E, we use the epoch stakes as
+   keyed by epoch E for clock/consensus/leader schedule calculations.
+   The stakes keyed by epoch E are actually the ones calculated at the
+   boundary between epoch E-2 and E-1 since that's when the leader
+   schedule epoch is E.  Similiarly, when we are in epoch E+1 we use the
+   stakes caclulated between epoch E-1 and E since that's when the leader
+   schedule epoch is E+1.
+
+   The firedancer naming of vote states is instead done by reference to
+   the epoch boundary that the stakes were calculated in.  If we are
+   currently in epoch E, we use the vote states calculated at the end of
+   two epochs ago (E-2 -> E-1), hence vote_states_prev_prev.  We store
+   the vote states calculated at the end of the previous epoch
+   (E-1 -> E) as vote_states_prev.  This is also how we cache the stake
+   values in the current vote states which are continually updated. */
 
 #define FD_VOTE_STATES_ALIGN (128UL)
 
