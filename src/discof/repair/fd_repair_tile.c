@@ -311,6 +311,11 @@ struct ctx {
   /* Slot-level metrics */
   fd_repair_metrics_t * slot_metrics;
   ulong turbine_slot0;  // catchup considered complete after this slot
+  struct {
+    int   enabled;
+    ulong end_slot;
+    int   complete;
+  } profiler;
 };
 typedef struct ctx ctx_t;
 
@@ -551,6 +556,11 @@ after_snap( ctx_t * ctx,
 
   fd_forest_init( ctx->forest, manifest->slot );
   FD_TEST( fd_forest_root_slot( ctx->forest )!=ULONG_MAX );
+
+  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
+    fd_forest_blk_insert( ctx->forest, ctx->profiler.end_slot, ctx->profiler.end_slot - 1 );
+    fd_forest_code_shred_insert( ctx->forest, ctx->profiler.end_slot, 0 );
+  }
 }
 
 static inline void
@@ -665,13 +675,12 @@ after_shred( ctx_t      * ctx,
              ulong        nonce ) {
   /* Insert the shred sig (shared by all shred members in the FEC set)
       into the map. */
-
   int is_code = fd_shred_is_code( fd_shred_type( shred->variant ) );
   int src = fd_disco_shred_out_shred_sig_is_turbine( sig ) ? SHRED_SRC_TURBINE : SHRED_SRC_REPAIR;
   if( FD_LIKELY( !is_code ) ) {
     long rtt = 0;
     fd_pubkey_t peer;
-    if( FD_UNLIKELY( ( rtt = fd_inflights_request_remove( ctx->inflight, nonce, &peer ) ) > 0 ) ) {
+    if( FD_UNLIKELY( src == SHRED_SRC_REPAIR && ( rtt = fd_inflights_request_remove( ctx->inflight, nonce, &peer ) ) > 0 ) ) {
       fd_policy_peer_response_update( ctx->policy, &peer, rtt );
       fd_histf_sample( ctx->metrics->response_latency, (ulong)rtt );
     }
@@ -707,11 +716,24 @@ after_fec( ctx_t      * ctx,
   if( FD_UNLIKELY( ele->complete_idx != UINT_MAX && ele->buffered_idx==ele->complete_idx &&
                    0==memcmp( ele->cmpl, ele->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
     long now = fd_tickcount();
-    long start_ts = ele->first_req_ts == 0 || ele->slot > ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
+    long start_ts = ele->first_req_ts == 0 || ele->slot >= ctx->turbine_slot0 ? ele->first_shred_ts : ele->first_req_ts;
     ulong duration_ticks = (ulong)(now - start_ts);
     fd_histf_sample( ctx->metrics->slot_compl_time, duration_ticks );
     fd_repair_metrics_add_slot( ctx->slot_metrics, ele->slot, start_ts, now, ele->repair_cnt, ele->turbine_cnt );
     FD_LOG_INFO(( "slot is complete %lu. num_data_shreds: %u, num_repaired: %u, num_turbine: %u, num_recovered: %u, duration: %.2f ms", ele->slot, ele->complete_idx + 1, ele->repair_cnt, ele->turbine_cnt, ele->recovered_cnt, (double)fd_metrics_convert_ticks_to_nanoseconds(duration_ticks) / 1e6 ));
+  }
+
+  if( FD_UNLIKELY( ctx->profiler.enabled ) ) {
+    // If turbine slot 0 is in the consumed frontier, and it satisfies the
+    // above conditions for completions, then catchup is complete
+    fd_forest_blk_t * turbine0     = fd_forest_query( ctx->forest, ctx->turbine_slot0 );
+    ulong             turbine0_idx = fd_forest_pool_idx( fd_forest_pool( ctx->forest ), turbine0 );
+    fd_forest_ref_t * consumed     = fd_forest_consumed_ele_query( fd_forest_consumed( ctx->forest ), &turbine0_idx, NULL, fd_forest_conspool( ctx->forest ) );
+    if( FD_UNLIKELY( consumed && turbine0->complete_idx != UINT_MAX && turbine0->complete_idx == turbine0->buffered_idx &&
+                     0==memcmp( turbine0->cmpl, turbine0->fecs, sizeof(fd_forest_blk_idxs_t) * fd_forest_blk_idxs_word_cnt ) ) ) {
+      FD_COMPILER_MFENCE();
+      FD_VOLATILE( ctx->profiler.complete ) = 1;
+    }
   }
 }
 
@@ -816,6 +838,8 @@ after_frag( ctx_t * ctx,
       FD_LOG_INFO(( "shred %lu %u %u too old, ignoring", shred->slot, shred->idx, shred->fec_set_idx ));
       return;
     };
+
+    if( FD_UNLIKELY( ctx->profiler.enabled && ctx->turbine_slot0 != ULONG_MAX && shred->slot > ctx->turbine_slot0 ) ) return;
 #   if LOGGING
     if( FD_UNLIKELY( shred->slot > ctx->metrics->current_slot ) ) {
       FD_LOG_INFO(( "\n\n[Turbine]\n"
@@ -1115,6 +1139,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tsdebug = fd_log_wallclock();
   ctx->pending_key_next = 0;
+  ctx->profiler.enabled  = tile->repair.end_slot != 0UL;
+  ctx->profiler.end_slot = tile->repair.end_slot;
+  if( ctx->profiler.enabled ) {
+    ctx->turbine_slot0         = tile->repair.end_slot;
+    fd_repair_metrics_set_turbine_slot0( ctx->slot_metrics, tile->repair.end_slot );
+    fd_policy_set_turbine_slot0( ctx->policy, tile->repair.end_slot );
+
+    ctx->metrics->current_slot = tile->repair.end_slot + 1; /* +1 to allow the turbine slot 0 to be completed */
+    ctx->profiler.complete     = 0;
+  }
 }
 
 static ulong
