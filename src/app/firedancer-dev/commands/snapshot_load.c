@@ -855,11 +855,11 @@ snapshot_load_cmd_fn( args_t *   args,
     FD_TEST( vinyl_status==FD_CNC_SIGNAL_RUN );
     FD_LOG_NOTICE(( "Vinyl server running" ));
     for(;;) {
-      ulong cnc_signal = fd_cnc_wait( cnc, vinyl_status, LONG_MAX, NULL );
+      vinyl_status = fd_cnc_wait( cnc, vinyl_status, LONG_MAX, NULL );
       char cnc_signal_cstr[ FD_VINYL_CNC_SIGNAL_CSTR_BUF_MAX ];
-      fd_vinyl_cnc_signal_cstr( cnc_signal, cnc_signal_cstr );
+      fd_vinyl_cnc_signal_cstr( vinyl_status, cnc_signal_cstr );
       FD_LOG_NOTICE(( "Vinyl CNC signal %s", cnc_signal_cstr ));
-      if( cnc_signal==FD_CNC_SIGNAL_BOOT ) break;
+      if( vinyl_status==FD_CNC_SIGNAL_BOOT ) break;
     }
     FD_LOG_NOTICE(( "Vinyl server shut down" ));
     fd_cnc_leave( cnc );

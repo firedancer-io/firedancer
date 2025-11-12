@@ -118,6 +118,7 @@ vinyl_init_fast( fd_vinyl_tile_ctx_t * ctx,
   FD_TEST( fd_vinyl_meta_join( vinyl->meta, _meta, _ele ) );
 
   FD_TEST( fd_vinyl_data_init( vinyl->data, _obj, obj_footprint, obj_laddr0 ) );
+  fd_vinyl_data_reset( NULL, 0UL, 0UL, 0, vinyl->data );
 
   vinyl->cnc_footprint  = cnc_footprint;
   vinyl->meta_footprint = meta_footprint;
