@@ -537,11 +537,9 @@ fd_config_validate( fd_config_t const * config ) {
     CFG_HAS_NON_EMPTY( net.xdp.xdp_mode );
     CFG_HAS_POW2     ( net.xdp.xdp_rx_queue_size );
     CFG_HAS_POW2     ( net.xdp.xdp_tx_queue_size );
-    if( 0==strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) ) {
-      if( FD_UNLIKELY( config->layout.net_tile_count != 1 ) )
-        FD_LOG_ERR(( "`layout.net_tile_count` must be 1 when `net.xdp.rss_queue_mode` is \"dedicated\"" ));
-    } else if( 0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) &&
-               0!=strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) {
+    if( 0!=strcmp( config->net.xdp.rss_queue_mode, "dedicated" ) &&
+        0!=strcmp( config->net.xdp.rss_queue_mode, "simple" ) &&
+        0!=strcmp( config->net.xdp.rss_queue_mode, "auto" ) ) {
       FD_LOG_ERR(( "invalid `net.xdp.rss_queue_mode`: \"%s\"; must be \"simple\", \"dedicated\", or \"auto\"",
                    config->net.xdp.rss_queue_mode  ));
     }

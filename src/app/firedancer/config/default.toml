@@ -1001,9 +1001,10 @@ user = ""
         #   traffic.
         #
         # "dedicated"
-        #   Reserves a dedicated hardware queue for each net tile.  For
-        #   now, only supports net_tile_count = 1.  Uses ethtool 'ntuple'
-        #   to route interesting packets based on UDP dst port.  This mode
+        #   Reserves a dedicated hardware queue for each net tile.  Uses
+        #   ethtool 'ntuple' rules to route interesting packets based on
+        #   UDP dst port.  Packets are load balanced across the dedicated
+        #   queues based on lowest bits of source address.  This mode
         #   may not work with some network device setups.
         #
         # "auto" (default)
